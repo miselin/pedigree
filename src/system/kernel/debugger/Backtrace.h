@@ -20,8 +20,7 @@
 #ifndef BACKTRACE_H
 #define BACKTRACE_H
 
-#include <processor/Processor.h>
-#include <processor/StackFrame.h>
+#include <processor/state.h>
 #include <utilities/StaticString.h>
 
 /** @addtogroup kerneldebugger

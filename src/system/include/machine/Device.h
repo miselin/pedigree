@@ -23,11 +23,11 @@
 #include <utilities/String.h>
 #include <utilities/Vector.h>
 #include <processor/types.h>
-#include <processor/IoBase.h>
-#include <Log.h>
 #ifdef OPENFIRMWARE
 #include <machine/openfirmware/OpenFirmware.h>
 #endif
+
+class IoBase;
 
 /**
  * Represents a node in the device tree. This could either be a bus (non-leaf node) or a

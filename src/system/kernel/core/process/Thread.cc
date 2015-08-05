@@ -20,12 +20,11 @@
 #ifdef THREADS
 
 #include <process/Thread.h>
+#include <process/Process.h>
 #include <process/Scheduler.h>
 #include <process/SchedulingAlgorithm.h>
 #include <process/ProcessorThreadAllocator.h>
 #include <processor/Processor.h>
-#include <processor/StackFrame.h>
-#include <machine/Machine.h>
 #include <Log.h>
 
 #include <machine/InputManager.h>
@@ -296,6 +295,47 @@ void Thread::shutdown()
     m_Status = AwaitingJoin;
   }
   m_ConcurrencyLock.release();
+}
+
+SchedulerState &Thread::pushState()
+{
+    if ((m_nStateLevel + 1) >= MAX_NESTED_EVENTS)
+    {
+        ERROR("Thread: Max nested events!");
+        /// \todo Take some action here - possibly kill the thread?
+        return m_StateLevels[MAX_NESTED_EVENTS - 1].m_State;
+    }
+    m_nStateLevel++;
+    // NOTICE("New state level: " << m_nStateLevel << "...");
+    m_StateLevels[m_nStateLevel].m_InhibitMask = m_StateLevels[m_nStateLevel - 1].m_InhibitMask;
+    allocateStackAtLevel(m_nStateLevel);
+
+    setKernelStack();
+
+    return m_StateLevels[m_nStateLevel - 1].m_State;
+}
+
+void Thread::popState()
+{
+    if (m_nStateLevel == 0)
+    {
+        ERROR("Thread: Potential error: popStack() called with state level 0!");
+        ERROR("Thread: (ignore this if longjmp has been called)");
+        return;
+    }
+    m_nStateLevel --;
+
+    setKernelStack();
+}
+
+void Thread::pokeState(size_t stateLevel, SchedulerState &state)
+{
+    if (stateLevel >= MAX_NESTED_EVENTS)
+    {
+        ERROR("Thread::pokeState(): stateLevel `" << stateLevel << "' is over the maximum.");
+        return;
+    }
+    m_StateLevels[stateLevel].m_State = state;
 }
 
 void Thread::setStatus(Thread::Status s)

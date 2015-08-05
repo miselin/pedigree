@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,7 +21,9 @@
 #define MIPS_DISASSEMBLER_H
 
 #include <processor/Disassembler.h>
-#include <udis86.h>
+#include <processor/types.h>
+#include <utilities/StaticString.h>
+#include "types.h"
 
 /**
  * A disassembler for R3000-R6000 MIPS32/64 processors.

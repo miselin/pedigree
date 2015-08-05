@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,8 +21,9 @@
 #define _MACHINE_DEVICE_HASH_TREE_H
 
 #include <utilities/Tree.h>
-#include <utilities/String.h>
+
 class Device;
+class String;
 
 /**
  * DeviceHashTree: Name-based device access

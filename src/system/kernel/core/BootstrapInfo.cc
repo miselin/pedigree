@@ -19,7 +19,6 @@
 
 #include <compiler.h>
 #include <processor/types.h>
-#include <utilities/String.h>
 
 #include <BootstrapInfo.h>
 

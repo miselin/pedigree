@@ -39,17 +39,16 @@
 #include <IoCommand.h>
 #include <ThreadsCommand.h>
 #include <DevicesCommand.h>
-#include <LookupCommand.h>
 #include <SyscallTracerCommand.h>
 #include <LookupCommand.h>
 #include <HelpCommand.h>
 #include <LocksCommand.h>
 #include <MappingCommand.h>
-#include <process/Thread.h>
-#include <process/initialiseMultitasking.h>
 #include <machine/Machine.h>
-#include <process/Scheduler.h>
 #include <graphics/GraphicsService.h>
+#include <processor/InterruptManager.h>
+#include <ServiceManager.h>
+#include <machine/Display.h>
 
 Debugger Debugger::m_Instance;
 

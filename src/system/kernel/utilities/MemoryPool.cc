@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
 #include <utilities/MemoryPool.h>
 #include <processor/VirtualAddressSpace.h>
 #include <LockGuard.h>

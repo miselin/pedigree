@@ -21,7 +21,6 @@
 #include <utilities/TimeoutGuard.h>
 #ifdef THREADS
 #include <process/Thread.h>
-#include <process/PerProcessorScheduler.h>
 #endif
 #include <processor/Processor.h>
 #include <machine/Timer.h>

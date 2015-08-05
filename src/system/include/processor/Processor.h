@@ -21,16 +21,15 @@
 #define KERNEL_PROCESSOR_PROCESSOR_H
 
 #include <compiler.h>
-#include <BootstrapInfo.h>
-#include <utilities/Vector.h>
 #include <utilities/StaticString.h>
 #include <processor/types.h>
 #include <processor/state.h>
-#include <processor/VirtualAddressSpace.h>
 #include <processor/ProcessorInformation.h>
 
 /** @addtogroup kernelprocessor
  * @{ */
+
+struct BootstrapStruct_t;
 
 namespace DebugFlags
 {

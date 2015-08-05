@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,11 +20,9 @@
 #ifndef _PROCESSOR_THREAD_ALLOCATOR_H
 #define _PROCESSOR_THREAD_ALLOCATOR_H
 
-#include <process/ThreadToCoreAllocationAlgorithm.h>
-#include <process/PerProcessorScheduler.h>
 #include <process/Thread.h>
 
-#include <processor/types.h>
+class ThreadToCoreAllocationAlgorithm;
 
 class ProcessorThreadAllocator
 {

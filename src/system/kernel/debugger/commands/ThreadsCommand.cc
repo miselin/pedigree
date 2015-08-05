@@ -20,14 +20,11 @@
 #if defined(THREADS)
 
 #include "ThreadsCommand.h"
-#include <Log.h>
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
 #include <process/Scheduler.h>
 #include <process/Process.h>
 #include <linker/KernelElf.h>
 #include <utilities/demangle.h>
-#include <process/initialiseMultitasking.h>
 #include <processor/Processor.h>
 
 ThreadsCommand::ThreadsCommand()

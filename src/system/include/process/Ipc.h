@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,8 +21,6 @@
 #define _PROCESS_IPC_H
 
 #include <processor/types.h>
-#include <processor/Processor.h>
-#include <processor/MemoryRegion.h>
 
 #include <process/Semaphore.h>
 #include <process/Mutex.h>

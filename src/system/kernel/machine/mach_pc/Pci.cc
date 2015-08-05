@@ -19,9 +19,7 @@
 
 #include <Log.h>
 #include <processor/types.h>
-#include <machine/Machine.h>
 #include <machine/Device.h>
-#include <machine/Bus.h>
 #include <processor/IoPort.h>
 #include <utilities/utility.h>
 #include <machine/Pci.h>

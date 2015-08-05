@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,10 +18,9 @@
  */
 
 #include <LocalIO.h>
-#include <Log.h>
-#include <DebuggerCommand.h>
-#include <utilities/utility.h>
-#include <machine/Machine.h>
+
+#include <machine/Keyboard.h>
+#include <machine/Vga.h>
 
 LocalIO::LocalIO(Vga *pVga, Keyboard *pKeyboard) :
   m_nWidth(80),

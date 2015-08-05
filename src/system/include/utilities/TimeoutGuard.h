@@ -27,9 +27,9 @@
           a given amount of time. */
 
 #include <processor/types.h>
+#include <processor/state.h>
 #include <process/Event.h>
 #include <process/eventNumbers.h>
-#include <process/PerProcessorScheduler.h>
 #include <Spinlock.h>
 
 /** This class waits (in the background) for a given amount of time to elapse,

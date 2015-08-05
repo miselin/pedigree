@@ -18,14 +18,10 @@
  */
 
 #include "SlamCommand.h"
-#include <Log.h>
 #include <utilities/utility.h>
 #include <DebuggerIO.h>
-#include <process/Scheduler.h>
-#include <process/Process.h>
 #include <linker/KernelElf.h>
 #include <utilities/demangle.h>
-#include <processor/Processor.h>
 #include <machine/Machine.h>
 
 SlamCommand g_SlamCommand;

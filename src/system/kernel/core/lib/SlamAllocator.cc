@@ -21,10 +21,8 @@
 
 #ifndef BENCHMARK
 #include <utilities/assert.h>
-#include <utilities/MemoryTracing.h>
 #include <LockGuard.h>
 
-#include <machine/Machine.h>
 #include <processor/Processor.h>
 #include <processor/VirtualAddressSpace.h>
 #include <processor/PhysicalMemoryManager.h>

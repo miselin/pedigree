@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,11 +19,7 @@
 
 #include <Backtracer.h>
 #include <Backtrace.h>
-#include <DebuggerIO.h>
-#include <utilities/utility.h>
 #include <utilities/StaticString.h>
-
-#include <DwarfUnwinder.h>
 
 Backtracer::Backtracer()
 {

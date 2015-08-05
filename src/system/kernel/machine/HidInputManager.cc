@@ -23,7 +23,6 @@
 #include <machine/Machine.h>
 #include <machine/Timer.h>
 #include <LockGuard.h>
-#include <Log.h>
 
 HidInputManager HidInputManager::m_Instance;
 

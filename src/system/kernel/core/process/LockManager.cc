@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,7 +18,6 @@
  */
 
 #include <process/LockManager.h>
-#include <processor/Processor.h>
 #include <Log.h>
 
 LockManager::LockManager() :

@@ -18,12 +18,9 @@
  */
 
 #include "DevicesCommand.h"
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
-#include <processor/Processor.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <linker/KernelElf.h>
+#include <machine/Device.h>
+#include <utilities/String.h>
 
 DevicesCommand::DevicesCommand()
   : DebuggerCommand()

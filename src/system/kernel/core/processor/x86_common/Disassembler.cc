@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,6 +18,7 @@
  */
 
 #include "Disassembler.h"
+#include <udis86.h>
 
 X86Disassembler::X86Disassembler()
   : m_Location(0), m_Mode(32), m_Obj()

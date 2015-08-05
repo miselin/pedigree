@@ -20,7 +20,6 @@
 #include <utilities/utility.h>
 #include <processor/VirtualAddressSpace.h>
 #include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
 #include <Log.h>
 
 void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)

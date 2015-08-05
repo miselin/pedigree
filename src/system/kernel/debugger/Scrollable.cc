@@ -18,7 +18,6 @@
  */
 
 #include "Scrollable.h"
-#include <Log.h>
 
 void Scrollable::move(size_t x, size_t y)
 {

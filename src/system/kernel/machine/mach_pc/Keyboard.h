@@ -21,10 +21,8 @@
 #define MACHINE_X86_KEYBOARD_H
 
 #include <machine/Keyboard.h>
-#include <machine/IrqManager.h>
 #include <machine/KeymapManager.h>
 #include <processor/types.h>
-#include <processor/IoPort.h>
 #include <process/Semaphore.h>
 
 #define BUFLEN 256

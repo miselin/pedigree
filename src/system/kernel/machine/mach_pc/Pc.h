@@ -21,16 +21,18 @@
 #define KERNEL_MACHINE_X86_COMMON_PC_H
 
 #include <machine/Machine.h>
-#include "Pic.h"
-#include "Rtc.h"
-#include "Pit.h"
 #include "Serial.h"
 #include "Vga.h"
-#include "Keyboard.h"
 #if defined(SMBIOS)
   #include "SMBios.h"
 #endif
-#include "LocalApic.h"
+
+class IrqManager;
+class Keyboard;
+class SchedulerTimer;
+class Serial;
+class Timer;
+class Vga;
 
 /**
  * Concretion of the abstract Machine class for x86 and x64 machines

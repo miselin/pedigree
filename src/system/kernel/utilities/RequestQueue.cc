@@ -20,10 +20,9 @@
 #include <utilities/RequestQueue.h>
 #include <processor/Processor.h>
 #include <process/Scheduler.h>
-#include <panic.h>
 #include <Log.h>
 
-#include <utilities/assert.h>
+#include <LockGuard.h>
 
 RequestQueue::RequestQueue() :
   m_Stop(false), m_RequestQueueMutex(false)

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,9 @@
 #ifndef LOCK_MANAGER_H
 #define LOCK_MANAGER_H
 
-#include <process/Semaphore.h>
 #include <utilities/Vector.h>
+
+class Semaphore;
 
 /**
  * A class for managing locks. It is only used if ENFORCE_LOCK_ORDERING is defined,

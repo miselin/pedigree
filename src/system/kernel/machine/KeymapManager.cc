@@ -20,9 +20,10 @@
 #include <machine/KeymapManager.h>
 #include <machine/HidInputManager.h>
 #include <machine/Keyboard.h>
-#include <Log.h>
 
 #include <machine/keymaps/KeymapEnUs.h>
+
+#include <Spinlock.h>
 
 // #define DEBUG_KEYMAP
 

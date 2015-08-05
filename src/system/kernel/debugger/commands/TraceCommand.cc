@@ -18,15 +18,11 @@
  */
 
 #include "TraceCommand.h"
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
 #include <processor/Processor.h>
-#include <udis86.h>
-#include <Log.h>
 #include <utilities/demangle.h>
-#include <machine/Machine.h>
-#include <processor/Disassembler.h>
 #include <linker/KernelElf.h>
+#include <processor/Disassembler.h>
 
 TraceCommand::TraceCommand()
   : DebuggerCommand(),

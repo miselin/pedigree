@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <panic.h>
 #include <LockGuard.h>
 #include <utilities/StaticString.h>
 #include "InterruptManager.h"

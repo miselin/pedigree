@@ -20,9 +20,9 @@
 #ifndef MACHINE_KEYMAP_MANAGER_H
 #define MACHINE_KEYMAP_MANAGER_H
 
-#include <processor/Processor.h>
 #include <processor/types.h>
 #include <utilities/Tree.h>
+#include <Spinlock.h>
 
 /**
  * Global manager for keymaps

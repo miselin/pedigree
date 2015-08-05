@@ -19,11 +19,8 @@
 
 #include <BootstrapInfo.h>
 #include <Log.h>
-#include <panic.h>
 #include <machine/Timer.h>
 #include <machine/Machine.h>
-#include <utilities/utility.h>
-#include <processor/Processor.h>
 #include <LockGuard.h>
 #include <time/Time.h>
 
