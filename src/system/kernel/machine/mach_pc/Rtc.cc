@@ -19,7 +19,6 @@
 
 #include <compiler.h>
 #include <machine/Machine.h>
-#include <process/Event.h>
 #include <process/Thread.h>
 #include "Rtc.h"
 

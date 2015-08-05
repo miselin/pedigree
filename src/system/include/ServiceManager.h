@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,11 +20,11 @@
 #ifndef SERVICE_MANAGER_H
 #define SERVICE_MANAGER_H
 
-#include <processor/types.h>
 #include <utilities/RadixTree.h>
 
-#include <Service.h>
-#include <ServiceFeatures.h>
+class Service;
+class ServiceFeatures;
+class String;
 
 /// \todo Integrate with the Event system somehow
 

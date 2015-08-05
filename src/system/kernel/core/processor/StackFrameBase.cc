@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,8 +19,6 @@
 
 #if defined(DEBUGGER)
 
-#include <Log.h>
-#include <utilities/utility.h>
 #include <processor/StackFrameBase.h>
 
 StackFrameBase::StackFrameBase(const ProcessorState &State, uintptr_t basePointer,

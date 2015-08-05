@@ -20,6 +20,7 @@
 #include <machine/Machine.h>
 #include <machine/HidInputManager.h>
 #include <machine/KeymapManager.h>
+#include <processor/IoBase.h>
 #include <machine/Device.h>
 #include "Keyboard.h"
 

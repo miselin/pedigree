@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,6 @@
 #ifndef KERNEL_PROCESSOR_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_PHYSICALMEMORYMANAGER_H
 
-#include <compiler.h>
 #include <utilities/Vector.h>
 #include <processor/types.h>
 

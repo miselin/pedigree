@@ -20,6 +20,8 @@
 #include <compiler.h>
 #include <LockGuard.h>
 #include <processor/Processor.h>
+#include <process/Process.h>
+
 #include "SyscallManager.h"
 
 X64SyscallManager X64SyscallManager::m_Instance;

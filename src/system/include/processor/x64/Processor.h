@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,7 +19,5 @@
 
 #ifndef KERNEL_PROCESSOR_X64_PROCESSOR_H
 #define KERNEL_PROCESSOR_X64_PROCESSOR_H
-
-#include <Log.h>
 
 #endif

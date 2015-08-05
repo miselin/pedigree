@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,11 +19,10 @@
 
 #include "LocksCommand.h"
 #include <utilities/utility.h>
-#include <processor/Processor.h>
 #include <linker/KernelElf.h>
 #include <utilities/demangle.h>
-#include <processor/Processor.h>
 #include <Backtrace.h>
+#include <Spinlock.h>
 
 LocksCommand g_LocksCommand;
 extern Spinlock g_MallocLock;

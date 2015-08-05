@@ -18,10 +18,10 @@
  */
 
 #include <Backtrace.h>
-#include <utilities/utility.h>
 #include <Log.h>
 #include <DwarfUnwinder.h>
 #include <linker/KernelElf.h>
+#include <processor/StackFrame.h>
 
 extern uintptr_t start;
 

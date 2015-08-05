@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,8 +22,7 @@
 #include <process/PerProcessorScheduler.h>
 #include <process/Scheduler.h>
 #include <process/Thread.h>
-
-#include <processor/Processor.h>
+#include <process/ThreadToCoreAllocationAlgorithm.h>
 
 ProcessorThreadAllocator ProcessorThreadAllocator::m_Instance;
 

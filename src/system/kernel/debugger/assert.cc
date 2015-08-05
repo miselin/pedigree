@@ -17,23 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Debugger.h>
-
-#include <DebuggerIO.h>
-#include <LocalIO.h>
-#include <SerialIO.h>
-
-#include <utilities/StaticString.h>
-
 #include <processor/Processor.h>
-#include <machine/Machine.h>
 
 #include <Log.h>
-#include <utilities/utility.h>
 
 #include <panic.h>
-
-#include <utilities/assert.h>
 
 void _assert(bool b, const char *file, int line, const char *func)
 {

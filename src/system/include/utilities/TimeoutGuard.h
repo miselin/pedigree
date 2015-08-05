@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,9 +27,9 @@
           a given amount of time. */
 
 #include <processor/types.h>
+#include <processor/state.h>
 #include <process/Event.h>
 #include <process/eventNumbers.h>
-#include <process/PerProcessorScheduler.h>
 #include <Spinlock.h>
 
 /** This class waits (in the background) for a given amount of time to elapse,

@@ -18,6 +18,7 @@
  */
 
 #include <utilities/RadixTree.h>
+#include <Log.h>
 
 //
 // RadixTree<void*> implementation.

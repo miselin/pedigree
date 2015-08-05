@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,7 +21,8 @@
 #define BOOTIO_H
 
 #include <utilities/StaticString.h>
-#include <machine/Serial.h>
+
+class Serial;
 
 /**
  * A class which provides *extremely* simple output to both the Vga class and Serial classes,

@@ -24,8 +24,7 @@
 #include <utilities/String.h>
 #include <utilities/Iterator.h>
 #include <utilities/IteratorAdapter.h>
-#include <Log.h>
-#include <processor/Processor.h>
+#include <utilities/Vector.h>
 
 /**\file  RadixTree.h
  *\author James Molloy <jamesm@osdev.org>

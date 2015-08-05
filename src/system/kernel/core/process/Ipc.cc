@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,12 +21,12 @@
 
 #include <utilities/RadixTree.h>
 
-#include <process/Scheduler.h>
-
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/VirtualAddressSpace.h>
 
 #include <utilities/MemoryPool.h>
+
+#include <LockGuard.h>
 
 using namespace Ipc;
 

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,6 @@
 #if defined(THREADS)
 #include <process/RoundRobin.h>
 #include <process/Thread.h>
-#include <processor/Processor.h>
-#include <Log.h>
 #include <LockGuard.h>
 #include <utilities/assert.h>
 

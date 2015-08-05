@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,16 +21,15 @@
 #define MACHINE_NETWORK_H
 
 #include <processor/types.h>
-#include <processor/state.h>
 #include <machine/Device.h>
-#include <utilities/utility.h>
 
 #include "../../kernel/core/BootIO.h"
 extern BootIO bootIO;
 
 #include <network/IpAddress.h>
 #include <network/MacAddress.h>
-#include <network/NetworkBlockTimeout.h>
+
+#include <Log.h>
 
 /** Station information - basically information about this station, per NIC */
 class StationInfo

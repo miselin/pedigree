@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,10 +20,10 @@
 #ifndef DEBUGGER_H
 #define DEBUGGER_H
 
-#include <processor/Processor.h>
 #include <processor/state.h>
-#include <processor/InterruptManager.h>
-#include <LocalIO.h>
+#include <processor/InterruptHandler.h>
+#include <processor/types.h>
+#include <utilities/StaticString.h>
 
 /** @addtogroup kerneldebugger
  * @{ */

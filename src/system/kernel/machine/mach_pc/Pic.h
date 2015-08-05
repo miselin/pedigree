@@ -21,7 +21,7 @@
 #define KERNEL_MACHINE_X86_COMMON_PIC_H
 
 #include <processor/IoPort.h>
-#include <processor/InterruptManager.h>
+#include <processor/InterruptHandler.h>
 #include <machine/IrqManager.h>
 #include <utilities/List.h>
 

@@ -19,7 +19,6 @@
 
 #include "DumpCommand.h"
 #include <utilities/utility.h>
-#include <processor/Processor.h>
 
 DumpCommand::DumpCommand()
  : DebuggerCommand()

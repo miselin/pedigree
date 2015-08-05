@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,6 +19,10 @@
 
 #include <graphics/GraphicsService.h>
 #include <processor/types.h>
+#include <machine/Display.h>
+#include <utilities/utility.h>
+#include <utilities/String.h>
+#include <Log.h>
 
 bool GraphicsService::serve(ServiceFeatures::Type type, void *pData, size_t dataLen)
 {

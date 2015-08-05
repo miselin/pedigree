@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,10 +24,9 @@
  * @{ */
 
 #include <DebuggerIO.h>
-#include <machine/Vga.h>
-#include <machine/Keyboard.h>
 
-class DebuggerCommand;
+class Keyboard;
+class Vga;
 
 #ifdef PPC_COMMON
 #define MAX_CONSOLE_WIDTH 128

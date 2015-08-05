@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,10 +20,9 @@
 #ifndef MACHINE_HID_INPUT_MANAGER_H
 #define MACHINE_HID_INPUT_MANAGER_H
 
-#include <processor/Processor.h>
 #include <processor/types.h>
+#include <machine/TimerHandler.h>
 #include <utilities/Tree.h>
-#include <machine/Timer.h>
 #include <Spinlock.h>
 
 /**

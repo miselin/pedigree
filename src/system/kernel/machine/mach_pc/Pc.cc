@@ -31,9 +31,12 @@
 #endif
 #include <machine/Device.h>
 #include <machine/Bus.h>
-#include <machine/Disk.h>
 #include <machine/Controller.h>
 #include <machine/Pci.h>
+#include "Pic.h"
+#include "Rtc.h"
+#include "Pit.h"
+#include "Keyboard.h"
 
 Pc Pc::m_Instance;
 

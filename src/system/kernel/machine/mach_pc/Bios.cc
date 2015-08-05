@@ -21,6 +21,7 @@
 #include <processor/Processor.h>
 #include <utilities/StaticString.h>
 #include <processor/VirtualAddressSpace.h>
+#include <Log.h>
 
 #include "../../core/BootIO.h"
 #include "x86emu/x86emu.h"

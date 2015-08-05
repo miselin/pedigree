@@ -20,7 +20,6 @@
 #ifndef MACHINE_X86_SERIAL_H
 #define MACHINE_X86_SERIAL_H
 
-#include <compiler.h>
 #include <processor/types.h>
 #include <processor/IoPort.h>
 #include <machine/Serial.h>

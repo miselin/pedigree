@@ -21,7 +21,6 @@
 #include <processor/VirtualAddressSpace.h>
 #include <utilities/Cache.h>
 #include <utilities/assert.h>
-#include <utilities/utility.h>
 #include <machine/Timer.h>
 #include <machine/Machine.h>
 

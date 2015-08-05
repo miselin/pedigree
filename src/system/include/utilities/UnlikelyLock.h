@@ -20,8 +20,6 @@
 #ifndef UNLIKELY_LOCK_H
 #define UNLIKELY_LOCK_H
 
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
 #include <process/Semaphore.h>
 
 /** \file UnlikelyLock.h

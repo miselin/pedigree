@@ -21,7 +21,6 @@
 #define KERNEL_PROCESSOR_X86_COMMON_PHYSICALMEMORYMANAGER_H
 
 #include <compiler.h>
-#include <BootstrapInfo.h>
 #include <utilities/RangeList.h>
 #include <utilities/HashTable.h>
 #include <processor/PhysicalMemoryManager.h>

@@ -17,21 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <BootstrapInfo.h>
 #include <Log.h>
 #include <panic.h>
-#include <utilities/assert.h>
 #include <utilities/utility.h>
 #include <processor/MemoryRegion.h>
 #include <processor/Processor.h>
 #include "PhysicalMemoryManager.h"
 #include <LockGuard.h>
-#include <utilities/Cache.h>
 
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
 #elif defined(X64)
 #include "../x64/VirtualAddressSpace.h"
-#include "../x64/utils.h"
 #endif
 
 #if defined(X86) && defined(DEBUGGER)
@@ -46,7 +44,6 @@ uint32_t g_PageBitmap[16384] = {0};
 #include <commands/AllocationCommand.h>
 #endif
 
-#include <SlamAllocator.h>
 #include <process/MemoryPressureManager.h>
 
 X86CommonPhysicalMemoryManager X86CommonPhysicalMemoryManager::m_Instance;

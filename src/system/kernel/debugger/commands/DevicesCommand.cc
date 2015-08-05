@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,12 +18,9 @@
  */
 
 #include "DevicesCommand.h"
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
-#include <processor/Processor.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <linker/KernelElf.h>
+#include <machine/Device.h>
+#include <utilities/String.h>
 
 DevicesCommand::DevicesCommand()
   : DebuggerCommand()
