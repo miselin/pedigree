@@ -21,6 +21,7 @@
 #include <processor/types.h>
 #include <processor/Processor.h>
 #include <process/Process.h>
+#include <process/Scheduler.h>
 #include <utilities/Tree.h>
 #include <vfs/File.h>
 #include <vfs/VFS.h>

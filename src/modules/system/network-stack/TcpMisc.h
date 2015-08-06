@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -26,8 +25,6 @@
 #include <process/Mutex.h>
 #include <LockGuard.h>
 #include "Endpoint.h"
-
-#include <Log.h>
 
 /** A TCP "Buffer" (also known as a stream) */
 class TcpBuffer

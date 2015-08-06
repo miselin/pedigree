@@ -53,6 +53,8 @@
 #include <PosixProcess.h>
 
 #include <users/UserManager.h>
+#include <users/User.h>
+#include <users/Group.h>
 #include <console/Console.h>
 
 //

@@ -18,10 +18,8 @@
  */
 
 #include "Tcp.h"
-#include <Module.h>
 #include <Log.h>
 
-#include "Ethernet.h"
 #include "Ipv4.h"
 #include "Ipv6.h"
 
@@ -31,7 +29,6 @@
 
 #include "Filter.h"
 
-#include "Arp.h"
 #include "IpCommon.h"
 
 Tcp Tcp::tcpInstance;

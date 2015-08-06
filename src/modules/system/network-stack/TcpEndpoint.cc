@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "TcpEndpoint.h"
 #include "NetManager.h"
 #include "TcpManager.h"
 #include <Log.h>

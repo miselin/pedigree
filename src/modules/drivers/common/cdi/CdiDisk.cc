@@ -22,8 +22,9 @@
 #include <Log.h>
 #include <ServiceManager.h>
 #include <utilities/assert.h>
-
-#include <vfs/VFS.h>
+#include <ServiceManager.h>
+#include <ServiceFeatures.h>
+#include <Service.h>
 
 // Prototypes in the extern "C" block to ensure that they are not mangled
 extern "C" {

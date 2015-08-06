@@ -21,8 +21,9 @@
 #define RAWFS_FILE_H
 
 #include <vfs/File.h>
-#include <utilities/String.h>
-#include <machine/Disk.h>
+
+class Disk;
+class String;
 
 class RawFsFile : public File
 {

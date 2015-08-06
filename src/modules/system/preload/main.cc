@@ -20,10 +20,8 @@
 #include <Log.h>
 #include <Module.h>
 #include <vfs/VFS.h>
-#include <vfs/Filesystem.h>
+#include <vfs/File.h>
 #include <process/Semaphore.h>
-#include <process/Scheduler.h>
-#include <vfs/MemoryMappedFile.h>
 
 const char *g_FilesToPreload[] = {
     "root»/applications/winman",

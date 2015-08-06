@@ -23,6 +23,7 @@
 #include <machine/Device.h>
 #include <machine/Display.h>
 #include <utilities/List.h>
+#include <utilities/Tree.h>
 #include <utilities/MemoryAllocator.h>
 #include <processor/MemoryMappedIo.h>
 #include <processor/PhysicalMemoryManager.h>

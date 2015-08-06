@@ -23,7 +23,6 @@
 #include <time/Time.h>
 #include <processor/types.h>
 #include <utilities/String.h>
-#include <utilities/RadixTree.h>
 #include "File.h"
 
 /** A symbolic link node. */

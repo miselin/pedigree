@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,8 +18,15 @@
  */
 
 #include "X86IsaDma.h"
+#include <Log.h>
 
 X86IsaDma X86IsaDma::m_Instance;
+
+X86IsaDma::X86IsaDma() : m_Io("isa-dma")
+{
+    if(!m_Io.allocate(0, 0x100))
+        ERROR("X86IsaDma: Couldn't allocate port range");
+};
 
 bool X86IsaDma::initTransfer(uint8_t channel, uint8_t mode, size_t length, uintptr_t addr)
 {

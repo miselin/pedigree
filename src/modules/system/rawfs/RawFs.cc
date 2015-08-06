@@ -20,9 +20,10 @@
 #include "RawFs.h"
 #include "RawFsFile.h"
 #include "RawFsDir.h"
+#include <vfs/VFS.h>
+#include <machine/Device.h>
 
 #include <Module.h>
-#include <processor/Processor.h>
 
 RawFs *g_pRawFs;
 

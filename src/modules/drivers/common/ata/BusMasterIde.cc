@@ -25,6 +25,7 @@
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <LockGuard.h>
+#include <Log.h>
 
 BusMasterIde::BusMasterIde() :
     m_pBase(0), m_PrdTableLock(false), m_PrdTable(0), m_LastPrdTableOffset(0),

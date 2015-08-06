@@ -26,6 +26,7 @@
 #include <processor/Processor.h>
 #include <machine/IrqManager.h>
 #include <process/Scheduler.h>
+#include <LockGuard.h>
 
 // #define NE2K_NO_THREADS
 

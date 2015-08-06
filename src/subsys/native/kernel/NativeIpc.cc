@@ -18,6 +18,7 @@
  */
 
 #include <process/Ipc.h>
+#include <process/Process.h>
 #include <native/ipc/Ipc.h>
 
 #include <utilities/Tree.h>

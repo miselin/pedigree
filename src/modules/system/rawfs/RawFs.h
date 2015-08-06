@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,13 +20,10 @@
 #ifndef RAWFS_H
 #define RAWFS_H
 
-#include <process/Mutex.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
-#include <vfs/Directory.h>
 #include <vfs/Filesystem.h>
-#include <vfs/VFS.h>
+
+class Disk;
+class File;
 
 /** Provides access to Disks without mounting their contained filesystem
     (raw device access). */

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,7 +23,9 @@
 #include "errors.h"
 
 #include <process/Semaphore.h>
+#include <process/Process.h>
 #include <process/Mutex.h>
+#include <Log.h>
 
 int posix_sem_close(sem_t *sem)
 {

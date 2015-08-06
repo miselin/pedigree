@@ -30,6 +30,8 @@
 
 #include <graphics/Graphics.h>
 #include <graphics/GraphicsService.h>
+#include <ServiceManager.h>
+#include <Service.h>
 
 #include <machine/x86_common/Bios.h>
 

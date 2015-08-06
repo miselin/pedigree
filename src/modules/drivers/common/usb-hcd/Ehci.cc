@@ -23,6 +23,7 @@
 #endif
 #include <processor/Processor.h>
 #include <processor/InterruptManager.h>
+#include <processor/IoBase.h>
 #include <usb/Usb.h>
 #include <utilities/assert.h>
 #include <Log.h>

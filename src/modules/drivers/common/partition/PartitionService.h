@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,8 +22,8 @@
 
 #include <processor/types.h>
 
-#include <ServiceManager.h>
-//#include <ServiceFeatures.h>
+#include <Service.h>
+#include <ServiceFeatures.h>
 
 class PartitionService : public Service
 {

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,9 @@
 #include <processor/types.h>
 #include <utilities/Tree.h>
 
-#include "User.h"
-#include "Group.h"
+class Group;
+class String;
+class User;
 
 /** The user manager - this allows lookups of users and groups, and also
     parses the initial file "root:/config/users". */

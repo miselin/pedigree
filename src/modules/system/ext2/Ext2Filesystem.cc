@@ -25,10 +25,13 @@
 #include <Module.h>
 #include <machine/Machine.h>
 #include <machine/Timer.h>
+#include <machine/Disk.h>
 #include <process/Process.h>
 #include <processor/Processor.h>
 #include <syscallError.h>
 #include <users/UserManager.h>
+#include <users/User.h>
+#include <users/Group.h>
 #include <utilities/List.h>
 #include <utilities/StaticString.h>
 #include <utilities/assert.h>

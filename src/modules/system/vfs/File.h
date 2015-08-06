@@ -23,12 +23,13 @@
 #include <time/Time.h>
 #include <processor/types.h>
 #include <utilities/String.h>
-#include <utilities/RadixTree.h>
-#include <process/Thread.h>
-#include <process/Event.h>
 #include <utilities/Cache.h>
 
 #include <processor/PhysicalMemoryManager.h>
+
+class Event;
+class Filesystem;
+class Thread;
 
 #define FILE_UR 0001
 #define FILE_UW 0002
@@ -316,11 +317,7 @@ protected:
      * a way that requires notification from the File subclass when the
      * address returned from readBlock is no longer valid.
      */
-    void evict(uint64_t location)
-    {
-        LockGuard<Mutex> guard(m_Lock);
-        m_DataCache.remove(location);
-    }
+    void evict(uint64_t location);
 
     /** Set permissions without raising fileAttributeChanged. */
     void setPermissionsOnly(uint32_t perms)

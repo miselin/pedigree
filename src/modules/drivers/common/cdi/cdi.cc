@@ -22,6 +22,9 @@
 #include <machine/Pci.h>
 #endif
 
+#include <utilities/StaticString.h>
+#include <Log.h>
+
 static cdi_list_t drivers = NULL;
 static cdi_list_t devices = NULL;
 
