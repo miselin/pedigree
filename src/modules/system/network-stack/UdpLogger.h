@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,10 +22,10 @@
 
 #include <processor/types.h>
 #include <network/IpAddress.h>
-#include "ConnectionlessEndpoint.h"
-#include "NetworkStack.h"
-#include "UdpManager.h"
+#include <network-stack/Endpoint.h>
 #include <Log.h>
+
+class ConnectionlessEndpoint;
 
 /** Defines a UDP-based callback for Log entries. */
 class UdpLogger : public Log::LogCallback

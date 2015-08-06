@@ -17,13 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "VFS.h"
 #include "File.h"
-#include "Symlink.h"
 #include "Filesystem.h"
 #include <processor/Processor.h>
 #include <process/Scheduler.h>
 #include <Log.h>
+#include <LockGuard.h>
 
 void File::writeCallback(Cache::CallbackCause cause, uintptr_t loc, uintptr_t page, void *meta)
 {
@@ -393,3 +392,10 @@ String File::getFullPath(bool bWithLabel)
 
     return String(str);
 }
+
+void File::evict(uint64_t location)
+{
+    LockGuard<Mutex> guard(m_Lock);
+    m_DataCache.remove(location);
+}
+

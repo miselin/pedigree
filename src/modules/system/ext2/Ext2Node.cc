@@ -21,6 +21,7 @@
 #include "Ext2Filesystem.h"
 #include <utilities/assert.h>
 #include <syscallError.h>
+#include <Log.h>
 
 Ext2Node::Ext2Node(uintptr_t inode_num, Inode *pInode, Ext2Filesystem *pFs) :
     m_pInode(pInode), m_InodeNumber(inode_num), m_pExt2Fs(pFs), m_pBlocks(0),

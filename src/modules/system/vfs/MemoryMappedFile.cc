@@ -19,11 +19,16 @@
 
 #include "MemoryMappedFile.h"
 
+#include <processor/Processor.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <process/MemoryPressureManager.h>
-#include <Spinlock.h>
+#include <process/Process.h>
+
+#include <vfs/File.h>
 
 #include <utilities/assert.h>
+#include <LockGuard.h>
+#include <Log.h>
 
 MemoryMapManager MemoryMapManager::m_Instance;
 

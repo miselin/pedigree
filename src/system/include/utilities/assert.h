@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,6 +19,8 @@
 
 #ifndef KERNEL_ASSERT_H
 #define KERNEL_ASSERT_H
+
+#include <processor/types.h>
 
 /** @addtogroup kernel
  * @{ */

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,6 +23,7 @@
 #include <machine/Device.h>
 #include <machine/Display.h>
 #include <utilities/List.h>
+#include <utilities/Tree.h>
 #include <utilities/MemoryAllocator.h>
 #include <processor/MemoryMappedIo.h>
 #include <processor/PhysicalMemoryManager.h>

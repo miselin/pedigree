@@ -17,44 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Group.h"
+#include <processor/PageFaultHandler.h>
 
-Group::Group(size_t gid, String name) :
-  m_Gid(gid), m_Name(name), m_Users()
+void PageFaultHandler::registerHandler(MemoryTrapHandler *pHandler)
 {
-}
-
-Group::~Group()
-{
-}
-
-void Group::join(User *pUser)
-{
-  m_Users.pushBack(pUser);
-}
-
-void Group::leave(User *pUser)
-{
-  for (List<User*>::Iterator it = m_Users.begin();
-       it != m_Users.end();
-       it++)
-  {
-    if (*it == pUser)
-    {
-      m_Users.erase(it);
-      return;
-    }
-  }
-}
-
-bool Group::isMember(User *pUser)
-{
-  for (List<User*>::Iterator it = m_Users.begin();
-       it != m_Users.end();
-       it++)
-  {
-    if (*it == pUser)
-      return true;
-  }
-  return false;
+    m_Handlers.pushBack(pHandler);
 }

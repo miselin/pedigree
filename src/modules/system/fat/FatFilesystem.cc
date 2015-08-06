@@ -20,11 +20,14 @@
 #include <Log.h>
 #include <Module.h>
 #include <processor/Processor.h>
+#include <process/Scheduler.h>
 #include <syscallError.h>
+#include <machine/Disk.h>
 #include <utilities/List.h>
 #include <utilities/StaticString.h>
 #include <utilities/assert.h>
 #include <utilities/utility.h>
+#include <time/Time.h>
 #include <vfs/VFS.h>
 
 #include "fat.h"

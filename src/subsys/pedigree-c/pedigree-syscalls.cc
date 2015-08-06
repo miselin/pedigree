@@ -25,14 +25,22 @@
 #include <vfs/VFS.h>
 #include <Log.h>
 #include <syscallError.h>
+#include <process/Process.h>
 
+#include <machine/Display.h>
+#include <machine/Framebuffer.h>
 #include <machine/InputManager.h>
 #include <machine/KeymapManager.h>
 
 #include <graphics/Graphics.h>
 #include <graphics/GraphicsService.h>
 
+#include <Service.h>
+#include <ServiceManager.h>
+#include <ServiceFeatures.h>
+
 #include <users/UserManager.h>
+#include <users/User.h>
 
 #define PEDIGREEC_WITHIN_KERNEL
 #include "pedigree-syscalls.h"

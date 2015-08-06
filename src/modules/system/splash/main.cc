@@ -20,15 +20,17 @@
 #include <Module.h>
 #include <Log.h>
 
-#include <utilities/assert.h>
 #include <machine/Display.h>
 #include <machine/InputManager.h>
-#include <processor/Processor.h>
 #include <config/Config.h>
 
 #include <LockGuard.h>
 #include <graphics/Graphics.h>
 #include <graphics/GraphicsService.h>
+
+#include <Service.h>
+#include <ServiceManager.h>
+#include <ServiceFeatures.h>
 
 #include <core/BootIO.h> // In src/system/kernel
 

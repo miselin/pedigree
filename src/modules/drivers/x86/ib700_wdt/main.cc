@@ -24,6 +24,8 @@
 #include <machine/Machine.h>
 #include <machine/TimerHandler.h>
 #include <machine/Timer.h>
+#include <processor/IoBase.h>
+#include <Log.h>
 
 enum Ib700TimeEntries
 {

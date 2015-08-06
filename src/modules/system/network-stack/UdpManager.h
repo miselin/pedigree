@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,12 +20,10 @@
 #ifndef MACHINE_UDPMANAGER_H
 #define MACHINE_UDPMANAGER_H
 
-#include <utilities/String.h>
 #include <utilities/Tree.h>
 #include <utilities/List.h>
 #include <process/Semaphore.h>
 #include <process/Mutex.h>
-#include <machine/Network.h>
 #include <utilities/ExtensibleBitmap.h>
 
 #include "Manager.h"
@@ -34,6 +31,8 @@
 #include "ConnectionlessEndpoint.h"
 #include "Endpoint.h"
 #include "Udp.h"
+
+class Network;
 
 /**
  * The Pedigree network stack - UDP Endpoint

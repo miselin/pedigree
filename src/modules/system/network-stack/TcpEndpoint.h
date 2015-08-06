@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,15 +23,15 @@
 #include <processor/types.h>
 #include <utilities/List.h>
 #include <process/Semaphore.h>
-#include <machine/Network.h>
 
 #include <Log.h>
 
 #include "ConnectionBasedEndpoint.h"
 #include "Endpoint.h"
 #include "TcpMisc.h"
-class TcpManager;
-class StateBlock;
+#include "Tcp.h"
+
+class Network;
 
 /**
  * The Pedigree network stack - TCP Endpoint

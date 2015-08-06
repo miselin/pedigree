@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,7 +21,6 @@
 #define USBHUB_H
 
 #include <machine/Device.h>
-#include <process/Mutex.h>
 #include <process/Semaphore.h>
 #include <processor/types.h>
 #include <utilities/ExtensibleBitmap.h>

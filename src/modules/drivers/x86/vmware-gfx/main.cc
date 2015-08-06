@@ -34,6 +34,8 @@
 #include <machine/Framebuffer.h>
 #include <graphics/Graphics.h>
 #include <graphics/GraphicsService.h>
+#include <ServiceManager.h>
+#include <Service.h>
 
 #include "vm_device_version.h"
 #include "svga_reg.h"

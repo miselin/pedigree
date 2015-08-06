@@ -25,25 +25,19 @@
  *\date   Sun May 17 10:00:00 2009
  *\brief  An in-RAM filesystem. */
 
-#include <vfs/VFS.h>
+#include <vfs/File.h>
 #include <vfs/Directory.h>
+#include <vfs/Filesystem.h>
 #include <processor/types.h>
-#include <machine/Disk.h>
 
 #include <utilities/Cache.h>
+
+class Disk;
 
 class RamFile : public File
 {
     public:
-        RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent) :
-            File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_FileBlocks(),
-            m_nOwnerPid(0)
-        {
-            // Full permissions.
-            setPermissions(0777);
-
-            m_nOwnerPid = Processor::information().getCurrentThread()->getParent()->getId();
-        }
+        RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
 
         virtual ~RamFile()
         {

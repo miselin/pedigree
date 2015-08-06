@@ -53,6 +53,39 @@ RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 
 ProcessGroupManager ProcessGroupManager::m_Instance;
 
+ProcessGroupManager::ProcessGroupManager() : m_GroupIds()
+{
+    m_GroupIds.set(0);
+}
+
+ProcessGroupManager::~ProcessGroupManager()
+{
+}
+
+size_t ProcessGroupManager::allocateGroupId()
+{
+    size_t bit = m_GroupIds.getFirstClear();
+    m_GroupIds.set(bit);
+    return bit;
+}
+
+void ProcessGroupManager::setGroupId(size_t gid)
+{
+    if(m_GroupIds.test(gid))
+        WARNING("ProcessGroupManager: setGroupId called on a group ID that existed already!");
+    m_GroupIds.set(gid);
+}
+
+bool ProcessGroupManager::isGroupIdValid(size_t gid)
+{
+    return m_GroupIds.test(gid);
+}
+
+void ProcessGroupManager::returnGroupId(size_t gid)
+{
+    m_GroupIds.clear(gid);
+}
+
 /// Default constructor
 FileDescriptor::FileDescriptor() :
     file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0),

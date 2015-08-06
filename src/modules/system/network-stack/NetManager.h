@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,6 +22,7 @@
 
 #include <vfs/VFS.h>
 #include <vfs/Filesystem.h>
+#include <vfs/File.h>
 #include <utilities/RequestQueue.h>
 #include <utilities/Vector.h>
 #include <process/Scheduler.h>

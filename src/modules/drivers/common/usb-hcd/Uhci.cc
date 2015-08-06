@@ -22,8 +22,10 @@
 #include <machine/Machine.h>
 #include <machine/Pci.h>
 #include <processor/Processor.h>
+#include <processor/IoBase.h>
 #include <usb/Usb.h>
 #include <Log.h>
+#include <LockGuard.h>
 #include "Uhci.h"
 
 #define delay(n) do{Semaphore semWAIT(0);semWAIT.acquire(1, 0, n*1000);}while(0)

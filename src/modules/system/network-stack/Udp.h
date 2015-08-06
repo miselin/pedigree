@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,13 +20,11 @@
 #ifndef MACHINE_UDP_H
 #define MACHINE_UDP_H
 
-#include <utilities/String.h>
-#include <utilities/Vector.h>
 #include <processor/types.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
+#include <network/IpAddress.h>
 
-#include "IpCommon.h"
+class Network;
+class IpBase;
 
 /**
  * The Pedigree network stack - UDP layer
