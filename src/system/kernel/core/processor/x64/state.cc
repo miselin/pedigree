@@ -18,6 +18,7 @@
  */
 
 #include <processor/state.h>
+#include <processor/types.h>
 #include <Log.h>
 
 const char *X64InterruptStateRegisterName[18] =
