@@ -214,7 +214,7 @@ class X64SyscallState
      *\return the syscall function number */
     inline size_t getSyscallNumber() const;
     /** Get the n'th parameter for this syscall. */
-    inline uintptr_t getSyscallParameter(size_t n) const;
+    uintptr_t getSyscallParameter(size_t n) const;
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
