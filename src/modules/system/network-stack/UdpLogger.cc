@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,9 +19,9 @@
 
 #include "UdpLogger.h"
 #include <network/IpAddress.h>
-#include "NetworkStack.h"
 #include "UdpManager.h"
-#include "RoutingTable.h"
+
+#include <network-stack/ConnectionlessEndpoint.h>
 
 UdpLogger::~UdpLogger()
 {

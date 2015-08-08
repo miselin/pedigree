@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,11 +21,6 @@
 #define NETWORK_BLOCK_TIMEOUT_H
 
 #include <processor/types.h>
-
-#define MACHINE_FORWARD_DECL_ONLY
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#undef MACHINE_FORWARD_DECL_ONLY
 
 #include <process/Semaphore.h>
 #include <Log.h>

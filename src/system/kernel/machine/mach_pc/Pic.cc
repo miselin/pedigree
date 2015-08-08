@@ -19,9 +19,9 @@
 
 #include <compiler.h>
 #include <Log.h>
-#include <Debugger.h>
 #include "Pic.h"
 #include <LockGuard.h>
+#include <processor/InterruptManager.h>
 
 // TODO: Needs locking
 

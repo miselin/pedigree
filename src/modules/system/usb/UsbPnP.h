@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,11 @@
 #ifndef USBPNP_H
 #define USBPNP_H
 
-#include <usb/UsbDevice.h>
+#include <processor/types.h>
+#include <utilities/List.h>
+
+class Device;
+class UsbDevice;
 
 enum UsbPnPConstants
 {

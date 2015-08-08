@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,8 +22,9 @@
 #include <Log.h>
 #include <ServiceManager.h>
 #include <utilities/assert.h>
-
-#include <vfs/VFS.h>
+#include <ServiceManager.h>
+#include <ServiceFeatures.h>
+#include <Service.h>
 
 // Prototypes in the extern "C" block to ensure that they are not mangled
 extern "C" {

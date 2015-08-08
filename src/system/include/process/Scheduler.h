@@ -22,15 +22,15 @@
 
 #ifdef THREADS
 
-#include <process/PerProcessorScheduler.h>
 #include <processor/types.h>
-#include <processor/state.h>
-#include <machine/TimerHandler.h>
-#include <process/Mutex.h>
-#include <process/Process.h>
 #include <Atomic.h>
 
+#include <utilities/List.h>
+#include <utilities/Tree.h>
+
+class PerProcessorScheduler;
 class Thread;
+class Process;
 class Processor;
 
 /** \brief This class manages how processes and threads are scheduled across processors.

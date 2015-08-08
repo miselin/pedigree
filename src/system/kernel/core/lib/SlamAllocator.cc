@@ -20,17 +20,12 @@
 #include "SlamAllocator.h"
 
 #include <utilities/assert.h>
-#include <utilities/MemoryTracing.h>
 #include <LockGuard.h>
 
-#include <machine/Machine.h>
 #include <processor/Processor.h>
 #include <processor/VirtualAddressSpace.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <panic.h>
-
-#include <Backtrace.h>
-#include <SlamCommand.h>
 
 #define TEMP_MAGIC 0x67845753
 

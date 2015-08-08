@@ -26,6 +26,7 @@
 #include <processor/Processor.h>
 #include <utilities/StaticString.h>
 #include <syscallError.h>
+#include <machine/Disk.h>
 
 #include <utilities/assert.h>
 #include <utilities/PointerGuard.h>

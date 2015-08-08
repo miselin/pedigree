@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,6 +21,7 @@
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 
 #include <processor/InterruptManager.h>
+#include <utilities/List.h>
 
 /** @addtogroup kernelprocessor
  * @{ */
@@ -52,8 +52,7 @@ public:
     bool initialise();
 
     /** Registers a trap handler. */
-    void registerHandler(MemoryTrapHandler *pHandler)
-      {m_Handlers.pushBack(pHandler);}
+    void registerHandler(MemoryTrapHandler *pHandler);
 
     //
     // InterruptHandler interface.

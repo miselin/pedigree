@@ -18,10 +18,12 @@
  */
 
 #include <process/Scheduler.h>
+#include <process/Process.h>
 #include <pthread-syscalls.h>
 #include <syscallError.h>
 #include "errors.h"
 #include "PosixSubsystem.h"
+#include <Log.h>
 
 extern "C"
 {

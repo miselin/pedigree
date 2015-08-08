@@ -20,6 +20,7 @@
 #include "Console.h"
 #include <panic.h>
 #include <utilities/assert.h>
+#include <LockGuard.h>
 
 UserConsole::UserConsole() :
     RequestQueue(), m_pReq(0), m_pPendingReq(0)

@@ -22,12 +22,18 @@
 #define MACHINE_FORWARD_DECL_ONLY
 #include <machine/Machine.h>
 #include <machine/Vga.h>
+#include <machine/Display.h>
 
 #include <console/Console.h>
 #include <utilities/assert.h>
 
+#include <machine/Framebuffer.h>
 #include <graphics/Graphics.h>
 #include <graphics/GraphicsService.h>
+
+#include <Service.h>
+#include <ServiceManager.h>
+#include <ServiceFeatures.h>
 
 #include <utilities/utility.h>
 

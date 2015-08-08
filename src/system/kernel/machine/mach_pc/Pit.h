@@ -21,7 +21,6 @@
 #define KERNEL_MACHINE_X86_COMMON_PIT_H
 
 #include <processor/IoPort.h>
-#include <machine/IrqManager.h>
 #include <machine/SchedulerTimer.h>
 #include <processor/state.h>
 

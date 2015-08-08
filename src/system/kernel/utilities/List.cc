@@ -19,7 +19,6 @@
 
 #include <utilities/List.h>
 #include <Log.h>
-#include <processor/Processor.h>
 
 //
 // List<void*> implementation

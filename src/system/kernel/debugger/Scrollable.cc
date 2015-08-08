@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,7 +18,6 @@
  */
 
 #include "Scrollable.h"
-#include <Log.h>
 
 void Scrollable::move(size_t x, size_t y)
 {

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,8 +18,6 @@
  */
 
 #include "HelpCommand.h"
-#include <utilities/utility.h>
-#include <processor/Processor.h>
 
 HelpCommand::HelpCommand()
  : DebuggerCommand()

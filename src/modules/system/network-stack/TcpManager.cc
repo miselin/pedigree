@@ -18,6 +18,7 @@
  */
 
 #include "TcpManager.h"
+#include "TcpEndpoint.h"
 #include "RoutingTable.h"
 #include <Log.h>
 #include <processor/Processor.h>

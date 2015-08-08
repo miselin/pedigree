@@ -20,6 +20,7 @@
 #include <Log.h>
 #include <Module.h>
 #include <Version.h>
+#include <machine/Disk.h>
 #include <machine/Network.h>
 #include <processor/Processor.h>
 #include <network-stack/Endpoint.h>

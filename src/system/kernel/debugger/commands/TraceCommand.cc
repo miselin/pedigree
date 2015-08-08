@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,15 +18,11 @@
  */
 
 #include "TraceCommand.h"
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
 #include <processor/Processor.h>
-#include <udis86.h>
-#include <Log.h>
 #include <utilities/demangle.h>
-#include <machine/Machine.h>
-#include <processor/Disassembler.h>
 #include <linker/KernelElf.h>
+#include <processor/Disassembler.h>
 
 TraceCommand::TraceCommand()
   : DebuggerCommand(),

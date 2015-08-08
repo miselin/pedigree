@@ -20,7 +20,6 @@
 #include <Log.h>
 #include <linker/Elf.h>
 #include <utilities/utility.h>
-#include <BootstrapInfo.h>
 #include <processor/Processor.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <linker/KernelElf.h>

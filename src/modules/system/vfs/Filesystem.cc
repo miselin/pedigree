@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "VFS.h"
 #include "Filesystem.h"
 #include <Log.h>
 #include <utilities/utility.h>
-#include <processor/Processor.h>
+#include <utilities/RadixTree.h>
+#include <utilities/String.h>
 #include <syscallError.h>
 
 #include "File.h"

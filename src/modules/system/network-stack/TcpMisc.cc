@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,7 +21,6 @@
 #include "TcpMisc.h"
 #include "TcpStateBlock.h"
 #include <LockGuard.h>
-#include <Log.h>
 
 int stateBlockFree(void* p)
 {

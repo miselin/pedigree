@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,7 +22,6 @@
 
 #include <time/Time.h>
 #include <processor/types.h>
-#include <utilities/String.h>
 #include <utilities/RadixTree.h>
 #include "File.h"
 

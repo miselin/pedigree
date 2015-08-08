@@ -22,6 +22,9 @@
 #include <utilities/assert.h>
 
 #include <ServiceManager.h>
+#include <ServiceFeatures.h>
+#include <Service.h>
+#include <LockGuard.h>
 
 FileDisk::FileDisk(String file, AccessType mode) :
     m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),

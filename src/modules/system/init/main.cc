@@ -19,7 +19,6 @@
 
 #include <Log.h>
 #include <vfs/VFS.h>
-#include <vfs/Directory.h>
 #include <subsys/posix/PosixSubsystem.h> // In src
 #include <machine/Device.h>
 #include <machine/Disk.h>
@@ -31,32 +30,23 @@
 #include <process/Scheduler.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/VirtualAddressSpace.h>
-#include <machine/Machine.h>
 #include <linker/DynamicLinker.h>
-#include <panic.h>
-#include <utilities/assert.h>
 
 #include <core/BootIO.h> // In src/system/kernel
 
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
-#include <network-stack/UdpLogger.h>
 
 #include <ramfs/RamFs.h>
 
 #include <users/UserManager.h>
-
-#include <utilities/TimeoutGuard.h>
-
-#include <config/ConfigurationManager.h>
-#include <config/MemoryBackend.h>
+#include <users/User.h>
 
 #include <machine/DeviceHashTree.h>
 #include <lodisk/LoDisk.h>
 
-#include <machine/InputManager.h>
-
 #include <ServiceManager.h>
+#include <Service.h>
 
 extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();

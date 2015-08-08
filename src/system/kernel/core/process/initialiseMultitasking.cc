@@ -19,15 +19,11 @@
 
 #if defined(THREADS)
 
-#include <Log.h>
-#include <process/initialiseMultitasking.h>
 #include <process/Thread.h>
 #include <process/Scheduler.h>
 #include <process/Process.h>
 #include <processor/Processor.h>
 #include <process/PerProcessorScheduler.h>
-#include <process/RoundRobinCoreAllocator.h>
-#include <process/ProcessorThreadAllocator.h>
 
 void initialiseMultitasking()
 {

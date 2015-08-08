@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Debugger.h>
-
 #include <DebuggerIO.h>
 #include <LocalIO.h>
 #include <SerialIO.h>
@@ -27,10 +25,12 @@
 
 #include <processor/Processor.h>
 #include <machine/Machine.h>
+#include <machine/Display.h>
 
 #include <Log.h>
 #include <utilities/utility.h>
 
+#include <ServiceManager.h>
 #include <graphics/GraphicsService.h>
 
 static size_t newlineCount(const char *pString)

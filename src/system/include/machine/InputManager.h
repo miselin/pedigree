@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,6 @@
 #ifndef MACHINE_INPUT_MANAGER_H
 #define MACHINE_INPUT_MANAGER_H
 
-#include <processor/Processor.h>
 #include <processor/types.h>
 #include <utilities/List.h>
 #include <process/Semaphore.h>

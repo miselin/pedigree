@@ -18,9 +18,10 @@
  */
 
 #include "VFS.h"
-#include <Log.h>
+#include "File.h"
 #include <Module.h>
 #include <utilities/utility.h>
+#include <utilities/StaticString.h>
 
 /// \todo Figure out a way to clean up files after deletion. Directory::remove()
 ///       is not the right place to do this. There needs to be a way to add a

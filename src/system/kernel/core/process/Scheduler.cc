@@ -20,16 +20,7 @@
 #if defined(THREADS)
 
 #include <process/Scheduler.h>
-#include <process/SchedulingAlgorithm.h>
-#include <process/Thread.h>
-#include <process/RoundRobin.h>
-#include <process/initialiseMultitasking.h>
 #include <processor/Processor.h>
-#include <processor/StackFrame.h>
-#include <processor/KernelCoreSyscallManager.h>
-#include <Debugger.h>
-#include <machine/Machine.h>
-#include <panic.h>
 #include <Log.h>
 #include <utilities/assert.h>
 #include <process/PerProcessorScheduler.h>

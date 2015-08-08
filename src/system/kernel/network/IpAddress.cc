@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,6 +18,7 @@
  */
 
 #include <network/IpAddress.h>
+#include <utilities/StaticString.h>
 
 bool IpAddress::isLinkLocal()
 {

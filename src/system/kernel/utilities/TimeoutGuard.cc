@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,6 @@
 #include <utilities/TimeoutGuard.h>
 #ifdef THREADS
 #include <process/Thread.h>
-#include <process/PerProcessorScheduler.h>
 #endif
 #include <processor/Processor.h>
 #include <machine/Timer.h>

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,14 +20,16 @@
 #ifndef USBDEVICE_H
 #define USBDEVICE_H
 
+#include <compiler.h>
 #include <machine/Device.h>
 #include <processor/types.h>
-#include <utilities/assert.h>
 #include <usb/Usb.h>
-#include <usb/UsbDescriptors.h>
 
 class UsbHub;
 class UsbDeviceContainer;
+class UsbEndpointDescriptor;
+class UsbInterfaceDescriptor;
+class UsbDeviceDescriptor;
 
 class UsbDevice
 {

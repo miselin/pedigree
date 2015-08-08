@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,11 +19,8 @@
 
 #include <BootstrapInfo.h>
 #include <Log.h>
-#include <panic.h>
 #include <machine/Timer.h>
 #include <machine/Machine.h>
-#include <utilities/utility.h>
-#include <processor/Processor.h>
 #include <LockGuard.h>
 
 extern BootstrapStruct_t *g_pBootstrapInfo;

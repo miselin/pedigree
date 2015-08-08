@@ -21,6 +21,7 @@
 
 #include <process/PerProcessorScheduler.h>
 #include <process/Thread.h>
+#include <process/Process.h>
 #include <process/SchedulingAlgorithm.h>
 #include <process/RoundRobin.h>
 
@@ -31,11 +32,8 @@
 #include <machine/Machine.h>
 
 #include <Spinlock.h>
-#include <LockGuard.h>
 #include <panic.h>
 #include <Log.h>
-
-#include <utilities/assert.h>
 
 #ifdef TRACK_LOCKS
 #include <LocksCommand.h>

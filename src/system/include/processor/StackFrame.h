@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,8 +19,6 @@
 
 #ifndef KERNEL_PROCESSOR_STACKFRAME_H
 #define KERNEL_PROCESSOR_STACKFRAME_H
-
-#include <processor/StackFrameBase.h>
 
 #if defined(X86)
   #include <processor/x86/StackFrame.h>

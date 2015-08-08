@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,9 @@
 #include <processor/types.h>
 #include <utilities/assert.h>
 #include <utilities/Cache.h>
+#include <Service.h>
 #include <ServiceManager.h>
+#include <ServiceFeatures.h>
 #include "ScsiDisk.h"
 #include "ScsiCommands.h"
 #include "ScsiController.h"

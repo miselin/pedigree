@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,7 +23,6 @@
 #include <machine/Machine.h>
 #include <machine/Timer.h>
 #include <LockGuard.h>
-#include <Log.h>
 
 HidInputManager HidInputManager::m_Instance;
 

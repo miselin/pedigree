@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,11 +19,6 @@
 
 #include <processor/Processor.h>
 #include "PhysicalMemoryManager.h"
-#if defined(X86)
-  #include "../../core/processor/x86/VirtualAddressSpace.h"
-#else
-  #include "../../core/processor/x64/VirtualAddressSpace.h"
-#endif
 
 void Processor::initialisationDone()
 {

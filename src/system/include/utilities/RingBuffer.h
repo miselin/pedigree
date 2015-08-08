@@ -22,7 +22,6 @@
 
 #include <processor/types.h>
 #include <process/Semaphore.h>
-#include <process/Event.h>
 #include <process/Mutex.h>
 #include <utilities/List.h>
 

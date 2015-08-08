@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,9 @@
 #ifndef _THREAD_TO_CORE_ALLOCATION_ALGORITHM_H
 #define _THREAD_TO_CORE_ALLOCATION_ALGORITHM_H
 
-#include <process/Thread.h>
-#include <process/PerProcessorScheduler.h>
+class PerProcessorScheduler;
+class Thread;
+template <class T> class List;
 
 /// \todo Document.
 

@@ -19,7 +19,6 @@
 
 #include <compiler.h>
 #include <machine/Machine.h>
-#include <Log.h>
 #include "Pit.h"
 
 /** Hundred hertz frequency. */

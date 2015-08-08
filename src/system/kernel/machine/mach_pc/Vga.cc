@@ -23,9 +23,6 @@
 #include <processor/PhysicalMemoryManager.h>
 #include <machine/x86_common/Bios.h>
 
-#include <Log.h>
-#include <panic.h>
-
 X86Vga::X86Vga(uint32_t nRegisterBase, uint32_t nFramebufferBase) :
   m_RegisterPort("VGA controller"),
   m_Framebuffer("VGA framebuffer"),

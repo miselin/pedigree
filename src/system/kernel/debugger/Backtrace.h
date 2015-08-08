@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,7 @@
 #ifndef BACKTRACE_H
 #define BACKTRACE_H
 
-#include <processor/Processor.h>
-#include <processor/StackFrame.h>
+#include <processor/state.h>
 #include <utilities/StaticString.h>
 
 /** @addtogroup kerneldebugger

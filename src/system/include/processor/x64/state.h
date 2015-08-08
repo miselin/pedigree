@@ -22,7 +22,6 @@
 
 #include <compiler.h>
 #include <processor/types.h>
-#include <Log.h>
 
 /** @addtogroup kernelprocessorx64
  * @{ */
@@ -215,7 +214,7 @@ class X64SyscallState
      *\return the syscall function number */
     inline size_t getSyscallNumber() const;
     /** Get the n'th parameter for this syscall. */
-    inline uintptr_t getSyscallParameter(size_t n) const;
+    uintptr_t getSyscallParameter(size_t n) const;
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
@@ -447,20 +446,6 @@ size_t X64SyscallState::getSyscallService() const
 size_t X64SyscallState::getSyscallNumber() const
 {
   return (m_Rax & 0xFFFF);
-}
-uintptr_t X64SyscallState::getSyscallParameter(size_t n) const
-{
-  switch (n)
-  {
-    case 0: return m_Rbx;
-    case 1: return m_Rdx;
-    case 2: return m_Rsi;
-    case 3: return m_Rdi;
-    case 4: return m_R8;
-    default:
-      WARNING("Bad syscall parameter requested: " << Dec << n);
-      return 0;
-  }
 }
 void X64SyscallState::setSyscallReturnValue(uintptr_t val)
 {

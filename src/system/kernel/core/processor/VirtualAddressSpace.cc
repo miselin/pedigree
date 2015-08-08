@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,6 @@
 #include <utilities/utility.h>
 #include <processor/VirtualAddressSpace.h>
 #include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
 #include <Log.h>
 
 void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)

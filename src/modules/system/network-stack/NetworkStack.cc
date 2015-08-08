@@ -24,6 +24,8 @@
 #include <Log.h>
 #include <processor/Processor.h>
 
+#include <ServiceManager.h>
+
 #include "Dns.h"
 
 NetworkStack NetworkStack::stack;

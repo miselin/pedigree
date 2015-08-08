@@ -560,6 +560,8 @@ if env['iwyu']:
     env['iwyu'] += ' -Xiwyu --no_default_mappings'
     env['iwyu'] += ' -Xiwyu --transitive_includes_only'
 
+    env.MergeFlags('-w')  # Compiler warnings are not helpful in IWYU.
+
     env['CXXFLAGS'] = env['CFLAGS'] = []
 
     env['CC'] = env['iwyu']

@@ -19,7 +19,6 @@
 
 #include <Spinlock.h>
 #include <processor/Processor.h>
-#include <process/Thread.h>
 
 #ifdef TRACK_LOCKS
 #include <LocksCommand.h>
@@ -28,6 +27,8 @@
 #include <Log.h>
 
 #include <panic.h>
+
+class Thread;
 
 bool Spinlock::acquire()
 {

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,6 +18,8 @@
  */
 
 #include <processor/state.h>
+#include <processor/types.h>
+#include <Log.h>
 
 const char *X64InterruptStateRegisterName[18] =
 {
@@ -153,4 +154,19 @@ X64InterruptState *X64InterruptState::construct(X64ProcessorState &state, bool u
   X64InterruptState *toRet = reinterpret_cast<X64InterruptState*> (pStack);
 
   return toRet;
+}
+
+uintptr_t X64SyscallState::getSyscallParameter(size_t n) const
+{
+  switch (n)
+  {
+    case 0: return m_Rbx;
+    case 1: return m_Rdx;
+    case 2: return m_Rsi;
+    case 3: return m_Rdi;
+    case 4: return m_R8;
+    default:
+      WARNING("Bad syscall parameter requested: " << Dec << n);
+      return 0;
+  }
 }

@@ -23,7 +23,6 @@
 #include <linker/Elf.h>
 #include <compiler.h>
 #include <processor/MemoryRegion.h>
-#include <BootstrapInfo.h>
 #include <utilities/Vector.h>
 #include <utilities/MemoryAllocator.h>
 

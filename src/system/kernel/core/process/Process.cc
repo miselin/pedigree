@@ -24,16 +24,10 @@
 #include <processor/Processor.h>
 #include <process/Scheduler.h>
 #include <processor/VirtualAddressSpace.h>
-#include <linker/Elf.h>
-#include <processor/PhysicalMemoryManager.h>
 #include <Log.h>
 #include <utilities/ZombieQueue.h>
 
-#include <process/SignalEvent.h>
-
 #include <Subsystem.h>
-
-#include <vfs/File.h>
 
 Process::Process() :
   m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(0), m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),

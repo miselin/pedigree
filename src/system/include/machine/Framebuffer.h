@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,8 +24,6 @@
 #include <utilities/utility.h>
 #include <graphics/Graphics.h>
 #include <Log.h>
-
-class Display;
 
 /** This class provides a generic interface for interfacing with a framebuffer.
  *  Each display driver specialises this class to define the "base address" of
