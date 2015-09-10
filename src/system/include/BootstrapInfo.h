@@ -41,34 +41,128 @@
 #define MULTIBOOT_FLAG_VBE     0x400
 #endif
 
-#ifndef PPC_COMMON
-
-class BootstrapStruct_t
+class BaseBootstrapStruct
 {
 public:
-    bool isInitrdLoaded() const;
-    uint8_t *getInitrdAddress() const;
-    size_t getInitrdSize() const;
+    virtual bool isInitrdLoaded() const
+    {
+        return false;
+    }
 
-    bool isDatabaseLoaded() const;
-    uint8_t *getDatabaseAddress() const;
-    size_t getDatabaseSize() const;
+    virtual uint8_t *getInitrdAddress() const
+    {
+        return 0;
+    }
 
-    char *getCommandLine() const;
+    virtual size_t getInitrdSize() const
+    {
+        return 0;
+    }
 
-    size_t getSectionHeaderCount() const;
-    size_t getSectionHeaderEntrySize() const;
-    size_t getSectionHeaderStringTableIndex() const;
-    uintptr_t getSectionHeaders() const;
+    virtual bool isDatabaseLoaded() const
+    {
+        return false;
+    }
 
-    void *getMemoryMap() const;
-    uint64_t getMemoryMapEntryAddress(void *opaque) const;
-    uint64_t getMemoryMapEntryLength(void *opaque) const;
-    uint32_t getMemoryMapEntryType(void *opaque) const;
-    void *nextMemoryMapEntry(void *opaque) const;
+    virtual uint8_t *getDatabaseAddress() const
+    {
+        return 0;
+    }
 
-    size_t getModuleCount() const;
-    void *getModuleBase() const;
+    virtual size_t getDatabaseSize() const
+    {
+        return 0;
+    }
+
+    virtual char *getCommandLine() const
+    {
+        return 0;
+    }
+
+    virtual size_t getSectionHeaderCount() const
+    {
+        return 0;
+    }
+
+    virtual size_t getSectionHeaderEntrySize() const
+    {
+        return 0;
+    }
+
+    virtual size_t getSectionHeaderStringTableIndex() const
+    {
+        return 0;
+    }
+
+    virtual uintptr_t getSectionHeaders() const
+    {
+        return 0;
+    }
+
+    virtual void *getMemoryMap() const
+    {
+        return 0;
+    }
+
+    virtual uint64_t getMemoryMapEntryAddress(void *opaque) const
+    {
+        return 0;
+    }
+
+    virtual uint64_t getMemoryMapEntryLength(void *opaque) const
+    {
+        return 0;
+    }
+
+    virtual uint32_t getMemoryMapEntryType(void *opaque) const
+    {
+        return 0;
+    }
+
+    virtual void *nextMemoryMapEntry(void *opaque) const
+    {
+        return 0;
+    }
+
+    virtual size_t getModuleCount() const
+    {
+        return 0;
+    }
+
+    virtual void *getModuleBase() const
+    {
+        return 0;
+    }
+};
+
+#ifndef PPC_COMMON
+
+class BootstrapStruct_t : public BaseBootstrapStruct
+{
+public:
+    virtual bool isInitrdLoaded() const;
+    virtual uint8_t *getInitrdAddress() const;
+    virtual size_t getInitrdSize() const;
+
+    virtual bool isDatabaseLoaded() const;
+    virtual uint8_t *getDatabaseAddress() const;
+    virtual size_t getDatabaseSize() const;
+
+    virtual char *getCommandLine() const;
+
+    virtual size_t getSectionHeaderCount() const;
+    virtual size_t getSectionHeaderEntrySize() const;
+    virtual size_t getSectionHeaderStringTableIndex() const;
+    virtual uintptr_t getSectionHeaders() const;
+
+    virtual void *getMemoryMap() const;
+    virtual uint64_t getMemoryMapEntryAddress(void *opaque) const;
+    virtual uint64_t getMemoryMapEntryLength(void *opaque) const;
+    virtual uint32_t getMemoryMapEntryType(void *opaque) const;
+    virtual void *nextMemoryMapEntry(void *opaque) const;
+
+    virtual size_t getModuleCount() const;
+    virtual void *getModuleBase() const;
 
 private:
     // If we are passed via grub, this information will be completely different to
@@ -113,8 +207,9 @@ private:
 
 #else
 
-struct BootstrapStruct_t
+class BootstrapStruct_t : public BaseBootstrapStruct
 {
+public:
     int (*prom)(struct anon*);
     uint32_t initrd_start;
     uint32_t initrd_end;
@@ -125,20 +220,20 @@ struct BootstrapStruct_t
     uint32_t addr;
     uint32_t shndx;
 
-    inline bool isInitrdLoaded() const
+    virtual bool isInitrdLoaded() const
     {
         return true;
     }
-    inline uint8_t *getInitrdAddress() const
+    virtual uint8_t *getInitrdAddress() const
     {
         return reinterpret_cast<uint8_t*>(initrd_start);
     }
-    inline size_t getInitrdSize() const
+    virtual size_t getInitrdSize() const
     {
         return initrd_end - initrd_start;
     }
 
-    char *getCommandLine() const
+    virtual char *getCommandLine() const
     {
         static char buf[1] = {0};
         return buf;

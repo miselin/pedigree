@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -47,6 +46,24 @@ void Processor::halt()
   // TODO: gcc will most certainly optimize this away in -O1/2/3 so please
   //       replace it with some unoptimizable mighty magic
   for (;;);
+}
+
+void Processor::pause()
+{
+  //
+}
+
+void Processor::reset()
+{
+  Processor::halt();
+}
+
+void Processor::haltUntilInterrupt()
+{
+  bool bWasInterrupts = getInterrupts();
+  /// \todo actually do the waiting
+  if(!bWasInterrupts)
+      setInterrupts(false);
 }
 
 void Processor::invalidate(void *pAddress)

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -29,7 +28,7 @@
 
 OpenPic OpenPic::m_Instance;
 
-irq_id_t OpenPic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler)
+irq_id_t OpenPic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
 {
   if (UNLIKELY(irq >= 64))
     return 0;
@@ -42,7 +41,7 @@ irq_id_t OpenPic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler)
 
   return irq;
 }
-irq_id_t OpenPic::registerPciIrqHandler(IrqHandler *handler)
+irq_id_t OpenPic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 {
   // TODO
   return 0;

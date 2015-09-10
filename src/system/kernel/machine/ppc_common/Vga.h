@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -53,6 +52,20 @@ public:
   virtual ~PPCVga();
 
   void initialise();
+
+  /**
+   * Sets the given attribute mode control.
+   */
+  virtual void setControl(VgaControl which)
+  {
+  }
+
+  /**
+   * Clears the given attribute mode control.
+   */
+  virtual void clearControl(VgaControl which)
+  {
+  }
 
   /**
    * Changes the mode the VGA device is in.

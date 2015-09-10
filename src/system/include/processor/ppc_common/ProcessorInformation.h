@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,6 +23,7 @@
 #include <processor/types.h>
 #include <processor/VirtualAddressSpace.h>
 #include <process/Thread.h>
+#include <process/PerProcessorScheduler.h>
 
 /** @addtogroup kernelprocessorppccommon
  * @{ */
@@ -48,6 +48,9 @@ class PPCCommonProcessorInformation
       {return m_pCurrentThread;}
     inline void setCurrentThread(Thread *pThread)
       {m_pCurrentThread = pThread;}
+
+    inline PerProcessorScheduler &getScheduler()
+      {return m_Scheduler;}
 
   protected:
     /** Construct a PPCCommonProcessorInformation object
@@ -75,6 +78,8 @@ class PPCCommonProcessorInformation
     VirtualAddressSpace *m_VirtualAddressSpace;
     /** The current thread */
     Thread *m_pCurrentThread;
+    /** The processor's scheduler. */
+    PerProcessorScheduler m_Scheduler;
 };
 
 /** @} */

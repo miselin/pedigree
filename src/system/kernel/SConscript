@@ -109,6 +109,20 @@ elif env['arm_versatile']:
     ]
 
     include_dirs += ['machine/arm_versatile']
+elif 'PPC_COMMON' in env['CPPDEFINES']:
+    files += [Glob('machine/ppc_common/*.cc')]
+
+    if 'PPC_MAC' in env['CPPDEFINES']:
+        files += [
+            Glob('machine/mac/*.cc'),
+            Glob('machine/mac/*.c'),
+        ]
+
+    if 'OPENFIRMWARE' in env['CPPDEFINES']:
+        files += [
+            Glob('machine/openfirmware/*.cc'),
+            Glob('machine/openfirmware/*.c'),
+        ]
 elif env['arm_beagle']:
     files += [
         Glob('machine/arm_beagle/*.cc'),
@@ -161,6 +175,14 @@ elif env['armv7']:
         Glob('core/processor/armv7/*.cc'),
         Glob('core/processor/armv7/asm/*.S'),
     ]
+elif 'PPC_COMMON' in env['CPPDEFINES']:
+    if 'PPC32' in env['CPPDEFINES']:
+        files += [
+            Glob('core/processor/ppc32/*.cc'),
+            Glob('core/processor/ppc32/asm/*.s'),
+        ]
+
+    files += Glob('core/processor/ppc_common/*.cc')
 
 # Generic ARM bits.
 if env['ARCH_TARGET'] == 'ARM':

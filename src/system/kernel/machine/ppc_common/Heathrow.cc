@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,7 +29,7 @@
 
 Heathrow Heathrow::m_Instance;
 
-irq_id_t Heathrow::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler)
+irq_id_t Heathrow::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
 {
   // Save the IrqHandler
   m_Handler[irq] = handler;
@@ -40,7 +39,7 @@ irq_id_t Heathrow::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler)
 
   return irq;
 }
-irq_id_t Heathrow::registerPciIrqHandler(IrqHandler *handler)
+irq_id_t Heathrow::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 {
   // TODO
   return 0;

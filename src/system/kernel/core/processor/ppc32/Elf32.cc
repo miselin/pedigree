@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -92,21 +91,21 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
     pStringTable = m_pDynamicStringTable;
 
   // If this is a section header, patch straight to it.
-  if (pSymbols && ELF32_ST_TYPE(pSymbols[ELF32_R_SYM(rel.info)].info) == 3)
+  if (pSymbols && ST_TYPE(pSymbols[R_SYM(rel.info)].info) == 3)
   {
     // Section type - the name will be the name of the section header it refers to.
-    int shndx = pSymbols[ELF32_R_SYM(rel.info)].shndx;
+    int shndx = pSymbols[R_SYM(rel.info)].shndx;
     ElfSectionHeader_t *pSh = &m_pSectionHeaders[shndx];
     S = pSh->addr;
   }
-  else if (ELF32_R_TYPE(rel.info) != R_PPC_RELATIVE) // Relative doesn't need a symbol!
+  else if (R_TYPE(rel.info) != R_PPC_RELATIVE) // Relative doesn't need a symbol!
   {
-    const char *pStr = pStringTable + pSymbols[ELF32_R_SYM(rel.info)].name;
+    const char *pStr = pStringTable + pSymbols[R_SYM(rel.info)].name;
     
     if (pSymtab == 0)
       pSymtab = KernelElf::instance().getSymbolTable();
     
-    if (ELF32_R_TYPE(rel.info) == R_PPC_COPY)
+    if (R_TYPE(rel.info) == R_PPC_COPY)
       policy = SymbolTable::NotOriginatingElf;
     S = pSymtab->lookup(String(pStr), this, policy);
     
@@ -114,7 +113,7 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
       WARNING("Relocation failed for symbol \"" << pStr << "\"");
   }
 
-  if (S == 0 && (ELF32_R_TYPE(rel.info) != R_PPC_RELATIVE))
+  if (S == 0 && (R_TYPE(rel.info) != R_PPC_RELATIVE))
     return false;
 
   // Base address
@@ -123,7 +122,7 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
   uint32_t *pResult = reinterpret_cast<uint32_t*> (address);
   uint32_t result = *pResult;
 
-  switch (ELF32_R_TYPE(rel.info))
+  switch (R_TYPE(rel.info))
   {
     case R_PPC_NONE:
       break;
@@ -187,7 +186,7 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
       result = * reinterpret_cast<uintptr_t*> (S);
       break;
     default:
-      ERROR ("Relocation not supported: " << Dec << ELF32_R_TYPE(rel.info));
+      ERROR ("Relocation not supported: " << Dec << R_TYPE(rel.info));
   }
 
   // Write back the result.

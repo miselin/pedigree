@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -79,28 +78,6 @@ char PPCKeyboard::getCharNonBlock()
     //FATAL("KEYBOARD: getCharNonBlock() should not be called in normal mode!");
     //return 0;
     // }
-}
-
-Keyboard::Character PPCKeyboard::getCharacter()
-{
-  Character c;
-  c.valid = 1;
-  c.ctrl = c.alt = c.shift = c.caps_lock = 0;
-  c.num_lock = c.is_special = c.reserved = 0;
-  c.value = getChar();
-
-  return c;
-}
-
-Keyboard::Character PPCKeyboard::getCharacterNonBlock()
-{
-  Character c;
-  c.valid = 1;
-  c.ctrl = c.alt = c.shift = c.caps_lock = 0;
-  c.num_lock = c.is_special = c.reserved = 0;
-  c.value = getCharNonBlock();
-
-  return c;
 }
 
 void PPCKeyboard::setDebugState(bool enableDebugMode)

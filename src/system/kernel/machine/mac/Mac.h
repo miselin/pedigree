@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -45,6 +44,7 @@ public:
   virtual SchedulerTimer *getSchedulerTimer();
   virtual Timer *getTimer();
   virtual Keyboard *getKeyboard();
+  virtual void setKeyboard(Keyboard *kb);
 
   virtual void initialiseDeviceTree();
 

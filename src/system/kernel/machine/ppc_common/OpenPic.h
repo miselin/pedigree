@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -61,8 +60,8 @@ class OpenPic : public IrqManager,
     //
     // IrqManager interface
     //
-    virtual irq_id_t registerIsaIrqHandler(uint8_t irq, IrqHandler *handler);
-    virtual irq_id_t registerPciIrqHandler(IrqHandler *handler);
+    virtual irq_id_t registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
     virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
 

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -76,6 +75,10 @@ Timer *Mac::getTimer()
 Keyboard *Mac::getKeyboard()
 {
   return &m_Keyboard;
+}
+void Mac::setKeyboard(Keyboard *kb)
+{
+  //
 }
 
 Mac::Mac() :

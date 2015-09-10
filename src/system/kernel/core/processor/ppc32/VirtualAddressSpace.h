@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -34,6 +33,17 @@
 
 /** @addtogroup kernelprocessorPPC32
  * @{ */
+
+//
+// Virtual address space layout
+//
+#define KERNEL_INITIAL_PAGE_TABLES          static_cast<uintptr_t>(0xC0000000)
+#define KERNEL_SPACE_START                  static_cast<uintptr_t>(0x80000000)
+#define USERSPACE_VIRTUAL_HEAP              static_cast<uintptr_t>(0x60000000)
+#define KERNEL_VIRTUAL_HEAP                 static_cast<uintptr_t>(0xD0000000)
+#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS static_cast<uintptr_t>(0xA0000000)
+#define KERNEL_VIRTUAL_MEMORYREGION_SIZE    static_cast<uintptr_t>(0x20000000)
+#define KERNEL_VIRTUAL_TEMP1                reinterpret_cast<void*>(0xEFFFF000)
 
 /**
  * In PPC we have to keep a shadow page table for all address spaces, as 
@@ -73,6 +83,62 @@ public:
 
   virtual VirtualAddressSpace *clone();
   virtual void revertToKernelAddressSpace();
+
+  /** Determines if a given point is within the virtual address space region dedicated
+   *  to the kernel heap. */
+  virtual bool memIsInHeap(void *pMem)
+  {
+    uintptr_t x = reinterpret_cast<uintptr_t>(pMem);
+    if (x < getKernelHeapStart())
+      return false;
+    else if (pMem >= getEndOfHeap())
+      return false;
+
+    return true;
+  }
+
+  /** Gets a pointer to the byte after the end of the heap. */
+  virtual void *getEndOfHeap()
+  {
+    return reinterpret_cast<void *>(getKernelHeapEnd());
+  }
+
+  /** Gets start address of the kernel in the address space. */
+  virtual uintptr_t getKernelStart() const
+  {
+    return KERNEL_SPACE_START;
+  }
+
+  /** Gets start address of the region usable and cloneable for userspace. */
+  virtual uintptr_t getUserStart() const
+  {
+    /// \todo fix this up
+    return 0x1000;
+  }
+
+  /** Gets start address of reserved areas of the userpace address space. */
+  virtual uintptr_t getUserReservedStart() const
+  {
+    return 0;
+  }
+
+  /** Gets address of the dynamic linker in the address space. */
+  virtual uintptr_t getDynamicLinkerAddress() const
+  {
+    return 0;
+  }
+
+  /** Gets address of the start of the kernel's heap region. */
+  virtual uintptr_t getKernelHeapStart() const
+  {
+    return KERNEL_VIRTUAL_HEAP;
+  }
+
+  /** Gets address of the end of the kernel's heap region. */
+  virtual uintptr_t getKernelHeapEnd() const
+  {
+    return KERNEL_VIRTUAL_HEAP + 0x10000000;
+  }
 
 protected:
   /** The destructor does nothing */
@@ -114,16 +180,5 @@ public:
 };
 
 /** @} */
-
-//
-// Virtual address space layout
-//
-#define KERNEL_INITIAL_PAGE_TABLES static_cast<uintptr_t>(0xC0000000)
-#define KERNEL_SPACE_START     static_cast<uintptr_t>(0x80000000)
-#define USERSPACE_VIRTUAL_HEAP static_cast<uintptr_t>(0x60000000)
-#define KERNEL_VIRTUAL_HEAP    static_cast<uintptr_t>(0xD0000000)
-#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS static_cast<uintptr_t>(0xA0000000)
-#define KERNEL_VIRTUAL_MEMORYREGION_SIZE static_cast<uintptr_t>(0x20000000)
-#define KERNEL_VIRTUAL_TEMP1   reinterpret_cast<void*>(0xEFFFF000)
 
 #endif

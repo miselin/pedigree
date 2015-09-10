@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -61,6 +60,14 @@ public:
   void initialise(Translations &translations, uintptr_t ramMax);
 
   void unmapRegion(MemoryRegion *pRegion);
+
+  virtual void pin(physical_uintptr_t page)
+  {
+  }
+
+  virtual void freePageUnlocked(physical_uintptr_t page)
+  {
+  }
 
 protected:
   /** The constructor */
