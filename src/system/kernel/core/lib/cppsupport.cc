@@ -415,7 +415,7 @@ void *operator new[] (size_t size, void* memory) throw()
 {
   return memory;
 }
-void operator delete (void * p)
+void operator delete (void * p) throw()
 {
 #ifdef USE_DEBUG_ALLOCATOR
     if(p == 0) return;
@@ -435,7 +435,7 @@ void operator delete (void * p)
         SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
 #endif
 }
-void operator delete[] (void * p)
+void operator delete[] (void * p) throw()
 {
 #ifdef USE_DEBUG_ALLOCATOR
     if(p == 0) return;
@@ -455,12 +455,12 @@ void operator delete[] (void * p)
         SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
 #endif
 }
-void operator delete (void *p, void *q)
+void operator delete (void *p, void *q) throw()
 {
   // TODO
   panic("Operator delete (placement) -implement");
 }
-void operator delete[] (void *p, void *q)
+void operator delete[] (void *p, void *q) throw()
 {
   // TODO
   panic("Operator delete[] (placement) -implement");

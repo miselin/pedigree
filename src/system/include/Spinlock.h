@@ -23,7 +23,7 @@
 #include <Lock.h>
 #include <Atomic.h>
 
-class Spinlock : public Lock
+class CAPABILITY("mutex") Spinlock : public Lock
 {
     friend class PerProcessorScheduler;
     friend class LocksCommand;
@@ -33,13 +33,13 @@ class Spinlock : public Lock
         m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba),
         m_pOwner(0), m_bOwned(false), m_Level(0) {}
 
-    bool acquire();
+    bool acquire() ACQUIRE();
 
     /** Exit the critical section, without restoring interrupts. */
-    void exit();
+    void exit() RELEASE();
 
     /** Exit the critical section, restoring previous interrupt state. */
-    void release();
+    void release() RELEASE();
 
     bool acquired()
     {

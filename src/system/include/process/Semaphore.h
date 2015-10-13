@@ -31,7 +31,7 @@
 /**
  * A counting semaphore.
  */
-class Semaphore : public Lock
+class CAPABILITY("mutex") Semaphore : public Lock
 {
 public:
     /** Constructor
@@ -45,16 +45,16 @@ public:
      * \param n The number of semaphore items required. Must be non-zero.
      * \param timeoutSecs Timeout value in seconds - if zero, no timeout.
      * \return True if acquire succeeded, false otherwise (timeout). */
-    bool acquire(size_t n=1, size_t timeoutSecs=0, size_t timeoutUsecs=0);
+    bool acquire(size_t n=1, size_t timeoutSecs=0, size_t timeoutUsecs=0) ACQUIRE();
 
     /** Attempts to acquire n items from the semaphore. This will not block.
      * \param n The number of semaphore items required. Must be non-zero.
      * \return True if acquire succeeded, false otherwise. */
-    bool tryAcquire(size_t n=1);
+    bool tryAcquire(size_t n=1) TRY_ACQUIRE(true);
 
     /** Releases n items from the semaphore.
      * \param n The number of semaphore items to release. Must be non-zero. */
-    void release(size_t n=1);
+    void release(size_t n=1) RELEASE();
 
     /** Gets the current value of the semaphore */
     ssize_t getValue();

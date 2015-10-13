@@ -667,6 +667,9 @@ if env['hosted']:
                         env[flags].remove(flag)
 
             env.MergeFlags({'CCFLAGS': '-Wthread-safety'})
+
+            # TODO(miselin): this depends on a clang version >= 3.5
+            env['CPPDEFINES'] += ['THREAD_SAFETY_ANNOTATIONS']
     else:
         print('Note: not using clang for hosted build.')
 

@@ -42,7 +42,7 @@
     the atomic member's value drops to exactly 100000, at which point all threads will have
     exited.
 */
-class UnlikelyLock : public Lock
+class CAPABILITY("mutex") UnlikelyLock : public Lock
 {
 public:
     UnlikelyLock();
@@ -50,17 +50,17 @@ public:
 
     /** Enters the critical section.
         \return True if the lock was able to be acquired, false otherwise. */
-    bool enter();
+    bool enter() ACQUIRE_SHARED();
 
     /** Leaving the critical section. */
-    void leave();
+    void leave() RELEASE_SHARED();
 
     /** Locks the lock. Will not return until all other threads have exited
         the critical region. */
-    bool acquire();
+    bool acquire() ACQUIRE();
 
     /** Releases the lock. */
-    void release();
+    void release() RELEASE();
 
 private:
     Semaphore m_Semaphore;
