@@ -20,6 +20,7 @@
 #ifndef UNLIKELY_LOCK_H
 #define UNLIKELY_LOCK_H
 
+#include <Lock.h>
 #include <processor/Processor.h>
 #include <process/Scheduler.h>
 #include <process/Semaphore.h>
@@ -41,7 +42,7 @@
     the atomic member's value drops to exactly 100000, at which point all threads will have
     exited.
 */
-class UnlikelyLock
+class UnlikelyLock : public Lock
 {
 public:
     UnlikelyLock();

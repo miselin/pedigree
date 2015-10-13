@@ -20,9 +20,10 @@
 #ifndef KERNEL_SPINLOCK_H
 #define KERNEL_SPINLOCK_H
 
+#include <Lock.h>
 #include <Atomic.h>
 
-class Spinlock
+class Spinlock : public Lock
 {
     friend class PerProcessorScheduler;
     friend class LocksCommand;

@@ -665,6 +665,8 @@ if env['hosted']:
                 for flags in ('CCFLAGS', 'CFLAGS', 'CXXFLAGS'):
                     if flag in env[flags]:
                         env[flags].remove(flag)
+
+            env.MergeFlags({'CCFLAGS': '-Wthread-safety'})
     else:
         print('Note: not using clang for hosted build.')
 

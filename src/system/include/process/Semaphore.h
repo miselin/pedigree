@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,6 +21,7 @@
 #define SEMAPHORE_H
 
 #include <Atomic.h>
+#include <Lock.h>
 #include <processor/types.h>
 #include <process/Event.h>
 #include <process/eventNumbers.h>
@@ -31,7 +31,7 @@
 /**
  * A counting semaphore.
  */
-class Semaphore
+class Semaphore : public Lock
 {
 public:
     /** Constructor

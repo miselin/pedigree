@@ -23,17 +23,19 @@
 /** @addtogroup kernel
  * @{ */
 
+#include <Lock.h>
+
 template<class T>
-class LockGuard
+class SCOPED_CAPABILITY LockGuard
 {
   public:
-    inline LockGuard(T &Lock, bool Condition = true)
+    inline LockGuard(T &Lock, bool Condition = true) ACQUIRE(m_Lock)
       : m_Lock(Lock), m_bCondition(Condition)
     {
       if (m_bCondition)
         m_Lock.acquire();
     }
-    inline virtual ~LockGuard()
+    inline virtual ~LockGuard() RELEASE()
     {
       if (m_bCondition)
         m_Lock.release();
