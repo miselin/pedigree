@@ -97,7 +97,6 @@
 
 #ifdef DEBUGGER
     #include <Debugger.h>
-    #include <LocksCommand.h>
 #endif
 
 #include <linker/KernelElf.h>             // KernelElf::initialise()
@@ -109,31 +108,21 @@
 #include "cppsupport.h"                   // initialiseConstructors()
 
 #include <processor/Processor.h>          // Processor::initialise1(), Processor::initialise2()
-#include <processor/PhysicalMemoryManager.h>
 #include <processor/KernelCoreSyscallManager.h>
 
 #include <machine/Machine.h>              // Machine::initialise()
-#include <LocalIO.h>
-#include <SerialIO.h>
-#include <DebuggerIO.h>
 #include "BootIO.h"
 
-#include <process/initialiseMultitasking.h>
 #include <process/Thread.h>
 #include <process/Scheduler.h>
-#include <process/SchedulingAlgorithm.h>
 #include <process/MemoryPressureManager.h>
 #include <process/MemoryPressureKiller.h>
 #include <process/InfoBlock.h>
-
-#include <machine/Device.h>
 
 #ifdef OPENFIRMWARE
     #include <machine/openfirmware/Device.h>
 #endif
 
-#include <utilities/List.h>
-#include <utilities/RadixTree.h>
 #include <utilities/StaticString.h>
 
 #include <utilities/Cache.h>
@@ -144,11 +133,10 @@
 #include <utilities/ZombieQueue.h>
 #endif
 
-#include <Module.h>
-
 #include <graphics/GraphicsService.h>
 
 #include <SlamAllocator.h>
+#include <ServiceManager.h>
 
 #ifdef HOSTED
 namespace __pedigree_hosted {}; // In case it's not defined.

@@ -22,6 +22,7 @@
 #include <Module.h>
 
 #include <process/Scheduler.h>
+#include <LockGuard.h>
 
 // c_cc array indices, and their default character.
 #define VEOF        4 // 0x04

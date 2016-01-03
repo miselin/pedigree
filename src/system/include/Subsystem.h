@@ -26,8 +26,6 @@ class Thread;
 #include <processor/state.h>
 class Process;
 
-#include <Log.h>
-
 /** The abstract base class for a generic application subsystem. This provides
   * a well-defined interface to the kernel that allows global behaviour to have
   * correct results on different applications. This also allows the kernel to
@@ -110,19 +108,13 @@ class Subsystem
         virtual void threadException(Thread *pThread, ExceptionType eType);
 
         /** Gets the type of this subsystem */
-        SubsystemType getType()
+        SubsystemType getType() const
         {
             return m_Type;
         }
 
         /** Sets the process that this subsystem is linked to. */
-        virtual void setProcess(Process *p)
-        {
-            if(!m_pProcess)
-                m_pProcess = p;
-            else
-                WARNING("An attempt was made to change the Process of a Subsystem!");
-        }
+        virtual void setProcess(Process *p);
 
     protected:
         /** Notifies the subsystem that the given thread has been removed. */

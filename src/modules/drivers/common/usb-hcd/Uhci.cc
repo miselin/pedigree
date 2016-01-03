@@ -22,9 +22,11 @@
 #include <machine/Machine.h>
 #include <machine/Pci.h>
 #include <processor/Processor.h>
+#include <processor/IoBase.h>
 #include <usb/Usb.h>
 #include <Log.h>
 #include <time/Time.h>
+#include <LockGuard.h>
 #include "Uhci.h"
 
 #define INDEX_FROM_TD_VIRT(ptr) (((reinterpret_cast<uintptr_t>((ptr)) - reinterpret_cast<uintptr_t>(m_pTDList)) / sizeof(TD)))

@@ -21,6 +21,7 @@
 #include <Debugger.h>
 #include <processor/PageFaultHandler.h>
 #include <process/Scheduler.h>
+#include <process/Process.h>
 #include <panic.h>
 #include <processor/PhysicalMemoryManager.h>
 #include "VirtualAddressSpace.h"

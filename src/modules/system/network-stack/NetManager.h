@@ -22,6 +22,7 @@
 
 #include <vfs/VFS.h>
 #include <vfs/Filesystem.h>
+#include <vfs/File.h>
 #include <utilities/RequestQueue.h>
 #include <utilities/Vector.h>
 #include <process/Scheduler.h>

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,8 +22,9 @@
 
 #include <DebuggerCommand.h>
 #include <Scrollable.h>
-#include <machine/Device.h>
 #include <utilities/Vector.h>
+
+class Device;
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

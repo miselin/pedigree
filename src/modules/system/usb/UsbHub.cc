@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,14 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
 #include <utilities/ExtensibleBitmap.h>
-#include <utilities/PointerGuard.h>
-#include <LockGuard.h>
 #include <usb/Usb.h>
 #include <usb/UsbDevice.h>
 #include <usb/UsbHub.h>
 #include <usb/UsbPnP.h>
+#include <Log.h>
 
 bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
 {

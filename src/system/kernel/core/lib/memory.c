@@ -17,11 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/utility.h>
-#include <utilities/assert.h>
 #include <compiler.h>
-
-#include <panic.h>
+#include <processor/types.h>
 
 #undef memcpy
 

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,7 +21,6 @@
 #define MAPPINGCOMMAND_H
 
 #include <DebuggerCommand.h>
-#include <Spinlock.h>
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

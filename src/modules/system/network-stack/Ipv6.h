@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -29,7 +28,8 @@
 #include <LockGuard.h>
 #include <Spinlock.h>
 
-#include <ServiceManager.h>
+#include <Service.h>
+#include <ServiceFeatures.h>
 
 #include "NetworkStack.h"
 #include "Ethernet.h"

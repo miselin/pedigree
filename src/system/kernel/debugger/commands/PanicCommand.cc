@@ -18,10 +18,9 @@
  */
 
 #include "PanicCommand.h"
-#include <Log.h>
-#include <utilities/utility.h>
-#include <DebuggerIO.h>
 #include <panic.h>
+
+class DebuggerIO;
 
 PanicCommand::PanicCommand()
  : DebuggerCommand()

@@ -22,9 +22,9 @@
 
 #include <processor/types.h>
 #include <utilities/String.h>
-#include <machine/Disk.h>
-#include <vfs/File.h>
-#include <utilities/RadixTree.h>
+
+class Disk;
+class File;
 
 /** This class provides the abstract skeleton that all filesystems must implement.
  *

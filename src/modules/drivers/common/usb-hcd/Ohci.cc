@@ -19,6 +19,7 @@
 
 #include <machine/Machine.h>
 #include <processor/Processor.h>
+#include <processor/IoBase.h>
 #include <usb/Usb.h>
 #include <Log.h>
 #ifdef X86_COMMON

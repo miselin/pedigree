@@ -21,10 +21,12 @@
 #define ISO9660FILESYSTEM_H
 
 #include <vfs/Filesystem.h>
+#include <vfs/File.h>
 #include <utilities/List.h>
 #include <utilities/Vector.h>
 #include <utilities/Tree.h>
 #include <process/Mutex.h>
+#include <time/Time.h>
 #include <LockGuard.h>
 
 #include "iso9660.h"

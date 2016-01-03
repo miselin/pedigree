@@ -20,15 +20,11 @@
 #ifndef MEMORY_MAPPED_FILE_H
 #define MEMORY_MAPPED_FILE_H
 
-#include "File.h"
-
 #include <processor/PageFaultHandler.h>
 #include <process/MemoryPressureManager.h>
 #include <utilities/Tree.h>
 #include <utilities/List.h>
 #include <process/Mutex.h>
-#include <process/Process.h>
-#include <LockGuard.h>
 
 /** \addtogroup vfs
     @{ */
@@ -94,7 +90,9 @@
     
     \todo Handle writing of files, not just reading. */
 
-class MemoryMapManager;
+class File;
+class Process;
+class VirtualAddressSpace;
 
 /**
  * Generic base for a memory mapped file or object.

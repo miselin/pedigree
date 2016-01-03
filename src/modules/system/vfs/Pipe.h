@@ -22,14 +22,10 @@
 
 #include <time/Time.h>
 #include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/RadixTree.h>
 #include <process/Semaphore.h>
 #include "File.h"
 
 #define PIPE_BUF_MAX 2048
-
-class ZombiePipe;
 
 /** A first-in-first-out buffer node. */
 class Pipe : public File

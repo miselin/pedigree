@@ -21,7 +21,9 @@
 #define RAWFS_DIRECTORY_H
 
 #include <vfs/Directory.h>
-#include <utilities/String.h>
+
+class File;
+class String;
 
 class RawFsDir : public Directory
 {

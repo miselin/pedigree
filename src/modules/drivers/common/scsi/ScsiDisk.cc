@@ -20,7 +20,9 @@
 #include <processor/types.h>
 #include <utilities/assert.h>
 #include <utilities/Cache.h>
+#include <Service.h>
 #include <ServiceManager.h>
+#include <ServiceFeatures.h>
 #include "ScsiDisk.h"
 #include "ScsiCommands.h"
 #include "ScsiController.h"

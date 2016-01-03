@@ -22,8 +22,6 @@
 
 #ifdef THREADS
 
-#include <Log.h>
-
 #include <processor/state.h>
 #include <processor/types.h>
 #include <process/Event.h>
@@ -32,14 +30,7 @@
 #include <utilities/RequestQueue.h>
 #include <utilities/ExtensibleBitmap.h>
 
-#include <processor/MemoryRegion.h>
-
-// Hacky but I'd rather not c&p the typedef
-#define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
-#include <processor/ProcessorInformation.h>
-#undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
-
-class Processor;
+class MemoryRegion;
 class Process;
 
 /** Thread TLS area size */

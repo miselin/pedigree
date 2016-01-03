@@ -20,7 +20,6 @@
 #ifndef KERNEL_PROCESSOR_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_PHYSICALMEMORYMANAGER_H
 
-#include <compiler.h>
 #include <utilities/Vector.h>
 #include <processor/types.h>
 

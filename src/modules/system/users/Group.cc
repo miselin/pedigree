@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,7 +18,6 @@
  */
 
 #include "Group.h"
-#include "User.h"
 
 Group::Group(size_t gid, String name) :
   m_Gid(gid), m_Name(name), m_Users()

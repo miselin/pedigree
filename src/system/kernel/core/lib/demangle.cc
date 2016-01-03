@@ -20,7 +20,6 @@
 #include <utilities/utility.h>
 #include <utilities/demangle.h>
 #include <utilities/StaticString.h>
-#include <Log.h>
 
 // Uncomment these if running standalone.
 //include <stdio.h>

@@ -23,7 +23,9 @@
 #include "errors.h"
 
 #include <process/Semaphore.h>
+#include <process/Process.h>
 #include <process/Mutex.h>
+#include <Log.h>
 
 int posix_sem_close(sem_t *sem)
 {

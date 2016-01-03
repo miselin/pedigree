@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,7 +21,7 @@
 #include "UdpManager.h"
 #include <Log.h>
 #include <syscallError.h>
-#include <processor/Processor.h>
+#include <LockGuard.h>
 
 UdpManager UdpManager::manager;
 

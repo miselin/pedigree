@@ -22,24 +22,23 @@
 
 #include <utilities/String.h>
 #include <utilities/Tree.h>
-#include <utilities/List.h>
 #include <processor/types.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
 #include <process/Mutex.h>
 #include <machine/TimerHandler.h>
+#include <network/IpAddress.h>
 #include <LockGuard.h>
 
 #include <Log.h>
 
 #include "Manager.h"
 
-#include "NetworkStack.h"
 #include "Tcp.h"
 #include "TcpMisc.h"
 #include "Endpoint.h"
-#include "TcpEndpoint.h"
 #include "TcpStateBlock.h"
+
+class Network;
+class TcpEndpoint;
 
 #define BASE_EPHEMERAL_PORT 32768
 

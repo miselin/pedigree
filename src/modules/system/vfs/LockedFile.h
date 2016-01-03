@@ -21,11 +21,9 @@
 #define LOCKED_FILE_H
 
 #include <processor/types.h>
-#include <process/Scheduler.h>
 #include <process/Mutex.h>
-#include <Log.h>
 
-#include "File.h"
+class File;
 
 /** LockedFile is a wrapper around a standard File with the ability to lock
  * access to it. Locked access is in the form of a Mutex that allows only

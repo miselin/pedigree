@@ -17,10 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <vfs/VFS.h>
 #include <Module.h>
+#include <process/Process.h>
+#include <machine/Device.h>
 #include "RamFs.h"
+
+class Disk;
+
+RamFile::RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent) :
+    File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_FileBlocks(),
+    m_nOwnerPid(0)
+{
+    // Full permissions.
+    setPermissions(0777);
+
+    m_nOwnerPid = Processor::information().getCurrentThread()->getParent()->getId();
+}
 
 bool RamFile::canWrite()
 {

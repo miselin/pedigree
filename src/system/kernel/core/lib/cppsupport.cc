@@ -19,17 +19,11 @@
 
 #include <compiler.h>
 #include <processor/types.h>
-#include <Spinlock.h>
 #include "cppsupport.h"
 #include <panic.h>
-#include <processor/Processor.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <machine/Machine.h>
 #include <Log.h>
 
 #include <utilities/Tree.h>
-#include <utilities/MemoryTracing.h>
 
 Tree<void*, void*> g_FreedPointers;
 

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,7 +19,6 @@
 
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/MemoryRegion.h>
-#include <Log.h>
 
 void PhysicalMemoryManager::allocateMemoryRegionList(Vector<MemoryRegionInfo*> &MemoryRegions)
 {

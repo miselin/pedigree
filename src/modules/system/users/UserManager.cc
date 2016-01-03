@@ -18,8 +18,9 @@
  */
 
 #include "UserManager.h"
+#include "User.h"
+#include "Group.h"
 #include <Module.h>
-#include <utilities/utility.h>
 #include <process/Process.h>
 #include <processor/Processor.h>
 #include <config/Config.h>

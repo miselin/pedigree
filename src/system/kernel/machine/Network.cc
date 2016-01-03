@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,10 +18,6 @@
  */
 
 #include <machine/Network.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryMappedIo.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <Log.h>
 
 uint32_t Network::convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
 {

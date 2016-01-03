@@ -20,8 +20,6 @@
 #ifndef KERNEL_PROCESSOR_STACKFRAME_H
 #define KERNEL_PROCESSOR_STACKFRAME_H
 
-#include <processor/StackFrameBase.h>
-
 #if defined(X86)
   #include <processor/x86/StackFrame.h>
   #define PROCESSOR_SPECIFIC_NAME(x) X86##x

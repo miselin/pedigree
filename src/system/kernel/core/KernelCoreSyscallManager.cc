@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,7 +19,6 @@
 
 #include <processor/KernelCoreSyscallManager.h>
 #include <processor/SyscallManager.h>
-#include <processor/Processor.h>
 #include <process/Scheduler.h>
 #include <Log.h>
 

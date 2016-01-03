@@ -26,13 +26,9 @@
 #include <processor/state.h>
 #include <machine/TimerHandler.h>
 #include <process/Mutex.h>
-#include <process/Process.h>
 #include <process/Thread.h>
-#include <Atomic.h>
 
 class SchedulingAlgorithm;
-class Processor;
-class Thread;
 class Spinlock;
 
 class PerProcessorScheduler : public TimerHandler

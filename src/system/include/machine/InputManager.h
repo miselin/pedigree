@@ -20,7 +20,6 @@
 #ifndef MACHINE_INPUT_MANAGER_H
 #define MACHINE_INPUT_MANAGER_H
 
-#include <processor/Processor.h>
 #include <processor/types.h>
 #include <utilities/List.h>
 #include <process/Semaphore.h>

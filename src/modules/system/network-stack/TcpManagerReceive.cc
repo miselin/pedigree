@@ -18,6 +18,7 @@
  */
 
 #include "TcpManager.h"
+#include "TcpEndpoint.h"
 #include <Log.h>
 
 #include <process/Mutex.h>

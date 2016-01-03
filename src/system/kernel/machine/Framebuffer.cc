@@ -21,10 +21,6 @@
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/VirtualAddressSpace.h>
-#include <processor/Processor.h>
-#include <machine/Display.h>
-
-#include <Log.h>
 
 Graphics::Buffer *Framebuffer::swCreateBuffer(const void *srcData, Graphics::PixelFormat srcFormat, size_t width, size_t height, uint32_t *pPalette)
 {

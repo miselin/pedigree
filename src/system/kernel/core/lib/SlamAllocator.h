@@ -30,9 +30,7 @@
 #include "compat.h"
 #else
 #include <processor/types.h>
-#include <processor/PhysicalMemoryManager.h>
 #include <utilities/MemoryAllocator.h>
-#include <Log.h>
 
 #include <Spinlock.h>
 #endif

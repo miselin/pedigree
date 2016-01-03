@@ -25,6 +25,7 @@
 #include <utilities/String.h>
 #include <utilities/Vector.h>
 #include <utilities/StaticString.h>
+#include <processor/Processor.h>
 #include <panic.h>
 
 /** @addtogroup kernel

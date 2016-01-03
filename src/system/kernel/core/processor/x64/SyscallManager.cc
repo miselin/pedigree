@@ -22,6 +22,7 @@
 #include <processor/Processor.h>
 #include <process/TimeTracker.h>
 #include <time/Stopwatch.h>
+#include <process/Process.h>
 #include "SyscallManager.h"
 
 X64SyscallManager X64SyscallManager::m_Instance;

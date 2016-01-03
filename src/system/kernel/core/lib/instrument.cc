@@ -17,8 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Machine.h>
-#include <utilities/StaticString.h>
+#include <processor/types.h>
 
 extern "C" void __cyg_profile_func_enter (void *func_address, void *call_site)
   __attribute__((no_instrument_function));

@@ -18,7 +18,6 @@
  */
 
 #include <linker/SymbolTable.h>
-#include <linker/Elf.h>
 
 SymbolTable::SymbolTable(Elf *pElf) :
   m_Tree(), m_pOriginatingElf(pElf)
