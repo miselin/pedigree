@@ -185,7 +185,7 @@ if not env['ON_PEDIGREE']:
     libload_env['CPPPATH'] += [cpp_base, cpp_arch_base]
 
 libload_env['LIBPATH'] += [builddir, imagesdir + 'libraries']
-libload_env['LIBS'] = ['-lstdc++', '-lc', '-lpedigree', '-lpedigree-c', '-lgcc']
+libload_env['LIBS'] = ['-lstdc++', '-lc', '-lpedigree-glue', '-lpedigree', '-lpedigree-c', '-lgcc']
 
 libload = os.path.join(builddir, 'libload.so')
 libload_linkscript = libload_env.File(os.path.join(appsbase, 'libload', 'libload%s.ld' % suffix))
