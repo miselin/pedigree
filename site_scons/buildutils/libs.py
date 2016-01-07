@@ -30,6 +30,7 @@ def buildLibc(env, libc_in):
   env["PEDIGREE_IMAGES_DIR"] = env.Dir(images_dir).path
 
   libc_static_out = env.File(os.path.join(build_dir, "libc.a"))
+  libc_static_tmp = env.File(os.path.join(build_dir, "libc_.a"))
   libg_static_out = env.File(os.path.join(build_dir, "libg.a"))
   libg_static_tmp = env.File(os.path.join(build_dir, "libg_.a"))
 
@@ -40,7 +41,7 @@ def buildLibc(env, libc_in):
   # TODO(miselin): this only works on *nix
   libg_static = env.Command(libg_static_tmp, libc_in, "cp $SOURCE $TARGET")
   libc_static = env.Command(
-      libc_static_out, libc_in, "$STRIP -g -o $TARGET $SOURCE")
+      libc_static_tmp, libc_in, "$STRIP -g -o $TARGET $SOURCE")
 
   # Set of object files to remove from the library. These are generally things
   # that Pedigree provides.
@@ -67,6 +68,11 @@ def buildLibc(env, libc_in):
   libg = (
       env.Command(
           libg_static_out, libg_static_tmp,
+          "mv $SOURCE $TARGET && $AR d $TARGET %s" %
+          (" ".join(deletions),)))
+  libc = (
+      env.Command(
+          libc_static_out, libc_static_tmp,
           "mv $SOURCE $TARGET && $AR d $TARGET %s" %
           (" ".join(deletions),)))
 
