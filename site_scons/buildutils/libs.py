@@ -39,6 +39,8 @@ def buildLibc(env, libc_in):
   # Bring across libg.a so we don't modify the actual master copy
   # TODO(miselin): this only works on *nix
   libg_static = env.Command(libg_static_tmp, libc_in, "cp $SOURCE $TARGET")
+  libc_static = env.Command(
+      libc_static_out, libc_in, "$STRIP -g -o $TARGET $SOURCE")
 
   # Set of object files to remove from the library. These are generally things
   # that Pedigree provides.
@@ -76,7 +78,7 @@ def buildLibc(env, libc_in):
       "-Wl,--whole-archive $SOURCE -lpedigree-glue -lpedigree-c "
       "-Wl,--no-whole-archive -Wl,-Bdynamic -lgcc -lncurses -o $TARGET")
   env.Command(
-      libc_shared_out, libg_static_out,
+      libc_shared_out, libc_static_out,
       "$LINK -nostdlib -shared -Wl,-soname,libc.so -L. -L$PEDIGREE_BUILD_BASE"
       "  -L$PEDIGREE_IMAGES_DIR/libraries -Wl,-Bstatic -Wl,--whole-archive "
       "$SOURCE -lpedigree-glue -lpedigree-c -Wl,--no-whole-archive "
