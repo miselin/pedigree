@@ -1,0 +1,4 @@
+cron:
+- description: purge dead tasks
+  url: /?what=purge
+  schedule: every hour
