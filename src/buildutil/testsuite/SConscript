@@ -34,6 +34,7 @@ header_paths = [
     env.Dir('#src/modules/system'),
     env.Dir('#src/system/include'),
     env.Dir('#external/googletest/googletest/include'),
+    env.Dir('#external/benchmark/include'),
 ]
 
 build_env.Append(CPPPATH=header_paths)
