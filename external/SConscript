@@ -31,3 +31,28 @@ if host_env.Dir('#external/googletest').exists:
         '#external/googletest/googletest/include',
         '#external/googletest/googletest',
     ])
+
+# Build benchmark.
+if host_env.Dir('#external/benchmark').exists:
+    lib = host_env.Library('benchmark', [
+        'benchmark/src/benchmark.cc',
+        'benchmark/src/colorprint.cc',
+        'benchmark/src/commandlineflags.cc',
+        'benchmark/src/console_reporter.cc',
+        'benchmark/src/csv_reporter.cc',
+        'benchmark/src/json_reporter.cc',
+        'benchmark/src/log.cc',
+        'benchmark/src/reporter.cc',
+        'benchmark/src/sleep.cc',
+        'benchmark/src/string_util.cc',
+        'benchmark/src/sysinfo.cc',
+        'benchmark/src/walltime.cc',
+        # TODO(miselin): need the same detection as in the cmake version
+        'benchmark/src/re_std.cc',
+    ], CPPPATH=[
+        '#external/benchmark/include',
+    ], CXXFLAGS=[
+        '-std=gnu++11', '-O3',
+    ], CPPDEFINES=[
+        'HAVE_STD_REGEX',
+    ])

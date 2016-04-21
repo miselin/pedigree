@@ -62,11 +62,10 @@ coverage_env.MergeFlags({
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
                      LIBS=[env['LIBUTILITY_COVERAGE'], 'gtest', 'pthread'])
 
-if build_env['HAVE_BENCHMARK']:
-    build_env.MergeFlags({
-        'CXXFLAGS': ['-std=c++11'],
-        'CCFLAGS': ['-g3', '-ggdb', '-O3'],
-    })
+build_env.MergeFlags({
+    'CXXFLAGS': ['-std=c++11'],
+    'CCFLAGS': ['-g3', '-ggdb', '-O3'],
+})
 
-    build_env.Program(benchmark_bin, Glob('bench-*.cc'),
-                      LIBS=[env['LIBUTILITY'], 'benchmark', 'pthread'])
+build_env.Program(benchmark_bin, Glob('bench-*.cc'),
+                  LIBS=[env['LIBUTILITY'], 'benchmark', 'pthread'])

@@ -252,8 +252,6 @@ host_env.MergeFlags({
 conf = Configure(host_env)
 profile_rt = conf.CheckLib('profile_rt')
 gcov = conf.CheckLib('gcov')
-conf.env['HAVE_BENCHMARK'] = conf.CheckLibWithHeader('benchmark',
-    'benchmark/benchmark.h', 'cxx')
 host_env = conf.Finish()
 
 # TODO(miselin): figure out how best to detect asan presence.
