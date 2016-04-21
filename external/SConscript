@@ -52,7 +52,7 @@ if host_env.Dir('#external/benchmark').exists:
     ], CPPPATH=[
         '#external/benchmark/include',
     ], CXXFLAGS=[
-        '-std=gnu++11', '-O3',
+        '-std=c++11', '-O3',
     ], CPPDEFINES=[
         'HAVE_STD_REGEX',
     ])

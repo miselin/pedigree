@@ -31,6 +31,11 @@ echo "Comparing benchmarks between $PREV_REFSPEC and $CURR_REFSPEC..."
 BENCHMARK_COMMAND="./build/host/benchmarker --benchmark_format=json"
 BENCHMARK_COMMAND="$BENCHMARK_COMMAND --benchmark_repetitions=5"
 
+./easy_build_tests.sh
+valgrind $BENCHMARK_COMMAND
+
+exit 0
+
 git pull
 
 if [ "$PREV_REFSPEC" != "$CURR_REFSPEC" ]; then

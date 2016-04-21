@@ -12,39 +12,39 @@ matrix:
   # - os: linux
   #   env: OS=ubuntu EASY_BUILD=tests
   - os: linux
-    env: OS=ubuntu EASY_BUILD=tests BENCHMARK=y
+    env: OS=ubuntu BENCHMARK=y STD=c++11 COMPILER=clang++-3.6
+    sudo: required
   # - os: osx
   #   env: OS=osx EASY_BUILD=x64
   exclude:
     - os: linux
     - compiler: clang
 script:
-  - ./easy_build_$EASY_BUILD.sh nosudo $OS
-  - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then ./tests/testsuite.sh; fi
-  - if [[ "$BENCHMARK" == "y" ]]; then ./scripts/benchmark.sh "$TRAVIS_COMMIT^" "$TRAVIS_COMMIT"; fi
-  - if [[ "$EASY_BUILD" != "tests" ]]; then ./scripts/runtest.py; fi
+  - if [[ "$BENCHMARK" != "y" ]]; then ./easy_build_$EASY_BUILD.sh nosudo $OS; fi
+  - if [[ "$BENCHMARK" == "y" ]]; then source ./external/benchmark/.travis-setup.sh; ./scripts/benchmark.sh "$TRAVIS_COMMIT^" "$TRAVIS_COMMIT"; fi
+  - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
+  - if [[ "$EASY_BUILD" != "tests" && "$BENCHMARK" != "y" ]]; then ./scripts/runtest.py; fi
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install qemu; fi
-  - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then pip install --user codecov gcovr; fi
+  - if [[ "$EASY_BUILD" == "tests" ]]; then pip install --user codecov gcovr; fi
 after_success:
-  - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then codecov; fi
+  - if [[ "$EASY_BUILD" == "tests" ]]; then codecov; fi
 install: true
 notifications:
   email: false
-  irc:
-    channels:
-    - chat.freenode.net#pedigree
-    template:
-    - ! '%{repository}/%{branch} (%{commit} - %{author}): %{message}'
-    - ! 'Build details: %{build_url}'
-    on_success: change
-    on_failure: always
-  slack:
-    secure: T9GJHictl8hUOgGh5RRVmRMExqlWJByssoSYdgnFuHA8ugLXyvHyYaVjLPVcFE9yv7w+sQgki0ZIzCyUH/Hg6/UPwRaH8W4Cm57vQwhE+TUvfy6eRRvYT118X/9X3xkYwhNUks+uydP6oI9YTnvr1XrzB6L4htA7Ma/YKBDhLhg=
+  # irc:
+  #   channels:
+  #   - chat.freenode.net#pedigree
+  #   template:
+  #   - ! '%{repository}/%{branch} (%{commit} - %{author}): %{message}'
+  #   - ! 'Build details: %{build_url}'
+  #   on_success: change
+  #   on_failure: always
+  # slack:
+  #   secure: T9GJHictl8hUOgGh5RRVmRMExqlWJByssoSYdgnFuHA8ugLXyvHyYaVjLPVcFE9yv7w+sQgki0ZIzCyUH/Hg6/UPwRaH8W4Cm57vQwhE+TUvfy6eRRvYT118X/9X3xkYwhNUks+uydP6oI9YTnvr1XrzB6L4htA7Ma/YKBDhLhg=
 addons:
   apt:
     packages:
-      - cmake
       - libmpfr-dev
       - libmpc-dev
       - libgmp3-dev
@@ -58,6 +58,6 @@ addons:
       - uboot-mkimage
       - valgrind
 cache:
-  directories:
-  - $HOME/.ccache
-  - $HOME/pedigree-compiler
+  # directories:
+  # - $HOME/.ccache
+  # - $HOME/pedigree-compiler
