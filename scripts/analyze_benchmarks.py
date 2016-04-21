@@ -98,11 +98,13 @@ def analyze_results(prev_result, curr_result):
     curr_metric = curr_result.get(metric_key, 0.0)
 
     fact = factor(prev_metric, curr_metric)
+    difference_ok = fact >= 1.0
     if 1.0 - abs(fact) < 0.1:
         # Normalize as we really don't care about e.g. a 0.99x factor.
         # That kind of change is essentially just variance in the benchmarking
         # mechanism and not useful data.
         fact = float('nan')
+        improvement = True
 
     return {
         'diff': curr_metric - prev_metric,
@@ -112,6 +114,7 @@ def analyze_results(prev_result, curr_result):
         'human_unit': metric_desc,
         'adjusted_prev': adjust_human(prev_metric),
         'adjusted_curr': adjust_human(curr_metric),
+        'diff_ok': difference_ok,
     }
 
 
@@ -153,6 +156,8 @@ def main():
                 'prev': load_benchmark_entry(entry),
             }
 
+    diffs_ok = []
+
     for entry in current_results.get('benchmarks', ()):
         name = entry['name']
         if args.only_means and 'mean' not in name:
@@ -171,11 +176,19 @@ def main():
             analysis = analyze_results(benchmark_results[name]['prev'],
                                        benchmark_results[name]['curr'])
             benchmark_results[name]['analysis'] = analysis
+            diffs_ok.append(analysis['diff_ok'])
 
     if args.format == 'json':
         print(to_json(benchmark_results))
     elif args.format == 'text':
         print(to_text(benchmark_results))
+
+    if diffs_ok:
+        if not all(diffs_ok):
+            print('FAIL: some benchmarks regressed.')
+            sys.exit(1)
+
+    sys.exit(0)
 
 
 if __name__ == '__main__':

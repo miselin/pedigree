@@ -15,7 +15,7 @@ if ! git diff-index --quiet HEAD; then
 fi
 
 # Find the two refspecs to perform the comparison between.
-PREV_REFSPEC="HEAD~"
+PREV_REFSPEC="HEAD^"
 CURR_REFSPEC="HEAD"
 if [ "x$1" != "x" ]; then
     PREV_REFSPEC="$1"
@@ -31,14 +31,14 @@ echo "Comparing benchmarks between $PREV_REFSPEC and $CURR_REFSPEC..."
 BENCHMARK_COMMAND="./build/host/benchmarker --benchmark_format=json"
 BENCHMARK_COMMAND="$BENCHMARK_COMMAND --benchmark_repetitions=5"
 
-# git pull
+git pull
 
 if [ "$PREV_REFSPEC" != "$CURR_REFSPEC" ]; then
     # Benchmark the previous commit.
-    # git checkout $PREV_REFSPEC
+    git checkout $PREV_REFSPEC
 
-    # ./easy_build_tests.sh
-    # $BENCHMARK_COMMAND >benchmark-PREV.json
+    ./easy_build_tests.sh
+    $BENCHMARK_COMMAND >benchmark-PREV.json
 
     PREV="--prev=./benchmark-PREV.json"
     FORMAT="text"
@@ -48,10 +48,10 @@ else
 fi
 
 # Benchmark the latest commit.
-# git checkout HEAD
+git checkout $CURR_REFSPEC
 
-# ./easy_build_tests.sh
-# $BENCHMARK_COMMAND >benchmark-HEAD.json
+./easy_build_tests.sh
+$BENCHMARK_COMMAND >benchmark-HEAD.json
 
 # Analyze the results.
 OUTPUT=$(python "$ROOT/scripts/analyze_benchmarks.py" $PREV \

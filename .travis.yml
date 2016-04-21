@@ -3,14 +3,16 @@ language: cpp
 compiler: clang
 matrix:
   include:
+  # - os: linux
+  #   env: OS=ubuntu EASY_BUILD=x64
+  # - os: linux
+  #   env: OS=ubuntu EASY_BUILD=arm
+  # - os: linux
+  #   env: OS=ubuntu EASY_BUILD=hosted
+  # - os: linux
+  #   env: OS=ubuntu EASY_BUILD=tests
   - os: linux
-    env: OS=ubuntu EASY_BUILD=x64
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=arm
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=hosted
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=tests
+    env: OS=ubuntu EASY_BUILD=tests BENCHMARK=y
   # - os: osx
   #   env: OS=osx EASY_BUILD=x64
   exclude:
@@ -18,14 +20,16 @@ matrix:
     - compiler: clang
 script:
   - ./easy_build_$EASY_BUILD.sh nosudo $OS
-  - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
+  - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then ./tests/testsuite.sh; fi
+  - if [[ "$BENCHMARK" == "y" ]]; then ./scripts/benchmark.sh "$TRAVIS_COMMIT^" "$TRAVIS_COMMIT"; fi
   - if [[ "$EASY_BUILD" != "tests" ]]; then ./scripts/runtest.py; fi
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install qemu; fi
-  - if [[ "$EASY_BUILD" == "tests" ]]; then pip install --user codecov gcovr; fi
+  - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then pip install --user codecov gcovr; fi
 after_success:
-  - if [[ "$EASY_BUILD" == "tests" ]]; then codecov; fi
-install: true
+  - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then codecov; fi
+install:
+  - if [[ "$BENCHMARK" == "y" ]]; then ./scripts/install_benchmark.sh; fi
 notifications:
   email: false
   irc:
@@ -41,6 +45,7 @@ notifications:
 addons:
   apt:
     packages:
+      - cmake
       - libmpfr-dev
       - libmpc-dev
       - libgmp3-dev
