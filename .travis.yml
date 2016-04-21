@@ -28,8 +28,7 @@ before_install:
   - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then pip install --user codecov gcovr; fi
 after_success:
   - if [[ "$EASY_BUILD" == "tests" && "$BENCHMARK" != "y" ]]; then codecov; fi
-install:
-  - if [[ "$BENCHMARK" == "y" ]]; then ./scripts/install_benchmark.sh; fi
+install: true
 notifications:
   email: false
   irc:
