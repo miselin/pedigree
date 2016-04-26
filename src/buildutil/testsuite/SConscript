@@ -26,6 +26,7 @@ KERNEL_DIR = env.Dir('../../system/kernel')
 
 testsuite_bin = os.path.join(env['BUILDDIR'], 'testsuite')
 benchmark_bin = os.path.join(env['BUILDDIR'], 'benchmarker')
+fuzz_base = os.path.join(env['BUILDDIR'], 'fuzz', 'fuzz-%s')
 
 build_env = env.Clone()
 
@@ -95,3 +96,23 @@ if build_env['HAVE_BENCHMARK']:
                           'bench-StaticString.cc',
                           'bench-RangeList.cc',
                       ], LIBS=[env['LIBUTILITY'], 'benchmark', 'pthread'])
+
+if build_env.get('HAVE_FUZZER') and build_env['CXX'].endswith('clang++'):
+    fuzz_env = build_env.Clone()
+
+    fuzz_env.MergeFlags({
+        'CXXFLAGS': ['-std=c++11'],
+        'CCFLAGS': [
+            '-g3', '-ggdb', '-O3', '-fsanitize=address',
+            '-fsanitize-coverage=edge',
+        ],
+        'LINKFLAGS': [
+            '-fsanitize=address',
+        ],
+        'CPPDEFINES': ['_POSIX_C_SOURCE=200112L'],
+    })
+
+    for source in ('MemoryCopy', 'StringConstruct', 'StringFind',
+                   'StringTokenise', 'StringLength',):
+        fuzz_env.Program(fuzz_base % source, ['fuzz-%s.cc' % source],
+                         LIBS=[env['LIBUTILITY'], 'Fuzzer', 'pthread'])

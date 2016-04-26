@@ -31,3 +31,15 @@ if host_env.Dir('#external/googletest').exists:
         '#external/googletest/googletest/include',
         '#external/googletest/googletest',
     ])
+
+# Build fuzz.
+if host_env.Dir('#external/Fuzzer').exists:
+    lib = host_env.Library('Fuzzer', [
+        Glob('Fuzzer/*.cpp'),
+    ], CPPPATH=[
+        'Fuzzer',
+    ], CXXFLAGS=[
+        '-std=gnu++11', '-O3',
+    ])
+
+    host_env['HAVE_FUZZER'] = True
