@@ -17,25 +17,30 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
-import curses
 import curses.wrapper
+import os
 
 from Installer import Installer
 
-# Change this depending on your installer behaviour
-filesdir = "./files"
-installdir = "./test"
 
 def main(stdscr):
-	global filesdir, installdir
-	
-	inst = Installer(stdscr, "Pedigree", filesdir, installdir)
-	inst.setupCurses()
-	
-	inst.introPage()
-	inst.selectDest()
-	inst.installFiles()
-	inst.postInstall()
-	inst.done()
+    uname = os.uname()
+    if uname[0] != 'Pedigree':
+        filesdir = './files'
+        installdir = './test'
+    else:
+        filesdir = './files'
+        installdir = '/'
 
-curses.wrapper(main)
+    inst = Installer(stdscr, "Pedigree", filesdir, installdir)
+    inst.setupCurses()
+
+    inst.introPage()
+    inst.selectDest()
+    inst.installFiles()
+    inst.postInstall()
+    inst.done()
+
+
+if __name__ == '__main__':
+    curses.wrapper(main)

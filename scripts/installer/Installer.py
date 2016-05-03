@@ -19,250 +19,253 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import os
 import hashlib
+import shlex
 import shutil
+import subprocess
 import curses
-import curses.wrapper
 
 from progressBar import progressBar
 
-# Something went wrong during installation
+
 class InstallerException(Exception):
-	def __init__(self, value):
-		self.parameter = value
-	def __str__(self):
-		return repr(self.parameter)
+    pass
+
 
 class Installer:
 
-	def __init__(self, stdscr, package, filesdir = "./files", installdir = "./install"):
-		self.stdscr = stdscr
-		self.filesdir = filesdir
-		self.installdir = installdir
-		self.packageName = package
-	
-	def setupCurses(self):
-		
-		self.titlewin = self.stdscr.subwin(1, 80, 0, 0)
-		self.mainwin = self.stdscr.subwin(23, 80, 1, 0)
-		self.progwin = self.stdscr.subwin(10, 60, 6, 10)
-		self.statwin = self.stdscr.subwin(1, 80, 24, 0)
-		
-		self.progBar = progressBar(0, 100, 56)
-		
-		curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
-		curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_CYAN)
-		curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_WHITE)
-		curses.init_pair(4, curses.COLOR_RED, curses.COLOR_WHITE)
-		
-		self.titlewin.bkgd(' ', curses.color_pair(1))
-		self.statwin.bkgd(' ', curses.color_pair(1))
-		self.mainwin.bkgd(' ', curses.color_pair(2))
-		
-		self.titlewin.addstr(0, 0, "Installing " + self.packageName)
-		self.statwin.addstr(0, 0, "Copying files...")
-		
-		self.resetProgWin()
-		
-		self.stdscr.refresh()
-	
-	def resetProgWin(self):
-		self.progwin.clear()
-		self.progwin.bkgd(' ', curses.color_pair(1))
-		self.progwin.box()
-		
-		self.stdscr.move(24, 79)
-	
-	def statusUpdate(self, msg):
-		self.statwin.clear()
-		self.statwin.addstr(0, 1, msg)
-		self.statwin.refresh()
-		
-	def drawAlert(self, msg, title, colour_pair):
-		
-		# split the message into more manageable chunks
-		msgLines = msg.rstrip().split("\n")
-	
-		height = len(msgLines) + 4
-		errwin = self.mainwin.subwin(height, 50, (24 / 2) - (height / 2), 15)
-		errwin.overlay(self.progwin)
-		errwin.clear()
-		errwin.bkgd(' ', curses.color_pair(1))
-		errwin.box()
-		errwin.addstr(0, 2, " " + title + " ", curses.color_pair(colour_pair))
-		
-		self.statusUpdate("Press ENTER to acknowledge")
-		
-		y = 2
-		for i in msgLines:
-			if(len(i) > 50):
-				firstPart = i[0:46]
-				secondPart = i[46:]
-				errwin.addstr(y, 2, firstPart)
-				y += 1
-				errwin.addstr(y, 2, secondPart)
-			else:
-				errwin.addstr(y, 2, i)
-			y += 1
-		
-		errwin.refresh()
-		
-		# Wait for ENTER
-		while 1:
-			c = self.stdscr.getch()
-			if(c == 13 or c == 10):
-				break
-		
-		self.mainwin.clear()
-		self.mainwin.refresh()
-		self.resetProgWin()
+    def __init__(self, stdscr, package, filesdir="./files",
+                 installdir="./install"):
+        self._stdscr = stdscr
+        self._filesdir = filesdir
+        self._installdir = installdir
+        self._packageName = package
 
-	def drawError(self, msg, title = "Error"):
-		self.drawAlert(msg, title, 4)
-	
-	def drawWarning(self, msg, title = "Warning"):
-		self.drawAlert(msg, title, 3)
-	
-	def drawProgress(self, action, fileName, progress):
-		self.progwin.addstr(1, 2, action + ", please wait...")
-		self.progwin.addstr(3, 2, fileName)
-		
-		self.progBar.updateAmount(progress)
-		self.progwin.addstr(5, 2, str(self.progBar))
-		
-		self.progwin.refresh()
-		
-		self.resetProgWin()
-	
-	def InstallerPage(self, msg):
-		introwin = self.mainwin.subwin(20, 70, 3, 5)
-		introwin.clear()
-		introwin.box()
-		introwin.bkgd(' ', curses.color_pair(1))
-		
-		msgLines = msg.split("\n")
-		msgNum = len(msgLines)
-		
-		y = (20 / 2) - (msgNum / 2)
-		for i in msgLines:
-			introwin.addstr(y, (70 / 2) - (len(i) / 2), i)
-			y += 1
-		
-		introwin.refresh()
-		
-		self.waitForKeyPress()
-		
-		self.mainwin.clear()
-		self.mainwin.refresh()
-	
-	def introPage(self):
-		
-		msg = "Welcome to the " + self.packageName + " installation!"
-		msg += "\n\n\n"
-		msg += "The next steps will guide you through the installation of " + self.packageName + "."
-		msg += "\n\n"
-		msg += "Press ENTER to continue."
-		self.InstallerPage(msg)
-	
-	def done(self):
-		
-		msg = self.packageName + " is now installed!"
-		msg += "\n\n\n"
-		msg += "Remove the CD from the disk drive and press any key to reboot."
-		self.InstallerPage(msg)
-	
-	def selectDest(self):
-		pass
+        self._titlewin = None
+        self._mainwin = None
+        self._progwin = None
+        self._statwin = None
 
-	def installFiles(self):
-		# Open the file listing. This file contains information about each file that
-		# we are to install.
-		try:
-			fileList = open(self.filesdir + "/filelist.txt")
-		except:
-			# Pass it up to the caller
-			self.drawError("Couldn't open file list for reading.")
-			raise
-		
-		self.statusUpdate("Please wait...")
+        self._progBar = progressBar(0, 100, 56)
 
-		# Start copying files
-		fileLines = fileList.read().rstrip().split("\n")
-		nFiles = len(fileLines)
-		currFileNum = 0
-		myProgress = 0
-		for line in fileLines:
-			# Remove trailing whitespace and split on spaces
-			# File format:
-			# <source path> <dest path> <md5> <compulsory>
-			line = line.rstrip()
-			set = line.split(" ")
-			if(len(set) != 4):
-				self.drawError("Bad set in file list:\n" + line + "\nThis set only has " + str(len(set)) + " entries")
-				continue
-			
-			# Create directory structure if required
-			dirSplit = set[1].split("/")
-			dirSplit = dirSplit[1:-1]
-			if(len(dirSplit) > 0):
-				currPath = "/"
-				for dir in dirSplit:
-					os.mkdir(self.installdir + currPath)
-			
-			# Update the progress
-			currFileNum += 1
-			myProgress = (currFileNum / float(nFiles)) * 100.0
-			self.drawProgress("Copying files", self.installdir + set[1], myProgress)
-			
-			# Some files are meant to be empty, but present
-			if(len(set[0]) == 0):
-				f = open(self.installdir + set[1], "w")
-				f.close()
-				continue
-			
-			# Copy the file
-			shutil.copy(self.filesdir + set[0], self.installdir + set[1])
-			
-			# MD5 the newly copied file
-			newFile = open(self.installdir + set[1])
-			hex = hashlib.md5(newFile.read()).hexdigest()
-			newFile.close()
-			
-			# Ensure the MD5 matches
-			if(hex != set[2]):
-				if(set[3] == "yes"):
-					self.drawError("Compulsory file failed verification:\n" + self.installdir + set[1])
-					raise
-				else:
-					self.drawWarning("File " + str(currFileNum) + " failed verification, continuing anyway:\n" + self.installdir + set[1])
+    def setupCurses(self):
+        self._titlewin = self._stdscr.subwin(1, 80, 0, 0)
+        self._mainwin = self._stdscr.subwin(23, 80, 1, 0)
+        self._progwin = self._stdscr.subwin(10, 60, 6, 10)
+        self._statwin = self._stdscr.subwin(1, 80, 24, 0)
 
-		fileList.close()
-		
-		self.statusUpdate("Copy complete.")
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_CYAN)
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_WHITE)
+        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_WHITE)
 
-	def postInstall(self):
-		self.statusUpdate("Please wait...")
-		
-		# Files copied, run post-install scripts now
-		try:
-			postInstallFile = open(self.filesdir + "/postinstall.txt")
-			contents = postInstallFile.read()
-			contents.rstrip()
-			if(len(contents)):
-				num = 0
-				for line in contents.split("\n"):
-					num += 1
-					self.drawProgress("Running script", line, (num / float(len(contents))) * 100.0)
-					try:
-						p = os.popen(line)
-						print p.read()
-						p.close()
-					except:
-						self.drawWarning("Post-install script '" + str(line) + "' failed, continuing")
-			else:
-				raise
-			postInstallFile.close()
-		except:
-			self.statusUpdate("Post-install scripts complete.")
-	
-	def waitForKeyPress(self):
-		self.stdscr.getch()
+        self._titlewin.bkgd(' ', curses.color_pair(1))
+        self._statwin.bkgd(' ', curses.color_pair(1))
+        self._mainwin.bkgd(' ', curses.color_pair(2))
+
+        self._titlewin.addstr(0, 0, 'Installing ' + self._packageName)
+        self._statwin.addstr(0, 0, '')
+
+        self.resetProgWin()
+
+        self._stdscr.refresh()
+
+    def resetProgWin(self):
+        self._progwin.clear()
+        self._progwin.bkgd(' ', curses.color_pair(1))
+        self._progwin.box()
+
+        self._stdscr.move(24, 79)
+
+    def statusUpdate(self, msg):
+        self._statwin.clear()
+        self._statwin.addstr(0, 1, msg)
+        self._statwin.refresh()
+
+    def drawAlert(self, msg, title, colour_pair):
+        msgLines = msg.rstrip().split('\n')
+
+        height = len(msgLines) + 4
+        errwin = self._mainwin.subwin(height, 50, (24 / 2) - (height / 2), 15)
+        errwin.overlay(self._progwin)
+        errwin.clear()
+        errwin.bkgd(' ', curses.color_pair(1))
+        errwin.box()
+        errwin.addstr(0, 2, ' %s ' % title, curses.color_pair(colour_pair))
+
+        self.statusUpdate('Press ENTER to acknowledge')
+
+        y = 2
+        for i in msgLines:
+            if(len(i) > 50):
+                firstPart = i[0:46]
+                secondPart = i[46:]
+                errwin.addstr(y, 2, firstPart)
+                y += 1
+                errwin.addstr(y, 2, secondPart)
+            else:
+                errwin.addstr(y, 2, i)
+            y += 1
+
+        errwin.refresh()
+
+        # Wait for ENTER
+        while 1:
+            c = self._stdscr.getch()
+            if(c == 13 or c == 10):
+                break
+
+        self._mainwin.clear()
+        self._mainwin.refresh()
+        self.resetProgWin()
+
+    def drawError(self, msg, title='Error'):
+        self.drawAlert(msg, title, 4)
+
+    def drawWarning(self, msg, title='Warning'):
+        self.drawAlert(msg, title, 3)
+
+    def drawProgress(self, action, fileName, progress):
+        self._progwin.addstr(1, 2, action + ', please wait...')
+        self._progwin.addstr(3, 2, fileName)
+
+        self._progBar.updateAmount(progress)
+        self._progwin.addstr(5, 2, str(self._progBar))
+
+        self._progwin.refresh()
+
+        self.resetProgWin()
+
+    def InstallerPage(self, msg):
+        introwin = self._mainwin.subwin(20, 70, 3, 5)
+        introwin.clear()
+        introwin.box()
+        introwin.bkgd(' ', curses.color_pair(1))
+
+        msgLines = msg.split("\n")
+        msgNum = len(msgLines)
+
+        y = (20 / 2) - (msgNum / 2)
+        for i in msgLines:
+            introwin.addstr(y, (70 / 2) - (len(i) / 2), i)
+            y += 1
+
+        introwin.refresh()
+
+        self.waitForKeyPress()
+
+        self._mainwin.clear()
+        self._mainwin.refresh()
+
+    def introPage(self):
+        msg = 'Welcome to the ' + self._packageName + ' installation!'
+        msg += '\n\n\n'
+        msg += 'The next steps will guide you through the installation of '
+        msg += self._packageName + '.'
+        msg += '\n\n'
+        msg += 'Press ENTER to continue.'
+        self.InstallerPage(msg)
+
+    def done(self):
+        self.statusUpdate('')
+        msg = self._packageName + ' is now installed!'
+        msg += '\n\n\n'
+        msg += 'Remove the CD from the disk drive and press any key to reboot.'
+        self.InstallerPage(msg)
+
+    def selectDest(self):
+        pass
+
+    def installFiles(self):
+        # Open the manifest.
+        try:
+            with open(os.path.join(self._filesdir, 'filelist.txt')) as f:
+                lines = f.readlines()
+        except:
+            # Pass it up to the caller
+            self.drawError('Couldn\'t open file list for reading.')
+            raise
+
+        self.statusUpdate('Copying files...')
+
+        # Start copying files
+        for i, line in enumerate(lines):
+            # Remove trailing whitespace and split on spaces
+            # File format:
+            # <source path> <dest path> <md5> <compulsory>
+            line = line.rstrip()
+            if not line:
+                continue
+
+            row = line.split(' ')
+            if len(row) != 4:
+                self.drawError('Bad set in file list:\n%s\nThis set only has '
+                               '%d entries!' % (line, len(row)))
+                continue
+
+            source_rel_path, dest_rel_path, md5, needed = row
+
+            if needed.lower() == 'yes':
+                needed = True
+            else:
+                needed = False
+
+            source_path = os.path.join(self._filesdir, source_rel_path)
+            target_path = os.path.join(self._installdir, dest_rel_path)
+
+            dest_dir = os.path.dirname(target_path)
+            if not os.path.exists(dest_dir):
+                os.makedirs(dest_dir)
+
+            progress = (i / float(len(lines))) * 100.0
+            self.drawProgress('Copying files', target_path, progress)
+
+            # Some files are meant to be empty, but present.
+            if not source_rel_path:
+                with open(target_path, 'w'):
+                    pass
+                continue
+
+            # Copy the file.
+            shutil.copy(source_path, target_path)
+
+            # MD5 the newly copied file
+            with open(target_path) as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
+
+            # Ensure the MD5 matches
+            if file_hash != md5:
+                if needed:
+                    self.drawError('Compulsory file failed verification:'
+                                   '\n%s' % target_path)
+                    raise InstallerException('file failed verification')
+                else:
+                    self.drawWarning('File %d failed verification, continuing '
+                                     'anyway:\n%s' % (i, target_path))
+
+        self.statusUpdate('Copy complete.')
+
+    def postInstall(self):
+        self.statusUpdate('Please wait...')
+
+        # Files copied, run post-install scripts now
+        try:
+            with open(os.path.join(self._filesdir, 'postinstall.txt')) as f:
+                lines = f.readlines()
+                for i, entry in enumerate(lines):
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+
+                    self.drawProgress('Running script', entry,
+                                      (i / float(len(lines))) * 100.0)
+
+                    try:
+                        subprocess.check_call(shlex.split(entry))
+                    except:
+                        self.drawWarning('Post-install script "%s" failed, '
+                                         'continuing...' % entry)
+        except:
+            self.statusUpdate('Post-install scripts complete.')
+
+    def waitForKeyPress(self):
+        self._stdscr.getch()
