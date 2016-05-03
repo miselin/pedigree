@@ -67,7 +67,8 @@ env.Depends(libpedigree_c_shobjname, libc_objname)
 
 # To include new files just add to the list, or Glob("*.cpp")
 posix_files = [
-    Glob("*.cc")
+    Glob("*.cc"),
+    Glob("devfs/*.cc"),
 ]
 
 glue_files = [

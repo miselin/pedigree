@@ -44,6 +44,8 @@
 #include "pipe-syscalls.h"
 #include "net-syscalls.h"
 
+#include "DevFs.h"
+
 extern int posix_getpid();
 
 //

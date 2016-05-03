@@ -24,71 +24,9 @@
 #include <vfs/Directory.h>
 #include <vfs/File.h>
 
-#include <console/TextIO.h>
+class DevFsDirectory;
 
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
-
-class RandomFile : public File
-{
-    public:
-        RandomFile(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
-            File(str, 0, 0, 0, inode, pParentFS, 0, pParent)
-        {}
-        ~RandomFile()
-        {}
-
-        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-};
-
-class NullFile : public File
-{
-public:
-    NullFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
-        File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode)
-    {}
-    ~NullFile()
-    {}
-
-    uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-};
-
-class ZeroFile : public File
-{
-public:
-    ZeroFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
-        File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode)
-    {}
-    ~ZeroFile()
-    {}
-
-    uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-};
-
-class FramebufferFile : public File
-{
-public:
-    FramebufferFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode);
-    ~FramebufferFile();
-
-    bool initialise();
-
-    virtual uintptr_t readBlock(uint64_t location);
-
-    virtual bool supports(const int command);
-    virtual int command(const int command, void *buffer);
-
-    /// \todo pinBlock/unpinBlock should pin/unpin physical pages!
-
-private:
-    GraphicsService::GraphicsProvider *m_pProvider;
-
-    bool m_bTextMode;
-    size_t m_nDepth;
-};
+void createPtyNodes(Filesystem *fs, DevFsDirectory *root, size_t &baseInode);
 
 /** This class provides slightly more flexibility for adding files to a directory. */
 class DevFsDirectory : public Directory

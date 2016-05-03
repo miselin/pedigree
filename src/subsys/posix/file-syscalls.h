@@ -24,8 +24,6 @@
 #include <vfs/File.h>
 #include <vfs/Filesystem.h>
 
-#include "DevFs.h"
-
 #include "newlib.h"
 #include "logging.h"
 
