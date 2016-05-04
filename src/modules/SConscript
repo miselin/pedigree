@@ -250,6 +250,10 @@ env_clone['LIBS'] = []
 env_clone['LIBPATH'] = default_libpath
 env_clone['CPPPATH'] = default_incpath
 
+# libmodule provides generic support that should be built into every module.
+libmodule_env = env_clone.Clone()
+libmodule = libmodule_env.StaticLibrary('module', ['Module.cc'])
+
 def buildModule(env, path, outputBase, targetAlias):
     module_env = env.Clone()
 
