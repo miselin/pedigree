@@ -35,8 +35,10 @@
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
-uint8_t *g_pFile = 0;
-size_t g_FileSz = 0;
+sqlite3 *g_pSqlite = 0;
+
+static uint8_t *g_pFile = 0;
+static size_t g_FileSz = 0;
 
 extern "C" void log_(unsigned long a)
 {
@@ -369,8 +371,6 @@ void xCallback2(sqlite3_context *context, int n, sqlite3_value **values)
     sqlite3_result_int(context, 0);
 }
 
-sqlite3 *g_pSqlite = 0;
-
 #ifdef STATIC_DRIVERS
 #include "config_database.h"
 #endif
@@ -429,6 +429,10 @@ static bool init()
 
 static void destroy()
 {
+    // Shut down sqlite, cleaning up the opened file along the way.
+    sqlite3_close(g_pSqlite);
+    sqlite3_shutdown();
+
     /// \todo properly shut down sqlite!
     delete [] g_pFile;
 }
