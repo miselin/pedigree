@@ -144,6 +144,7 @@ opts.AddVariables(
     BoolVariable('instrumentation', 'Build with function instrumentation (SLOW).', 0),
 
     BoolVariable('kernel_on_disk', 'Put the kernel & needed bits onto hard disk images?', 1),
+    BoolVariable('modules_on_disk', 'Put kernel module files onto hard disk images?', 1),
     
     ('uimage_target', 'Where to copy the generated uImage.bin file to.', '~'),
 )
