@@ -441,6 +441,7 @@ void system_reset()
     KernelElf::instance().unloadModules();
     NOTICE("All modules unloaded. Running destructors and terminating...");
     runKernelDestructors();
+    Processor::deinitialise();
     Processor::reset();
     while(1);
 }
