@@ -25,11 +25,6 @@
   #include "../../core/processor/x64/VirtualAddressSpace.h"
 #endif
 
-void Processor::deinitialise()
-{
-  X86CommonPhysicalMemoryManager::instance().shutdown();
-}
-
 void Processor::initialisationDone()
 {
   /// \todo there HAS to be a better way than this
