@@ -162,6 +162,9 @@ class VbeFramebuffer : public Framebuffer
 
 static bool entry()
 {
+  WARNING("VBE module has a known issue in it at the moment, so it is disabled.");
+  return false;
+
 #ifdef NOGFX
   NOTICE("Not starting VBE module, NOGFX is defined.");
   return false;
@@ -288,6 +291,7 @@ static bool entry()
             pDev->addresses()[j]->m_Address <= fbAddr && (pDev->addresses()[j]->m_Address+pDev->addresses()[j]->m_Size) > fbAddr)
         {
             pDevice = pDev;
+            break;
         }
     }
 
