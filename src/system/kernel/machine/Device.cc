@@ -67,7 +67,7 @@ Device::Device (Device *p) : m_Addresses(), m_Children(), m_pParent(0), m_Interr
   {
     Address *pa = p->m_Addresses[i];
     Address *a = new Address(pa->m_Name, pa->m_Address, pa->m_Size, pa->m_IsIoSpace, pa->m_Padding);
-    NOTICE("address=" << reinterpret_cast<uintptr_t>(a) << ", m_Io=" << reinterpret_cast<uintptr_t>(a->m_Io));
+    NOTICE("address=" << Hex << a << ", m_Io=" << a->m_Io);
     m_Addresses.pushBack(a);
   }
 }
@@ -356,10 +356,10 @@ void Device::Address::map(size_t forcedSize, bool bUser, bool bWriteCombine, boo
                                                cacheFlags,
                                                m_Address))
     {
-        ERROR("Device::Address - map for " << m_Address << " failed!");
+        ERROR("Device::Address - map for " << Hex << m_Address << " failed!");
     }
 
-    NOTICE("Device::Address: mapped " << m_Address << " -> " << reinterpret_cast<uintptr_t>(static_cast<MemoryMappedIo*>(m_Io)->virtualAddress()));
+    NOTICE("Device::Address: mapped " << Hex << m_Address << " -> " << static_cast<MemoryMappedIo*>(m_Io)->virtualAddress());
 
     m_bMapped = true;
 #endif  // DEVICE_IGNORE_ADDRESSES

@@ -91,12 +91,15 @@ extern "C" void vbeModeChangedCallback(char *pId, char *pModeId)
 class VbeFramebuffer : public Framebuffer
 {
     public:
-        VbeFramebuffer() : Framebuffer()
+        VbeFramebuffer() :
+            Framebuffer(), m_pDisplay(0), m_pBackbuffer(0), m_nBackbufferBytes(0),
+            m_pFramebufferRegion(0)
         {
         }
         
         VbeFramebuffer(Display *pDisplay) :
-            Framebuffer(), m_pDisplay(pDisplay), m_pBackbuffer(0), m_nBackbufferBytes(0)
+            Framebuffer(), m_pDisplay(pDisplay), m_pBackbuffer(0), m_nBackbufferBytes(0),
+            m_pFramebufferRegion(0)
         {
         }
 
@@ -162,9 +165,6 @@ class VbeFramebuffer : public Framebuffer
 
 static bool entry()
 {
-  WARNING("VBE module has a known issue in it at the moment, so it is disabled.");
-  return false;
-
 #ifdef NOGFX
   NOTICE("Not starting VBE module, NOGFX is defined.");
   return false;
