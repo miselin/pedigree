@@ -93,21 +93,48 @@ class VbeFramebuffer : public Framebuffer
     public:
         VbeFramebuffer() :
             Framebuffer(), m_pDisplay(0), m_pBackbuffer(0), m_nBackbufferBytes(0),
-            m_pFramebufferRegion(0)
+            m_pFramebufferRegion(0), m_Mode()
         {
         }
         
         VbeFramebuffer(Display *pDisplay) :
             Framebuffer(), m_pDisplay(pDisplay), m_pBackbuffer(0), m_nBackbufferBytes(0),
-            m_pFramebufferRegion(0)
+            m_pFramebufferRegion(0), m_Mode()
         {
         }
 
         virtual void hwRedraw(size_t x = ~0UL, size_t y = ~0UL,
                               size_t w = ~0UL, size_t h = ~0UL)
         {
-            /// \todo Subregions - this just refreshes the entire screen
-            MemoryCopy(m_pDisplay->getFramebuffer(), m_pBackbuffer, m_nBackbufferBytes);
+            if (x == ~0UL)
+              x = 0;
+            if (y == ~0UL)
+              y = 0;
+            if (w == ~0UL)
+              w = m_Mode.width;
+            if (h == ~0UL)
+              h = m_Mode.height;
+
+            if (x == 0 && y == 0 && w >= m_Mode.width && h >= m_Mode.height)
+            {
+              // Full-screen refresh.
+              MemoryCopy(m_pDisplay->getFramebuffer(), m_pBackbuffer, m_nBackbufferBytes);
+              return;
+            }
+
+            // We have a smaller copy than the entire screen.
+            size_t bytesPerRow = w * m_Mode.bytesPerPixel;
+            size_t xOffset = x * m_Mode.bytesPerPixel;
+            size_t yOffset = y * m_Mode.bytesPerLine;
+
+            void *firstRowTarget = adjust_pointer(m_pDisplay->getFramebuffer(), yOffset + xOffset);
+            void *firstRowBackbuffer = adjust_pointer(m_pBackbuffer, yOffset + xOffset);
+            for (size_t yy = 0; yy < h; ++yy)
+            {
+              void *targetRow = adjust_pointer(firstRowTarget, yy * m_Mode.bytesPerLine);
+              void *backbufferRow = adjust_pointer(firstRowBackbuffer, yy * m_Mode.bytesPerLine);
+              MemoryCopy(targetRow, backbufferRow, bytesPerRow);
+            }
         }
         
         virtual ~VbeFramebuffer()
@@ -116,14 +143,13 @@ class VbeFramebuffer : public Framebuffer
 
         virtual void setFramebuffer(uintptr_t p)
         {
-            Display::ScreenMode sm;
-            ByteSet(&sm, 0, sizeof(Display::ScreenMode));
-            if (!m_pDisplay->getCurrentScreenMode(sm))
+            ByteSet(&m_Mode, 0, sizeof(Display::ScreenMode));
+            if (!m_pDisplay->getCurrentScreenMode(m_Mode))
             {
                 ERROR("VBE: setting screen mode failed.");
                 return;
             }
-            m_nBackbufferBytes = sm.bytesPerLine * sm.height;
+            m_nBackbufferBytes = m_Mode.bytesPerLine * m_Mode.height;
             if(m_nBackbufferBytes)
             {
                 m_pBackbuffer = 0;
@@ -161,6 +187,8 @@ class VbeFramebuffer : public Framebuffer
         size_t m_nBackbufferBytes;
 
         MemoryRegion *m_pFramebufferRegion;
+
+        Display::ScreenMode m_Mode;
 };
 
 static bool entry()
