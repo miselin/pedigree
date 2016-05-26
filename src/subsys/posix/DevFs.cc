@@ -105,7 +105,7 @@ FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem *pParentFS
     File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_pProvider(0), m_bTextMode(false), m_nDepth(0)
 {
     // r/w only for root
-    setPermissionsOnly(FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
     setUidOnly(0);
     setGidOnly(0);
 }

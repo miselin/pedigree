@@ -45,7 +45,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     }
 
     // r/w for root user/group, no access for everyone else.
-    setPermissionsOnly(FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
     setUidOnly(0);
     setGidOnly(0);
 }

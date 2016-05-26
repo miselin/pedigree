@@ -21,7 +21,9 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import os
 import shutil
 import subprocess
+import stat
 import struct
+import sqlite3
 import tempfile
 
 
@@ -45,25 +47,44 @@ def buildImageE2fsprogs(target, source, env):
 
     # TODO(miselin): this image will not have GRUB on it.
 
+    # Host path -> Pedigree path.
+    builddir_copies = {}
+
     # Copy files into the local images directory, ready for creation.
-    shutil.copyfile(os.path.join(builddir, 'config.db'),
-                    os.path.join(imagedir, '.pedigree-root'))
+    builddir_copies[os.path.join(builddir, 'config.db')] = '/.pedigree-root'
+
+    # Open the configuration database and collect known users and groups.
+    try:
+        conn = sqlite3.connect(os.path.join(imagedir, '.pedigree-root'))
+    except:
+        # Won't be able to assign permissions correctly.
+        conn = None
+
+    users = {
+        # UID, default GID.
+        'root': (0, 0),
+    }
+    groups = {
+        'root': 0,
+    }
+
+    if conn is not None:
+        q = conn.execute('select gid, name from groups')
+        for row in q:
+            groups[row[1]] = int(row[0]) - 1
+
+        q = conn.execute('select uid, username, groupname from users')
+        for row in q:
+            users[row[1]] = (int(row[0]) - 1, groups[row[2]])
+
+        conn.close()
 
     def makedirs(p):
         if not os.path.exists(p):
             os.makedirs(p)
 
-    # Create target directories.
-    makedirs(os.path.join(imagedir, 'boot'))
-    makedirs(os.path.join(imagedir, 'boot', 'grub'))
-    makedirs(os.path.join(imagedir, 'applications'))
-    makedirs(os.path.join(imagedir, 'libraries'))
-    makedirs(os.path.join(imagedir, 'system/modules'))
-    makedirs(os.path.join(imagedir, 'config'))
-
     # Add GRUB config.
-    shutil.copyfile(os.path.join(imagedir, '..', 'grub', 'menu-hdd.lst'),
-                    os.path.join(imagedir, 'boot', 'grub', 'menu.lst'))
+    builddir_copies[os.path.join(imagedir, '..', 'grub', 'menu-hdd.lst')] = '/boot/grub/menu.lst'
 
     # Copy the kernel, initrd, and configuration database
     if env['kernel_on_disk']:
@@ -71,8 +92,7 @@ def buildImageE2fsprogs(target, source, env):
         if 'STATIC_DRIVERS' in env['CPPDEFINES']:
             nth = 2
         for i in source[0:nth]:
-            shutil.copyfile(i.abspath,
-                            os.path.join(imagedir, 'boot', i.name))
+            buildir_copies[i.abspath] = '/boot/' + i.name
     else:
         nth = 0
     source = source[nth:]
@@ -85,27 +105,27 @@ def buildImageE2fsprogs(target, source, env):
         # Applications
         if appsdir in i.abspath:
             search = appsdir
-            prefix = 'applications'
+            prefix = '/applications'
 
         # Modules
         elif modsdir in i.abspath:
             search = modsdir
-            prefix = 'system/modules'
+            prefix = '/system/modules'
 
         # Drivers
         elif drvsdir in i.abspath:
             search = drvsdir
-            prefix = 'system/modules'
+            prefix = '/system/modules'
 
         # User Libraries
         elif libsdir in i.abspath:
             search = libsdir
-            prefix = 'libraries'
+            prefix = '/libraries'
 
         # Additional Libraries
         elif builddir in i.abspath:
             search = builddir
-            prefix = 'libraries'
+            prefix = '/libraries'
 
         # Already in the image.
         elif imagedir in i.abspath:
@@ -114,21 +134,15 @@ def buildImageE2fsprogs(target, source, env):
         otherPath = prefix + i.abspath.replace(search, '')
 
         # Clean out the last directory name if needed
-        fn = shutil.copyfile
-        if os.path.isdir(i.abspath):
-            fn = shutil.copytree
-
-        fn(i.path, os.path.join(imagedir, otherPath))
+        builddir_copies[i.abspath] = os.path.join(prefix, i.name)
 
     # Copy etc bits.
-    shutil.copyfile(os.path.join(imagedir, '..', 'base', 'config', 'greeting'),
-                    os.path.join(imagedir, 'config', 'greeting'))
-    shutil.copyfile(os.path.join(imagedir, '..', 'base', 'config', 'inputrc'),
-                    os.path.join(imagedir, 'config', 'inputrc'))
-    shutil.copyfile(os.path.join(imagedir, '..', 'base', '.bashrc'),
-                    os.path.join(imagedir, '.bashrc'))
-    shutil.copyfile(os.path.join(imagedir, '..', 'base', '.profile'),
-                    os.path.join(imagedir, '.profile'))
+    base_dir = os.path.join(imagedir, '..', 'base')
+    base_config = os.path.join(base_dir, 'config')
+    for config_file in ('greeting', 'inputrc'):
+        builddir_copies[os.path.join(base_config, config_file)] = '/config/' + config_file
+    for root_file in ('.bashrc', '.profile'):
+        builddir_copies[os.path.join(base_dir, root_file)] = '/' + root_file
 
     # Offset into the image for the partition proper to start.
     partition_offset = 0 # 0x10000
@@ -192,19 +206,50 @@ def buildImageE2fsprogs(target, source, env):
     ]
     subprocess.check_call(args)
 
+    def add_file(cmdlist, source, target):
+        if os.path.isfile(source):
+            cmdlist.append('write %s %s' % (source, target))
+
+            # Figure out if we need executable permission or not.
+            # We assume the default (0644) is acceptable otherwise.
+            mode = os.stat(source).st_mode
+            if mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                cmdlist.append('chmod %s 755' % (target,))
+
     # Populate the image.
     cmdlist = []
+    safe_dirs = set()
     for (dirpath, dirs, files) in os.walk(imagedir):
         target_dirpath = dirpath.replace(imagedir, '')
         if not target_dirpath:
             target_dirpath = '/'
 
+        safe_dirs.add(target_dirpath)
+
+        changedDefaults = False
+        if target_dirpath.startswith('/users/'):
+            user = target_dirpath.split('/')[2]
+            if user in users:
+                cmdlist.append('defaultowner %d %d' % users[user])
+                changedDefaults = True
+
         for d in dirs:
-            cmdlist.append('mkdir %s' % (os.path.join(target_dirpath, d),))
+            target = os.path.join(target_dirpath, d)
+            cmdlist.append('mkdir %s' % (target,))
+
+            if target_dirpath == '/users':
+                if d in users:
+                    cmdlist.append('chown %s %d %d' % (target, users[d][0], users[d][1]))
 
         for f in sorted(files):
             source = os.path.join(dirpath, f)
+
+            # This file might need to be copied from the build directory.
             target = os.path.join(target_dirpath, f)
+            if target in builddir_copies.values():
+                print 'Target %s will be overridden by files in the build directory.' % (target,)
+                continue
+
             if os.path.islink(source):
                 link_target = os.readlink(source)
                 if link_target.startswith(dirpath):
@@ -212,7 +257,26 @@ def buildImageE2fsprogs(target, source, env):
 
                 cmdlist.append('symlink %s %s' % (target, link_target))
             elif os.path.isfile(source):
-                cmdlist.append('write %s %s' % (source, target))
+                add_file(cmdlist, source, target)
+
+        if changedDefaults:
+            cmdlist.append('defaultowner 0 0')
+
+    def safe_mkdirs(d):
+        if d not in safe_dirs:
+            safe_mkdirs(os.path.dirname(d))
+            cmdlist.append('mkdir %s' % (d,))
+            safe_dirs.add(d)
+
+    for host_path, target_path in builddir_copies.items():
+        dirname = os.path.dirname(target_path)
+        if dirname not in safe_dirs:
+            safe_mkdirs(dirname)
+
+        if os.path.isfile(host_path):
+            add_file(cmdlist, host_path, target_path)
+        else:
+            raise Exception('Target %s is not a file.' % (target_path,))
 
     base_image.close()
 

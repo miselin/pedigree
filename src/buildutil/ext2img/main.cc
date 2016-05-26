@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include <fstream>
 #include <sstream>
@@ -108,6 +109,21 @@ void syscallError(int e)
 uint32_t getUnixTimestamp()
 {
     return time(0);
+}
+
+static uint32_t modeToPermissions(uint32_t mode)
+{
+    uint32_t permissions = 0;
+    if (mode & S_IRUSR) permissions |= FILE_UR;
+    if (mode & S_IWUSR) permissions |= FILE_UW;
+    if (mode & S_IXUSR) permissions |= FILE_UX;
+    if (mode & S_IRGRP) permissions |= FILE_GR;
+    if (mode & S_IWGRP) permissions |= FILE_GW;
+    if (mode & S_IXGRP) permissions |= FILE_GX;
+    if (mode & S_IROTH) permissions |= FILE_OR;
+    if (mode & S_IWOTH) permissions |= FILE_OW;
+    if (mode & S_IXOTH) permissions |= FILE_OX;
+    return permissions;
 }
 
 bool writeFile(const std::string &source, const std::string &dest)
@@ -322,7 +338,7 @@ bool changePermissions(const std::string &filename, const std::string &permissio
         return false;
     }
 
-    pFile->setPermissions(intPerms);
+    pFile->setPermissions(modeToPermissions(intPerms));
 
     return true;
 }
