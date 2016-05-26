@@ -63,6 +63,12 @@ ConsoleFile::ConsoleFile(String consoleName, Filesystem *pFs) :
     m_RingBuffer(PTY_BUFFER_SIZE), m_Name(consoleName), m_pEvent(0)
 {
     MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
+
+    // r/w for all (todo: when a console is locked, it should become owned
+    // by the locking user)
+    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setUidOnly(0);
+    setGidOnly(0);
 }
 
 int ConsoleFile::select(bool bWriting, int timeout)

@@ -371,6 +371,13 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
     DynamicLinker *pOldLinker = pProcess->getLinker();
     DynamicLinker *pLinker = new DynamicLinker();
 
+    // Can we read & execute the given target?
+    if (!pSubsystem->checkAccess(file, true, false, true))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
+
     // Should we actually load this file, or request another program load the file?
     String interpreter("");
     if(pLinker->checkInterpreter(file, interpreter))
@@ -417,6 +424,13 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
     // Now that dependencies are definitely available and the program will
     // actually load, we can set up the Process object
     pProcess->description() = String(name);
+
+    // Make sure we have the needed permissions on the interpreter too.
+    if ((file != pActualFile) && !pSubsystem->checkAccess(file, true, false, true))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
 
     // Make sure the dynamic linker loads the correct program.
     String *actualPath = new String(pActualFile->getFullPath());

@@ -36,7 +36,11 @@ class RandomFile : public File
     public:
         RandomFile(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
             File(str, 0, 0, 0, inode, pParentFS, 0, pParent)
-        {}
+        {
+            setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+            setUidOnly(0);
+            setGidOnly(0);
+        }
         ~RandomFile()
         {}
 
@@ -49,7 +53,11 @@ class NullFile : public File
 public:
     NullFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
         File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode)
-    {}
+    {
+        setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+        setUidOnly(0);
+        setGidOnly(0);
+    }
     ~NullFile()
     {}
 
@@ -62,7 +70,11 @@ class ZeroFile : public File
 public:
     ZeroFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
         File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode)
-    {}
+    {
+        setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+        setUidOnly(0);
+        setGidOnly(0);
+    }
     ~ZeroFile()
     {}
 

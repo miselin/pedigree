@@ -56,6 +56,7 @@ extern int posix_getpid();
 
 inline File *traverseSymlink(File *file)
 {
+    /// \todo detect inability to access at each intermediate step.
     if(!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -248,6 +249,9 @@ int posix_open(const char *name, int flags, int mode)
         if ((flags & O_CREAT) && !onDevFs)
         {
             F_NOTICE("  {O_CREAT}");
+            /// \todo need to be able to get a File object for the parent
+            ///       directory here so we can check if the user has write
+            ///       permission in the directory.
             bool worked = VFS::instance().createFile(nameToOpen, 0777, GET_CWD());
             if (!worked)
             {
@@ -313,6 +317,13 @@ int posix_open(const char *name, int flags, int mode)
         return -1;
     }
 
+    // Check for the desired permissions.
+    if (!pSubsystem->checkAccess(file, flags & (O_RDONLY | O_RDWR), flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
+
     // Check for console (as we have special handling needed here)
     if (ConsoleManager::instance().isConsole(file))
     {
@@ -331,6 +342,7 @@ int posix_open(const char *name, int flags, int mode)
         }
     }
 
+    // Permissions were OK.
     if ((flags & O_TRUNC) && ((flags & O_CREAT) || (flags & O_WRONLY) || (flags & O_RDWR)))
     {
         F_NOTICE("  {O_TRUNC}");
@@ -525,6 +537,7 @@ int posix_link(char *target, char *link)
     }
 
     /// \todo check same filesystem
+    /// \todo check permissions
 
     bool result = VFS::instance().createLink(realLink, pTarget, GET_CWD());
 
@@ -643,10 +656,29 @@ int posix_unlink(char *name)
     String realPath;
     normalisePath(realPath, name);
 
+    File *pFile = VFS::instance().find(realPath, GET_CWD());
+    if (!pFile)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+    else if (pFile->isDirectory())
+    {
+        // We don't support unlink() on directories - use rmdir().
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+    }
+
+    /// \todo need to check the parent's permissions
+
     if (VFS::instance().remove(realPath, GET_CWD()))
+    {
         return 0;
+    }
     else
+    {
         return -1; /// \todo SYSCALL_ERROR of some sort
+    }
 }
 
 int posix_symlink(char *target, char *link)
@@ -660,6 +692,8 @@ int posix_symlink(char *target, char *link)
     }
 
     F_NOTICE("symlink(" << target << ", " << link << ")");
+
+    /// \todo need to check parent's permissions
 
     bool worked = VFS::instance().createSymlink(String(link), String(target), GET_CWD());
     if (worked)
@@ -1086,6 +1120,13 @@ int posix_opendir(const char *dir, DIR *ent)
         return -1;
     }
 
+    // Need read permission to list the directory.
+    if (!pSubsystem->checkAccess(file, true, false, false))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
+
     size_t fd = pSubsystem->getFd();
     FileDescriptor *f = new FileDescriptor;
     f->file = file;
@@ -1439,6 +1480,8 @@ int posix_mkdir(const char* name, int mode)
     String realPath;
     normalisePath(realPath, name);
 
+    /// \todo check parent permissions
+
     bool worked = VFS::instance().createDirectory(realPath, GET_CWD());
     return worked ? 0 : -1;
 }
@@ -1769,6 +1812,8 @@ void *posix_mmap(void *p)
             return MAP_FAILED;
         }
 
+        /// \todo check flags on the file descriptor (e.g. O_RDONLY shouldn't be opened writeable)
+
         // Grab the file to map in
         File *fileToMap = f->file;
         
@@ -1902,6 +1947,16 @@ int posix_access(const char *name, int amode)
     }
 
     F_NOTICE("access(" << (name ? name : "n/a") << ", " << Dec << amode << Hex << ")");
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
     if(!name)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -1921,7 +1976,20 @@ int posix_access(const char *name, int amode)
         return -1;
     }
 
-    /// \todo Proper permission checks. For now, the file exists, and you can do what you want with it.
+    // If we're only checking for existence, we're done here.
+    if (amode == F_OK)
+    {
+        F_NOTICE("  -> ok");
+        return 0;
+    }
+
+    if (!pSubsystem->checkAccess(file, amode & R_OK, amode & W_OK, amode & X_OK))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        F_NOTICE("  -> not ok");
+        return -1;
+    }
+
     F_NOTICE("  -> ok");
     return 0;
 }
@@ -2421,6 +2489,15 @@ int posix_utime(const char *path, const struct utimbuf *times)
 
     F_NOTICE("utimes(" << path << ")");
 
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
     String realPath;
     normalisePath(realPath, path);
 
@@ -2435,6 +2512,12 @@ int posix_utime(const char *path, const struct utimbuf *times)
     file = traverseSymlink(file);
     if(!file)
         return -1;
+
+    if (!pSubsystem->checkAccess(file, false, true, false))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
 
     Time::Timestamp accessTime;
     Time::Timestamp modifyTime;
@@ -2466,6 +2549,15 @@ int posix_utimes(const char *path, const struct timeval *times)
 
     F_NOTICE("utimes(" << path << ")");
 
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
     String realPath;
     normalisePath(realPath, path);
 
@@ -2480,6 +2572,12 @@ int posix_utimes(const char *path, const struct timeval *times)
     file = traverseSymlink(file);
     if(!file)
         return -1;
+
+    if (!pSubsystem->checkAccess(file, false, true, false))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
 
     Time::Timestamp accessTime;
     Time::Timestamp modifyTime;

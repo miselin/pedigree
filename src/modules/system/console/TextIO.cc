@@ -43,6 +43,11 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     {
         t->registerHandler(this);
     }
+
+    // r/w for root user/group, no access for everyone else.
+    setPermissionsOnly(FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setUidOnly(0);
+    setGidOnly(0);
 }
 
 TextIO::~TextIO()

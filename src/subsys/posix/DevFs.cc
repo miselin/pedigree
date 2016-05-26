@@ -104,6 +104,10 @@ uint64_t ZeroFile::write(uint64_t location, uint64_t size, uintptr_t buffer, boo
 FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
     File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_pProvider(0), m_bTextMode(false), m_nDepth(0)
 {
+    // r/w only for root
+    setPermissionsOnly(FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setUidOnly(0);
+    setGidOnly(0);
 }
 
 FramebufferFile::~FramebufferFile()
