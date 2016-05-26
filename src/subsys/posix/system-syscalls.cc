@@ -1016,6 +1016,57 @@ int posix_getpwnam(passwd *pw, const char *name, char *str)
     return 0;
 }
 
+int posix_getgrnam(const char *name, struct group *out)
+{
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(out), sizeof(struct group), PosixSubsystem::SafeWrite)))
+    {
+        SC_NOTICE("getgrnam -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    SC_NOTICE("getgrnam(" << name << ")");
+
+    Group *pGroup = UserManager::instance().getGroup(String(name));
+    if (!pGroup)
+    {
+        // No error needs to be set if not found.
+        return -1;
+    }
+
+    /// \todo this ignores the members field
+    StringCopy(out->gr_name, static_cast<const char *>(pGroup->getName()));
+    out->gr_gid = pGroup->getId();
+
+    return 0;
+}
+
+int posix_getgrgid(gid_t id, struct group *out)
+{
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(out), sizeof(struct group), PosixSubsystem::SafeWrite)))
+    {
+        SC_NOTICE("getgrgid( -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    SC_NOTICE("getgrgid(" << id << ")");
+
+    Group *pGroup = UserManager::instance().getGroup(id);
+    if (!pGroup)
+    {
+        // No error needs to be set if not found.
+        return -1;
+    }
+
+    /// \todo this ignores the members field
+    StringCopy(out->gr_name, static_cast<const char *>(pGroup->getName()));
+    out->gr_gid = pGroup->getId();
+
+    return 0;
+}
+
 uid_t posix_getuid()
 {
     SC_NOTICE("getuid() -> " << Dec << Processor::information().getCurrentThread()->getParent()->getUser()->getId());

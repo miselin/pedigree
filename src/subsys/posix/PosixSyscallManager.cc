@@ -363,6 +363,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_CHROOT:
             return posix_chroot(reinterpret_cast<const char *>(p1));
 
+        case POSIX_GETGRNAM:
+            return posix_getgrnam(reinterpret_cast<const char *>(p1), reinterpret_cast<struct group *>(p2));
+        case POSIX_GETGRGID:
+            return posix_getgrgid(static_cast<gid_t>(p1), reinterpret_cast<struct group *>(p2));
+
         case POSIX_PEDIGREE_CREATE_WAITER:
             return reinterpret_cast<uintptr_t>(posix_pedigree_create_waiter());
         case POSIX_PEDIGREE_DESTROY_WAITER:

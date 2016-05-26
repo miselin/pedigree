@@ -1009,30 +1009,37 @@ int socketpair(int domain, int type, int protocol, int sock_vec[2])
 
 struct group *getgrnam(const char *name)
 {
-    STUBBED("getgrnam");
+    static struct group ret = {0, 0, 0, 0};
 
-    /// \todo HACK HACK HACKITY HACK SO VERY HACKY. Yeah, this is for Apache.
-    /// Also it's going to leak memory everywhere, and use it really badly.
+    if (ret.gr_name)
+        free(ret.gr_name);
+    if (ret.gr_passwd)
+        free(ret.gr_passwd);
 
-    static struct group ret;
-
-    ret.gr_name = (char*) malloc(128);
-    strcpy(ret.gr_name, name);
-
-    ret.gr_gid = 3; // httpd
-
-    ret.gr_mem = (char**) malloc(8);
-    ret.gr_mem[0] = (char*) malloc(128);
-    strcpy(ret.gr_mem[0], "httpd");
-    ret.gr_mem[1] = 0;
+    ret.gr_name = (char *) malloc(256);
+    ret.gr_passwd = (char *) malloc(256);
+    int r = syscall2(POSIX_GETGRNAM, (long) name, (long) &ret);
+    if (r < 0)
+    {
+        return 0;
+    }
 
     return &ret;
 }
 
 struct group *getgrgid(gid_t id)
 {
-    STUBBED("getgrgid");
-    return 0;
+    static struct group ret = {0, 0, 0, 0};
+
+    ret.gr_name = (char *) malloc(256);
+    ret.gr_passwd = (char *) malloc(256);
+    int r = syscall2(POSIX_GETGRGID, id, (long) &ret);
+    if (r < 0)
+    {
+        return 0;
+    }
+
+    return &ret;
 }
 
 int symlink(const char *path1, const char *path2)

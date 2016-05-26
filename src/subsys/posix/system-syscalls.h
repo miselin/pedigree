@@ -62,6 +62,9 @@ int posix_setsid();
 int posix_setpgid(int pid, int pgid);
 int posix_getpgrp();
 
+int posix_getgrnam(const char *name, struct group *out);
+int posix_getgrgid(gid_t id, struct group *out);
+
 int posix_syslog(const char *msg, int prio);
 
 int pedigree_login(int uid, const char *password);
