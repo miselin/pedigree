@@ -52,6 +52,17 @@ Timestamp getTimeNanoseconds(bool sync=false);
  */
 Timestamp getTicks();
 
-}
+namespace Conversion
+{
+
+/**
+ * Converts the given expanded date to a UNIX timestamp.
+ */
+Timestamp toUnix(size_t second, size_t minute, size_t hour, size_t dom,
+                 size_t month, size_t year);
+
+}  // namespace Conversion
+
+}  // namespace Time
 
 #endif

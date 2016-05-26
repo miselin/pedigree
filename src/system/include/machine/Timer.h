@@ -23,6 +23,7 @@
 #include <processor/types.h>
 #include <utilities/assert.h>
 #include <machine/TimerHandler.h>
+#include <time/Time.h>
 
 /** @addtogroup kernelmachine
  * @{ */
@@ -66,21 +67,8 @@ class Timer
         return getTickCount() * 1000U;
     }
 
-    /** Get the time in UNIX timestamp form (seconds since Jan 1st, 1970).
-        \note This function does not currently take account of leap years -
-              That may require FP (*365.25 instead of 365) */
-    virtual uint32_t getUnixTimestamp()
-    {
-      size_t year = getYear();
-      assert(year >= 1970);
-      return
-        (year - 1970) * (60*60*24*365) +
-        getMonth() * (60*60*24*30) +
-        getDayOfMonth() * (60*60*24) +
-        getHour() * (60*60) +
-        getMinute() * 60 +
-        getSecond();
-    }
+    /** Get the time in UNIX timestamp form (seconds since Jan 1st, 1970). */
+    virtual Time::Timestamp getUnixTimestamp();
 
     virtual bool registerHandler(TimerHandler *handler) = 0;
     virtual bool unregisterHandler(TimerHandler *handler) = 0;

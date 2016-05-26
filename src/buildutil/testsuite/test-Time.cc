@@ -17,36 +17,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define PEDIGREE_EXTERNAL_SOURCE 1
+
+#include <gtest/gtest.h>
+
+#include <ctime>
+
 #include <time/Time.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
 
-namespace Time
+TEST(PedigreeTime, ToUnixConversion)
 {
-
-Timestamp getTime(bool sync)
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    if (sync)
-        pTimer->synchronise();
-    return pTimer->getUnixTimestamp();
+    // UNIX epoch.
+    EXPECT_EQ(Time::Conversion::toUnix(0, 0, 0, 1, 1, 1970), 0);
 }
 
-Timestamp getTimeNanoseconds(bool sync)
+TEST(PedigreeTime, Over32bit)
 {
-    Timer *pTimer = Machine::instance().getTimer();
-    if (sync)
-        pTimer->synchronise();
-    Timestamp r = pTimer->getUnixTimestamp() * Multiplier::SECOND;
-    r += pTimer->getNanosecond();
-    return r;
+    // 03:14:07 19 January 2038 - 32-bit signed integer rollover.
+    EXPECT_EQ(Time::Conversion::toUnix(7, 14, 3, 19, 1, 2038), (1ULL << 31ULL) - 1);
+    // No longer fits into a 32-bit signed integer.
+    EXPECT_EQ(Time::Conversion::toUnix(8, 14, 3, 19, 1, 2038), (1ULL << 31ULL));
 }
-
-Timestamp getTicks()
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    pTimer->synchronise();
-    return pTimer->getTickCountNano();
-}
-
-}  // namespace Time

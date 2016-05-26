@@ -17,36 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time/Time.h>
-#include <machine/Machine.h>
 #include <machine/Timer.h>
+#include <time/Time.h>
 
-namespace Time
+Time::Timestamp Timer::getUnixTimestamp()
 {
-
-Timestamp getTime(bool sync)
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    if (sync)
-        pTimer->synchronise();
-    return pTimer->getUnixTimestamp();
+  return Time::Conversion::toUnix(getSecond(), getMinute(), getHour(),
+    getDayOfMonth(), getMonth(), getYear());
 }
-
-Timestamp getTimeNanoseconds(bool sync)
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    if (sync)
-        pTimer->synchronise();
-    Timestamp r = pTimer->getUnixTimestamp() * Multiplier::SECOND;
-    r += pTimer->getNanosecond();
-    return r;
-}
-
-Timestamp getTicks()
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    pTimer->synchronise();
-    return pTimer->getTickCountNano();
-}
-
-}  // namespace Time
