@@ -533,6 +533,10 @@ class PosixSubsystem : public Subsystem
             m_ThreadWaiters.remove(n);
         }
 
+        /** Checks if the current user can access the given file. */
+        bool checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute) const;
+        bool checkAccess(FileDescriptor *pFileDescriptor, bool bRead, bool bWrite, bool bExecute) const;
+
     private:
         virtual void threadRemoved(Thread *pThread);
 
