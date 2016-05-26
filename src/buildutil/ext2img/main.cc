@@ -48,6 +48,20 @@
 static bool ignoreErrors = false;
 static size_t blocksPerRead = 64;
 
+static uint32_t defaultPermissions[3] = {
+    // File - RW-R--R--
+    0644,
+    // Directory, RWX-R-XR-X
+    0755,
+    // Symlink, RWXRWXRWX
+    0777,
+};
+
+static size_t defaultOwner[2] = {
+    // root:root
+    0, 0,
+};
+
 enum CommandType
 {
     InvalidCommand,
@@ -57,6 +71,10 @@ enum CommandType
     WriteFile,
     RemoveFile,
     VerifyFile,
+    ChangePermissions,
+    ChangeOwner,
+    SetDefaultPermissions,
+    SetDefaultOwners,
 };
 
 struct Command
@@ -65,6 +83,7 @@ struct Command
 
     CommandType what;
     std::vector<std::string> params;
+    std::string original;
 };
 
 extern bool msdosProbeDisk(Disk *pDisk);
@@ -91,7 +110,7 @@ uint32_t getUnixTimestamp()
     return time(0);
 }
 
-bool writeFile(std::string source, std::string dest)
+bool writeFile(const std::string &source, const std::string &dest)
 {
     std::ifstream ifs(source, std::ios::binary);
     if (ifs.bad() || ifs.fail())
@@ -140,10 +159,14 @@ bool writeFile(std::string source, std::string dest)
 
     delete [] buffer;
 
+    pFile->setPermissions(modeToPermissions(defaultPermissions[0]));
+    pFile->setUid(defaultOwner[0]);
+    pFile->setGid(defaultOwner[1]);
+
     return true;
 }
 
-bool createSymlink(std::string name, std::string target)
+bool createSymlink(const std::string &name, const std::string &target)
 {
     bool result = VFS::instance().createSymlink(TO_FS_PATH(name), String(target.c_str()));
     if (!result)
@@ -152,10 +175,18 @@ bool createSymlink(std::string name, std::string target)
         return false;
     }
 
+    File *pResult = VFS::instance().find(TO_FS_PATH(name));
+    if (pResult)
+    {
+        pResult->setPermissions(modeToPermissions(defaultPermissions[2]));
+        pResult->setUid(defaultOwner[0]);
+        pResult->setGid(defaultOwner[1]);
+    }
+
     return true;
 }
 
-bool createHardlink(std::string name, std::string target)
+bool createHardlink(const std::string &name, const std::string &target)
 {
     File *pTarget = VFS::instance().find(TO_FS_PATH(target));
     if (!pTarget)
@@ -174,7 +205,7 @@ bool createHardlink(std::string name, std::string target)
     return true;
 }
 
-bool createDirectory(std::string dest)
+bool createDirectory(const std::string &dest)
 {
     bool result = VFS::instance().createDirectory(TO_FS_PATH(dest));
     if (!result)
@@ -183,10 +214,18 @@ bool createDirectory(std::string dest)
         return false;
     }
 
+    File *pResult = VFS::instance().find(TO_FS_PATH(dest));
+    if (pResult)
+    {
+        pResult->setPermissions(modeToPermissions(defaultPermissions[1]));
+        pResult->setUid(defaultOwner[0]);
+        pResult->setGid(defaultOwner[1]);
+    }
+
     return true;
 }
 
-bool removeFile(std::string target)
+bool removeFile(const std::string &target)
 {
     bool result = VFS::instance().remove(TO_FS_PATH(target));
     if (!result)
@@ -198,7 +237,7 @@ bool removeFile(std::string target)
     return true;
 }
 
-bool verifyFile(std::string source, std::string target)
+bool verifyFile(const std::string &source, const std::string &target)
 {
     std::ifstream ifs(source, std::ios::binary);
     if (ifs.bad() || ifs.fail())
@@ -259,6 +298,100 @@ bool verifyFile(std::string source, std::string target)
 
     delete [] bufferA;
     delete [] bufferB;
+
+    return true;
+}
+
+bool changePermissions(const std::string &filename, const std::string &permissions)
+{
+    int intPerms = 0;
+    try
+    {
+        intPerms = std::stoi(permissions, nullptr, 8);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Bad permissions value '" << permissions << "' passed: " << e.what() << std::endl;
+        return false;
+    }
+
+    File *pFile = VFS::instance().find(TO_FS_PATH(filename));
+    if (!pFile)
+    {
+        std::cerr << "Couldn't open file to change permissions: '" << filename << "'." << std::endl;
+        return false;
+    }
+
+    pFile->setPermissions(intPerms);
+
+    return true;
+}
+
+bool changeOwner(const std::string &filename, const std::string &uid, const std::string &gid)
+{
+    int intUid = 0, intGid = 0;
+    try
+    {
+        intUid = std::stoi(uid, nullptr);
+        intGid = std::stoi(uid, nullptr);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Bad uid/gid value '" << uid << "' or '" << gid << "' passed: " << e.what() << std::endl;
+        return false;
+    }
+
+    File *pFile = VFS::instance().find(TO_FS_PATH(filename));
+    if (!pFile)
+    {
+        std::cerr << "Couldn't open file to change permissions: '" << filename << "'." << std::endl;
+        return false;
+    }
+
+    pFile->setUid(intUid);
+    pFile->setGid(intGid);
+
+    return true;
+}
+
+bool setDefaultPermissions(const std::string &file_perms, const std::string &dir_perms, const std::string &link_perms)
+{
+    int intFile = 0, intDir = 0, intLink = 0;
+    try
+    {
+        intFile = std::stoi(file_perms, nullptr, 8);
+        intDir = std::stoi(dir_perms, nullptr, 8);
+        intLink = std::stoi(link_perms, nullptr, 8);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Bad default permissions passed: " << e.what() << std::endl;
+        return false;
+    }
+
+    defaultPermissions[0] = intFile;
+    defaultPermissions[1] = intDir;
+    defaultPermissions[2] = intLink;
+
+    return true;
+}
+
+bool setDefaultOwner(const std::string &uid, const std::string &gid)
+{
+    int intUid = 0, intGid = 0;
+    try
+    {
+        intUid = std::stoi(uid, nullptr);
+        intGid = std::stoi(gid, nullptr);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "Bad uid/gid value '" << uid << "' or '" << gid << "' passed for defaults: " << e.what() << std::endl;
+        return false;
+    }
+
+    defaultOwner[0] = intUid;
+    defaultOwner[1] = intGid;
 
     return true;
 }
@@ -350,6 +483,30 @@ int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
                 break;
             case VerifyFile:
                 if ((!verifyFile(it->params[0], it->params[1])) && !ignoreErrors)
+                {
+                    return 1;
+                }
+                break;
+            case ChangePermissions:
+                if ((!changePermissions(it->params[0], it->params[1])) && !ignoreErrors)
+                {
+                    return 1;
+                }
+                break;
+            case ChangeOwner:
+                if ((!changeOwner(it->params[0], it->params[1], it->params[2])) && !ignoreErrors)
+                {
+                    return 1;
+                }
+                break;
+            case SetDefaultPermissions:
+                if ((!setDefaultPermissions(it->params[0], it->params[1], it->params[2])) && !ignoreErrors)
+                {
+                    return 1;
+                }
+                break;
+            case SetDefaultOwners:
+                if ((!setDefaultOwner(it->params[0], it->params[1])) && !ignoreErrors)
                 {
                     return 1;
                 }
@@ -450,6 +607,26 @@ bool parseCommandFile(const char *cmdFile, std::vector<Command> &output)
             c.what = VerifyFile;
             requiredParamCount = 2;
         }
+        else if (cmd == "chmod")
+        {
+            c.what = ChangePermissions;
+            requiredParamCount = 2;
+        }
+        else if (cmd == "chown")
+        {
+            c.what = ChangeOwner;
+            requiredParamCount = 3;
+        }
+        else if (cmd == "defaultperms")
+        {
+            c.what = SetDefaultPermissions;
+            requiredParamCount = 3;
+        }
+        else if (cmd == "defaultowner")
+        {
+            c.what = SetDefaultOwners;
+            requiredParamCount = 2;
+        }
         else
         {
             std::cerr << "Unknown command '" << cmd << "' at line " << lineno << ": '" << line << "'" << std::endl;
@@ -470,6 +647,7 @@ bool parseCommandFile(const char *cmdFile, std::vector<Command> &output)
             continue;
         }
 
+        c.original = line;
         output.push_back(c);
     }
 

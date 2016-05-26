@@ -34,18 +34,7 @@ Ext2Symlink::Ext2Symlink(String name, uintptr_t inode_num, Inode *inode,
     Ext2Node(inode_num, inode, pFs)
 {
     uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
-    uint32_t permissions = 0;
-    if (mode & EXT2_S_IRUSR) permissions |= FILE_UR;
-    if (mode & EXT2_S_IWUSR) permissions |= FILE_UW;
-    if (mode & EXT2_S_IXUSR) permissions |= FILE_UX;
-    if (mode & EXT2_S_IRGRP) permissions |= FILE_GR;
-    if (mode & EXT2_S_IWGRP) permissions |= FILE_GW;
-    if (mode & EXT2_S_IXGRP) permissions |= FILE_GX;
-    if (mode & EXT2_S_IROTH) permissions |= FILE_OR;
-    if (mode & EXT2_S_IWOTH) permissions |= FILE_OW;
-    if (mode & EXT2_S_IXOTH) permissions |= FILE_OX;
-
-    setPermissionsOnly(permissions);
+    setPermissionsOnly(modeToPermissions(mode));
     setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
     setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
 }
@@ -109,4 +98,5 @@ void Ext2Symlink::truncate()
 void Ext2Symlink::fileAttributeChanged()
 {
     static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
+    static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(), permissionsToMode(getPermissions()));
 }

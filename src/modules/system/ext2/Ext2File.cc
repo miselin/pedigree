@@ -34,18 +34,7 @@ Ext2File::Ext2File(String name, uintptr_t inode_num, Inode *inode,
     Ext2Node(inode_num, inode, pFs)
 {
     uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
-    uint32_t permissions = 0;
-    if (mode & EXT2_S_IRUSR) permissions |= FILE_UR;
-    if (mode & EXT2_S_IWUSR) permissions |= FILE_UW;
-    if (mode & EXT2_S_IXUSR) permissions |= FILE_UX;
-    if (mode & EXT2_S_IRGRP) permissions |= FILE_GR;
-    if (mode & EXT2_S_IWGRP) permissions |= FILE_GW;
-    if (mode & EXT2_S_IXGRP) permissions |= FILE_GX;
-    if (mode & EXT2_S_IROTH) permissions |= FILE_OR;
-    if (mode & EXT2_S_IWOTH) permissions |= FILE_OW;
-    if (mode & EXT2_S_IXOTH) permissions |= FILE_OX;
-
-    setPermissionsOnly(permissions);
+    setPermissionsOnly(modeToPermissions(mode));
     setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
     setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
 }
@@ -70,19 +59,7 @@ void Ext2File::truncate()
 void Ext2File::fileAttributeChanged()
 {
     static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
-
-    uint32_t mode = 0;
-    uint32_t permissions = getPermissions();
-    if (permissions & FILE_UR) mode |= EXT2_S_IRUSR;
-    if (permissions & FILE_UW) mode |= EXT2_S_IWUSR;
-    if (permissions & FILE_UX) mode |= EXT2_S_IXUSR;
-    if (permissions & FILE_GR) mode |= EXT2_S_IRGRP;
-    if (permissions & FILE_GW) mode |= EXT2_S_IWGRP;
-    if (permissions & FILE_GX) mode |= EXT2_S_IXGRP;
-    if (permissions & FILE_OR) mode |= EXT2_S_IROTH;
-    if (permissions & FILE_OW) mode |= EXT2_S_IWOTH;
-    if (permissions & FILE_OX) mode |= EXT2_S_IXOTH;
-    static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(), mode);
+    static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(), permissionsToMode(getPermissions()));
 }
 
 uintptr_t Ext2File::readBlock(uint64_t location)

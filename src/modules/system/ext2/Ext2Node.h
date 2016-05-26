@@ -80,6 +80,9 @@ protected:
 
     bool setBlockNumber(size_t blockNum, uint32_t blockValue);
 
+    uint32_t modeToPermissions(uint32_t mode) const;
+    uint32_t permissionsToMode(uint32_t permissions) const;
+
     Inode *m_pInode;
     uint32_t m_InodeNumber;
     class Ext2Filesystem *m_pExt2Fs;

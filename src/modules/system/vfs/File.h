@@ -33,15 +33,24 @@
 
 #include <processor/PhysicalMemoryManager.h>
 
+// RWX for owner.
 #define FILE_UR 0001
 #define FILE_UW 0002
 #define FILE_UX 0004
+#define FILE_UMASK 0007
+#define FILE_UBITS 0
+// RWX for group.
 #define FILE_GR 0010
 #define FILE_GW 0020
 #define FILE_GX 0040
+#define FILE_GMASK 0070
+#define FILE_GBITS 3
+// RWX for others.
 #define FILE_OR 0100
 #define FILE_OW 0200
 #define FILE_OX 0400
+#define FILE_OMASK 0700
+#define FILE_OBITS 6
 
 /** A File is a regular file - it is also the superclass of Directory, Symlink
     and Pipe. */

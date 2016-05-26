@@ -980,7 +980,7 @@ int posix_getpwnam(passwd *pw, const char *name, char *str)
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pw), sizeof(passwd), PosixSubsystem::SafeWrite) &&
         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead)))
     {
-        SC_NOTICE("readdir -> invalid address");
+        SC_NOTICE("getpwname -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }

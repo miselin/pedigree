@@ -808,27 +808,27 @@ bool PosixSubsystem::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExe
     Group *pGroup = UserManager::instance().getGroup(gid);
 
     uint32_t permissions = pFile->getPermissions();
-    NOTICE("file permissions " << Hex << permissions << " [" << pFile->getName() << "]");
+    NOTICE("file permissions " << Oct << permissions << " [" << pFile->getName() << "]");
     uint32_t check = 0;
 
     // Are we owner?
     if (pUser == pCurrentUser)
     {
-        check = (permissions >> 6) & 0x7;
+        check = (permissions >> FILE_UBITS) & 0x7;
     }
     else if (pUser->isMember(pGroup))
     {
-        check = (permissions >> 3) & 0x7;
+        check = (permissions >> FILE_GBITS) & 0x7;
     }
     else
     {
-        check = permissions & 0x7;
+        check = (permissions >> FILE_OBITS) & 0x7;
     }
 
     // Needed permissions.
     uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
 
-    NOTICE("check: " << Hex << check << " vs " << needed << " r=" << bRead << " w=" << bWrite << " x=" << bExecute);
+    NOTICE("check: " << Oct << check << " vs " << needed << " r=" << bRead << " w=" << bWrite << " x=" << bExecute);
     if ((check & needed) != needed)
     {
         NOTICE("fail");
