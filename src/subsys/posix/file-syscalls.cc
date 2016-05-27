@@ -386,7 +386,7 @@ int posix_open(const char *name, int flags, int mode)
 
     F_NOTICE("open(" << name << ", " << ((flags & O_RDWR) ? "O_RDWR" : "") << ((flags & O_RDONLY) ? "O_RDONLY" : "") << ((flags & O_WRONLY) ? "O_WRONLY" : "") << ")");
     F_NOTICE("  -> actual flags " << flags);
-    F_NOTICE("  -> mode is " << mode);
+    F_NOTICE("  -> mode is " << Oct << mode);
     
     // One of these three must be specified.
     if(!(CHECK_FLAG(flags, O_RDONLY) || CHECK_FLAG(flags, O_RDWR) || CHECK_FLAG(flags, O_WRONLY)))
