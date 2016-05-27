@@ -224,16 +224,22 @@ uint64_t RequestQueue::addAsyncRequest(size_t priority, uint64_t p1, uint64_t p2
 void RequestQueue::halt()
 {
 #ifdef THREADS
-  LockGuard<Mutex> guard(m_RequestQueueMutex);
-
+  m_RequestQueueMutex.acquire();
   if(!m_Halted)
   {
     m_Stop = true;
     m_RequestQueueSize.release();
+
+    // Join now - we need to release the mutex so the worker thread can keep
+    // going, as it could be blocked on trying to acquire it right now.
+    m_RequestQueueMutex.release();
     m_pThread->join();
+    m_RequestQueueMutex.acquire();
+
     m_pThread = 0;
     m_Halted = true;
   }
+  m_RequestQueueMutex.release();
 #endif
 }
 
