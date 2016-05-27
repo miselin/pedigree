@@ -67,6 +67,7 @@ opts.AddVariables(
     BoolVariable('posix_sys_verbose', 'Enable verbose logging for POSIX system syscalls.', 0),
     BoolVariable('posix_thr_verbose', 'Enable verbose logging for POSIX pthread syscalls.', 0),
     BoolVariable('posix_net_verbose', 'Enable verbose logging for POSIX network syscalls.', 0),
+    BoolVariable('posix_subsys_verbose', 'Enable verbose logging for the PosixSubsystem class.', 0),
     BoolVariable('posix_sig_verbose', 'Enable verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_sig_ultra_verbose', 'Enable even more verbose logging for POSIX signal syscalls.', 0),
 

@@ -34,13 +34,12 @@
 #include <utilities/assert.h>
 
 #include "PosixProcess.h"
+#include "logging.h"
 
 #include <linker/DynamicLinker.h>
 #include <vfs/VFS.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
-
-// #define POSIX_SUBSYS_DEBUG
 
 #define O_RDONLY    0
 #define O_WRONLY    1
@@ -297,35 +296,30 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 {
     Uninterruptible while_checking;
 
-#ifdef POSIX_SUBSYS_DEBUG
-    NOTICE("PosixSubsystem::checkAddress(" << addr << ", " << extent << ", " << flags << ")");
-#endif
+    PS_NOTICE("PosixSubsystem::checkAddress(" << Hex << addr << ", " << Dec << extent << ", " << Hex << flags << ")");
 
     // No memory access expected, all good.
     if(!extent)
     {
-#ifdef POSIX_SUBSYS_DEBUG
-        NOTICE("  -> zero extent, address is sane.");
-#endif
+        PS_NOTICE("  -> zero extent, address is sane.");
         return true;
     }
+
+    uintptr_t aa = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    PS_NOTICE(" -> ret: " << aa);
 
     // Check address range.
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     if((addr < va.getUserStart()) || (addr >= va.getKernelStart()))
     {
-#ifdef POSIX_SUBSYS_DEBUG
-        NOTICE("  -> outside of user address area.");
-#endif
+        PS_NOTICE("  -> outside of user address area.");
         return false;
     }
 
     // Short-circuit if this is a memory mapped region.
     if(MemoryMapManager::instance().contains(addr, extent))
     {
-#ifdef POSIX_SUBSYS_DEBUG
-        NOTICE("  -> inside memory map.");
-#endif
+        PS_NOTICE("  -> inside memory map.");
         return true;
     }
 
@@ -335,9 +329,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         void *pAddr = reinterpret_cast<void *>(addr + i);
         if(!va.isMapped(pAddr))
         {
-#ifdef POSIX_SUBSYS_DEBUG
-            NOTICE("  -> not mapped.");
-#endif
+            PS_NOTICE("  -> not mapped.");
             return false;
         }
 
@@ -349,14 +341,13 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 
             if(!(vFlags & (VirtualAddressSpace::Write | VirtualAddressSpace::CopyOnWrite)))
             {
-#ifdef POSIX_SUBSYS_DEBUG
-                NOTICE("  -> not writeable.");
-#endif
+                PS_NOTICE("  -> not writeable.");
                 return false;
             }
         }
     }
 
+    PS_NOTICE("  -> mapped and available.");
     return true;
 }
 

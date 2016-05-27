@@ -22,8 +22,10 @@
 
 // Logs to the kernel log with the current PID.
 #define POSIX_VERBOSE_LOG(f, x) do { \
-        auto id = Processor::information().getCurrentThread()->getParent()->getId(); \
-        NOTICE("[" << f << ":\t" << Dec << id << Hex << "]\t" << x); \
+        auto tid = Processor::information().getCurrentThread()->getId(); \
+        auto level = Processor::information().getCurrentThread()->getStateLevel(); \
+        auto pid = Processor::information().getCurrentThread()->getParent()->getId(); \
+        NOTICE("[" << f << ":\t" << Dec << pid << ":" << tid << "." << level << Hex << "]\t" << x); \
     } while(0)
 
 // POSIX_LOG_FACILITIES is an integer for which each bit indicates a particular
@@ -51,6 +53,10 @@
 #endif
 
 #if POSIX_LOG_FACILITIES & 32
+#define POSIX_VERBOSE_SUBSYSTEM
+#endif
+
+#if POSIX_LOG_FACILITIES & 64
 #define POSIX_ULTRA_VERBOSE_SIGNAL_SYSCALLS
 #endif
 
@@ -84,6 +90,12 @@
 #define SG_NOTICE(x) POSIX_VERBOSE_LOG("sig", x)
 #else
 #define SG_NOTICE(x)
+#endif
+
+#ifdef POSIX_VERBOSE_SUBSYSTEM
+#define PS_NOTICE(x) POSIX_VERBOSE_LOG("sub", x)
+#else
+#define PS_NOTICE(x)
 #endif
 
 #ifdef POSIX_ULTRA_VERBOSE_SIGNAL_SYSCALLS
