@@ -20,6 +20,7 @@
 #include <Module.h>
 #include <Log.h>
 
+#include <BootstrapInfo.h>
 #include <utilities/assert.h>
 #include <machine/Display.h>
 #include <machine/InputManager.h>
@@ -62,11 +63,7 @@ static GraphicsService::GraphicsProvider pProvider;
 static size_t g_Previous = 0;
 static bool g_LogMode = false;
 
-#ifdef NOGFX
-static bool g_NoGraphics = true;
-#else
 static bool g_NoGraphics = false;
-#endif
 
 static Mutex g_PrintLock(false);
 
@@ -192,7 +189,8 @@ class StreamingScreenLogger : public Log::LogCallback
         void callback(const char *str)
         {
 #ifdef DEBUGGER
-            printString(str);
+            if (g_LogMode)
+                printString(str);
 #endif
         }
 };
@@ -205,19 +203,24 @@ static void keyCallback(InputManager::InputNotification &note)
         return;
 
     uint64_t key = note.data.key.key;
-    if(key == '\033' && !g_LogMode)
+    if(key == '\033')
     {
         // Because we edit the dimensions of the screen, we can't let a print
         // continue while we run here.
         LockGuard<Mutex> guard(g_PrintLock);
 
-        g_LogMode = true;
-
-        g_LogY += (g_LogBoxY / FONT_HEIGHT);
-        g_LogX = (g_LogBoxX / FONT_WIDTH);
-        g_LogBoxX = g_LogBoxY = 0;
-        g_LogW = g_Width;
-        g_LogH = g_Height;
+        if (!g_LogMode)
+        {
+            g_LogMode = true;
+        }
+        else
+        {
+            g_LogY += (g_LogBoxY / FONT_HEIGHT);
+            g_LogX = (g_LogBoxX / FONT_WIDTH);
+            g_LogBoxX = g_LogBoxY = 0;
+            g_LogW = g_Width;
+            g_LogH = g_Height;
+        }
     }
 }
 
@@ -242,7 +245,7 @@ static void progress(const char *text)
         bFinished = true;
     }
 
-    if(g_LogMode)
+    if(g_LogMode && (g_LogH == g_Height))
         return;
 
     if(g_NoGraphics)
@@ -357,9 +360,10 @@ static void getDesiredMode(size_t &modeWidth, size_t &modeHeight, size_t &modeBp
     delete pResult;
 }
 
-static bool init()
+static bool handleNoSplash()
 {
-#ifdef NOGFX
+    g_NoGraphics = true;
+
     const String title("Pedigree is Loading...\n");
 
     // Prepare to render by making some space between the current BootIO output
@@ -383,7 +387,14 @@ static bool init()
     bootIO.write(s, BootIO::White, BootIO::Black);
 
     g_BootProgressUpdate = &progress;
-#else
+
+    return true;
+}
+
+static bool handleSplash()
+{
+    g_NoGraphics = false;
+
     getColor("splash-background", g_BackgroundColour);
     getColor("splash-foreground", g_ForegroundColour);
     getColor("border", g_ProgressBorderColour);
@@ -402,10 +413,7 @@ static bool init()
     if(!bSuccess)
     {
         NOTICE("splash: this system does not support graphics, using fallback log callback");
-        Log::instance().installCallback(&g_StreamLogger, true);
-        g_BootProgressUpdate = &progress;
-        g_NoGraphics = true;
-        return true;
+        return handleNoSplash();
     }
 
     Display *pDisplay = pProvider.pDisplay;
@@ -461,9 +469,7 @@ static bool init()
     if(g_NoGraphics)
     {
         NOTICE("splash: this system does not support graphics, using fallback log callback");
-        Log::instance().installCallback(&g_StreamLogger, true);
-        g_BootProgressUpdate = &progress;
-        return true;
+        return handleNoSplash();
     }
 
     Framebuffer *pParentFramebuffer = pProvider.pFramebuffer;
@@ -536,15 +542,11 @@ static bool init()
 
     // Yay text!
     centerStringAt("Please wait, Pedigree is loading...", g_Width / 2, g_ProgressY - (FONT_HEIGHT * 3));
-#ifdef DEBUGGER
-#endif
 
 #ifdef DEBUGGER
     // Draw a border around the log area
     centerStringAt("< Kernel Log >", g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
-    centerStringAt("(you can push ESCAPE to make the log fill the screen)", g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
-    g_pFramebuffer->rect(g_LogBoxX, g_LogBoxY - 2, g_LogW, g_LogH - 2, g_ForegroundColour, g_ColorFormat);
-    g_pFramebuffer->rect(g_LogBoxX, g_LogBoxY - 1, g_LogW, g_LogH - 1, g_BackgroundColour, g_ColorFormat);
+    centerStringAt("(you can push ESCAPE to view the kernel log, and again to make the log fill the screen)", g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
 #endif
 
     // Draw empty progress bar. Easiest way to draw a nonfilled rect? Draw two filled rects.
@@ -561,9 +563,35 @@ static bool init()
     InputManager::instance().installCallback(InputManager::Key, keyCallback);
 #endif
 
-#endif
-
     return true;
+}
+
+static bool init()
+{
+    g_NoGraphics = false;
+    char *cmdline = g_pBootstrapInfo->getCommandLine();
+    if(cmdline)
+    {
+        List<SharedPointer<String>> cmds = String(cmdline).tokenise(' ');
+        for (auto it = cmds.begin(); it != cmds.end(); it++)
+        {
+            auto cmd = *it;
+            if(*cmd == String("nosplash"))
+            {
+                g_NoGraphics = true;
+                break;
+            }
+        }
+    }
+
+    if (g_NoGraphics)
+    {
+        return handleNoSplash();
+    }
+    else
+    {
+        return handleSplash();
+    }
 }
 
 static void destroy()
@@ -571,7 +599,7 @@ static void destroy()
     Log::instance().removeCallback(&g_StreamLogger);
 
 #ifdef DEBUGGER
-    if(!g_NoGraphics)
+    if (!g_NoGraphics)
     {
         InputManager::instance().removeCallback(keyCallback);
     }
@@ -584,4 +612,3 @@ MODULE_INFO("splash", &init, &destroy, "config");
 // If no graphics drivers loaded, we can handle that still. But we still need
 // to run after the gfx-deps metamodule.
 MODULE_OPTIONAL_DEPENDS("gfx-deps");
-
