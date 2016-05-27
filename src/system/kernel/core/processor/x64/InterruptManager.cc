@@ -233,6 +233,10 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
       asm volatile("mov %%cr2, %%rax" : "=a" (cr2));
       NOTICE_NOLOCK("  -> #DF possibly caused by #PF at " << cr2 << ".");
     }
+
+    // Write the failure into the kernel log before launching the debugger.
+    ERROR(static_cast<const char *>(e));
+
 #if defined(DEBUGGER)
     Debugger::instance().start(interruptState, e);
 #else
