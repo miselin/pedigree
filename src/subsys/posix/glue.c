@@ -151,13 +151,39 @@ int truncate(const char *path, off_t length)
 
 char* getcwd(char *buf, unsigned long size)
 {
-    // Because the developers of bash can't be assed following a specification,
-    // we have to make this dirty hack so that getcwd with a null buffer works.
-    // Even though that's technically unspecified behaviour that should be an
-    // error condition.
+    if (buf && !size)
+    {
+        errno = EINVAL;
+        return 0;
+    }
+    else if (!buf && !size)
+    {
+        size = PATH_MAX;
+    }
+
+    // buf == null is unspecified but used by bash.
+    int malloced = 0;
     if(!buf)
-        buf = (char*) malloc(size ? size : PATH_MAX);
-    unsigned long result = syscall2(POSIX_GETCWD, (long) buf, (long) size);
+    {
+        buf = (char*) malloc(size);
+        if (!buf)
+        {
+            errno = ENOMEM;
+            return 0;
+        }
+        malloced = 1;
+    }
+    char *result = (char *) syscall2(POSIX_GETCWD, (long) buf, (long) size);
+    if (!result)
+    {
+        if (malloced)
+        {
+            free(buf);
+        }
+
+        return 0;
+    }
+
     return (char *) result;
 }
 

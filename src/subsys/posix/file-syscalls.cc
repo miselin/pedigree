@@ -993,7 +993,11 @@ char* posix_getcwd(char* buf, size_t maxlen)
 
     size_t maxLength = str.length();
     if(maxLength > maxlen)
-        maxLength = maxlen;
+    {
+        // Too long.
+        SYSCALL_ERROR(BadRange);
+        return 0;
+    }
     StringCopyN(buf, static_cast<const char*>(str), maxLength);
 
     F_NOTICE(" -> " << str);
