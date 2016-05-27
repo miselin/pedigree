@@ -173,7 +173,8 @@ char* getcwd(char *buf, unsigned long size)
         }
         malloced = 1;
     }
-    char *result = (char *) syscall2(POSIX_GETCWD, (long) buf, (long) size);
+    long r = syscall2(POSIX_GETCWD, (long) buf, (long) size);
+    char *result = (char *) r;
     if (!result)
     {
         if (malloced)
@@ -288,7 +289,7 @@ int open(const char *name, int flags, ...) // , mode_t mode)
     {
         va_list ap;
         va_start(ap, flags);
-        mode = va_arg(ap, mode_t);
+        mode = va_arg(ap, int);
         va_end(ap);
     }
 
