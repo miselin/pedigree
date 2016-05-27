@@ -21,7 +21,7 @@
 #define POSIX_PROCESS_H
 
 #include <processor/types.h>
-#include <PosixSubsystem.h>
+#include "PosixSubsystem.h"
 #include <Log.h>
 
 #include <process/Process.h>
@@ -90,12 +90,12 @@ class PosixProcess : public Process
         };
 
         PosixProcess() :
-            Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup)
+            Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
         {}
 
         /** Copy constructor. */
         PosixProcess(Process *pParent) :
-            Process(pParent), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup)
+            Process(pParent), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
         {
             if(pParent->getType() == Posix)
             {
@@ -106,6 +106,9 @@ class PosixProcess : public Process
                 {
                     setGroupMembership(Member);
                 }
+
+                // Child inherits parent's mask.
+                m_Mask = pPosixParent->getMask();
             }
         }
 
@@ -172,6 +175,16 @@ class PosixProcess : public Process
             return Posix;
         }
 
+        void setMask(uint32_t mask)
+        {
+            m_Mask = mask;
+        }
+
+        uint32_t getMask()
+        {
+            return m_Mask;
+        }
+
     private:
         PosixProcess(const PosixProcess&);
         PosixProcess& operator=(const PosixProcess&);
@@ -179,6 +192,7 @@ class PosixProcess : public Process
         PosixSession *m_pSession;
         ProcessGroup *m_pProcessGroup;
         Membership m_GroupMembership;
+        uint32_t m_Mask;
 };
 
 #endif

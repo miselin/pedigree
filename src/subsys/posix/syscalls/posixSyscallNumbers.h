@@ -192,6 +192,7 @@
 #define POSIX_RMDIR             134
 #define POSIX_GETGRNAM          135
 #define POSIX_GETGRGID          136
+#define POSIX_UMASK             137
 
 #define POSIX_PTSNAME           200
 #define POSIX_TTYNAME           201

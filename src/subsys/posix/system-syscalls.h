@@ -62,6 +62,8 @@ int posix_setsid();
 int posix_setpgid(int pid, int pgid);
 int posix_getpgrp();
 
+mode_t posix_umask(mode_t mask);
+
 int posix_getgrnam(const char *name, struct group *out);
 int posix_getgrgid(gid_t id, struct group *out);
 

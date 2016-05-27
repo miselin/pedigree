@@ -739,8 +739,7 @@ unsigned int alarm(unsigned int seconds)
 
 mode_t umask(mode_t mask)
 {
-    STUBBED("umask");
-    return 0;
+    return syscall1(POSIX_UMASK, mask);
 }
 
 int chmod(const char *path, mode_t mode)

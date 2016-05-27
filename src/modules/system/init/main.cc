@@ -22,6 +22,7 @@
 #include <Module.h>
 #include <vfs/VFS.h>
 #include <subsys/posix/PosixSubsystem.h>
+#include <subsys/posix/PosixProcess.h>
 #include <core/BootIO.h>
 #include <linker/DynamicLinker.h>
 #include <users/UserManager.h>
@@ -205,7 +206,7 @@ static bool init()
 {
 #ifdef THREADS
     // Create a new process for the init process.
-    Process *pProcess = new Process(Processor::information().getCurrentThread()->getParent());
+    Process *pProcess = new PosixProcess(Processor::information().getCurrentThread()->getParent());
     pProcess->setUser(UserManager::instance().getUser(0));
     pProcess->setGroup(UserManager::instance().getUser(0)->getDefaultGroup());
     pProcess->setEffectiveUser(pProcess->getUser());

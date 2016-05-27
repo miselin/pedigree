@@ -90,6 +90,6 @@ int posix_utimes(const char *path, const struct timeval *times);
 
 int posix_chroot(const char *path);
 
-void normalisePath(String &nameToOpen, const char *name, bool *onDevFs = 0);
+bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs = 0);
 
 #endif

@@ -39,6 +39,7 @@
 
 #include <Subsystem.h>
 #include <PosixSubsystem.h>
+#include <PosixProcess.h>
 
 #include "file-syscalls.h"
 #include "console-syscalls.h"
@@ -54,6 +55,18 @@ extern int posix_getpid();
 #define CHECK_FLAG(a, b) (((a) & (b)) == (b))
 
 #define GET_CWD() (Processor::information().getCurrentThread()->getParent()->getCwd())
+
+static PosixProcess *getPosixProcess()
+{
+    Process *pStockProcess = Processor::information().getCurrentThread()->getParent();
+    if(pStockProcess->getType() != Process::Posix)
+    {
+        return 0;
+    }
+
+    PosixProcess *pProcess = static_cast<PosixProcess *>(pStockProcess);
+    return pProcess;
+}
 
 static File *traverseSymlink(File *file)
 {
@@ -285,7 +298,7 @@ static bool doChown(File *pFile, uid_t owner, gid_t group)
     return true;
 }
 
-void normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
+bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 {
     // Rebase /dev onto the devfs. /dev/tty is special.
     if (!StringCompare(name, "/dev/tty"))
@@ -299,6 +312,7 @@ void normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         }
 
         nameToOpen = name;
+        return true;
     }
     else if (!StringCompareN(name, "/dev", StringLength("/dev")))
     {
@@ -306,26 +320,31 @@ void normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         nameToOpen += (name + StringLength("/dev"));
         if (onDevFs)
             *onDevFs = true;
+        return true;
     }
     else if (!StringCompareN(name, "/bin", StringLength("/bin")))
     {
         nameToOpen = "/applications";
         nameToOpen += (name + StringLength("/bin"));
+        return true;
     }
     else if (!StringCompareN(name, "/etc", StringLength("/etc")))
     {
         nameToOpen = "/config";
         nameToOpen += (name + StringLength("/etc"));
+        return true;
     }
     else if (!StringCompareN(name, "/tmp", StringLength("/tmp")))
     {
         nameToOpen = "scratch»";
         nameToOpen += (name + StringLength("/tmp"));
+        return true;
     }
     else if (!StringCompareN(name, "/var/run", StringLength("/var/run")))
     {
         nameToOpen = "runtime»";
         nameToOpen += (name + StringLength("/var/run"));
+        return true;
     }
     else if (!StringCompareN(name, "/@", StringLength("/@")))
     {
@@ -336,10 +355,12 @@ void normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         if (*newName == '/')
             ++newName;
         nameToOpen = newName;
+        return true;
     }
     else
     {
         nameToOpen = name;
+        return false;
     }
 }
 
@@ -411,6 +432,12 @@ int posix_open(const char *name, int flags, int mode)
     {
         ERROR("No subsystem for this process!");
         return -1;
+    }
+
+    PosixProcess *pPosixProcess = getPosixProcess();
+    if (pPosixProcess)
+    {
+        mode &= ~pPosixProcess->getMask();
     }
 
     size_t fd = pSubsystem->getFd();
@@ -1504,6 +1531,12 @@ int posix_mkdir(const char* name, int mode)
 
     String realPath;
     normalisePath(realPath, name);
+
+    PosixProcess *pPosixProcess = getPosixProcess();
+    if (pPosixProcess)
+    {
+        mode &= ~pPosixProcess->getMask();
+    }
 
     bool worked = VFS::instance().createDirectory(realPath, mode, GET_CWD());
     return worked ? 0 : -1;

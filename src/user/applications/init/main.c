@@ -95,6 +95,9 @@ int main(int argc, char **argv)
   if(fd >= 0)
     close(fd);
 
+  // Set default umask to be inherited by all our children.
+  umask(0022);
+
   // Set up utmp.
   setutxent();
 

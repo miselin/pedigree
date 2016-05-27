@@ -1360,6 +1360,27 @@ int posix_getpgrp()
     return result;
 }
 
+mode_t posix_umask(mode_t mask)
+{
+    SC_NOTICE("umask(" << Oct << mask << ")");
+
+    // Not a POSIX process
+    Process *pStockProcess = Processor::information().getCurrentThread()->getParent();
+    if(pStockProcess->getType() != Process::Posix)
+    {
+        SC_NOTICE("umask -> called on something not a POSIX process");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    PosixProcess *pProcess = static_cast<PosixProcess *>(pStockProcess);
+
+    uint32_t previous = pProcess->getMask();
+    pProcess->setMask(mask);
+
+    return previous;
+}
+
 int posix_syslog(const char *msg, int prio)
 {
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(msg), PATH_MAX, PosixSubsystem::SafeRead))
