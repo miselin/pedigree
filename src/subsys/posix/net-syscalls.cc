@@ -790,8 +790,10 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
     Endpoint* p = s->getEndpoint();
     if (s->getProtocol() == NETMAN_TYPE_TCP)
     {
-        /// todo this may not be accurate.
+        /// \todo this may not be accurate.
+        /// \todo IPv6?
         struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+        sin->sin_family = AF_INET;
         sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
         sin->sin_addr.s_addr = p->getRemoteIp().getIp();
         *address_len = sizeof(struct sockaddr_in);
@@ -802,6 +804,46 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
         SYSCALL_ERROR(NotSupported);
         return -1;
     }
+
+    return 0;
+}
+
+int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_len)
+{
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(size_t), PosixSubsystem::SafeWrite)))
+    {
+        N_NOTICE("getsockname -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    N_NOTICE("posix_getsockname");
+
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for one or both of the processes!");
+        return -1;
+    }
+
+    FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
+    if (!f || !f->file)
+    {
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+    }
+    Socket *s = static_cast<Socket *>(f->file);
+
+    Endpoint* p = s->getEndpoint();
+    /// \todo this may not be accurate.
+    /// \todo IPv6?
+    struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+    sin->sin_family = AF_INET;
+    sin->sin_port = HOST_TO_BIG16(p->getLocalPort());
+    sin->sin_addr.s_addr = p->getLocalIp().getIp();
+    *address_len = sizeof(struct sockaddr_in);
 
     return 0;
 }

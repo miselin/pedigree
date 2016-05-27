@@ -1414,6 +1414,14 @@ extern void system_reset();
 
 int pedigree_reboot()
 {
+    // Are we superuser?
+    User *pUser = Processor::information().getCurrentThread()->getParent()->getUser();
+    if (pUser->getId())
+    {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+    }
+
     WARNING("System shutting down...");
     for(int i = Scheduler::instance().getNumProcesses() - 1; i >= 0; i--)
     {

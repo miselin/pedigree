@@ -328,6 +328,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_msync(reinterpret_cast<void *>(p1), p2, static_cast<int>(p3));
         case POSIX_GETPEERNAME:
             return posix_getpeername(static_cast<int>(p1), reinterpret_cast<struct sockaddr*>(p2), reinterpret_cast<socklen_t*>(p3));
+        case POSIX_GETSOCKNAME:
+            return posix_getsockname(static_cast<int>(p1), reinterpret_cast<struct sockaddr*>(p2), reinterpret_cast<socklen_t*>(p3));
         case POSIX_FSYNC:
             return posix_fsync(static_cast<int>(p1));
 

@@ -38,6 +38,7 @@ int posix_accept(int sock, struct sockaddr* address, size_t* addrlen);
 int posix_shutdown(int socket, int how);
 
 int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_len);
+int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_len);
 
 int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *optlen);
 

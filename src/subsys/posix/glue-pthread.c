@@ -81,6 +81,12 @@ static void _pthread_make_invalid(pthread_t p)
     p->__internal.kthread = -1;
 }
 
+int pthread_cancel(pthread_t thread)
+{
+    STUBBED("pthread_cancel");
+    return -1;
+}
+
 int pthread_once(pthread_once_t *once_control, pthread_once_func_t init_routine)
 {
     int control = once_control->__internal.control;

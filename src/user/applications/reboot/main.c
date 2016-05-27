@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,12 +18,14 @@
  */
 
 #include <stdio.h>
-
-extern void pedigree_reboot();
+#include <sys/reboot.h>
 
 int main(void)
 {
     //printf("Rebooting Pedigree...\n");
-    pedigree_reboot();
-    return 0;
+    if (reboot(0) != 0)
+    {
+        perror("reboot failed");
+    }
+    return 1;
 }

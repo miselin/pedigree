@@ -929,16 +929,7 @@ int getpeername(int sock, struct sockaddr* addr, size_t *addrlen)
 
 int getsockname(int sock, struct sockaddr* addr, size_t *addrlen)
 {
-    STUBBED("getsockname");
-
-    struct sockaddr_in *a = (struct sockaddr_in *) addr;
-    a->sin_family = AF_INET;
-    a->sin_port = 0;
-    a->sin_addr.s_addr = 0;
-
-    *addrlen = sizeof(struct sockaddr_in);
-
-    return 0;
+    return syscall3(POSIX_GETSOCKNAME, sock, (long) addr, (long) addrlen);
 }
 
 int getsockopt(int sock, int level, int optname, void* optvalue, size_t *optlen)
@@ -1676,12 +1667,6 @@ void if_freenameindex(struct if_nameindex *nameindex)
     STUBBED("if_freenameindex");
 }
 
-int pthread_cancel(pthread_t thread)
-{
-    STUBBED("pthread_cancel");
-    return -1;
-}
-
 int sigsetjmp(sigjmp_buf env, int savemask)
 {
     // mask is not relevant currently.
@@ -1708,12 +1693,7 @@ char *basename(char *path)
 
 int reboot(int howto)
 {
-    /// \todo Check permissions, throw EPERM if can't reboot the system
-    pedigree_reboot();
-
-    // Technically we shouldn't actually get here...
-    syslog(LOG_ERR, "pedigree_reboot returned?\n");
-    return 0;
+    return pedigree_reboot();
 }
 
 int initgroups(const char *user, gid_t group)
