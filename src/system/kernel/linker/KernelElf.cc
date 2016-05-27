@@ -411,8 +411,16 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
 
     m_Modules.pushBack(module);
 
+#ifdef THREADS
+    m_ModuleAdjustmentLock.acquire();
+#endif
+    bool dependenciesSatisfied = moduleDependenciesSatisfied(module);
+#ifdef THREADS
+    m_ModuleAdjustmentLock.release();
+#endif
+
     // Can we load this module yet?
-    if (moduleDependenciesSatisfied(module))
+    if (dependenciesSatisfied)
     {
         executeModule(module);
 
