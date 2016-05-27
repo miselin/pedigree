@@ -91,7 +91,7 @@ int main(int argc, char **argv)
   syslog(LOG_INFO, "init: starting...");
 
   // Make sure we have a utmp file.
-  int fd = open(UTMP_FILE, O_CREAT | O_RDWR);
+  int fd = open(UTMP_FILE, O_CREAT | O_RDWR, 0664);
   if(fd >= 0)
     close(fd);
 
