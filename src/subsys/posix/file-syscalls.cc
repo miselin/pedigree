@@ -148,12 +148,11 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     if (traverse)
     {
         pFile = traverseSymlink(pFile);
-    }
-
-    if(!pFile)
-    {
-        F_NOTICE("    -> Symlink traversal failed");
-        return -1;
+        if(!pFile)
+        {
+            F_NOTICE("    -> Symlink traversal failed");
+            return -1;
+        }
     }
 
     int mode = 0;
@@ -420,7 +419,7 @@ int posix_open(const char *name, int flags, int mode)
     // verify the filename - don't try to open a dud file
     if (name[0] == 0)
     {
-        F_NOTICE("File does not exist (null path).");
+        F_NOTICE("  -> File does not exist (null path).");
         SYSCALL_ERROR(DoesNotExist);
         return -1;
     }
@@ -430,7 +429,7 @@ int posix_open(const char *name, int flags, int mode)
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
-        ERROR("No subsystem for this process!");
+        F_NOTICE("  -> No subsystem for this process!");
         return -1;
     }
 
@@ -452,13 +451,13 @@ int posix_open(const char *name, int flags, int mode)
         file = pProcess->getCtty();
         if(!file)
         {
-            F_NOTICE(" -> returning -1, no controlling tty");
+            F_NOTICE("  -> returning -1, no controlling tty");
             return -1;
         }
         else if(ConsoleManager::instance().isMasterConsole(file))
         {
             // If we happened to somehow open a master console, get its slave.
-            F_NOTICE(" -> controlling terminal was not a slave");
+            F_NOTICE("  -> controlling terminal was not a slave");
             file = ConsoleManager::instance().getOther(file);
         }
     }
@@ -481,7 +480,7 @@ int posix_open(const char *name, int flags, int mode)
             if (!worked)
             {
                 // createFile should set the error if it fails.
-                F_NOTICE("File does not exist (createFile failed)");
+                F_NOTICE("  -> File does not exist (createFile failed)");
                 pSubsystem->freeFd(fd);
                 return -1;
             }
@@ -489,7 +488,7 @@ int posix_open(const char *name, int flags, int mode)
             file = VFS::instance().find(nameToOpen, GET_CWD());
             if (!file)
             {
-                F_NOTICE("File does not exist (O_CREAT failed)");
+                F_NOTICE("  -> File does not exist (O_CREAT failed)");
                 SYSCALL_ERROR(DoesNotExist);
                 pSubsystem->freeFd(fd);
                 return -1;
@@ -499,7 +498,7 @@ int posix_open(const char *name, int flags, int mode)
         }
         else
         {
-            F_NOTICE("Does not exist.");
+            F_NOTICE("  -> Does not exist.");
             // Error - not found.
             SYSCALL_ERROR(DoesNotExist);
             pSubsystem->freeFd(fd);
@@ -509,7 +508,7 @@ int posix_open(const char *name, int flags, int mode)
 
     if(!file)
     {
-      F_NOTICE("File does not exist.");
+      F_NOTICE("  -> File does not exist.");
       SYSCALL_ERROR(DoesNotExist);
       pSubsystem->freeFd(fd);
       return -1;
@@ -527,7 +526,7 @@ int posix_open(const char *name, int flags, int mode)
     if (file->isDirectory() && (flags & (O_WRONLY | O_RDWR)))
     {
         // Error - is directory.
-        F_NOTICE("Is a directory, and O_WRONLY or O_RDWR was specified.");
+        F_NOTICE("  -> Is a directory, and O_WRONLY or O_RDWR was specified.");
         SYSCALL_ERROR(IsADirectory);
         pSubsystem->freeFd(fd);
         return -1;
@@ -536,7 +535,7 @@ int posix_open(const char *name, int flags, int mode)
     if ((flags & O_CREAT) && (flags & O_EXCL) && !bCreated)
     {
         // file exists with O_CREAT and O_EXCL
-        F_NOTICE("File exists");
+        F_NOTICE("  -> File exists");
         SYSCALL_ERROR(FileExists);
         pSubsystem->freeFd(fd);
         return -1;
@@ -575,7 +574,7 @@ int posix_open(const char *name, int flags, int mode)
     // Permissions were OK.
     if ((flags & O_TRUNC) && ((flags & O_CREAT) || (flags & O_WRONLY) || (flags & O_RDWR)))
     {
-        F_NOTICE("  {O_TRUNC}");
+        F_NOTICE("  -> {O_TRUNC}");
         // truncate the file
         file->truncate();
     }
@@ -1143,6 +1142,12 @@ int posix_lstat(char *name, struct stat *st)
     normalisePath(realPath, name);
 
     File *file = VFS::instance().find(realPath, GET_CWD());
+    if (!file)
+    {
+        F_NOTICE("    -> Not found by VFS");
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
 
     if (!doStat(name, file, st, false))
     {
