@@ -260,6 +260,13 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
     Thread *pThread = Processor::information().getCurrentThread();
     if (!pThread) return;
 
+    if (!pThread->isInterruptible())
+    {
+        // Cannot check for any events - we aren't allowed to handle them.
+        Processor::setInterrupts(bWasInterrupts);
+        return;
+    }
+
     Event *pEvent = pThread->getNextEvent();
     if (!pEvent)
     {
@@ -429,7 +436,9 @@ void PerProcessorScheduler::addThread(Thread *pThread, Thread::ThreadStartFunc p
 
     // Now neither thread can be moved, we're safe to switch.
     if (pCurrentThread != m_pIdleThread)
+    {
         pCurrentThread->setStatus(Thread::Ready);
+    }
     pThread->setStatus(Thread::Running);
     Processor::information().setCurrentThread(pThread);
     void *kernelStack = pThread->getKernelStack();
@@ -543,7 +552,9 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
     // Now neither thread can be moved, we're safe to switch.
 
     if (pCurrentThread != m_pIdleThread)
+    {
         pCurrentThread->setStatus(Thread::Ready);
+    }
     pThread->setStatus(Thread::Running);
     Processor::information().setCurrentThread(pThread);
     void *kernelStack = pThread->getKernelStack();

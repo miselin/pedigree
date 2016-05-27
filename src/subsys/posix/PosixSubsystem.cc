@@ -25,6 +25,7 @@
 #include <processor/Processor.h>
 #include <process/SignalEvent.h>
 #include <process/Scheduler.h>
+#include <process/Uninterruptible.h>
 
 #include <utilities/RadixTree.h>
 #include <utilities/Tree.h>
@@ -294,6 +295,8 @@ PosixSubsystem::~PosixSubsystem()
 
 bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 {
+    Uninterruptible while_checking;
+
 #ifdef POSIX_SUBSYS_DEBUG
     NOTICE("PosixSubsystem::checkAddress(" << addr << ", " << extent << ", " << flags << ")");
 #endif

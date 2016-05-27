@@ -17,37 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef ROUND_ROBIN_H
-#define ROUND_ROBIN_H
+#include <processor/Processor.h>
+#include <process/Thread.h>
+#include <process/Uninterruptible.h>
 
-#include <process/SchedulingAlgorithm.h>
-#include <utilities/List.h>
-#include <Spinlock.h>
-
-class RoundRobin : public SchedulingAlgorithm
+Uninterruptible::Uninterruptible()
 {
-public:
-  /** Constructor. */
-  RoundRobin();
-  
-  /** Destructor. */
-  virtual ~RoundRobin();
-  
-  virtual void addThread(Thread *pThread);
-  
-  virtual void removeThread(Thread *pThread);
+    Processor::information().getCurrentThread()->setInterruptible(false);
+}
 
-  virtual Thread *getNext(Thread *pCurrentThread);
-  
-  virtual void threadStatusChanged(Thread *pThread);
-  
-private:
-  static bool isReady(Thread *pThread);
-
-  typedef List<Thread*> ThreadList;
-  ThreadList m_pReadyQueues[MAX_PRIORITIES];
-
-  Spinlock m_Lock;
-};
-
-#endif
+Uninterruptible::~Uninterruptible()
+{
+    Processor::information().getCurrentThread()->setInterruptible(true);
+}

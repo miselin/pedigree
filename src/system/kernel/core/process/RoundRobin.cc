@@ -81,7 +81,7 @@ Thread *RoundRobin::getNext(Thread *pCurrentThread)
 
 void RoundRobin::threadStatusChanged(Thread *pThread)
 {
-    if (pThread->getStatus() == Thread::Ready)
+    if (RoundRobin::isReady(pThread))
     {
         assert (pThread->getPriority() < MAX_PRIORITIES);
         
@@ -96,6 +96,11 @@ void RoundRobin::threadStatusChanged(Thread *pThread)
 
         m_pReadyQueues[pThread->getPriority()].pushBack(pThread);
     }
+}
+
+bool RoundRobin::isReady(Thread *pThread)
+{
+    return pThread->getStatus() == Thread::Ready;
 }
 
 #endif

@@ -17,37 +17,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef ROUND_ROBIN_H
-#define ROUND_ROBIN_H
+#ifndef PROCESS_INTERRUPTIBLE_H
+#define PROCESS_INTERRUPTIBLE_H
 
-#include <process/SchedulingAlgorithm.h>
-#include <utilities/List.h>
-#include <Spinlock.h>
+#include <compiler.h>
 
-class RoundRobin : public SchedulingAlgorithm
+/**
+ * Uninterruptible provides an RAII helper to move the current thread into
+ * an uninterruptible state. That means the thread will be able to be
+ * scheduled, but will not be able to have any events sent to it until it
+ * ceases to be uninterruptible. This can be important in certain cases where
+ * an event would cause a re-entry into a mutual exclusion critical section or
+ * some other undesirable event.
+ *
+ * \note Threads cannot be set uninterruptible without using this.
+ */
+class Uninterruptible
 {
-public:
-  /** Constructor. */
-  RoundRobin();
-  
-  /** Destructor. */
-  virtual ~RoundRobin();
-  
-  virtual void addThread(Thread *pThread);
-  
-  virtual void removeThread(Thread *pThread);
+    public:
+        Uninterruptible();
+        ~Uninterruptible();
 
-  virtual Thread *getNext(Thread *pCurrentThread);
-  
-  virtual void threadStatusChanged(Thread *pThread);
-  
-private:
-  static bool isReady(Thread *pThread);
-
-  typedef List<Thread*> ThreadList;
-  ThreadList m_pReadyQueues[MAX_PRIORITIES];
-
-  Spinlock m_Lock;
+    private:
+        NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
 };
 
-#endif
+#endif  // PROCESS_INTERRUPTIBLE_H

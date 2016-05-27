@@ -40,7 +40,8 @@ Thread::Thread(Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
     m_nStateLevel(0), m_pParent(pParent), m_Status(Ready), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(0), m_Priority(DEFAULT_PRIORITY),
-    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false)
+    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
+    m_bInterruptible(true)
 {
   if (pParent == 0)
   {
@@ -104,7 +105,8 @@ Thread::Thread(Process *pParent) :
     m_nStateLevel(0), m_pParent(pParent), m_Status(Running), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(&Processor::information().getScheduler()), m_Priority(DEFAULT_PRIORITY),
-    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false)
+    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
+    m_bInterruptible(true)
 {
   if (pParent == 0)
   {
@@ -124,7 +126,8 @@ Thread::Thread(Process *pParent, SyscallState &state) :
     m_nStateLevel(0), m_pParent(pParent), m_Status(Ready), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(0), m_Priority(DEFAULT_PRIORITY),
-    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false)
+    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
+    m_bInterruptible(true)
 {
   if (pParent == 0)
   {
@@ -449,7 +452,7 @@ void Thread::sendEvent(Event *pEvent)
     m_EventQueue.pushBack(pEvent);
     m_Lock.release();
     // NOTICE("Sending event: " << pEvent->getNumber() << ".");
-    if (m_Status == Sleeping)
+    if (m_Status == Sleeping && m_bInterruptible)
     {
         // Interrupt the sleeping thread, there's an event firing
         m_Status = Ready;
@@ -730,6 +733,17 @@ Thread::StateLevel &Thread::StateLevel::operator = (const Thread::StateLevel &s)
     m_InhibitMask = new ExtensibleBitmap(*(s.m_InhibitMask));
     m_pKernelStack = s.m_pKernelStack;
     return *this;
+}
+
+bool Thread::isInterruptible()
+{
+  return m_bInterruptible;
+}
+
+void Thread::setInterruptible(bool state)
+{
+  LockGuard<Spinlock> guard(m_Lock);
+  m_bInterruptible = state;
 }
 
 #endif // THREADS

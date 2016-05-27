@@ -27,6 +27,7 @@
 #include <processor/state.h>
 #include <processor/types.h>
 #include <process/Event.h>
+#include <process/Uninterruptible.h>
 
 #include <utilities/List.h>
 #include <utilities/RequestQueue.h>
@@ -59,6 +60,8 @@ class Process;
 class Thread
 {
     friend class PerProcessorScheduler;
+    // To set uninterruptible state.
+    friend class Uninterruptible;
 public:
     /** The state that a thread can possibly have. */
     enum Status
@@ -382,12 +385,18 @@ public:
      */
     static void threadExited();
 
+    /** Gets whether this thread is interruptible or not. */
+    bool isInterruptible();
+
 protected:
     /** Sets the scheduler for the Thread. */
     void setScheduler(class PerProcessorScheduler *pScheduler)
     {
         m_pScheduler = pScheduler;
     }
+
+    /** Sets or unsets the interruptible state of the Thread. */
+    void setInterruptible(bool state);
 private:
     /** Copy-constructor */
     Thread(const Thread &);
@@ -495,6 +504,9 @@ private:
 
     /** Whether this thread has been detached or not. */
     bool m_bDetached;
+
+    /** Whether this thread has been marked interruptible or not. */
+    bool m_bInterruptible;
 };
 
 #endif
