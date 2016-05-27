@@ -1329,6 +1329,10 @@ void MemoryMapManager::unmapAll()
 
 bool MemoryMapManager::trap(uintptr_t address, bool bIsWrite)
 {
+    // Can't take an event while we're trapping, as the event would otherwise
+    // be in a minefield (can't touch *any* trap pages in userspace).
+    Uninterruptible while_trapping;
+
 #ifdef DEBUG_MMOBJECTS
     NOTICE_NOLOCK("Trap start: " << address << ", pid:tid " << Processor::information().getCurrentThread()->getParent()->getId() <<":" << Processor::information().getCurrentThread()->getId());
 #endif
