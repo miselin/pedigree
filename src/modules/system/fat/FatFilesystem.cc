@@ -1338,14 +1338,14 @@ bool FatFilesystem::createFile(File *parent, String filename, uint32_t mask)
     return (f != 0);
 }
 
-bool FatFilesystem::createDirectory(File* parent, String filename)
+bool FatFilesystem::createDirectory(File* parent, String filename, uint32_t mask)
 {
     // Allocate a cluster for the directory itself
     uint32_t clus = findFreeCluster(true);
     if (!clus)
         return false;
 
-    File* f = createFile(parent, filename, 0, true, clus);
+    File* f = createFile(parent, filename, mask, true, clus);
     if (!f)
     {
         setClusterEntry(clus, 0);

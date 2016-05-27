@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -88,7 +87,7 @@ class UnixFilesystem : public Filesystem
 
     protected:
         virtual bool createFile(File *parent, String filename, uint32_t mask);
-        virtual bool createDirectory(File *parent, String filename);
+        virtual bool createDirectory(File *parent, String filename, uint32_t mask);
         virtual bool createSymlink(File *parent, String filename, String value)
         {
             return false;

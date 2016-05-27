@@ -103,7 +103,7 @@ public:
     bool createFile(String path, uint32_t mask, File *pStartNode=0);
 
     /** Attempts to create a directory. */
-    bool createDirectory(String path, File *pStartNode=0);
+    bool createDirectory(String path, uint32_t mask, File *pStartNode=0);
 
     /** Attempts to create a symlink. */
     bool createSymlink(String path, String value, File *pStartNode=0);
@@ -120,6 +120,9 @@ public:
     /** Adds a mount callback - the function is called when a disk is mounted or
         unmounted. */
     void addMountCallback(MountCallback callback);
+
+    /** Checks if the current user can access the given file. */
+    static bool checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute);
 
     /** Separator between mount point and filesystem path. */
     static constexpr const char *mountSeparator()

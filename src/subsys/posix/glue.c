@@ -255,11 +255,18 @@ int open(const char *name, int flags, ...) // , mode_t mode)
         errno = EINVAL;
         return -1;
     }
-    va_list ap;
-    va_start(ap, flags);
-    mode_t mode = va_arg(ap, mode_t);
-    va_end(ap);
-    return (long)syscall3(POSIX_OPEN, (long)name, flags, mode);
+
+    // Only O_CREAT requires the 'mode' parameter.
+    mode_t mode = 0;
+    if (flags & O_CREAT)
+    {
+        va_list ap;
+        va_start(ap, flags);
+        mode = va_arg(ap, mode_t);
+        va_end(ap);
+    }
+
+    return (long) syscall3(POSIX_OPEN, (long)name, flags, mode);
 }
 
 _READ_WRITE_RETURN_TYPE read(int file, void *ptr, size_t len)

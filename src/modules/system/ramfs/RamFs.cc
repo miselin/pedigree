@@ -145,7 +145,7 @@ bool RamFs::createFile(File* parent, String filename, uint32_t mask)
     return p->addEntry(filename, f);
 }
 
-bool RamFs::createDirectory(File* parent, String filename)
+bool RamFs::createDirectory(File* parent, String filename, uint32_t mask)
 {
     if(!parent->isDirectory())
         return false;

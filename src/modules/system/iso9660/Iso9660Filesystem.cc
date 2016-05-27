@@ -228,7 +228,7 @@ bool Iso9660Filesystem::createFile(File *parent, String filename, uint32_t mask)
   return false;
 }
 
-bool Iso9660Filesystem::createDirectory(File* parent, String filename)
+bool Iso9660Filesystem::createDirectory(File* parent, String filename, uint32_t mask)
 {
   return false;
 }

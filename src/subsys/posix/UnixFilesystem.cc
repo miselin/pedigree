@@ -167,7 +167,7 @@ bool UnixFilesystem::createFile(File *parent, String filename, uint32_t mask)
     return true;
 }
 
-bool UnixFilesystem::createDirectory(File *parent, String filename)
+bool UnixFilesystem::createDirectory(File *parent, String filename, uint32_t mask)
 {
     UnixDirectory *pParent = static_cast<UnixDirectory *>(Directory::fromFile(parent));
 

@@ -35,10 +35,9 @@
 #include "PosixProcess.h"
 
 #include <linker/DynamicLinker.h>
+#include <vfs/VFS.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
-#include <users/UserManager.h>
-#include <syscallError.h>
 
 // #define POSIX_SUBSYS_DEBUG
 
@@ -791,56 +790,7 @@ void PosixSubsystem::threadRemoved(Thread *pThread)
     }
 }
 
-bool PosixSubsystem::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute) const
-{
-    if (!pFile)
-    {
-        // The error for a null file is not EPERM or EACCESS.
-        return true;
-    }
-
-    User *pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
-
-    size_t uid = pFile->getUid();
-    size_t gid = pFile->getGid();
-
-    User *pUser = UserManager::instance().getUser(uid);
-    Group *pGroup = UserManager::instance().getGroup(gid);
-
-    uint32_t permissions = pFile->getPermissions();
-    NOTICE("file permissions " << Oct << permissions << " [" << pFile->getName() << "]");
-    uint32_t check = 0;
-
-    // Are we owner?
-    if (pUser == pCurrentUser)
-    {
-        check = (permissions >> FILE_UBITS) & 0x7;
-    }
-    else if (pUser->isMember(pGroup))
-    {
-        check = (permissions >> FILE_GBITS) & 0x7;
-    }
-    else
-    {
-        check = (permissions >> FILE_OBITS) & 0x7;
-    }
-
-    // Needed permissions.
-    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
-
-    NOTICE("check: " << Oct << check << " vs " << needed << " r=" << bRead << " w=" << bWrite << " x=" << bExecute);
-    if ((check & needed) != needed)
-    {
-        NOTICE("fail");
-        SYSCALL_ERROR(PermissionDenied);
-        return false;
-    }
-
-    NOTICE("ok");
-    return true;
-}
-
 bool PosixSubsystem::checkAccess(FileDescriptor *pFileDescriptor, bool bRead, bool bWrite, bool bExecute) const
 {
-    return checkAccess(pFileDescriptor->file, bRead, bWrite, bExecute);
+    return VFS::checkAccess(pFileDescriptor->file, bRead, bWrite, bExecute);
 }

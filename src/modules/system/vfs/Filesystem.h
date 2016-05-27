@@ -73,7 +73,7 @@ public:
     bool createFile(String path, uint32_t mask, File *pStartNode=0);
 
     /** Creates a directory on the filesystem. Fails if the dir's parent directory does not exist. */
-    bool createDirectory(String path, File *pStartNode=0);
+    bool createDirectory(String path, uint32_t mask, File *pStartNode=0);
 
     /** Creates a symlink on the filesystem, with the given value. */
     bool createSymlink(String path, String value, File *pStartNode=0);
@@ -108,7 +108,7 @@ protected:
     /** createFile calls this after it has parsed the string path. */
     virtual bool createFile(File* parent, String filename, uint32_t mask) =0;
     /** createDirectory calls this after it has parsed the string path. */
-    virtual bool createDirectory(File* parent, String filename) =0;
+    virtual bool createDirectory(File* parent, String filename, uint32_t mask) =0;
     /** createSymlink calls this after it has parsed the string path. */
     virtual bool createSymlink(File* parent, String filename, String value) =0;
     /** createLink calls this after it has parsed the string path. */

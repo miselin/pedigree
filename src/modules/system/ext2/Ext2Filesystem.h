@@ -51,7 +51,7 @@ public:
 
 protected:
     virtual bool createFile(File* parent, String filename, uint32_t mask);
-    virtual bool createDirectory(File* parent, String filename);
+    virtual bool createDirectory(File* parent, String filename, uint32_t mask);
     virtual bool createSymlink(File* parent, String filename, String value);
     virtual bool createLink(File* parent, String filename, File *target);
     virtual bool remove(File* parent, File* file);

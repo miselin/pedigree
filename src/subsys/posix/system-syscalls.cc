@@ -372,7 +372,7 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
     DynamicLinker *pLinker = new DynamicLinker();
 
     // Can we read & execute the given target?
-    if (!pSubsystem->checkAccess(file, true, false, true))
+    if (!VFS::checkAccess(file, true, false, true))
     {
         // checkAccess does a SYSCALL_ERROR for us.
         return -1;
@@ -426,7 +426,7 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
     pProcess->description() = String(name);
 
     // Make sure we have the needed permissions on the interpreter too.
-    if ((file != pActualFile) && !pSubsystem->checkAccess(file, true, false, true))
+    if ((file != pActualFile) && !VFS::checkAccess(file, true, false, true))
     {
         // checkAccess does a SYSCALL_ERROR for us.
         return -1;

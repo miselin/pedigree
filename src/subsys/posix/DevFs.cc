@@ -303,6 +303,9 @@ bool DevFs::initialise(Disk *pDisk)
     size_t baseInode = 0;
 
     m_pRoot = new DevFsDirectory(String(""), 0, 0, 0, ++baseInode, this, 0, 0);
+    // Allow user/group to read and write, but disallow all others anything
+    // other than the ability to list and access files.
+    m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
 
     // Create /dev/null and /dev/zero nodes
     NullFile *pNull = new NullFile(String("null"), ++baseInode, this, m_pRoot);

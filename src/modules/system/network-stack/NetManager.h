@@ -156,7 +156,7 @@ public:
 protected:
   virtual bool createFile(File* parent, String filename, uint32_t mask)
   {return false;}
-  virtual bool createDirectory(File* parent, String filename)
+  virtual bool createDirectory(File* parent, String filename, uint32_t mask)
   {return false;}
   virtual bool createSymlink(File* parent, String filename, String value)
   {return false;}

@@ -35,6 +35,7 @@
 #include <network-stack/NetManager.h>
 #include <network-stack/Tcp.h>
 #include <utilities/utility.h>
+#include <users/UserManager.h>
 
 #include <Subsystem.h>
 #include <PosixSubsystem.h>
@@ -54,7 +55,7 @@ extern int posix_getpid();
 
 #define GET_CWD() (Processor::information().getCurrentThread()->getParent()->getCwd())
 
-inline File *traverseSymlink(File *file)
+static File *traverseSymlink(File *file)
 {
     /// \todo detect inability to access at each intermediate step.
     if(!file)
@@ -83,6 +84,205 @@ inline File *traverseSymlink(File *file)
     }
 
     return file;
+}
+
+static bool doChdir(File *dir)
+{
+    File *target = 0;
+    if (dir->isSymlink())
+    {
+        target = traverseSymlink(dir);
+        if (!target)
+        {
+            F_NOTICE("Symlink traversal failed.");
+            SYSCALL_ERROR(DoesNotExist);
+            return false;
+        }
+    }
+
+    if (dir && (dir->isDirectory() || (dir->isSymlink() && target->isDirectory())))
+    {
+        File *pRealFile = dir;
+        if (dir->isSymlink())
+        {
+            pRealFile = target;
+        }
+
+        // Only need execute permissions to enter a directory.
+        if (!VFS::checkAccess(pRealFile, false, false, true))
+        {
+            return false;
+        }
+
+        Processor::information().getCurrentThread()->getParent()->setCwd(dir);
+    }
+    else if(dir && !dir->isDirectory())
+    {
+        SYSCALL_ERROR(NotADirectory);
+        return false;
+    }
+    else
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return false;
+    }
+
+    return true;
+}
+
+static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
+{
+    if (traverse)
+    {
+        pFile = traverseSymlink(pFile);
+    }
+
+    if(!pFile)
+    {
+        F_NOTICE("    -> Symlink traversal failed");
+        return -1;
+    }
+
+    int mode = 0;
+    if (ConsoleManager::instance().isConsole(pFile) || (name && !StringCompare(name, "/dev/null")))
+    {
+        F_NOTICE("    -> S_IFCHR");
+        mode = S_IFCHR;
+    }
+    else if (pFile->isDirectory())
+    {
+        F_NOTICE("    -> S_IFDIR");
+        mode = S_IFDIR;
+    }
+    else if (pFile->isSymlink() || pFile->isPipe())
+    {
+        F_NOTICE("    -> S_IFLNK");
+        mode = S_IFLNK;
+    }
+    else
+    {
+        F_NOTICE("    -> S_IFREG");
+        mode = S_IFREG;
+    }
+
+    // Clear any cruft in the stat structure before we fill it.
+    ByteSet(st, 0, sizeof(*st));
+
+    uint32_t permissions = pFile->getPermissions();
+    if (permissions & FILE_UR) mode |= S_IRUSR;
+    if (permissions & FILE_UW) mode |= S_IWUSR;
+    if (permissions & FILE_UX) mode |= S_IXUSR;
+    if (permissions & FILE_GR) mode |= S_IRGRP;
+    if (permissions & FILE_GW) mode |= S_IWGRP;
+    if (permissions & FILE_GX) mode |= S_IXGRP;
+    if (permissions & FILE_OR) mode |= S_IROTH;
+    if (permissions & FILE_OW) mode |= S_IWOTH;
+    if (permissions & FILE_OX) mode |= S_IXOTH;
+    F_NOTICE("    -> " << Oct << mode);
+
+    /// \todo expose number of links and number of blocks from Files
+    st->st_dev   = static_cast<short>(reinterpret_cast<uintptr_t>(pFile->getFilesystem()));
+    F_NOTICE("    -> " << st->st_dev);
+    st->st_ino   = static_cast<short>(pFile->getInode());
+    F_NOTICE("    -> " << st->st_ino);
+    st->st_mode  = mode;
+    st->st_nlink = 1;
+    st->st_uid   = pFile->getUid();
+    st->st_gid   = pFile->getGid();
+    st->st_rdev  = 0;
+    st->st_size  = static_cast<int>(pFile->getSize());
+    st->st_atime = pFile->getAccessedTime();
+    st->st_mtime = pFile->getModifiedTime();
+    st->st_ctime = pFile->getCreationTime();
+    st->st_blksize = static_cast<int>(pFile->getBlockSize());
+    st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
+
+    return true;
+}
+
+static bool doChmod(File *pFile, mode_t mode)
+{
+    // Are we the owner of the file?
+    User *pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
+
+    size_t uid = pCurrentUser->getId();
+    if (!(uid == pFile->getUid() || uid == 0))
+    {
+        // Not allowed - EPERM.
+        // User must own the file or be superuser.
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return false;
+    }
+
+    /// \todo Might want to change permissions on open file descriptors?
+    uint32_t permissions = 0;
+    if (mode & S_IRUSR) permissions |= FILE_UR;
+    if (mode & S_IWUSR) permissions |= FILE_UW;
+    if (mode & S_IXUSR) permissions |= FILE_UX;
+    if (mode & S_IRGRP) permissions |= FILE_GR;
+    if (mode & S_IWGRP) permissions |= FILE_GW;
+    if (mode & S_IXGRP) permissions |= FILE_GX;
+    if (mode & S_IROTH) permissions |= FILE_OR;
+    if (mode & S_IWOTH) permissions |= FILE_OW;
+    if (mode & S_IXOTH) permissions |= FILE_OX;
+    pFile->setPermissions(permissions);
+
+    return true;
+}
+
+static bool doChown(File *pFile, uid_t owner, gid_t group)
+{
+    // If we're root, changing is fine.
+    size_t newOwner = pFile->getUid();
+    size_t newGroup = pFile->getGid();
+    if (owner != static_cast<uid_t>(-1))
+    {
+        newOwner = owner;
+    }
+    if (group != static_cast<gid_t>(-1))
+    {
+        newGroup = group;
+    }
+
+    // We can only chown the user if we're root.
+    if (pFile->getUid() != newOwner)
+    {
+        User *pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
+        if (pCurrentUser->getId())
+        {
+            SYSCALL_ERROR(NotEnoughPermissions);
+            return false;
+        }
+    }
+
+    // We can change the group to anything if we're root, but otherwise only
+    // to a group we're a member of.
+    if (pFile->getGid() != newGroup)
+    {
+        User *pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
+        if (pCurrentUser->getId())
+        {
+            Group *pTargetGroup = UserManager::instance().getGroup(newGroup);
+            if (!pTargetGroup->isMember(pCurrentUser))
+            {
+                SYSCALL_ERROR(NotEnoughPermissions);
+                return false;
+            }
+        }
+    }
+
+    // Update the file's uid/gid now that we've checked we're allowed to.
+    if (pFile->getUid() != newOwner)
+    {
+        pFile->setUid(newOwner);
+    }
+
+    if (pFile->getGid() != newGroup)
+    {
+        pFile->setGid(newGroup);
+    }
+
+    return true;
 }
 
 void normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
@@ -249,14 +449,11 @@ int posix_open(const char *name, int flags, int mode)
         if ((flags & O_CREAT) && !onDevFs)
         {
             F_NOTICE("  {O_CREAT}");
-            /// \todo need to be able to get a File object for the parent
-            ///       directory here so we can check if the user has write
-            ///       permission in the directory.
-            bool worked = VFS::instance().createFile(nameToOpen, 0777, GET_CWD());
+            bool worked = VFS::instance().createFile(nameToOpen, mode, GET_CWD());
             if (!worked)
             {
+                // createFile should set the error if it fails.
                 F_NOTICE("File does not exist (createFile failed)");
-                SYSCALL_ERROR(DoesNotExist);
                 pSubsystem->freeFd(fd);
                 return -1;
             }
@@ -317,10 +514,15 @@ int posix_open(const char *name, int flags, int mode)
         return -1;
     }
 
+    // O_RDONLY is zero.
+    bool checkRead = (flags == O_RDONLY) || (flags & O_RDWR);
+
     // Check for the desired permissions.
-    if (!pSubsystem->checkAccess(file, flags & (O_RDONLY | O_RDWR), flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
+    if (!VFS::checkAccess(file,
+        checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
     {
         // checkAccess does a SYSCALL_ERROR for us.
+        F_NOTICE("    -> file access denied.");
         return -1;
     }
 
@@ -536,9 +738,6 @@ int posix_link(char *target, char *link)
         return -1;
     }
 
-    /// \todo check same filesystem
-    /// \todo check permissions
-
     bool result = VFS::instance().createLink(realLink, pTarget, GET_CWD());
 
     if (!result)
@@ -651,8 +850,6 @@ int posix_unlink(char *name)
 
     F_NOTICE("unlink(" << name << ")");
 
-    /// \todo Check permissions, perhaps!?
-
     String realPath;
     normalisePath(realPath, name);
 
@@ -669,15 +866,14 @@ int posix_unlink(char *name)
         return -1;
     }
 
-    /// \todo need to check the parent's permissions
-
+    // remove() checks permissions to ensure we can delete the file.
     if (VFS::instance().remove(realPath, GET_CWD()))
     {
         return 0;
     }
     else
     {
-        return -1; /// \todo SYSCALL_ERROR of some sort
+        return -1;
     }
 }
 
@@ -692,8 +888,6 @@ int posix_symlink(char *target, char *link)
     }
 
     F_NOTICE("symlink(" << target << ", " << link << ")");
-
-    /// \todo need to check parent's permissions
 
     bool worked = VFS::instance().createSymlink(String(link), String(target), GET_CWD());
     if (worked)
@@ -844,61 +1038,11 @@ int posix_stat(const char *name, struct stat *st)
         SYSCALL_ERROR(DoesNotExist);
         return -1;
     }
-    
-    file = traverseSymlink(file);
 
-    if(!file)
+    if (!doStat(name, file, st))
     {
-        F_NOTICE("    -> Symlink traversal failed");
         return -1;
     }
-
-    int mode = 0;
-    if (ConsoleManager::instance().isConsole(file) || !StringCompare(name, "/dev/null"))
-    {
-        mode = S_IFCHR;
-    }
-    else if (file->isDirectory())
-    {
-        mode = S_IFDIR;
-    }
-    else if (file->isSymlink() || file->isPipe())
-    {
-        F_NOTICE("    -> S_IFLNK");
-        mode = S_IFLNK;
-    }
-    else
-    {
-        mode = S_IFREG;
-    }
-
-    // Clear any cruft in the stat structure before we fill it.
-    ByteSet(st, 0, sizeof(*st));
-
-    uint32_t permissions = file->getPermissions();
-    if (permissions & FILE_UR) mode |= S_IRUSR;
-    if (permissions & FILE_UW) mode |= S_IWUSR;
-    if (permissions & FILE_UX) mode |= S_IXUSR;
-    if (permissions & FILE_GR) mode |= S_IRGRP;
-    if (permissions & FILE_GW) mode |= S_IWGRP;
-    if (permissions & FILE_GX) mode |= S_IXGRP;
-    if (permissions & FILE_OR) mode |= S_IROTH;
-    if (permissions & FILE_OW) mode |= S_IWOTH;
-    if (permissions & FILE_OX) mode |= S_IXOTH;
-
-    st->st_dev   = static_cast<short>(reinterpret_cast<uintptr_t>(file->getFilesystem()));
-    st->st_ino   = static_cast<short>(file->getInode());
-    st->st_mode  = mode;
-    st->st_nlink = 1;
-    st->st_uid   = file->getUid();
-    st->st_gid   = file->getGid();
-    st->st_rdev  = 0;
-    st->st_size  = static_cast<int>(file->getSize());
-    st->st_atime = file->getAccessedTime();
-    st->st_mtime = file->getModifiedTime();
-    st->st_ctime = file->getCreationTime();
-    st->st_blksize = static_cast<int>(file->getBlockSize());
-    st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
 
     F_NOTICE("    -> Success");
     return 0;
@@ -937,60 +1081,12 @@ int posix_fstat(int fd, struct stat *st)
         return -1;
     }
 
-    int mode = 0;
-    if (ConsoleManager::instance().isConsole(pFd->file))
+    if (!doStat(0, pFd->file, st))
     {
-        F_NOTICE("    -> S_IFCHR");
-        mode = S_IFCHR;
-    }
-    else if (pFd->file->isDirectory())
-    {
-        F_NOTICE("    -> S_IFDIR");
-        mode = S_IFDIR;
-    }
-    else if (pFd->file->isSymlink() || pFd->file->isPipe())
-    {
-        F_NOTICE("    -> S_IFLNK");
-        mode = S_IFLNK;
-    }
-    else
-    {
-        F_NOTICE("    -> S_IFREG");
-        mode = S_IFREG;
+        return -1;
     }
 
-    // Clear any cruft in the stat structure before we fill it.
-    ByteSet(st, 0, sizeof(*st));
-
-    uint32_t permissions = pFd->file->getPermissions();
-    if (permissions & FILE_UR) mode |= S_IRUSR;
-    if (permissions & FILE_UW) mode |= S_IWUSR;
-    if (permissions & FILE_UX) mode |= S_IXUSR;
-    if (permissions & FILE_GR) mode |= S_IRGRP;
-    if (permissions & FILE_GW) mode |= S_IWGRP;
-    if (permissions & FILE_GX) mode |= S_IXGRP;
-    if (permissions & FILE_OR) mode |= S_IROTH;
-    if (permissions & FILE_OW) mode |= S_IWOTH;
-    if (permissions & FILE_OX) mode |= S_IXOTH;
-    F_NOTICE("    -> " << mode);
-
-    st->st_dev   = static_cast<short>(reinterpret_cast<uintptr_t>(pFd->file->getFilesystem()));
-    F_NOTICE("    -> " << st->st_dev);
-    st->st_ino   = static_cast<short>(pFd->file->getInode());
-    F_NOTICE("    -> " << st->st_ino);
-    st->st_mode  = mode;
-    st->st_nlink = 1;
-    st->st_uid   = pFd->file->getUid();
-    st->st_gid   = pFd->file->getGid();
-    st->st_rdev  = 0;
-    st->st_size  = static_cast<int>(pFd->file->getSize());
-    st->st_atime = pFd->file->getAccessedTime();
-    st->st_mtime = pFd->file->getModifiedTime();
-    st->st_ctime = pFd->file->getCreationTime();
-    st->st_blksize = static_cast<int>(pFd->file->getBlockSize());
-    st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
-
-    F_NOTICE("Success");
+    F_NOTICE("    -> Success");
     return 0;
 }
 
@@ -1016,61 +1112,12 @@ int posix_lstat(char *name, struct stat *st)
 
     File *file = VFS::instance().find(realPath, GET_CWD());
 
-    int mode = 0;
-    if (!file)
+    if (!doStat(name, file, st, false))
     {
-        // Error - not found.
-        SYSCALL_ERROR(DoesNotExist);
         return -1;
     }
-    if (file->isSymlink() || file->isPipe())
-    {
-        mode = S_IFLNK;
-    }
-    else
-    {
-        if (ConsoleManager::instance().isConsole(file))
-        {
-            mode = S_IFCHR;
-        }
-        else if (file->isDirectory())
-        {
-            mode = S_IFDIR;
-        }
-        else
-        {
-            mode = S_IFREG;
-        }
-    }
 
-    // Clear any cruft in the stat structure before we fill it.
-    ByteSet(st, 0, sizeof(*st));
-
-    uint32_t permissions = file->getPermissions();
-    if (permissions & FILE_UR) mode |= S_IRUSR;
-    if (permissions & FILE_UW) mode |= S_IWUSR;
-    if (permissions & FILE_UX) mode |= S_IXUSR;
-    if (permissions & FILE_GR) mode |= S_IRGRP;
-    if (permissions & FILE_GW) mode |= S_IWGRP;
-    if (permissions & FILE_GX) mode |= S_IXGRP;
-    if (permissions & FILE_OR) mode |= S_IROTH;
-    if (permissions & FILE_OW) mode |= S_IWOTH;
-    if (permissions & FILE_OX) mode |= S_IXOTH;
-
-    st->st_dev   = static_cast<short>(reinterpret_cast<uintptr_t>(file->getFilesystem()));
-    st->st_ino   = static_cast<short>(file->getInode());
-    st->st_mode  = mode;
-    st->st_nlink = 1;
-    st->st_uid   = file->getGid();
-    st->st_gid   = file->getGid();
-    st->st_rdev  = 0;
-    st->st_size  = static_cast<int>(file->getSize());
-    st->st_atime = file->getAccessedTime();
-    st->st_mtime = file->getModifiedTime();
-    st->st_ctime = file->getCreationTime();
-    st->st_blksize = static_cast<int>(file->getBlockSize());
-    st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
-
+    F_NOTICE("    -> Success");
     return 0;
 }
 
@@ -1121,7 +1168,7 @@ int posix_opendir(const char *dir, DIR *ent)
     }
 
     // Need read permission to list the directory.
-    if (!pSubsystem->checkAccess(file, true, false, false))
+    if (!VFS::checkAccess(file, true, false, false))
     {
         // checkAccess does a SYSCALL_ERROR for us.
         return -1;
@@ -1364,34 +1411,7 @@ int posix_chdir(const char *path)
         return -1;
     }
 
-    File *target = 0;
-    if (dir->isSymlink())
-    {
-        target = traverseSymlink(dir);
-        if (!target)
-        {
-            F_NOTICE("Symlink traverasal failed.");
-            SYSCALL_ERROR(DoesNotExist);
-            return -1;
-        }
-    }
-
-    if (dir && (dir->isDirectory() || (dir->isSymlink() && target->isDirectory())))
-    {
-        Processor::information().getCurrentThread()->getParent()->setCwd(dir);
-    }
-    else if(dir && !dir->isDirectory())
-    {
-        SYSCALL_ERROR(NotADirectory);
-        return -1;
-    }
-    else
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    return 0;
+    return doChdir(dir) ? 0 : -1;
 }
 
 int posix_dup(int fd)
@@ -1480,9 +1500,7 @@ int posix_mkdir(const char* name, int mode)
     String realPath;
     normalisePath(realPath, name);
 
-    /// \todo check parent permissions
-
-    bool worked = VFS::instance().createDirectory(realPath, GET_CWD());
+    bool worked = VFS::instance().createDirectory(realPath, mode, GET_CWD());
     return worked ? 0 : -1;
 }
 
@@ -1816,6 +1834,15 @@ void *posix_mmap(void *p)
 
         // Grab the file to map in
         File *fileToMap = f->file;
+
+        // Check general file permissions, open file mode aside.
+        // Note: PROT_WRITE is OK for private mappings, as the backing file
+        // doesn't get updated for those maps.
+        if (!VFS::checkAccess(fileToMap, prot & PROT_READ, (prot & PROT_WRITE) && (flags & MAP_SHARED), prot & PROT_EXEC))
+        {
+            F_NOTICE("  -> mmap on " << fileToMap->getFullPath() << " failed due to permissions.");
+            return MAP_FAILED;
+        }
         
         F_NOTICE("mmap: file name is " << fileToMap->getFullPath());
 
@@ -1915,7 +1942,8 @@ int posix_mprotect(void *p, size_t len, int prot)
             perms |= MemoryMappedObject::Exec;
     }
 
-    /// \todo EACCESS
+    /// \todo EACCESS, which needs us to be able to get the File for a given
+    ///       mapping (if one exists).
 
     MemoryMapManager::instance().setPermissions(addr, len, perms);
 
@@ -1948,15 +1976,6 @@ int posix_access(const char *name, int amode)
 
     F_NOTICE("access(" << (name ? name : "n/a") << ", " << Dec << amode << Hex << ")");
 
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
     if(!name)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -1983,7 +2002,7 @@ int posix_access(const char *name, int amode)
         return 0;
     }
 
-    if (!pSubsystem->checkAccess(file, amode & R_OK, amode & W_OK, amode & X_OK))
+    if (!VFS::checkAccess(file, amode & R_OK, amode & W_OK, amode & X_OK))
     {
         // checkAccess does a SYSCALL_ERROR for us.
         F_NOTICE("  -> not ok");
@@ -2140,8 +2159,6 @@ int posix_chmod(const char *path, mode_t mode)
 
     F_NOTICE("chmod(" << String(path) << ", " << Oct << mode << Hex << ")");
     
-    /// \todo EACCESS, EPERM
-    
     if((mode == static_cast<mode_t>(-1)) || (mode > 0777))
     {
         SYSCALL_ERROR(InvalidArgument);
@@ -2176,21 +2193,8 @@ int posix_chmod(const char *path, mode_t mode)
     file = traverseSymlink(file);
     if(!file)
         return -1;
-    
-    /// \todo Might want to change permissions on open file descriptors?
-    uint32_t permissions = 0;
-    if (mode & S_IRUSR) permissions |= FILE_UR;
-    if (mode & S_IWUSR) permissions |= FILE_UW;
-    if (mode & S_IXUSR) permissions |= FILE_UX;
-    if (mode & S_IRGRP) permissions |= FILE_GR;
-    if (mode & S_IWGRP) permissions |= FILE_GW;
-    if (mode & S_IXGRP) permissions |= FILE_GX;
-    if (mode & S_IROTH) permissions |= FILE_OR;
-    if (mode & S_IWOTH) permissions |= FILE_OW;
-    if (mode & S_IXOTH) permissions |= FILE_OX;
-    file->setPermissions(permissions);
-    
-    return 0;
+
+    return doChmod(file, mode) ? 0 : -1;
 }
 
 int posix_chown(const char *path, uid_t owner, gid_t group)
@@ -2203,9 +2207,7 @@ int posix_chown(const char *path, uid_t owner, gid_t group)
     }
 
     F_NOTICE("chown(" << String(path) << ", " << owner << ", " << group << ")");
-    
-    /// \todo EACCESS, EPERM
-    
+
     // Is there any need to change?
     if((owner == group) && (owner == static_cast<uid_t>(-1)))
         return 0;
@@ -2238,22 +2240,14 @@ int posix_chown(const char *path, uid_t owner, gid_t group)
     file = traverseSymlink(file);
     if(!file)
         return -1;
-    
-    // Set the UID and GID
-    if(owner != static_cast<uid_t>(-1))
-        file->setUid(owner);
-    if(group != static_cast<gid_t>(-1))
-        file->setGid(group);
-    
-    return 0;
+
+    return doChown(file, owner, group) ? 0 : -1;
 }
 
 int posix_fchmod(int fd, mode_t mode)
 {
     F_NOTICE("fchmod(" << fd << ", " << Oct << mode << Hex << ")");
-    
-    /// \todo EACCESS, EPERM
-    
+
     if((mode == static_cast<mode_t>(-1)) || (mode > 0777))
     {
         SYSCALL_ERROR(InvalidArgument);
@@ -2285,19 +2279,8 @@ int posix_fchmod(int fd, mode_t mode)
         SYSCALL_ERROR(ReadOnlyFilesystem);
         return -1;
     }
-    
-    /// \todo Might want to change permissions on open file descriptors?
-    uint32_t permissions = 0;
-    if (mode & S_IRUSR) permissions |= FILE_UR;
-    if (mode & S_IWUSR) permissions |= FILE_UW;
-    if (mode & S_IXUSR) permissions |= FILE_UX;
-    if (mode & S_IRGRP) permissions |= FILE_GR;
-    if (mode & S_IWGRP) permissions |= FILE_GW;
-    if (mode & S_IXGRP) permissions |= FILE_GX;
-    if (mode & S_IROTH) permissions |= FILE_OR;
-    if (mode & S_IWOTH) permissions |= FILE_OW;
-    if (mode & S_IXOTH) permissions |= FILE_OX;
-    file->setPermissions(permissions);
+
+    return doChmod(file, mode) ? 0 : -1;
     
     return 0;
 }
@@ -2305,9 +2288,7 @@ int posix_fchmod(int fd, mode_t mode)
 int posix_fchown(int fd, uid_t owner, gid_t group)
 {
     F_NOTICE("fchown(" << fd << ", " << owner << ", " << group << ")");
-    
-    /// \todo EACCESS, EPERM
-    
+
     // Is there any need to change?
     if((owner == group) && (owner == static_cast<uid_t>(-1)))
         return 0;
@@ -2337,14 +2318,8 @@ int posix_fchown(int fd, uid_t owner, gid_t group)
         SYSCALL_ERROR(ReadOnlyFilesystem);
         return -1;
     }
-    
-    // Set the UID and GID
-    if(owner != static_cast<uid_t>(-1))
-        file->setUid(owner);
-    if(group != static_cast<gid_t>(-1))
-        file->setGid(group);
-    
-    return 0;
+
+    return doChown(file, owner, group) ? 0 : -1;
 }
 
 int posix_fchdir(int fd)
@@ -2369,14 +2344,7 @@ int posix_fchdir(int fd)
     }
     
     File *file = pFd->file;
-    if(!file->isDirectory())
-    {
-        SYSCALL_ERROR(NotADirectory);
-        return -1;
-    }
-    
-    Processor::information().getCurrentThread()->getParent()->setCwd(file);
-    return 0;
+    return doChdir(file) ? 0 : -1;
 }
 
 static int statvfs_doer(Filesystem *pFs, struct statvfs *buf)
@@ -2489,15 +2457,6 @@ int posix_utime(const char *path, const struct utimbuf *times)
 
     F_NOTICE("utimes(" << path << ")");
 
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
     String realPath;
     normalisePath(realPath, path);
 
@@ -2513,7 +2472,7 @@ int posix_utime(const char *path, const struct utimbuf *times)
     if(!file)
         return -1;
 
-    if (!pSubsystem->checkAccess(file, false, true, false))
+    if (!VFS::checkAccess(file, false, true, false))
     {
         // checkAccess does a SYSCALL_ERROR for us.
         return -1;
@@ -2549,15 +2508,6 @@ int posix_utimes(const char *path, const struct timeval *times)
 
     F_NOTICE("utimes(" << path << ")");
 
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
     String realPath;
     normalisePath(realPath, path);
 
@@ -2573,7 +2523,7 @@ int posix_utimes(const char *path, const struct timeval *times)
     if(!file)
         return -1;
 
-    if (!pSubsystem->checkAccess(file, false, true, false))
+    if (!VFS::checkAccess(file, false, true, false))
     {
         // checkAccess does a SYSCALL_ERROR for us.
         return -1;

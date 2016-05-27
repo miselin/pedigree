@@ -20,6 +20,8 @@
 #include "VFS.h"
 #include <Log.h>
 #include <utilities/utility.h>
+#include <users/UserManager.h>
+#include <syscallError.h>
 
 #ifndef VFS_STANDALONE
 #include <Module.h>
@@ -151,7 +153,6 @@ String VFS::getUniqueAlias(String alias)
         index--;
     }
 }
-
 
 bool VFS::aliasExists(String alias)
 {
@@ -291,7 +292,7 @@ bool VFS::createFile(String path, uint32_t mask, File *pStartNode)
     }
 }
 
-bool VFS::createDirectory(String path, File *pStartNode)
+bool VFS::createDirectory(String path, uint32_t mask, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -310,7 +311,7 @@ bool VFS::createDirectory(String path, File *pStartNode)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode) return false;
-        else return pStartNode->getFilesystem()->createDirectory(path, pStartNode);
+        else return pStartNode->getFilesystem()->createDirectory(path, mask, pStartNode);
     }
     else
     {
@@ -323,7 +324,7 @@ bool VFS::createDirectory(String path, File *pStartNode)
         Filesystem *pFs = lookupFilesystem(path);
         if (!pFs)
             return false;
-        return pFs->createDirectory(newPath, 0);
+        return pFs->createDirectory(newPath, mask, 0);
     }
 }
 
@@ -432,6 +433,55 @@ bool VFS::remove(String path, File *pStartNode)
     }
 }
 
+bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
+{
+#ifdef VFS_STANDALONE
+    // We don't check permissions on standalone builds of the VFS.
+    return true;
+#else
+    if (!pFile)
+    {
+        // The error for a null file is not EPERM or EACCESS.
+        return true;
+    }
+
+    User *pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
+
+    size_t uid = pFile->getUid();
+    size_t gid = pFile->getGid();
+
+    User *pUser = UserManager::instance().getUser(uid);
+    Group *pGroup = UserManager::instance().getGroup(gid);
+
+    uint32_t permissions = pFile->getPermissions();
+
+    // Are we owner?
+    uint32_t check = 0;
+    if (pUser == pCurrentUser)
+    {
+        check = (permissions >> FILE_UBITS) & 0x7;
+    }
+    else if (pUser->isMember(pGroup))
+    {
+        check = (permissions >> FILE_GBITS) & 0x7;
+    }
+    else
+    {
+        check = (permissions >> FILE_OBITS) & 0x7;
+    }
+
+    // Needed permissions.
+    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
+    if ((check & needed) != needed)
+    {
+        SYSCALL_ERROR(PermissionDenied);
+        return false;
+    }
+
+    return true;
+#endif
+}
+
 #ifndef VFS_STANDALONE
 static bool initVFS()
 {
@@ -456,5 +506,5 @@ static void destroyVFS()
 {
 }
 
-MODULE_INFO("vfs", &initVFS, &destroyVFS, "ramfs");
+MODULE_INFO("vfs", &initVFS, &destroyVFS, "ramfs", "users");
 #endif

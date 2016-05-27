@@ -370,11 +370,9 @@ bool Ext2Filesystem::createFile(File *parent, String filename, uint32_t mask)
     return createNode(parent, filename, mask, String(""), EXT2_S_IFREG);
 }
 
-bool Ext2Filesystem::createDirectory(File* parent, String filename)
+bool Ext2Filesystem::createDirectory(File* parent, String filename, uint32_t mask)
 {
-    // rwxr-xr-x - sane initial permissions for directory.
-    /// \todo Hard-coding permissions here sucks.
-    if (!createNode(parent, filename, 0755, String(""), EXT2_S_IFDIR))
+    if (!createNode(parent, filename, mask, String(""), EXT2_S_IFDIR))
         return false;
     return true;
 }

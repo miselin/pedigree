@@ -77,11 +77,17 @@ bool Filesystem::createFile(String path, uint32_t mask, File *pStartNode)
         return false;
     }
 
+    // Are we allowed to make the file?
+    if (!VFS::checkAccess(pParent, false, true, true))
+    {
+        return false;
+    }
+
     // Now make the file.
     return createFile(pParent, filename, mask);
 }
 
-bool Filesystem::createDirectory(String path, File *pStartNode)
+bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
 {
     if (!pStartNode) pStartNode = getTrueRoot();
     File *pFile = findNode(pStartNode, path);
@@ -102,8 +108,14 @@ bool Filesystem::createDirectory(String path, File *pStartNode)
         return false;
     }
 
+    // Are we allowed to make the file?
+    if (!VFS::checkAccess(pParent, false, true, true))
+    {
+        return false;
+    }
+
     // Now make the directory.
-    createDirectory(pParent, filename);
+    createDirectory(pParent, filename, mask);
 
     return true;
 }
@@ -126,6 +138,12 @@ bool Filesystem::createSymlink(String path, String value, File *pStartNode)
     if (!pParent)
     {
         SYSCALL_ERROR(DoesNotExist);
+        return false;
+    }
+
+    // Are we allowed to make the file?
+    if (!VFS::checkAccess(pParent, false, true, true))
+    {
         return false;
     }
 
@@ -156,6 +174,19 @@ bool Filesystem::createLink(String path, File *target, File *pStartNode)
         return false;
     }
 
+    // Are we allowed to make the file?
+    if (!VFS::checkAccess(pParent, false, true, true))
+    {
+        return false;
+    }
+
+    // Links can't cross filesystems (symlinks can, though).
+    if (this != target->getFilesystem())
+    {
+        SYSCALL_ERROR(CrossDeviceLink);
+        return false;
+    }
+
     // Now make the symlink.
     createLink(pParent, filename, target);
 
@@ -181,6 +212,12 @@ bool Filesystem::remove(String path, File *pStartNode)
     if (!pParent)
     {
         FATAL("Filesystem::remove: Massive algorithmic error.");
+        return false;
+    }
+
+    // Are we allowed to delete the file?
+    if (!VFS::checkAccess(pParent, false, true, true))
+    {
         return false;
     }
 
@@ -269,6 +306,7 @@ File *Filesystem::findNode(File *pNode, String path)
         return findNode(pNode, restOfPath);
 
     // Firstly, if the current node is a symlink, follow it.
+    /// \todo do we need to do permissions checks at each intermediate step?
     while (pNode->isSymlink())
         pNode = Symlink::fromFile(pNode)->followLink();
 
@@ -295,7 +333,13 @@ File *Filesystem::findNode(File *pNode, String path)
     Directory *pDir = Directory::fromFile(pNode);
     if(!pDir)
     {
-        // Throw some error...
+        SYSCALL_ERROR(NotADirectory);
+        return 0;
+    }
+
+    // Are we allowed to access files in this directory?
+    if (!VFS::checkAccess(pNode, false, false, true))
+    {
         return 0;
     }
 

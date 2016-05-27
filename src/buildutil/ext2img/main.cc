@@ -135,7 +135,7 @@ bool writeFile(const std::string &source, const std::string &dest)
         return false;
     }
 
-    bool result = VFS::instance().createFile(TO_FS_PATH(dest), 0644);
+    bool result = VFS::instance().createFile(TO_FS_PATH(dest), defaultPermissions[0]);
     if (!result)
     {
         std::cerr << "Could not create destination file '" << dest << "'." << std::endl;
@@ -175,7 +175,6 @@ bool writeFile(const std::string &source, const std::string &dest)
 
     delete [] buffer;
 
-    pFile->setPermissions(modeToPermissions(defaultPermissions[0]));
     pFile->setUid(defaultOwner[0]);
     pFile->setGid(defaultOwner[1]);
 
@@ -223,7 +222,7 @@ bool createHardlink(const std::string &name, const std::string &target)
 
 bool createDirectory(const std::string &dest)
 {
-    bool result = VFS::instance().createDirectory(TO_FS_PATH(dest));
+    bool result = VFS::instance().createDirectory(TO_FS_PATH(dest), defaultPermissions[1]);
     if (!result)
     {
         std::cerr << "Could not create directory '" << dest << "'." << std::endl;
@@ -233,7 +232,6 @@ bool createDirectory(const std::string &dest)
     File *pResult = VFS::instance().find(TO_FS_PATH(dest));
     if (pResult)
     {
-        pResult->setPermissions(modeToPermissions(defaultPermissions[1]));
         pResult->setUid(defaultOwner[0]);
         pResult->setGid(defaultOwner[1]);
     }
