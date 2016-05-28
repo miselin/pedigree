@@ -26,6 +26,7 @@
 #include <processor/state.h>
 #include <machine/TimerHandler.h>
 #include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 #include <process/Process.h>
 #include <process/Thread.h>
 #include <Atomic.h>
@@ -118,7 +119,7 @@ private:
     SchedulingAlgorithm *m_pSchedulingAlgorithm;
     
     Mutex m_NewThreadDataLock;
-    Semaphore m_NewThreadDataCount;
+    ConditionVariable m_NewThreadDataCondition;
     
     List<void*> m_NewThreadData;
     

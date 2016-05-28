@@ -42,8 +42,8 @@
 #endif
 
 PerProcessorScheduler::PerProcessorScheduler() :
-    m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false), m_NewThreadDataCount(0),
-    m_NewThreadData(), m_pIdleThread(0)
+    m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false),
+    m_NewThreadDataCondition(), m_NewThreadData(), m_pIdleThread(0)
 #ifdef ARM_BEAGLE
     , m_TickCount(0)
 #endif
@@ -68,13 +68,17 @@ struct newThreadData
 int PerProcessorScheduler::processorAddThread(void *instance)
 {
     PerProcessorScheduler *pInstance = reinterpret_cast<PerProcessorScheduler*>(instance);
+    pInstance->m_NewThreadDataLock.acquire();
     while(true)
     {
-        pInstance->m_NewThreadDataCount.acquire();
-        
-        pInstance->m_NewThreadDataLock.acquire();
+        if (!pInstance->m_NewThreadData.count())
+        {
+            while (!pInstance->m_NewThreadDataCondition.wait(pInstance->m_NewThreadDataLock))
+                ;
+            continue;
+        }
+
         void *p = pInstance->m_NewThreadData.popFront();
-        pInstance->m_NewThreadDataLock.release();
         
         newThreadData *pData = reinterpret_cast<newThreadData*>(p);
 
@@ -413,8 +417,8 @@ void PerProcessorScheduler::addThread(Thread *pThread, Thread::ThreadStartFunc p
         m_NewThreadDataLock.acquire();
         m_NewThreadData.pushBack(pData);
         m_NewThreadDataLock.release();
-    
-        m_NewThreadDataCount.release();
+
+        m_NewThreadDataCondition.signal();
         
         return;
     }
@@ -529,7 +533,7 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
         m_NewThreadData.pushBack(pData);
         m_NewThreadDataLock.release();
 
-        m_NewThreadDataCount.release();
+        m_NewThreadDataCondition.signal();
 
         return;
     }
