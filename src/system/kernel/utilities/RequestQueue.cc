@@ -28,9 +28,9 @@
 RequestQueue::RequestQueue() :
   m_Stop(false), m_RequestQueueMutex(false)
 #ifdef THREADS
-  , m_RequestQueueSize(0), m_pThread(0)
+  , m_pThread(0)
 #endif
-  , m_Halted(false), m_HaltAcknowledged(false)
+  , m_Halted(false)
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
         m_pRequestQueue[i] = 0;
@@ -129,9 +129,8 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
     pReq->pThread->addRequest(pReq);
   }
 
-  // Increment the number of items on the request queue.
-  m_RequestQueueSize.release();
-
+  // One more item now available.
+  m_RequestQueueCondition.signal();
   m_RequestQueueMutex.release();
 
   // We are waiting on the worker thread - mark the thread as such.
@@ -228,7 +227,7 @@ void RequestQueue::halt()
   if(!m_Halted)
   {
     m_Stop = true;
-    m_RequestQueueSize.release();
+    m_RequestQueueCondition.broadcast();
 
     // Join now - we need to release the mutex so the worker thread can keep
     // going, as it could be blocked on trying to acquire it right now.
@@ -261,85 +260,107 @@ int RequestQueue::trampoline(void *p)
   return pRQ->work();
 }
 
-int RequestQueue::work()
+RequestQueue::Request *RequestQueue::getNextRequest()
 {
-#ifdef THREADS
-  while (true)
-  {
-    // Are we halted?
-    if (m_Halted)
-    {
-      // We will halt as soon as we hit the mutex acquire - all good for the
-      // caller of halt() to continue now.
-      m_HaltAcknowledged.release();
-    }
-
-    // Sleep on the queue length semaphore - wake when there's something to do.
-    if (!m_RequestQueueSize.acquire())
-    {
-      continue;
-    }
-
-    // Check why we were woken - is m_Stop set? If so, quit.
-    if (m_Stop)
-      return 0;
-
-    // Get the first request from the queue.
-    m_RequestQueueMutex.acquire();
+    // Must have the lock to be here.
+    assert(!m_RequestQueueMutex.getValue());
 
     // Get the most important queue with data in.
     /// \todo Stop possible starvation here.
     size_t priority = 0;
+    bool bFound = false;
     for (priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES-1; priority++)
+    {
         if (m_pRequestQueue[priority])
+        {
+            bFound = true;
             break;
+        }
+    }
+
+    if (!bFound)
+    {
+        return 0;
+    }
 
     Request *pReq = m_pRequestQueue[priority];
-    // Quick sanity check:
-    if (pReq == 0)
+    if (pReq != 0)
     {
-        // Probably got woken up by a resume() after halt() left the mutex with
-        // an un-acked count.
-        m_RequestQueueMutex.release();
-        continue;
+        m_pRequestQueue[priority] = pReq->next;
     }
-    m_pRequestQueue[priority] = pReq->next;
 
+    return pReq;
+}
+
+int RequestQueue::work()
+{
+#ifdef THREADS
+  // Hold from the start - this will be released by the condition variable
+  // wait for us, and re-acquired on return, so we'll always have the lock
+  // until we explicitly release it.
+  m_RequestQueueMutex.acquire();
+  while (true)
+  {
+    // Do we need to stop?
+    if (m_Stop)
+    {
+      m_RequestQueueMutex.release();
+      return 0;
+    }
+
+    Request *pReq = getNextRequest();
+    if (!pReq)
+    {
+      // Need to wait for another request.
+      while (!m_RequestQueueCondition.wait(m_RequestQueueMutex))
+        ;
+      continue;
+    }
+
+    // We have a request! We don't need to use the queue anymore.
     m_RequestQueueMutex.release();
 
     // Verify that it's still valid to run the request
-    if (pReq->bReject)
+    if (!pReq->bReject)
     {
-        continue;
-    }
-
-    // Perform the request.
-    pReq->ret = executeRequest(pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5, pReq->p6, pReq->p7, pReq->p8);
-    if (pReq->mutex.tryAcquire())
-    {
+      // Perform the request.
+      bool finished = true;
+      pReq->ret = executeRequest(pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5, pReq->p6, pReq->p7, pReq->p8);
+      if (pReq->mutex.tryAcquire())
+      {
         // Something's gone wrong - the calling thread has released the Mutex. Destroy the request
         // and grab the next request from the queue. The calling thread has long since stopped
         // caring about whether we're done or not.
         NOTICE("RequestQueue::work - caller interrupted");
-        if(pReq->pThread)
-            pReq->pThread->removeRequest(pReq);
+        if (pReq->pThread)
+          pReq->pThread->removeRequest(pReq);
+        finished = false;
         continue;
-    }
-    switch (Processor::information().getCurrentThread()->getUnwindState())
-    {
+      }
+      switch (Processor::information().getCurrentThread()->getUnwindState())
+      {
         case Thread::Continue:
-            break;
+          break;
         case Thread::Exit:
-            WARNING("RequestQueue: unwind state is Exit, request not cleaned up. Leak?");
-            return 0;
+          WARNING("RequestQueue: unwind state is Exit, request not cleaned up. Leak?");
+          return 0;
         case Thread::ReleaseBlockingThread:
-            Processor::information().getCurrentThread()->setUnwindState(Thread::Continue);
-            break;
+          Processor::information().getCurrentThread()->setUnwindState(Thread::Continue);
+          break;
+      }
+
+      // Request finished - post the request's mutex to wake the calling thread.
+      if (finished)
+      {
+        pReq->bCompleted = true;
+        pReq->mutex.release();
+      }
     }
 
-    // Request finished - post the request's mutex to wake the calling thread.
-    pReq->bCompleted = true;
-    pReq->mutex.release();
+    // Acquire mutex ready to re-check condition.
+    // We do this here as the head of the loop must have the lock (to allow the
+    // condition variable to work with our lock correctly).
+    m_RequestQueueMutex.acquire();
   }
 #else
   return 0;

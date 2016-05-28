@@ -21,7 +21,7 @@
 #define REQUEST_QUEUE_H
 
 #include <processor/types.h>
-#include <process/Semaphore.h>
+#include <process/ConditionVariable.h>
 #include <process/Mutex.h>
 
 class Thread;
@@ -125,6 +125,9 @@ protected:
     /** Thread worker function */
     int work();
 
+    /** Get the next Request, or NULL if no available requests. */
+    Request *getNextRequest();
+
     /** The request queue */
     Request *m_pRequestQueue[REQUEST_QUEUE_NUM_PRIORITIES];
 
@@ -135,8 +138,8 @@ protected:
     /** Mutex to be held when the request queue is being changed. */
     Mutex m_RequestQueueMutex;
 
-    /** The semaphore giving the number of items in the queue. */
-    Semaphore m_RequestQueueSize;
+    /** Condition variable for verifying if items exist. */
+    ConditionVariable m_RequestQueueCondition;
     
     Thread *m_pThread;
 
