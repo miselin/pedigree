@@ -21,7 +21,7 @@
 #define TEXTIO_H
 
 #include <processor/types.h>
-#include <utilities/RingBuffer.h>
+#include <utilities/Buffer.h>
 
 #include <machine/TimerHandler.h>
 
@@ -30,7 +30,7 @@
 class Vga;
 
 #define MAX_TEXTIO_PARAMS 16
-#define TEXTIO_RINGBUFFER_SIZE 1024
+#define TEXTIO_BUFFER_SIZE 1024
 
 // Blink periods in milliseconds.
 // We show text for 2x as long as the text is hidden.
@@ -202,7 +202,7 @@ private:
      * Output buffer - data that we as the emulator want to write back to
      * the application (eg, cursor position reports)
      */
-    RingBuffer<char> m_OutBuffer;
+    Buffer<char> m_OutBuffer;
 
     /**
      * Designated character sets - simply store the character which is used

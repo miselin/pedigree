@@ -32,7 +32,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     m_ScrollStart(0), m_ScrollEnd(0), m_LeftMargin(0), m_RightMargin(0),
     m_CurrentParam(0), m_Params(), m_Fore(TextIO::LightGrey), m_Back(TextIO::Black),
     m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
-    m_OutBuffer(TEXTIO_RINGBUFFER_SIZE), m_G0('B'), m_G1('B'),
+    m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'),
     m_Nanoseconds(0), m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0),
     m_bActive(false)
 {
@@ -1160,7 +1160,7 @@ void TextIO::write(const char *s, size_t len)
     flip();
 
     // Wake up anything waiting on output from us if needed.
-    if(m_OutBuffer.dataReady())
+    if(m_OutBuffer.canRead(false))
         dataChanged();
 }
 
@@ -1486,25 +1486,7 @@ void TextIO::flip(bool timer, bool hideState)
 
 uint64_t TextIO::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
-    {
-        if(!m_OutBuffer.waitFor(RingBufferWait::Reading))
-            return 0; // Interrupted.
-    }
-    else if(!m_OutBuffer.dataReady())
-    {
-        return 0;
-    }
-
-    uintptr_t originalBuffer = buffer;
-    while(m_OutBuffer.dataReady() && size)
-    {
-        *reinterpret_cast<char*>(buffer) = m_OutBuffer.read();
-        ++buffer;
-        --size;
-    }
-
-    return buffer - originalBuffer;
+    return m_OutBuffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
 }
 
 uint64_t TextIO::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
@@ -1515,17 +1497,13 @@ uint64_t TextIO::write(uint64_t location, uint64_t size, uintptr_t buffer, bool 
 
 int TextIO::select(bool bWriting, int timeout)
 {
-    if(bWriting)
-        return 1;
-
-    if(timeout)
+    if (bWriting)
     {
-        while(!m_OutBuffer.waitFor(RingBufferWait::Reading));
-        return 1;
+        return m_OutBuffer.canWrite(timeout > 0) ? 1 : 0;
     }
     else
     {
-        return m_OutBuffer.dataReady();
+        return m_OutBuffer.canRead(timeout > 0) ? 1 : 0;
     }
 }
 
