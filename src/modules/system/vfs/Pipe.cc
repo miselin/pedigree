@@ -38,8 +38,7 @@ class ZombiePipe : public ZombieObject
 };
 
 Pipe::Pipe() :
-    File(), m_bIsAnonymous(true), m_bIsEOF(false), m_BufLen(0),
-    m_BufAvailable(PIPE_BUF_MAX), m_Front(0), m_Back(0)
+    File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
 }
@@ -48,8 +47,7 @@ Pipe::Pipe(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTi
            uintptr_t inode, Filesystem *pFs, size_t size, File *pParent,
            bool bIsAnonymous) :
     File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_BufLen(0),
-    m_BufAvailable(PIPE_BUF_MAX), m_Front(0), m_Back(0)
+    m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
     NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << reinterpret_cast<uintptr_t>(this));
 }
@@ -60,132 +58,46 @@ Pipe::~Pipe()
 
 int Pipe::select(bool bWriting, int timeout)
 {
-    if(timeout)
+    if (bWriting)
     {
-        if(bWriting)
-        {
-            if(m_BufAvailable.acquire(1, timeout))
-            {
-                m_BufAvailable.release();
-                return true;
-            }
-        }
-        else
-        {
-            if(m_BufLen.acquire(1, timeout))
-            {
-                m_BufLen.release();
-                return true;
-            }
-        }
+        return m_Buffer.canWrite(timeout > 0) ? 1 : 0;
     }
     else
     {
-        if(bWriting)
-        {
-            if(m_BufAvailable.tryAcquire())
-            {
-                m_BufAvailable.release();
-                return true;
-            }
-        }
-        else
-        {
-            if(m_BufLen.tryAcquire())
-            {
-                m_BufLen.release();
-                return true;
-            }
-        }
+        return m_Buffer.canRead(timeout > 0) ? 1 : 0;
     }
-
-    return false;
 }
 
 uint64_t Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    uint64_t n = 0;
+    NOTICE("Pipe::read(" << Hex << this << ", " << Dec << size << ", [" << bCanBlock << "])");
     uint8_t *pBuf = reinterpret_cast<uint8_t*>(buffer);
-    while (size)
-    {
-        if (m_bIsEOF)
-        {
-            // If EOF has been signalled or we already have some data,
-            // we mustn't block, so tentatively attempt to tryAcquire until
-            // it fails.
-            if (!m_BufLen.tryAcquire())
-            {
-                // No data left and currently EOF - END.
-                return n;
-            }
-
-            // Otherwise, we may have an un-acked EOF.
-            /// \note There is a possibility that the pipe is actually full here
-            ///       and that, should this return zero, we'll lose the data in
-            ///       the pipe...
-            if (m_Front == m_Back)
-            {
-                return n;
-            }
-        }
-        else
-        {
-            // EOF not signalled, so do a blocking wait on data, if we can.
-            if(bCanBlock)
-                m_BufLen.acquire();
-            else
-            {
-                if(!m_BufLen.tryAcquire())
-                {
-                    return n;
-                }
-            }
-
-            // Is EOF signalled (is this why we were woken?)
-            if (m_bIsEOF && (m_Front == m_Back))
-            {
-                // Yes, the next call will probably return zero.
-                return n;
-            }
-        }
-
-        // Otherwise, there is data available. If m_Front == m_Back, the
-        // pipe is currently *full*.
-        pBuf[n++] = m_Buffer[m_Front];
-        m_Front = (m_Front+1) % PIPE_BUF_MAX;
-        m_BufAvailable.release();
-        size --;
-    }
-    return n;
+    return m_Buffer.read(pBuf, size, bCanBlock);
 }
 
 uint64_t Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    uint64_t n = 0;
+    NOTICE("Pipe::write(" << Hex << this << ", " << Dec << size << ",  [" << bCanBlock << "])");
     uint8_t *pBuf = reinterpret_cast<uint8_t*>(buffer);
-    while (size)
+    uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
+    if (result)
     {
-        m_BufAvailable.acquire();
-        m_Buffer[m_Back] = pBuf[n++];
-        m_Back = (m_Back+1) % PIPE_BUF_MAX;
-        m_BufLen.release();
-        size --;
+        dataChanged();
     }
+    NOTICE("Pipe::write done -> " << result);
 
-    dataChanged();
-    return n;
+    return result;
 }
 
 void Pipe::increaseRefCount(bool bIsWriter)
 {
     if (bIsWriter)
     {
-        if (m_bIsEOF)
+        // Enable writes if they were previously disabled.
+        if (!m_Buffer.enableWrites())
         {
-            // Start the pipe again.
-            m_bIsEOF = false;
-            while (m_BufLen.tryAcquire()) ;
-            m_Front = m_Back = 0;
+            // Writes were disabled previously (EOF), so wipe the pipe.
+            m_Buffer.wipe();
         }
         m_nWriters++;
     }
@@ -204,9 +116,7 @@ void Pipe::decreaseRefCount(bool bIsWriter)
     // is added to the ZombieQueue twice, which causes a double free.
     bool bDataChanged = false;
     {
-        NOTICE("Pipe::decreaseRefCount");
         LockGuard<Mutex> guard(m_Lock);
-        NOTICE("Pipe::decreaseRefCount -- LOCKED");
 
         if (m_nReaders == 0 && m_nWriters == 0)
         {
@@ -220,13 +130,9 @@ void Pipe::decreaseRefCount(bool bIsWriter)
             m_nWriters --;
             if (m_nWriters == 0)
             {
-                m_bIsEOF = true;
-                if (m_Front == m_Back)
-                {
-                    // No data available - post the m_BufLen semaphore to wake any readers up.
-                    m_BufLen.release();
-                }
-
+                // Wakes up readers waiting as they won't be able to be woken
+                // by new bytes being written anymore.
+                m_Buffer.disableWrites();
                 bDataChanged = true;
             }
         }
@@ -248,8 +154,6 @@ void Pipe::decreaseRefCount(bool bIsWriter)
 
     if (bDataChanged)
     {
-        NOTICE("Pipe::decreaseRefCount -- dataChanged");
         dataChanged();
-        NOTICE("Pipe::decreaseRefCount -- dataChanged DONE");
     }
 }

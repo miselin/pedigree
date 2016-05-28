@@ -22,6 +22,7 @@
 
 #include <time/Time.h>
 #include <processor/types.h>
+#include <utilities/Buffer.h>
 #include <utilities/String.h>
 #include <utilities/RadixTree.h>
 #include <process/Semaphore.h>
@@ -84,11 +85,8 @@ protected:
     /** Have we reached EOF? */
     volatile bool m_bIsEOF;
 
-    /** The implements needed to create a ring buffer. */
-    Semaphore m_BufLen;
-    Semaphore m_BufAvailable;
-    uint8_t m_Buffer[PIPE_BUF_MAX];
-    uintptr_t m_Front, m_Back;
+    /** Internal pipe buffer. */
+    Buffer<uint8_t> m_Buffer;
 };
 
 #endif
