@@ -31,6 +31,13 @@
 
 static Atomic<size_t> x(0);
 
+Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) :
+    m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
+    m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba),
+    m_pOwner(0), m_bOwned(false), m_Level(0), m_OwnedProcessor(~0)
+{
+}
+
 bool Spinlock::acquire(bool recurse, bool safe)
 {
   Thread *pThread = Processor::information().getCurrentThread();
@@ -246,4 +253,14 @@ void Spinlock::unwind()
   m_bOwned = false;
   m_pOwner = 0;
   m_OwnedProcessor = ~0;
+}
+
+bool Spinlock::acquired()
+{
+  return !m_Atom;
+}
+
+bool Spinlock::interrupts() const
+{
+  return m_bInterrupts;
 }

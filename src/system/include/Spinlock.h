@@ -27,10 +27,7 @@ class Spinlock
     friend class PerProcessorScheduler;
     friend class LocksCommand;
   public:
-    inline Spinlock(bool bLocked = false, bool bAvoidTracking = false)
-        : m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
-        m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba),
-        m_pOwner(0), m_bOwned(false), m_Level(0), m_OwnedProcessor(~0) {}
+    Spinlock(bool bLocked = false, bool bAvoidTracking = false);
 
     /**
      * Enter the critical section.
@@ -47,15 +44,9 @@ class Spinlock
     /** Exit the critical section, restoring previous interrupt state. */
     void release();
 
-    bool acquired()
-    {
-        return !m_Atom;
-    }
+    bool acquired();
 
-    bool interrupts() const
-    {
-        return m_bInterrupts;
-    }
+    bool interrupts() const;
 
     static const bool allow_recursion = true;
 
