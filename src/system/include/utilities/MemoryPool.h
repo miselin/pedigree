@@ -22,7 +22,8 @@
 
 #include <processor/types.h>
 #ifdef THREADS
-#include <process/Semaphore.h>
+#include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 #endif
 #include <processor/MemoryRegion.h>
 #include <utilities/ExtensibleBitmap.h>
@@ -90,17 +91,15 @@ class MemoryPool
 
     private:
 #ifdef THREADS
-        /// This Semaphore tracks the number of buffers allocated, and allows
-        /// blocking when the buffers run out.
-        Semaphore m_BlockSemaphore;
-
-        /// This Spinlock turns bitmap operations into an atomic operation to
-        /// avoid race conditions where the same buffer is allocated twice.
-        Spinlock m_BitmapLock;
+        ConditionVariable m_Condition;
+        Mutex m_Lock;
 #endif
 
         /// Size of each buffer in this pool
         size_t m_BufferSize;
+
+        /// Number of buffers we have available.
+        size_t m_BufferCount;
 
         /// MemoryRegion describing the actual pool of memory
         MemoryRegion m_Pool;
@@ -115,7 +114,7 @@ class MemoryPool
         MemoryPoolPressureHandler m_PressureHandler;
 
         /// Allocation doer
-        uintptr_t allocateDoer();
+        uintptr_t allocateDoer(bool canBlock);
 };
 
 #endif

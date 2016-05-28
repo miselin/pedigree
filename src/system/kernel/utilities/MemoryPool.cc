@@ -91,19 +91,19 @@ bool MemoryPoolPressureHandler::compact()
 
 MemoryPool::MemoryPool() :
 #ifdef THREADS
-    m_BlockSemaphore(0), m_BitmapLock(),
+    m_Condition(), m_Lock(),
 #endif
-    m_BufferSize(1024), m_Pool("memory-pool"), m_bInitialised(false),
-    m_AllocBitmap(), m_PressureHandler(this)
+    m_BufferSize(1024), m_BufferCount(0), m_Pool("memory-pool"),
+    m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
 {
 }
 
 MemoryPool::MemoryPool(const char *poolName) :
 #ifdef THREADS
-    m_BlockSemaphore(0),
+    m_Condition(), m_Lock(),
 #endif
-    m_BufferSize(1024), m_Pool(poolName), m_bInitialised(false), m_AllocBitmap(),
-    m_PressureHandler(this)
+    m_BufferSize(1024), m_BufferCount(0), m_Pool(poolName),
+    m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
 {
 }
 
@@ -112,13 +112,16 @@ MemoryPool::~MemoryPool()
     // Free all the buffers
     m_bInitialised = false;
 #ifdef THREADS
-    while(!m_BlockSemaphore.getValue())
-        m_BlockSemaphore.release();
+    m_Condition.broadcast();
 #endif
 }
 
 bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
 {
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+
     if(m_bInitialised)
         return true;
 
@@ -150,10 +153,7 @@ bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
     if(!m_bInitialised)
         return false;
 
-    size_t nBuffers = (poolSize * 0x1000) / bufferSize;
-#ifdef THREADS
-    m_BlockSemaphore.release(nBuffers);
-#endif
+    m_BufferCount = (poolSize * 0x1000) / bufferSize;
 
     // Register us as a memory pressure handler, with top priority. We should
     // very easily be able to free pages in most cases.
@@ -167,15 +167,7 @@ uintptr_t MemoryPool::allocate()
     if(!m_bInitialised)
         return 0;
 
-    /// \bug Race if another allocate() call occurs between the acquire and the doer
-#ifdef THREADS
-    if(!m_BlockSemaphore.tryAcquire())
-    {
-        ERROR("MemoryPool: COMPLETELY out of buffers!");
-        m_BlockSemaphore.acquire();
-    }
-#endif
-    return allocateDoer();
+    return allocateDoer(true);
 }
 
 uintptr_t MemoryPool::allocateNow()
@@ -183,60 +175,77 @@ uintptr_t MemoryPool::allocateNow()
     if(!m_bInitialised)
         return 0;
 
-#ifdef THREADS
-    if(m_BlockSemaphore.tryAcquire())
-        return allocateDoer();
-    else
-        return 0;
-#else
-    return allocateDoer(); // can't block without threads
-#endif
+    return allocateDoer(false);
 }
 
-uintptr_t MemoryPool::allocateDoer()
+uintptr_t MemoryPool::allocateDoer(bool canBlock)
 {
+#ifdef THREADS
+    m_Lock.acquire();
+#endif
+
     // Find a free buffer
     size_t poolSize = m_Pool.size();
     size_t nBuffers = poolSize / m_BufferSize;
     uintptr_t poolBase = reinterpret_cast<uintptr_t>(m_Pool.virtualAddress());
 
-    bool bInvalid = false;
     size_t n = 0;
+#ifdef THREADS
+    while (true)
     {
-        LockGuard<Spinlock> guard(m_BitmapLock);
-        n = m_AllocBitmap.getFirstClear();
-        if(n >= nBuffers)
-            bInvalid = true;
-        else
-            m_AllocBitmap.set(n);
-    }
+        if (!m_BufferCount)
+        {
+            if (!canBlock)
+            {
+                m_Lock.release();
+                return 0;
+            }
 
-    if(bInvalid)
+            while (!m_Condition.wait(m_Lock))
+                ;
+            continue;
+        }
+#else
+    if (!m_BufferCount)
     {
-        FATAL("MemoryPool::allocateDoer - no buffers available, shouldn't have been called.");
         return 0;
     }
+#endif
+
+#ifdef THREADS
+        // Have a buffer available.
+        n = m_AllocBitmap.getFirstClear();
+        assert(n < nBuffers);
+        m_AllocBitmap.set(n);
+        break;
+    }
+#endif
 
     uintptr_t result = poolBase + (n * 0x1000);
     map(result);
+
+    --m_BufferCount;
+
+#ifdef THREADS
+    m_Lock.release();
+#endif
 
     return result;
 }
 
 void MemoryPool::free(uintptr_t buffer)
 {
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+
     if(!m_bInitialised)
         return;
 
-    {
-        LockGuard<Spinlock> guard(m_BitmapLock);
-        size_t n = (buffer - reinterpret_cast<uintptr_t>(m_Pool.virtualAddress())) / m_BufferSize;
-        m_AllocBitmap.clear(n);
-    }
+    size_t n = (buffer - reinterpret_cast<uintptr_t>(m_Pool.virtualAddress())) / m_BufferSize;
+    m_AllocBitmap.clear(n);
 
-#ifdef THREADS
-    m_BlockSemaphore.release();
-#endif
+    ++m_BufferCount;
 }
 
 bool MemoryPool::trim()
