@@ -87,7 +87,6 @@ size_t Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool
             }
 
             // No, we need to wait.
-            NOTICE("BUFFER: block on WRITE");
             while (!m_WriteCondition.wait(m_Lock))
                 ;
             continue;
@@ -188,7 +187,6 @@ size_t Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool
         // a reader is needed to unblock that.
         if (copiedData)
         {
-            NOTICE("BUFFER: signal READER");
             m_ReadCondition.signal();
         }
 
@@ -242,7 +240,6 @@ size_t Buffer<T, allowShortOperation>::read(T *buffer, size_t count, bool block)
             }
 
             // No, we need to wait.
-            NOTICE("BUFFER: block on READ");
             while (!m_ReadCondition.wait(m_Lock))
                 ;
             continue;
@@ -293,7 +290,6 @@ size_t Buffer<T, allowShortOperation>::read(T *buffer, size_t count, bool block)
         if (numberCopied)
         {
             // Wake up a writer that was waiting for space to write.
-            NOTICE("BUFFER: signal READER");
             m_WriteCondition.signal();
         }
 
@@ -373,6 +369,24 @@ template <class T, bool allowShortOperation>
 bool Buffer<T, allowShortOperation>::canWrite(bool block)
 {
     LockGuard<Mutex> guard(m_Lock);
+
+    if (!m_bCanWrite)
+    {
+        return false;
+    }
+
+    if (!block)
+    {
+        return m_DataSize < m_BufferSize;
+    }
+
+    // We can get woken here if we stop being able to write.
+    while (m_bCanWrite && m_DataSize >= m_BufferSize)
+    {
+        while (!m_WriteCondition.wait(m_Lock))
+            ;
+    }
+
     return m_bCanWrite;
 }
 
@@ -380,6 +394,24 @@ template <class T, bool allowShortOperation>
 bool Buffer<T, allowShortOperation>::canRead(bool block)
 {
     LockGuard<Mutex> guard(m_Lock);
+
+    if (!m_bCanRead)
+    {
+        return false;
+    }
+
+    if (!block)
+    {
+        return m_DataSize > 0;
+    }
+
+    // We can get woken here if we stop being able to read.
+    while (m_bCanRead && !m_DataSize)
+    {
+        while (!m_ReadCondition.wait(m_Lock))
+            ;
+    }
+
     return m_bCanRead;
 }
 
