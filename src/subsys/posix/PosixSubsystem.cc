@@ -609,9 +609,16 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler)
     m_SignalHandlersLock.release();
 }
 
+/**
+ * Note: POSIX  requires open()/accept()/etc to be safe during a signal
+ * handler, which requires us to not allow signals during these file descriptor
+ * calls. They cannot re-enter as they take process-specific locks.
+ */
 
 size_t PosixSubsystem::getFd()
 {
+    Uninterruptible throughout;
+
     // Enter critical section for writing.
     while(!m_FdLock.acquire());
 
@@ -637,6 +644,8 @@ size_t PosixSubsystem::getFd()
 
 void PosixSubsystem::allocateFd(size_t fdNum)
 {
+    Uninterruptible throughout;
+
     // Enter critical section for writing.
     while(!m_FdLock.acquire());
 
@@ -649,6 +658,8 @@ void PosixSubsystem::allocateFd(size_t fdNum)
 
 void PosixSubsystem::freeFd(size_t fdNum)
 {
+    Uninterruptible throughout;
+
     // Enter critical section for writing.
     while(!m_FdLock.acquire());
 
@@ -669,6 +680,8 @@ void PosixSubsystem::freeFd(size_t fdNum)
 
 bool PosixSubsystem::copyDescriptors(PosixSubsystem *pSubsystem)
 {
+    Uninterruptible throughout;
+
     assert(pSubsystem);
 
     // We're totally resetting our local state, ensure there's no files hanging around.
@@ -705,6 +718,8 @@ bool PosixSubsystem::copyDescriptors(PosixSubsystem *pSubsystem)
 
 void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iLast)
 {
+    Uninterruptible throughout;
+
     assert(iFirst < iLast);
 
     while(!m_FdLock.acquire()); // Don't allow any access to the FD data
@@ -765,6 +780,38 @@ void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iL
     }
 
     m_FdLock.release();
+}
+
+FileDescriptor *PosixSubsystem::getFileDescriptor(size_t fd)
+{
+    Uninterruptible throughout;
+
+    // Enter the critical section, for reading.
+    while(!m_FdLock.enter());
+
+    FileDescriptor *pFd = m_FdMap.lookup(fd);
+
+    m_FdLock.leave();
+
+    return pFd;
+}
+
+void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor *pFd)
+{
+    /// \todo this is possibly racy
+    freeFd(fd);
+    allocateFd(fd);
+
+    {
+        Uninterruptible throughout;
+
+        // Enter critical section for writing.
+        while(!m_FdLock.acquire());
+
+        m_FdMap.insert(fd, pFd);
+
+        m_FdLock.release();
+    }
 }
 
 void PosixSubsystem::threadRemoved(Thread *pThread)

@@ -343,31 +343,10 @@ class PosixSubsystem : public Subsystem
         void freeMultipleFds(bool bOnlyCloExec = false, size_t iFirst = 0, size_t iLast = -1);
 
         /** Gets a pointer to a FileDescriptor object from an fd number */
-        FileDescriptor *getFileDescriptor(size_t fd)
-        {
-            // Enter the critical section, for reading.
-            while(!m_FdLock.enter());
-
-            FileDescriptor *pFd = m_FdMap.lookup(fd);
-
-            m_FdLock.leave();
-
-            return pFd;
-        }
+        FileDescriptor *getFileDescriptor(size_t fd);
 
         /** Inserts a file descriptor */
-        void addFileDescriptor(size_t fd, FileDescriptor *pFd)
-        {
-            freeFd(fd);
-            allocateFd(fd);
-
-            // Enter critical section for writing.
-            while(!m_FdLock.acquire());
-
-            m_FdMap.insert(fd, pFd);
-
-            m_FdLock.release();
-        }
+        void addFileDescriptor(size_t fd, FileDescriptor *pFd);
         
         /**
          * POSIX Semaphore or Mutex

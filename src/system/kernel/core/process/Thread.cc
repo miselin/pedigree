@@ -446,22 +446,19 @@ void Thread::pokeState(size_t stateLevel, SchedulerState &state)
 
 void Thread::sendEvent(Event *pEvent)
 {
-
     // Only need the lock to adjust the queue of events.
     m_Lock.acquire();
     m_EventQueue.pushBack(pEvent);
     m_Lock.release();
-    // NOTICE("Sending event: " << pEvent->getNumber() << ".");
+
     if (m_Status == Sleeping && m_bInterruptible)
     {
         // Interrupt the sleeping thread, there's an event firing
         m_Status = Ready;
-        // NOTICE("Set status");
 
         // Notify the scheduler that we're now ready, so we get put into the
         // scheduling algorithm's ready queue.
         Scheduler::instance().threadStatusChanged(this);
-        // NOTICE("Notified the scheduler that we've changed status");
     }
 }
 
