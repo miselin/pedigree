@@ -26,6 +26,7 @@ port.
 """
 
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -81,6 +82,7 @@ def main(argv):
         os.path.join(scriptdir, 'qemu'),
         '-m',
         '512',
+        '-no-reboot',
         '-nographic',
         '-serial',
         'udp:127.0.0.1:4556',
@@ -102,21 +104,43 @@ def main(argv):
     try:
         with Timeout(300):
             last = ''
+            terminating = False
+            serial_so_far = ''
             while True:
-                serial_data = last + sock.recv(1024)
-                serial_lines = serial_data.split('\n')
-                last = serial_lines.pop()
+                reads, _, excepts = select.select([sock], [], [sock])
+                if sock in reads:
+                    serial_data = last + sock.recv(1024)
+                    serial_lines = serial_data.split('\n')
+                    last = serial_lines.pop()
 
-                serial.extend(serial_lines)
+                    serial.extend(serial_lines)
 
-                if '-- Hello, Travis! --' in '\n'.join(serial_lines):
+                    serial_so_far = '\n'.join(serial_lines)
+                elif sock in excepts:
+                    print 'Serial port socket hit an exceptional condition.'
+                    print 'Aborting test.'
+                    raise Exception()
+                elif terminating:
+                    print ('QEMU terminated before seeing Pedigree boot to '
+                           'the login prompt.')
+                    print 'This may indicate a triple fault.'
+                    raise Exception()
+
+                if '-- Hello, Travis! --' in serial_so_far:
                     success = True
                     break
+                elif '<< Flushing log content >>' in serial_so_far:
+                    # Run the debugger on the serial port so we can see what
+                    # happened after the fact.
+                    sock.send(' dump\ndisassemble\nbacktrace\n')
+                elif qemu.poll() is not None:
+                    # qemu has terminated!
+                    terminating = True
         end = time.time()
-    except TimeoutError:
+    except:
         print 'Runtime test failure: Pedigree did not boot to the login prompt.'
         print 'Most recent serial lines:'
-        print '\n'.join(serial[-15:])
+        print '\n'.join(serial[-30:])
     else:
         print ('Runtime test success: Pedigree booted to the login '
                'prompt (%ds).' % (int(end - start),))
