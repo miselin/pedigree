@@ -543,10 +543,13 @@ int posix_sleep(uint32_t seconds)
 {
     SG_NOTICE("sleep");
 
-    Semaphore sem(0);
-
     uint64_t startTick = Machine::instance().getTimer()->getTickCount();
-    sem.acquire(1, seconds);
+    Time::delay(seconds * Time::Multiplier::SECOND);
+
+    /// \todo delay() won't stop until the time completes, but we should be
+    ///       interruptible such that we can return the time elapsed before the
+    ///       sleep() ceased.
+
     if (Processor::information().getCurrentThread()->wasInterrupted())
     {
         // Note: seconds is a uint32, therefore it should be safe to cast
@@ -560,10 +563,6 @@ int posix_sleep(uint32_t seconds)
         else
             return elapsedSecs;
     }
-    else
-    {
-        ERROR("sleep: acquire was not interrupted?");
-    }
 
     return 0;
 }
@@ -572,22 +571,13 @@ int posix_usleep(size_t useconds)
 {
     SG_NOTICE("usleep");
 
-    Semaphore sem(0);
+    Time::delay(useconds * Time::Multiplier::MICROSECOND);
 
-    size_t seconds = useconds / 1000000;
-    useconds %= 1000000;
+    /// \todo delay() won't stop until the time completes, but we should be
+    ///       interruptible such that we can return the time elapsed before the
+    ///       usleep() ceased.
 
-    sem.acquire(1, seconds, useconds);
-    if (Processor::information().getCurrentThread()->wasInterrupted())
-    {
-        return 0;
-    }
-    else
-    {
-        ERROR("usleep: acquire was not interrupted?");
-    }
-
-    return -1;
+    return 0;
 }
 
 int posix_nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
@@ -602,28 +592,18 @@ int posix_nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
 
     SG_NOTICE("nanosleep(" << Dec << rqtp->tv_sec << ":" << rqtp->tv_nsec << Hex << ") - " << Machine::instance().getTimer()->getTickCount() << ".");
 
-    Semaphore sem(0);
+    Time::Timestamp ts = (rqtp->tv_sec * Time::Multiplier::SECOND) + rqtp->tv_nsec;
+    Time::delay(ts);
 
-    uint64_t startTick = Machine::instance().getTimer()->getTickCount();
-    sem.acquire(1, rqtp->tv_sec, rqtp->tv_nsec / 1000);
-    if (Processor::information().getCurrentThread()->wasInterrupted())
+    if (rmtp)
     {
-        uint64_t endTick = Machine::instance().getTimer()->getTickCount();
-        uint64_t elapsed = endTick - startTick;
-        if(rmtp)
-        {
-            rmtp->tv_nsec = static_cast<time_t>((elapsed * 1000ULL) % 1000000000ULL);
-            rmtp->tv_sec = static_cast<time_t>(elapsed / 1000ULL);
-        }
-        
-        /// \todo Handle "interrupted before end of timeout"
-        Processor::information().getCurrentThread()->setInterrupted(false);
-        return 0;
+        rmtp->tv_nsec = rqtp->tv_nsec;
+        rmtp->tv_sec = rqtp->tv_sec;
     }
-    else
-    {
-        ERROR("sleep: acquire was not interrupted?");
-    }
+
+    /// \todo delay() won't stop until the time completes, but we should be
+    ///       interruptible such that we can return the time elapsed before the
+    ///       nanosleep() ceased.
 
     return 0;
 }
