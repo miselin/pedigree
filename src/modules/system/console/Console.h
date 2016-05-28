@@ -25,7 +25,7 @@
 #include <vfs/Filesystem.h>
 #include <utilities/RequestQueue.h>
 #include <utilities/Vector.h>
-#include <utilities/RingBuffer.h>
+#include <utilities/Buffer.h>
 #include <Spinlock.h>
 
 #define CONSOLE_READ    1
@@ -121,11 +121,7 @@ class ConsoleFile : public File
         int select(bool bWriting, int timeout);
 
         /// inject - inject bytes into the ring buffer
-        void inject(char *buf, size_t len)
-        {
-            m_RingBuffer.write(buf, len);
-            dataChanged();
-        }
+        void inject(char *buf, size_t len, bool canBlock);
 
         /// Other side of the console.
         ConsoleFile *m_pOther;
@@ -138,7 +134,7 @@ class ConsoleFile : public File
 
     private:
 
-        RingBuffer<char> m_RingBuffer;
+        Buffer<char> m_Buffer;
         String m_Name;
 
         /**

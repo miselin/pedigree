@@ -60,7 +60,7 @@ ConsoleManager ConsoleManager::m_Instance;
 ConsoleFile::ConsoleFile(String consoleName, Filesystem *pFs) :
     File(consoleName, 0, 0, 0, 0xdeadbeef, pFs, 0, 0),
     m_Flags(DEFAULT_FLAGS), m_Rows(25), m_Cols(80),
-    m_RingBuffer(PTY_BUFFER_SIZE), m_Name(consoleName), m_pEvent(0)
+    m_Buffer(PTY_BUFFER_SIZE), m_Name(consoleName), m_pEvent(0)
 {
     MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
 
@@ -73,18 +73,20 @@ ConsoleFile::ConsoleFile(String consoleName, Filesystem *pFs) :
 
 int ConsoleFile::select(bool bWriting, int timeout)
 {
-    if(timeout)
+    if (bWriting)
     {
-        while(!m_RingBuffer.waitFor(bWriting ? RingBufferWait::Writing : RingBufferWait::Reading));
-        return 1;
+        return m_Buffer.canWrite(timeout > 0) ? 1 : 0;
     }
     else
     {
-        if(bWriting)
-            return m_RingBuffer.canWrite();
-        else
-            return m_RingBuffer.dataReady();
+        return m_Buffer.canRead(timeout > 0) ? 1 : 0;
     }
+}
+
+void ConsoleFile::inject(char *buf, size_t len, bool canBlock)
+{
+    m_Buffer.write(buf, len, canBlock);
+    dataChanged();
 }
 
 ConsoleMasterFile::ConsoleMasterFile(String consoleName, Filesystem *pFs) :
@@ -95,45 +97,27 @@ ConsoleMasterFile::ConsoleMasterFile(String consoleName, Filesystem *pFs) :
 
 uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
-    {
-        if(!m_RingBuffer.waitFor(RingBufferWait::Reading))
-            return 0; // Interrupted.
-    }
-    else if(!m_RingBuffer.dataReady())
+    uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+    if (!nBytes)
     {
         return 0;
     }
 
-    size_t maxSize = size;
-
-    uintptr_t originalBuffer = buffer;
-    while(m_RingBuffer.dataReady() && size)
-    {
-        *reinterpret_cast<char*>(buffer) = m_RingBuffer.read();
-        ++buffer;
-        --size;
-    }
-
-    size_t endSize = outputLineDiscipline(reinterpret_cast<char *>(originalBuffer), buffer - originalBuffer, maxSize);
+    size_t endSize = outputLineDiscipline(reinterpret_cast<char *>(buffer), nBytes, size);
 
     return endSize;
 }
 
 uint64_t ConsoleMasterFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
-    {
-        if(!m_pOther->m_RingBuffer.waitFor(RingBufferWait::Writing))
-            return 0; // Interrupted.
-    }
-    else if(!m_pOther->m_RingBuffer.canWrite())
+    if(!m_pOther->m_Buffer.canWrite(bCanBlock))
     {
         return 0;
     }
 
     // Pass on to the input discipline, which will write to the slave.
     inputLineDiscipline(reinterpret_cast<char *>(buffer), size);
+
 
     return size;
 }
@@ -166,7 +150,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                 if(isCanonical && (buf[i] == slaveControlChars[VEOF]))
                 {
                     // EOF. Write it and it alone to the slave.
-                    m_pOther->inject(&buf[i], 1);
+                    m_pOther->inject(&buf[i], 1, true);
                     return;
                 }
 
@@ -179,7 +163,8 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                         m_LineBuffer[m_LineBufferSize++] = '\n';
                         if((slaveFlags & ConsoleManager::LEchoNewline) || (slaveFlags & ConsoleManager::LEcho))
                         {
-                            m_RingBuffer.write('\n');
+                            char buf[] = {'\n', 0};
+                            m_Buffer.write(buf, 1);
                             ++localWritten;
                         }
 
@@ -193,7 +178,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                                 m_LineBufferFirstNewline = ~0UL;
                             }
 
-                            m_pOther->inject(m_LineBuffer, realSize);
+                            m_pOther->inject(m_LineBuffer, realSize, true);
 
                             // And now move the buffer over the space we just consumed
                             uint64_t nConsumedBytes = m_LineBufferSize - realSize;
@@ -229,14 +214,14 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                         if((slaveFlags & ConsoleManager::LCookedMode) && m_LineBufferSize)
                         {
                             char ctl[3] = {'\x08', ' ', '\x08'};
-                            m_RingBuffer.write(ctl, 3);
+                            m_Buffer.write(ctl, 3);
                             m_LineBufferSize--;
                             ++localWritten;
                         }
                         else if((!(slaveFlags & ConsoleManager::LCookedMode)) && destBuffOffset)
                         {
                             char ctl[3] = {'\x08', ' ', '\x08'};
-                            m_RingBuffer.write(ctl, 3);
+                            m_Buffer.write(ctl, 3);
                             destBuffOffset--;
                             ++localWritten;
                         }
@@ -251,18 +236,18 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                         // we can't write to the ring buffer, we must not try
                         // to do so. This event may be necessary to unblock the
                         // buffer!
-                        if (!m_RingBuffer.canWrite())
+                        if (!m_Buffer.canWrite(false))
                         {
                             // Forcefully clear out bytes so we can write what
                             // we need to to the ring buffer.
                             char tmp[3];
-                            m_RingBuffer.read(tmp, 3);
+                            m_Buffer.read(tmp, 3);
                         }
 
                         // Write it to the master nicely (eg, ^C, ^D)
                         char ctl_c = '@' + buf[i];
                         char ctl[3] = {'^', ctl_c, '\n'};
-                        m_RingBuffer.write(ctl, 3);
+                        m_Buffer.write(ctl, 3);
                         ++localWritten;
 
                         // Trigger the actual event.
@@ -273,7 +258,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                     // Write the character to the slave
                     if(slaveFlags & ConsoleManager::LEcho)
                     {
-                        m_RingBuffer.write(buf[i]);
+                        m_Buffer.write(&buf[i], 1);
                         ++localWritten;
                     }
 
@@ -294,7 +279,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                 size_t numBytesToRemove = m_LineBufferSize;
 
                 // Copy the buffer across
-                m_pOther->inject(m_LineBuffer, numBytesToRemove);
+                m_pOther->inject(m_LineBuffer, numBytesToRemove, true);
 
                 // And now move the buffer over the space we just consumed
                 uint64_t nConsumedBytes = m_LineBufferSize - numBytesToRemove;
@@ -311,7 +296,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
 
         if(destBuffOffset)
         {
-            m_pOther->inject(destBuff, len);
+            m_pOther->inject(destBuff, len, true);
         }
 
         delete [] destBuff;
@@ -328,7 +313,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
             }
 
             // No event. Simply write the character out.
-            m_pOther->inject(&buf[i], 1);
+            m_pOther->inject(&buf[i], 1, true);
         }
     }
 
@@ -444,43 +429,21 @@ ConsoleSlaveFile::ConsoleSlaveFile(String consoleName, Filesystem *pFs) :
 
 uint64_t ConsoleSlaveFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
-    {
-        if(!m_RingBuffer.waitFor(RingBufferWait::Reading))
-            return 0; // Interrupted
-    }
-    else if(!m_RingBuffer.dataReady())
+    uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+    if (!nBytes)
     {
         return 0;
     }
 
-    uintptr_t originalBuffer = buffer;
-    while(m_RingBuffer.dataReady() && size)
-    {
-        *reinterpret_cast<char*>(buffer) = m_RingBuffer.read();
-        ++buffer;
-        --size;
-    }
-
-    size_t endSize = processInput(reinterpret_cast<char *>(originalBuffer), buffer - originalBuffer);
+    size_t endSize = processInput(reinterpret_cast<char *>(buffer), nBytes);
 
     return endSize;
 }
 
 uint64_t ConsoleSlaveFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
-    {
-        if(!m_pOther->m_RingBuffer.waitFor(RingBufferWait::Writing))
-            return 0; // Interrupted.
-    }
-    else if(!m_pOther->m_RingBuffer.canWrite())
-    {
-        return 0;
-    }
-
     // Send straight to the master.
-    m_pOther->inject(reinterpret_cast<char *>(buffer), size);
+    m_pOther->inject(reinterpret_cast<char *>(buffer), size, bCanBlock);
 
     return size;
 }
