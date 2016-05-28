@@ -189,7 +189,8 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
     size_t nRet = 0;
-    Semaphore sem(0);
+    // Can be interrupted while waiting for sem - EINTR.
+    Semaphore sem(0, true);
     Spinlock reentrancyLock;
 
     // Walk the fd_sets.
@@ -355,16 +356,31 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
         // We wait on the semaphore 'sem': Its address has been given to all
         // the events and will be raised whenever an FD has action.
         assert(nRet == 0);
-        sem.acquire(1, timeoutSecs, timeoutUSecs);
+        bool bResult = sem.acquire(1, timeoutSecs, timeoutUSecs);
 
         // Did we actually get the semaphore or did we timeout?
-        if (!Processor::information().getCurrentThread()->wasInterrupted())
+        if (bResult)
         {
             // We were signalled, so one more FD ready.
             nRet ++;
             // While the semaphore is nonzero, more FDs are ready.
             while (sem.tryAcquire())
                 nRet++;
+        }
+        else
+        {
+            // The timeout event sets the interrupted state, so while this
+            // looks unusual, the condition is caused by an interrupted sleep
+            // due to something other than timeout.
+            if (!Processor::information().getCurrentThread()->wasInterrupted())
+            {
+                SYSCALL_ERROR(Interrupted);
+                bError = true;
+            }
+            else
+            {
+                // OK. Timeout - not an error state.
+            }
         }
     }
 

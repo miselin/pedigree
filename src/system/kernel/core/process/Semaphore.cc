@@ -42,8 +42,9 @@ Semaphore::SemaphoreEvent::SemaphoreEvent() :
 {
 }
 
-Semaphore::Semaphore(size_t nInitialValue)
-    : magic(0xdeadbaba), m_Counter(nInitialValue), m_BeingModified(false), m_Queue()
+Semaphore::Semaphore(size_t nInitialValue, bool canInterrupt) :
+    magic(0xdeadbaba), m_Counter(nInitialValue), m_BeingModified(false), m_Queue(),
+    m_bCanInterrupt(canInterrupt)
 {
     assert(magic == 0xdeadbaba);
 }
@@ -138,7 +139,7 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
 
     // Why were we woken?
     bool bState = true;
-    if (pThread->wasInterrupted() || pThread->getUnwindState() != Thread::Continue)
+    if (pThread->wasInterrupted() || pThread->getUnwindState() != Thread::Continue || m_bCanInterrupt)
     {
         // We were deliberately interrupted - most likely because of a timeout.
         if (pEvent)

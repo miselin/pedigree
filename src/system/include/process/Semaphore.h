@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -35,8 +34,10 @@ class Semaphore
 {
 public:
     /** Constructor
-     * \param nInitialValue The initial value of the semaphore. */
-    Semaphore(size_t nInitialValue);
+     * \param nInitialValue The initial value of the semaphore.
+     * \param canInterrupt If false, acquire() retries after interrupt rather
+     *      than returning a failure status.*/
+    Semaphore(size_t nInitialValue, bool canInterrupt = false);
     /** Destructor */
     virtual ~Semaphore();
 
@@ -93,6 +94,7 @@ private:
     Atomic<ssize_t> m_Counter;
     Spinlock m_BeingModified;
     List<class Thread*> m_Queue;
+    bool m_bCanInterrupt;
 };
 
 #endif
