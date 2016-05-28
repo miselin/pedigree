@@ -385,7 +385,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
     }
 
     // Only do cleanup and lock acquire/release if we set events up.
-    if(events.count())
+    if (events.count())
     {
         // Block any more events being sent to us so we can safely clean up.
         reentrancyLock.acquire();

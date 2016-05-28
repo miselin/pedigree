@@ -156,7 +156,8 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
     size_t nRet = 0;
-    Semaphore sem(0);
+    // Can be interrupted while waiting for sem - EINTR.
+    Semaphore sem(0, true);
     Spinlock reentrancyLock;
 
     for (unsigned int i = 0; i < nfds; i++)
@@ -264,10 +265,10 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
         // We wait on the semaphore 'sem': Its address has been given to all
         // the events and will be raised whenever an FD has action.
         assert(nRet == 0);
-        sem.acquire(1, timeoutSecs, timeoutUSecs);
+        bool bResult = sem.acquire(1, timeoutSecs, timeoutUSecs);
 
         // Did we actually get the semaphore or did we timeout?
-        if (!Processor::information().getCurrentThread()->wasInterrupted())
+        if (bResult)
         {
             // We were signalled, so one more FD ready.
             nRet ++;
@@ -275,24 +276,46 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
             while (sem.tryAcquire())
                 nRet++;
         }
+        else
+        {
+            // The timeout event sets the interrupted state, so while this
+            // looks unusual, the condition is caused by an interrupted sleep
+            // due to something other than timeout.
+            if (!Processor::information().getCurrentThread()->wasInterrupted())
+            {
+                SYSCALL_ERROR(Interrupted);
+                bError = true;
+            }
+            else
+            {
+                // OK. Timeout - not an error state.
+            }
+        }
     }
 
-    // Cleanup.
-    reentrancyLock.acquire();
-
-    // Ensure there are no events still pending for this thread.
-    Processor::information().getCurrentThread()->cullEvent(EventNumbers::PollEvent);
-
-    for (List<PollEvent*>::Iterator it = events.begin();
-         it != events.end();
-         it++)
+    // Only do cleanup and lock acquire/release if we set events up.
+    if (events.count())
     {
-        PollEvent *pSE = *it;
-        pSE->getFile()->cullMonitorTargets(Processor::information().getCurrentThread());
-        delete pSE;
-    }
+        // Block any more events being sent to us so we can safely clean up.
+        reentrancyLock.acquire();
+        Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::PollEvent, true);
+        reentrancyLock.release();
 
-    reentrancyLock.release();
+        // Ensure there are no events still pending for this thread.
+        Processor::information().getCurrentThread()->cullEvent(EventNumbers::PollEvent);
+
+        for (List<PollEvent*>::Iterator it = events.begin();
+             it != events.end();
+             it++)
+        {
+            PollEvent *pSE = *it;
+            pSE->getFile()->cullMonitorTargets(Processor::information().getCurrentThread());
+            delete pSE;
+        }
+
+        // Cleanup is complete, stop inhibiting events now.
+        Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::PollEvent, false);
+    }
 
     F_NOTICE("    -> " << Dec << ((bError) ? -1 : nRet) << Hex);
 
