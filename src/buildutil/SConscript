@@ -59,6 +59,7 @@ libutility_sources = [
     os.path.join('utilities', 'Tree.cc'),
     os.path.join('utilities', 'ExtensibleBitmap.cc'),
     os.path.join('utilities', 'ObjectPool.cc'),
+    os.path.join('utilities', 'Buffer.cc'),
     os.path.join('core', 'lib', 'demangle.cc'),
     os.path.join('core', 'lib', 'string.c'),
     os.path.join('core', 'lib', 'memory.c'),
@@ -71,7 +72,7 @@ libutility_sources = [
 ]
 defines = [
     'HOSTED', 'UTILITY_LINUX', 'LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
-    'BENCHMARK',
+    'BENCHMARK', 'STANDALONE_MUTEXES',
 ]
 
 utility_env = env.Clone()
@@ -81,6 +82,7 @@ utility_env.Append(**{
 })
 utility_env.MergeFlags({
     'CCFLAGS': ['-g3', '-ggdb', '-O3'],
+    'COVERAGE_CCFLAGS': ['-g3', '-ggdb', '-O3'],
     'CXXFLAGS': ['-std=c++11'],
     'CFLAGS': ['-std=gnu99'],
 })

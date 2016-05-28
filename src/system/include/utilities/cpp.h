@@ -22,6 +22,10 @@
 
 #ifdef __cplusplus
 
+#ifdef UTILITY_LINUX
+#include <string.h>
+#endif
+
 #include <processor/types.h>
 #include <utilities/lib.h>
 
@@ -154,7 +158,11 @@ template<class T>
 typename enable_if<is_trivially_copyable<T>::value>::type *
 copy(T *dest, const T *src, size_t count)
 {
+#ifdef UTILITY_LINUX
+    return memmove(dest, src, count * sizeof(T));
+#else
     return MemoryCopy(dest, src, count * sizeof(T));
+#endif
 }
 
 /** Perform a copy in the easiest way possible. */

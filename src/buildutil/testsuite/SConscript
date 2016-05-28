@@ -45,7 +45,7 @@ build_env.Append(CPPPATH=header_paths)
 defines = [
     'HOSTED', 'VFS_NOMMU', 'VFS_STANDALONE', 'EXT2_STANDALONE',
     'UTILITY_LINUX', 'DEVICE_IGNORE_ADDRESSES', 'LITTLE_ENDIAN',
-    'DONT_LOG_TO_SERIAL', 'BENCHMARK', 'TESTSUITE'
+    'DONT_LOG_TO_SERIAL', 'BENCHMARK', 'TESTSUITE', 'STANDALONE_MUTEXES',
 ]
 
 build_env.Append(CPPDEFINES=defines)
@@ -55,7 +55,10 @@ build_env.Append(LIBPATH=[os.path.join(build_env['BUILDDIR'], 'external')])
 
 coverage_env = build_env.Clone()
 
-coverage_env.MergeFlags({'CXXFLAGS': ['-std=c++11', '-g3', '-ggdb', '-O0']})
+coverage_env.MergeFlags({
+    'CCFLAGS': ['-g3', '-ggdb', '-O0'],
+    'CXXFLAGS': ['-std=c++11']
+})
 
 coverage_env.MergeFlags({
     'CCFLAGS': build_env['COVERAGE_CCFLAGS'],

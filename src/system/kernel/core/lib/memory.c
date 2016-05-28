@@ -29,20 +29,26 @@
 #define X64
 #endif
 
-int memcmp(const void *p1, const void *p2, size_t len) PURE;
-void *memset(void *buf, int c, size_t n);
+#ifdef UTILITY_LINUX
+#define EXPORT static
+#else
+#define EXPORT
+#endif
+
+EXPORT int memcmp(const void *p1, const void *p2, size_t len) PURE;
+EXPORT void *memset(void *buf, int c, size_t n);
 void *WordSet(void *buf, int c, size_t n);
 void *DoubleWordSet(void *buf, unsigned int c, size_t n);
 void *QuadWordSet(void *buf, unsigned long long c, size_t n);
 
-void *memcpy(void *restrict s1, const void *restrict s2, size_t n);
-void *memmove(void *s1, const void *s2, size_t n);
+EXPORT void *memcpy(void *restrict s1, const void *restrict s2, size_t n);
+EXPORT void *memmove(void *s1, const void *s2, size_t n);
 
 // asan provides a memcpy/memset/etc that we care about more than our custom
 // ones, in general.
 #ifndef HAS_ADDRESS_SANITIZER
 
-int memcmp(const void *p1, const void *p2, size_t len)
+EXPORT int memcmp(const void *p1, const void *p2, size_t len)
 {
     const char* a = (const char*) p1;
     const char* b = (const char*) p2;
@@ -56,7 +62,7 @@ int memcmp(const void *p1, const void *p2, size_t len)
     return r;
 }
 
-void *memset(void *buf, int c, size_t n)
+EXPORT void *memset(void *buf, int c, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b;
@@ -72,7 +78,7 @@ void *memset(void *buf, int c, size_t n)
 #endif
 }
 
-void *memcpy(void *restrict s1, const void *restrict s2, size_t n)
+EXPORT void *memcpy(void *restrict s1, const void *restrict s2, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b, c;
@@ -110,7 +116,7 @@ static int overlaps(const void *restrict s1, const void *restrict s2, size_t n)
   return (a <= b_end) && (b <= a_end) ? 1 : 0;
 }
 
-void *memmove(void *s1, const void *s2, size_t n)
+EXPORT void *memmove(void *s1, const void *s2, size_t n)
 {
   if (UNLIKELY(!n)) return s1;
 

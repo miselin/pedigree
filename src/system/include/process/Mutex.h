@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,6 +20,27 @@
 #ifndef MUTEX_H
 #define MUTEX_H
 
+#ifdef STANDALONE_MUTEXES
+
+class Mutex
+{
+    public:
+        Mutex(bool bLocked = false);
+        ~Mutex();
+
+        bool acquire();
+        void release();
+
+        void *getPrivate() const
+        {
+          return m_Private;
+        }
+    private:
+        void *m_Private;
+};
+
+#else
+
 #ifdef THREADS
 
 #include <process/Semaphore.h>
@@ -37,6 +57,8 @@ public:
   ~Mutex();
 };
 
-#endif
+#endif  // THREADS
 
-#endif
+#endif  // STANDALONE_MUTEXES
+
+#endif  // MUTEX_H

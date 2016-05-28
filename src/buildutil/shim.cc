@@ -25,8 +25,12 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/mman.h>
+#include <pthread.h>
 
 #include <time/Time.h>
+#include <Spinlock.h>
+#include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 
 void *g_pBootstrapInfo = 0;
 
@@ -80,3 +84,105 @@ void unmapAll()
     munmap((void *) getHeapBase(), getHeapEnd() - getHeapBase());
 }
 }  // namespace SlamSupport
+
+/** Spinlock implementation. */
+
+Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) :
+    m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
+    m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba),
+    m_pOwner(0), m_bOwned(false), m_Level(0), m_OwnedProcessor(~0)
+{
+}
+
+bool Spinlock::acquire(bool recurse, bool safe)
+{
+    while (!m_Atom.compareAndSwap(true, false))
+        ;
+
+    return true;
+}
+
+void Spinlock::release()
+{
+    exit();
+}
+
+void Spinlock::exit()
+{
+    m_Atom.compareAndSwap(false, true);
+}
+
+/** ConditionVariable implementation. */
+
+ConditionVariable::ConditionVariable() :
+    m_Lock(false), m_Waiters(), m_Private(0)
+{
+    pthread_cond_t *cond = new pthread_cond_t;
+    *cond = PTHREAD_COND_INITIALIZER;
+
+    pthread_cond_init(cond, 0);
+
+    m_Private = reinterpret_cast<void *>(cond);
+}
+
+ConditionVariable::~ConditionVariable()
+{
+    pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
+    pthread_cond_destroy(cond);
+
+    delete cond;
+}
+
+bool ConditionVariable::wait(Mutex &mutex)
+{
+    pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
+    pthread_mutex_t *m = reinterpret_cast<pthread_mutex_t *>(mutex.getPrivate());
+
+    int r = pthread_cond_wait(cond, m);
+    return r == 0;
+}
+
+void ConditionVariable::signal()
+{
+    pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
+    pthread_cond_signal(cond);
+}
+
+void ConditionVariable::broadcast()
+{
+    pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
+    pthread_cond_broadcast(cond);
+}
+
+/** Mutex implementation. */
+
+Mutex::Mutex(bool bLocked) :
+    m_Private(0)
+{
+    pthread_mutex_t *mutex = new pthread_mutex_t;
+    *mutex = PTHREAD_MUTEX_INITIALIZER;
+
+    pthread_mutex_init(mutex, 0);
+
+    m_Private = reinterpret_cast<void *>(mutex);
+}
+
+Mutex::~Mutex()
+{
+    pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
+    pthread_mutex_destroy(mutex);
+
+    delete mutex;
+}
+
+bool Mutex::acquire()
+{
+    pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
+    return pthread_mutex_lock(mutex) == 0;
+}
+
+void Mutex::release()
+{
+    pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
+    pthread_mutex_unlock(mutex);
+}

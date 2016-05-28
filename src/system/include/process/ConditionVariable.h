@@ -51,6 +51,11 @@ class ConditionVariable
 
         /// Threads waiting for a signal.
         List<Thread *> m_Waiters;
+
+#ifndef THREADS
+        /// Private data.
+        void *m_Private;
+#endif
 };
 
 #endif

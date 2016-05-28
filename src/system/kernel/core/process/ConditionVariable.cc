@@ -21,6 +21,7 @@
 #include <process/Mutex.h>
 #include <process/Thread.h>
 #include <processor/Processor.h>
+#include <Log.h>
 
 ConditionVariable::ConditionVariable() : m_Lock(false), m_Waiters()
 {
@@ -36,6 +37,7 @@ bool ConditionVariable::wait(Mutex &mutex)
     if (mutex.getValue())
     {
         // Mutex must be acquired.
+        WARNING("ConditionVariable::wait called without a locked mutex");
         return false;
     }
 
