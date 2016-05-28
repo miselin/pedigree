@@ -277,6 +277,8 @@ const char *ThreadsCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO
           Line += "Sem-Wait @ ";
         else if (state == Thread::Joining)
           Line += "Joining @";
+        else if (state == Thread::CondWait)
+          Line += "Cond-Wait @";
         else
           Line += "<unknown DebugState> @";
         Line.append(ip, 16);
@@ -320,6 +322,8 @@ const char *ThreadsCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO
           Line += "Sem-Wait @ ";
         else if (state == Thread::Joining)
           Line += "Joining @";
+        else if (state == Thread::CondWait)
+          Line += "Cond-Wait @";
         else
           Line += "<unknown DebugState> @";
         Line.append(ip, 16);

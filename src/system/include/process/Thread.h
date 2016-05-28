@@ -79,6 +79,7 @@ public:
     {
         None,
         SemWait,
+        CondWait,
         Joining
     };
 
