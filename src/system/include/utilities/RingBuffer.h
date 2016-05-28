@@ -21,10 +21,13 @@
 #define RINGBUFFER_H
 
 #include <processor/types.h>
-#include <process/Semaphore.h>
+#include <process/ConditionVariable.h>
 #include <process/Event.h>
 #include <process/Mutex.h>
 #include <utilities/List.h>
+#include <LockGuard.h>
+
+/// \todo rewrite this in the same way as TcpBuffer!
 
 namespace RingBufferWait
 {
@@ -54,7 +57,7 @@ class RingBuffer
 
         /// Constructor - pass in the desired size of the ring buffer.
         RingBuffer(size_t ringSize) :
-            m_RingSize(ringSize), m_ReadSem(0), m_WriteSem(ringSize),
+            m_RingSize(ringSize), m_WriteCondition(), m_ReadCondition(),
             m_Ring()
         {
         }
@@ -67,14 +70,27 @@ class RingBuffer
         /// write - write a byte to the ring buffer.
         void write(T obj)
         {
-            // Acquire write semaphore to make sure we have space in the buffer.
-            m_WriteSem.acquire();
-            m_Ring.pushBack(obj);
+            m_Lock.acquire();
+            while (true)
+            {
+                // Wait for room in the buffer if we're full.
+                if (m_Ring.count() >= m_RingSize)
+                {
+                    while (!m_WriteCondition.wait(m_Lock))
+                        ;
+                    continue;
+                }
 
-            // All good, there is now a byte ready to read.
-            m_ReadSem.release();
+                m_Ring.pushBack(obj);
+                break;
+            }
+
+            m_Lock.release();
 
             notifyMonitors();
+
+            // Signal readers waiting for objects to read.
+            m_ReadCondition.signal();
         }
 
         /// write - write the given number of objects to the ring buffer.
@@ -83,14 +99,10 @@ class RingBuffer
             if (n > m_RingSize)
                 n = m_RingSize;
 
-            m_WriteSem.acquire(n);
             for (size_t i = 0; i < n; ++i)
             {
-                m_Ring.pushBack(obj[i]);
+                write(obj[i]);
             }
-            m_ReadSem.release(n);
-
-            notifyMonitors();
 
             return n;
         }
@@ -98,14 +110,29 @@ class RingBuffer
         /// read - read a byte from the ring buffer.
         T read()
         {
-            // Acquire read semaphore to make sure there's data ready.
-            m_ReadSem.acquire();
-            T ret = m_Ring.popFront();
+            T ret;
 
-            // Notify writers that a new slot is available.
-            m_WriteSem.release();
+            m_Lock.acquire();
+            while (true)
+            {
+                // Wait for room in the buffer if we're full.
+                if (m_Ring.count() >= m_RingSize)
+                {
+                    while (!m_ReadCondition.wait(m_Lock))
+                        ;
+                    continue;
+                }
+
+                ret = m_Ring.popFront();
+                break;
+            }
+
+            m_Lock.release();
 
             notifyMonitors();
+
+            // Signal writers that may be waiting for buffer space.
+            m_WriteCondition.signal();
 
             return ret;
         }
@@ -116,14 +143,10 @@ class RingBuffer
             if (n > m_RingSize)
                 n = m_RingSize;
 
-            m_ReadSem.acquire(n);
             for (size_t i = 0; i < n; ++i)
             {
-                out[i] = m_Ring.popFront();
+                out[i] = read();
             }
-            m_WriteSem.release(n);
-
-            notifyMonitors();
 
             return n;
         }
@@ -131,30 +154,51 @@ class RingBuffer
         /// dataReady - is data ready for reading from the ring buffer?
         bool dataReady()
         {
-            return m_ReadSem.getValue() > 0;
+            LockGuard<Mutex> guard(m_Lock);
+            return m_Ring.count() > 0;
         }
 
         /// canWrite - is it possible to write to the ring buffer without blocking?
         bool canWrite()
         {
-            return m_WriteSem.getValue() > 0;
+            LockGuard<Mutex> guard(m_Lock);
+            return m_Ring.count() < m_RingSize;
         }
 
         /// waitFor - block until the given condition is true (readable/writeable)
         bool waitFor(RingBufferWait::WaitType wait)
         {
-            Semaphore *pSem = &m_ReadSem;
-            if(wait == RingBufferWait::Writing)
+            m_Lock.acquire();
+            if (wait == RingBufferWait::Writing)
             {
-                pSem = &m_WriteSem;
+                while (true)
+                {
+                    if (m_Ring.count() < m_RingSize)
+                    {
+                        m_Lock.release();
+                        return true;
+                    }
+
+                    while (!m_WriteCondition.wait(m_Lock))
+                        ;
+                }
+            }
+            else
+            {
+                while (true)
+                {
+                    if (m_Ring.count())
+                    {
+                        m_Lock.release();
+                        return true;
+                    }
+
+                    while (!m_ReadCondition.wait(m_Lock))
+                        ;
+                }
             }
 
-            if(pSem->acquire())
-            {
-                pSem->release();
-                return true;
-            }
-
+            m_Lock.release();
             return false;
         }
 
@@ -220,8 +264,8 @@ class RingBuffer
 
         size_t m_RingSize;
 
-        Semaphore m_ReadSem;
-        Semaphore m_WriteSem;
+        ConditionVariable m_WriteCondition;
+        ConditionVariable m_ReadCondition;
 
         List<T> m_Ring;
 
