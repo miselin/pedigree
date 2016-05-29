@@ -8,11 +8,12 @@ if [ -x /applications/dircolors ]; then
 fi
 
 # Make sure we can type UTF-8 characters (eg, altgr + >)
+export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 
 alias ll='ls -alF'
 
-export PS1="\[\e[34;1m\][\t]\[\e[0m\] \w \[\e[34;1m\]$\[\e[0m\] "
+export PS1="\[\e[34;1m\][\t]\[\e[0m\] \w \[\e[34;1m\]#\[\e[0m\] "
 
 shopt -q login_shell && echo "Welcome to the Pedigree Operating System.
 
