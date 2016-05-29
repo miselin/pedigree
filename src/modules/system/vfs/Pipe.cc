@@ -103,6 +103,8 @@ void Pipe::increaseRefCount(bool bIsWriter)
     }
     else
     {
+        // A reader is now present so we can enable reads if they weren't.
+        m_Buffer.enableReads();
         m_nReaders++;
     }
 }
@@ -137,7 +139,16 @@ void Pipe::decreaseRefCount(bool bIsWriter)
             }
         }
         else
+        {
             m_nReaders --;
+            if (m_nReaders == 0)
+            {
+                // Wake up any writers that were waiting for space - no more
+                // readers (EOF condition, pipe other end has left).
+                m_Buffer.disableReads();
+                bDataChanged = true;
+            }
+        }
 
         if (m_nReaders == 0 && m_nWriters == 0)
         {

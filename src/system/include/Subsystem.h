@@ -76,6 +76,7 @@ class Subsystem
             Interrupt = 10,
             Quit = 11,
             Child = 12, // Child pause/continue/quit.
+            Pipe = 13, // Pipe broken.
             Other = 255
         };
 

@@ -24,8 +24,6 @@
 #include <processor/types.h>
 #include <utilities/Buffer.h>
 #include <utilities/String.h>
-#include <utilities/RadixTree.h>
-#include <process/Semaphore.h>
 #include "File.h"
 
 #define PIPE_BUF_MAX 2048

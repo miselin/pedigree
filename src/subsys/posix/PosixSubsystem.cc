@@ -572,6 +572,11 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
             // Send SIGCHLD
             sig = getSignalHandler(20);
             break;
+        case Pipe:
+            NOTICE_NOLOCK("    (Pipe broken)");
+            // Send SIGPIPE
+            sig = getSignalHandler(13);
+            break;
         default:
             NOTICE_NOLOCK("    (Unknown)");
             // Unknown exception

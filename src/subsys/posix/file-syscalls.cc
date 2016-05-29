@@ -599,7 +599,8 @@ int posix_read(int fd, char *ptr, int len)
     }
 
     // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
@@ -637,8 +638,6 @@ int posix_read(int fd, char *ptr, int len)
     }
 
     // Prepare to handle EINTR.
-    Thread *pThread = Processor::information().getCurrentThread();
-
     uint64_t nRead = 0;
     if (ptr && len)
     {
@@ -673,7 +672,8 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     }
 
     // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
@@ -695,6 +695,17 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     {
         nWritten = pFd->file->write(pFd->offset, len, reinterpret_cast<uintptr_t>(ptr));
         pFd->offset += nWritten;
+    }
+
+    F_NOTICE("  -> write returns " << nWritten);
+
+    // Handle broken pipe (write of zero bytes to a pipe).
+    if (pFd->file->isPipe() && !nWritten)
+    {
+        F_NOTICE("  -> write to a broken pipe");
+        SYSCALL_ERROR(BrokenPipe);
+        pSubsystem->threadException(pThread, Subsystem::Pipe);
+        return -1;
     }
 
     return static_cast<int>(nWritten);
