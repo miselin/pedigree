@@ -135,7 +135,10 @@ def main(argv):
                 elif '<< Flushing log content >>' in serial_so_far:
                     # Run the debugger on the serial port so we can see what
                     # happened after the fact.
-                    sock.send(' dump\ndisassemble\nbacktrace\n')
+                    for command in (' ', 'dump\n', 'disassemble\n',
+                                    'backtrace\n'):
+                        sock.send(command)
+                        time.sleep(1)
                 elif qemu.poll() is not None:
                     # qemu has terminated!
                     terminating = True
