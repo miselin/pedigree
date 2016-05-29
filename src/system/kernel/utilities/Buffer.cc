@@ -368,16 +368,16 @@ size_t Buffer<T, allowShortOperation>::getSize()
 template <class T, bool allowShortOperation>
 bool Buffer<T, allowShortOperation>::canWrite(bool block)
 {
+    if (!block)
+    {
+        return m_bCanWrite && (m_DataSize < m_BufferSize);
+    }
+
     LockGuard<Mutex> guard(m_Lock);
 
     if (!m_bCanWrite)
     {
         return false;
-    }
-
-    if (!block)
-    {
-        return m_DataSize < m_BufferSize;
     }
 
     // We can get woken here if we stop being able to write.
@@ -393,16 +393,16 @@ bool Buffer<T, allowShortOperation>::canWrite(bool block)
 template <class T, bool allowShortOperation>
 bool Buffer<T, allowShortOperation>::canRead(bool block)
 {
+    if (!block)
+    {
+        return m_bCanRead && (m_DataSize > 0);
+    }
+
     LockGuard<Mutex> guard(m_Lock);
 
     if (!m_bCanRead)
     {
         return false;
-    }
-
-    if (!block)
-    {
-        return m_DataSize > 0;
     }
 
     // We can get woken here if we stop being able to read.
