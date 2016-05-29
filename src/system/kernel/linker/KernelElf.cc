@@ -835,14 +835,15 @@ void KernelElf::updateModuleStatus(Module *module, bool status)
                 m_ModuleAdjustmentLock.release();
 #endif
                 executeModule(nextModule);
-#ifdef THREADS
-                m_ModuleAdjustmentLock.acquire();
-#endif
 
                 g_BootProgressCurrent ++;
                 /// \todo carry silent parameter through
                 if (g_BootProgressUpdate)
                     g_BootProgressUpdate("moduleexec");
+
+#ifdef THREADS
+                m_ModuleAdjustmentLock.acquire();
+#endif
 
                 somethingLoaded = true;
                 break;
