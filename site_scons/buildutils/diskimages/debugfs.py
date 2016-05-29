@@ -139,7 +139,7 @@ def buildImageE2fsprogs(target, source, env):
     # Copy etc bits.
     base_dir = os.path.join(imagedir, '..', 'base')
     base_config = os.path.join(base_dir, 'config')
-    for config_file in ('greeting', 'inputrc'):
+    for config_file in ('greeting', 'inputrc', 'profile'):
         builddir_copies[os.path.join(base_config, config_file)] = '/config/' + config_file
     for root_file in ('.bashrc', '.profile'):
         builddir_copies[os.path.join(base_dir, root_file)] = '/' + root_file

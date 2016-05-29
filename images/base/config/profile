@@ -1,0 +1,8 @@
+export PATH="/@/root»/applications"
+
+# Wrap cd to provide assistance for the user's first time cd-ing to a
+# different mount point.
+function cd() {
+    cdhelp "$@"
+    builtin cd "$@"
+}

@@ -50,6 +50,7 @@ libload_sources = [
 
 # Applications which just use POSIX libc/libm.
 posixc_apps = [
+    'cdhelp',
     'crashtest',
     'display-mode',
     'gears',
