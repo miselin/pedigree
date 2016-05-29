@@ -56,7 +56,14 @@ const char *g_FilesToPreload[] = {
 
 int main(int argc, char **argv)
 {
-  syslog(LOG_INFO, "preloadd: starting...");
+  pid_t f = fork();
+  if (f != 0)
+  {
+    syslog(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
+    return 0;
+  }
+
+  syslog(LOG_INFO, "preloadd: daemon starting...");
 
   size_t n = 0;
   const char *s = g_FilesToPreload[n++];

@@ -138,11 +138,16 @@ def buildImageE2fsprogs(target, source, env):
 
     # Copy etc bits.
     base_dir = os.path.join(imagedir, '..', 'base')
-    base_config = os.path.join(base_dir, 'config')
-    for config_file in ('greeting', 'inputrc', 'profile'):
-        builddir_copies[os.path.join(base_config, config_file)] = '/config/' + config_file
-    for root_file in ('.bashrc', '.profile'):
-        builddir_copies[os.path.join(base_dir, root_file)] = '/' + root_file
+    for (dirpath, dirs, files) in os.walk(base_dir):
+        target_path = dirpath.replace(base_dir, '')
+        if not target_path:
+            target_path = '/'
+
+        for f in files:
+            target_fullpath = os.path.join(target_path, f)
+            source_fullpath = os.path.join(dirpath, f)
+            builddir_copies[source_fullpath] = target_fullpath
+            print source_fullpath, target_fullpath
 
     # Offset into the image for the partition proper to start.
     partition_offset = 0 # 0x10000

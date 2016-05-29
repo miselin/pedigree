@@ -28,31 +28,23 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <utmpx.h>
 #include <libgen.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
-#ifdef NOGFX
-#define MAIN_PROGRAM "/applications/ttyterm"
-#else
-#define MAIN_PROGRAM "/applications/ttyterm"
-#endif
+#include <dirent.h>
 
 extern void pedigree_reboot();
 
 static int g_Running = 1;
 
 // SIGTERM handler - shutdown.
-void sigterm(int sig)
+static void sigterm(int sig)
 {
   /// \todo should terminate any leftover children too.
   g_Running = 0;
 }
 
-pid_t start(const char *proc)
+static pid_t start(const char *proc)
 {
   pid_t f = fork();
   if(f == -1)
@@ -89,10 +81,59 @@ pid_t start(const char *proc)
   return f;
 }
 
-void startAndWait(const char *proc)
+static void startAndWait(const char *proc)
 {
   pid_t f = start(proc);
   waitpid(f, 0, 0);
+}
+
+static void runScripts()
+{
+  struct dirent **namelist;
+
+  int count = scandir("/system/initscripts", &namelist, 0, alphasort);
+  if (count < 0)
+  {
+    syslog(LOG_CRIT, "could not scan /system/initscripts: %s", strerror(errno));
+  }
+  else
+  {
+    for (int i = 0; i < count; ++i)
+    {
+      char script[PATH_MAX];
+      snprintf(script, PATH_MAX, "/system/initscripts/%s", namelist[i]->d_name);
+
+      if (!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, ".."))
+      {
+        free(namelist[i]);
+        continue;
+      }
+
+      free(namelist[i]);
+
+      struct stat st;
+      int r = stat(script, &st);
+      if (r == 0)
+      {
+        if (S_ISREG(st.st_mode) && (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+        {
+          // OK - we can run this.
+          syslog(LOG_INFO, "init: running %s", script);
+          startAndWait(script);
+        }
+        else
+        {
+          syslog(LOG_INFO, "init: not running %s (not a file, or not executable)", script);
+        }
+      }
+      else
+      {
+        syslog(LOG_INFO, "init: cannot stat %s (broken symlink?)", script);
+      }
+    }
+
+    free(namelist);
+  }
 }
 
 int main(int argc, char **argv)
@@ -131,10 +172,7 @@ int main(int argc, char **argv)
   syslog(LOG_INFO, "init: hosted build, triggering a reboot");
   pedigree_reboot();
 #else
-  // Fork out and run startup programs.
-  start(MAIN_PROGRAM);
-  start("/applications/preloadd");
-  start("/applications/python");
+  runScripts();
 #endif
 
   // Done, enter PID reaping loop.

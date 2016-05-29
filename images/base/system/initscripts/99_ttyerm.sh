@@ -1,0 +1,3 @@
+#!/applications/bash
+
+/applications/ttyterm

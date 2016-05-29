@@ -142,6 +142,10 @@ def buildImageMtools(target, source, env):
         '/config',
         '/system',
         '/system/modules',
+        '/config/term',
+        '/config/term/terminfo',
+        '/config/term/terminfo/p',
+        '/system/initscripts',
     ]
 
     if env['kernel_on_disk']:
@@ -155,10 +159,14 @@ def buildImageMtools(target, source, env):
         ([x.abspath for x in source[0:nth]], '/boot'),
         (os.path.join(builddir, 'config.db'), '/.pedigree-root'),
         (os.path.join(pathToGrub, 'menu-hdd.lst'), '/boot/grub/menu.lst'),
+        (os.path.join(imagedir, '..', 'base', 'config', 'term', 'terminfo', 'p', 'pedigree'), '/config/term/terminfo/p/pedigree'),
         (os.path.join(imagedir, '..', 'base', 'config', 'greeting'), '/config/greeting'),
         (os.path.join(imagedir, '..', 'base', 'config', 'inputrc'), '/config/inputrc'),
+        (os.path.join(imagedir, '..', 'base', 'config', 'profile'), '/config/profile'),
         (os.path.join(imagedir, '..', 'base', '.bashrc'), '/.bashrc'),
         (os.path.join(imagedir, '..', 'base', '.profile'), '/.profile'),
+        (os.path.join(imagedir, '..', 'base', 'system', 'initscripts', '10_preloadd.sh'), '/system/initscripts/10_preloadd.sh'),
+        (os.path.join(imagedir, '..', 'base', 'system', 'initscripts', '99_ttyerm.sh'), '/system/initscripts/99_ttyerm.sh'),
     ]
 
     for i in source[nth:]:
