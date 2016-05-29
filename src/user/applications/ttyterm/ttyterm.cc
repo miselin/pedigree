@@ -45,6 +45,12 @@ pid_t g_RunningPid = -1;
 // File descriptor for our PTY master.
 int g_MasterPty;
 
+#ifdef LIVECD
+#define FIRST_PROGRAM "/applications/live"
+#else
+#define FIRST_PROGRAM "/applications/login"
+#endif
+
 #define ALT_KEY (1ULL << 60)
 #define SHIFT_KEY (1ULL << 61)
 #define CTRL_KEY (1ULL << 62)
@@ -283,6 +289,10 @@ int main(int argc, char **argv)
         // Text UI is only vt100-compatible (not an xterm)
         setenv("TERM", "vt100", 1);
 
+        // Set locale variables (but not setlocale() itself).
+        setenv("LC_ALL", "en_US.UTF-8", 1);
+        setenv("LANG", "en_US.UTF-8", 1);
+
         // Add a utmp entry for this new process.
         setutxent();
         struct utmpx ut;
@@ -300,9 +310,9 @@ int main(int argc, char **argv)
         // Enable autowrap before loading the login process.
         write(slave, "\e[?7h", 5);
 
-        syslog(LOG_INFO, "Starting up 'login' on pty %s", slavename);
-        execl("/applications/login", "/applications/login", 0);
-        syslog(LOG_ALERT, "Launching login failed (next line is the error in errno...)");
+        syslog(LOG_INFO, "Starting up '" FIRST_PROGRAM "' on pty %s", slavename);
+        execl(FIRST_PROGRAM, FIRST_PROGRAM, 0);
+        syslog(LOG_ALERT, "Launching " FIRST_PROGRAM " failed (next line is the error in errno...)");
         syslog(LOG_ALERT, strerror(errno));
         exit(1);
     }

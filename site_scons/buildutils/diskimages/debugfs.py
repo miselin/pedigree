@@ -39,6 +39,7 @@ def buildImageE2fsprogs(target, source, env):
     modsdir = env.Dir(env['PEDIGREE_BUILD_MODULES']).abspath
     drvsdir = env.Dir(env['PEDIGREE_BUILD_DRIVERS']).abspath
     libsdir = os.path.join(builddir, 'libs')
+    i18ndir = os.path.join(builddir, 'locale')
 
     outFile = target[0].abspath
 
@@ -136,18 +137,27 @@ def buildImageE2fsprogs(target, source, env):
         # Clean out the last directory name if needed
         builddir_copies[i.abspath] = os.path.join(prefix, i.name)
 
+    def extra_copy_tree(base_dir, target_prefix=''):
+        for (dirpath, dirs, files) in os.walk(base_dir):
+            target_path = dirpath.replace(base_dir, '')
+
+            if target_prefix:
+                target_path = os.path.join(target_prefix,
+                                           target_path.lstrip('/'))
+            elif not target_path:
+                target_path = '/'
+
+            for f in files:
+                target_fullpath = os.path.join(target_path, f)
+                source_fullpath = os.path.join(dirpath, f)
+                builddir_copies[source_fullpath] = target_fullpath
+
     # Copy etc bits.
     base_dir = os.path.join(imagedir, '..', 'base')
-    for (dirpath, dirs, files) in os.walk(base_dir):
-        target_path = dirpath.replace(base_dir, '')
-        if not target_path:
-            target_path = '/'
+    extra_copy_tree(base_dir)
 
-        for f in files:
-            target_fullpath = os.path.join(target_path, f)
-            source_fullpath = os.path.join(dirpath, f)
-            builddir_copies[source_fullpath] = target_fullpath
-            print source_fullpath, target_fullpath
+    # Copy locale files from user apps.
+    extra_copy_tree(i18ndir, target_prefix='/system/locale')
 
     # Offset into the image for the partition proper to start.
     partition_offset = 0 # 0x10000
@@ -284,6 +294,9 @@ def buildImageE2fsprogs(target, source, env):
             raise Exception('Target %s is not a file.' % (target_path,))
 
     base_image.close()
+
+    with open('cmd', 'w') as f:
+        f.write('\n'.join(cmdlist))
 
     # Dump our files into the image using ext2img (built as part of the normal
     # Pedigree build, to run on the build system - not on Pedigree).

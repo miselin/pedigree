@@ -47,6 +47,7 @@ def buildDiskImages(env, config_database):
     env.Depends(hddimg, ext2img)
 
     env.Depends(hddimg, 'libs')
+    env.Depends(hddimg, 'i18n')
 
     if env['ARCH_TARGET'] != 'ARM':
         env.Depends(hddimg, 'apps')

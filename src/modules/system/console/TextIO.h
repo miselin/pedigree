@@ -22,6 +22,7 @@
 
 #include <processor/types.h>
 #include <utilities/Buffer.h>
+#include <process/Mutex.h>
 
 #include <machine/TimerHandler.h>
 
@@ -230,6 +231,13 @@ private:
      * We only become active once data is first written.
      */
     bool m_bActive;
+
+    /**
+     * Locks writing (used for timers in particular).
+     * Avoids the case where a timer flips an in-progress operation, causing
+     * incorrect rendering.
+     */
+    Mutex m_Lock;
 };
 
 #endif

@@ -33,6 +33,8 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <utmpx.h>
+#include <libintl.h>
+#include <locale.h>
 
 // Force immediate login if we're running a live CD.
 #ifdef LIVECD
@@ -64,6 +66,10 @@ void sigint(int sig)
 
 int main(int argc, char **argv)
 {
+  setlocale(LC_ALL, "");
+  bindtextdomain("login", "/system/locale");
+  textdomain("login");
+
 #ifdef INSTALLER
   // For the installer, just run Python
   printf("Loading installer, please wait...\n");
@@ -100,6 +106,13 @@ int main(int argc, char **argv)
     setenv("TERM", TERM, 1);
   }
 
+  const char *envLcAll = getenv("LC_ALL");
+  if (!envLcAll)
+  {
+    envLcAll = "en_US.UTF-8";
+    setenv("LC_ALL", envLcAll, 1);
+  }
+
   // Turn on output processing if it's not already on (we depend on it)
   struct termios curt;
   tcgetattr(1, &curt);
@@ -107,28 +120,18 @@ int main(int argc, char **argv)
       curt.c_oflag |= OPOST;
   tcsetattr(1, TCSANOW, &curt);
 
-  // Grab the greeting if one exists.
-  FILE *stream = fopen("root»/config/greeting", "r");
-  if (stream)
-  {
-    char msg[1025];
-    int nread = fread(msg, 1, 1024, stream);
-    msg[nread] = '\0';
-    printf("%s", msg);
-
-    fclose(stream);
-  }
-  else
-  {
-    // Some default greeting
-    printf("Welcome to Pedigree\n");
-  }
+  // Write the login greeting.
+  printf(gettext("Welcome to Pedigree\n"));
 
   while (1)
   {
     // Set terminal title, if we can.
     if(!strcmp(TERM, "xterm"))
-      printf("\033]0;Pedigree Login\007");
+    {
+      printf("\033]0;");
+      printf(gettext("Pedigree Login"));
+      printf("\007");
+    }
 
     // Not running anything
     g_RunningPid = -1;
@@ -142,7 +145,7 @@ int main(int argc, char **argv)
     stdin = fdopen(fd, "r");
 
     // Get username
-    printf("Username: ");
+    printf(gettext("Username: "));
 
 #ifdef FORCE_LOGIN_USER
     const char *username = FORCE_LOGIN_USER;
@@ -152,26 +155,29 @@ int main(int argc, char **argv)
     char *username = fgets(buffer, 256, stdin);
     if(!username)
     {
-      printf("\nUnknown user: `%s'\n", username);
       continue;
     }
 
     // Knock off the newline character
     username[strlen(username)-1] = '\0';
+    if (!strlen(username))
+    {
+      continue;
+    }
 #endif
 
     struct passwd *pw = getpwnam(username);
     if (!pw)
     {
-      printf("\nUnknown user: `%s'\n", username);
+      printf(gettext("\nUnknown user: '%s'\n"), username);
       continue;
     }
 
     // Get password
-    printf("Password: ");
+    printf(gettext("Password: "));
 #ifdef FORCE_LOGIN_PASS
     const char *password = FORCE_LOGIN_PASS;
-    printf("<forced>\n");
+    printf(gettext("(forced)\n"));
 #else
     // Use own way - display *
     fflush(stdout);
@@ -211,7 +217,7 @@ int main(int argc, char **argv)
     // Perform login - this function is in glue.c.
     if(login(pw->pw_uid, password) != 0)
     {
-      printf("Password incorrect.\n");
+      printf(gettext("Password incorrect.\n"));
       continue;
     }
     else
@@ -251,7 +257,7 @@ int main(int argc, char **argv)
 
       if (pid == -1)
       {
-        printf("Fork failed %s\n", strerror(errno));
+        perror("fork");
         exit(errno);
       }
       else if (pid == 0)
@@ -259,14 +265,16 @@ int main(int argc, char **argv)
         // Child...
         g_RunningPid = -1;
 
-        // Environment:
-        char *newenv[3];
+        // Environment - only pass certain variables to the new process.
+        char *newenv[4];
         newenv[0] = (char*)malloc(256);
         newenv[1] = (char*)malloc(256);
-        newenv[2] = 0;
+        newenv[2] = (char*)malloc(256);
+        newenv[3] = 0;
 
         sprintf(newenv[0], "HOME=%s", pw->pw_dir);
         sprintf(newenv[1], "TERM=%s", TERM);
+        sprintf(newenv[1], "LC_ALL=%s", envLcAll);
 
         // Make sure we're starting a login shell.
         char *shell = (char *) malloc(strlen(pw->pw_shell) + 1);
@@ -276,7 +284,7 @@ int main(int argc, char **argv)
         execle(pw->pw_shell, shell, 0, newenv);
 
         // If we got here, the exec failed.
-        printf("Unable to launch default shell: `%s'\n", pw->pw_shell);
+        perror("execve");
         exit(1);
       }
       else

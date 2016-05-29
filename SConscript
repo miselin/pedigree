@@ -74,6 +74,30 @@ if env['build_configdb']:
       config_header = env.File('#src/modules/system/config/config_database.h')
       env.FileAsHeader(config_header, config_database)
 
+# These dirs are expected to have source files (C, C++) that can be used with
+# xgettext; the form is (domain, path).
+translate_dirs = [
+    ('live', 'src/user/applications/live'),
+    ('login', 'src/user/applications/login'),
+]
+
+for domain, path in translate_dirs:
+    files = Glob(os.path.join(path, '*.c')) + Glob(os.path.join(path, '*.cc'))
+    if not files:
+        continue
+
+    po_targets = ['#po/%s/%s' % (lang, domain) for lang in env['languages']]
+    mo_targets = ['locale/%s/LC_MESSAGES/%s' % (lang, domain)
+                  for lang in env['languages']]
+
+    env.POTUpdate(domain, files)
+    env.POUpdate(po_targets, POTDOMAIN=domain)
+    # How do we get this in the build dir?
+    for po, mo in zip(po_targets, mo_targets):
+        r = env.MOFiles(mo, po)
+
+        env.Alias('i18n', r)
+
 # Build disk images.
 if env['build_images']:
   build.buildDiskImages(env, config_database)

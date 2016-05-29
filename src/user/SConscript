@@ -70,6 +70,12 @@ posixc_apps = [
     'testsuite',
 ]
 
+# Applications which use gettext.
+gettext_apps = [
+    'login',
+    'live',
+]
+
 # Applications which use Mesa (affects libraries & headers).
 mesa_apps = [
     'gears',
@@ -86,6 +92,7 @@ cpp_apps = [
     'config',
     'ipc-test-client',
     'ipc-test-server',
+    'live',
     'thread-test',
     'ttyterm',
     'TUI',
@@ -134,6 +141,7 @@ custom_libs = {
     'uitest' : ['pedigree'],
     'winman': ['cairo', 'freetype', 'png', 'pedigree'],
     'apptest': ['pedigree'],
+    'live': ['dialog', 'ncurses'],
 }
 
 # Applications to not enable -Werror for.
@@ -241,6 +249,11 @@ for app in set(apps):
         app_env['CPPPATH'] += ['#src/lgpl/SDL-1.2.14/include',
                                EXTERNAL_INCLUDE_DIR]
 
+    # Handle gettext dependency.
+    if app in gettext_apps:
+        app_env['LIBS'] += ['intl']
+        app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]
+
     # Handle Mesa dependencies.
     if app in mesa_apps:
         app_env['LIBS'] += ['OSMesa']
@@ -295,7 +308,7 @@ for app in set(apps):
     app_env.MergeFlags({'CCFLAGS': add_flags.get(app, [])})
 
     output = os.path.join(builddir, 'apps', app)
-    files = [Glob(os.path.join(base, '*.c')), Glob(os.path.join(base, '*.cc'))]
+    files = Glob(os.path.join(base, '*.c')) + Glob(os.path.join(base, '*.cc'))
 
     app_env.Program(output, files)
 

@@ -97,6 +97,7 @@ $script_dir/run_pup.py install pango
 $script_dir/run_pup.py install glib
 $script_dir/run_pup.py install harfbuzz
 $script_dir/run_pup.py install libffi
+$script_dir/run_pup.py install dialog
 
 # Install GCC to pull in shared libstdc++.
 $script_dir/run_pup.py install gcc

@@ -20,6 +20,7 @@
 #include <machine/Machine.h>
 #include <machine/Vga.h>
 #include <processor/Processor.h>
+#include <LockGuard.h>
 #include <Log.h>
 
 #include "TextIO.h"
@@ -34,7 +35,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
     m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'),
     m_Nanoseconds(0), m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0),
-    m_bActive(false)
+    m_bActive(false), m_Lock(false)
 {
     m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
 
@@ -64,6 +65,8 @@ TextIO::~TextIO()
 
 bool TextIO::initialise(bool bClear)
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     // Move into not-initialised mode, reset any held state.
     m_bInitialised = false;
     m_bActive = false;
@@ -134,6 +137,11 @@ void TextIO::write(const char *s, size_t len)
     m_bActive = true;
 
     const char *orig = s;
+
+    for (size_t x = 0; x < len; x += 16)
+    {
+        NOTICE("TextIO::write(" << String(s + x, 16) << ")");
+    }
 
     while((*s) && (len--))
     {
@@ -385,6 +393,7 @@ void TextIO::write(const char *s, size_t len)
                     else if(m_Params[0] == 2)
                     {
                         // Erase entire screen, move to home.
+                        NOTICE("erasing entire screen?");
                         eraseScreen(' ');
                     }
                     m_bControlSeq = false;
@@ -1126,6 +1135,7 @@ void TextIO::write(const char *s, size_t len)
 
                             if(m_CursorX < BACKBUFFER_STRIDE)
                             {
+                                LockGuard<Mutex> guard(m_Lock);
                                 VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + m_CursorX];
                                 pCell->character = c;
                                 pCell->fore = m_Fore;
@@ -1246,6 +1256,8 @@ void TextIO::doHorizontalTab()
 
 void TextIO::checkScroll()
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     // Handle scrolling, which can take place due to linefeeds and
     // other such cursor movements.
     if(m_CursorY < m_ScrollStart)
@@ -1340,6 +1352,8 @@ void TextIO::eraseSOS()
     // Erase to the start of the line.
     eraseSOL();
 
+    LockGuard<Mutex> guard(m_Lock);
+
     // Erase the screen above, and this line.
     for(ssize_t y = 0; y < m_CursorY; ++y)
     {
@@ -1359,6 +1373,8 @@ void TextIO::eraseEOS()
     // Erase to the end of line first...
     eraseEOL();
 
+    LockGuard<Mutex> guard(m_Lock);
+
     // Then the rest of the screen.
     for(size_t y = m_CursorY + 1; y < BACKBUFFER_ROWS; ++y)
     {
@@ -1375,6 +1391,8 @@ void TextIO::eraseEOS()
 
 void TextIO::eraseEOL()
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     // Erase to end of line.
     for(size_t x = m_CursorX; x < BACKBUFFER_STRIDE; ++x)
     {
@@ -1388,6 +1406,8 @@ void TextIO::eraseEOL()
 
 void TextIO::eraseSOL()
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     for(ssize_t x = 0; x <= m_CursorX; ++x)
     {
         VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + x];
@@ -1400,6 +1420,8 @@ void TextIO::eraseSOL()
 
 void TextIO::eraseLine()
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     for(size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
     {
         VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + x];
@@ -1412,6 +1434,8 @@ void TextIO::eraseLine()
 
 void TextIO::eraseScreen(uint8_t character)
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     for(size_t y = 0; y < BACKBUFFER_ROWS; ++y)
     {
         for(size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
@@ -1427,6 +1451,8 @@ void TextIO::eraseScreen(uint8_t character)
 
 void TextIO::flip(bool timer, bool hideState)
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     const VgaColour defaultBack = Black, defaultFore = LightGrey;
 
     // Avoid flipping if we do not have a VGA instance.
