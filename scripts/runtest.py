@@ -72,7 +72,10 @@ def main(argv):
     # Open UDP socket for the serial port.
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # Set up two-way connectivity for the UDP socket.
     sock.bind(('127.0.0.1', 4556))
+    sock.connect(('127.0.0.1', 4557))
 
     # Disable default serial ports in the QEMU script.
     os.environ['NO_SERIAL_PORTS'] = 'yes'
@@ -85,7 +88,7 @@ def main(argv):
         '-no-reboot',
         '-nographic',
         '-serial',
-        'udp:127.0.0.1:4556',
+        'udp:127.0.0.1:4556@:4557',
         '-monitor',
         'stdio'
     ]
