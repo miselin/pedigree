@@ -1425,20 +1425,17 @@ int pedigree_reboot()
     WARNING("System shutting down...");
     for(int i = Scheduler::instance().getNumProcesses() - 1; i >= 0; i--)
     {
-        // Grab the process and subsystem. Don't grab a POSIX subsystem object,
-        // because we may be hitting native processes here.
         Process *proc = Scheduler::instance().getProcess(i);
         Subsystem *subsys = proc->getSubsystem();
 
-        // DO NOT COMMIT SUICIDE. That's called a hang with undefined state, chilldren.
         if(proc == Processor::information().getCurrentThread()->getParent())
             continue;
 
         if(subsys)
         {
             // If there's a subsystem, kill it that way.
-            /// \todo Proper KillReason
-            subsys->kill(Subsystem::Unknown, proc->getThread(0));
+            /// \todo need to set a timeout and SIGKILL if it expires...
+            subsys->kill(Subsystem::Terminated, proc->getThread(0));
         }
         else
         {
@@ -1452,23 +1449,31 @@ int pedigree_reboot()
         }
     }
 
-    // Wait for every other process to die or be in zombie state.
-
+    // Wait for remaining processes to terminate.
     while (true)
     {
         Processor::setInterrupts(false);
         if (Scheduler::instance().getNumProcesses() <= 1)
+        {
             break;
+        }
         bool allZombie = true;
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
         {
             if (Scheduler::instance().getProcess(i) == Processor::information().getCurrentThread()->getParent())
+            {
                 continue;
+            }
             if (Scheduler::instance().getProcess(i)->getThread(0)->getStatus() != Thread::Zombie)
+            {
                 allZombie = false;
+            }
         }
 
-        if (allZombie) break;
+        if (allZombie)
+        {
+            break;
+        }
         Processor::setInterrupts(true);
 
         Scheduler::instance().yield();
@@ -1478,7 +1483,9 @@ int pedigree_reboot()
     while (Scheduler::instance().getNumProcesses() > 1)
     {
         if (Scheduler::instance().getProcess(0) == Processor::information().getCurrentThread()->getParent())
+        {
             continue;
+        }
         delete Scheduler::instance().getProcess(0);
     }
 

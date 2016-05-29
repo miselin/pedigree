@@ -464,12 +464,29 @@ void PosixSubsystem::exit(int code)
 bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
 {
     // Send SIGKILL. getSignalHandler handles all that locking shiz for us.
-    SignalHandler *sig = getSignalHandler(killReason == Interrupted ? 2 : 9);
+    SignalHandler *sig = 0;
+    switch (killReason)
+    {
+        case Interrupted:
+            sig = getSignalHandler(2);
+            break;
+
+        case Terminated:
+            sig = getSignalHandler(15);
+            break;
+
+        default:
+            sig = getSignalHandler(9);
+            break;
+    }
+
     if(!pThread)
         pThread = Processor::information().getCurrentThread();
 
     if(sig && sig->pEvent)
     {
+        NOTICE("PosixSubsystem - killing " << pThread->getParent()->getId());
+
         // Send the kill event
         /// \todo we probably want to avoid allocating a new stack..
         pThread->sendEvent(sig->pEvent);

@@ -41,6 +41,17 @@
 #define MAIN_PROGRAM "/applications/ttyterm"
 #endif
 
+extern void pedigree_reboot();
+
+static int g_Running = 1;
+
+// SIGTERM handler - shutdown.
+void sigterm(int sig)
+{
+  /// \todo should terminate any leftover children too.
+  g_Running = 0;
+}
+
 pid_t start(const char *proc)
 {
   pid_t f = fork();
@@ -84,8 +95,6 @@ void startAndWait(const char *proc)
   waitpid(f, 0, 0);
 }
 
-extern void pedigree_reboot();
-
 int main(int argc, char **argv)
 {
   syslog(LOG_INFO, "init: starting...");
@@ -114,6 +123,9 @@ int main(int argc, char **argv)
   // All done with utmp.
   endutxent();
 
+  // Prepare signals.
+  signal(SIGTERM, sigterm);
+
 #ifdef HOSTED
   // Reboot the system instead of starting up.
   syslog(LOG_INFO, "init: hosted build, triggering a reboot");
@@ -127,15 +139,25 @@ int main(int argc, char **argv)
 
   // Done, enter PID reaping loop.
   syslog(LOG_INFO, "init: complete!");
-  while(1) {
+  while(1)
+  {
     /// \todo Do we want to eventually recognise that we have no more
     ///       children, and terminate/shutdown/restart?
     int status = 0;
-    pid_t changer = waitpid(-1, &status, 0);
+    pid_t changer = waitpid(-1, &status, g_Running == 0 ? WNOHANG : 0);
     if(changer > 0)
+    {
       syslog(LOG_INFO, "init: child %d exited with status %d", changer, WEXITSTATUS(status));
+    }
+    else if (!g_Running)
+    {
+      syslog(LOG_INFO, "init: no more children and have been asked to terminate, terminating...");
+      break;
+    }
     else
+    {
       continue;
+    }
 
     // Register the dead process now.
     struct utmpx *p = 0;

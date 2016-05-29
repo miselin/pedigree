@@ -53,6 +53,7 @@ class Subsystem
         enum KillReason
         {
             Interrupted = 0,
+            Terminated = 1,
             Unknown = 255
         };
 
