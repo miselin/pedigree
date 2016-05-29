@@ -69,6 +69,8 @@ static Mutex g_PrintLock(false);
 
 static void printChar(char c, size_t x, size_t y)
 {
+    assert (!g_PrintLock.getValue());
+
     if(!g_pFramebuffer)
         return;
 
@@ -77,10 +79,10 @@ static void printChar(char c, size_t x, size_t y)
 
 static void printChar(char c)
 {
+    assert (!g_PrintLock.getValue());
+
     if(!g_pFramebuffer)
         return;
-
-    LockGuard<Mutex> guard(g_PrintLock);
 
     if(!c)
         return;
@@ -128,6 +130,8 @@ static void printChar(char c)
 
 static void printString(const char *str)
 {
+    LockGuard<Mutex> guard(g_PrintLock);
+
     if(!g_NoGraphics)
     {
         for(size_t i = 0; i < StringLength(str); i++)
@@ -190,7 +194,10 @@ class StreamingScreenLogger : public Log::LogCallback
         {
 #ifdef DEBUGGER
             if (g_LogMode)
+            {
+                LockGuard<Mutex> guard(g_PrintLock);
                 printString(str);
+            }
 #endif
         }
 };
@@ -226,6 +233,8 @@ static void keyCallback(InputManager::InputNotification &note)
 
 static void progress(const char *text)
 {
+    LockGuard<Mutex> guard(g_PrintLock);
+
     // Calculate percentage.
     if(g_BootProgressTotal == 0)
         return;
@@ -271,7 +280,7 @@ static void progress(const char *text)
         s += "]\r";
         bootIO.write(s, BootIO::White, BootIO::Black);
     }
-    else
+    else if (g_pFramebuffer)
     {
         size_t w = (g_ProgressW * g_BootProgressCurrent) / g_BootProgressTotal;
         if(g_Previous <= g_BootProgressCurrent)
@@ -289,11 +298,15 @@ static void progress(const char *text)
         if(bFinished)
         {
             // Clean up font
+            NOTICE("splash: destroying font pixel buffer");
             g_pFramebuffer->destroyBuffer(g_pFont);
+            NOTICE("splash: destroying font heap buffer");
             delete [] g_pBuffer;
 
             // Destroy the framebuffer now that we're done
+            NOTICE("splash: destroying framebuffer");
             Graphics::destroyFramebuffer(g_pFramebuffer);
+            NOTICE("splash: destroyed framebuffer");
             g_pFramebuffer = 0;
 
             // No longer wanting any progress callback.
@@ -568,6 +581,8 @@ static bool handleSplash()
 
 static bool init()
 {
+    LockGuard<Mutex> guard(g_PrintLock);
+
     g_NoGraphics = false;
     char *cmdline = g_pBootstrapInfo->getCommandLine();
     if(cmdline)
@@ -596,6 +611,8 @@ static bool init()
 
 static void destroy()
 {
+    LockGuard<Mutex> guard(g_PrintLock);
+
     Log::instance().removeCallback(&g_StreamLogger);
 
 #ifdef DEBUGGER
