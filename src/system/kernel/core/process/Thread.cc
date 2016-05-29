@@ -706,12 +706,11 @@ Thread::StateLevel::StateLevel() :
 {
     m_State = new SchedulerState;
     ByteSet(m_State, 0, sizeof(SchedulerState));
-    m_InhibitMask = new ExtensibleBitmap;
+    m_InhibitMask = SharedPointer<ExtensibleBitmap>::allocate();
 }
 
 Thread::StateLevel::~StateLevel()
 {
-    delete m_InhibitMask;
     delete m_State;
 }
 
@@ -721,13 +720,13 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel &s) :
     m_pBlockingThread(s.m_pBlockingThread)
 {
     m_State = new SchedulerState(*(s.m_State));
-    m_InhibitMask = new ExtensibleBitmap(*(s.m_InhibitMask));
+    m_InhibitMask = SharedPointer<ExtensibleBitmap>::allocate(*(s.m_InhibitMask));
 }
 
 Thread::StateLevel &Thread::StateLevel::operator = (const Thread::StateLevel &s)
 {
     m_State = new SchedulerState(*(s.m_State));
-    m_InhibitMask = new ExtensibleBitmap(*(s.m_InhibitMask));
+    m_InhibitMask = SharedPointer<ExtensibleBitmap>::allocate(*(s.m_InhibitMask));
     m_pKernelStack = s.m_pKernelStack;
     return *this;
 }

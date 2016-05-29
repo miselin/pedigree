@@ -32,6 +32,7 @@
 #include <utilities/List.h>
 #include <utilities/RequestQueue.h>
 #include <utilities/ExtensibleBitmap.h>
+#include <utilities/SharedPointer.h>
 
 #include <processor/MemoryRegion.h>
 #include <processor/VirtualAddressSpace.h>
@@ -431,7 +432,7 @@ private:
             popped when one completes.
 
             \note A '1' here means the event is inhibited, '0' means it can be fired. */
-        ExtensibleBitmap *m_InhibitMask;
+        SharedPointer<ExtensibleBitmap> m_InhibitMask;
 
         Thread *m_pBlockingThread;
     } m_StateLevels[MAX_NESTED_EVENTS];
