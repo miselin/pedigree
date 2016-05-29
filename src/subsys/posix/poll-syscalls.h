@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -35,7 +34,7 @@ public:
         and an fd_set with an index to set. */
     PollEvent();
     PollEvent(Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile);
-    ~PollEvent();
+    virtual ~PollEvent();
 
     void fire();
 

@@ -301,16 +301,17 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
         Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::PollEvent, true);
         reentrancyLock.release();
 
+        for (auto pEvent : events)
+        {
+            pEvent->getFile()->cullMonitorTargets(Processor::information().getCurrentThread());
+        }
+
         // Ensure there are no events still pending for this thread.
         Processor::information().getCurrentThread()->cullEvent(EventNumbers::PollEvent);
 
-        for (List<PollEvent*>::Iterator it = events.begin();
-             it != events.end();
-             it++)
+        for (auto pEvent : events)
         {
-            PollEvent *pSE = *it;
-            pSE->getFile()->cullMonitorTargets(Processor::information().getCurrentThread());
-            delete pSE;
+            delete pEvent;
         }
 
         // Cleanup is complete, stop inhibiting events now.

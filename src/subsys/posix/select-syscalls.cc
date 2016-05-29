@@ -170,7 +170,8 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
 
     F_NOTICE("select(" << Dec << nfds << ", ?, ?, ?, {" << timeoutTypeName(timeoutType) << ", " << timeoutSecs << "})" << Hex);
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
@@ -188,7 +189,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
-    size_t nRet = 0;
+    ssize_t nRet = 0;
     // Can be interrupted while waiting for sem - EINTR.
     Semaphore sem(0, true);
     Spinlock reentrancyLock;
@@ -251,7 +252,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
                 // Need to set up a SelectEvent.
                 SelectEvent *pEvent = new SelectEvent(&sem, readfds, i, pFile);
                 reentrancyLock.acquire();
-                pFile->monitor(Processor::information().getCurrentThread(), pEvent);
+                pFile->monitor(pThread, pEvent);
                 events.pushBack(pEvent);
 
                 // Quickly check again now we've added the monitoring event,
@@ -286,7 +287,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
                 // Need to set up a SelectEvent.
                 SelectEvent *pEvent = new SelectEvent(&sem, writefds, i, pFile);
                 reentrancyLock.acquire();
-                pFile->monitor(Processor::information().getCurrentThread(), pEvent);
+                pFile->monitor(pThread, pEvent);
                 events.pushBack(pEvent);
 
                 // Quickly check again now we've added the monitoring event,
@@ -326,7 +327,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
                 // Need to set up a SelectEvent.
                 SelectEvent *pEvent = new SelectEvent(&sem, errorfds, i, pFd->file);
                 reentrancyLock.acquire();
-                pFd->file->monitor(Processor::information().getCurrentThread(), pEvent);
+                pFd->file->monitor(pThread, pEvent);
                 events.pushBack(pEvent);
 
                 // Quickly check again now we've added the monitoring event,
@@ -372,7 +373,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
             // The timeout event sets the interrupted state, so while this
             // looks unusual, the condition is caused by an interrupted sleep
             // due to something other than timeout.
-            if (!Processor::information().getCurrentThread()->wasInterrupted())
+            if (!pThread->wasInterrupted())
             {
                 SYSCALL_ERROR(Interrupted);
                 bError = true;
@@ -389,26 +390,32 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
     {
         // Block any more events being sent to us so we can safely clean up.
         reentrancyLock.acquire();
-        Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::SelectEvent, true);
+        pThread->inhibitEvent(EventNumbers::SelectEvent, true);
         reentrancyLock.release();
 
-        // Ensure there are no events still pending for this thread.
-        Processor::information().getCurrentThread()->cullEvent(EventNumbers::SelectEvent);
-
-        for (List<SelectEvent*>::Iterator it = events.begin();
-                it != events.end();
-                it++)
+        // Cull monitor targets first. While we're doing this, events might be
+        // sent to this thread, but they're inhibited. We need to cull first to
+        // stop further events getting created.
+        for (auto pEvent : events)
         {
-            SelectEvent *pSE = *it;
-            pSE->getFile()->cullMonitorTargets(Processor::information().getCurrentThread());
-            delete pSE;
+            pEvent->getFile()->cullMonitorTargets(pThread);
+        }
+
+        // Cull any leftover events that came in while we were culling monitor
+        // targets, so we don't have any leftover events in Thread queues.
+        pThread->cullEvent(EventNumbers::SelectEvent);
+
+        // Now, we can finally clean up our events.
+        for (auto pEvent : events)
+        {
+            delete pEvent;
         }
 
         // Cleanup is complete, stop inhibiting events now.
-        Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::SelectEvent, false);
+        pThread->inhibitEvent(EventNumbers::SelectEvent, false);
     }
 
-    F_NOTICE("    -> " << Dec << ((bError) ? -1 : nRet) << Hex);
+    F_NOTICE("    -> select returns " << Dec << ((bError) ? -1 : nRet) << Hex);
 
     return (bError) ? -1 : nRet;
 }
