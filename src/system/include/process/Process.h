@@ -376,6 +376,15 @@ public:
         return m_pRootFile;
     }
 
+    /**
+     * Get the init process (first userspace process, parent of all
+     * userspace processes).
+     */
+    static Process *getInit();
+
+    /** Set the init process. */
+    static void setInit(Process *pProcess);
+
 private:
     Process(const Process &);
     Process &operator = (const Process &);
@@ -496,6 +505,9 @@ private:
 
     /** Root directory for this process. NULL == system-wide default. */
     File *m_pRootFile;
+
+    /** Init process (terminated processes' children will reparent to this). */
+    static Process *m_pInitProcess;
 
 public:
     Semaphore m_DeadThreads;

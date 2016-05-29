@@ -192,6 +192,7 @@ static int init_stage2(void *param)
     // Alrighty - lets create a new thread for this program - -8 as PPC assumes
     // the previous stack frame is available...
     NOTICE("spinning up main thread for init now");
+    Process::setInit(pProcess);
     Thread *pThread = new Thread(
             pProcess,
             reinterpret_cast<Thread::ThreadStartFunc>(entryPoint),

@@ -35,6 +35,8 @@
 
 #include <vfs/File.h>
 
+Process *Process::m_pInitProcess = 0;
+
 Process::Process() :
   m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(0), m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
   m_ExitStatus(0), m_Cwd(0), m_Ctty(0), m_SpaceAllocator(false), m_DynamicSpaceAllocator(false),
@@ -204,8 +206,7 @@ void Process::kill()
       }
       else
       {
-        /// \todo Actually, the child process should be reparented to 'init'...
-        pProcess->m_pParent = 0;
+        pProcess->m_pParent = Process::getInit();
       }
     }
   }
@@ -288,4 +289,18 @@ void Process::notifyWaiters()
     }
 }
 
-#endif
+Process *Process::getInit()
+{
+  return m_pInitProcess;
+}
+
+void Process::setInit(Process *pProcess)
+{
+  if (m_pInitProcess)
+  {
+    return;
+  }
+  m_pInitProcess = pProcess;
+}
+
+#endif  // defined(THREADS)
