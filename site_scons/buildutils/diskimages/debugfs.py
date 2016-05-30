@@ -137,7 +137,7 @@ def buildImageE2fsprogs(target, source, env):
         # Clean out the last directory name if needed
         builddir_copies[i.abspath] = os.path.join(prefix, i.name)
 
-    def extra_copy_tree(base_dir, target_prefix=''):
+    def extra_copy_tree(base_dir, target_prefix='', replacements=None):
         for (dirpath, dirs, files) in os.walk(base_dir):
             target_path = dirpath.replace(base_dir, '')
 
@@ -147,6 +147,10 @@ def buildImageE2fsprogs(target, source, env):
             elif not target_path:
                 target_path = '/'
 
+            if replacements:
+                for r in replacements:
+                    target_path = target_path.replace(*r)
+
             for f in files:
                 target_fullpath = os.path.join(target_path, f)
                 source_fullpath = os.path.join(dirpath, f)
@@ -154,7 +158,9 @@ def buildImageE2fsprogs(target, source, env):
 
     # Copy etc bits.
     base_dir = os.path.join(imagedir, '..', 'base')
-    extra_copy_tree(base_dir)
+    extra_copy_tree(base_dir, replacements=(
+        ('/config/term', '/support/ncurses/share'),
+    ))
 
     # Copy locale files from user apps.
     extra_copy_tree(i18ndir, target_prefix='/system/locale')

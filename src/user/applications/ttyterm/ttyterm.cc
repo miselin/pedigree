@@ -45,7 +45,7 @@ pid_t g_RunningPid = -1;
 // File descriptor for our PTY master.
 int g_MasterPty;
 
-#ifdef LIVECD
+#if defined(LIVECD) && !defined(TRAVIS)
 #define FIRST_PROGRAM "/applications/live"
 #else
 #define FIRST_PROGRAM "/applications/login"
@@ -286,12 +286,12 @@ int main(int argc, char **argv)
         dup2(slave, 1);
         dup2(slave, 2);
 
-        // Text UI is only vt100-compatible (not an xterm)
-        setenv("TERM", "vt100", 1);
+        // Text UI has a custom terminfo (it can do a little more than a
+        // traditional vt100 can).
+        setenv("TERM", "pedigree", 1);
 
-        // Set locale variables (but not setlocale() itself).
+        // Set locale variables (but don't worry about setlocale() itself).
         setenv("LC_ALL", "en_US.UTF-8", 1);
-        setenv("LANG", "en_US.UTF-8", 1);
 
         // Add a utmp entry for this new process.
         setutxent();

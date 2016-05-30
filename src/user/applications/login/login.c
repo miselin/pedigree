@@ -102,7 +102,7 @@ int main(int argc, char **argv)
   const char *TERM = getenv("TERM");
   if(!TERM)
   {
-    TERM = "vt100";
+    TERM = "pedigree";
     setenv("TERM", TERM, 1);
   }
 
