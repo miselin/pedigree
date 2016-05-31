@@ -198,20 +198,17 @@ int main(int argc, char *argv[])
         "\nDo you want to accept the defaults?",
         0, 0);
 
-    if (status == DLG_EXIT_OK)
+    if (status != DLG_EXIT_OK)
     {
-        // No need to do anything here.
-        return 0;
-    }
+        if (languages())
+        {
+            return 1;
+        }
 
-    if (languages())
-    {
-        return 1;
-    }
-
-    if (keymaps())
-    {
-        return 1;
+        if (keymaps())
+        {
+            return 1;
+        }
     }
 
     end_dialog();
