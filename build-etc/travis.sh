@@ -3,7 +3,7 @@
 # Handle running on Travis-CI.
 TRAVIS_OPTIONS=
 if [ ! -z "$TRAVIS" ]; then
-    TRAVIS_OPTIONS="travis=$TRAVIS forcemtools=1"
+    TRAVIS_OPTIONS="travis=$TRAVIS"
 
     # Override the compiler directory for Travis caching.
     COMPILER_DIR=$HOME/pedigree-compiler
