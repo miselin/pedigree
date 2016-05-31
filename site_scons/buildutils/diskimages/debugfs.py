@@ -94,7 +94,7 @@ def buildImageE2fsprogs(target, source, env):
         if 'STATIC_DRIVERS' in env['CPPDEFINES']:
             nth = 2
         for i in source[0:nth]:
-            buildir_copies[i.abspath] = '/boot/' + i.name
+            builddir_copies[i.abspath] = '/boot/' + i.name
     else:
         nth = 0
     source = source[nth:]

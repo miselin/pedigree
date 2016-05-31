@@ -129,10 +129,14 @@ def buildDiskImages(env, config_database):
     if env['modules_on_disk']:
         if os.path.exists(modules):
             for module in os.listdir(modules):
+                if not (module.endswith('.o') or module.endswith('.o.debug')):
+                    continue
                 fileList += [os.path.join(modules, module)]
 
         if os.path.exists(drivers):
             for driver in os.listdir(drivers):
+                if not (driver.endswith('.o') or driver.endswith('.o.debug')):
+                    continue
                 fileList += [os.path.join(drivers, driver)]
 
     # Add libraries
