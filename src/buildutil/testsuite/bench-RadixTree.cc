@@ -51,7 +51,7 @@ static void BM_RadixTreeInsert(benchmark::State &state)
     while (state.KeepRunning())
     {
         state.PauseTiming();
-        key.Format("%d", key_n++);
+        key.Format("%ld", key_n++);
         state.ResumeTiming();
         tree.insert(key, value);
     }

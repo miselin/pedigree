@@ -17,21 +17,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <signal.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <syslog.h>
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <utmpx.h>
 #include <libgen.h>
-#include <dirent.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/wait.h>
+#include <syslog.h>
+#include <unistd.h>
+#include <utmp.h>
+#include <utmpx.h>
 
 extern void pedigree_reboot();
 

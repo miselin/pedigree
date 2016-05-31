@@ -64,6 +64,10 @@ env_clone['LIBS'] = []
 env_clone['LIBPATH'] = [builddir]
 env_clone['CPPPATH'] = base_include_dirs
 
+env_clone.MergeFlags({
+    'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+})
+
 for library in libs:
     library_env = env_clone.Clone()
     

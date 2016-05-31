@@ -183,6 +183,10 @@ env_clone['LIBS'] = base_libs
 env_clone['LIBPATH'] = [builddir, os.path.join(builddir, 'libs')]
 env_clone['CPPPATH'] = base_include_dirs
 
+env_clone.MergeFlags({
+    'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+})
+
 if not env['ON_PEDIGREE']:
     cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
     cpp_arch_base = os.path.join(cpp_base, env['COMPILER_TARGET'])
