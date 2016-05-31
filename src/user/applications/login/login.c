@@ -120,11 +120,14 @@ int main(int argc, char **argv)
       curt.c_oflag |= OPOST;
   tcsetattr(1, TCSANOW, &curt);
 
-  // Write the login greeting.
-  printf(gettext("Welcome to Pedigree\n"));
-
   while (1)
   {
+    // Clear screen before from a previous session before we do anything else.
+    printf("\033[2J");
+
+    // Write the login greeting.
+    printf(gettext("Welcome to Pedigree\n"));
+
     // Set terminal title, if we can.
     if(!strcmp(TERM, "xterm"))
     {
