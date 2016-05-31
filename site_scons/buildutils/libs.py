@@ -74,7 +74,8 @@ def buildLibc(env, libc_in, glue_in):
       "readdir", "closedir", "_isatty", "basename", "setjmp", "malloc",
       "mallocr", "calloc", "callocr", "freer", "realloc", "reallocr",
       "malign", "malignr", "mstats", "mtrim", "valloc", "msize",
-      "mallinfor", "malloptr", "mallstatsr", "ttyname", "strcasecmp",]
+      "mallinfor", "malloptr", "mallstatsr", "ttyname", "strcasecmp",
+      "locale",]
 
   # What target are we using?
   if env["ON_PEDIGREE"]:
