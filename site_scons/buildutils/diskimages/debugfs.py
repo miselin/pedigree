@@ -40,6 +40,7 @@ def buildImageE2fsprogs(target, source, env):
     drvsdir = env.Dir(env['PEDIGREE_BUILD_DRIVERS']).abspath
     libsdir = os.path.join(builddir, 'libs')
     i18ndir = os.path.join(builddir, 'locale')
+    keymaps_dir = os.path.join(env['HOST_BUILDDIR'], 'keymaps')
 
     outFile = target[0].abspath
 
@@ -163,7 +164,11 @@ def buildImageE2fsprogs(target, source, env):
     ))
 
     # Copy locale files from user apps.
-    extra_copy_tree(i18ndir, target_prefix='/system/locale')
+    if env['build_translations']:
+        extra_copy_tree(i18ndir, target_prefix='/system/locale')
+
+    # Copy keymaps.
+    extra_copy_tree(keymaps_dir, target_prefix='/system/keymaps')
 
     # Offset into the image for the partition proper to start.
     partition_offset = 0 # 0x10000

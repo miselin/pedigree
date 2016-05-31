@@ -62,8 +62,9 @@ DEFINE krouzek 7
 0x33    U+00F6 SHIFT U+00D6     # ö Ö
 0x34    U+00E4 SHIFT U+00C4 ALTGR SET-COMBINE[circumflex][U+005E]   # ä Ä
 0x35    SET-COMBINE[circumflex][U+005E] SHIFT U+00B0                # ^ °
-0x36    U+002C SHIFT U+003B     # , ;
-0x37    U+002E SHIFT U+003A     # . :
+0x36    U+002C SHIFT U+003B ALTGR U+00AB   # , ; «
+0x37    U+002E SHIFT U+003A ALTGR U+00BB   # . : »
+
 0x38    U+002d SHIFT U+005F     # - _
 
 0x49    "ins "                  # Insert

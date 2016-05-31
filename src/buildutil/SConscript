@@ -26,6 +26,7 @@ env = host_env
 conf = Configure(env)
 
 KERNEL_DIR = env.Dir('../system/kernel')
+APPS_DIR = env.Dir('../user/applications')
 
 # Distinguish build system objects from those built for the target, always.
 env['OBJSUFFIX'] = '.build.o'
@@ -102,3 +103,29 @@ utility_env.Library(os.path.join(env['BUILDDIR'], 'utility_coverage'),
 
 for subdir in subdirs:
     SConscript(os.path.join(subdir, 'SConscript'), exports=['env'])
+
+# Special rules for keymap, which runs primarily on Pedigree but can be used
+# during the build.
+keymap_env = env.Clone()
+keymap_dir = APPS_DIR.Dir('keymap')
+keymaps_dir = keymap_dir.Dir('keymaps')
+
+keymap_env.Append(CPPPATH=[keymap_dir.srcnode()], CPPDEFINES=['NOT_PEDIGREE'])
+
+keymap_lex_sources = [keymap_dir.File('lexer.l')]
+keymap_yacc_sources = [keymap_dir.File('parser.y')]
+keymap_sources = [keymap_dir.File('main.c')]
+
+keymap_lexer = env.CFile('keymap-lexer.c', keymap_lex_sources)
+keymap_parser = env.CFile('keymap-parser.c', keymap_yacc_sources)
+keymap = keymap_env.Program('keymap', keymap_sources + [keymap_lexer, keymap_parser])
+env.Alias('keymaps', keymap)
+
+# TODO: getopt in keymap to remove these mv's
+keymap_target_dir = os.path.join(env['BUILDDIR'], 'keymaps')
+for entry in env.Dir(keymaps_dir).glob('*', source=True):
+    k = env.Command(os.path.join(keymap_target_dir, entry.name + '.kmc'), entry,
+                '$KEYMAP compile $SOURCE && rm ${SOURCE}.h && '
+                'mv ${SOURCE}.kmc $TARGET', KEYMAP=keymap)
+
+    env.Alias('keymaps', k)

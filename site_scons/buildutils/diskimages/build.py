@@ -49,6 +49,7 @@ def buildDiskImages(env, config_database):
     env.Depends(hddimg, 'libs')
     if env['build_translations']:
         env.Depends(hddimg, 'i18n')
+    env.Depends(hddimg, 'keymaps')
 
     if env['ARCH_TARGET'] != 'ARM':
         env.Depends(hddimg, 'apps')
