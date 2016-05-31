@@ -57,7 +57,7 @@ def buildImageE2fsprogs(target, source, env):
 
     # Open the configuration database and collect known users and groups.
     try:
-        conn = sqlite3.connect(os.path.join(imagedir, '.pedigree-root'))
+        conn = sqlite3.connect(os.path.join(builddir, 'config.db'))
     except:
         # Won't be able to assign permissions correctly.
         conn = None
