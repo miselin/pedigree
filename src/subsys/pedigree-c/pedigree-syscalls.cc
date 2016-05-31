@@ -261,24 +261,15 @@ void pedigree_input_remove_callback(void *p)
 
 int pedigree_load_keymap(uint32_t *buf, size_t len)
 {
-    // File format:  0    Sparse tree offset
-    //               4    Data tree offset
-    //               ...  Sparse tree & data tree.
-
-    uint32_t sparseTableOffset  = buf[0];
-    uint32_t dataTableOffset    = buf[1];
-    uint32_t sparseTableSize    = dataTableOffset - sparseTableOffset;
-    uint32_t dataTableSize      = len - dataTableOffset;
-
-    uint8_t *sparseTable = new uint8_t[sparseTableSize];
-    MemoryCopy(sparseTable, &buf[sparseTableOffset], sparseTableSize);
-
-    uint8_t *dataTable = new uint8_t[dataTableSize];
-    MemoryCopy(dataTable, &buf[dataTableOffset], dataTableSize);
-
-    KeymapManager::instance().useKeymap(sparseTable, dataTable);
-
-    return 0;
+    /// \todo check parameter is mapped in
+    if (!KeymapManager::instance().useCompiledKeymap(buf, len))
+    {
+        return -1;
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 int pedigree_gfx_get_provider(void *p)

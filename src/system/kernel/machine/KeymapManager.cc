@@ -41,7 +41,7 @@ KeymapManager::KeymapManager() :
     m_pSparseTable(0), m_pDataTable(0),
     m_bLeftCtrl(false), m_bLeftShift(false), m_bLeftAlt(false),
     m_bRightCtrl(false), m_bRightShift(false), m_bRightAlt(false),
-    m_bCapsLock(false), m_nCombinator(0)
+    m_bCapsLock(false), m_nCombinator(0), m_bHaveLoadedKeymap(false)
 {
     void *sparseBuffer = ASSUME_ALIGNMENT(sparseBuff, sizeof(void *));
     void *dataBuffer = ASSUME_ALIGNMENT(dataBuff, sizeof(void *));
@@ -59,12 +59,79 @@ void KeymapManager::useKeymap(uint8_t *pSparseTable, uint8_t *pDataTable)
     void *sparseBuffer = ASSUME_ALIGNMENT(pSparseTable, sizeof(void *));
     void *dataBuffer = ASSUME_ALIGNMENT(pDataTable, sizeof(void *));
 
+    SparseEntry *oldSparse = m_pSparseTable;
+    KeymapEntry *oldData = m_pDataTable;
+
     // Set the table pointers
     m_pSparseTable = reinterpret_cast<SparseEntry *>(sparseBuffer);
     m_pDataTable = reinterpret_cast<KeymapEntry *>(dataBuffer);
 
+    // Check for a sensible keymap (40 == return key)
+    if (!resolveHidKeycode(40))
+    {
+        ERROR("KeymapManager: new keymap check failed, restoring old keymap");
+        m_pSparseTable = oldSparse;
+        m_pDataTable = oldData;
+    }
+    else if (m_bHaveLoadedKeymap)
+    {
+        delete [] oldSparse;
+        delete [] oldData;
+    }
+
     // Make the HID input manager update all its keys
     HidInputManager::instance().updateKeys();
+
+    // We've now loaded a keymap - all future loads should free the previous
+    // keymap once the new one is loaded.
+    m_bHaveLoadedKeymap = true;
+}
+
+bool KeymapManager::useCompiledKeymap(uint32_t *pCompiledKeymap, size_t keymapLength)
+{
+    // File format:  0    Sparse tree offset
+    //               4    Data tree offset
+    //               ...  Sparse tree & data tree.
+
+    uint32_t sparseTableOffset = pCompiledKeymap[0];
+    uint32_t dataTableOffset = pCompiledKeymap[1];
+    uint32_t sparseTableSize = dataTableOffset - sparseTableOffset;
+    uint32_t dataTableSize = keymapLength - dataTableOffset;
+
+    // Preserve the previous keymap in case we need to restore it.
+    SparseEntry *oldSparse = m_pSparseTable;
+    KeymapEntry *oldData = m_pDataTable;
+
+    // Set up our new tables.
+    m_pSparseTable = new SparseEntry[sparseTableSize / sizeof(SparseEntry)];
+    m_pDataTable = new KeymapEntry[dataTableSize / sizeof(KeymapEntry)];
+
+    MemoryCopy(m_pSparseTable, adjust_pointer(pCompiledKeymap, sparseTableOffset), sparseTableSize);
+    MemoryCopy(m_pDataTable, adjust_pointer(pCompiledKeymap, dataTableOffset), dataTableSize);
+
+    // Check for sensible keymap.
+    if (!resolveHidKeycode(40))
+    {
+        ERROR("KeymapManager: new keymap check failed, restoring old keymap");
+        m_pSparseTable = oldSparse;
+        m_pDataTable = oldData;
+
+        return false;
+    }
+    else if (m_bHaveLoadedKeymap)
+    {
+        delete [] oldSparse;
+        delete [] oldData;
+    }
+
+    // Make the HID input manager update all its keys
+    HidInputManager::instance().updateKeys();
+
+    // We've now loaded a keymap - all future loads should free the previous
+    // keymap once the new one is loaded.
+    m_bHaveLoadedKeymap = true;
+
+    return true;
 }
 
 bool KeymapManager::handleHidModifier(uint8_t keyCode, bool bDown)

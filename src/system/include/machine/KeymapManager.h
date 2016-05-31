@@ -45,6 +45,9 @@ class KeymapManager
         /// Changes the current keymap to the given one
         void useKeymap(uint8_t *pSparseTable, uint8_t *pDataTable);
 
+        /// Changes the current keymap to the given (compiled) one
+        bool useCompiledKeymap(uint32_t *pCompiledKeymap, size_t keymapLength);
+
         /// If the given keycode is a modifier, applies it and
         /// returns true, otherwise it returns false.
         bool handleHidModifier(uint8_t keyCode, bool bDown);
@@ -153,6 +156,10 @@ class KeymapManager
         ///       in the middle of an IRQ where it's potentially dangerous to
         ///       reschedule (which may happen with a Mutex or Semaphore).
         Spinlock m_KeyLock;
+
+        /// Whether or not we've loaded a new keymap.
+        /// Used to figure out if we can safely free the old keymap data.
+        bool m_bHaveLoadedKeymap;
 };
 
 #endif
