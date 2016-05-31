@@ -82,6 +82,7 @@ glue_files = [
     'glue-utmpx.c',
     'glue-infoblock.c',
     'glue-memset.c',
+    'glue-setlocale.c',
 ]
 
 if 'CUSTOM_MEMCPY' in userspace_env['EXTRA_CONFIG']:
