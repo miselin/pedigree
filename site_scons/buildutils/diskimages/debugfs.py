@@ -222,7 +222,12 @@ def buildImageE2fsprogs(target, source, env):
     args = [
         env['MKE2FS'],
         '-q',
-        '-E', 'root_owner=0:0,offset=%d' % partition_offset,  # Don't use UID/GID from host system.
+    ]
+    if partition_offset:
+        args += [
+            '-E', 'offset=%d' % partition_offset,  # Don't use UID/GID from host system.
+        ]
+    args += [
         '-O', '^dir_index',  # Don't (yet) use directory b-trees.
         '-I', '128',  # Use 128-byte inodes, as grub-legacy can't use bigger.
         '-F',
