@@ -640,17 +640,17 @@ void TextIO::write(const char *s, size_t len)
                             case 45:
                             case 46:
                             case 47:
-                                setColour(&m_Back, m_Params[i] - 40, m_CurrentModes);
+                                setColour(&m_Back, m_Params[i] - 40);
                                 break;
                             case 48:
                                 if(m_Params[i + 1] == 5)
                                 {
-                                    setColour(&m_Back, m_Params[i + 2], m_CurrentModes);
+                                    setColour(&m_Back, m_Params[i + 2]);
                                     i += 3;
                                 }
                                 break;
                             case 49:
-                                setColour(&m_Back, 0, m_CurrentModes);
+                                setColour(&m_Back, 0);
                                 break;
 
                             case 90:
