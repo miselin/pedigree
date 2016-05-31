@@ -76,7 +76,7 @@ libdebugger = coverage_env.StaticLibrary('debugger', [
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
                      LIBS=[libnetwork_stack, libdebugger, 'utility_coverage',
-                           'gtest', 'pthread'])
+                           env['LIBGTEST'], 'pthread'])
 
 if build_env['HAVE_BENCHMARK']:
     build_env.MergeFlags({

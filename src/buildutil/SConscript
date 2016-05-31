@@ -32,7 +32,6 @@ env['OBJSUFFIX'] = '.build.o'
 
 subdirs = [
     'ext2img',
-    'testsuite',
 ]
 
 if env['instrumentation']:
@@ -40,6 +39,9 @@ if env['instrumentation']:
 
 if env['memory_tracing']:
     subdirs.append('memorytracer')
+
+if 'LIBGTEST' in env:
+    subdirs.append('testsuite')
 
 # Make sure we can find libraries in the build directory.
 env.MergeFlags({

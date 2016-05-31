@@ -29,74 +29,59 @@ Import(['env', 'host_env'])
 if not env['build_tests_only']:
   Import(['userspace_env'])
 
+BUILDDIR = env['BUILDDIR']
+
 # Host utilities or libraries for host tools in git submodules.
-SConscript(os.path.join('external', 'SConscript'), exports=['host_env'],
-           variant_dir=os.path.join(host_env['BUILDDIR'], 'external'), duplicate=0)
+SConscript(os.path.join(BUILDDIR, 'external', 'SConscript'), exports=['host_env'])
 
 # Build utilities that run on the host during the kernel build.
-SConscript(os.path.join('src', 'buildutil', 'SConscript'), exports=['host_env'])
+SConscript(os.path.join(BUILDDIR, 'buildutil', 'SConscript'), exports=['host_env'])
 
 if env['build_modules']:
   # POSIX subsystem.
-  SConscript(os.path.join('src', 'subsys', 'posix', 'SConscript'),
+  SConscript(os.path.join(BUILDDIR, 'subsys', 'posix', 'SConscript'),
              exports=['env', 'userspace_env'])
   # Pedigree-C subsystem.
-  SConscript(os.path.join('src', 'subsys', 'pedigree-c', 'SConscript'),
+  SConscript(os.path.join(BUILDDIR, 'subsys', 'pedigree-c', 'SConscript'),
              exports=['env', 'userspace_env'])
   # Native subsystem.
   if 'NATIVE_SUBSYSTEM' in env['EXTRA_CONFIG']:
-      SConscript(os.path.join('src', 'subsys', 'native', 'SConscript'),
+      SConscript(os.path.join(BUILDDIR, 'subsys', 'native', 'SConscript'),
                  exports=['env', 'userspace_env'])
   # Kernel drivers and modules.
-  SConscript(os.path.join('src', 'modules', 'SConscript'), exports=['env'])
+  SConscript(os.path.join(BUILDDIR, 'modules', 'SConscript'), exports=['env'])
 
 if env['build_kernel']:
-  SConscript(os.path.join('src', 'system', 'kernel', 'SConscript'), exports=['env'])
+  SConscript(os.path.join(BUILDDIR, 'system', 'kernel', 'SConscript'), exports=['env'])
   if env['BOOT_DIR']:
-    SConscript(os.path.join('src', 'system', 'boot', env['BOOT_DIR'], 'SConscript'), exports=['env'])
+    SConscript(os.path.join(BUILDDIR, 'system', 'boot', env['BOOT_DIR'], 'SConscript'), exports=['env'])
 
 # On X86, X64 and PPC we build applications and LGPL libraries
 if env['build_apps'] or env['build_libs']:
-  SConscript(os.path.join('src', 'user', 'SConscript'),
+  SConscript(os.path.join(BUILDDIR, 'user', 'SConscript'),
              exports=['env', 'userspace_env'])
 if env['build_lgpl']:
-  SConscript(os.path.join('src', 'lgpl', 'SConscript'),
+  SConscript(os.path.join(BUILDDIR, 'lgpl', 'SConscript'),
              exports=['env', 'userspace_env'])
 
 # Build the configuration database (no dependencies)
 config_database = os.path.join(env["PEDIGREE_BUILD_BASE"], 'config.db')
 if env['build_configdb']:
-  configSchemas = fs.find_files(env.Dir('#src').abspath, lambda x: x == 'schema', [])
+  configSchemas = fs.find_files(env.Dir('.').srcnode().abspath,
+                                lambda x: x == 'schema', [])
   env.Sqlite(config_database, configSchemas)
 
   if 'STATIC_DRIVERS' in env['CPPDEFINES']:
       # Generate config database header file for static inclusion.
-      config_header = env.File('#src/modules/system/config/config_database.h')
+      config_header = env.File('modules/system/config/config_database.h')
       env.FileAsHeader(config_header, config_database)
 
-# These dirs are expected to have source files (C, C++) that can be used with
-# xgettext; the form is (domain, path).
-translate_dirs = [
-    ('live', 'src/user/applications/live'),
-    ('login', 'src/user/applications/login'),
-]
-
-for domain, path in translate_dirs:
-    files = Glob(os.path.join(path, '*.c')) + Glob(os.path.join(path, '*.cc'))
-    if not files:
-        continue
-
-    po_targets = ['#po/%s/%s' % (lang, domain) for lang in env['languages']]
-    mo_targets = ['locale/%s/LC_MESSAGES/%s' % (lang, domain)
-                  for lang in env['languages']]
-
-    env.POTUpdate(domain, files)
-    env.POUpdate(po_targets, POTDOMAIN=domain)
-    # How do we get this in the build dir?
-    for po, mo in zip(po_targets, mo_targets):
-        r = env.MOFiles(mo, po)
-
-        env.Alias('i18n', r)
+# Should we build translations?
+if env['build_translations']:
+  # Note: SConscript.i18n is NOT built in the VariantDir as we want to take
+  # the generate POT and PO files and commit them to source control. The other
+  # SConscript generates MO files, which should NOT be in source control.
+  SConscript(os.path.join(BUILDDIR, 'po', 'SConscript'), exports=['env'])
 
 # Build disk images.
 if env['build_images']:

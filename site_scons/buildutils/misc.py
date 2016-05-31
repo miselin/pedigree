@@ -18,6 +18,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
 import os
+import SCons
 
 import buildutils.db
 import buildutils.downloader
@@ -34,6 +35,14 @@ def generate(env):
     buildutils.patcher.generate(env)
     buildutils.pyflakes.generate(env)
     buildutils.tar.generate(env)
+
+
+def getLanguages(env):
+    if not env['build_translations']:
+        return []
+
+    return [d.name for d in env.Dir('#src/po').glob('*')
+            if isinstance(d, SCons.Node.FS.Dir)]
 
 
 def safeAppend(a, b):

@@ -44,13 +44,16 @@ def buildModule(env, stripped_target, target, sources):
             extra_linkflags,
     })
 
-    libmodule_dir = os.path.join(module_env['BUILDDIR'], 'src', 'modules')
+    libmodule_dir = os.path.join(module_env['BUILDDIR'], 'modules')
     libmodule_path = os.path.join(libmodule_dir, 'libmodule.a')
 
     module_env.MergeFlags({
         'LIBS': ['module', 'gcc'],
         'LIBPATH': [libmodule_dir],
     })
+
+    module_env.Depends(target, libmodule_path)
+    module_env.Depends(stripped_target, libmodule_path)
 
     if env['clang_cross'] and env['clang_analyse']:
         return module_env.Program(stripped_target, sources)

@@ -34,7 +34,7 @@ imagesdir = env["PEDIGREE_IMAGES_DIR"]
 
 native_userlib_objname = os.path.join(subsysdir, 'native.o')
 
-baseInclude = env.Dir("#src/subsys/native/include")
+baseInclude = env.Dir("../include").srcnode()
 
 env.Alias("subsys", native_userlib_objname)
 
@@ -45,9 +45,9 @@ files = [
 # To include a new directory for includes, just add it to the list
 include_dirs = [
     './include',
-    '#/src/modules',
-    '#/src/system/include',
-    '#/src/modules/system',
+    '#src/modules',
+    '#src/system/include',
+    '#src/modules/system',
     '#images/local/include',
     '.'
 ]

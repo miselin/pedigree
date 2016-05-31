@@ -31,3 +31,5 @@ if host_env.Dir('#external/googletest').exists:
         '#external/googletest/googletest/include',
         '#external/googletest/googletest',
     ])
+
+    host_env['LIBGTEST'] = lib
