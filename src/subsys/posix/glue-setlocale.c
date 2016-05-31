@@ -25,6 +25,7 @@
 #include <limits.h>
 #include <reent.h>
 #include <setlocale.h>
+#include <syslog.h>
 
 #ifdef TESTSUITE
 #define SETLOCALE_FUNCTION_NAME pedigree_setlocale
@@ -119,16 +120,20 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
     // locale == NULL -> return current locale.
     if (!locale)
     {
+        syslog(LOG_INFO, "setlocale(%d, NULL)", category);
         if (category < LC_ALL || category > LC_MESSAGES)
         {
             return 0;
         }
 
+        syslog(LOG_INFO, " -> %s", __locale_entry[category * 2]);
         return __locale_entry[category * 2];
     }
     // locale == "" -> obtain locale from the current environment.
     else if (!strcmp(locale, ""))
     {
+        syslog(LOG_INFO, "setlocale(%d, '')", category);
+
         // Order: LC_ALL, LANG, LANGUAGE
         const char *env_LC_ALL = getenv("LC_ALL");
         const char *env_LC_XXX = getenv(__locale_env[category]);
@@ -136,19 +141,23 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
         if (env_LC_ALL && strcmp(env_LC_ALL, ""))
         {
             new_locale_arg = env_LC_ALL;
+            syslog(LOG_INFO, " -> lc_all=%s", env_LC_ALL);
         }
         else if (env_LC_XXX && strcmp(env_LC_XXX, ""))
         {
             new_locale_arg = env_LC_XXX;
+            syslog(LOG_INFO, " -> lc_xxx=%s", env_LC_XXX);
         }
         else if (env_LANG && strcmp(env_LANG, ""))
         {
             new_locale_arg = env_LANG;
+            syslog(LOG_INFO, " -> lang=%s", env_LANG);
         }
         else
         {
             // All POSIX-specified requirements complete; fall back to
             // implementation-defined locale (C).
+            syslog(LOG_INFO, " -> fallback=C");
             new_locale_arg = "C";
         }
     }
@@ -156,10 +165,12 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
     else if (!strcmp(locale, "C") || !strcmp(locale, "POSIX"))
     {
         // OK - new_locale_arg is already "C"...
+        syslog(LOG_INFO, "setlocale(%d, 'C')", category);
     }
     else
     {
         new_locale_arg = locale;
+        syslog(LOG_INFO, "setlocale(%d, '%s')", category, locale);
     }
 
     // Check the extra fields on the locale, which we can use to find the
@@ -181,7 +192,10 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
         lang_code[modifier - new_locale_arg] = '\0';
     }
 
-    strncpy(new_locale, lang_code, MAX_LOCALE_LENGTH);
+    syslog(LOG_INFO, "lang code %s", lang_code);
+
+    /// \todo use the above settings to help find locale
+    strncpy(new_locale, new_locale_arg, MAX_LOCALE_LENGTH);
 
     // Set the multibyte maximum length for newlib functions.
     if (codeset)
@@ -204,12 +218,8 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
         __mb_cur_max = 1;
         strcpy(__locale_charset_value, "ISO-8859-1");
     }
-    else
-    {
-        // Assume UTF-8.
-        strcat(new_locale, ".UTF-8");
-        strcpy(__locale_charset_value, "UTF-8");
-    }
+
+    syslog(LOG_INFO, "final locale %s", new_locale);
 
     free(lang_code);
 
@@ -240,31 +250,34 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
     }
     else if (category == LC_CTYPE)
     {
-        SET_LAST(collate);
-        SET_TO(collate, new_locale);
+        SET_LAST(ctype);
+        SET_TO(ctype, new_locale);
     }
     else if (category == LC_MONETARY)
     {
-        SET_LAST(collate);
-        SET_TO(collate, new_locale);
+        SET_LAST(monetary);
+        SET_TO(monetary, new_locale);
     }
     else if (category == LC_NUMERIC)
     {
-        SET_LAST(collate);
-        SET_TO(collate, new_locale);
+        SET_LAST(numeric);
+        SET_TO(numeric, new_locale);
     }
     else if (category == LC_TIME)
     {
-        SET_LAST(collate);
-        SET_TO(collate, new_locale);
+        SET_LAST(time);
+        SET_TO(time, new_locale);
     }
     else if (category == LC_MESSAGES)
     {
-        SET_LAST(collate);
-        SET_TO(collate, new_locale);
+        SET_LAST(messages);
+        SET_TO(messages, new_locale);
     }
 
     // Return previous value.
+    _REENT->_current_category = category;
+    _REENT->_current_locale = locale;
+    syslog(LOG_INFO, "returning %s", __locale_entry[(category + 1) * 2]);
     return __locale_entry[(category + 1) * 2];
 }
 
