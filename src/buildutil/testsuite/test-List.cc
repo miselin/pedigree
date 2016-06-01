@@ -271,6 +271,16 @@ TEST(PedigreeList, IterateReverse)
     EXPECT_EQ(it, x.rend());
 }
 
+TEST(PedigreeList, EmptyIterate)
+{
+    List<int> x;
+
+    for (auto it = x.begin(); it != x.end(); ++it)
+    {
+        FAIL() << "empty iteration should never provide an iterator";
+    }
+}
+
 TEST(PedigreeList, PointerPopFront)
 {
     List<void *> x;
