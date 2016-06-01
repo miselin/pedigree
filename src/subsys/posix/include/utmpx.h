@@ -25,6 +25,7 @@ extern "C" {
 #endif
 #define __UTMP_STRUCT utmpx
 #include <sys/_utmp.h>
+#undef __UTMP_STRUCT
 
 extern void          setutxent(void);
 extern void          endutxent(void);
