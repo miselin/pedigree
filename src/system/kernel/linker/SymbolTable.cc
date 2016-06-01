@@ -19,6 +19,13 @@
 
 #include <linker/SymbolTable.h>
 #include <linker/Elf.h>
+#include <LockGuard.h>
+
+#ifdef THREADS
+#define RAII_LOCK LockGuard<Mutex> guard(m_Lock)
+#else
+#define RAII_LOCK
+#endif
 
 SymbolTable::SymbolTable(Elf *pElf) :
   m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(), m_pOriginatingElf(pElf)
@@ -31,6 +38,8 @@ SymbolTable::~SymbolTable()
 
 void SymbolTable::copyTable(Elf *pNewElf, const SymbolTable &newSymtab)
 {
+    RAII_LOCK;
+
     // Safe to do this, all members are SharedPointers and will be copy
     // constructed by these operations.
     m_LocalSymbols = newSymtab.m_LocalSymbols;
@@ -40,11 +49,18 @@ void SymbolTable::copyTable(Elf *pNewElf, const SymbolTable &newSymtab)
 
 void SymbolTable::insert(String name, Binding binding, Elf *pParent, uintptr_t value)
 {
+  RAII_LOCK;
+
   doInsert(name, binding, pParent, value);
 }
 
 void SymbolTable::insertMultiple(SymbolTable *pOther, String name, Binding binding, Elf *pParent, uintptr_t value)
 {
+  RAII_LOCK;
+#ifdef THREADS
+  LockGuard<Mutex> guard2(pOther->m_Lock);
+#endif
+
   SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
   if (pOther)
     pOther->insertShared(name, ptr);
@@ -79,6 +95,8 @@ void SymbolTable::insertShared(String name, SharedPointer<SymbolTable::Symbol> s
 
 void SymbolTable::eraseByElf(Elf *pParent)
 {
+    RAII_LOCK;
+
     // Will wipe out recursively by destroying the SharedPointers within.
     m_LocalSymbols.remove(pParent);
 
@@ -111,6 +129,8 @@ void SymbolTable::eraseByElf(Elf *pParent)
 
 uintptr_t SymbolTable::lookup(String name, Elf *pElf, Policy policy, Binding *pBinding)
 {
+  RAII_LOCK;
+
   // Local.
   SharedPointer<Symbol> sym;
   SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);

@@ -85,7 +85,7 @@ class KernelElf : public Elf
 
         /** Unloads the specified module. */
         void unloadModule(const char *name, bool silent=false, bool progress=true);
-        void unloadModule(Vector<Module*>::Iterator it, bool silent=false, bool progress=true);
+        void unloadModule(Module *module, bool silent=false, bool progress=true);
 
         /** Unloads all loaded modules. */
         void unloadModules();

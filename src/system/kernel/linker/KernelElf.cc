@@ -505,7 +505,7 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
 void KernelElf::unloadModule(const char *name, bool silent, bool progress)
 {
 #ifdef THREADS
-    LockGuard<Spinlock> guard(m_ModuleAdjustmentLock);
+    m_ModuleAdjustmentLock.acquire();
 #endif
     for (Vector<Module*>::Iterator it = m_LoadedModules.begin();
         it != m_LoadedModules.end();
@@ -513,16 +513,25 @@ void KernelElf::unloadModule(const char *name, bool silent, bool progress)
     {
         if(!StringCompare((*it)->name, name))
         {
-            unloadModule(it, silent, progress);
+            Module *module = *it;
+            m_LoadedModules.erase(it);
+
+#ifdef THREADS
+            // No longer need the lock - the rest of unloadModule is OK.
+            m_ModuleAdjustmentLock.release();
+#endif
+            unloadModule(module, silent, progress);
             return;
         }
     }
+#ifdef THREADS
+    m_ModuleAdjustmentLock.release();
+#endif
     ERROR("KERNELELF: Module " << name << " not found");
 }
 
-void KernelElf::unloadModule(Vector<Module*>::Iterator it, bool silent, bool progress)
+void KernelElf::unloadModule(Module *module, bool silent, bool progress)
 {
-    Module *module = *it;
     NOTICE("KERNELELF: Unloading module " << module->name);
 
     if(progress)
@@ -573,8 +582,6 @@ void KernelElf::unloadModule(Vector<Module*>::Iterator it, bool silent, bool pro
             g_BootProgressUpdate("moduleunloaded");
     }
 
-    m_LoadedModules.erase(it);
-
     NOTICE("KERNELELF: Module " << module->name << " unloaded.");
 
 #ifndef STATIC_DRIVERS
@@ -616,7 +623,7 @@ void KernelElf::unloadModules()
             it != m_LoadedModules.begin() - 1;
             --it)
         {
-            unloadModule(it);
+            unloadModule(*it);
         }
     }
 

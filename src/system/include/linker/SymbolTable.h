@@ -24,6 +24,7 @@
 #include <utilities/List.h>
 #include <utilities/Tree.h>
 #include <utilities/SharedPointer.h>
+#include <process/Mutex.h>
 
 class Elf;
 
@@ -124,6 +125,10 @@ private:
   RadixTree<SharedPointer<Symbol>> m_WeakSymbols;
 
   Elf *m_pOriginatingElf;
+
+#ifdef THREADS
+  Mutex m_Lock;
+#endif
 };
 
 #endif
