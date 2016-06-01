@@ -25,7 +25,7 @@
 #include <limits.h>
 #include <reent.h>
 #include <setlocale.h>
-#include <syslog.h>
+#include <stdlib.h>
 
 #ifdef TESTSUITE
 #define SETLOCALE_FUNCTION_NAME pedigree_setlocale
@@ -56,7 +56,9 @@ static const struct lconv lconv =
 
 static char __locale_charset_value[ENCODING_LEN] = "ISO-8859-1";
 
-static char __locale_all[MAX_LOCALE_LENGTH] = "C";
+#define NUM_LOCALES LC_MESSAGES
+
+static char __locale_all[NUM_LOCALES * MAX_LOCALE_LENGTH] = "LC_COLLATE=C";
 static char __locale_collate[MAX_LOCALE_LENGTH] = "C";
 static char __locale_ctype[MAX_LOCALE_LENGTH] = "C";
 static char __locale_monetary[MAX_LOCALE_LENGTH] = "C";
@@ -120,110 +122,34 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
     // locale == NULL -> return current locale.
     if (!locale)
     {
-        syslog(LOG_INFO, "setlocale(%d, NULL)", category);
         if (category < LC_ALL || category > LC_MESSAGES)
         {
             return 0;
         }
 
-        syslog(LOG_INFO, " -> %s", __locale_entry[category * 2]);
         return __locale_entry[category * 2];
     }
     // locale == "" -> obtain locale from the current environment.
     else if (!strcmp(locale, ""))
     {
-        syslog(LOG_INFO, "setlocale(%d, '')", category);
-
-        // Order: LC_ALL, LANG, LANGUAGE
-        const char *env_LC_ALL = getenv("LC_ALL");
-        const char *env_LC_XXX = getenv(__locale_env[category]);
-        const char *env_LANG = getenv("LANG");
-        if (env_LC_ALL && strcmp(env_LC_ALL, ""))
-        {
-            new_locale_arg = env_LC_ALL;
-            syslog(LOG_INFO, " -> lc_all=%s", env_LC_ALL);
-        }
-        else if (env_LC_XXX && strcmp(env_LC_XXX, ""))
-        {
-            new_locale_arg = env_LC_XXX;
-            syslog(LOG_INFO, " -> lc_xxx=%s", env_LC_XXX);
-        }
-        else if (env_LANG && strcmp(env_LANG, ""))
-        {
-            new_locale_arg = env_LANG;
-            syslog(LOG_INFO, " -> lang=%s", env_LANG);
-        }
-        else
-        {
-            // All POSIX-specified requirements complete; fall back to
-            // implementation-defined locale (C).
-            syslog(LOG_INFO, " -> fallback=C");
-            new_locale_arg = "C";
-        }
+        // Force "C" locale.
     }
     // locale == "C" or locale == "POSIX" -> C locale
     else if (!strcmp(locale, "C") || !strcmp(locale, "POSIX"))
     {
         // OK - new_locale_arg is already "C"...
-        syslog(LOG_INFO, "setlocale(%d, 'C')", category);
     }
     else
     {
-        new_locale_arg = locale;
-        syslog(LOG_INFO, "setlocale(%d, '%s')", category, locale);
+        // Force C locale.
     }
 
-    // Check the extra fields on the locale, which we can use to find the
-    // locale on disk.
-    const char *territory = strchr(new_locale_arg, '_');
-    const char *codeset = strchr(new_locale_arg, '.');
-    const char *modifier = strchr(new_locale_arg, '@');
-    char *lang_code = strdup(new_locale_arg);
-    if (territory)
-    {
-        lang_code[territory - new_locale_arg] = '\0';
-    }
-    else if (codeset)
-    {
-        lang_code[codeset - new_locale_arg] = '\0';
-    }
-    else if (modifier)
-    {
-        lang_code[modifier - new_locale_arg] = '\0';
-    }
-
-    syslog(LOG_INFO, "lang code %s", lang_code);
-
-    /// \todo use the above settings to help find locale
+    /// \todo real locale support
     strncpy(new_locale, new_locale_arg, MAX_LOCALE_LENGTH);
 
-    // Set the multibyte maximum length for newlib functions.
-    if (codeset)
-    {
-        // codeset points to the '.' in new_locale_arg
-        if (!stricmp(codeset, ".utf8") || !stricmp(codeset, ".utf-8"))
-        {
-            __mb_cur_max = 6;
-            strcpy(__locale_charset_value, "UTF-8");
-        }
-        else if (!stricmp(codeset, ".iso-8859-1"))
-        {
-            __mb_cur_max = 1;
-            strcpy(__locale_charset_value, "ISO-8859-1");
-        }
-    }
-    else if (!strcmp(new_locale_arg, "C"))
-    {
-        // No UTF-8 for default C locale.
-        __mb_cur_max = 1;
-        strcpy(__locale_charset_value, "ISO-8859-1");
-    }
-
-    syslog(LOG_INFO, "final locale %s", new_locale);
-
-    free(lang_code);
-
-    /// \todo check that the locale actually exists
+    // No UTF-8 for default C locale.
+    __mb_cur_max = 1;
+    strcpy(__locale_charset_value, "ISO-8859-1");
 
     if (category == LC_ALL)
     {
@@ -277,7 +203,6 @@ char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
     // Return previous value.
     _REENT->_current_category = category;
     _REENT->_current_locale = locale;
-    syslog(LOG_INFO, "returning %s", __locale_entry[(category + 1) * 2]);
     return __locale_entry[(category + 1) * 2];
 }
 
