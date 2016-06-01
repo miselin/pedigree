@@ -134,7 +134,7 @@ static void destroy()
     while (deletionQueue.count())
     {
         Filesystem *pFs = deletionQueue.popFront();
-        NOTICE("Unmounting " << pFs->getVolumeLabel() << " [" << pFs << "]...");
+        NOTICE("Unmounting " << pFs->getVolumeLabel() << " [" << Hex << pFs << "]...");
         VFS::instance().removeAllAliases(pFs);
         NOTICE("unmount done");
     }

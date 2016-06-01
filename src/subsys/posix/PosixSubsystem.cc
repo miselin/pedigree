@@ -501,84 +501,84 @@ bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
 
 void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
 {
-    NOTICE_NOLOCK("PosixSubsystem::threadException");
+    NOTICE("PosixSubsystem::threadException");
 
     // What was the exception?
     SignalHandler *sig = 0;
     switch(eType)
     {
         case PageFault:
-            NOTICE_NOLOCK("    (Page fault)");
+            NOTICE("    (Page fault)");
             // Send SIGSEGV
             sig = getSignalHandler(11);
             break;
         case InvalidOpcode:
-            NOTICE_NOLOCK("    (Invalid opcode)");
+            NOTICE("    (Invalid opcode)");
             // Send SIGILL
             sig = getSignalHandler(4);
             break;
         case GeneralProtectionFault:
-            NOTICE_NOLOCK("    (General Fault)");
+            NOTICE("    (General Fault)");
             // Send SIGSEGV
             sig = getSignalHandler(14);
             break;
         case DivideByZero:
-            NOTICE_NOLOCK("    (Division by zero)");
+            NOTICE("    (Division by zero)");
             // Send SIGFPE
             sig = getSignalHandler(8);
             break;
         case FpuError:
-            NOTICE_NOLOCK("    (FPU error)");
+            NOTICE("    (FPU error)");
             // Send SIGFPE
             sig = getSignalHandler(8);
             break;
         case SpecialFpuError:
-            NOTICE_NOLOCK("    (FPU error - special)");
+            NOTICE("    (FPU error - special)");
             // Send SIGFPE
             sig = getSignalHandler(8);
             break;
         case TerminalInput:
-            NOTICE_NOLOCK("    (Attempt to read from terminal by non-foreground process)");
+            NOTICE("    (Attempt to read from terminal by non-foreground process)");
             // Send SIGTTIN
             sig = getSignalHandler(21);
             break;
         case TerminalOutput:
-            NOTICE_NOLOCK("    (Output to terminal by non-foreground process)");
+            NOTICE("    (Output to terminal by non-foreground process)");
             // Send SIGTTOU
             sig = getSignalHandler(22);
             break;
         case Continue:
-            NOTICE_NOLOCK("    (Continuing a stopped process)");
+            NOTICE("    (Continuing a stopped process)");
             // Send SIGCONT
             sig = getSignalHandler(19);
             break;
         case Stop:
-            NOTICE_NOLOCK("    (Stopping a process)");
+            NOTICE("    (Stopping a process)");
             // Send SIGTSTP
             sig = getSignalHandler(18);
             break;
         case Interrupt:
-            NOTICE_NOLOCK("    (Interrupting a process)");
+            NOTICE("    (Interrupting a process)");
             // Send SIGINT
             sig = getSignalHandler(2);
             break;
         case Quit:
-            NOTICE_NOLOCK("    (Requesting quit)");
+            NOTICE("    (Requesting quit)");
             // Send SIGTERM
             sig = getSignalHandler(15);
             break;
         case Child:
-            NOTICE_NOLOCK("    (Child status changed)");
+            NOTICE("    (Child status changed)");
             // Send SIGCHLD
             sig = getSignalHandler(20);
             break;
         case Pipe:
-            NOTICE_NOLOCK("    (Pipe broken)");
+            NOTICE("    (Pipe broken)");
             // Send SIGPIPE
             sig = getSignalHandler(13);
             break;
         default:
-            NOTICE_NOLOCK("    (Unknown)");
+            NOTICE("    (Unknown)");
             // Unknown exception
             ERROR_NOLOCK("Unknown exception type in threadException - POSIX subsystem");
             break;

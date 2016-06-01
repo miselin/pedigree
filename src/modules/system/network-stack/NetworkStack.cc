@@ -39,7 +39,7 @@ NetworkStack::NetworkStack() :
             ERROR("Couldn't get a valid buffer pool for networking use");
 #elif defined(ARM_COMMON)
   // Probably very little RAM to burn - 4 MB then 2 MB, then 512 KB
-  NOTICE_NOLOCK("allocating memory pool");
+  NOTICE("allocating memory pool");
   if(!m_MemPool.initialise(1024, 1600))
       if(!m_MemPool.initialise(512, 1600))
         if(!m_MemPool.initialise(128, 1600))
