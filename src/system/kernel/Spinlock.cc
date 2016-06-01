@@ -131,7 +131,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
     ERROR_NOLOCK("Spinlock has deadlocked in acquire");
     ERROR_NOLOCK(" -> level is " << m_Level);
     ERROR_NOLOCK(" -> my return address is " << Hex << myra);
-    ERROR_NOLOCK(" -> return address of other locker is " << m_Ra);
+    ERROR_NOLOCK(" -> return address of other locker is " << Hex << m_Ra);
     FATAL_NOLOCK("Spinlock has deadlocked, spinlock is " << Hex << reinterpret_cast<uintptr_t>(this) << ", atom is " << atom << ".");
 
     // Panic in case there's a return from the debugger (or the debugger isn't available)
