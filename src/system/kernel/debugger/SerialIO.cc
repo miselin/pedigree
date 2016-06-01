@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -347,8 +346,8 @@ void SerialIO::forceRefresh()
 
 void SerialIO::startColour(DebuggerIO::Colour foreColour, DebuggerIO::Colour backColour)
 {
-//   if (foreColour == m_ForeColour && backColour == m_BackColour)
-//     return;
+   if (foreColour == m_ForeColour && backColour == m_BackColour)
+     return;
   
   m_ForeColour = foreColour;
   m_BackColour = backColour;
@@ -395,7 +394,7 @@ char SerialIO::getCharNonBlock()
 
 void SerialIO::endColour()
 {
-//   m_pSerial->write("\033[0m");
+   m_pSerial->write("\033[0m");
 }
 
 void SerialIO::readCursor()

@@ -246,6 +246,8 @@ def buildImageE2fsprogs(target, source, env):
             mode = os.stat(source).st_mode
             if mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
                 cmdlist.append('chmod %s 755' % (target,))
+        else:
+            print 'Source %s does not exist' % source
 
     # Populate the image.
     cmdlist = []
@@ -310,6 +312,8 @@ def buildImageE2fsprogs(target, source, env):
             raise Exception('Target %s is not a file.' % (target_path,))
 
     base_image.close()
+
+    print '\n'.join(cmdlist)
 
     with open('cmd', 'w') as f:
         f.write('\n'.join(cmdlist))

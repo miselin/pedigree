@@ -151,18 +151,21 @@ Thread::Thread(Process *pParent, SyscallState &state) :
 
 Thread::~Thread()
 {
+  NOTICE("A");
   if(InputManager::instance().removeCallbackByThread(this))
   {
     WARNING("A thread is being removed, but it never removed itself from InputManager.");
     WARNING("This warning indicates an application or kernel module is buggy!");
   }
 
+  NOTICE("B");
   // Before removing from the scheduler, terminate if needed.
   if (!m_bRemovingRequests)
   {
       shutdown();
   }
 
+  NOTICE("C");
   // Clean up allocated stacks at each level.
   for(size_t i = 0; i < MAX_NESTED_EVENTS; i++)
   {
@@ -176,6 +179,7 @@ Thread::~Thread()
         m_pParent->getAddressSpace()->freeStack(m_StateLevels[i].m_pUserStack);
   }
 
+  NOTICE("D");
   // Clean up TLS base.
   if(m_pTlsBase && m_pParent)
   {
@@ -201,11 +205,14 @@ Thread::~Thread()
     ERROR("Thread: no parent, but a TLS base exists.");
   }
 
+  NOTICE("E");
   // Remove us from the scheduler.
   Scheduler::instance().removeThread(this);
 
+  NOTICE("F");
   if (m_pParent)
       m_pParent->removeThread(this);
+  NOTICE("G");
 }
 
 void Thread::shutdown()

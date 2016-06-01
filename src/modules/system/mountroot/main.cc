@@ -91,14 +91,17 @@ static bool init()
     ///       not, to avoid the potential for conflicts here.
     if(VFS::instance().find(String("root»/livedisk.img")))
     {
+        NOTICE("trying to find live disk");
         FileDisk *pRamDisk = new FileDisk(String("root»/livedisk.img"), FileDisk::RamOnly);
         if(pRamDisk && pRamDisk->initialise())
         {
+            NOTICE("have a live disk");
             Device::addToRoot(pRamDisk);
 
             // Mount it in the VFS
             VFS::instance().removeAlias(String("root"));
             bRootMounted = false;
+            NOTICE("probing ram disk for partitions");
             Device::foreach(probeDisk, pRamDisk);
         }
         else

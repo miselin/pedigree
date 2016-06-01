@@ -105,7 +105,7 @@ def main(argv):
     success = False
     serial = []
     try:
-        with Timeout(300):
+        with Timeout(180):
             last = ''
             terminating = False
             serial_so_far = ''
@@ -138,7 +138,6 @@ def main(argv):
                     for command in (' ', 'dump\n', 'disassemble\n',
                                     'backtrace\n'):
                         sock.send(command)
-                        time.sleep(1)
                 elif qemu.poll() is not None:
                     # qemu has terminated!
                     terminating = True
@@ -146,7 +145,7 @@ def main(argv):
     except:
         print 'Runtime test failure: Pedigree did not boot to the login prompt.'
         print 'Most recent serial lines:'
-        print '\n'.join(serial[-30:])
+        print '\n'.join(serial)
     else:
         print ('Runtime test success: Pedigree booted to the login '
                'prompt (%ds).' % (int(end - start),))

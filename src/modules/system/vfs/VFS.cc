@@ -461,7 +461,7 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
     {
         check = (permissions >> FILE_UBITS) & 0x7;
     }
-    else if (pUser->isMember(pGroup))
+    else if (pUser && pGroup && pUser->isMember(pGroup))
     {
         check = (permissions >> FILE_GBITS) & 0x7;
     }
