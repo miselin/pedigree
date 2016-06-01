@@ -52,8 +52,23 @@ def buildImageE2fsprogs(target, source, env):
     # Host path -> Pedigree path.
     builddir_copies = {}
 
+    # Adds a copy to builddir_copies, handling duplicates correctly.
+    def add_builddir_copy(source, target, override=False):
+        entry = builddir_copies.get(source)
+        if entry and not override:
+            entry.add(target)
+        else:
+            builddir_copies[source] = set([target])
+
+    def target_in_copies(target):
+        for value in builddir_copies.values():
+            if target in value:
+                return True
+
+        return False
+
     # Copy files into the local images directory, ready for creation.
-    builddir_copies[os.path.join(builddir, 'config.db')] = '/.pedigree-root'
+    add_builddir_copy(os.path.join(builddir, 'config.db'), '/.pedigree-root')
 
     # Open the configuration database and collect known users and groups.
     try:
@@ -86,7 +101,7 @@ def buildImageE2fsprogs(target, source, env):
             os.makedirs(p)
 
     # Add GRUB config.
-    builddir_copies[os.path.join(imagedir, '..', 'grub', 'menu-hdd.lst')] = '/boot/grub/menu.lst'
+    add_builddir_copy(os.path.join(imagedir, '..', 'grub', 'menu-hdd.lst'), '/boot/grub/menu.lst')
 
     # Copy the kernel, initrd, and configuration database
     if env['kernel_on_disk']:
@@ -94,7 +109,7 @@ def buildImageE2fsprogs(target, source, env):
         if 'STATIC_DRIVERS' in env['CPPDEFINES']:
             nth = 2
         for i in source[0:nth]:
-            builddir_copies[i.abspath] = '/boot/' + i.name
+            add_builddir_copy(i.abspath, '/boot/' + i.name)
     else:
         nth = 0
     source = source[nth:]
@@ -136,7 +151,7 @@ def buildImageE2fsprogs(target, source, env):
         otherPath = prefix + i.abspath.replace(search, '')
 
         # Clean out the last directory name if needed
-        builddir_copies[i.abspath] = os.path.join(prefix, i.name)
+        add_builddir_copy(i.abspath, os.path.join(prefix, i.name))
 
     def extra_copy_tree(base_dir, target_prefix='', replacements=None):
         for (dirpath, dirs, files) in os.walk(base_dir):
@@ -155,7 +170,7 @@ def buildImageE2fsprogs(target, source, env):
             for f in files:
                 target_fullpath = os.path.join(target_path, f)
                 source_fullpath = os.path.join(dirpath, f)
-                builddir_copies[source_fullpath] = target_fullpath
+                add_builddir_copy(source_fullpath, target_fullpath, True)
 
     # Copy etc bits.
     base_dir = os.path.join(imagedir, '..', 'base')
@@ -246,8 +261,6 @@ def buildImageE2fsprogs(target, source, env):
             mode = os.stat(source).st_mode
             if mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
                 cmdlist.append('chmod %s 755' % (target,))
-        else:
-            print 'Source %s does not exist' % source
 
     # Populate the image.
     cmdlist = []
@@ -279,7 +292,7 @@ def buildImageE2fsprogs(target, source, env):
 
             # This file might need to be copied from the build directory.
             target = os.path.join(target_dirpath, f)
-            if target in builddir_copies.values():
+            if target_in_copies(target):
                 print 'Target %s will be overridden by files in the build directory.' % (target,)
                 continue
 
@@ -301,22 +314,18 @@ def buildImageE2fsprogs(target, source, env):
             cmdlist.append('mkdir %s' % (d,))
             safe_dirs.add(d)
 
-    for host_path, target_path in builddir_copies.items():
-        dirname = os.path.dirname(target_path)
-        if dirname not in safe_dirs:
-            safe_mkdirs(dirname)
+    for host_path, target_paths in builddir_copies.items():
+        for target_path in target_paths:
+            dirname = os.path.dirname(target_path)
+            if dirname not in safe_dirs:
+                safe_mkdirs(dirname)
 
-        if os.path.isfile(host_path):
-            add_file(cmdlist, host_path, target_path)
-        else:
-            raise Exception('Target %s is not a file.' % (target_path,))
+            if os.path.isfile(host_path):
+                add_file(cmdlist, host_path, target_path)
+            else:
+                raise Exception('Target %s is not a file.' % (target_path,))
 
     base_image.close()
-
-    print '\n'.join(cmdlist)
-
-    with open('cmd', 'w') as f:
-        f.write('\n'.join(cmdlist))
 
     # Dump our files into the image using ext2img (built as part of the normal
     # Pedigree build, to run on the build system - not on Pedigree).
