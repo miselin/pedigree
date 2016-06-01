@@ -352,30 +352,12 @@ void TextIO::write(const char *s, size_t len)
                         size_t ymove = m_Params[0] ? m_Params[0] - 1 : 0;
 
                         // Set X/Y
-                        if(m_CurrentModes & Origin)
-                        {
-                            // Line/Column numbers are relative.
-                            m_CursorX = m_LeftMargin + xmove;
-                            m_CursorY = m_ScrollStart + ymove;
-                        }
-                        else
-                        {
-                            m_CursorX = xmove;
-                            m_CursorY = ymove;
-                        }
+                        goHome(xmove, ymove);
                     }
                     else
                     {
                         // Reset X/Y
-                        if(m_CurrentModes & Origin)
-                        {
-                            m_CursorX = m_LeftMargin;
-                            m_CursorY = m_ScrollStart;
-                        }
-                        else
-                        {
-                            m_CursorX = m_CursorY = 0;
-                        }
+                        goHome();
                     }
 
                     m_bControlSeq = false;
@@ -393,8 +375,8 @@ void TextIO::write(const char *s, size_t len)
                     else if(m_Params[0] == 2)
                     {
                         // Erase entire screen, move to home.
-                        NOTICE("erasing entire screen?");
                         eraseScreen(' ');
+                        goHome();
                     }
                     m_bControlSeq = false;
                     break;
@@ -765,16 +747,7 @@ void TextIO::write(const char *s, size_t len)
                         m_ScrollEnd = tmp;
                     }
 
-                    if(m_CurrentModes & Origin)
-                    {
-                        m_CursorX = m_LeftMargin;
-                        m_CursorY = m_ScrollStart;
-                    }
-                    else
-                    {
-                        m_CursorX = 0;
-                        m_CursorY = 0;
-                    }
+                    goHome();
 
                     m_bControlSeq = false;
                     break;
@@ -1446,6 +1419,21 @@ void TextIO::eraseScreen(uint8_t character)
             pCell->back = m_Back;
             pCell->flags = 0;
         }
+    }
+}
+
+void TextIO::goHome(ssize_t xmove, ssize_t ymove)
+{
+    // Reset X/Y
+    if(m_CurrentModes & Origin)
+    {
+        m_CursorX = m_LeftMargin + xmove;
+        m_CursorY = m_ScrollStart + ymove;
+    }
+    else
+    {
+        m_CursorX = xmove;
+        m_CursorY = ymove;
     }
 }
 

@@ -158,6 +158,8 @@ private:
 
     void eraseScreen(uint8_t character);
 
+    void goHome(ssize_t xmove = 0, ssize_t ymove = 0);
+
     /**
      * Present backbuffer to the VGA instance.
      */
