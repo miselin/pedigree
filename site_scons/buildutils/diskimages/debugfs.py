@@ -325,6 +325,9 @@ def buildImageE2fsprogs(target, source, env):
             else:
                 raise Exception('Target %s is not a file.' % (target_path,))
 
+    # Add some more useful layout features (e.g. to make /bin/sh work).
+    cmdlist.append('symlink /applications/sh /applications/bash')
+
     base_image.close()
 
     # Dump our files into the image using ext2img (built as part of the normal
