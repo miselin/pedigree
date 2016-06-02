@@ -74,6 +74,7 @@ posixc_apps = [
 gettext_apps = [
     'login',
     'live',
+    'tour',
 ]
 
 # Applications which use Mesa (affects libraries & headers).
@@ -142,6 +143,7 @@ custom_libs = {
     'winman': ['cairo', 'freetype', 'png', 'pedigree'],
     'apptest': ['pedigree'],
     'live': ['dialog', 'ncurses'],
+    'tour': ['dialog', 'ncurses'],
 }
 
 # Applications to not enable -Werror for.

@@ -24,11 +24,16 @@ import buildutils.misc
 
 Import('env')
 
+env.MergeFlags({
+    'XGETTEXTFLAGS': ['--from-code=utf-8'],
+})
+
 # These dirs are expected to have source files (C, C++) that can be used with
 # xgettext; the form is (domain, path).
 translate_dirs = [
     ('live', '#src/user/applications/live'),
     ('login', '#src/user/applications/login'),
+    ('tour', '#src/user/applications/tour'),
 ]
 
 for domain, path in translate_dirs:
