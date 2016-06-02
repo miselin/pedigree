@@ -277,7 +277,7 @@ int main(int argc, char **argv)
 
         sprintf(newenv[0], "HOME=%s", pw->pw_dir);
         sprintf(newenv[1], "TERM=%s", TERM);
-        sprintf(newenv[1], "LC_ALL=%s", envLcAll);
+        sprintf(newenv[2], "LC_ALL=%s", envLcAll);
 
         // Make sure we're starting a login shell.
         char *shell = (char *) malloc(strlen(pw->pw_shell) + 1);
