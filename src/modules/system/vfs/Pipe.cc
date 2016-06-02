@@ -49,7 +49,7 @@ Pipe::Pipe(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTi
     File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
     m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
-    NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << reinterpret_cast<uintptr_t>(this));
+    NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << Hex << this);
 }
 
 Pipe::~Pipe()
@@ -70,21 +70,18 @@ int Pipe::select(bool bWriting, int timeout)
 
 uint64_t Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    NOTICE("Pipe::read(" << Hex << this << ", " << Dec << size << ", [" << bCanBlock << "])");
     uint8_t *pBuf = reinterpret_cast<uint8_t*>(buffer);
     return m_Buffer.read(pBuf, size, bCanBlock);
 }
 
 uint64_t Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    NOTICE("Pipe::write(" << Hex << this << ", " << Dec << size << ",  [" << bCanBlock << "])");
     uint8_t *pBuf = reinterpret_cast<uint8_t*>(buffer);
     uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
     if (result)
     {
         dataChanged();
     }
-    NOTICE("Pipe::write done -> " << result);
 
     return result;
 }

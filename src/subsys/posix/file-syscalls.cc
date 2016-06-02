@@ -700,7 +700,8 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     F_NOTICE("  -> write returns " << nWritten);
 
     // Handle broken pipe (write of zero bytes to a pipe).
-    if (pFd->file->isPipe() && !nWritten)
+    // Note: don't send SIGPIPE if we actually tried a zero-length write.
+    if (pFd->file->isPipe() && (nWritten == 0 && len > 0))
     {
         F_NOTICE("  -> write to a broken pipe");
         SYSCALL_ERROR(BrokenPipe);
