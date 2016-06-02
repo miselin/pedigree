@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -55,6 +54,7 @@ uintptr_t KernelCoreSyscallManager::call(Function_t function, uintptr_t p1, uint
 
 uintptr_t KernelCoreSyscallManager::syscall(SyscallState &state)
 {
+  NOTICE("???");
   switch (state.getSyscallNumber())
   {
    case yield:
@@ -64,7 +64,7 @@ uintptr_t KernelCoreSyscallManager::syscall(SyscallState &state)
       return 0;
     default:
     {
-      if (m_Functions[state.getSyscallNumber()] == 0)
+      if (state.getSyscallNumber() >= 16 || m_Functions[state.getSyscallNumber()] == 0)
       {
         ERROR ("KernelCoreSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber());
         return 0;

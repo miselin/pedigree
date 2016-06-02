@@ -22,7 +22,7 @@
 #include <stddef.h>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <sys/signal.h>
+#include <signal.h>
 #include <setjmp.h>
 
 static int i = 0;

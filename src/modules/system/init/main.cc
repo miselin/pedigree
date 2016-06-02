@@ -51,6 +51,7 @@ static int init_stage2(void *param)
 
     // Load initial program.
     String fname = String("root»/applications/init");
+    File *interpProg = 0;
     File* initProg = VFS::instance().find(fname);
     if (!initProg)
     {
@@ -86,8 +87,8 @@ static int init_stage2(void *param)
     if(pLinker->checkInterpreter(initProg, interpreter))
     {
         // Switch to the interpreter.
-        initProg = VFS::instance().find(interpreter, pProcess->getCwd());
-        if(!initProg)
+        interpProg = VFS::instance().find(interpreter, pProcess->getCwd());
+        if(!interpProg)
         {
             error("Interpreter for init program could not be found.");
             return 0;
@@ -98,12 +99,30 @@ static int init_stage2(void *param)
         pLinker = 0;
         pProcess->setLinker(pLinker);
     }
-
-    if (pLinker && !pLinker->loadProgram(initProg))
+    else
     {
-        error("The init program could not be loaded.");
+        error("No interpreter found for the init program.");
         return 0;
     }
+
+    // Map in the ELF we plan on loading.
+    uintptr_t elfBaseAddress = 0;
+    MemoryMappedObject::Permissions perms = MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
+    MemoryMappedObject *pElfFile = MemoryMapManager::instance().mapFile(initProg, elfBaseAddress, initProg->getSize(), perms);
+    if (!pElfFile)
+    {
+        error("Memory for the ELF image could not be allocated.");
+        return 0;
+    }
+
+    uintptr_t originalEntryPoint = 0;
+    uintptr_t interpEntryPoint = 0;
+
+    Elf::extractEntryPoint(reinterpret_cast<uint8_t *>(elfBaseAddress), initProg->getSize(), originalEntryPoint);
+
+    size_t phdrCount = 0, phdrEntrySize = 0;
+    uintptr_t phdrPointer = 0;
+    Elf::extractInformation(reinterpret_cast<uint8_t *>(elfBaseAddress), initProg->getSize(), phdrCount, phdrEntrySize, phdrPointer);
 
     // Initialise the sigret and pthreads shizzle.
     pedigree_init_sigret();
@@ -119,75 +138,68 @@ static int init_stage2(void *param)
         size_t getNumber() {return ~0UL;}
     };
 
-    uintptr_t entryPoint = 0;
-
-    Elf *elf = 0;
-    if(pLinker)
+    // Load the interpreter proper now.
+    uintptr_t interpFileAddress = 0;
+    MemoryMappedObject *pInterpFile = MemoryMapManager::instance().mapFile(interpProg, interpFileAddress, interpProg->getSize(), perms);
+    if(!pInterpFile)
     {
-        elf = pLinker->getProgramElf();
-        entryPoint = elf->getEntryPoint();
-    }
-    else
-    {
-        uintptr_t loadAddr = pProcess->getAddressSpace()->getDynamicLinkerAddress();
-        MemoryMappedObject::Permissions perms = MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
-        MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(initProg, loadAddr, initProg->getSize(), perms);
-        if(!pMmFile)
-        {
-            error("Memory for the dynamic linker could not be allocated.");
-            return 0;
-        }
-
-        Elf::extractEntryPoint(reinterpret_cast<uint8_t *>(loadAddr), initProg->getSize(), entryPoint);
+        error("Memory for the dynamic linker could not be allocated.");
+        return 0;
     }
 
-    if(pLinker)
-    {
-        // Find the init function location, if it exists.
-        uintptr_t initLoc = elf->getInitFunc();
-        if (initLoc)
-        {
-            NOTICE("initLoc active: " << initLoc);
+    Elf *pElf = new Elf();
+    pElf->create(reinterpret_cast<uint8_t *>(interpFileAddress), interpProg->getSize());
+    uintptr_t interpLoadAddress = 0;
+    pElf->allocate(reinterpret_cast<uint8_t *>(interpFileAddress), interpProg->getSize(), interpLoadAddress);
+    pElf->load(reinterpret_cast<uint8_t *>(interpFileAddress), interpProg->getSize(), interpLoadAddress, 0, 0, ~0, false);
 
-            RunInitEvent *ev = new RunInitEvent(initLoc);
-            // Poke the initLoc so we know it's mapped in!
-            volatile uintptr_t *vInitLoc = reinterpret_cast<volatile uintptr_t*> (initLoc);
-            volatile uintptr_t tmp = * vInitLoc;
-            *vInitLoc = tmp; // GCC can't ignore a write.
-            asm volatile("" :::"memory"); // Memory barrier.
-            Processor::information().getCurrentThread()->sendEvent(ev);
-            // Yield, so the code gets run before we return.
-            Scheduler::instance().yield();
-        }
-    }
-
-    // can we get some space for the argv loc
-    uintptr_t argv_loc = 0;
-    if (pProcess->getAddressSpace()->getDynamicStart())
-    {
-        pProcess->getDynamicSpaceAllocator().allocate(PhysicalMemoryManager::instance().getPageSize(), argv_loc);
-    }
-    if (!argv_loc)
-    {
-        pProcess->getSpaceAllocator().allocate(PhysicalMemoryManager::instance().getPageSize(), argv_loc);
-        if (!argv_loc)
-        {
-            FATAL("init could not find space in the address space for argv!");
-        }
-    }
-
-    physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-    Processor::information().getVirtualAddressSpace().map(phys, reinterpret_cast<void*> (argv_loc), VirtualAddressSpace::Write);
-
-    uintptr_t *argv = reinterpret_cast<uintptr_t*>(argv_loc);
-    ByteSet(argv, 0, PhysicalMemoryManager::instance().getPageSize());
-    argv[0] = reinterpret_cast<uintptr_t>(&argv[2]);
-    MemoryCopy(&argv[2], static_cast<const char *>(fname), fname.length());
+    interpEntryPoint = pElf->getEntryPoint();
 
     VirtualAddressSpace::Stack *stack = Processor::information().getVirtualAddressSpace().allocateStack();
+    uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
+
+#define PUSH(value) *--loaderStack = value
+#define PUSH2(value1, value2) PUSH(value2); PUSH(value1)
+#define PUSH_COPY(length, value) loaderStack = adjust_pointer(loaderStack, -length); MemoryCopy(loaderStack, value, length)
+#define PUSH_ZEROES(length) loaderStack = adjust_pointer(loaderStack, -length); ByteSet(loaderStack, 0, length)
+
+    PUSH_COPY(7, "x86_64");
+    void *platform = loaderStack;
+
+    PUSH_ZEROES(16);  // 16 random bytes (but not really).
+    void *random = loaderStack;
+
+    // Align to 16 bytes.
+    PUSH_ZEROES(16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15));
+
+    // Aux vector.
+    /// \todo get the AT_* values from musl defines
+    PUSH2(0, 0);  // AT_NULL
+    PUSH2(15, reinterpret_cast<uintptr_t>(platform));  // AT_PLATFORM
+    PUSH2(25, reinterpret_cast<uintptr_t>(random));  // AT_RANDOM
+    PUSH2(23, 0);  // AT_SECURE
+    PUSH2(14, 0);  // AT_EGID
+    PUSH2(13, 0);  // AT_GID
+    PUSH2(12, 0);  // AT_EUID
+    PUSH2(11, 0);  // AT_UID
+    PUSH2(9, originalEntryPoint);  // AT_ENTRY
+    PUSH2(8, 0);  // AT_FLAGS
+    PUSH2(7, interpLoadAddress);  // AT_BASE
+    PUSH2(6, PhysicalMemoryManager::getPageSize());  // AT_PAGESZ
+    PUSH2(5, phdrCount);  // AT_PHNUM
+    PUSH2(4, phdrEntrySize);  // AT_PHENT - size of phdr entry
+    PUSH2(3, phdrPointer);  // AT_PHDR - base of phdrs
+
+    // env/argv/argc
+    //PUSH(0);  // env[0]
+    PUSH(0);  // argv[0]
+    PUSH(0);  // argc
 
     Processor::setInterrupts(true);
     pProcess->recordTime(true);
+
+    NOTICE("init: interpreter entry point is " << Hex << interpEntryPoint << ", elf entry is " << originalEntryPoint << "...");
+    NOTICE(" -> adjusted: " << Hex << (interpLoadAddress + interpEntryPoint) << ", " << (originalEntryPoint + elfBaseAddress) << "...");
 
     // Alrighty - lets create a new thread for this program - -8 as PPC assumes
     // the previous stack frame is available...
@@ -195,9 +207,9 @@ static int init_stage2(void *param)
     Process::setInit(pProcess);
     Thread *pThread = new Thread(
             pProcess,
-            reinterpret_cast<Thread::ThreadStartFunc>(entryPoint),
-            argv,
-            stack->getTop());
+            reinterpret_cast<Thread::ThreadStartFunc>(interpEntryPoint + interpLoadAddress),
+            0,
+            loaderStack);
     pThread->detach();
 
     return 0;

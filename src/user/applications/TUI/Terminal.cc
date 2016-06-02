@@ -29,7 +29,7 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <pwd.h>
-#include <utmpx.h>
+#include <utmp.h>
 
 #include <native/graphics/Graphics.h>
 

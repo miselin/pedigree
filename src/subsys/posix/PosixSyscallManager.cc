@@ -45,7 +45,9 @@ PosixSyscallManager::~PosixSyscallManager()
 
 void PosixSyscallManager::initialise()
 {
+    NOTICE("init posix [" << Hex << this << "]");
     SyscallManager::instance().registerSyscallHandler(posix, this);
+    NOTICE("init done");
 }
 
 uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5)
@@ -62,13 +64,15 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
 
 uintptr_t PosixSyscallManager::syscall(SyscallState &state)
 {
+    NOTICE("in POSIX now");
+
     uintptr_t p1 = state.getSyscallParameter(0);
     uintptr_t p2 = state.getSyscallParameter(1);
     uintptr_t p3 = state.getSyscallParameter(2);
     uintptr_t p4 = state.getSyscallParameter(3);
     uintptr_t p5 = state.getSyscallParameter(4);
     
-    // NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec << state.getSyscallNumber() << Hex);
+    NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec << state.getSyscallNumber() << Hex);
 
     // We're interruptible.
     Processor::setInterrupts(true);

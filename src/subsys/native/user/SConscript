@@ -43,8 +43,13 @@ env.Alias("libs", native_userlib_shobjname)
 env.Depends(native_userlib_shobjname, "crt")
 
 # XXX: We have an unfortunate dependency on libc.
-libc_objname = os.path.join(builddir, 'libc.so')
-env.Depends(native_userlib_shobjname, libc_objname)
+if env['posix_musl']:
+    libpath = os.path.join(builddir, 'musl', 'lib')
+    libc_objname = os.path.join(libpath, 'libc.so')
+else:
+    libpath = builddir
+    libc_objname = os.path.join(libpath, 'libc.so')
+env.Requires(native_userlib_shobjname, libc_objname)
 
 files = [
     Glob("*.cc"),
@@ -71,7 +76,7 @@ if not env['ON_PEDIGREE']:
 
 env_clone['CPPPATH'] = include_dirs
 env_clone['LIBS'] = ['gcc']
-env_clone['LIBPATH'] = [builddir]
+env_clone['LIBPATH'] = [libpath]
 
 # -fPIC for libpedigree
 glueFlags = ['-fPIC', '-DUSE_PIC_SYSCALLS']

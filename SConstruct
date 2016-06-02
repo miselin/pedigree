@@ -72,6 +72,8 @@ opts.AddVariables(
     BoolVariable('posix_sig_verbose', 'Enable verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_sig_ultra_verbose', 'Enable even more verbose logging for POSIX signal syscalls.', 0),
 
+    BoolVariable('posix_musl', 'Build and use musl instead of newlib.', 0),
+
     # General-purpose configuration knobs.
     BoolVariable('cripple_hdd','Disable writing to hard disks at runtime.',1),
     BoolVariable('debugger','Whether or not to enable the kernel debugger.',1),

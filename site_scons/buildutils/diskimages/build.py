@@ -68,18 +68,25 @@ def buildDiskImages(env, config_database):
     modules = os.path.join(builddir, 'modules')
     drivers = os.path.join(builddir, 'drivers')
 
-    libc = os.path.join(builddir, 'libc.so')
-    libm = os.path.join(builddir, 'libm.so')
+    if env['posix_musl']:
+        libc = os.path.join(builddir, 'musl', 'lib', 'libc.so')
+        image_c_libs = [libc]
+    else:
+        libc = os.path.join(builddir, 'libc.so')
+        libm = os.path.join(builddir, 'libm.so')
+        libpthread = os.path.join(builddir, 'libpthread.so')
+        image_c_libs = [libc, libm, libpthread]
 
-    # TODO(miselin): more ARM userspace
+        # TODO(miselin): more ARM userspace
+        if env['ARCH_TARGET'] != 'ARM':
+            libload = os.path.join(builddir, 'libload.so')
+            image_c_libs.append(libload)
+
     if env['ARCH_TARGET'] != 'ARM':
-        libload = os.path.join(builddir, 'libload.so')
         libui = os.path.join(builddir, 'libs', 'libui.so')
     else:
-        libload = None
         libui = None
 
-    libpthread = os.path.join(builddir, 'libpthread.so')
     libpedigree = os.path.join(builddir, 'libpedigree.so')
     libpedigree_c = os.path.join(builddir, 'libpedigree-c.so')
 
@@ -140,11 +147,7 @@ def buildDiskImages(env, config_database):
                 fileList += [os.path.join(drivers, driver)]
 
     # Add libraries
-    fileList += [
-        libc,
-        libm,
-        libload,
-        libpthread,
+    fileList += image_c_libs + [
         libpedigree_c,
         libui,
     ]
@@ -152,7 +155,7 @@ def buildDiskImages(env, config_database):
     if env['ARCH_TARGET'] != 'ARM':
         fileList.append(libpedigree)
 
-    if env['ARCH_TARGET'] in ['X86', 'X64']:
+    if env['ARCH_TARGET'] in ['X86', 'X64'] and not env['posix_musl']:
         fileList += [os.path.join(builddir, 'libSDL.so')]
 
     fileList = [x for x in fileList if x]

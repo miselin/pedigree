@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sched.h>
+#include <sys/stat.h>
 
 const char *g_FilesToPreload[] = {
     "/applications/bash",

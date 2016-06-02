@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <strings.h>
 
 // We explicitly define the location of the modules directory to make cross-system
 // work easier - keeps consistency across all Pedigree systems.
@@ -99,7 +99,7 @@ int main(int argc, char **argv)
 
         char *lastPeriod = strrchr(filename, '.');
         char *suffix = lastPeriod + 1;
-        if(lastPeriod && !stricmp(suffix, "o"))
+        if(lastPeriod && !strcasecmp(suffix, "o"))
         {
             *lastPeriod = '\0';
             if(listAll)

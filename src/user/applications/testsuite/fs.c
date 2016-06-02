@@ -22,7 +22,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 
 extern void fail();

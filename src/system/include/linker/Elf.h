@@ -221,10 +221,13 @@ class Elf
         * parameters. This allows for lazy loading.
         * \note PLT relocations are not performed here - they are defined in a different section to the standard REL
         * and RELA entries, so must be done specifically (via applySpecificRelocation). */
-        bool load(uint8_t *pBuffer, size_t length, uintptr_t loadBase, SymbolTable *pSymtab=0, uintptr_t nStart=0, uintptr_t nEnd=~0);
+        bool load(uint8_t *pBuffer, size_t length, uintptr_t loadBase, SymbolTable *pSymtab=0, uintptr_t nStart=0, uintptr_t nEnd=~0, bool relocate=true);
 
         /** Extracts only the entry point from an ELF file at the given buffer. */
         static bool extractEntryPoint(uint8_t *pBuffer, size_t length, uintptr_t &entry);
+
+        /** Extracts information about the ELF file at the given buffer. */
+        static bool extractInformation(uint8_t *pBuffer, size_t length, size_t &phdrCount, size_t &phdrEntrySize, uintptr_t &phdrAddress);
 
         /** Returns a list of required libraries before this object will load. */
         List<char*> &neededLibraries();

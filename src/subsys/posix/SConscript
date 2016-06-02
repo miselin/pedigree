@@ -52,19 +52,22 @@ crtn_objname = os.path.join(kerneldir, 'crtn.o')
 libpedigree_c_objname = os.path.join(builddir, 'libpedigree-c.a')
 libpedigree_c_shobjname = os.path.join(builddir, 'libpedigree-c.so')
 
-libc_objname = os.path.join(builddir, 'libc.so')
-
-env.Alias("crt", [crt0_objname, crti_objname, crtn_objname])
 env.Alias("subsys", posix_objname)
-env.Alias("subsys", glue_objname)
-env.Alias("pthreads", libpthread_objname)
-env.Alias("pthreads", libpthread_shobjname)
+if not env['posix_musl']:
+    libc_objname = os.path.join(builddir, 'libc.so')
 
-if env['build_libs']:
-    env.Depends(libc_objname, "crt")
-    env.Depends(libc_objname, glue_objname)
-    env.Depends(libc_objname, libpedigree_c_objname)
-    env.Depends(libpedigree_c_shobjname, libc_objname)
+    env.Alias("crt", [crt0_objname, crti_objname, crtn_objname])
+    env.Alias("pthreads", libpthread_objname)
+    env.Alias("pthreads", libpthread_shobjname)
+    env.Alias("subsys", glue_objname)
+
+    if env['build_libs']:
+        env.Depends(libc_objname, "crt")
+        env.Depends(libc_objname, glue_objname)
+        env.Depends(libc_objname, libpedigree_c_objname)
+        env.Depends(libpedigree_c_shobjname, libc_objname)
+else:
+    libc_objname = os.path.join(builddir, 'musl', 'lib', 'libc.so')
 
 # To include new files just add to the list, or Glob("*.cpp")
 posix_files = [
@@ -151,6 +154,7 @@ env_clone['CPPDEFINES'] += ['POSIX_LOG_FACILITIES=%d' % logging_mask]
 
 env_clone['AS'] = userspace_env_clone['AS']
 env_clone['ASFLAGS'] = userspace_env_clone['ASFLAGS']
+# This almost certainly will not compile with musl!
 buildutils.modules.buildModule(env_clone, final_output, posix_objname, posix_files)
 
 posix_env = userspace_env_clone.Clone()
@@ -165,23 +169,26 @@ pic_clone.MergeFlags('-fPIC -DUSE_PIC_SYSCALLS')
 
 # TODO: rip out stdint.h, make sure GCC target provides it.
 
-pic_clone.Library(glue_objname, glue_files)
+if not env['posix_musl']:
+    pic_clone.Library(glue_objname, glue_files)
 
-# No libraries needed for CRT0
-pic_clone.Program(crt0_objname, crt0_files, LINKFLAGS='-nostdlib -Wl,-r')
+    # No libraries needed for CRT0
+    pic_clone.Program(crt0_objname, crt0_files, LINKFLAGS='-nostdlib -Wl,-r')
 
-# CRTI
-pic_clone.Program(crti_objname, crti_files, LINKFLAGS='-nostdlib -Wl,-r')
+    # CRTI
+    pic_clone.Program(crti_objname, crti_files, LINKFLAGS='-nostdlib -Wl,-r')
 
-# CRTN
-pic_clone.Program(crtn_objname, crtn_files, LINKFLAGS='-nostdlib -Wl,-r')
+    # CRTN
+    pic_clone.Program(crtn_objname, crtn_files, LINKFLAGS='-nostdlib -Wl,-r')
 
-# libpthread
-if env['build_libs']:
-    env_clone_pthread = pic_clone.Clone()
-    env_clone_pthread.Library(libpthread_objname, pthread_files)
-    env_clone_pthread.SharedLibrary(libpthread_shobjname, pthread_files,
-                                    LINKFLAGS='')
+    # libpthread
+    if env['build_libs']:
+        env_clone_pthread = pic_clone.Clone()
+        env_clone_pthread.Library(libpthread_objname, pthread_files)
+        env_clone_pthread.SharedLibrary(libpthread_shobjname, pthread_files,
+                                        LINKFLAGS='')
+
+    env.Alias("crt0", "crt")
 
 # Build libc/libm
 
@@ -198,18 +205,19 @@ buildLibcA = env_clone.File(builddir + '/libc.a')
 buildLibmA = env_clone.File(builddir + '/libm.a')
 buildInclude = env_clone.Dir(builddir + '/include-posix')
 
-env.Alias("crt0", "crt")
+if env['posix_musl']:
+    SConscript(os.path.join('musl', 'SConscript'), exports=['userspace_env'])
+else:
+    # Install updated headers to the local images directory. Newlib depends on
+    # them, rather than the provided-with-newlib headers.
+    buildutils.fs.install_tree(
+        env.Dir(os.path.join(imagesdir, 'include')), baseInclude, env, 'headers')
 
-# Install updated headers to the local images directory. Newlib depends on
-# them, rather than the provided-with-newlib headers.
-buildutils.fs.install_tree(
-    env.Dir(os.path.join(imagesdir, 'include')), baseInclude, env, 'headers')
+    # TODO(miselin): we really should be able to build libc on Pedigree. Fix this.
+    if env['build_libs'] and not env['ON_PEDIGREE']:
+        buildutils.libs.buildLibc(userspace_env_clone, baseLibc, glue_objname)
+        buildutils.libs.buildLibm(userspace_env_clone, baseLibm)
 
-# TODO(miselin): we really should be able to build libc on Pedigree. Fix this.
-if env['build_libs'] and not env['ON_PEDIGREE']:
-    buildutils.libs.buildLibc(userspace_env_clone, baseLibc, glue_objname)
-    buildutils.libs.buildLibm(userspace_env_clone, baseLibm)
+        env.Alias("libs", [buildLibc, buildLibm])
 
-    env.Alias("libs", [buildLibc, buildLibm])
-
-    SConscript(os.path.join('newlib', 'SConscript'), exports=['userspace_env'])
+        SConscript(os.path.join('newlib', 'SConscript'), exports=['userspace_env'])

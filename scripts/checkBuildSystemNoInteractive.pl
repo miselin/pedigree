@@ -272,10 +272,12 @@ SYMLINKS:
 
 print "Complete; linking crt*.o...\n";
 
-`ln -s $prefix/build/kernel/crt0.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt0.o`;
-`ln -s $prefix/build/kernel/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
-`ln -s $prefix/build/kernel/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
-`ln -s $prefix/src/subsys/posix/include ./compilers/dir/$target/`;
+`ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt1.o`;
+`ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/rcrt1.o`;
+`ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/Scrt1.o`;
+`ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
+`ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
+`ln -sf $prefix/src/subsys/posix/include ./compilers/dir/$target/`;
 print "Done.\n";
 
 `rm -rf ./compilers/dir/build_tmp`;

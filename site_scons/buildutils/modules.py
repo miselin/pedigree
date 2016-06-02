@@ -40,7 +40,7 @@ def buildModule(env, stripped_target, target, sources):
     extra_linkflags = module_env.get('MODULE_LINKFLAGS', [])
 
     module_env.MergeFlags({
-        'LINKFLAGS': ['-nodefaultlibs', '-r', '-Wl,-T,$LSCRIPT'] +
+        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-r', '-Wl,-T,$LSCRIPT'] +
             extra_linkflags,
     })
 

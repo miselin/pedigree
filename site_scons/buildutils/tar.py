@@ -59,4 +59,5 @@ def generate(env):
 
     env.Append(BUILDERS={
         'ExtractAndPatchTar': untar_builder,
+        'Extract': untar_builder,
         'CreateTar': tar_builder})

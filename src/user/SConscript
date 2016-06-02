@@ -144,6 +144,12 @@ custom_libs = {
     'apptest': ['pedigree'],
     'live': ['dialog', 'ncurses'],
     'tour': ['dialog', 'ncurses'],
+    'keymap': ['pedigree-c'],
+    'modlist': ['pedigree-c'],
+    'modload': ['pedigree-c'],
+    'modunload': ['pedigree-c'],
+    'mount': ['pedigree-c'],
+    'sudo': ['pedigree-c'],
 }
 
 # Applications to not enable -Werror for.
@@ -155,12 +161,18 @@ no_werror_apps = [
 ]
 
 # Default libraries for all applications
-base_libs = ['pthread']
+base_libs = []
 
 # Default include paths
-base_include_dirs = [
-    EXTERNAL_INCLUDE_DIR,
-]
+if env['posix_musl']:
+    base_include_dirs = [
+        os.path.join(builddir, 'musl', 'include'),
+        # EXTERNAL_INCLUDE_DIR,
+    ]
+else:
+    base_include_dirs = [
+        EXTERNAL_INCLUDE_DIR,
+    ]
 
 # Flags from CXXFLAGS and CFLAGS to *remove* for an app
 remove_flags = {
@@ -185,16 +197,24 @@ env_clone['LIBS'] = base_libs
 env_clone['LIBPATH'] = [builddir, os.path.join(builddir, 'libs')]
 env_clone['CPPPATH'] = base_include_dirs
 
+if env['posix_musl']:
+    env_clone['LIBPATH'].append(os.path.join(builddir, 'musl', 'lib'))
+
 env_clone.MergeFlags({
     'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+    'CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
 })
+
+# Clean up CPPDEFINES
+define_removals = ('LITTLE_ENDIAN', 'BIG_ENDIAN')
+env_clone['CPPDEFINES'] = [x for x in env_clone['CPPDEFINES'] if x not in define_removals]
 
 if not env['ON_PEDIGREE']:
     cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
     cpp_arch_base = os.path.join(cpp_base, env['COMPILER_TARGET'])
 
 # -static stops GCC placing the path to the dynamic linker into the binary, and creates a non-relocateable executable.
-if env['build_libs']:
+if env['build_libs'] and not env['posix_musl']:
     libload_env = env_clone.Clone()
     libload_env.MergeFlags('-static')
 
@@ -227,9 +247,9 @@ for app in set(apps):
     app_env = env_clone.Clone()
     if env['hosted']:
         app_env['LSCRIPT'] = app_env.File(os.path.join('#src/system/kernel/core/processor/hosted/app.ld'))
-        app_env['LINKFLAGS'] = '-T$LSCRIPT'
+        app_env['LINKFLAGS'] = ['-T$LSCRIPT']
     else:
-        app_env['LINKFLAGS'] = ''
+        app_env['LINKFLAGS'] = []
 
     base = os.path.join(appsbase, app)
 
@@ -255,10 +275,16 @@ for app in set(apps):
         app_env['CPPPATH'] += ['#src/lgpl/SDL-1.2.14/include',
                                EXTERNAL_INCLUDE_DIR]
 
+        print 'While porting musl, SDL apps are not available.'
+        continue
+
     # Handle gettext dependency.
     if app in gettext_apps:
         app_env['LIBS'] += ['intl']
         app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]
+
+        print 'While porting musl, gettext apps are not available.'
+        continue
 
     # Handle Mesa dependencies.
     if app in mesa_apps:
@@ -266,12 +292,18 @@ for app in set(apps):
         app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]
         app_env['CPPPATH'] += [EXTERNAL_INCLUDE_DIR]
 
+        print 'While porting musl, OSMesa apps are not available.'
+        continue
+
     # Handle C++-related dependencies.
     if app in set(cpp_apps + sdl_apps + mesa_apps + cpp_11_apps):
         app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]
         if not env['ON_PEDIGREE']:
             app_env['CPPPATH'] += [cpp_base, cpp_arch_base]
         app_env['LINK'] = env['CXX']
+
+        print 'While porting musl, C++ apps are not available.'
+        continue
 
     # Handle libui-related dependencies.
     if app in libui_apps:
@@ -292,12 +324,15 @@ for app in set(apps):
             'pango-1.0', 'harfbuzz', 'fontconfig', 'gobject-2.0', 'glib-2.0',
             'ffi']
 
-    app_env['LINKFLAGS'] += ' -Wl,-rpath-link -Wl,%s ' % (
-        app_env.Dir(builddir).abspath,)
-    app_env['LINKFLAGS'] += ' -Wl,-rpath-link -Wl,%s/libs/ ' % (
-        app_env.Dir(builddir).abspath,)
-    app_env['LINKFLAGS'] += ' -Wl,-rpath-link -Wl,%s/libraries/ ' % (
-        app_env.Dir(imagesdir).abspath,)
+        print 'While porting musl, pango/cairo apps are not available.'
+        continue
+
+    app_env['LINKFLAGS'] += ['-Wl,-rpath-link,%s' % (
+        app_env.Dir(builddir).abspath,)]
+    app_env['LINKFLAGS'] += ['-Wl,-rpath-link,%s/libs/' % (
+        app_env.Dir(builddir).abspath,)]
+    app_env['LINKFLAGS'] += ['-Wl,-rpath-link,%s/libraries/' % (
+        app_env.Dir(imagesdir).abspath,)]
 
     if app in cpp_11_apps:
         try:
@@ -323,7 +358,7 @@ for app in set(apps):
     if 'LSCRIPT' in app_env:
         env.Depends(output, app_env['LSCRIPT'])
 
-    env.Depends(output, "crt0")
+    # env.Depends(output, "crt0")
     env.Depends(output, "libs")
     env.Requires(output, "libload")
     env.Depends(output, "headers")

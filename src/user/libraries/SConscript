@@ -61,7 +61,10 @@ env_clone['CCFLAGS'] = buildutils.userspace.fixFlags(env, env['CCFLAGS'])
 env_clone['CXXFLAGS'] = buildutils.userspace.fixFlags(env, env['CXXFLAGS'])
 env_clone['CPPDEFINES'] += ['PEDIGREE', '__PEDIGREE__']
 env_clone['LIBS'] = []
-env_clone['LIBPATH'] = [builddir]
+if env['posix_musl']:
+    env_clone['LIBPATH'] = [os.path.join(builddir, 'musl', 'lib'), builddir]
+else:
+    env_clone['LIBPATH'] = [builddir]
 env_clone['CPPPATH'] = base_include_dirs
 
 env_clone.MergeFlags({
@@ -104,10 +107,6 @@ for library in libs:
 
     env.Alias("libs", output)
     env.Alias("libs", shoutput)
-
-    # XXX: We have an unfortunate dependency on libc.
-    libc_objname = os.path.join(builddir, 'libc.so')
-    env.Depends(shoutput, libc_objname)
 
     env.Depends(output, "headers")
     env.Depends(shoutput, "headers")

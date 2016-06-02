@@ -185,6 +185,12 @@ def buildImageE2fsprogs(target, source, env):
     # Copy keymaps.
     extra_copy_tree(keymaps_dir, target_prefix='/system/keymaps')
 
+    # Copy musl, if we can.
+    if env['posix_musl']:
+        extra_copy_tree(os.path.join(builddir, 'musl', 'lib'), '/libraries')
+        extra_copy_tree(os.path.join(builddir, 'musl', 'include'),
+                        '/system/include')
+
     # Offset into the image for the partition proper to start.
     partition_offset = 0 # 0x10000
 

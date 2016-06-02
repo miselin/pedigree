@@ -873,13 +873,15 @@ bool Elf::allocate(uint8_t *pBuffer, size_t length, uintptr_t &loadBase, SymbolT
 #endif
 }
 
-bool Elf::load(uint8_t *pBuffer, size_t length, uintptr_t loadBase, SymbolTable *pSymtab, uintptr_t nStart, uintptr_t nEnd)
+bool Elf::load(uint8_t *pBuffer, size_t length, uintptr_t loadBase, SymbolTable *pSymtab, uintptr_t nStart, uintptr_t nEnd, bool relocate)
 {
+    NOTICE("LOAD @" << Hex << loadBase);
     for (size_t i = 0; i < m_nProgramHeaders; i++)
     {
         if (m_pProgramHeaders[i].type == PT_LOAD)
         {
             uintptr_t loadAddr = m_pProgramHeaders[i].vaddr + loadBase;
+            NOTICE("LOAD[" << i << "]: @" << Hex << loadAddr << ".");
 
             if (nStart > (loadAddr+m_pProgramHeaders[i].memsz)) continue;
             if (nEnd <= loadAddr) continue;
@@ -908,6 +910,9 @@ bool Elf::load(uint8_t *pBuffer, size_t length, uintptr_t loadBase, SymbolTable 
 #endif
         }
     }
+
+    if (!relocate)
+        return true;
 
     // Apply relocations for the given area.
 
@@ -978,6 +983,20 @@ bool Elf::extractEntryPoint(uint8_t *pBuffer, size_t length, uintptr_t &entry)
 
     ElfHeader_t *pHeader = reinterpret_cast<ElfHeader_t *>(pBuffer);
     entry = pHeader->entry;
+
+    return true;
+}
+
+bool Elf::extractInformation(uint8_t *pBuffer, size_t length, size_t &phdrCount, size_t &phdrEntrySize, uintptr_t &phdrAddress)
+{
+    /// \todo check magic
+    if (length < sizeof(ElfHeader_t))
+        return false;
+
+    ElfHeader_t *pHeader = reinterpret_cast<ElfHeader_t *>(pBuffer);
+    phdrCount = pHeader->phnum;
+    phdrEntrySize = pHeader->phentsize;
+    phdrAddress = reinterpret_cast<uintptr_t>(pBuffer) + pHeader->phoff;
 
     return true;
 }

@@ -168,7 +168,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
   //static LargeStaticString eCode;
   #ifdef DEBUGGER
     // Page faults in usermode are usually useless to debug in the debugger (some exceptions exist)
-    if(!(code & PFE_USER_MODE))
+    //if(!(code & PFE_USER_MODE))
         Debugger::instance().start(state, sError);
   #endif
 

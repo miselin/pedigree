@@ -17,46 +17,41 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
+// From musl
 #include <errno.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/time.h>
+#include <stdio.h>
+#include <bits/syscall.h>
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
+// From the Pedigree source tree (syscall stubs). References musl errno.
+#include <posix-syscall.h>
+#include <posixSyscallNumbers.h>
 
-#include <signal.h>
+#define STUBBED(which) do { \
+    char buf[32]; \
+    snprintf(buf, 32, "linux=%ld", which); \
+    syscall1(POSIX_STUBBED, (long)(buf)); \
+    errno = ENOSYS; \
+} while(0)
 
-int main(int argc, char **argv)
+long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
+                                long a5, long a6)
 {
-    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    if(sock == -1)
+    long pedigree_translation = -1;
+    switch (which)
     {
-      printf("Couldn't get a socket: %d [%s]\n", errno, strerror(errno));
-      return 1;
+        default:
+            // TODO: syslog a message here...
+            break;
     }
 
-    struct timeval t;
-    t.tv_sec = 30;
-
-    fd_set readfd;
-    FD_SET(sock, &readfd);
-
-    char* tmp = (char*) malloc(2048);
-    while(1)
+    if (pedigree_translation == -1)
     {
-      select(sock + 1, &readfd, 0, 0, &t);
-      int n = read(sock, tmp, 2048);
-      if(n > 0)
-        printf("interface received %d bytes\n", n);
+        STUBBED(which);
+        return -1;
     }
-
-    return 0;
+    else
+    {
+        // TODO: we can't handle 6-parameter syscalls yet!
+        return syscall5(pedigree_translation, a1, a2, a3, a4, a5);
+    }
 }

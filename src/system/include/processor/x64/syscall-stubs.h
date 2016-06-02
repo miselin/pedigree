@@ -32,7 +32,7 @@ static long syscall5(long function, long p1, long p2, long p3, long p4, long p5)
   long eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
   long ret;
   SERVICE_INIT;
-  asm volatile("mov %7, %%r8; syscall" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5) : "rcx", "r8", "r11");
+  __asm__ __volatile__ ("mov %7, %%r8; syscall" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5) : "rcx", "r8", "r11");
   return ret;
 }
 

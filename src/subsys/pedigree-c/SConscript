@@ -65,7 +65,10 @@ buildutils.modules.buildModule(env_clone, final_output, pedigree_c_objname,
 libs_clone = userspace_env_clone.Clone()
 libs_clone.MergeFlags('-fPIC -DUSE_PIC_SYSCALLS')
 libs_clone['CPPPATH'] = include_dirs
-libs_clone['LIBPATH'] = [builddir]
+if env['posix_musl']:
+    libs_clone['LIBPATH'] = [os.path.join(builddir, 'musl', 'lib'), builddir]
+else:
+    libs_clone['LIBPATH'] = [builddir]
 
 libs_clone['CFLAGS'] = buildutils.userspace.fixFlags(userspace_env, libs_clone['CFLAGS'])
 libs_clone['CCFLAGS'] = buildutils.userspace.fixFlags(userspace_env, libs_clone['CCFLAGS'])
