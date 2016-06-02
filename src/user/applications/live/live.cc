@@ -180,6 +180,7 @@ int main(int argc, char *argv[])
 {
     setlocale(LC_ALL, "");
     bindtextdomain("live", LOCALE_DIR);
+    bind_textdomain_codeset("live", "UTF-8");
     textdomain("live");
 
     if (argc < 1 || argc > 2)

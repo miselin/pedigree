@@ -28,6 +28,7 @@ int main(int argc, char *argv[])
 {
     setlocale(LC_ALL, "");
     bindtextdomain("tour", "/system/locale");
+    bind_textdomain_codeset("tour", "UTF-8");
     textdomain("tour");
 
     // Undo any silliness.

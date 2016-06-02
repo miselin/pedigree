@@ -68,6 +68,7 @@ int main(int argc, char **argv)
 {
   setlocale(LC_ALL, "");
   bindtextdomain("login", "/system/locale");
+  bind_textdomain_codeset("login", "UTF-8");
   textdomain("login");
 
 #ifdef INSTALLER
