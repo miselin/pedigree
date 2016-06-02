@@ -137,12 +137,6 @@ void TextIO::write(const char *s, size_t len)
     m_bActive = true;
 
     const char *orig = s;
-
-    for (size_t x = 0; x < len; x += 16)
-    {
-        NOTICE("TextIO::write(" << String(s + x, 16) << ")");
-    }
-
     while((*s) && (len--))
     {
         // UTF8 -> UTF32 conversion.
