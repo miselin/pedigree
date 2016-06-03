@@ -78,7 +78,7 @@ output_libs = env.Command(
         os.path.join(MUSL_LIB_DIRECTORY, 'libxnet.a'),
     ],
     # Also depend on our drop-in files.
-    [MUSL_BUILDER, MUSL_BASENAME] + Glob('*.h') + Glob('*.c'),
+    [MUSL_BUILDER, MUSL_BASENAME] + Glob('*.h') + Glob('*.c') + Glob('*.musl-s'),
     Action(buildMusl, env.get('CCCOMSTR')))
 
 env.Alias('crt', output_libs)

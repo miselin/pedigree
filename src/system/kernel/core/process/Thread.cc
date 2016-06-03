@@ -40,7 +40,7 @@ Thread::Thread(Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
     m_nStateLevel(0), m_pParent(pParent), m_Status(Ready), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(0), m_Priority(DEFAULT_PRIORITY),
-    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
+    m_PendingRequests(), m_pTlsBase(0), m_bTlsBaseOverride(false), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
     m_bInterruptible(true)
 {
   if (pParent == 0)
@@ -105,7 +105,7 @@ Thread::Thread(Process *pParent) :
     m_nStateLevel(0), m_pParent(pParent), m_Status(Running), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(&Processor::information().getScheduler()), m_Priority(DEFAULT_PRIORITY),
-    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
+    m_PendingRequests(), m_pTlsBase(0), m_bTlsBaseOverride(false), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
     m_bInterruptible(true)
 {
   if (pParent == 0)
@@ -126,7 +126,7 @@ Thread::Thread(Process *pParent, SyscallState &state) :
     m_nStateLevel(0), m_pParent(pParent), m_Status(Ready), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(0), m_Priority(DEFAULT_PRIORITY),
-    m_PendingRequests(), m_pTlsBase(0), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
+    m_PendingRequests(), m_pTlsBase(0), m_bTlsBaseOverride(false), m_bRemovingRequests(false), m_pWaiter(0), m_bDetached(false),
     m_bInterruptible(true)
 {
   if (pParent == 0)
@@ -142,6 +142,16 @@ Thread::Thread(Process *pParent, SyscallState &state) :
   allocateStackAtLevel(0);
 
   m_Id = m_pParent->addThread(this);
+
+  // SyscallState variant has to be called from the parent thread, so this is
+  // OK to do.
+  Thread *pCurrent = Processor::information().getCurrentThread();
+  if (pCurrent->m_bTlsBaseOverride)
+  {
+    // Override our TLS base too (but this will be in the copied address space).
+    m_bTlsBaseOverride = true;
+    m_pTlsBase = pCurrent->m_pTlsBase;
+  }
 
   m_Lock.acquire();
 
@@ -177,7 +187,7 @@ Thread::~Thread()
   }
 
   // Clean up TLS base.
-  if(m_pTlsBase && m_pParent)
+  if(m_pTlsBase && m_pParent && !m_bTlsBaseOverride)
   {
     // Unmap the TLS base.
     if (m_pParent->getAddressSpace()->isMapped(m_pTlsBase))
@@ -198,7 +208,7 @@ Thread::~Thread()
         m_pParent->getSpaceAllocator().free(base, THREAD_TLS_SIZE);
     m_pParent->m_Lock.release();
   }
-  else if(m_pTlsBase)
+  else if(m_pTlsBase && !m_bTlsBaseOverride)
   {
     ERROR("Thread: no parent, but a TLS base exists.");
   }
@@ -631,7 +641,26 @@ uintptr_t Thread::getTlsBase()
 void Thread::resetTlsBase()
 {
     m_pTlsBase = 0;
+    m_bTlsBaseOverride = false;
     Processor::setTlsBase(getTlsBase());
+}
+
+void Thread::setTlsBase(uintptr_t base)
+{
+    /// \todo clean up old base
+    m_bTlsBaseOverride = true;
+    m_pTlsBase = reinterpret_cast<void *>(base);
+
+    if (Processor::information().getCurrentThread() == this)
+    {
+      Processor::setTlsBase(getTlsBase());
+    }
+
+    // base[0] == base (for e.g. %fs:0 to get the address of %fs).
+    // See the "ELF Handling For Thread-Local Storage" document for this
+    // requirement (IA-32 section).
+    uintptr_t *pBase = reinterpret_cast<uintptr_t *>(base);
+    *pBase = base;
 }
 
 bool Thread::join()

@@ -259,9 +259,14 @@ bool AnonymousMemoryMap::trap(uintptr_t address, bool bWrite)
 
     if(!bWrite)
     {
+        if (va.isMapped(reinterpret_cast<void *>(address)))
+        {
+            ERROR("trapped on a currently-mapped page!");
+            return false;
+        }
         PhysicalMemoryManager::instance().pin(m_Zero);
         if(!va.map(m_Zero, reinterpret_cast<void *>(address), VirtualAddressSpace::Shared | extraFlags))
-            ERROR("map() failed for AnonymousMemoryMap::trap() - read");
+            ERROR("map() failed for AnonymousMemoryMap::trap() - read @" << Hex << address);
 
         m_Mappings.pushBack(reinterpret_cast<void *>(address));
     }

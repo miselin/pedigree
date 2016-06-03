@@ -25,9 +25,17 @@
 #include <vfs/Filesystem.h>
 
 #include "DevFs.h"
-
-#include "newlib.h"
 #include "logging.h"
+
+#include <sys/types.h>
+
+// Forward-declare some of the data types, file-syscalls.cc can include the
+// proper headers for them.
+struct dirent;
+struct stat;
+struct statvfs;
+struct timeval;
+struct utimbuf;
 
 #define MAXNAMLEN 255
 
@@ -44,13 +52,20 @@ int posix_lstat(char *file, struct stat *st);
 int posix_rename(const char* src, const char* dst);
 int posix_symlink(char *target, char *link);
 
+int posix_writev(int fd, const struct iovec *iov, int iovcnt);
+int posix_readv(int fd, const struct iovec *iov, int iovcnt);
+
 char* posix_getcwd(char* buf, size_t maxlen);
 int posix_readlink(const char* path, char* buf, unsigned int bufsize);
 int posix_realpath(const char *path, char *buf, size_t bufsize);
 
-int posix_opendir(const char *dir, DIR *ent);
-int posix_readdir(DIR *dir);
-int posix_closedir(DIR *dir);
+/*
+int posix_opendir(const char *dir, void *entp);
+int posix_readdir(void *dirp);
+int posix_closedir(void *dirp);
+*/
+
+int posix_getdents(int fd, struct dirent *ents, int count);
 
 int posix_ioctl(int fd, int operation, void *buf);
 
@@ -71,7 +86,7 @@ int posix_rmdir(const char *path);
 
 int posix_isatty(int fd);
 
-void *posix_mmap(void *p);
+void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off);
 int posix_msync(void *p, size_t len, int flags);
 int posix_munmap(void *addr, size_t len);
 int posix_mprotect(void *addr, size_t len, int prot);

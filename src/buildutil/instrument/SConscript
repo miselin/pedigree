@@ -37,7 +37,7 @@ build_env.Append(CPPPATH=header_paths)
 
 # Create a fake build environment.
 defines = [
-    'HOSTED', 'DEVICE_IGNORE_ADDRESSES', 'LITTLE_ENDIAN',
+    'HOSTED', 'DEVICE_IGNORE_ADDRESSES', 'TARGET_IS_LITTLE_ENDIAN',
 ]
 
 build_env.Append(CPPDEFINES=defines)

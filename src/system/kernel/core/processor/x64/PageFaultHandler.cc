@@ -72,7 +72,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
       // Map temporary page to the old page.
       if (!va.map(phys, reinterpret_cast<void *>(tempAddr), VirtualAddressSpace::KernelMode))
       {
-        FATAL("PageFaultHandler: CoW temporary map() failed");
+        FATAL("PageFaultHandler: CoW temporary map() failed @" << Hex << tempAddr);
         return;
       }
 

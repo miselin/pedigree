@@ -775,8 +775,13 @@ bool Elf::allocate(uint8_t *pBuffer, size_t length, uintptr_t &loadBase, SymbolT
     // is likely that it needs relocation.
     if (m_nEntry < 0x100000)
     {
-        if(!pProcess->getSpaceAllocator().allocate((size+0x1000)&0xFFFFF000, loadBase))
-            return false;
+        if(!pProcess->getDynamicSpaceAllocator().allocate((size+0x1000)&0xFFFFF000, loadBase))
+        {
+            if(!pProcess->getSpaceAllocator().allocate((size+0x1000)&0xFFFFF000, loadBase))
+            {
+                return false;
+            }
+        }
     }
     else
     {
@@ -791,7 +796,7 @@ bool Elf::allocate(uint8_t *pBuffer, size_t length, uintptr_t &loadBase, SymbolT
     if (bAllocate)
     {
         uintptr_t loadAddr = (loadBase==0) ? start : loadBase;
-        for (unsigned int j = loadAddr; j < loadAddr+size+0x1000; j += 0x1000)
+        for (uintptr_t j = loadAddr; j < loadAddr+size+0x1000; j += 0x1000)
         {
             physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
             bool b = Processor::information().getVirtualAddressSpace().map(phys,

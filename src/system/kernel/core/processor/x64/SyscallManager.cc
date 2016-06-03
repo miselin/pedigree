@@ -49,9 +49,7 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
 
 void X64SyscallManager::syscall(SyscallState &syscallState)
 {
-  NOTICE("Syscall!");
   SyscallHandler *pHandler;
-  NOTICE("A");
   TimeTracker tracker(0, true);
 #ifdef TIME_SYSCALLS
   Process *pProcess = Processor::information().getCurrentThread()->getParent();
@@ -59,53 +57,40 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
   size_t syscallNumber = syscallState.getSyscallNumber();
 #endif
 
-  NOTICE("B");
-  size_t syscallNumber = syscallState.getSyscallNumber();
   size_t serviceNumber = syscallState.getSyscallService();
-  NOTICE("C");
-
-  NOTICE("N: " << Hex << syscallNumber << " S: " << serviceNumber);
 
   if (UNLIKELY(serviceNumber >= serviceEnd))
   {
     // TODO: We should return an error here
     return;
   }
-  NOTICE("D");
 
   // Get the syscall handler
   {
     LockGuard<Spinlock> lock(m_Instance.m_Lock);
     pHandler = m_Instance.m_pHandler[serviceNumber];
   }
-  NOTICE("E");
   
   if (LIKELY(pHandler != 0))
   {
-    NOTICE("E.1");
-    NOTICE("handler = " << Hex << pHandler);
     uint64_t result = pHandler->syscall(syscallState);
-    NOTICE("E.-");
     syscallState.setSyscallReturnValue(result);
-    NOTICE("E.2");
     syscallState.setSyscallErrno(Processor::information().getCurrentThread()->getErrno());
-    NOTICE("E.3");
+    // Reset error number now that we've extracted it.
+    Processor::information().getCurrentThread()->setErrno(0);
 
     if (Processor::information().getCurrentThread()->getUnwindState() == Thread::Exit)
     {
       NOTICE("Unwind state exit, in interrupt handler");
       Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(0);
     }
-    NOTICE("E.4");
   }
-  NOTICE("F");
 
   // Make sure we come back out with interrupts enabled at all times.
   if ((syscallState.m_RFlagsR11 & 0x200) != 0x200)
   {
     syscallState.m_RFlagsR11 |= 0x200;
   }
-  NOTICE("G");
 
 #ifdef TIME_SYSCALLS
   syscallTimer.stop();

@@ -82,10 +82,25 @@ TEST(PedigreeString, Chomp)
     EXPECT_EQ(s, "hello");
 }
 
+TEST(PedigreeString, LChomp)
+{
+    String s(" hello");
+    s.lchomp();
+    EXPECT_EQ(s, "hello");
+}
+
 TEST(PedigreeString, ChompDynamicToStatic)
 {
     String s("hello                                                           ");
     s.chomp();
+    EXPECT_EQ(s.length(), 63);
+    EXPECT_EQ(s.size(), 64);
+}
+
+TEST(PedigreeString, LChompDynamicToStatic)
+{
+    String s("hello                                                           ");
+    s.lchomp();
     EXPECT_EQ(s.length(), 63);
     EXPECT_EQ(s.size(), 64);
 }
@@ -172,6 +187,14 @@ TEST(PedigreeString, Tokenise)
     EXPECT_EQ(*(result.popFront()), "that");
     EXPECT_EQ(*(result.popFront()), "exercises");
     EXPECT_EQ(*(result.popFront()), "tokenise");
+}
+
+TEST(PedigreeString, TokeniseLength)
+{
+    String s("hello world");
+    List<SharedPointer<String>> result = s.tokenise(' ');
+    EXPECT_EQ(result.popFront()->length(), 5);
+    EXPECT_EQ(result.popFront()->length(), 5);
 }
 
 TEST(PedigreeString, NextCharacter)

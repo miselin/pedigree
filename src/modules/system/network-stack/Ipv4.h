@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -85,7 +84,7 @@ public:
 
   struct ipHeader
   {
-#ifdef LITTLE_ENDIAN
+#ifdef TARGET_IS_LITTLE_ENDIAN
     uint32_t header_len : 4;
     uint32_t ipver : 4;
 #else

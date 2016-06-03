@@ -102,7 +102,14 @@ bool X64VirtualAddressSpace::memIsInHeap(void *pMem)
 }
 void *X64VirtualAddressSpace::getEndOfHeap()
 {
-    return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_HEAP) + KERNEL_VIRTUAL_HEAP_SIZE);
+    if (m_Heap == KERNEL_VIRTUAL_HEAP)
+    {
+        return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_HEAP) + KERNEL_VIRTUAL_HEAP_SIZE);
+    }
+    else
+    {
+        return m_HeapEnd;
+    }
 }
 
 

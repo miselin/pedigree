@@ -18,8 +18,39 @@
  */
 
 #include <config/Config.h>
-#include <pedigree_config.h>
 #include <string.h>
+
+/// \todo make all these available in a header somewhere that isn't the POSIX subsystem
+extern "C"
+{
+void pedigree_config_getcolname(size_t resultIdx, size_t n, char *buf, size_t bufsz);
+
+void pedigree_config_getstr_n(size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz);
+
+void pedigree_config_getstr_s(size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz);
+
+int pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n);
+
+int pedigree_config_getnum_s(size_t resultIdx, size_t row, const char *col);
+
+int pedigree_config_getbool_n(size_t resultIdx, size_t row, size_t n);
+
+int pedigree_config_getbool_s(size_t resultIdx, size_t row, const char *col);
+
+int pedigree_config_query(const char *query);
+
+void pedigree_config_freeresult(size_t resultIdx);
+
+int pedigree_config_numcols(size_t resultIdx);
+
+int pedigree_config_numrows(size_t resultIdx);
+
+int pedigree_config_was_successful(size_t resultIdx);
+
+void pedigree_config_get_error_message(size_t resultIdx, char *buf, int buflen);
+
+char *pedigree_config_escape_string(const char *str);
+}  // extern "C"
 
 Config::Result::~Result()
 {

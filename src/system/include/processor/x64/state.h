@@ -457,6 +457,7 @@ uintptr_t X64SyscallState::getSyscallParameter(size_t n) const
     case 2: return m_Rsi;
     case 3: return m_Rdi;
     case 4: return m_R8;
+    case 5: return m_R9;
     default:
       WARNING("Bad syscall parameter requested: " << Dec << n);
       return 0;

@@ -40,6 +40,7 @@
 #include <linker/Elf.h>
 #include <vfs/VFS.h>
 #include <vfs/File.h>
+#include <vfs/Symlink.h>
 #include <vfs/LockedFile.h>
 #include <vfs/MemoryMappedFile.h>
 
@@ -334,7 +335,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         void *pAddr = reinterpret_cast<void *>(addr + i);
         if(!va.isMapped(pAddr))
         {
-            PS_NOTICE("  -> not mapped.");
+            PS_NOTICE("  -> page " << Hex << pAddr << " is not mapped.");
             return false;
         }
 
@@ -864,7 +865,7 @@ bool PosixSubsystem::checkAccess(FileDescriptor *pFileDescriptor, bool bRead, bo
 }
 
 bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
-                             uintptr_t &newAddress)
+                             uintptr_t &newAddress, uintptr_t &finalAddress)
 {
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
 
@@ -908,10 +909,6 @@ bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
     size_t pageSz = PhysicalMemoryManager::getPageSize();
     unalignedStartAddress = startAddress;
     startAddress &= ~(pageSz - 1);
-    if (startAddress != unalignedStartAddress)
-    {
-        NOTICE("unaligned load");
-    }
     if (endAddress & (pageSz - 1))
     {
         endAddress = (endAddress + pageSz) & ~(pageSz - 1);
@@ -939,6 +936,8 @@ bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
 
         newAddress = unalignedStartAddress;
     }
+
+    finalAddress = startAddress + (endAddress - startAddress);
 
     // Can now do another pass, mapping in as needed.
     for (size_t i = 0; i < phnum; ++i)
@@ -1031,20 +1030,186 @@ bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
 
 bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env)
 {
-    /// \todo function to parse shebang within file
+    return invoke(name, argv, env, 0);
+}
+
+bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env, SyscallState &state)
+{
+    return invoke(name, argv, env, &state);
+}
+
+bool PosixSubsystem::parseShebang(File *pFile, File *&pOutFile, List<SharedPointer<String>> &argv)
+{
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+
+    // Try and read the shebang, if any.
+    /// \todo this loop could terminate MUCH faster
+    String fileContents;
+    bool bSearchDone = false;
+    size_t offset = 0;
+    while (!bSearchDone)
+    {
+        char buff[129];
+        size_t nRead = pFile->read(offset, 128, reinterpret_cast<uintptr_t>(buff));
+        buff[nRead] = 0;
+        offset += nRead;
+
+        if (nRead)
+        {
+            // Truncate at the newline if one is found (and then stop iterating).
+            char *newline = const_cast<char *>(StringFind(buff, '\n'));
+            if (newline)
+            {
+                bSearchDone = true;
+                *newline = 0;
+            }
+            fileContents += String(buff);
+        }
+
+        if (nRead < 128)
+        {
+            bSearchDone = true;
+            break;
+        }
+    }
+
+    NOTICE("checking: " << fileContents);
+
+    // Is this even a shebang line?
+    if (!fileContents.startswith("#!"))
+    {
+        NOTICE("no shebang found");
+        return true;
+    }
+
+    // Strip the shebang.
+    fileContents.lchomp();
+    fileContents.lchomp();
+
+    // OK, we have a shebang line. We need to tokenize.
+    List<SharedPointer<String>> additionalArgv = fileContents.tokenise(' ');
+    if (!additionalArgv.count())
+    {
+        // Not a true shebang line.
+        NOTICE("split didn't find anything");
+        return true;
+    }
+
+    // Can we load the new program?
+    SharedPointer<String> newTarget = *additionalArgv.begin();
+    File *pNewTarget = VFS::instance().find(*newTarget, pProcess->getCwd());
+    if (!pNewTarget)
+    {
+        // No, we cannot.
+        NOTICE("target not found");
+        return false;
+    }
+
+    // OK, we can now insert to argv - we do so backwards so it's just a simple
+    // pushFront.
+    for (auto it = additionalArgv.rbegin(); it != additionalArgv.rend(); ++it)
+    {
+        NOTICE("shebang: inserting " << **it << " [l=" << (*it)->length() << "]");
+        argv.pushFront(*it);
+    }
+
+    pOutFile = pNewTarget;
+
+    return true;
+}
+
+static File *traverseForInvoke(File *pFile)
+{
+    // Do symlink traversal.
+    while (pFile->isSymlink())
+    {
+        pFile = Symlink::fromFile(pFile)->followLink();
+    }
+    if (!pFile)
+    {
+        ERROR("PosixSubsystem::invoke: symlink traversal failed");
+        return 0;
+    }
+
+    // Check for directory.
+    if (pFile->isDirectory())
+    {
+        ERROR("PosixSubsystem::invoke: target is a directory");
+        return 0;
+    }
+
+    return pFile;
+}
+
+bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env, SyscallState *state)
+{
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+
+    // Grab the thread we're going to return into - need to tweak it.
+    Thread *pThread = pProcess->getThread(0);
+
+    // Ensure we only have one thread running (us).
+    if (pProcess->getNumThreads() > 1)
+    {
+        return false;
+    }
+
+    // Save the original name before we trash the old stack.
+    String originalName(name);
 
     // Try and find the target file we want to invoke.
-    File *originalFile = VFS::instance().find(String(name));
+    File *originalFile = VFS::instance().find(String(name), pProcess->getCwd());
     if (!originalFile)
     {
         ERROR("PosixSubsystem::invoke: could not find file '" << name << "'");
         return false;
     }
 
+    originalFile = traverseForInvoke(originalFile);
+    if (!originalFile)
+    {
+        return false;
+    }
+
+    File *shebangFile = 0;
+    if (!parseShebang(originalFile, shebangFile, argv))
+    {
+        ERROR("PosixSubsystem::invoke: failed to parse shebang line in '" << name << "'");
+        return false;
+    }
+
+    // Switch to the real target if we must; parseShebang adjusts argv for us.
+    if (shebangFile)
+    {
+        originalFile = shebangFile;
+
+        // Handle symlinks in shebang target.
+        originalFile = traverseForInvoke(originalFile);
+        if (!originalFile)
+        {
+            return false;
+        }
+    }
+
+    // Can we read & execute the given target?
+    if (!VFS::checkAccess(originalFile, true, false, true))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        return -1;
+    }
+
     File *interpreterFile = 0;
 
+    // Inhibit all signals from coming in while we trash the address space...
+    for(int sig = 0; sig < 32; sig++)
+        Processor::information().getCurrentThread()->inhibitEvent(sig, true);
+
+    // Wipe out old address space.
+    MemoryMapManager::instance().unmapAll();
+    pProcess->getAddressSpace()->revertToKernelAddressSpace();
+
     // We now need to clean up the process' address space.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
     pProcess->getSpaceAllocator().clear();
     pProcess->getDynamicSpaceAllocator().clear();
     pProcess->getSpaceAllocator().free(
@@ -1066,6 +1231,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     {
         // Ensure we can actually find the interpreter.
         interpreterFile = VFS::instance().find(interpreter, pProcess->getCwd());
+        interpreterFile = traverseForInvoke(interpreterFile);
         if(!interpreterFile)
         {
             ERROR("PosixSubsystem::invoke: could not find interpreter '" << interpreter << "'");
@@ -1103,7 +1269,8 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
 
     // Load the target application first.
     uintptr_t originalLoadedAddress = 0;
-    if (!loadElf(originalFile, originalBase, originalLoadedAddress))
+    uintptr_t originalFinalAddress = 0;
+    if (!loadElf(originalFile, originalBase, originalLoadedAddress, originalFinalAddress))
     {
         /// \todo cleanup
         ERROR("PosixSubsystem::invoke: failed to load target");
@@ -1112,7 +1279,8 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
 
     // Now load the interpreter.
     uintptr_t interpreterLoadedAddress = 0;
-    if (!loadElf(interpreterFile, interpreterBase, interpreterLoadedAddress))
+    uintptr_t interpreterFinalAddress = 0;
+    if (!loadElf(interpreterFile, interpreterBase, interpreterLoadedAddress, interpreterFinalAddress))
     {
         /// \todo cleanup
         ERROR("PosixSubsystem::invoke: failed to load interpreter");
@@ -1127,26 +1295,46 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     // Pull out the ELF header information for the original image.
     Elf::ElfHeader_t *originalHeader = reinterpret_cast<Elf::ElfHeader_t *>(originalBase);
 
+    // Past point of no return, so set up the process for the new image.
+    pProcess->description() = originalName;
+    pProcess->resetCounts();
+    pThread->resetTlsBase();
+    if (pSubsystem)
+        pSubsystem->freeMultipleFds(true);
+    while (pThread->getStateLevel())
+        pThread->popState();
+
     // We can now build the auxiliary vector to pass to the dynamic linker.
     VirtualAddressSpace::Stack *stack = Processor::information().getVirtualAddressSpace().allocateStack();
     uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
+
+    NOTICE("got a stack at " << Hex << loaderStack);
+
+    NOTICE("pushing env");
+
+    char **envs = new char*[env.count()];
+    size_t envc = 0;
+    for (auto it : env)
+    {
+        STACK_PUSH(loaderStack, 0);
+        STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
+        envs[envc++] = reinterpret_cast<char *>(loaderStack);
+    }
+
+    NOTICE("pushing argv");
 
     // Push argv/env.
     char **argvs = new char*[argv.count()];
     size_t argc = 0;
     for (auto it : argv)
     {
+        NOTICE("push " << *it << " [length=" << it->length() << "]");
+        STACK_PUSH(loaderStack, 0);
         STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
         argvs[argc++] = reinterpret_cast<char *>(loaderStack);
     }
 
-    char **envs = new char*[argv.count()];
-    size_t envc = 0;
-    for (auto it : env)
-    {
-        STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
-        envs[envc++] = reinterpret_cast<char *>(loaderStack);
-    }
+    NOTICE("pushing extra aux vector stuff");
 
     /// \todo platform assumption here.
     STACK_PUSH_COPY(loaderStack, "x86_64", 7);
@@ -1156,9 +1344,12 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     STACK_PUSH_ZEROES(loaderStack, 16);
     void *random = loaderStack;
 
+    NOTICE("aligning stack");
+
     // Align to 16 bytes.
     STACK_PUSH_ZEROES(loaderStack, 16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15));
 
+    NOTICE("aux vector");
     // Build the aux vector now.
     STACK_PUSH2(loaderStack, 0, 0);  // AT_NULL
     STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(platform), 15);  // AT_PLATFORM
@@ -1181,6 +1372,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     NOTICE("Entry: " << Hex << interpreterEntryPoint << "/" << originalEntryPoint);
     NOTICE(" -> adjusted: " << Hex << interpreterLoadedAddress + interpreterEntryPoint << "/" << originalLoadedAddress + originalEntryPoint);
 
+    NOTICE("env pointers");
     // env
     STACK_PUSH(loaderStack, 0);  // env[N]
     for (ssize_t i = envc - 1; i >= 0; --i)
@@ -1188,20 +1380,25 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i]));
     }
 
+    NOTICE("argv pointers");
     // argv
     STACK_PUSH(loaderStack, 0);  // argv[N]
     for (ssize_t i = argc - 1; i >= 0; --i)
     {
+        NOTICE("push ptr to " << argvs[i] << " [" << Hex << reinterpret_cast<uintptr_t>(argvs[i]) << "]");
         STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(argvs[i]));
     }
 
+    NOTICE("argc == " << argc);
     // argc
     STACK_PUSH(loaderStack, argc);
 
     // We can now unmap both original objects as they've been loaded and consumed.
-    //MemoryMapManager::instance().unmap(pInterpreter);
+    MemoryMapManager::instance().unmap(pInterpreter);
     MemoryMapManager::instance().unmap(pOriginal);
     pInterpreter = pOriginal = 0;
+
+    NOTICE("sigret/pthreads");
 
     // Initialise the sigret and pthreads shizzle if not already done for this
     // process (the calls detect).
@@ -1211,17 +1408,37 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     Processor::setInterrupts(true);
     pProcess->recordTime(true);
 
-    // Create the thread now.
-    NOTICE("Running!");
-    Thread *pThread = new Thread(pProcess,
-        reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint + interpreterLoadedAddress),
-        0, loaderStack);
-    pThread->detach();
+    NOTICE("jump");
+
+    if (!state)
+    {
+        // Just create a new thread, this is not a full replace.
+        Thread *pThread = new Thread(pProcess,
+            reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint + interpreterLoadedAddress),
+            0, loaderStack);
+        pThread->detach();
+
+        return true;
+    }
+    else
+    {
+        // This is a replace and requires a jump to userspace.
+        NOTICE("trash schedulerstate");
+        SchedulerState s;
+        ByteSet(&s, 0, sizeof(s));
+        pThread->state() = s;
+
+        // Allow signals again now that everything's loaded
+        for(int sig = 0; sig < 32; sig++)
+        {
+            Processor::information().getCurrentThread()->inhibitEvent(sig, false);
+        }
+
+        // Jump to the new process.
+        NOTICE("-> userspace");
+        Processor::jumpUser(0, interpreterEntryPoint + interpreterLoadedAddress,
+                            reinterpret_cast<uintptr_t>(loaderStack));
+    }
 
     return true;
-}
-
-bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env, SyscallState &state)
-{
-    return false;
 }

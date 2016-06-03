@@ -48,12 +48,19 @@ include_dirs = [
     '#src/modules',
     '#src/system/include',
     '#src/modules/system',
+    os.path.join(builddir, 'musl', 'include'),
     '#images/local/include',
+    '#images/local/include/native',
     '.'
 ]
 
 env_clone['CPPPATH'] = include_dirs
 env_clone['LIBS'] = ['gcc']
+
+env_clone.MergeFlags({
+    'TARGET_CPPDEFINES': ['_POSIX_SOURCE', '_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+    'TARGET_CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
+})
 
 final_output = native_userlib_objname
 native_userlib_objname = '%s.debug' % native_userlib_objname

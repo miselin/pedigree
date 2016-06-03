@@ -20,13 +20,6 @@
 #ifndef PIPE_SYSCALLS_H
 #define PIPE_SYSCALLS_H
 
-#include <vfs/VFS.h>
-#include <vfs/File.h>
-#include <vfs/Filesystem.h>
-#include <network-stack/TcpMisc.h>
-
-#include "newlib.h"
-
 int posix_pipe(int filedes[2]);
 
 #endif

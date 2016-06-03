@@ -235,10 +235,6 @@ _ZN9Processor8jumpUserEPVmmmmmmm:
     mov     qword [r10], 1
 .no_lock:
 
-    ;; Push return address. (Userspace can't return to kernel - segfault!)
-    mov     r10, 0
-    push    r10
-
     ;; New stack frame.
     xor     rbp, rbp
     ;; RFLAGS: interrupts enabled.

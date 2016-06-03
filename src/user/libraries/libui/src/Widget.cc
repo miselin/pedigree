@@ -47,6 +47,8 @@
 
 using namespace LibUiProtocol;
 
+#define UNIX_PATH_MAX (sizeof sockaddr_un::sun_path)
+
 #define PEDIGREE_WINMAN_ENDPOINT "pedigree-winman"
 
 /// Default event handler for new widgets.

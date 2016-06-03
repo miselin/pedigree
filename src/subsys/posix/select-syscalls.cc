@@ -43,6 +43,7 @@
 #include <Subsystem.h>
 #include <PosixSubsystem.h>
 
+#include <sys/socket.h>
 
 static void selectEventHandler(uint8_t *pBuffer);
 

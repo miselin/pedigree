@@ -34,6 +34,10 @@
 #include "file-syscalls.h"
 #include "console-syscalls.h"
 
+#include <limits.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+
 typedef Tree<size_t,FileDescriptor*> FdMap;
 
 class PosixTerminalEvent : public Event
@@ -282,9 +286,9 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios *p)
   return 0;
 }
 
-int console_getwinsize(File* file, winsize_t *buf)
+int console_getwinsize(File* file, struct winsize *buf)
 {
-  if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(winsize_t), PosixSubsystem::SafeWrite))
+  if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct winsize), PosixSubsystem::SafeWrite))
   {
       NOTICE("getwinsize -> invalid address");
       SYSCALL_ERROR(InvalidArgument);
@@ -300,9 +304,9 @@ int console_getwinsize(File* file, winsize_t *buf)
   return ConsoleManager::instance().getWindowSize(file, &buf->ws_row, &buf->ws_col);
 }
 
-int console_setwinsize(File *file, const winsize_t *buf)
+int console_setwinsize(File *file, const struct winsize *buf)
 {
-  if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(winsize_t), PosixSubsystem::SafeRead))
+  if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct winsize), PosixSubsystem::SafeRead))
   {
       NOTICE("setwinsize -> invalid address");
       SYSCALL_ERROR(InvalidArgument);

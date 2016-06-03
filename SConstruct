@@ -594,9 +594,9 @@ if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET
         default_cxxflags['arm'] = cxxflags
 
         if env['arm_bigendian']:
-            extra_defines += ['BIG_ENDIAN']
+            extra_defines += ['TARGET_IS_BIG_ENDIAN']
         else:
-            extra_defines += ['LITTLE_ENDIAN']
+            extra_defines += ['TARGET_IS_LITTLE_ENDIAN']
 
         env['PEDIGREE_IMAGES_DIR'] = default_imgdir['arm']
         env['ARCH_TARGET'] = 'ARM'

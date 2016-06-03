@@ -27,8 +27,12 @@
 #include <process/Event.h>
 #include <process/SignalEvent.h>
 
-#include "newlib.h"
 #include "logging.h"
+
+#include <sys/types.h>
+
+struct sigaction;
+typedef struct sigaltstack stack_t;
 
 typedef void (*_sig_func_ptr)(int);
 
@@ -39,7 +43,7 @@ int posix_kill(int pid, int sig);
 int posix_sigprocmask(int how, const uint32_t *set, uint32_t *oset);
 void pedigree_unwind_signal();
 
-int posix_sigaltstack(const stack_t *stack, struct stack_t *oldstack);
+int posix_sigaltstack(const stack_t *stack, stack_t *oldstack);
 
 void pedigree_init_sigret();
 

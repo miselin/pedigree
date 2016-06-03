@@ -72,7 +72,8 @@ generic_defines = [
 #------------------------- x86 (+x64) -------------------------#
 
 general_x86_defines = [
-    'X86_COMMON', 'LITTLE_ENDIAN', 'THREADS', 'KERNEL_STANDALONE', 'MULTIBOOT']
+    'X86_COMMON', 'THREADS', 'KERNEL_STANDALONE', 'MULTIBOOT',
+    'TARGET_IS_LITTLE_ENDIAN']
 
 #---------- x86, 32-bit ----------#
 
@@ -169,9 +170,9 @@ arm_defines = [x for x in generic_defines if x !=
 #---------- PowerPC ----------#
 
 # ppc defines
-ppc_defines = ['PPC', 'PPC_COMMON', 'BIG_ENDIAN', 'BITS_32', 'PPC32', 'THREADS',
+ppc_defines = ['PPC', 'PPC_COMMON', 'BITS_32', 'PPC32', 'THREADS',
                'KERNEL_PROCESSOR_NO_PORT_IO', 'OMIT_FRAMEPOINTER', 'PPC_MAC',
-               'OPENFIRMWARE']
+               'OPENFIRMWARE', 'TARGET_IS_BIG_ENDIAN']
 
 # ppc CFLAGS and CXXFLAGS
 default_ppc_flags = ['-fno-stack-protector', '-fomit-frame-pointer']

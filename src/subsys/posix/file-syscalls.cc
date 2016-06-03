@@ -46,6 +46,15 @@
 #include "pipe-syscalls.h"
 #include "net-syscalls.h"
 
+#include <dirent.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <utime.h>
+
 extern int posix_getpid();
 
 //
@@ -325,6 +334,12 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
     {
         nameToOpen = "/applications";
         nameToOpen += (name + StringLength("/bin"));
+        return true;
+    }
+    else if (!StringCompareN(name, "/lib", StringLength("/lib")))
+    {
+        nameToOpen = "/libraries";
+        nameToOpen += (name + StringLength("/lib"));
         return true;
     }
     else if (!StringCompareN(name, "/etc", StringLength("/etc")))
@@ -710,6 +725,66 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     }
 
     return static_cast<int>(nWritten);
+}
+
+int posix_writev(int fd, const struct iovec *iov, int iovcnt)
+{
+    /// \todo check iov
+
+    if (iovcnt <= 0)
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    int totalWritten = 0;
+    for (int i = 0; i < iovcnt; ++i)
+    {
+        if (!iov[i].iov_len)
+            continue;
+
+        int r = posix_write(fd, reinterpret_cast<char *>(iov->iov_base), iov->iov_len, false);
+        if (r < 0)
+        {
+            /// \todo fd should not be seeked any further, even if past writes
+            /// succeeded
+            return r;
+        }
+
+        totalWritten += r;
+    }
+
+    return totalWritten;
+}
+
+int posix_readv(int fd, const struct iovec *iov, int iovcnt)
+{
+    /// \todo check iov
+
+    if (iovcnt <= 0)
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    int totalRead = 0;
+    for (int i = 0; i < iovcnt; ++i)
+    {
+        if (!iov[i].iov_len)
+            continue;
+
+        int r = posix_read(fd, reinterpret_cast<char *>(iov->iov_base), iov->iov_len);
+        if (r < 0)
+        {
+            /// \todo fd should not be seeked any further, even if past writes
+            /// succeeded
+            return r;
+        }
+
+        totalRead += r;
+    }
+
+    return totalRead;
 }
 
 off_t posix_lseek(int file, off_t ptr, int dir)
@@ -1170,8 +1245,130 @@ int posix_lstat(char *name, struct stat *st)
     return 0;
 }
 
-int posix_opendir(const char *dir, DIR *ent)
+/// \todo rewrite into getdents, which means we need to be able to open dirs
+
+
+int posix_getdents(int fd, struct dirent *ents, int count)
 {
+    F_NOTICE("getdents(" << fd << ")");
+    count /= sizeof(struct dirent);  // count is in bytes
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), sizeof(struct dirent) * count, PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE("getdents -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
+    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
+    if (!pFd || !pFd->file)
+    {
+        // Error - no such file descriptor.
+        F_NOTICE(" -> bad file");
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+    }
+
+    if(!pFd->file->isDirectory())
+    {
+        F_NOTICE(" -> not a directory");
+        SYSCALL_ERROR(NotADirectory);
+        return -1;
+    }
+
+    if (!count)
+    {
+        F_NOTICE(" -> count is zero");
+        return 0;
+    }
+
+    // Navigate the directory tree.
+    Directory *pDirectory = Directory::fromFile(pFd->file);
+    size_t truePosition = pFd->offset;
+    for (int i = 0; truePosition < pDirectory->getNumChildren() && i < count; ++i, ++truePosition)
+    {
+        File *pFile = pDirectory->getChild(truePosition);
+        if (!pFile)
+            break;
+
+        /// \todo we could actually condense the dirents with d_reclen and d_off
+        ents[i].d_reclen = sizeof(struct dirent);
+        ents[i].d_off = sizeof(struct dirent);
+
+        ents[i].d_ino = pFile->getInode();
+        if (!ents[i].d_ino)
+        {
+            ents[i].d_ino = ~0U;
+        }
+
+        StringCopyN(ents[i].d_name, static_cast<const char *>(pFile->getName()), sizeof ents[i].d_name);
+
+        if (pFile->isSymlink() || pFile->isPipe())
+        {
+            ents[i].d_type = DT_LNK;
+        }
+        else if (pFile->isDirectory())
+        {
+            ents[i].d_type = DT_DIR;
+        }
+        else
+        {
+            /// \todo also need to consider character devices
+            ents[i].d_type = DT_REG;
+        }
+    }
+
+    size_t totalCount = truePosition - pFd->offset;
+    pFd->offset = truePosition;
+
+    return totalCount * sizeof(dirent);
+
+
+
+#if 0
+    // Buffer another 64 entries.
+    Directory *pDirectory = Directory::fromFile(pFd->file);
+    for (size_t i = 0; i < 64; ++i)
+    {
+        File *pFile = pDirectory->getChild(dir->totalpos + i);
+        if (!pFile)
+            break;
+
+        dir->ent[i].d_ino = pFile->getInode();
+
+        // Some applications consider a null inode to mean "bad file" which is
+        // a horrible assumption for them to make. Because the presence of a file
+        // is indicated by more effective means (ie, successful return from
+        // readdir) this just appeases the applications which aren't portably
+        // written.
+        if(dir->ent[i].d_ino == 0)
+            dir->ent[i].d_ino = 0x7fff; // Signed, don't want this to turn negative
+
+        // Copy filename.
+        StringCopyN(dir->ent[i].d_name, static_cast<const char *>(pFile->getName()), MAXNAMLEN);
+        if(pFile->isSymlink())
+            dir->ent[i].d_type = DT_LNK;
+        else
+            dir->ent[i].d_type = pFile->isDirectory() ? DT_DIR : DT_REG;
+    }
+#endif
+
+    return 0;
+}
+
+/*
+int posix_opendir(const char *dir, void *entp)
+{
+    DIR *ent = reinterpret_cast<DIR *>(entp);
+
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dir), PATH_MAX, PosixSubsystem::SafeRead) &&
         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ent), sizeof(DIR), PosixSubsystem::SafeWrite)))
     {
@@ -1252,8 +1449,10 @@ int posix_opendir(const char *dir, DIR *ent)
     return static_cast<int>(fd);
 }
 
-int posix_readdir(DIR *dir)
+int posix_readdir(DIR *dirp)
 {
+    DIR *dir = reinterpret_cast<DIR *>(dirp);
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dir), sizeof(DIR), PosixSubsystem::SafeWrite))
     {
         F_NOTICE("readdir -> invalid address");
@@ -1328,6 +1527,8 @@ int posix_readdir(DIR *dir)
 
 int posix_closedir(DIR *dir)
 {
+    DIR *dir = reinterpret_cast<DIR *>(dirp);
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dir), sizeof(DIR), PosixSubsystem::SafeRead))
     {
         F_NOTICE("closedir -> invalid address");
@@ -1355,6 +1556,7 @@ int posix_closedir(DIR *dir)
 
     return 0;
 }
+*/
 
 int posix_ioctl(int fd, int command, void *buf)
 {
@@ -1372,6 +1574,15 @@ int posix_ioctl(int fd, int command, void *buf)
     if (!f)
     {
         // Error - no such FD.
+        F_NOTICE("  -> ioctl for a file that doesn't exist");
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+    }
+
+    if (!f->file)
+    {
+        F_NOTICE("  -> fd " << fd << " is not supposed to be ioctl'd");
+        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
@@ -1386,29 +1597,34 @@ int posix_ioctl(int fd, int command, void *buf)
     {
         case TIOCGWINSZ:
         {
-            return console_getwinsize(f->file, reinterpret_cast<winsize_t*>(buf));
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return console_getwinsize(f->file, reinterpret_cast<struct winsize*>(buf));
+            }
         }
 
         case TIOCSWINSZ:
         {
-            const winsize_t *ws = reinterpret_cast<const winsize_t*>(buf);
-            F_NOTICE(" -> TIOCSWINSZ " << Dec << ws->ws_col << "x" << ws->ws_row << Hex);
-            return console_setwinsize(f->file, ws);
-        }
-
-        case TIOCFLUSH:
-        {
-            return console_flush(f->file, buf);
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                const struct winsize *ws = reinterpret_cast<const struct winsize*>(buf);
+                F_NOTICE(" -> TIOCSWINSZ " << Dec << ws->ws_col << "x" << ws->ws_row << Hex);
+                return console_setwinsize(f->file, ws);
+            }
         }
 
         case TIOCSCTTY:
         {
-            F_NOTICE(" -> TIOCSCTTY");
-            return console_setctty(fd, reinterpret_cast<uintptr_t>(buf) == 1);
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                F_NOTICE(" -> TIOCSCTTY");
+                return console_setctty(fd, reinterpret_cast<uintptr_t>(buf) == 1);
+            }
         }
 
         case FIONBIO:
         {
+            F_NOTICE(" -> FIONBIO");
             // set/unset non-blocking
             if (buf)
             {
@@ -1429,13 +1645,11 @@ int posix_ioctl(int fd, int command, void *buf)
 
             return 0;
         }
-        default:
-        {
-            // Error - no such ioctl.
-            SYSCALL_ERROR(InvalidArgument);
-            return -1;
-        }
     }
+
+    F_NOTICE("  -> invalid combination of fd " << fd << " and ioctl " << Hex << command);
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
 }
 
 int posix_chdir(const char *path)
@@ -1759,38 +1973,9 @@ int posix_fcntl(int fd, int cmd, void* arg)
     return -1;
 }
 
-struct _mmap_tmp
-{
-    void *addr;
-    size_t len;
-    int prot;
-    int flags;
-    int fildes;
-    off_t off;
-};
-
-void *posix_mmap(void *p)
+void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 {
     F_NOTICE("mmap");
-
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(p), sizeof(_mmap_tmp), PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("mmap -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return MAP_FAILED;
-    }
-
-    // Grab the parameter list
-    _mmap_tmp *map_info = reinterpret_cast<_mmap_tmp*>(p);
-
-    // Get real variables from the parameters
-    void *addr = map_info->addr;
-    size_t len = map_info->len;
-    int prot = map_info->prot;
-    int flags = map_info->flags;
-    int fd = map_info->fildes;
-    off_t off = map_info->off;
-
     F_NOTICE("  -> addr=" << reinterpret_cast<uintptr_t>(addr) << ", len=" << len << ", prot=" << prot << ", flags=" << flags << ", fildes=" << fd << ", off=" << off << ".");
 
     // Get the File object to map
@@ -2421,19 +2606,8 @@ static int statvfs_doer(Filesystem *pFs, struct statvfs *buf)
     buf->f_favail = static_cast<fsfilcnt_t>(-1);
     buf->f_fsid = 0;
     buf->f_flag = (pFs->isReadOnly() ? ST_RDONLY : 0) | ST_NOSUID; // No suid in pedigree yet.
-    buf->f_namemax = VFS_MNAMELEN;
-    
-    // FS type
-    StringCopy(buf->f_fstypename, "ext2");
-    
-    // "From" point
-    /// \todo Disk device hash + path (on raw filesystem maybe?)
-    StringCopy(buf->f_mntfromname, "from");
-    
-    // "To" point
-    /// \todo What to put here?
-    StringCopy(buf->f_mntfromname, "to");
-    
+    buf->f_namemax = 0;
+
     return 0;
 }
 

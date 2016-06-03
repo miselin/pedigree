@@ -35,6 +35,8 @@
 #include <PosixSubsystem.h>
 #include <PosixProcess.h>
 
+#include <signal.h>
+
 extern "C"
 {
     extern void sigret_stub();
@@ -179,7 +181,7 @@ int posix_sigaction(int sig, const struct sigaction *act, struct sigaction *oact
         if (oldSignalHandler)
         {
             oact->sa_flags = oldSignalHandler->flags;
-            oact->sa_mask = oldSignalHandler->sigMask;
+            // oact->sa_mask = oldSignalHandler->sigMask;
             if (oldSignalHandler->type == 0)
                 oact->sa_handler = reinterpret_cast<void (*)(int)>(oldSignalHandler->pEvent->getHandlerAddress());
             else if (oldSignalHandler->type == 1)
@@ -195,7 +197,7 @@ int posix_sigaction(int sig, const struct sigaction *act, struct sigaction *oact
     if (act)
     {
         PosixSubsystem::SignalHandler* sigHandler = new PosixSubsystem::SignalHandler;
-        sigHandler->sigMask = act->sa_mask;
+        // sigHandler->sigMask = act->sa_mask;
         sigHandler->flags = act->sa_flags;
 
         uintptr_t newHandler = reinterpret_cast<uintptr_t>(act->sa_handler);
@@ -453,6 +455,8 @@ int posix_kill(int pid, int sig)
 
 int posix_pthread_kill(pthread_t thread, int sig)
 {
+    return -1;
+/*
     PT_NOTICE("pthread_kill");
 
     // Check the signal
@@ -483,6 +487,7 @@ int posix_pthread_kill(pthread_t thread, int sig)
         SYSCALL_ERROR(NoSuchProcess);
         return -1;
     }
+*/
 }
 
 /// \todo Integration with Thread inhibit masks
@@ -628,7 +633,7 @@ int posix_clock_gettime(clockid_t clock_id, struct timespec *tp)
     return 0;
 }
 
-int posix_sigaltstack(const struct stack_t *stack, struct stack_t *oldstack)
+int posix_sigaltstack(const stack_t *stack, stack_t *oldstack)
 {
     /// \todo Check stacks are sane (checkAddress).
 
@@ -665,7 +670,7 @@ int posix_sigaltstack(const struct stack_t *stack, struct stack_t *oldstack)
     {
         oldstack->ss_sp = reinterpret_cast<void*>(currStack.base);
         oldstack->ss_size = currStack.size;
-        oldstack->ss_flags = (currStack.enabled ? 0 : SA_DISABLE) | (currStack.inUse ? SA_ONSTACK : 0);
+        oldstack->ss_flags = (currStack.inUse ? SA_ONSTACK : 0);
     }
 
     // Set the new one
@@ -673,7 +678,7 @@ int posix_sigaltstack(const struct stack_t *stack, struct stack_t *oldstack)
     {
         currStack.base = reinterpret_cast<uintptr_t>(stack->ss_sp);
         currStack.size = stack->ss_size;
-        currStack.enabled = (stack->ss_flags & SA_DISABLE) != SA_DISABLE;
+        currStack.enabled = 1;
     }
 
     // Success!

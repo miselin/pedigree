@@ -55,6 +55,14 @@
 #include <users/UserManager.h>
 #include <console/Console.h>
 
+#include <grp.h>
+#include <limits.h>
+#include <pwd.h>
+#include <sys/resource.h>
+#include <sys/times.h>
+#include <sys/wait.h>
+#include <syslog.h>
+
 //
 // Syscalls pertaining to system operations.
 //
@@ -118,6 +126,44 @@ long posix_sbrk(int delta)
     }
     else
         return ret;
+}
+
+uintptr_t posix_brk(uintptr_t theBreak)
+{
+    SC_NOTICE("brk(" << theBreak << ")");
+
+    void *newBreak = reinterpret_cast<void *>(theBreak);
+
+    void *currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
+    if (newBreak < currentBreak)
+    {
+        NOTICE("informing of current: " << Hex << currentBreak);
+        return reinterpret_cast<uintptr_t >(currentBreak);
+    }
+
+    intptr_t difference = pointer_diff(currentBreak, newBreak);
+    if (!difference)
+    {
+        NOTICE("same as current break");
+        return reinterpret_cast<uintptr_t >(currentBreak);
+    }
+
+    NOTICE("expansion: " << difference);
+
+    // OK, good to go.
+    void *result = Processor::information().getVirtualAddressSpace().expandHeap(difference, VirtualAddressSpace::Write);
+    if (!result)
+    {
+        NOTICE("brk failed");
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
+    }
+
+    // Return new end of heap.
+    currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
+
+    NOTICE("brk returns: " << Hex << currentBreak);
+    return reinterpret_cast<uintptr_t>(currentBreak);
 }
 
 int posix_fork(SyscallState &state)
@@ -228,18 +274,7 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
 
     SC_NOTICE("execve(\"" << name << "\")");
 
-    size_t pageSz = PhysicalMemoryManager::getPageSize();
-
-    String myArgv;
-    int i = 0;
-    while (argv[i])
-    {
-        myArgv += String(argv[i]);
-        myArgv += " ";
-        i++;
-    }
-    SC_NOTICE("  {" << myArgv << "}");
-
+    // Bad arguments?
     if (argv == 0 || env == 0)
     {
         SYSCALL_ERROR(ExecFormatError);
@@ -254,371 +289,25 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
         return -1;
     }
 
-    // Grab the thread we're going to return into - need to tweak it.
-    Thread *pThread = pProcess->getThread(0);
-
-    // Ensure we only have one thread running (us).
-    if (pProcess->getNumThreads() > 1)
+    // Build argv and env lists.
+    List<SharedPointer<String>> listArgv, listEnv;
+    for (const char **arg = argv; *arg != 0; ++arg)
     {
-        SYSCALL_ERROR(ExecFormatError);
+        listArgv.pushBack(SharedPointer<String>(new String(*arg)));
+    }
+    for (const char **e = env; *e != 0; ++e)
+    {
+        listEnv.pushBack(SharedPointer<String>(new String(*e)));
+    }
+
+    if (!pSubsystem->invoke(name, listArgv, listEnv, state))
+    {
+        SC_NOTICE(" -> execve failed in invoke");
         return -1;
     }
 
-    String toLoad;
-    normalisePath(toLoad, name);
-
-    // Attempt to find the file, first!
-    File *pActualFile = 0;
-    File* file = pActualFile = VFS::instance().find(toLoad, Processor::information().getCurrentThread()->getParent()->getCwd());
-    if (!file)
-    {
-        // Error - not found.
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    while (file->isSymlink())
-        file = Symlink::fromFile(file)->followLink();
-
-    if (!file)
-    {
-        // Not found after symlink traversal.
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    if (file->isDirectory())
-    {
-        // Error - is directory.
-        SYSCALL_ERROR(IsADirectory);
-        return -1;
-    }
-
-    // The argv and environment for the new process
-    /// \todo move this to using SharedPointer
-    Vector<SharedPointer<String>> savedArgv, savedEnv;
-
-    /// \todo This could probably be cleaned up a little.
-
-    // Try and read the shebang, if any
-    String theShebang;
-    static char tmpBuff[128 + 1];
-    file->read(0, 128, reinterpret_cast<uintptr_t>(tmpBuff));
-    tmpBuff[128] = '\0';
-
-    List<SharedPointer<String>> additionalArgv;
-
-    if (!StringCompareN(tmpBuff, "#!", 2))
-    {
-        // We have a shebang, so grab the command.
-
-        // Scan the found string for a newline. If we don't get a newline, the shebang was over 128 bytes and we error out.
-        bool found = false;
-        for (size_t j = 0; j < 128; j++)
-        {
-            if (tmpBuff[j] == '\n')
-            {
-                found = true;
-                tmpBuff[j] = '\0';
-                break;
-            }
-        }
-
-        if (!found)
-        {
-            // Parameter error.
-            SYSCALL_ERROR(InvalidArgument);
-            return -1;
-        }
-
-        // Shebang loaded, tokenise.
-        String str(&tmpBuff[2]); // Skip #!
-        additionalArgv = str.tokenise(' ');
-
-        if(additionalArgv.begin() == additionalArgv.end()) {
-            NOTICE("Invalid shebang");
-            SYSCALL_ERROR(ExecFormatError);
-            return -1;
-        }
-
-        String newFname = **additionalArgv.begin();
-
-        // Prepend the tokenized shebang line argv
-        // argv will look like: interpreter-path additional-shebang-options script-name old-argv
-        for (auto it = additionalArgv.begin(); it != additionalArgv.end();
-             it++)
-        {
-            savedArgv.pushBack(*it);
-        }
-
-        // Replace the old argv[0] with the script name, this is what Linux does
-        // ### is it safe to write to argv?
-        argv[0] = name;
-
-        name = static_cast<const char*>(newFname);
-
-        // And reload the file, now that we're loading a new application
-        NOTICE("New name: " << newFname << "...");
-        file = pActualFile = VFS::instance().find(newFname, Processor::information().getCurrentThread()->getParent()->getCwd());
-        if (!file)
-        {
-            // Error - not found.
-            SYSCALL_ERROR(DoesNotExist);
-            return -1;
-        }
-    }
-
-    DynamicLinker *pOldLinker = pProcess->getLinker();
-    DynamicLinker *pLinker = new DynamicLinker();
-
-    // Can we read & execute the given target?
-    if (!VFS::checkAccess(file, true, false, true))
-    {
-        // checkAccess does a SYSCALL_ERROR for us.
-        return -1;
-    }
-
-    // Should we actually load this file, or request another program load the file?
-    String interpreter("");
-    if(pLinker->checkInterpreter(file, interpreter))
-    {
-        // Handle interpreter on root alias while we're on a different alias.
-        File *root = VFS::instance().find(String("root»/"));
-
-        // Switch to the interpreter.
-        // argv can stay the same, as the interpreter will pass it on directly.
-        file = VFS::instance().find(interpreter, Processor::information().getCurrentThread()->getParent()->getCwd());
-        if ((!file) && root)
-            file = VFS::instance().find(interpreter, root);
-        if (!file)
-        {
-            ERROR("execve: interpreter '" << interpreter << "' not found.");
-            SYSCALL_ERROR(DoesNotExist);
-            delete pLinker;
-            return -1;
-        }
-
-        // Welp, wipe out the old linker, don't leave crufty mmaps lying around.
-        // We are changing which file to load - get a new linker for that.
-        delete pLinker;
-        pLinker = 0;
-        pProcess->setLinker(pLinker);
-    }
-    else
-    {
-        /// \todo Assume the interpreter is libload.so.
-        WARNING("execve: no interpreter for " << name << ".");
-        delete pLinker;
-        SYSCALL_ERROR(ExecFormatError);
-        return -1;
-    }
-
-    // Can we load the new image? Check before we clean out the last ELF image...
-    if(pLinker && !pLinker->checkDependencies(file))
-    {
-        delete pLinker;
-        SYSCALL_ERROR(ExecFormatError);
-        return -1;
-    }
-
-    // Now that dependencies are definitely available and the program will
-    // actually load, we can set up the Process object
-    pProcess->description() = String(name);
-
-    // Make sure we have the needed permissions on the interpreter too.
-    if ((file != pActualFile) && !VFS::checkAccess(file, true, false, true))
-    {
-        // checkAccess does a SYSCALL_ERROR for us.
-        return -1;
-    }
-
-    // Make sure the dynamic linker loads the correct program.
-    String *actualPath = new String(pActualFile->getFullPath());
-    savedArgv.pushFront(SharedPointer<String>(actualPath));
-
-    // Save the argv and env lists so they aren't destroyed when we overwrite the address space.
-    size_t argv_len = save_string_array(argv, savedArgv);
-    size_t env_len = save_string_array(env, savedEnv);
-
-    // Inhibit all signals from coming in while we trash the address space...
-    for(int sig = 0; sig < 32; sig++)
-        Processor::information().getCurrentThread()->inhibitEvent(sig, true);
-
-    // Wipe out old address space.
-    MemoryMapManager::instance().unmapAll();
-    pProcess->getAddressSpace()->revertToKernelAddressSpace();
-
-    // Prepare the new address space regions.
-    pProcess->getSpaceAllocator().clear();
-    pProcess->getDynamicSpaceAllocator().clear();
-    pProcess->getSpaceAllocator().free(
-            pProcess->getAddressSpace()->getUserStart(),
-            pProcess->getAddressSpace()->getUserReservedStart() - pProcess->getAddressSpace()->getUserStart());
-    if(pProcess->getAddressSpace()->getDynamicStart())
-    {
-        pProcess->getDynamicSpaceAllocator().free(
-            pProcess->getAddressSpace()->getDynamicStart(),
-            pProcess->getAddressSpace()->getDynamicEnd() - pProcess->getAddressSpace()->getDynamicStart());
-    }
-
-    // Reset tracking.
-    pProcess->resetCounts();
-
-    // Reset TLS base.
-    pThread->resetTlsBase();
-
-    if(pLinker)
-    {
-        // Set the new linker now before we loadProgram, else we could trap and
-        // have a linker mismatch.
-        pProcess->setLinker(pLinker);
-
-        if (!pLinker->loadProgram(file))
-        {
-            pProcess->setLinker(pOldLinker);
-            delete pLinker;
-            SYSCALL_ERROR(ExecFormatError);
-
-            // Allow signals again, even though the address space is in a completely undefined state now
-            for(int sig = 0; sig < 32; sig++)
-                pProcess->getThread(0)->inhibitEvent(sig, false);
-            return -1;
-        }
-        delete pOldLinker;
-    }
-
-    // Close all FD_CLOEXEC descriptors.
-    pSubsystem->freeMultipleFds(true);
-
-    // Clean up the thread now.
-    /// \todo This doesn't actually free any stacks.
-    while (pThread->getStateLevel())
-        pThread->popState();
-
-    // Create a new stack.
-    VirtualAddressSpace::Stack *pStack = Processor::information().getVirtualAddressSpace().allocateStack();
-    uintptr_t newStack = reinterpret_cast<uintptr_t>(pStack->getTop());
-    /// \todo Free previous stack, or actually use it??
-
-    // Allocate space for argv and the new environment.
-    uintptr_t argvAddress = 0;
-    size_t totalArgvSpace = argv_len + env_len + (sizeof(void *) * (savedArgv.size() + savedEnv.size()));
-
-    // Align to a page boundary as needed.
-    if (totalArgvSpace & (pageSz - 1))
-    {
-        totalArgvSpace = (totalArgvSpace + pageSz) & ~(pageSz - 1);
-    }
-
-    // Get space now.
-    if (pProcess->getAddressSpace()->getDynamicStart())
-        pProcess->getDynamicSpaceAllocator().allocate(totalArgvSpace, argvAddress);
-    if (!argvAddress)
-        pProcess->getSpaceAllocator().allocate(totalArgvSpace, argvAddress);
-
-    // Map in argv/env
-    for (uintptr_t j = argvAddress; j < (argvAddress + totalArgvSpace); j += pageSz)
-    {
-        void *pVirt = reinterpret_cast<void*> (j);
-        physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-        bool b = Processor::information().getVirtualAddressSpace().map(phys,
-                                                                       pVirt,
-                                                                       VirtualAddressSpace::Write);
-        if (!b)
-            WARNING("map() failed in execve when mapping argv/env");
-    }
-
-    // Load the saved argv and env into this address space now.
-    uintptr_t location = argvAddress;
-    argv = const_cast<const char**> (load_string_array(savedArgv, location, location));
-    env  = const_cast<const char**> (load_string_array(savedEnv, location, location));
-
-    uintptr_t entryPoint = 0;
-
-    Elf *elf = 0;
-    if(pLinker)
-    {
-        elf = pProcess->getLinker()->getProgramElf();
-        entryPoint = elf->getEntryPoint();
-    }
-    else
-    {
-        // Memory map the interpreter and create an Elf object for it.
-        // The memory map is defined as unshared, but because we map files
-        // with CoW, most of this mapping ends up shared across all address
-        // spaces. This means we don't have to be smart about loading the ELF.
-        uintptr_t loadAddr = pProcess->getAddressSpace()->getDynamicLinkerAddress();
-        NOTICE("Mapping dynamic linker '" << file->getName() << "' at " << loadAddr << "...");
-        MemoryMappedObject::Permissions perms = MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
-        MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(file, loadAddr, file->getSize(), perms);
-        if(!pMmFile)
-        {
-            ERROR("execve: couldn't memory map dynamic linker");
-            SYSCALL_ERROR(ExecFormatError);
-            return -1;
-        }
-
-        Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(loadAddr), file->getSize(), entryPoint);
-    }
-
-    // JAMESM: I don't think the sigret code actually needs to be called from userspace. Here should do just fine, no?
-
-    pedigree_init_sigret();
-    pedigree_init_pthreads();
-
-    class RunInitEvent : public Event
-    {
-    public:
-        RunInitEvent(uintptr_t addr) : Event(addr, true)
-        {}
-        size_t serialize(uint8_t *pBuffer)
-        {return 0;}
-        size_t getNumber() {return ~0UL;}
-    };
-
-    // Don't run init if we don't have a linker (loaded image needs to relocate itself and call init)
-    if(pLinker)
-    {
-        // Find the init function location, if it exists.
-        uintptr_t initLoc = elf->getInitFunc();
-        if (initLoc)
-        {
-            NOTICE("initLoc active: " << initLoc);
-
-            RunInitEvent *ev = new RunInitEvent(initLoc);
-            // Poke the initLoc so we know it's mapped in!
-            volatile uintptr_t *vInitLoc = reinterpret_cast<volatile uintptr_t*> (initLoc);
-            volatile uintptr_t tmp = * vInitLoc;
-            *vInitLoc = tmp; // GCC can't ignore a write.
-            asm volatile("" :::"memory"); // Memory barrier.
-            Processor::information().getCurrentThread()->sendEvent(ev);
-            // Yield, so the code gets run before we return.
-            Scheduler::instance().yield();
-        }
-    }
-
-    /// \todo Genericize this somehow - "pState.setScratchRegisters(state)"?
-#ifdef PPC_COMMON
-    state.m_R6 = pState.m_R6;
-    state.m_R7 = pState.m_R7;
-    state.m_R8 = pState.m_R8;
-#endif
-
-    // Before we enter the new address space, wipe out the scheduler state.
-    // This is a new scheduling entity.
-    SchedulerState s;
-    ByteSet(&s, 0, sizeof(s));
-    pThread->state() = s;
-
-    // Allow signals again now that everything's loaded
-    for(int sig = 0; sig < 32; sig++)
-        Processor::information().getCurrentThread()->inhibitEvent(sig, false);
-
-    // Jump to the new process.
-    Processor::setInterrupts(true);
-    pProcess->recordTime(true);
-    Processor::jumpUser(0, entryPoint, newStack,
-        reinterpret_cast<uintptr_t>(argv), reinterpret_cast<uintptr_t>(env));
+    // Technically, we never get here.
+    return 0;
 }
 
 /**
@@ -960,7 +649,6 @@ int posix_getpwent(passwd *pw, int n, char *str)
 
     pw->pw_uid = pUser->getId();
     pw->pw_gid = pUser->getDefaultGroup()->getId();
-    pw->pw_comment = str;
     str = store_str_to(str, strend, pUser->getFullName());
 
     pw->pw_gecos = str;
@@ -1001,7 +689,6 @@ int posix_getpwnam(passwd *pw, const char *name, char *str)
 
     pw->pw_uid = pUser->getId();
     pw->pw_gid = pUser->getDefaultGroup()->getId();
-    pw->pw_comment = str;
     str = store_str_to(str, strend, pUser->getFullName());
 
     pw->pw_gecos = str;

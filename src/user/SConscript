@@ -167,7 +167,7 @@ base_libs = []
 if env['posix_musl']:
     base_include_dirs = [
         os.path.join(builddir, 'musl', 'include'),
-        # EXTERNAL_INCLUDE_DIR,
+        EXTERNAL_INCLUDE_DIR,
     ]
 else:
     base_include_dirs = [
@@ -201,16 +201,13 @@ if env['posix_musl']:
     env_clone['LIBPATH'].append(os.path.join(builddir, 'musl', 'lib'))
 
 env_clone.MergeFlags({
-    'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+    'CPPDEFINES': ['_POSIX_SOURCE', '_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
     'CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
 })
 
-# Clean up CPPDEFINES
-define_removals = ('LITTLE_ENDIAN', 'BIG_ENDIAN')
-env_clone['CPPDEFINES'] = [x for x in env_clone['CPPDEFINES'] if x not in define_removals]
-
 if not env['ON_PEDIGREE']:
-    cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
+    # cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
+    cpp_base = '#images/local/include/c++/%s' % env['CCVERSION']
     cpp_arch_base = os.path.join(cpp_base, env['COMPILER_TARGET'])
 
 # -static stops GCC placing the path to the dynamic linker into the binary, and creates a non-relocateable executable.
@@ -264,6 +261,8 @@ for app in set(apps):
 
     custom_link_libs = custom_libs.get(app)
     if custom_link_libs:
+        if 'pedigree' in custom_link_libs and 'pedigree-c' not in custom_link_libs:
+            custom_link_libs.append('pedigree-c')
         app_env['LIBS'] += custom_link_libs
 
     # Handle SDL dependencies.
@@ -301,9 +300,6 @@ for app in set(apps):
         if not env['ON_PEDIGREE']:
             app_env['CPPPATH'] += [cpp_base, cpp_arch_base]
         app_env['LINK'] = env['CXX']
-
-        print 'While porting musl, C++ apps are not available.'
-        continue
 
     # Handle libui-related dependencies.
     if app in libui_apps:

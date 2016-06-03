@@ -27,36 +27,61 @@
 #error syscall-stubs.h requires SERVICE_INIT to be defined
 #endif
 
-static long syscall5(long function, long p1, long p2, long p3, long p4, long p5)
+static long syscall6(long function, long p1, long p2, long p3, long p4, long p5, long p6)
 {
   long eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
   long ret;
+  long err;
   SERVICE_INIT;
-  __asm__ __volatile__ ("mov %7, %%r8; syscall" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5) : "rcx", "r8", "r11");
+  __asm__ __volatile__ ("mov %7, %%r8; mov %8, %%r9; syscall" :
+      "=a" (ret), "=b" (err) :
+      "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5), "m" (p6) :
+      "rcx", "r8", "r9", "r11");
+  if (err)
+  {
+    SERVICE_ERROR = err;
+  }
+  return ret;
+}
+
+static long syscall6_err(long function, long p1, long p2, long p3, long p4, long p5, long p6, long *err)
+{
+  long eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
+  long ret;
+  *err = 0;
+  __asm__ __volatile__ ("mov %7, %%r8; mov %8, %%r9; syscall" :
+      "=a" (ret), "=b" (*err) :
+      "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5), "m" (p6) :
+      "rcx", "r8", "r9", "r11");
   return ret;
 }
 
 static long syscall0(long function)
 {
-  return syscall5(function, 0, 0, 0, 0, 0);
+  return syscall6(function, 0, 0, 0, 0, 0, 0);
 }
 
 static long syscall1(long function, long p1)
 {
-  return syscall5(function, p1, 0, 0, 0, 0);
+  return syscall6(function, p1, 0, 0, 0, 0, 0);
 }
 
 static long syscall2(long function, long p1, long p2)
 {
-  return syscall5(function, p1, p2, 0, 0, 0);
+  return syscall6(function, p1, p2, 0, 0, 0, 0);
 }
 
 static long syscall3(long function, long p1, long p2, long p3)
 {
-  return syscall5(function, p1, p2, p3, 0, 0);
+  return syscall6(function, p1, p2, p3, 0, 0, 0);
 }
 
 static long syscall4(long function, long p1, long p2, long p3, long p4)
 {
-  return syscall5(function, p1, p2, p3, p4, 0);
+  return syscall6(function, p1, p2, p3, p4, 0, 0);
+}
+
+static long syscall5(long function, long p1, long p2, long p3, long p4, long p5)
+{
+  return syscall6(function, p1, p2, p3, p4, p5, 0);
 }

@@ -1535,6 +1535,8 @@ void TextIO::timer(uint64_t delta, InterruptState &state)
 
 uint8_t TextIO::translate(uint32_t codepoint)
 {
+    NOTICE("translate(" << codepoint << ")");
+
     // Translate codepoints into Code Page 437 representation.
     switch(codepoint)
     {

@@ -24,36 +24,7 @@
 #include <processor/Processor.h>
 #include <process/Scheduler.h>
 
-// c_cc array indices, and their default character.
-#define VEOF        4 // 0x04
-#define VEOL        5 // 0x00
-#define VERASE      2 // 0x08
-#define VINTR       0 // 0x03
-#define VKILL       3 // 0x15
-#define VQUIT       1 // 0x1C
-#define VSTART      11 // 0x11
-#define VSTOP       12 // 0x13
-#define VSUSP       10 // 0x1A
-
-static const char defaultControl[MAX_CONTROL_CHAR] = {
-    0x03, // VINTR
-    0x1C, // VQUIT
-    0x08, // VERASE
-    0x15, // VKILL
-    0x04, // VEOF
-    0x00, // VEOL
-    0x00, // 6
-    0x00, // 7
-    0x00, // 8
-    0x00, // 9
-    0x1A, // VSUSP
-    0x11, // VSTART
-    0x13, // VSTOP
-    0x00, // 13
-    0x17, // VWERASE
-    0x16, // VLNEXT
-    0x00, // VEOL2
-};
+extern const char defaultControl[MAX_CONTROL_CHAR];
 
 ConsoleManager ConsoleManager::m_Instance;
 

@@ -28,19 +28,7 @@
 #include <utilities/Buffer.h>
 #include <Spinlock.h>
 
-#define CONSOLE_READ    1
-#define CONSOLE_WRITE   2
-#define CONSOLE_GETROWS 3
-#define CONSOLE_GETCOLS 4
-#define CONSOLE_DATA_AVAILABLE 5
-#define CONSOLE_REFRESH 10
-#define CONSOLE_FLUSH   11
-
-#define LINEBUFFER_MAXIMUM 2048
-
-#define PTY_BUFFER_SIZE     32768
-
-#define MAX_CONTROL_CHAR    17
+#include "ConsoleDefines.h"
 
 #define DEFAULT_FLAGS  (ConsoleManager::OPostProcess | \
                         ConsoleManager::IMapCRToNL | \

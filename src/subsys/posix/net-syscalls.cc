@@ -37,10 +37,10 @@
 #include "file-syscalls.h"
 #include "net-syscalls.h"
 
+#include <fcntl.h>
+#include <sys/socket.h>
 #include <sys/un.h>
 #include <netdb.h>
-
-#include "newlib.h"
 
 int posix_socket(int domain, int type, int protocol)
 {
@@ -74,11 +74,13 @@ int posix_socket(int domain, int type, int protocol)
             valid = false;
         }
     }
+    /*
     else if (domain == PF_SOCKET)
     {
         // raw wire-level sockets
         file = NetManager::instance().newEndpoint(NETMAN_TYPE_RAW, 0xff);
     }
+    */
     else if (domain == AF_UNIX)
     {
         if (type != SOCK_DGRAM)
@@ -312,30 +314,11 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
     return success ? bufflen : -1;
 }
 
-struct special_send_recv_data
-{
-    int sock;
-    void* buff;
-    size_t bufflen;
-    int flags;
-    struct sockaddr* remote_addr;
-    socklen_t* addrlen;
-} __attribute__((packed));
-
-ssize_t posix_sendto(void* callInfo)
+ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen)
 {
     /// \todo Check addresses...
 
     N_NOTICE("posix_sendto");
-
-    /// \todo Ugly - constructor would be nicer.
-    special_send_recv_data* tmp = reinterpret_cast<special_send_recv_data*>(callInfo);
-    int sock = tmp->sock;
-    const void* buff = tmp->buff;
-    size_t bufflen = tmp->bufflen;
-    //int flags = tmp->flags;
-    const sockaddr* address = tmp->remote_addr;
-    //size_t* addrlen = tmp->addrlen;
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -372,8 +355,16 @@ ssize_t posix_sendto(void* callInfo)
     }
 
     Socket *s = static_cast<Socket *>(f->file);
+    if (!s)
+    {
+        return -1;
+    }
 
     Endpoint* p = s->getEndpoint();
+    if (!p)
+    {
+        return -1;
+    }
 
     if (s->getProtocol() == NETMAN_TYPE_TCP)
     {
@@ -452,20 +443,11 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
     return ret;
 }
 
-ssize_t posix_recvfrom(void* callInfo)
+ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen)
 {
     /// \todo Check pointer.....
 
     N_NOTICE("posix_recvfrom");
-
-    /// \todo Ugly - constructor would be nicer.
-    special_send_recv_data* tmp = reinterpret_cast<special_send_recv_data*>(callInfo);
-    int sock = tmp->sock;
-    void* buff = tmp->buff;
-    size_t bufflen = tmp->bufflen;
-    int flags = tmp->flags;
-    sockaddr* address = tmp->remote_addr;
-    size_t* addrlen = tmp->addrlen;
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());

@@ -328,6 +328,13 @@ public:
      * revertToKernelAddressSpace!
      */
     void resetTlsBase();
+
+    /**
+     * Set the TLS base for this thread. Once set, it must be cleaned up by
+     * the caller when the thread terminates, which makes this primarily useful
+     * for userspace TLS segments.
+     */
+    void setTlsBase(uintptr_t base);
     
     /** Gets this thread's CPU ID */
     inline
@@ -490,6 +497,9 @@ private:
     
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase;
+
+    /** Whether or not userspace has overridden its TLS base. */
+    bool m_bTlsBaseOverride;
     
 #ifdef MULTIPROCESSOR
     ProcessorId

@@ -263,12 +263,13 @@ class PosixSubsystem : public Subsystem
         struct SignalHandler
         {
             SignalHandler() :
-                sig(255), pEvent(0), sigMask(0), flags(0), type(0)
+                sig(255), pEvent(0), sigMask(), flags(0), type(0)
             {}
 
             SignalHandler(const SignalHandler &s) :
                 sig(s.sig), pEvent(new SignalEvent(*(s.pEvent))), sigMask(s.sigMask), flags(s.flags), type(s.type)
-            {}
+            {
+            }
 
             ~SignalHandler()
             {
@@ -526,7 +527,15 @@ class PosixSubsystem : public Subsystem
         virtual void threadRemoved(Thread *pThread);
 
         /** Load an ELF's PT_LOAD sections into the address space. */
-        virtual bool loadElf(File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress);
+        bool loadElf(File *pFile, uintptr_t mappedAddress,
+                     uintptr_t &newAddress, uintptr_t &finalAddress);
+
+        /** Invokes the given command - actual implementation. */
+        bool invoke(const char *name, List<SharedPointer<String>> &argv,
+                    List<SharedPointer<String>> &env, SyscallState *pState);
+
+        /** Parse a file for a possible shebang line. */
+        bool parseShebang(File *pFile, File *&outFile, List<SharedPointer<String>> &argv);
 
         /** Signal handlers */
         Tree<size_t, SignalHandler*> m_SignalHandlers;

@@ -75,7 +75,7 @@ libutility_sources = [
     'Log.cc',
 ]
 defines = [
-    'HOSTED', 'UTILITY_LINUX', 'LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
+    'HOSTED', 'UTILITY_LINUX', 'TARGET_IS_LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
     'BENCHMARK', 'STANDALONE_MUTEXES',
 ]
 

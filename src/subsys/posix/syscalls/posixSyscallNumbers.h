@@ -194,6 +194,11 @@
 #define POSIX_GETGRGID          136
 #define POSIX_UMASK             137
 #define POSIX_GETSOCKNAME       138
+#define POSIX_WRITEV            139
+#define POSIX_READV             140
+#define POSIX_GETDENTS          141
+#define POSIX_GETTID            142
+#define POSIX_BRK               143
 
 #define POSIX_PTSNAME           200
 #define POSIX_TTYNAME           201
@@ -208,5 +213,8 @@
 #define POSIX_PEDIGREE_THREAD_TRIGGER   209
 
 #define POSIX_PEDIGREE_GET_INFO_BLOCK   210
+
+// For pthreads
+#define POSIX_SET_TLS_AREA      211
 
 #endif

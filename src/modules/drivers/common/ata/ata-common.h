@@ -490,7 +490,7 @@ inline void ataLoadSwapped(char *out, char *in, size_t N)
     uint16_t *in16 = reinterpret_cast<uint16_t *>(in);
     for (size_t i = 0; i < N; ++i)
     {
-#ifdef LITTLE_ENDIAN
+#ifdef TARGET_IS_LITTLE_ENDIAN
         out[i * 2] = in16[i] >> 8;
         out[(i * 2) + 1] = in16[i] & 0xFF;
 #else

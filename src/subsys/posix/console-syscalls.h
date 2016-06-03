@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,12 +22,15 @@
 
 #include <vfs/File.h>
 
-#include "newlib.h"
+#include <sys/types.h>
+
+struct termios;
+struct winsize;
 
 int posix_tcgetattr(int fd, struct termios *p);
 int posix_tcsetattr(int fd, int optional_actions, struct termios *p);
-int console_getwinsize(File* file, winsize_t *buf);
-int console_setwinsize(File *file, const winsize_t *buf);
+int console_getwinsize(File* file, struct winsize *buf);
+int console_setwinsize(File *file, const struct winsize *buf);
 int console_flush(File *file, void *what);
 
 int console_ptsname(int fd, char *buf);

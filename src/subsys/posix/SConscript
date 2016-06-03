@@ -106,15 +106,16 @@ crtn_files = ["crtn" + suffix + ".s"]
 
 # To include a new directory for includes, just add it to the list
 include = [
+    os.path.join(builddir, 'musl', 'include'),
     '#src/subsys/posix/syscalls',
-    '#src/subsys/posix/include',
+    # '#src/subsys/posix/include',
     '#/src/modules',
     '#/src/system/include',
     '#/src/modules/system',
     '#/src/subsys/pedigree-c',
     '#src/subsys/posix',
     # Last attempt for missing files is in the disk image's /include
-    os.path.join(imagesdir, 'include'),
+    # os.path.join(imagesdir, 'include'),
 ]
 
 # To add a library path add to the list below
@@ -154,7 +155,10 @@ env_clone['CPPDEFINES'] += ['POSIX_LOG_FACILITIES=%d' % logging_mask]
 
 env_clone['AS'] = userspace_env_clone['AS']
 env_clone['ASFLAGS'] = userspace_env_clone['ASFLAGS']
-# This almost certainly will not compile with musl!
+env_clone.MergeFlags({
+    'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+    'TARGET_CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
+})
 buildutils.modules.buildModule(env_clone, final_output, posix_objname, posix_files)
 
 posix_env = userspace_env_clone.Clone()

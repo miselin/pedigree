@@ -17,28 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _PTHREAD_SYSCALLS_H
-#define _PTHREAD_SYSCALLS_H
+// This is in a C file as the designated initializers are supported here.
 
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/state.h>
+#include "ConsoleDefines.h"
 
-#include <process/Semaphore.h>
-#include <process/Thread.h>
-#include "PosixSubsystem.h"
-
-#include "logging.h"
-
-#include <sys/types.h>
-
-void pedigree_init_pthreads();
-void pedigree_copy_posix_thread(Thread *, PosixSubsystem *, Thread *, PosixSubsystem *);
-
-/// Creates a new wait object that threads can use to synchronise.
-void *posix_pedigree_create_waiter();
-int posix_pedigree_thread_wait_for(void *waiter);
-int posix_pedigree_thread_trigger(void *waiter);
-void posix_pedigree_destroy_waiter(void *waiter);
-
-#endif
+const char defaultControl[MAX_CONTROL_CHAR] = {
+    [VINTR] = 0x03,
+    [VQUIT] = 0x1C,
+    [VERASE] = 0x08,
+    [VKILL] = 0x15,
+    [VEOF] = 0x04,
+    [VSUSP] = 0x1A,
+    [VSTART] = 0x11,
+    [VSTOP] = 0x13,
+    [VWERASE] = 0x17,
+    [VLNEXT] = 0x16,
+};

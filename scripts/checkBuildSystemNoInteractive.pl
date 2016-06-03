@@ -19,7 +19,7 @@ my $gcc_libcpp_install = "";
 
 # Handle special arguments. These are given to change the behaviour of the script, or to
 # work around issues with specific operating systems.
-for(my $i = 2; $i < @ARGV; $i++)
+for(my $i = 1; $i < @ARGV; $i++)
 {
     if($ARGV[$i] eq "osx-compat")
     {
@@ -52,7 +52,7 @@ my @command = ( {'cwd' => "gcc-$gcc_version",
                  'name' => "fixing autoconf version dependency",
                  'cmd' => "autoconf -V | grep autoconf | tr ' ' '\n' | tail -1 | xargs printf -- '-i.bak \"s/2.64/\%s/g\" ./config/override.m4' | xargs sed",
                  'arch' => 'all'},
-                {'cwd' => "gcc-$gcc_version",
+                {'cwd' => "gcc-$gcc_version/libstdc++-v3",
                  'name' => "libstdc++ crossconfig",
                  'cmd' => "autoreconf --force",
                  'arch' => 'all'} );
@@ -94,7 +94,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                 {'dir' => "gcc-$gcc_version",
                  'ok' => $gcc_libcpp_make ne "",
                  'name' => "libstdc++",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --with-newlib --disable-libstdcxx-pch --enable-shared",
+                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --without-newlib --disable-libstdcxx-pch --enable-shared",
                  'make' => "$gcc_libcpp_make",
                  'install' => "$gcc_libcpp_install",
                  'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
@@ -277,7 +277,7 @@ print "Complete; linking crt*.o...\n";
 `ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/Scrt1.o`;
 `ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
 `ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
-`ln -sf $prefix/src/subsys/posix/include ./compilers/dir/$target/`;
+`ln -sf $prefix/build/musl/include ./compilers/dir/$target/`;
 print "Done.\n";
 
 `rm -rf ./compilers/dir/build_tmp`;

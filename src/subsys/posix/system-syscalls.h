@@ -24,9 +24,16 @@
 #include <processor/VirtualAddressSpace.h>
 #include <processor/state.h>
 
-#include "newlib.h"
 #include "logging.h"
 
+#include <sys/types.h>
+
+// Forward-declare types.
+struct group;
+struct passwd;
+struct timespec;
+
+uintptr_t posix_brk(uintptr_t theBreak);
 long posix_sbrk(int delta);
 int posix_fork(SyscallState &state);
 int posix_execve(const char *name, const char **argv, const char **env, SyscallState &state);
