@@ -37,9 +37,11 @@
 #include "logging.h"
 
 #include <linker/DynamicLinker.h>
+#include <linker/Elf.h>
 #include <vfs/VFS.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
+#include <vfs/MemoryMappedFile.h>
 
 #define O_RDONLY    0
 #define O_WRONLY    1
@@ -53,6 +55,9 @@ typedef Tree<size_t, FileDescriptor*> FdMap;
 RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 
 ProcessGroupManager ProcessGroupManager::m_Instance;
+
+extern void pedigree_init_sigret();
+extern void pedigree_init_pthreads();
 
 /// Default constructor
 FileDescriptor::FileDescriptor() :
@@ -856,4 +861,367 @@ void PosixSubsystem::threadRemoved(Thread *pThread)
 bool PosixSubsystem::checkAccess(FileDescriptor *pFileDescriptor, bool bRead, bool bWrite, bool bExecute) const
 {
     return VFS::checkAccess(pFileDescriptor->file, bRead, bWrite, bExecute);
+}
+
+bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
+                             uintptr_t &newAddress)
+{
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+
+    // Grab the file header to check magic and find program headers.
+    Elf::ElfHeader_t *pHeader = reinterpret_cast<Elf::ElfHeader_t *>(mappedAddress);
+    if ((pHeader->ident[1] != 'E') ||
+            (pHeader->ident[2] != 'L') ||
+            (pHeader->ident[3] != 'F') ||
+            (pHeader->ident[0] != 127))
+    {
+        return false;
+    }
+
+    size_t phnum = pHeader->phnum;
+    Elf::ElfProgramHeader_t *phdrs = reinterpret_cast<Elf::ElfProgramHeader_t *>(mappedAddress + pHeader->phoff);
+
+    // Find full memory size that we need to map in.
+    uintptr_t startAddress = ~0U;
+    uintptr_t unalignedStartAddress = 0;
+    uintptr_t endAddress = 0;
+    for (size_t i = 0; i < phnum; ++i)
+    {
+        if (phdrs[i].type != PT_LOAD)
+        {
+            continue;
+        }
+
+        if (phdrs[i].vaddr < startAddress)
+        {
+            startAddress = phdrs[i].vaddr;
+        }
+
+        uintptr_t maybeEndAddress = phdrs[i].vaddr + phdrs[i].memsz;
+        if (maybeEndAddress > endAddress)
+        {
+            endAddress = maybeEndAddress;
+        }
+    }
+
+    // Align to page boundaries.
+    size_t pageSz = PhysicalMemoryManager::getPageSize();
+    unalignedStartAddress = startAddress;
+    startAddress &= ~(pageSz - 1);
+    if (startAddress != unalignedStartAddress)
+    {
+        NOTICE("unaligned load");
+    }
+    if (endAddress & (pageSz - 1))
+    {
+        endAddress = (endAddress + pageSz) & ~(pageSz - 1);
+    }
+
+    // OK, we can allocate space for the file now.
+    bool bRelocated = false;
+    if (pHeader->type == ET_REL || pHeader->type == ET_DYN)
+    {
+        if (!pProcess->getDynamicSpaceAllocator().allocate(endAddress - startAddress, newAddress))
+            if (!pProcess->getSpaceAllocator().allocate(endAddress - startAddress, newAddress))
+                return false;
+
+        bRelocated = true;
+        unalignedStartAddress = newAddress + (startAddress & (pageSz - 1));
+        startAddress = newAddress;
+
+        newAddress = unalignedStartAddress;
+    }
+    else
+    {
+        if (!pProcess->getDynamicSpaceAllocator().allocateSpecific(startAddress, endAddress - startAddress))
+            if (!pProcess->getSpaceAllocator().allocateSpecific(startAddress, endAddress - startAddress))
+                return false;
+
+        newAddress = unalignedStartAddress;
+    }
+
+    // Can now do another pass, mapping in as needed.
+    for (size_t i = 0; i < phnum; ++i)
+    {
+        if (phdrs[i].type != PT_LOAD)
+        {
+            continue;
+        }
+
+        uintptr_t base = phdrs[i].vaddr;
+        if (bRelocated)
+        {
+            base += startAddress;
+        }
+        uintptr_t unalignedBase = base;
+        if (base & (pageSz - 1))
+        {
+            base &= ~(pageSz - 1);
+        }
+
+        uintptr_t offset = phdrs[i].offset;
+        if (offset & (pageSz - 1))
+        {
+            offset &= ~(pageSz - 1);
+        }
+
+        size_t length = phdrs[i].memsz;
+        if (length & (pageSz - 1))
+        {
+            length = (length + pageSz) & ~(pageSz - 1);
+        }
+
+        // Map.
+        MemoryMappedObject::Permissions perms = MemoryMappedObject::Read;
+        if (phdrs[i].flags & PF_X)
+        {
+            perms |= MemoryMappedObject::Exec;
+        }
+        if (phdrs[i].flags & PF_R)
+        {
+            perms |= MemoryMappedObject::Read;
+        }
+        if (phdrs[i].flags & PF_W)
+        {
+            perms |= MemoryMappedObject::Write;
+        }
+
+        NOTICE("PHDR[" << i << "]: @" << Hex << base << " -> " << base + length);
+        MemoryMappedObject *pObject = MemoryMapManager::instance().mapFile(pFile, base, length, perms, offset);
+        if (!pObject)
+        {
+            ERROR("PosixSubsystem::loadElf: failed to map PT_LOAD section");
+            return false;
+        }
+
+        if (phdrs[i].memsz > phdrs[i].filesz)
+        {
+            uintptr_t end = unalignedBase + phdrs[i].memsz;
+            uintptr_t zeroStart = unalignedBase + phdrs[i].filesz;
+            if (zeroStart & (pageSz - 1))
+            {
+                size_t numBytes = pageSz - (zeroStart & (pageSz - 1));
+                if ((zeroStart + numBytes) > end)
+                {
+                    numBytes = end - zeroStart;
+                }
+                ByteSet(reinterpret_cast<void *>(zeroStart), 0, numBytes);
+                zeroStart += numBytes;
+            }
+
+            if (zeroStart < end)
+            {
+                MemoryMappedObject *pObject = MemoryMapManager::instance().mapAnon(zeroStart, end - zeroStart, perms);
+                if (!pObject)
+                {
+                    ERROR("PosixSubsystem::loadElf: failed to map anonymous pages for filesz/memsz mismatch");
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+#define STACK_PUSH(stack, value) *--stack = value
+#define STACK_PUSH2(stack, value1, value2) STACK_PUSH(stack, value1); STACK_PUSH(stack, value2)
+#define STACK_PUSH_COPY(stack, value, length) stack = adjust_pointer(stack, -length); MemoryCopy(stack, value, length)
+#define STACK_PUSH_ZEROES(stack, length) stack = adjust_pointer(stack, -length); ByteSet(stack, 0, length)
+
+bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env)
+{
+    /// \todo function to parse shebang within file
+
+    // Try and find the target file we want to invoke.
+    File *originalFile = VFS::instance().find(String(name));
+    if (!originalFile)
+    {
+        ERROR("PosixSubsystem::invoke: could not find file '" << name << "'");
+        return false;
+    }
+
+    File *interpreterFile = 0;
+
+    // We now need to clean up the process' address space.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    pProcess->getSpaceAllocator().clear();
+    pProcess->getDynamicSpaceAllocator().clear();
+    pProcess->getSpaceAllocator().free(
+            pProcess->getAddressSpace()->getUserStart(),
+            pProcess->getAddressSpace()->getUserReservedStart() - pProcess->getAddressSpace()->getUserStart());
+    if(pProcess->getAddressSpace()->getDynamicStart())
+    {
+        pProcess->getDynamicSpaceAllocator().free(
+            pProcess->getAddressSpace()->getDynamicStart(),
+            pProcess->getAddressSpace()->getDynamicEnd() - pProcess->getAddressSpace()->getDynamicStart());
+    }
+    pProcess->getAddressSpace()->revertToKernelAddressSpace();
+
+    // Determine if the target uses an interpreter or not.
+    String interpreter("");
+    DynamicLinker *pLinker = new DynamicLinker();
+    pProcess->setLinker(pLinker);
+    if(pLinker->checkInterpreter(originalFile, interpreter))
+    {
+        // Ensure we can actually find the interpreter.
+        interpreterFile = VFS::instance().find(interpreter, pProcess->getCwd());
+        if(!interpreterFile)
+        {
+            ERROR("PosixSubsystem::invoke: could not find interpreter '" << interpreter << "'");
+            return false;
+        }
+
+        // No longer need the DynamicLinker instance.
+        delete pLinker;
+        pLinker = 0;
+        pProcess->setLinker(pLinker);
+    }
+    else
+    {
+        ERROR("PosixSubsystem::invoke: target does not have a dynamic linker");
+        return false;
+    }
+
+    // Map in the two ELF files so we can load them into the address space.
+    uintptr_t originalBase = 0, interpreterBase = 0;
+    MemoryMappedObject::Permissions perms = MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
+    MemoryMappedObject *pOriginal = MemoryMapManager::instance().mapFile(originalFile, originalBase, originalFile->getSize(), perms);
+    if (!pOriginal)
+    {
+        ERROR("PosixSubsystem::invoke: failed to map target");
+        return false;
+    }
+
+    MemoryMappedObject *pInterpreter = MemoryMapManager::instance().mapFile(interpreterFile, interpreterBase, interpreterFile->getSize(), perms);
+    if (!pInterpreter)
+    {
+        ERROR("PosixSubsystem::invoke: failed to map interpreter");
+        MemoryMapManager::instance().unmap(pOriginal);
+        return false;
+    }
+
+    // Load the target application first.
+    uintptr_t originalLoadedAddress = 0;
+    if (!loadElf(originalFile, originalBase, originalLoadedAddress))
+    {
+        /// \todo cleanup
+        ERROR("PosixSubsystem::invoke: failed to load target");
+        return false;
+    }
+
+    // Now load the interpreter.
+    uintptr_t interpreterLoadedAddress = 0;
+    if (!loadElf(interpreterFile, interpreterBase, interpreterLoadedAddress))
+    {
+        /// \todo cleanup
+        ERROR("PosixSubsystem::invoke: failed to load interpreter");
+        return false;
+    }
+
+    // Extract entry points.
+    uintptr_t originalEntryPoint = 0, interpreterEntryPoint = 0;
+    Elf::extractEntryPoint(reinterpret_cast<uint8_t *>(originalBase), originalFile->getSize(), originalEntryPoint);
+    Elf::extractEntryPoint(reinterpret_cast<uint8_t *>(interpreterBase), interpreterFile->getSize(), interpreterEntryPoint);
+
+    // Pull out the ELF header information for the original image.
+    Elf::ElfHeader_t *originalHeader = reinterpret_cast<Elf::ElfHeader_t *>(originalBase);
+
+    // We can now build the auxiliary vector to pass to the dynamic linker.
+    VirtualAddressSpace::Stack *stack = Processor::information().getVirtualAddressSpace().allocateStack();
+    uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
+
+    // Push argv/env.
+    char **argvs = new char*[argv.count()];
+    size_t argc = 0;
+    for (auto it : argv)
+    {
+        STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
+        argvs[argc++] = reinterpret_cast<char *>(loaderStack);
+    }
+
+    char **envs = new char*[argv.count()];
+    size_t envc = 0;
+    for (auto it : env)
+    {
+        STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
+        envs[envc++] = reinterpret_cast<char *>(loaderStack);
+    }
+
+    /// \todo platform assumption here.
+    STACK_PUSH_COPY(loaderStack, "x86_64", 7);
+    void *platform = loaderStack;
+
+    /// \todo 16 random bytes, not 16 zero bytes
+    STACK_PUSH_ZEROES(loaderStack, 16);
+    void *random = loaderStack;
+
+    // Align to 16 bytes.
+    STACK_PUSH_ZEROES(loaderStack, 16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15));
+
+    // Build the aux vector now.
+    STACK_PUSH2(loaderStack, 0, 0);  // AT_NULL
+    STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(platform), 15);  // AT_PLATFORM
+    STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
+    STACK_PUSH2(loaderStack, 0, 15);  // AT_SECURE
+    /// \todo get from pProcess
+    STACK_PUSH2(loaderStack, 0, 15);  // AT_EGID
+    STACK_PUSH2(loaderStack, 0, 15);  // AT_GID
+    STACK_PUSH2(loaderStack, 0, 15);  // AT_EUID
+    STACK_PUSH2(loaderStack, 0, 15);  // AT_UID
+
+    // ELF parts in the aux vector.
+    STACK_PUSH2(loaderStack, originalEntryPoint, 9);  // AT_ENTRY
+    STACK_PUSH2(loaderStack, interpreterLoadedAddress, 7);  // AT_BASE
+    STACK_PUSH2(loaderStack, PhysicalMemoryManager::getPageSize(), 6);  // AT_PAGESZ
+    STACK_PUSH2(loaderStack, originalHeader->phnum, 5);  // AT_PHNUM
+    STACK_PUSH2(loaderStack, originalHeader->phentsize, 4);  // AT_PHENT
+    STACK_PUSH2(loaderStack, originalLoadedAddress + originalHeader->phoff, 3);  // AT_PHDR
+
+    NOTICE("Entry: " << Hex << interpreterEntryPoint << "/" << originalEntryPoint);
+    NOTICE(" -> adjusted: " << Hex << interpreterLoadedAddress + interpreterEntryPoint << "/" << originalLoadedAddress + originalEntryPoint);
+
+    // env
+    STACK_PUSH(loaderStack, 0);  // env[N]
+    for (ssize_t i = envc - 1; i >= 0; --i)
+    {
+        STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i]));
+    }
+
+    // argv
+    STACK_PUSH(loaderStack, 0);  // argv[N]
+    for (ssize_t i = argc - 1; i >= 0; --i)
+    {
+        STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(argvs[i]));
+    }
+
+    // argc
+    STACK_PUSH(loaderStack, argc);
+
+    // We can now unmap both original objects as they've been loaded and consumed.
+    //MemoryMapManager::instance().unmap(pInterpreter);
+    MemoryMapManager::instance().unmap(pOriginal);
+    pInterpreter = pOriginal = 0;
+
+    // Initialise the sigret and pthreads shizzle if not already done for this
+    // process (the calls detect).
+    pedigree_init_sigret();
+    pedigree_init_pthreads();
+
+    Processor::setInterrupts(true);
+    pProcess->recordTime(true);
+
+    // Create the thread now.
+    NOTICE("Running!");
+    Thread *pThread = new Thread(pProcess,
+        reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint + interpreterLoadedAddress),
+        0, loaderStack);
+    pThread->detach();
+
+    return true;
+}
+
+bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env, SyscallState &state)
+{
+    return false;
 }

@@ -26,6 +26,9 @@ class Thread;
 #include <processor/state.h>
 class Process;
 
+#include <utilities/List.h>
+#include <utilities/SharedPointer.h>
+#include <utilities/String.h>
 #include <Log.h>
 
 /** The abstract base class for a generic application subsystem. This provides
@@ -125,6 +128,14 @@ class Subsystem
             else
                 WARNING("An attempt was made to change the Process of a Subsystem!");
         }
+
+        /** Invokes the given command (thread mechanism). */
+        virtual bool invoke(const char *name, List<SharedPointer<String>> &argv,
+                            List<SharedPointer<String>> &env) = 0;
+
+        /** Invokes the given command (SyscallState mechanism). */
+        virtual bool invoke(const char *name, List<SharedPointer<String>> &argv,
+                            List<SharedPointer<String>> &env, SyscallState &state) = 0;
 
     protected:
         /** Notifies the subsystem that the given thread has been removed. */

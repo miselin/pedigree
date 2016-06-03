@@ -514,8 +514,19 @@ class PosixSubsystem : public Subsystem
 
         bool checkAccess(FileDescriptor *pFileDescriptor, bool bRead, bool bWrite, bool bExecute) const;
 
+        /** Invokes the given command (thread mechanism). */
+        virtual bool invoke(const char *name, List<SharedPointer<String>> &argv,
+                            List<SharedPointer<String>> &env);
+
+        /** Invokes the given command (SyscallState mechanism). */
+        virtual bool invoke(const char *name, List<SharedPointer<String>> &argv,
+                            List<SharedPointer<String>> &env, SyscallState &state);
+
     private:
         virtual void threadRemoved(Thread *pThread);
+
+        /** Load an ELF's PT_LOAD sections into the address space. */
+        virtual bool loadElf(File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress);
 
         /** Signal handlers */
         Tree<size_t, SignalHandler*> m_SignalHandlers;

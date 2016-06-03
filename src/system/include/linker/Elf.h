@@ -175,6 +175,10 @@ typedef  int32_t Elf32_Sxword;
  */
 class Elf
 {
+    // PosixSubsystem can use memory mapped files to do its own (very basic)
+    // ELF loading, which is an improvement on load()'s copies.
+    friend class PosixSubsystem;
+
     protected:
         // Forward declaration of ELF symbol type for lookupSymbol template.
         struct ElfSymbol_t;
