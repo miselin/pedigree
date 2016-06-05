@@ -55,12 +55,12 @@
 #define LOG_AT_LEVEL(level, text, lock) \
   do \
   { \
-    Log::LogEntry entry; \
-    FILE_LOG(entry, level); \
-    entry << level << text; \
+    Log::LogEntry __log_macro_logentry; \
+    FILE_LOG(__log_macro_logentry, level); \
+    __log_macro_logentry << level << text; \
     if (lock) \
       LOG_LOCK_ACQUIRE; \
-    Log::instance() << entry << Flush; \
+    Log::instance() << __log_macro_logentry << Flush; \
     if (lock) \
       LOG_LOCK_RELEASE; \
   } \
