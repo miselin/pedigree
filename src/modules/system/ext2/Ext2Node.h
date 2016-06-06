@@ -67,8 +67,12 @@ public:
     void sync(size_t offset, bool async);
 
 protected:
-    /** Ensures the inode is at least 'size' big. */
-    bool ensureLargeEnough(size_t size);
+    /**
+     * Ensures the inode is at least 'size' big.
+     * Set onlyBlocks to true to not change the actual data size, which can be
+     * useful for preallocation.
+     */
+    bool ensureLargeEnough(size_t size, bool onlyBlocks=false);
 
     bool addBlock(uint32_t blockValue);
 

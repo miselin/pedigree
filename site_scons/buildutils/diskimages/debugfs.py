@@ -233,6 +233,8 @@ def buildImageE2fsprogs(target, source, env):
         partition += '\x55\xAA'
         base_image.write(partition)
 
+    base_image.close()
+
     # Generate ext2 filesystem.
     args = [
         env['MKE2FS'],
@@ -328,7 +330,6 @@ def buildImageE2fsprogs(target, source, env):
     # Add some more useful layout features (e.g. to make /bin/sh work).
     cmdlist.append('symlink /applications/sh /applications/bash')
 
-    base_image.close()
 
     # Dump our files into the image using ext2img (built as part of the normal
     # Pedigree build, to run on the build system - not on Pedigree).

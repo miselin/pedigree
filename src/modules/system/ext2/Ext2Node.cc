@@ -135,9 +135,9 @@ void Ext2Node::extend(size_t newSize)
     ensureLargeEnough(newSize);
 }
 
-bool Ext2Node::ensureLargeEnough(size_t size)
+bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
 {
-    if (size > m_nSize)
+    if (size > m_nSize && !onlyBlocks)
     {
         m_nSize = size;
         fileAttributeChanged(m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
