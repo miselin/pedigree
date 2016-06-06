@@ -531,10 +531,22 @@ uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode)
     // Try to allocate near the inode's group (but we can fall back to a
     // different group if needed).
     uint32_t group = inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t startGroup = group;
+    uint32_t result = 0;
 
-    for (; group < m_nGroupDescriptors; group++)
+    for (; group < m_nGroupDescriptors; ++group)
     {
-        uint32_t result = 0;
+        if (findFreeBlockInGroup(group, result))
+        {
+            return result;
+        }
+    }
+
+    // Try again from the start of the disk if we couldn't find a group (if
+    // we started e.g. halfway through the disk due to the inode closeness
+    // thing above, we need to check the rest of the groups).
+    for (group = 0; group < startGroup; ++group)
+    {
         if (findFreeBlockInGroup(group, result))
         {
             return result;
@@ -568,12 +580,13 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
     size_t off = 0;
 
     // Block bitmap pointer.
-    uint32_t *ptr = reinterpret_cast<uint32_t*> (list[idx] + off);
+    typedef uint64_t searchType;
+    searchType *ptr = reinterpret_cast<searchType *>(list[idx] + off);
 
     // Find a free block in this group.
     for (size_t i = 0;
          i < bytesToSearch;
-         i += sizeof(uint32_t))
+         i += sizeof(searchType))
     {
         // Calculate block index into the bitmap.
         // This is essentially the same as:
@@ -585,31 +598,31 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
             off = 0;
 
             // Update the block pointer.
-            ptr = reinterpret_cast<uint32_t*> (list[idx]);
+            ptr = reinterpret_cast<searchType *>(list[idx]);
         }
         else if (LIKELY(i))
         {
-            off += sizeof(uint32_t);
+            off += sizeof(*ptr);
             ++ptr;
         }
 
         // Grab the specific block for the bitmap.
         /// \todo Endianness - to ensure correct operation, must ptr be
         /// little endian?
-        uint32_t tmp = *ptr;
+        searchType tmp = *ptr;
 
         // Bitmap full of bits? Skip it.
-        if (tmp == ~0U)
+        if (tmp == static_cast<searchType>(-1))
             continue;
 
         // Check each bit in this field.
-        for (size_t j = 0; j < 32; j++, tmp >>= 1)
+        for (size_t j = 0; j < (sizeof(searchType) * 8); j++, tmp >>= static_cast<searchType>(1))
         {
             // Free?
             if ((tmp & 1) == 0)
             {
                 // This block is free! Mark used.
-                *ptr |= (1 << j);
+                *ptr |= (static_cast<searchType>(1) << j);
                 pDesc->bg_free_blocks_count--;
 
                 // Update superblock.
