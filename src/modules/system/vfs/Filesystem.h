@@ -61,7 +61,7 @@ public:
         is expected to contain the current working directory.
         \return The file if one was found, or 0 otherwise or if there was an error.
     */
-    virtual File *find(String path, File *pStartNode=0);
+    virtual File *find(const String &path, File *pStartNode=0);
 
     /** Returns the root filesystem node. */
     virtual File* getRoot() =0;

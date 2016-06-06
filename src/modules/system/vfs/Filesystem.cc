@@ -49,7 +49,7 @@ File *Filesystem::getTrueRoot()
     return getRoot();
 }
 
-File *Filesystem::find(String path, File *pStartNode)
+File *Filesystem::find(const String &path, File *pStartNode)
 {
     if (!pStartNode) pStartNode = getTrueRoot();
     File *a = findNode(pStartNode, path);
@@ -265,7 +265,7 @@ File *Filesystem::findNode(File *pNode, String path)
     if (path[0] == '/')
     {
         pNode = getTrueRoot();
-        path = String(&path[1]);
+        path.lchomp();
     }
 
     // Grab the next filename component.
@@ -289,7 +289,7 @@ File *Filesystem::findNode(File *pNode, String path)
     // Why did the loop exit?
     if (path[i] != '\0')
     {
-        restOfPath = path.split(path.nextCharacter(i));
+        restOfPath.assign(path.split(path.nextCharacter(i)));
         // restOfPath is now 'path', but starting at the next token, and with no leading slash.
         // Unfortunately 'path' now has a trailing slash, so chomp it off.
         path.chomp();
@@ -369,15 +369,21 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     // If the final character of the string is '/', this log falls apart. So,
     // check for that and chomp it. But, we also need to not do that for e.g.
     // path == '/'.
-    if (path.length() > 1 && path.endswith("/"))
+    if (path.length() > 1 && path.endswith('/'))
     {
         path.chomp();
     }
 
     // Work forwards to the end of the path string, attempting to find the last '/'.
     ssize_t lastSlash = -1;
-    for (size_t i = 0; i < path.length(); i = path.nextCharacter(i))
-        if (path[i] == '/') lastSlash = i;
+    for (ssize_t i = path.length() - 1; i >= 0; i = path.prevCharacter(i))
+    {
+        if (path[i] == '/')
+        {
+            lastSlash = i;
+            break;
+        }
+    }
 
     // Now, if there were no slashes, the parent node is pStartNode.
     if (lastSlash == -1)
