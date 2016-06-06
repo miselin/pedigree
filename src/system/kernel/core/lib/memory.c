@@ -29,6 +29,11 @@
 #define X64
 #endif
 
+#ifdef UTILITY_LINUX_COVERAGE
+#undef _STRING_H
+#include <string.h>
+#else
+
 #ifdef UTILITY_LINUX
 #define EXPORT static
 #else
@@ -150,6 +155,8 @@ EXPORT void *memmove(void *s1, const void *s2, size_t n)
 }
 
 #endif  // HAS_ADDRESS_SANITIZER
+
+#endif  // UTILITY_LINUX_COVERAGE
 
 void *WordSet(void *buf, int c, size_t n)
 {
