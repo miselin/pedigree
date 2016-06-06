@@ -91,8 +91,7 @@ protected:
     uint32_t m_InodeNumber;
     class Ext2Filesystem *m_pExt2Fs;
 
-    uint32_t *m_pBlocks;
-    uint32_t m_nBlocks;
+    Vector<uint32_t> m_Blocks;
     uint32_t m_nMetadataBlocks;
 
     size_t m_nSize;

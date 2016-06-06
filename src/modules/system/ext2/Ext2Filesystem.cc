@@ -577,85 +577,78 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
     Vector<size_t> &list = m_pBlockBitmaps[group];
     const uint32_t bytesToSearch = blocksPerGroup >> 3;
     size_t idx = 0;
-    size_t off = 0;
+    // size_t off = 0;
 
     // Block bitmap pointer.
     typedef uint64_t searchType;
-    searchType *ptr = reinterpret_cast<searchType *>(list[idx] + off);
+    size_t base = list[idx];
+    searchType *ptr = reinterpret_cast<searchType *>(base);
+    searchType *ptr_end = adjust_pointer(ptr, bitmapBlockBytes);
 
     // Find a free block in this group.
-    for (size_t i = 0;
-         i < bytesToSearch;
-         i += sizeof(searchType))
+    while (true)
     {
-        // Calculate block index into the bitmap.
-        // This is essentially the same as:
-        // idx = i / bitmapBlockBytes;
-        // off = i % bitmapBlockBytes;
-        if (off >= bitmapBlockBytes)
-        {
-            ++idx;
-            off = 0;
-
-            // Update the block pointer.
-            ptr = reinterpret_cast<searchType *>(list[idx]);
-        }
-        else if (LIKELY(i))
-        {
-            off += sizeof(*ptr);
-            ++ptr;
-        }
-
         // Grab the specific block for the bitmap.
         /// \todo Endianness - to ensure correct operation, must ptr be
         /// little endian?
         searchType tmp = *ptr;
 
         // Bitmap full of bits? Skip it.
-        if (tmp == static_cast<searchType>(-1))
-            continue;
-
-        // Check each bit in this field.
-        for (size_t j = 0; j < (sizeof(searchType) * 8); j++, tmp >>= static_cast<searchType>(1))
+        if (tmp != static_cast<searchType>(-1))
         {
-            // Free?
-            if ((tmp & 1) == 0)
+            // Check each bit in this field.
+            for (size_t j = 0; j < (sizeof(searchType) * 8); j++, tmp >>= static_cast<searchType>(1))
             {
-                // This block is free! Mark used.
-                *ptr |= (static_cast<searchType>(1) << j);
-                pDesc->bg_free_blocks_count--;
+                // Free?
+                if ((tmp & 1) == 0)
+                {
+                    // This block is free! Mark used.
+                    *ptr |= (static_cast<searchType>(1) << j);
+                    pDesc->bg_free_blocks_count--;
 
-                // Update superblock.
-                m_pSuperblock->s_free_blocks_count--;
-                m_pDisk->write(1024ULL);
+                    // Update superblock.
+                    m_pSuperblock->s_free_blocks_count--;
+                    m_pDisk->write(1024ULL);
 
-                // Update bitmap on disk.
-                uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
-                writeBlock(desc_block);
+                    // Update bitmap on disk.
+                    uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
+                    writeBlock(desc_block);
 
-                // Update group descriptor on disk.
-                /// \todo save group descriptor block number elsewhere
-                uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
-                uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
-                writeBlock(gdBlock + groupBlock);
+                    // Update group descriptor on disk.
+                    /// \todo save group descriptor block number elsewhere
+                    uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+                    uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
+                    writeBlock(gdBlock + groupBlock);
 
-                // First block of this group...
-                uint32_t result = group * LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
-                // Add the data block offset for this filesystem.
-                result += LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
-                // Blocks skipped so far (i == offset in bytes)...
-                result += i << 3;
-                // Blocks skipped so far (j == bits ie blocks)...
-                result += j;
-                // Return block.
-                block = result;
-                return true;
+                    // First block of this group...
+                    uint32_t result = group * LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+                    // Add the data block offset for this filesystem.
+                    result += LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
+                    // Blocks skipped so far (i == offset in bytes)...
+                    result += ((idx * bitmapBlockBytes) + (reinterpret_cast<uintptr_t>(ptr) - base)) << 3;
+                    // Blocks skipped so far (j == bits ie blocks)...
+                    result += j;
+                    // Return block.
+                    block = result;
+                    return true;
+                }
             }
+
+            // Shouldn't get here - if there were no available blocks we should
+            // not have entered this block.
+            assert(false);
         }
 
-        // Shouldn't get here - if there were no available blocks here it should
-        // have hit the "continue" above!
-        assert(false);
+        // Haven't found anything yet - need to take care here.
+        if (++ptr >= ptr_end)
+        {
+            if ((++idx * bitmapBlockBytes) >= bytesToSearch)
+                break;
+
+            base = list[idx];
+            ptr = reinterpret_cast<searchType *>(base);
+            ptr_end = adjust_pointer(ptr, bitmapBlockBytes);
+        }
     }
 
     return false;
