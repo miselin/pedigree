@@ -140,7 +140,15 @@ bool String::operator == (const char *s) const
 size_t String::nextCharacter(size_t c)
 {
     // TODO handle multibyte chars.
-    return c+1;
+    return c + 1;
+}
+
+size_t String::prevCharacter(size_t c)
+{
+    // TODO handle multibyte chars.
+    if (!c)
+        return c;
+    return c - 1;
 }
 
 void String::assign(const String &x)
@@ -381,6 +389,25 @@ List<SharedPointer<String>> String::tokenise(char token)
     return list;
 }
 
+void String::lchomp()
+{
+    char *buf = m_Data;
+    if (m_Length < StaticSize)
+        buf = m_Static;
+
+    StringCopy(buf, &buf[1]);
+    --m_Length;
+
+    // Did we suddenly drop below the static size?
+    if ((buf == m_Data) && (m_Length < StaticSize))
+    {
+        MemoryCopy(m_Static, m_Data, m_Length + 1);
+        m_Size = StaticSize;
+        delete [] m_Data;
+        m_Data = 0;
+    }
+}
+
 void String::chomp()
 {
     char *buf = m_Data;
@@ -417,6 +444,20 @@ void String::Format(const char *fmt, ...)
     }
 }
 
+bool String::endswith(const char c) const
+{
+    if (!m_Length)
+    {
+        return false;
+    }
+
+    const char *buf = m_Data;
+    if (m_Length < StaticSize)
+        buf = m_Static;
+
+    return buf[m_Length - 1] == c;
+}
+
 bool String::endswith(const String &s) const
 {
     // Not a suffix check.
@@ -443,6 +484,20 @@ bool String::endswith(const String &s) const
 bool String::endswith(const char *s) const
 {
     return endswith(String(s));
+}
+
+bool String::startswith(const char c) const
+{
+    if (!m_Length)
+    {
+        return false;
+    }
+
+    const char *buf = m_Data;
+    if (m_Length < StaticSize)
+        buf = m_Static;
+
+    return buf[0] == c;
 }
 
 bool String::startswith(const String &s) const
