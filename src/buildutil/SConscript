@@ -98,6 +98,7 @@ utility_env.Library(os.path.join(env['BUILDDIR'], 'utility'),
 # that we can get code coverage analysis where actual .cc files hold the code
 # being tested.
 utility_env['OBJSUFFIX'] = '.build.coverage.o'
+utility_env['CPPDEFINES'] += ['UTILITY_LINUX_COVERAGE']
 utility_env.Library(os.path.join(env['BUILDDIR'], 'utility_coverage'),
     ['shim.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources],
     CCFLAGS=utility_env['COVERAGE_CCFLAGS'])
