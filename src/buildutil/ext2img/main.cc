@@ -410,16 +410,16 @@ bool setDefaultOwner(const std::string &uid, const std::string &gid)
     return true;
 }
 
-int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
+bool probeAndMount(const char *image, size_t part)
 {
     // Prepare to probe ext2 filesystems via the VFS.
     VFS::instance().addProbeCallback(&Ext2Filesystem::probe);
 
-    DiskImage mainImage(image);
+    static DiskImage mainImage(image);
     if (!mainImage.initialise())
     {
         std::cerr << "Couldn't load disk image!" << std::endl;
-        return 1;
+        return false;
     }
 
     bool isFullFilesystem = false;
@@ -445,7 +445,7 @@ int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
         if (desiredPartition > mainImage.getNumChildren())
         {
             std::cerr << "Desired partition does not exist in this image." << std::endl;
-            return 1;
+            return false;
         }
 
         pDisk = static_cast<Disk *>(mainImage.getChild(desiredPartition));
@@ -456,6 +456,28 @@ int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
     if (!VFS::instance().mount(pDisk, alias))
     {
         std::cerr << "This partition does not appear to be an ext2 filesystem." << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+int imageChecksums(const char *image, size_t part=0)
+{
+    if (!probeAndMount(image, part))
+    {
+        return 1;
+    }
+
+    // TODO: here, we read every file on the disk and print the checksums
+
+    return 0;
+}
+
+int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
+{
+    if (!probeAndMount(image, part))
+    {
         return 1;
     }
 
@@ -674,10 +696,11 @@ int main(int argc, char *argv[])
     const char *diskImage = 0;
     size_t partitionNumber = 0;
     bool quiet = false;
+    bool sums = false;
 
     // Load options.
     int c;
-    while ((c = getopt(argc, argv, "qif:c:p::b:")) != -1)
+    while ((c = getopt(argc, argv, "qif:c:p::b:s")) != -1)
     {
         switch (c)
         {
@@ -703,6 +726,10 @@ int main(int argc, char *argv[])
                 // # of blocks per read.
                 blocksPerRead = atoi(optarg);
                 break;
+            case 's':
+                // Do checksums of every file on the disk instead of running a list.
+                sums = true;
+                break;
             case '?':
                 if (optopt == 'c' || optopt == 'p')
                 {
@@ -718,7 +745,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (cmdFile == 0)
+
+    if (sums && cmdFile)
+    {
+        std::cerr << "Checksums cannot be performed with a command list." << std::endl;
+        return 1;
+    }
+
+    if (!sums && (cmdFile == 0))
     {
         std::cerr << "A command file must be specified." << std::endl;
         return 1;
@@ -737,15 +771,24 @@ int main(int argc, char *argv[])
         Log::instance().installCallback(&logger, true);
     }
 
-    // Parse!
-    std::vector<Command> cmdlist;
-    if (!parseCommandFile(cmdFile, cmdlist))
+    int rc = 1;
+    if (sums)
     {
-        return 1;
+        if (imageChecksums(diskImage, partitionNumber))
+        {
+            rc = 0;
+        }
     }
-
-    // Complete tasks.
-    int rc = handleImage(diskImage, cmdlist, partitionNumber);
+    else
+    {
+        // Parse!
+        std::vector<Command> cmdlist;
+        if (parseCommandFile(cmdFile, cmdlist))
+        {
+            // Complete tasks.
+            rc = handleImage(diskImage, cmdlist, partitionNumber);
+        }
+    }
     if (!quiet)
     {
         Log::instance().removeCallback(&logger);
