@@ -89,10 +89,25 @@ TEST(PedigreeString, LChomp)
     EXPECT_EQ(s, "hello");
 }
 
+TEST(PedigreeString, LChomp)
+{
+    String s(" hello");
+    s.lchomp();
+    EXPECT_EQ(s, "hello");
+}
+
 TEST(PedigreeString, ChompDynamicToStatic)
 {
     String s("hello                                                           ");
     s.chomp();
+    EXPECT_EQ(s.length(), 63);
+    EXPECT_EQ(s.size(), 64);
+}
+
+TEST(PedigreeString, LChompDynamicToStatic)
+{
+    String s("hello                                                           ");
+    s.lchomp();
     EXPECT_EQ(s.length(), 63);
     EXPECT_EQ(s.size(), 64);
 }
@@ -390,11 +405,24 @@ TEST(PedigreeString, EndsWith)
     EXPECT_TRUE(s.endswith(String("ello")));
 }
 
+TEST(PedigreeString, EndsWithCharacter)
+{
+    String s("hello");
+    EXPECT_TRUE(s.endswith('o'));
+    EXPECT_FALSE(s.endswith('\0'));
+}
+
 TEST(PedigreeString, StartsWith)
 {
     String s("hello");
     EXPECT_TRUE(s.startswith("hel"));
     EXPECT_TRUE(s.startswith(String("hel")));
+}
+
+TEST(PedigreeString, StartsWithCharacter)
+{
+    String s("hello");
+    EXPECT_TRUE(s.startswith('h'));
 }
 
 TEST(PedigreeString, EndsWithIsEquality)

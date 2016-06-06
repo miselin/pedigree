@@ -72,6 +72,13 @@ class String
             the string as UTF-8 encoded. */
         size_t nextCharacter(size_t c);
 
+        /** Given a character index, return the index of the previous character, interpreting
+            the string as UTF-8 encoded. */
+        size_t prevCharacter(size_t c);
+
+        /** Removes the first character from the string. */
+        void lchomp();
+
         /** Removes the last character from the string. */
         void chomp();
 
@@ -111,10 +118,12 @@ class String
         void free();
 
         /** Does this string end with the given string? */
+        bool endswith(const char c) const;
         bool endswith(const String &s) const;
         bool endswith(const char *s) const;
 
         /** Does this string start with the given string? */
+        bool startswith(const char c) const;
         bool startswith(const String &s) const;
         bool startswith(const char *s) const;
 
