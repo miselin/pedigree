@@ -61,10 +61,10 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
 
     uint32_t i;
     Dir *pDir = 0;
-    for (i = 0; i < m_nBlocks; i++)
+    for (i = 0; i < m_Blocks.count(); i++)
     {
         ensureBlockLoaded(i);
-        uintptr_t buffer = m_pExt2Fs->readBlock(m_pBlocks[i]);
+        uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
         pDir = reinterpret_cast<Dir*>(buffer);
         while (reinterpret_cast<uintptr_t>(pDir) < buffer+m_pExt2Fs->m_BlockSize)
         {
@@ -119,7 +119,7 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     if (!bFound || !pDir)
     {
         // Need to make a new block.
-        NOTICE("blocks: " << m_nBlocks);
+        NOTICE("blocks: " << m_Blocks.count());
         uint32_t block = m_pExt2Fs->findFreeBlock(getInodeNumber());
         if (block == 0)
         {
@@ -129,9 +129,9 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
         }
         NOTICE("allocated new block " << block << " for directory");
         if (!addBlock(block)) return false;
-        i = m_nBlocks-1;
+        i = m_Blocks.count() - 1;
 
-        m_Size = m_nBlocks * m_pExt2Fs->m_BlockSize;
+        m_Size = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
         fileAttributeChanged();
 
         /// \todo Previous directory entry might need its reclen updated to
@@ -139,7 +139,7 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
         ///       block boundaries).
 
         ensureBlockLoaded(i);
-        uintptr_t buffer = m_pExt2Fs->readBlock(m_pBlocks[i]);
+        uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
 
         ByteSet(reinterpret_cast<void *>(buffer), 0, m_pExt2Fs->m_BlockSize);
         pDir = reinterpret_cast<Dir *>(buffer);
@@ -185,8 +185,8 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     getCache().insert(filename, pFile);
 
     // Trigger write back to disk.
-    NOTICE("writing back " << m_pBlocks[i]);
-    m_pExt2Fs->writeBlock(m_pBlocks[i]);
+    NOTICE("writing back " << m_Blocks[i]);
+    m_pExt2Fs->writeBlock(m_Blocks[i]);
 
     m_Size = m_nSize;
 
@@ -202,10 +202,10 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
 
     uint32_t i;
     Dir *pDir, *pLastDir = 0;
-    for (i = 0; i < m_nBlocks; i++)
+    for (i = 0; i < m_Blocks.count(); i++)
     {
         ensureBlockLoaded(i);
-        uintptr_t buffer = m_pExt2Fs->readBlock(m_pBlocks[i]);
+        uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
         pDir = reinterpret_cast<Dir*>(buffer);
         pLastDir = 0;
         while (reinterpret_cast<uintptr_t>(pDir) < buffer + m_pExt2Fs->m_BlockSize)
@@ -228,7 +228,7 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
 
                         pDir->d_reclen = HOST_TO_LITTLE16(old_reclen);
 
-                        m_pExt2Fs->writeBlock(m_pBlocks[i]);
+                        m_pExt2Fs->writeBlock(m_Blocks[i]);
                         bFound = true;
                         break;
                     }
@@ -268,11 +268,11 @@ void Ext2Directory::cacheDirectoryContents()
 {
     uint32_t i;
     Dir *pDir;
-    for (i = 0; i < m_nBlocks; i++)
+    for (i = 0; i < m_Blocks.count(); i++)
     {
         ensureBlockLoaded(i);
         // Grab the block and pin it while we parse it.
-        uintptr_t buffer = m_pExt2Fs->readBlock(m_pBlocks[i]);
+        uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
         pDir = reinterpret_cast<Dir*>(buffer);
 
         while (reinterpret_cast<uintptr_t>(pDir) < buffer+m_pExt2Fs->m_BlockSize)
@@ -358,7 +358,7 @@ void Ext2Directory::cacheDirectoryContents()
         }
 
         // Done with this block now; nothing remains that points to it.
-        m_pExt2Fs->unpinBlock(m_pBlocks[i]);
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
     }
 
     markCachePopulated();
