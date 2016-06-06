@@ -287,18 +287,24 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     // Else case comes later, after pFile is created.
 
     Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
+    Ext2Node *pNewNode = 0;
 
     // Create the new File object.
     File *pFile = 0;
     switch (type)
     {
         case EXT2_S_IFREG:
-            pFile = new Ext2File(filename, inode_num, newInode, this, parent);
+        {
+            Ext2File *pNewFile = new Ext2File(filename, inode_num, newInode, this, parent);
+            pFile = pNewFile;
+            pNewNode = pNewFile;
             break;
+        }
         case EXT2_S_IFDIR:
         {
             Ext2Directory *pE2Dir = new Ext2Directory(filename, inode_num, newInode, this, parent);
             pFile = pE2Dir;
+            pNewNode = pE2Dir;
 
             // If we already have an inode, assume we already have dot/dotdot
             // entries and so don't need to make them.
@@ -317,8 +323,12 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
             break;
         }
         case EXT2_S_IFLNK:
-            pFile = new Ext2Symlink(filename, inode_num, newInode, this, parent);
+        {
+            Ext2Symlink *pNewSymlink = new Ext2Symlink(filename, inode_num, newInode, this, parent);
+            pFile = pNewSymlink;
+            pNewNode = pNewSymlink;
             break;
+        }
         default:
             FATAL("EXT2: Unrecognised file type: " << Hex << type);
             break;
@@ -360,6 +370,17 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
         uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
         uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
         writeBlock(gdBlock + groupBlock);
+    }
+
+    // OK, now we can preallocate blocks if desired.
+    // Note: don't preallocate symlinks, which can store data in i_blocks.
+    if (m_pSuperblock->s_prealloc_blocks && !(pFile->isDirectory() || pFile->isSymlink()))
+    {
+        pNewNode->ensureLargeEnough(m_pSuperblock->s_prealloc_blocks * m_BlockSize, true);
+    }
+    else if (m_pSuperblock->s_prealloc_dir_blocks && pFile->isDirectory())
+    {
+        pNewNode->ensureLargeEnough(m_pSuperblock->s_prealloc_dir_blocks * m_BlockSize, true);
     }
 
     return true;
@@ -507,87 +528,124 @@ void Ext2Filesystem::sync(size_t offset, bool async)
 
 uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode)
 {
-    inode--; // Inode zero is undefined, so it's not used.
-
+    // Try to allocate near the inode's group (but we can fall back to a
+    // different group if needed).
     uint32_t group = inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
 
     for (; group < m_nGroupDescriptors; group++)
     {
-        // Any free blocks here?
-        GroupDesc *pDesc = m_pGroupDescriptors[group];
-        if (!pDesc->bg_free_blocks_count)
+        uint32_t result = 0;
+        if (findFreeBlockInGroup(group, result))
         {
-            // No blocks free in this group.
-            continue;
-        }
-
-        ensureFreeBlockBitmapLoaded(group);
-
-        // 8 blocks per byte - i == bitmap offset in bytes.
-        Vector<size_t> &list = m_pBlockBitmaps[group];
-        for (size_t i = 0;
-             i < LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group) / 8;
-             i += sizeof(uint32_t))
-        {
-            // Calculate block index into the bitmap.
-            size_t idx = i / (m_BlockSize * 8);
-            size_t off = i % (m_BlockSize * 8);
-
-            // Grab the specific block for the bitmap.
-            /// \todo Endianness - to ensure correct operation, must ptr be
-            /// little endian?
-            uintptr_t block = list[idx];
-            uint32_t *ptr = reinterpret_cast<uint32_t*> (block + off);
-            uint32_t tmp = *ptr;
-
-            // Bitmap full of bits? Skip it.
-            if (tmp == ~0U)
-                continue;
-
-            // Check each bit in this field.
-            for (size_t j = 0; j < 32; j++, tmp >>= 1)
-            {
-                // Free?
-                if ((tmp & 1) == 0)
-                {
-                    // This block is free! Mark used.
-                    *ptr |= (1 << j);
-                    pDesc->bg_free_blocks_count--;
-
-                    // Update superblock.
-                    m_pSuperblock->s_free_blocks_count--;
-                    m_pDisk->write(1024ULL);
-
-                    // Update bitmap on disk.
-                    uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
-                    writeBlock(desc_block);
-
-                    // Update group descriptor on disk.
-                    /// \todo save group descriptor block number elsewhere
-                    uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
-                    uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
-                    writeBlock(gdBlock + groupBlock);
-
-                    // First block of this group...
-                    uint32_t result = group * LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
-                    // Add the data block offset for this filesystem.
-                    result += LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
-                    // Blocks skipped so far (i == offset in bytes)...
-                    result += i * 8;
-                    // Blocks skipped so far (j == bits ie blocks)...
-                    result += j;
-                    // Return block.
-                    return result;
-                }
-            }
-
-            // Shouldn't get here - if there were no available blocks here it should
-            // have hit the "continue" above!
-            assert(false);
+            return result;
         }
     }
 
     return 0;
+}
+
+bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
+{
+    const uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+    const size_t bitmapBlockBytes = m_BlockSize << 3;
+
+    block = ~0U;
+
+    // Any free blocks here?
+    GroupDesc *pDesc = m_pGroupDescriptors[group];
+    if (!pDesc->bg_free_blocks_count)
+    {
+        // No blocks free in this group.
+        return false;
+    }
+
+    ensureFreeBlockBitmapLoaded(group);
+
+    // 8 blocks per byte - i == bitmap offset in bytes.
+    Vector<size_t> &list = m_pBlockBitmaps[group];
+    const uint32_t bytesToSearch = blocksPerGroup >> 3;
+    size_t idx = 0;
+    size_t off = 0;
+
+    // Block bitmap pointer.
+    uint32_t *ptr = reinterpret_cast<uint32_t*> (list[idx] + off);
+
+    // Find a free block in this group.
+    for (size_t i = 0;
+         i < bytesToSearch;
+         i += sizeof(uint32_t))
+    {
+        // Calculate block index into the bitmap.
+        // This is essentially the same as:
+        // idx = i / bitmapBlockBytes;
+        // off = i % bitmapBlockBytes;
+        if (off >= bitmapBlockBytes)
+        {
+            ++idx;
+            off = 0;
+
+            // Update the block pointer.
+            ptr = reinterpret_cast<uint32_t*> (list[idx]);
+        }
+        else if (LIKELY(i))
+        {
+            off += sizeof(uint32_t);
+            ++ptr;
+        }
+
+        // Grab the specific block for the bitmap.
+        /// \todo Endianness - to ensure correct operation, must ptr be
+        /// little endian?
+        uint32_t tmp = *ptr;
+
+        // Bitmap full of bits? Skip it.
+        if (tmp == ~0U)
+            continue;
+
+        // Check each bit in this field.
+        for (size_t j = 0; j < 32; j++, tmp >>= 1)
+        {
+            // Free?
+            if ((tmp & 1) == 0)
+            {
+                // This block is free! Mark used.
+                *ptr |= (1 << j);
+                pDesc->bg_free_blocks_count--;
+
+                // Update superblock.
+                m_pSuperblock->s_free_blocks_count--;
+                m_pDisk->write(1024ULL);
+
+                // Update bitmap on disk.
+                uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
+                writeBlock(desc_block);
+
+                // Update group descriptor on disk.
+                /// \todo save group descriptor block number elsewhere
+                uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+                uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
+                writeBlock(gdBlock + groupBlock);
+
+                // First block of this group...
+                uint32_t result = group * LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+                // Add the data block offset for this filesystem.
+                result += LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
+                // Blocks skipped so far (i == offset in bytes)...
+                result += i << 3;
+                // Blocks skipped so far (j == bits ie blocks)...
+                result += j;
+                // Return block.
+                block = result;
+                return true;
+            }
+        }
+
+        // Shouldn't get here - if there were no available blocks here it should
+        // have hit the "continue" above!
+        assert(false);
+    }
+
+    return false;
 }
 
 uint32_t Ext2Filesystem::findFreeInode()
