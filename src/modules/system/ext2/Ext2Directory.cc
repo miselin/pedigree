@@ -119,7 +119,6 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     if (!bFound || !pDir)
     {
         // Need to make a new block.
-        NOTICE("blocks: " << m_Blocks.count());
         uint32_t block = m_pExt2Fs->findFreeBlock(getInodeNumber());
         if (block == 0)
         {
@@ -127,7 +126,6 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
             SYSCALL_ERROR(NoSpaceLeftOnDevice);
             return false;
         }
-        NOTICE("allocated new block " << block << " for directory");
         if (!addBlock(block)) return false;
         i = m_Blocks.count() - 1;
 

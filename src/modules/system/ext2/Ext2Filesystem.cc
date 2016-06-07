@@ -528,47 +528,61 @@ void Ext2Filesystem::sync(size_t offset, bool async)
 
 uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode)
 {
-    // Try to allocate near the inode's group (but we can fall back to a
-    // different group if needed).
-    uint32_t group = inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-    uint32_t startGroup = group;
-    uint32_t result = 0;
-
-    for (; group < m_nGroupDescriptors; ++group)
+    Vector<uint32_t> blocks;
+    if (findFreeBlocks(inode, 1, blocks))
     {
-        if (findFreeBlockInGroup(group, result))
-        {
-            return result;
-        }
-    }
-
-    // Try again from the start of the disk if we couldn't find a group (if
-    // we started e.g. halfway through the disk due to the inode closeness
-    // thing above, we need to check the rest of the groups).
-    for (group = 0; group < startGroup; ++group)
-    {
-        if (findFreeBlockInGroup(group, result))
-        {
-            return result;
-        }
+        return blocks[0];
     }
 
     return 0;
 }
 
-bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
+bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t> &blocks)
 {
-    const uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
-    const size_t bitmapBlockBytes = m_BlockSize << 3;
+    // Inode zero is invalid, so make sure we are getting local blocks.
+    --inode;
 
-    block = ~0U;
+    // Try to allocate near the inode's group (but we can fall back to a
+    // different group if needed).
+    uint32_t group = inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t startGroup = group;
+
+    for (; count && group < m_nGroupDescriptors; ++group)
+    {
+        count -= findFreeBlocksInGroup(group, count, blocks);
+    }
+
+    // Try again from the start of the disk if we couldn't find a group (if
+    // we started e.g. halfway through the disk due to the inode closeness
+    // thing above, we need to check the rest of the groups).
+    if (count)
+        ERROR("FALLING BACK TO STARTING FROM ZERO");
+    for (group = 0; count && group < startGroup; ++group)
+    {
+        count -= findFreeBlocksInGroup(group, count, blocks);
+    }
+
+    /// \todo should release blocks if we failed to allocate enough blocks.
+    return count == 0;
+}
+
+size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Vector<uint32_t> &blocks)
+{
+    if (!maxCount)
+    {
+        return 0;
+    }
+
+    const uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+    const size_t bitmapBlockBytes = m_BlockSize;
+    size_t currentCount = 0;
 
     // Any free blocks here?
     GroupDesc *pDesc = m_pGroupDescriptors[group];
     if (!pDesc->bg_free_blocks_count)
     {
         // No blocks free in this group.
-        return false;
+        return currentCount;
     }
 
     ensureFreeBlockBitmapLoaded(group);
@@ -577,7 +591,6 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
     Vector<size_t> &list = m_pBlockBitmaps[group];
     const uint32_t bytesToSearch = blocksPerGroup >> 3;
     size_t idx = 0;
-    // size_t off = 0;
 
     // Block bitmap pointer.
     typedef uint64_t searchType;
@@ -586,6 +599,7 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
     searchType *ptr_end = adjust_pointer(ptr, bitmapBlockBytes);
 
     // Find a free block in this group.
+    bool changedBitmap = false;
     while (true)
     {
         // Grab the specific block for the bitmap.
@@ -606,19 +620,11 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
                     *ptr |= (static_cast<searchType>(1) << j);
                     pDesc->bg_free_blocks_count--;
 
+                    // Yes, we changed the bitmap.
+                    changedBitmap = true;
+
                     // Update superblock.
                     m_pSuperblock->s_free_blocks_count--;
-                    m_pDisk->write(1024ULL);
-
-                    // Update bitmap on disk.
-                    uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
-                    writeBlock(desc_block);
-
-                    // Update group descriptor on disk.
-                    /// \todo save group descriptor block number elsewhere
-                    uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
-                    uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
-                    writeBlock(gdBlock + groupBlock);
 
                     // First block of this group...
                     uint32_t result = group * LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
@@ -629,14 +635,34 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
                     // Blocks skipped so far (j == bits ie blocks)...
                     result += j;
                     // Return block.
-                    block = result;
-                    return true;
+                    blocks.pushBack(result);
+
+                    // Check if we're done - we have nothing left to do if
+                    // there's no more blocks free in this bitmap.
+                    if ((++currentCount >= maxCount) || (!pDesc->bg_free_blocks_count))
+                    {
+                        break;
+                    }
                 }
             }
+        }
 
-            // Shouldn't get here - if there were no available blocks we should
-            // not have entered this block.
-            assert(false);
+        // Did we make changes to the bitmap? Write back now if so - we don't
+        // want to keep writing over and over if e.g. we're setting more than
+        // one block above.
+        if (changedBitmap)
+        {
+            // Update bitmap on disk.
+            uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
+            writeBlock(desc_block);
+
+            changedBitmap = false;
+        }
+
+        // Are we finished with this loop?
+        if (currentCount >= maxCount)
+        {
+            break;
         }
 
         // Haven't found anything yet - need to take care here.
@@ -651,7 +677,19 @@ bool Ext2Filesystem::findFreeBlockInGroup(uint32_t group, uint32_t &block)
         }
     }
 
-    return false;
+    if (currentCount >= maxCount)
+    {
+        // Write back the superblock/group descriptor updates now.
+        m_pDisk->write(1024ULL);
+
+        // Update group descriptor on disk.
+        /// \todo save group descriptor block number elsewhere
+        uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+        uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
+        writeBlock(gdBlock + groupBlock);
+    }
+
+    return currentCount;
 }
 
 uint32_t Ext2Filesystem::findFreeInode()
