@@ -29,6 +29,7 @@
 #include <utilities/Cache.h>
 #include <utilities/CacheConstants.h>
 #include <utilities/Tree.h>
+#include <utilities/Vector.h>
 #include <LockGuard.h>
 
 #include <processor/PhysicalMemoryManager.h>
@@ -51,6 +52,8 @@
 #define FILE_OX 0400
 #define FILE_OMASK 0700
 #define FILE_OBITS 6
+
+#define FILE_BAD_BLOCK static_cast<uintptr_t>(-1)
 
 /** A File is a regular file - it is also the superclass of Directory, Symlink
     and Pipe. */
@@ -352,7 +355,7 @@ protected:
 #ifdef THREADS
         LockGuard<Mutex> guard(m_Lock);
 #endif
-        m_DataCache.remove(location);
+        setCachedPage(location / getBlockSize(), FILE_BAD_BLOCK);
     }
 
     /** Set permissions without raising fileAttributeChanged. */
@@ -390,7 +393,8 @@ protected:
     size_t m_Gid;
     uint32_t m_Permissions;
 
-    Tree<uint64_t,size_t> m_DataCache;
+    // Tree<uint64_t,size_t> m_DataCache;
+    Vector<uintptr_t> m_DataCache;
 
     bool m_bDirect;
 
@@ -420,6 +424,13 @@ protected:
 
     List<MonitorTarget*> m_MonitorTargets;
 #endif
+
+private:
+    /** Retrieve a page from our cache. */
+    uintptr_t getCachedPage(size_t block);
+
+    /** Set a page in our cache. */
+    void setCachedPage(size_t block, uintptr_t value);
 };
 
 #endif

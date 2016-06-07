@@ -48,9 +48,8 @@ void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uin
             break;
         case CacheConstants::Eviction:
             // Remove this page from our data cache.
-            // Side-effect: if the block size is larger than the page size, the
-            // entire block will be removed. Is this something we care about?
-            pFile->m_DataCache.remove(loc);
+            /// \todo handle block size < 4K??
+            pFile->setCachedPage(loc / pFile->getBlockSize(), FILE_BAD_BLOCK);
             break;
         default:
             WARNING("File: unknown cache callback -- could indicate potential future I/O issues.");
@@ -106,7 +105,7 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
         }
     }
 
-    size_t blockSize = getBlockSize();
+    const size_t blockSize = getBlockSize();
     
     size_t n = 0;
     while (size)
@@ -125,14 +124,14 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
 #ifdef THREADS
         m_Lock.acquire();
 #endif
-        uintptr_t buff = 0;
+        uintptr_t buff = FILE_BAD_BLOCK;
         if (!m_bDirect)
         {
-            buff = m_DataCache.lookup(block*blockSize);
+            buff = getCachedPage(block);
         }
-        if (!buff)
+        if (buff == FILE_BAD_BLOCK)
         {
-            buff = readBlock(block*blockSize);
+            buff = readBlock(block * blockSize);
             if (!buff)
             {
                 ERROR("File::read - bad read (" << (block * blockSize) << " - block size is " << blockSize << ")");
@@ -140,7 +139,7 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
             }
             if (!m_bDirect)
             {
-                m_DataCache.insert(block*blockSize, buff);
+                setCachedPage(block, buff);
             }
         }
 #ifdef THREADS
@@ -150,10 +149,11 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
         if(buffer)
         {
             MemoryCopy(reinterpret_cast<void*>(buffer),
-                   reinterpret_cast<void*>(buff+offs),
+                   reinterpret_cast<void*>(buff + offs),
                    sz);
             buffer += sz;
         }
+
         location += sz;
         size -= sz;
         n += sz;
@@ -178,14 +178,14 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
 #ifdef THREADS
         m_Lock.acquire();
 #endif
-        uintptr_t buff = 0;
+        uintptr_t buff = FILE_BAD_BLOCK;
         if (!m_bDirect)
         {
-            buff = m_DataCache.lookup(block*blockSize);
+            buff = getCachedPage(block);
         }
-        if (!buff)
+        if (buff == FILE_BAD_BLOCK)
         {
-            buff = readBlock(block*blockSize);
+            buff = readBlock(block * blockSize);
             if (!buff)
             {
                 ERROR("File::write - bad read (" << (block * blockSize) << " - block size is " << blockSize << ")");
@@ -193,7 +193,7 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
             }
             if (!m_bDirect)
             {
-                m_DataCache.insert(block*blockSize, buff);
+                setCachedPage(block, buff);
             }
         }
 #ifdef THREADS
@@ -250,11 +250,11 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
 #ifdef THREADS
     m_Lock.acquire();
 #endif
-    uintptr_t vaddr = 0;
+    uintptr_t vaddr = FILE_BAD_BLOCK;
     if (LIKELY(!useFillCache))
     {
         // Not using fill cache, this is the easy and common case.
-        vaddr = m_DataCache.lookup(offset);
+        vaddr = getCachedPage(offset / blockSize);
     }
     else
     {
@@ -280,7 +280,7 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
 #ifdef THREADS
     m_Lock.release();
 #endif
-    if (!vaddr)
+    if ((!vaddr) || (vaddr == FILE_BAD_BLOCK))
     {
         return ~0UL;
     }
@@ -356,11 +356,13 @@ void File::returnPhysicalPage(size_t offset)
 
 void File::sync()
 {
-    Tree<uint64_t,size_t>::Iterator it;
-    for(it = m_DataCache.begin(); it != m_DataCache.end(); ++it)
+    const size_t blockSize = getBlockSize();
+    for (size_t i = 0; i < m_DataCache.count(); ++i)
     {
-        // Write back the block via the File subclass.
-        writeBlock(it.key(), it.value());
+        if (m_DataCache[i] != FILE_BAD_BLOCK)
+        {
+            writeBlock(i * blockSize, m_DataCache[i]);
+        }
     }
 }
 
@@ -518,4 +520,30 @@ String File::getFullPath(bool bWithLabel)
     }
 
     return String(str);
+}
+
+uintptr_t File::getCachedPage(size_t block)
+{
+    if (block >= m_DataCache.count())
+    {
+        return FILE_BAD_BLOCK;
+    }
+
+    return m_DataCache[block];
+}
+
+void File::setCachedPage(size_t block, uintptr_t value)
+{
+    // Ensure we have enough space.
+    size_t previousSize = m_DataCache.size();
+    if (block >= previousSize)
+    {
+        m_DataCache.reserve(block + 1, true);
+        for (; previousSize < m_DataCache.size(); ++previousSize)
+        {
+            m_DataCache.pushBack(FILE_BAD_BLOCK);
+        }
+    }
+
+    m_DataCache.setAt(block, value);
 }
