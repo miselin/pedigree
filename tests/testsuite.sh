@@ -5,7 +5,7 @@ set -e
 GIT_ROOT=$(git rev-parse --show-toplevel)
 
 # Run the Python-based testsuites.
-/usr/bin/env python -m unittest discover -s $GIT_ROOT/tests -p "*_tests.py"
+/usr/bin/env python -m unittest discover -s $GIT_ROOT/tests -p "*_tests.py" -v -f -c
 
 if [ ! -x "$GIT_ROOT/build/host/testsuite" ]; then
     echo "C/C++ testsuite not present, not attempting to run it."
