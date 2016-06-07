@@ -105,25 +105,6 @@ class StreamingStderrLogger : public Log::LogCallback
         }
 };
 
-#ifdef HAVE_OPENSSL
-std::string sha256(const uint8_t *buffer, const size_t size)
-{
-    uint8_t hash[SHA256_DIGEST_LENGTH];
-
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, buffer, size);
-    SHA256_Final(hash, &ctx);
-
-    std::stringstream ss;
-    for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
-    {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return ss.str();
-}
-#endif
-
 void syscallError(int e)
 {
     std::cerr << "ERROR: #" << e << std::endl;
@@ -495,38 +476,49 @@ bool probeAndMount(const char *image, size_t part)
     return true;
 }
 
-void checksumDirectory(Directory *pDirectory)
+#ifdef HAVE_OPENSSL
+void checksumFile(File *pFile)
 {
-    for (size_t n = 0; n < pDirectory->getNumChildren(); ++n)
+    uint8_t hash[SHA256_DIGEST_LENGTH];
+
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+
+    size_t blockSize = pFile->getBlockSize() * blocksPerRead;
+    uint8_t *buffer = new uint8_t[blockSize];
+
+    size_t offset = 0;
+    while (offset < pFile->getSize())
     {
-        File *pChild = pDirectory->getChild(n);
-        if (!pChild)
-        {
-            return;
-        }
-
-        if (pChild->isDirectory())
-        {
-            checksumDirectory(Directory::fromFile(pChild));
-            continue;
-        }
-        else if (pChild->isSymlink())
-        {
-            continue;
-        }
-
-        continue;
-
         // Read the file and hash it.
-        size_t bytes = pChild->getSize();
-        std::cerr << "want to allc " << bytes << " bytes" << std::endl;
-        uint8_t *buffer = new uint8_t[bytes];
-        pChild->read(0, bytes, reinterpret_cast<uintptr_t>(buffer));
+        size_t numBytes = pFile->read(offset, blockSize, reinterpret_cast<uintptr_t>(buffer));
+        if (!numBytes)
+        {
+            break;
+        }
 
-        std::cout << pChild->getFullPath() << ": " << sha256(buffer, bytes) << std::endl;
-        delete [] buffer;
+        SHA256_Update(&ctx, buffer, numBytes);
+
+        if (numBytes < blockSize)
+        {
+            break;
+        }
+
+        offset += numBytes;
     }
+
+    delete [] buffer;
+
+    SHA256_Final(hash, &ctx);
+
+    std::cout << pFile->getFullPath() << ": ";
+    for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
+    {
+        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+    std::cout << std::endl;
 }
+#endif
 
 int imageChecksums(const char *image, size_t part=0)
 {
@@ -536,11 +528,42 @@ int imageChecksums(const char *image, size_t part=0)
     }
 
 #ifdef HAVE_OPENSSL
-    std::cout << "A" << std::endl;
-    Directory *pRoot = Directory::fromFile(VFS::instance().find(TO_FS_PATH(std::string("/"))));
-    std::cout << "C" << std::endl;
-    checksumDirectory(pRoot);
-    std::cout << "D" << std::endl;
+
+    std::vector<File *> files;
+    files.push_back(VFS::instance().find(TO_FS_PATH(std::string("/"))));
+
+    size_t n = 0;
+
+    for (auto it = files.begin(); it != files.end(); ++it, ++n)
+    {
+        File *pFile = *it;
+        if (pFile->isDirectory())
+        {
+            Directory *pDirectory = Directory::fromFile(pFile);
+            for (size_t i = 0; i < pDirectory->getNumChildren(); ++i)
+            {
+                File *pChild = pDirectory->getChild(i);
+                if (pChild->getName() == String(".") ||
+                    pChild->getName() == String(".."))
+                {
+                    continue;
+                }
+
+                files.push_back(pChild);
+            }
+
+            // Pushing to the vector invalidates our iterator, so renew it.
+            it = files.begin() + n;
+
+            continue;
+        }
+        else if (pFile->isSymlink())
+        {
+            continue;
+        }
+
+        checksumFile(pFile);
+    }
 #else
     std::cerr << "ext2img was built without any support for sha256." << std::endl;
 #endif
