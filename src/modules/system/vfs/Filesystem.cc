@@ -289,7 +289,7 @@ File *Filesystem::findNode(File *pNode, String path)
     // Why did the loop exit?
     if (path[i] != '\0')
     {
-        restOfPath.assign(path.split(path.nextCharacter(i)));
+        path.split(path.nextCharacter(i), restOfPath);
         // restOfPath is now 'path', but starting at the next token, and with no leading slash.
         // Unfortunately 'path' now has a trailing slash, so chomp it off.
         path.chomp();
@@ -394,7 +394,7 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     else
     {
         // Else split the filename off from the rest of the path and follow it.
-        filename = path.split(lastSlash+1);
+        path.split(lastSlash + 1, filename);
         // Remove the trailing '/' from path;
         path.chomp();
         return findNode(pStartNode, path);
