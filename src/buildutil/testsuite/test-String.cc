@@ -181,6 +181,24 @@ TEST(PedigreeString, Split)
     EXPECT_EQ(right, " world");
 }
 
+TEST(PedigreeString, SplitRef)
+{
+    String s("hello world");
+    String other;
+    s.split(5, other);
+    EXPECT_EQ(s, "hello");
+    EXPECT_EQ(other, " world");
+}
+
+TEST(PedigreeString, SplitTooFar)
+{
+    String s("hello world");
+    String other;
+    s.split(15, other);
+    EXPECT_EQ(s, "hello world");
+    EXPECT_EQ(other, "");
+}
+
 TEST(PedigreeString, EmptyTokenise)
 {
     String s("  a  ");
