@@ -146,8 +146,6 @@ size_t String::nextCharacter(size_t c)
 size_t String::prevCharacter(size_t c)
 {
     // TODO handle multibyte chars.
-    if (!c)
-        return c;
     return c - 1;
 }
 
