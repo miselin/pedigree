@@ -45,6 +45,12 @@ defines = [
     'UTILITY_LINUX', 'DEVICE_IGNORE_ADDRESSES', 'LITTLE_ENDIAN',
 ]
 
+libs = ['ext2', 'vfs', 'part', 'utility', 'kern']
+
+if env['HAVE_OPENSSL_SHA']:
+    defines.append('HAVE_OPENSSL')
+    libs.append('crypto')
+
 build_env.Append(CPPDEFINES=defines)
 
 build_env.MergeFlags({
@@ -91,4 +97,4 @@ build_env.Library('kern', [KERNEL_DIR.File(f) for f in kernel_sources])
 
 
 build_env.Program(ext2img_bin, ['main.cc', 'DiskImage.cc', 'stubs.cc'],
-    LIBS=['ext2', 'vfs', 'part', 'utility', 'kern'])
+    LIBS=libs)

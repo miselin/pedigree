@@ -278,6 +278,8 @@ profile_rt = conf.CheckLib('profile_rt')
 gcov = conf.CheckLib('gcov')
 conf.env['HAVE_BENCHMARK'] = conf.CheckLibWithHeader('benchmark',
     'benchmark/benchmark.h', 'cxx')
+conf.env['HAVE_OPENSSL_SHA'] = conf.CheckLibWithHeader('crypto',
+    'openssl/sha.h', 'cxx')
 host_env = conf.Finish()
 
 # TODO(miselin): figure out how best to detect asan presence.
@@ -816,8 +818,7 @@ if env['hosted']:
     # setjmp/longjmp context switching - we can't return from the function
     # calling setjmp without invoking undefined behaviour.
     # Also note: we emulate multiboot for the hosted "boot" protocol.
-    env['CPPDEFINES'] += ['SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH',
-                          'MEMORY_TRACING', 'MULTIBOOT']
+    env['CPPDEFINES'] += ['SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH', 'MULTIBOOT']
 
     # Reset flags.
     env['CCFLAGS'] = (generic_flags + warning_flags + warning_flags_off +
@@ -829,8 +830,20 @@ if env['hosted']:
 
     # Don't omit frame pointers for debugging.
     env.MergeFlags({
-        'CCFLAGS': ['-fno-omit-frame-pointer', '-Wno-deprecated-declarations']
+        'CCFLAGS': ['-fno-omit-frame-pointer', '-Wno-deprecated-declarations'],
     })
+
+    if env['force_asan']:
+        env.MergeFlags({
+            'CCFLAGS': ['-fsanitize=address'],
+            'LINKFLAGS': ['-fsanitize=address'],
+        })
+
+    if env['clang_cross'] and env['force_asan']:
+        env.MergeFlags({
+            'TARGET_CCFLAGS': ['-fsanitize=address'],
+            'TARGET_LINKFLAGS': ['-fsanitize=address'],
+        })
 
     if not env['warnings']:
         env.MergeFlags({'CCFLAGS': '-Werror'})
@@ -913,8 +926,9 @@ if env['hosted']:
 else:
     env['clang'] = 0
 
-if env['clang_cross'] and not env['hosted']:
-    userspace_env = env.Clone()
+if env['clang_cross']:  # and not env['hosted']:
+    if not env['hosted']:
+        userspace_env = env.Clone()
 
     cross_dir = os.path.dirname(env['CROSS'])
     if cross_dir:
@@ -923,9 +937,10 @@ if env['clang_cross'] and not env['hosted']:
     orig_link = os.path.basename(env['CC'])
 
     # Override the main kernel environment, but not the userspace one.
-    env['CC'] = 'clang'
-    env['CXX'] = 'clang++'
-    env['LINK'] = 'clang'
+    if not env['hosted']:
+        env['CC'] = 'clang'
+        env['CXX'] = 'clang++'
+        env['LINK'] = 'clang'
 
     env['TARGET_CC'] = 'clang'
     env['TARGET_CXX'] = 'clang++'
@@ -938,12 +953,20 @@ if env['clang_cross'] and not env['hosted']:
     elif env['ARCH_TARGET'] == 'ARM':
         # Assume armv7
         triple.append('arm-none-eabi')
+    else:
+        triple = []
     cross_gcc = ['-ccc-gcc-name', orig_link]
 
     # Generic flags we care about for compilation and linking.
-    generic_flags = ['-Qunused-arguments']
-    generic_ccflags = ['-Wno-unused-parameter']
-    if env['clang_max_pedantry']:
+    if env['force_asan']:
+        # Some warnings are not compatible with asan.
+        generic_flags = []
+        generic_ccflags = []
+    else:
+        generic_flags = ['-Qunused-arguments']
+        generic_ccflags = ['-Wno-unused-parameter']
+
+    if env['clang_max_pedantry'] and not env['force_asan']:
         generic_ccflags += ['-Weverything', '-Wno-documentation',
                             '-Wno-documentation-unknown-command',
                             '-Wno-reserved-id-macro', '-Wno-c++98-compat',
@@ -967,10 +990,14 @@ if env['clang_cross'] and not env['hosted']:
 
     # Setting unique=0 appends and does not reorder the given arguments, which
     # is crucial as these are "-arg value" style parameters.
+    if not env['hosted']:
+        env.MergeFlags({
+            'CCFLAGS': triple + generic_flags + generic_ccflags,
+            'LINKFLAGS': env['CLANG_BASE_LINKFLAGS'],
+        }, unique=0)
+
     env.MergeFlags({
-        'CCFLAGS': triple + generic_flags + generic_ccflags,
         'TARGET_CCFLAGS': triple + generic_flags + generic_ccflags,
-        'LINKFLAGS': env['CLANG_BASE_LINKFLAGS'],
         'TARGET_LINKFLAGS': env['CLANG_BASE_LINKFLAGS'],
     }, unique=0)
 
