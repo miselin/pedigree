@@ -264,11 +264,24 @@ void String::free()
 
 String String::split(size_t offset)
 {
+    String result;
+    split(offset, result);
+    return result;
+}
+
+void String::split(size_t offset, String &back)
+{
+    if (offset >= m_Length)
+    {
+        back.free();
+        return;
+    }
+
     char *buf = m_Data;
     if (m_Length < StaticSize)
         buf = m_Static;
 
-    String s(&buf[offset]);
+    back.assign(&buf[offset]);
     m_Length = offset;
 
     // Handle the case where the split causes our string to suddenly be shorter
@@ -284,8 +297,6 @@ String String::split(size_t offset)
     }
 
     buf[m_Length] = 0;
-
-    return s;
 }
 
 void String::strip()

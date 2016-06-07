@@ -94,6 +94,7 @@ class String
         /** Splits the string at the given offset - the front portion will be kept in this string,
          *  the back portion (including the character at 'offset' will be returned in a new string. */
         String split(size_t offset);
+        void split(size_t offset, String &back);
 
         List<SharedPointer<String>> tokenise(char token);
 
