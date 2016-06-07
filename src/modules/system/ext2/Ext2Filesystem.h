@@ -74,7 +74,8 @@ private:
     void sync(size_t offset, bool async);
 
     uint32_t findFreeBlock(uint32_t inode);
-    bool findFreeBlockInGroup(uint32_t group, uint32_t &block);
+    bool findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t> &blocks);
+    size_t findFreeBlocksInGroup(uint32_t group, size_t maxCount, Vector<uint32_t> &blocks);
     uint32_t findFreeInode();
 
     void releaseBlock(uint32_t block);

@@ -59,10 +59,12 @@ uintptr_t Ext2Node::readBlock(uint64_t location)
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
     if (nBlock > m_Blocks.count())
     {
+        NOTICE("beyond blocks [" << nBlock << ", " << m_Blocks.count() << "]");
         return 0;
     }
     if (location > m_nSize)
     {
+        NOTICE("beyond size [" << location << ", " << m_nSize << "]");
         return 0;
     }
 
@@ -129,7 +131,23 @@ void Ext2Node::extend(size_t newSize)
 
 bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
 {
-    if (size > m_nSize && !onlyBlocks)
+    // The majority of times this is called, we won't need to allocate blocks.
+    // So, we check for that early. Then, we can move on to actually allocating
+    // blocks if that is necessary.
+    size_t currentMaxSize = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
+    if (LIKELY(size <= currentMaxSize))
+    {
+        if (size > m_nSize && !onlyBlocks)
+        {
+            // preallocate() doesn't change this, so fix the mismatch now.
+            m_nSize = size;
+            fileAttributeChanged(m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
+                                 LITTLE_TO_HOST32(m_pInode->i_mtime),
+                                 LITTLE_TO_HOST32(m_pInode->i_ctime));
+        }
+        return true;
+    }
+    else if (!onlyBlocks)
     {
         m_nSize = size;
         fileAttributeChanged(m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
@@ -137,20 +155,45 @@ bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
                              LITTLE_TO_HOST32(m_pInode->i_ctime));
     }
 
-    while (size > m_Blocks.count() * m_pExt2Fs->m_BlockSize)
+    size_t delta = size - currentMaxSize;
+    size_t deltaBlocks = delta / m_pExt2Fs->m_BlockSize;
+    if (delta % m_pExt2Fs->m_BlockSize)
+    {
+        ++deltaBlocks;
+    }
+
+    // Allocate the needed blocks.
+    Vector<uint32_t> newBlocks;
+#if 1
+    if (!m_pExt2Fs->findFreeBlocks(m_InodeNumber, deltaBlocks, newBlocks))
+    {
+        SYSCALL_ERROR(NoSpaceLeftOnDevice);
+        return false;
+    }
+#else
+    for (size_t i = 0; i < deltaBlocks; ++i)
     {
         uint32_t block = m_pExt2Fs->findFreeBlock(m_InodeNumber);
-        if (block == 0)
+        if (!block)
         {
-            // We had a problem.
             SYSCALL_ERROR(NoSpaceLeftOnDevice);
             return false;
         }
+        else
+        {
+            newBlocks.pushBack(block);
+        }
+    }
+#endif
+
+    for (auto block : newBlocks)
+    {
         if (!addBlock(block))
         {
             ERROR("Adding block " << block << " failed!");
             return false;
         }
+
         // Load the block and zero it.
         uint8_t *pBuffer = reinterpret_cast<uint8_t*>(m_pExt2Fs->readBlock(block));
         ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
