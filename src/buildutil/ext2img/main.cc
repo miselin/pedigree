@@ -128,6 +128,13 @@ static uint32_t modeToPermissions(uint32_t mode)
 
 bool writeFile(const std::string &source, const std::string &dest)
 {
+    struct stat st;
+    if (stat(source.c_str(), &st) < 0)
+    {
+        std::cerr << "Could not open source file '" << source << "': " << strerror(errno) << "." << std::endl;
+        return false;
+    }
+
     std::ifstream ifs(source, std::ios::binary);
     if (ifs.bad() || ifs.fail())
     {
@@ -148,6 +155,9 @@ bool writeFile(const std::string &source, const std::string &dest)
         std::cerr << "Couldn't open created destination file: '" << dest << "'." << std::endl;
         return false;
     }
+
+    // Do file block allocation now instead of during write()s below.
+    pFile->preallocate(st.st_size);
 
     size_t blockSize = pFile->getBlockSize() * blocksPerRead;
 
