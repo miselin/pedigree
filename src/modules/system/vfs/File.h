@@ -277,6 +277,11 @@ public:
         m_bDirect = false;
     }
 
+    /** Optionally preallocates blocks to fit the given size. */
+    virtual void preallocate(size_t expectedSize)
+    {
+    }
+
 protected:
 
     /** Internal function to retrieve an aligned 512byte section of the file. */
