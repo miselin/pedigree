@@ -43,6 +43,10 @@
 
 #include "DiskImage.h"
 
+#ifdef HAVE_OPENSSL
+#include <openssl/sha.h>
+#endif
+
 #define FS_ALIAS "fs"
 #define TO_FS_PATH(x) String(FS_ALIAS "»") += x.c_str()
 
@@ -100,6 +104,25 @@ class StreamingStderrLogger : public Log::LogCallback
             fprintf(stderr, "%s", str);
         }
 };
+
+#ifdef HAVE_OPENSSL
+std::string sha256(const uint8_t *buffer, const size_t size)
+{
+    uint8_t hash[SHA256_DIGEST_LENGTH];
+
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    SHA256_Update(&ctx, buffer, size);
+    SHA256_Final(hash, &ctx);
+
+    std::stringstream ss;
+    for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
+    {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+    return ss.str();
+}
+#endif
 
 void syscallError(int e)
 {
@@ -472,6 +495,39 @@ bool probeAndMount(const char *image, size_t part)
     return true;
 }
 
+void checksumDirectory(Directory *pDirectory)
+{
+    for (size_t n = 0; n < pDirectory->getNumChildren(); ++n)
+    {
+        File *pChild = pDirectory->getChild(n);
+        if (!pChild)
+        {
+            return;
+        }
+
+        if (pChild->isDirectory())
+        {
+            checksumDirectory(Directory::fromFile(pChild));
+            continue;
+        }
+        else if (pChild->isSymlink())
+        {
+            continue;
+        }
+
+        continue;
+
+        // Read the file and hash it.
+        size_t bytes = pChild->getSize();
+        std::cerr << "want to allc " << bytes << " bytes" << std::endl;
+        uint8_t *buffer = new uint8_t[bytes];
+        pChild->read(0, bytes, reinterpret_cast<uintptr_t>(buffer));
+
+        std::cout << pChild->getFullPath() << ": " << sha256(buffer, bytes) << std::endl;
+        delete [] buffer;
+    }
+}
+
 int imageChecksums(const char *image, size_t part=0)
 {
     if (!probeAndMount(image, part))
@@ -479,7 +535,15 @@ int imageChecksums(const char *image, size_t part=0)
         return 1;
     }
 
-    // TODO: here, we read every file on the disk and print the checksums
+#ifdef HAVE_OPENSSL
+    std::cout << "A" << std::endl;
+    Directory *pRoot = Directory::fromFile(VFS::instance().find(TO_FS_PATH(std::string("/"))));
+    std::cout << "C" << std::endl;
+    checksumDirectory(pRoot);
+    std::cout << "D" << std::endl;
+#else
+    std::cerr << "ext2img was built without any support for sha256." << std::endl;
+#endif
 
     return 0;
 }
