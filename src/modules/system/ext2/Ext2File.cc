@@ -22,7 +22,7 @@
 #include "Ext2Symlink.h"
 #include <syscallError.h>
 
-Ext2File::Ext2File(String name, uintptr_t inode_num, Inode *inode,
+Ext2File::Ext2File(const String &name, uintptr_t inode_num, Inode *inode,
                    Ext2Filesystem *pFs, File *pParent) :
     File(name, LITTLE_TO_HOST32(inode->i_atime),
          LITTLE_TO_HOST32(inode->i_mtime),

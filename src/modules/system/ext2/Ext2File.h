@@ -35,7 +35,7 @@ private:
     Ext2File& operator =(const Ext2File&);
 public:
     /** Constructor, should be called only by a Filesystem. */
-    Ext2File(String name, uintptr_t inode_num, Inode *inode,
+    Ext2File(const String &name, uintptr_t inode_num, Inode *inode,
              class Ext2Filesystem *pFs, File *pParent = 0);
     /** Destructor */
     virtual ~Ext2File();

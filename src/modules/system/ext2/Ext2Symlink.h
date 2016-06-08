@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -36,7 +35,7 @@ private:
     Ext2Symlink& operator =(const Ext2Symlink&);
 public:
     /** Constructor, should be called only by a Filesystem. */
-    Ext2Symlink(String name, uintptr_t inode_num, Inode *inode,
+    Ext2Symlink(const String &name, uintptr_t inode_num, Inode *inode,
                 class Ext2Filesystem *pFs, File *pParent = 0);
     /** Destructor */
     virtual ~Ext2Symlink();
