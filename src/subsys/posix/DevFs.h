@@ -121,8 +121,7 @@ class DevFsDirectory : public Directory
 
         void addEntry(String name, File *pFile)
         {
-            getCache().insert(name, pFile);
-            m_bCachePopulated = true;
+            addDirectoryEntry(name, pFile);
         }
 };
 

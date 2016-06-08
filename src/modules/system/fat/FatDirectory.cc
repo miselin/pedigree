@@ -266,8 +266,8 @@ bool FatDirectory::addEntry(String filename, File *pFile, size_t type)
       // We need to use the File::getName() method because it is now possible to
       // add a directory entry with a name that does not match the VFS name (FAT
       // symlinks).
-      if(m_bCachePopulated)
-        getCache().insert(pFile->getName(), pFile);
+      if(isCachePopulated())
+        addDirectoryEntry(pFile->getName(), pFile);
 
 #ifdef SUPERDEBUG
       NOTICE("  -> FatFilesystem::addEntry(" << filename << ") is successful");
@@ -362,8 +362,8 @@ bool FatDirectory::removeEntry(File *pFile)
   }
 
   pFs->writeDirectoryEntry(dir, dirClus, dirOffset);
-  if(m_bCachePopulated)
-    getCache().remove(real_filename);
+  if(isCachePopulated())
+    remove(real_filename);
   return true;
 }
 
@@ -381,9 +381,8 @@ void FatDirectory::cacheDirectoryContents()
       NOTICE("Adding root directory");
     FatFileInfo info;
     info.creationTime = info.modifiedTime = info.accessedTime = 0;
-    getCache().insert(String("."), new FatDirectory(String("."), m_Inode, pFs, 0, info));
-    if(!m_bCachePopulated)
-      m_bCachePopulated = true;
+    addDirectoryEntry(String("."), new FatDirectory(String("."), m_Inode, pFs, 0, info));
+    markCachePopulated();
   }
 
   // read in the first cluster for this directory
@@ -503,9 +502,8 @@ void FatDirectory::cacheDirectoryContents()
         }
 
         // NOTICE("Inserting '" << filename << "'.");
-        getCache().insert(filename, pF);
-        if(!m_bCachePopulated)
-          m_bCachePopulated = true;
+        addDirectoryEntry(filename, pF);
+        markCachePopulated();
       }
 
       longFileNameIndex = 0;

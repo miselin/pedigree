@@ -102,8 +102,7 @@ RamDir::~RamDir()
 
 bool RamDir::addEntry(String filename, File *pFile)
 {
-    getCache().insert(filename, pFile);
-    m_bCachePopulated = true;
+    addDirectoryEntry(filename, pFile);
     return true;
 }
 
@@ -114,7 +113,7 @@ bool RamDir::removeEntry(File *pFile)
         return false;
 
     // Remove from cache.
-    getCache().remove(pFile->getName());
+    remove(pFile->getName());
     return true;
 }
 
