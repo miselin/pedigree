@@ -148,7 +148,9 @@ static bool entry()
         char c[256];
         StringFormat(c, "%s - %s", getDevice(cs.vendor, cs.device), getVendor(cs.vendor));
         pDevice->setSpecificType(String(c));
+        NOTICE("PCI:     " << c);
         pDevice->setPciIdentifiers(cs.class_code, cs.subclass, cs.vendor, cs.device, cs.progif);
+        NOTICE("PCI:     Class: " << cs.class_code << " Subclass: " << cs.subclass << " ProgIF: " << cs.progif);
 
         for (int l = 0; l < 6; l++)
         {

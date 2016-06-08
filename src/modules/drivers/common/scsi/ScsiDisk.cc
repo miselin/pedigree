@@ -275,10 +275,11 @@ uintptr_t ScsiDisk::read(uint64_t location)
     ScsiController *pParent = static_cast<ScsiController*> (m_pParent);
     pParent->addRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t> (this), loc);
 #if READAHEAD_ENABLED
-    // Queue up a few readaheads, assuming sequential access.
-    for (size_t i = 0; i < (0x20000 / getBlockSize()); ++i)
+    // Read the next block.
+    for (size_t i = 0; i < 2; ++i)
     {
-        pParent->addAsyncRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t> (this), loc + (getBlockSize() * i));
+        loc += getBlockSize();
+        pParent->addAsyncRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t> (this), loc);
     }
 #endif
     return m_Cache.lookup(location + offs) - offs;

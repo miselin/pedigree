@@ -112,7 +112,7 @@ PciAtaController::PciAtaController(Controller *pDev, int nController) :
         // we can still access drives using PIO. We also enable the BusMaster
         // function on the controller.
         uint32_t commandReg = PciBus::instance().readConfigSpace(pDev, 1);
-        commandReg = (commandReg & ~(0x5)) | 0x5;
+        commandReg = (commandReg & ~(0x7)) | 0x7;
         PciBus::instance().writeConfigSpace(pDev, 1, commandReg);
 
         // Fiddle with the IDE timing registers
@@ -137,6 +137,22 @@ PciAtaController::PciAtaController(Controller *pDev, int nController) :
                 }
             }
             PciBus::instance().writeConfigSpace(pDev, 0xF, miscFields);
+        }
+
+        // PIIX4+ has Ultra DMA configuration.
+        /// \todo for ICH and the like, there's more Ultra DMA configuration.
+        if (m_PciControllerType == PIIX4)
+        {
+            // UDMACTL register - enable UDMA mode for all drives.
+            uint32_t udmactl = PciBus::instance().readConfigSpace(pDev, 0x12);
+            udmactl |= 0xF;
+            PciBus::instance().writeConfigSpace(pDev, 0x12, udmactl);
+
+            // Set timings for UDMA2 (Ultra DMA 33, max supported by PIIX4).
+            uint32_t timings = PciBus::instance().readConfigSpace(pDev, 0x13);
+            uint16_t target_timings = 0x2 * 0x3333;
+            timings = (timings & 0xFFFF) | target_timings;
+            PciBus::instance().writeConfigSpace(pDev, 0x13, timings);
         }
     }
 

@@ -35,6 +35,7 @@ static bool bFound = false;
 // Try for a PIIX IDE controller first. We prefer the PIIX as it enables us
 // to use DMA (and is a little easier to use for device detection).
 static bool bPiixControllerFound = false;
+static int piixLevel = -1;
 static bool bFallBackISA = false;
 
 static bool allowProbing = false;
@@ -117,20 +118,59 @@ static Device *probeDisk(Device *pDev)
     }
 
     // Look for a PIIX controller
-    if(pDev->getPciVendorId() == 0x8086)
+    // Class/subclasss 1:1 == Mass storage + IDE.
+    if(pDev->getPciVendorId() == 0x8086 &&
+        pDev->getPciClassCode() == 1 && pDev->getPciSubclassCode() == 1)
     {
-        // Okay, the vendor is right, but is it the right device?
-        /// \todo ICH controller
-        if(((pDev->getPciDeviceId() == 0x1230) ||    // PIIX
-            (pDev->getPciDeviceId() == 0x7010) ||    // PIIX3
-            (pDev->getPciDeviceId() == 0x7111)) &&   // PIIX4
-            (pDev->getPciFunctionNumber() == 1))     // IDE Controller
+        // Ensure we probe the most modern PIIX that is present and available.
+        // This is important as there may be a PIIX3 in a system that also has
+        // a PIIX4, but the drives are likely to be attached to the PIIX4.
+        bool shouldProbe = false;
+        switch (pDev->getPciDeviceId())
         {
-            if (allowProbing)
-            {
-              return probePiixController(pDev);
-            }
+            case 0x1230:  // PIIX
+                if (allowProbing && piixLevel == 0)
+                {
+                    shouldProbe = true;
+                }
+                else if (piixLevel < 0)
+                {
+                    piixLevel = 0;
+                }
+                break;
+
+            case 0x7010:  // PIIX3
+                if (allowProbing && piixLevel == 3)
+                {
+                    shouldProbe = true;
+                }
+                else if (piixLevel < 3)
+                {
+                    piixLevel = 3;
+                }
+                break;
+
+            case 0x7111:  // PIIX4
+                if (allowProbing && piixLevel == 4)
+                {
+                    shouldProbe = true;
+                }
+                else if (piixLevel < 4)
+                {
+                    piixLevel = 4;
+                }
+                break;
+
+        }
+
+        if (piixLevel != -1)
+        {
             bPiixControllerFound = true;
+        }
+
+        if (allowProbing && shouldProbe)
+        {
+            return probePiixController(pDev);
         }
     }
 

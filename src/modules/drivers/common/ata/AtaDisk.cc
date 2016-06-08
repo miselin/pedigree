@@ -258,14 +258,18 @@ bool AtaDisk::initialise(size_t nUnit)
             if (m_pIdent.data.multiword_dma.sel_mode2)
                 sel_mode = 2;
 
-            if (highest_mode != ~0U && sel_mode != ~0U)
+            if (highest_mode != ~0U)
             {
                 NOTICE("ATA: Device Multiword DMA: supports up to mode" << Dec << highest_mode << Hex);
-                NOTICE("ATA: Device Multiword DMA: mode" << Dec << sel_mode << Hex << " is enabled");
             }
             else
             {
                 NOTICE("ATA: Device Multiword DMA: no support");
+            }
+
+            if (sel_mode != ~0U)
+            {
+                NOTICE("ATA: Device Multiword DMA: mode" << Dec << sel_mode << Hex << " is selected");
             }
         }
 
@@ -303,14 +307,18 @@ bool AtaDisk::initialise(size_t nUnit)
             if (m_pIdent.data.ultra_dma.sel_mode6)
                 sel_mode = 6;
 
-            if (highest_mode != ~0U && sel_mode != ~0U)
+            if (highest_mode != ~0U)
             {
                 NOTICE("ATA: Device Ultra DMA: supports up to mode" << Dec << highest_mode << Hex);
-                NOTICE("ATA: Device Ultra DMA: mode" << Dec << sel_mode << Hex << " is enabled");
             }
             else
             {
                 NOTICE("ATA: Device Ultra DMA: no support");
+            }
+
+            if (sel_mode != ~0U)
+            {
+                NOTICE("ATA: Device Ultra DMA: mode" << Dec << sel_mode << Hex << " is enabled");
             }
         }
     }
