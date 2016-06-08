@@ -746,20 +746,17 @@ uint64_t AtaDisk::doRead(uint64_t location)
             setupLBA28(location, nSectorsToRead);
         }
 
-        // Enable IRQs so we can avoid spinning if possible.
-#ifndef PPC_COMMON
-        controlRegs->write8(0, 2);
-#endif
-
         if (getInterruptNumber() != 0xFF)
         {
+            // Enable IRQs so we can avoid spinning if possible.
+#ifndef PPC_COMMON
+            controlRegs->write8(0, 2);
+#endif
+
             bool oldInterrupts = Processor::getInterrupts();
             if(!oldInterrupts)
                 Processor::setInterrupts(true);
-
-            m_IrqLock.acquire();
         }
-        size_t targetIrqCount = m_IrqCount + 1;
 
         if(m_bDma && bDmaSetup)
         {
@@ -796,13 +793,12 @@ uint64_t AtaDisk::doRead(uint64_t location)
         {
             if (getInterruptNumber() != 0xFF)
             {
-                while (m_IrqCount < targetIrqCount)
+                if (!m_IrqReceived->acquire(1, 10))
                 {
-                    /// \todo timeout needed here
-                    m_IrqCondition.wait(m_IrqLock);
+                    // Timeout.
+                    ERROR("ATA: timeout during data transfer");
+                    return 0;
                 }
-
-                m_IrqLock.release();
             }
 
             // Ensure we are not busy before continuing handling.
@@ -864,20 +860,6 @@ uint64_t AtaDisk::doRead(uint64_t location)
 
                 byteOffset += 512;
             }
-        }
-    }
-
-    // Checksum pages now that we've loaded them; helps avoid writebacks for
-    // these pages that we only just now read.
-    for (size_t i = 0; i < nBuffers; ++i)
-    {
-        if (buffers[i].buffer == reinterpret_cast<uintptr_t>(alreadyRead))
-        {
-            continue;
-        }
-        else
-        {
-            // getCache().triggerChecksum(location + buffers[i].offset);
         }
     }
 
@@ -1100,9 +1082,6 @@ void AtaDisk::irqReceived()
 {
     if (m_IrqReceived)
         m_IrqReceived->release();
-
-    m_IrqCount += 1;
-    m_IrqCondition.signal();
 }
 
 void AtaDisk::setupLBA28(uint64_t n, uint32_t nSectors)
