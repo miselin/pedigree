@@ -218,13 +218,13 @@ void Thread::shutdown()
 
   if(m_PendingRequests.count())
   {
-    for(List<RequestQueue::Request *>::Iterator it = m_PendingRequests.begin();
-        it != m_PendingRequests.end();
-        )
+    for(auto it = m_PendingRequests.begin(); it != m_PendingRequests.end();)
     {
-        RequestQueue::Request *pReq = *it;
+        SharedPointer<RequestQueue::Request> pReq = *it;
+
         RequestQueue *pQueue = pReq->owner;
 
+        // Not likely, but good to check nonetheless?
         if (!pQueue)
         {
             ERROR("Thread::shutdown: request in pending requests list has no owner!");
@@ -235,56 +235,12 @@ void Thread::shutdown()
         // Halt the owning RequestQueue while we tweak this request.
         pReq->owner->halt();
 
-        // During the halt, we may have lost a request. Check.
-        if (!pQueue->isRequestValid(pReq))
-        {
-            // Resume queue and skip this request - it's dead.
-            // Async items are run in their own thread, parented to the kernel.
-            // So, for this to happen, a non-async request succeeded, and may
-            // or may not have cleaned up.
-            /// \todo identify a way to make cleanup work here.
-            pQueue->resume();
-            ++it;
-            continue;
-        }
+        // Halted, so wait for any other threads to finish with this request.
+        pReq->mutex.acquire();
 
-        // Check for an already completed request. If we called addRequest, the
-        // request will not have been destroyed as the RequestQueue is expecting
-        // the calling thread to handle it.
-        if(pReq->bCompleted)
-        {
-            // Only destroy if the refcount allows us to - other threads may be
-            // also referencing this request (as RequestQueue has dedup).
-            if(pReq->refcnt <= 1)
-                delete pReq;
-            else
-            {
-                pReq->refcnt--;
-
-                // Ensure the RequestQueue is not referencing us - we're dying.
-                if(pReq->pThread == this)
-                    pReq->pThread = 0;
-            }
-        }
-        else
-        {
-            // Not completed yet and the queue is halted. If there's more than
-            // one thread waiting on the request, we can just decrease the
-            // refcount and carry on. Otherwise, we can kill off the request.
-            if (pReq->refcnt > 1)
-            {
-                pReq->refcnt--;
-                if (pReq->pThread == this)
-                    pReq->pThread = 0;
-            }
-            else
-            {
-                // Terminate.
-                pReq->bReject = true;
-                pReq->pThread = 0;
-                pReq->mutex.release();
-            }
-        }
+        // We need to reject the request here, but only if this thread is the
+        // only owner that's interested in the Request (if it was duplicated,
+        // we need to NOT reject it as other threads will care about it).
 
         // Allow the queue to resume operation now.
         pQueue->resume();
@@ -550,7 +506,7 @@ bool Thread::hasEvents()
     return m_EventQueue.count() != 0;
 }
 
-void Thread::addRequest(RequestQueue::Request *req)
+void Thread::addRequest(SharedPointer<RequestQueue::Request> req)
 {
     if(m_bRemovingRequests)
         return;
@@ -558,7 +514,7 @@ void Thread::addRequest(RequestQueue::Request *req)
     m_PendingRequests.pushBack(req);
 }
 
-void Thread::removeRequest(RequestQueue::Request *req)
+void Thread::removeRequest(SharedPointer<RequestQueue::Request> req)
 {
     if(m_bRemovingRequests)
         return;
@@ -567,7 +523,7 @@ void Thread::removeRequest(RequestQueue::Request *req)
         it != m_PendingRequests.end();
         it++)
     {
-        if(req == *it)
+        if(req.get() == it->get())
         {
             m_PendingRequests.erase(it);
             return;

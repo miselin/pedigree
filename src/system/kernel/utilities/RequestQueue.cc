@@ -76,8 +76,10 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
                                   uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
 #ifdef THREADS
+  Thread *pThread = Processor::information().getCurrentThread();
+
   // Create a new request object.
-  Request *pReq = new Request();
+  SharedPointer<Request> pReq = SharedPointer<Request>::allocate();
   pReq->p1 = p1; pReq->p2 = p2; pReq->p3 = p3; pReq->p4 = p4; pReq->p5 = p5; pReq->p6 = p6; pReq->p7 = p7; pReq->p8 = p8;
   pReq->next = 0;
   pReq->bReject = false;
@@ -88,44 +90,29 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
   // Do we own pReq?
   bool bOwnRequest = true;
 
+  bool bSharedRequest = false;
+
   // Add to the request queue.
   m_RequestQueueMutex.acquire();
 
-  if (m_pRequestQueue[priority] == 0)
-    m_pRequestQueue[priority] = pReq;
-  else
+  for (auto it : m_pRequestQueue[priority])
   {
-    Request *p = m_pRequestQueue[priority];
-    while (p->next != 0)
+    if (compareRequests(it->get(), *pReq))
     {
-        // Wait for duplicates instead of re-inserting, if the compare function is defined.
-        if(compareRequests(*p, *pReq))
-        {
-            bOwnRequest = false;
-            delete pReq;
-            pReq = p;
-            break;
-        }
-      p = p->next;
+      // We're going to share.
+      // Note: this will destroy the memory pointed to by pReq and add another
+      // reference to the other Request object.
+      bSharedRequest = true;
+      pReq = *it;
+      break;
     }
-
-    if(bOwnRequest && compareRequests(*p, *pReq))
-    {
-        bOwnRequest = false;
-        delete pReq;
-        pReq = p;
-    }
-    else if(bOwnRequest)
-        p->next = pReq;
   }
 
-  if(!bOwnRequest)
+  if (!bSharedRequest)
   {
-    ++pReq->refcnt;
-  }
-  else
-  {
-    pReq->pThread = Processor::information().getCurrentThread();
+    m_RequestQueue[priority].pushBack(pReq);
+
+    pReq->pThread = pThread;
     pReq->pThread->addRequest(pReq);
   }
 
@@ -133,52 +120,37 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
   m_RequestQueueCondition.signal();
   m_RequestQueueMutex.release();
 
+  if (pReq->isRejected())
+  {
+    // Something else marked this finished while we were acquiring, so we
+    // should abort the request.
+    return 0;
+  }
+
   // We are waiting on the worker thread - mark the thread as such.
-  Thread *pThread = Processor::information().getCurrentThread();
   pThread->setBlockingThread(m_pThread);
 
-  if(pReq->bReject)
-  {
-      // Hmm, in the time the RequestQueueMutex was being acquired, we got
-      // pre-empted, and then an unexpected exit event happened. The request
-      // is to be rejected, so don't acquire the mutex at all.
-      if(!--pReq->refcnt)
-        delete pReq;
-      return 0;
-  }
-
-  // Wait for the request to be satisfied. This should sleep the thread.
+  // Mutual exclusion while we check the status of the request.
   pReq->mutex.acquire();
-
-  // Don't use the Thread object if it may be already freed
-  if(!pReq->bReject)
-      pThread->setBlockingThread(0);
-
-  if(pReq->bReject || pThread->wasInterrupted() || pThread->getUnwindState() == Thread::Exit)
+  while (!pReq->hasFinished())
   {
-      // The request was interrupted somehow. We cannot assume that pReq's
-      // contents are valid, so just return zero. The caller may have to redo
-      // their request.
-      // By releasing here, the worker thread can detect that the request was
-      // interrupted and clean up by itself.
-      NOTICE("RequestQueue::addRequest - interrupted");
-      if(pReq->bReject && !--pReq->refcnt)
-          delete pReq; // Safe to delete, unexpected exit condition
-      else
-          pReq->mutex.release();
-      return 0;
+    while (!pReq->condition.wait())
+      ;
   }
 
-  // Grab the result.
+  // No longer waiting for the request to complete.
+  pThread->setBlockingThread(0);
+
   uintptr_t ret = pReq->ret;
 
   // Delete the request structure.
-  if(bOwnRequest && pReq->pThread)
-    pReq->pThread->removeRequest(pReq);
-  if(!--pReq->refcnt)
-    delete pReq;
-  else
-    pReq->mutex.release();
+  if(pReq->pThread && !bSharedRequest)
+  {
+    Thread *pRemovalThread = pReq->pThread;
+    pReq->pThread = 0;
+    pReq->pRemovalThread->removeRequest(pReq);
+  }
+  pReq->mutex.release();
 
   return ret;
 #else
@@ -189,6 +161,11 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
 int RequestQueue::doAsync(void *p)
 {
   RequestQueue::Request *pReq = reinterpret_cast<RequestQueue::Request *>(p);
+  // Sync point with addAsyncRequest.
+  pReq->mutex.acquire();
+  pReq->mutex.release();
+
+  // Perform the request proper.
   pReq->owner->addRequest(pReq->priority, pReq->p1, pReq->p2, pReq->p3,
                           pReq->p4, pReq->p5, pReq->p6, pReq->p7, pReq->p8);
   delete pReq;
@@ -210,11 +187,17 @@ uint64_t RequestQueue::addAsyncRequest(size_t priority, uint64_t p1, uint64_t p2
   pReq->owner = this;
   pReq->priority = priority;
 
+  // Block the new thread until we've fully detached.
+  pReq->mutex.acquire();
+
   // Add to RequestQueue.
   Process *pProcess = Scheduler::instance().getKernelProcess();
   Thread *pThread = new Thread(pProcess, &doAsync,
       reinterpret_cast<void *>(pReq));
   pThread->detach();
+
+  // Now OK for the thread to start working.
+  pReq->mutex.release();
 #endif
 
   return 0;
@@ -260,36 +243,20 @@ int RequestQueue::trampoline(void *p)
   return pRQ->work();
 }
 
-RequestQueue::Request *RequestQueue::getNextRequest()
+SharedPointer<RequestQueue::Request> *RequestQueue::getNextRequest()
 {
     // Must have the lock to be here.
     assert(!m_RequestQueueMutex.getValue());
 
-    // Get the most important queue with data in.
-    /// \todo Stop possible starvation here.
-    size_t priority = 0;
-    bool bFound = false;
-    for (priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES-1; priority++)
+    for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES; ++priority)
     {
-        if (m_pRequestQueue[priority])
+        if (m_RequestQueue[priority].count())
         {
-            bFound = true;
-            break;
+            return m_RequestQueue[priority].popFront();
         }
     }
 
-    if (!bFound)
-    {
-        return 0;
-    }
-
-    Request *pReq = m_pRequestQueue[priority];
-    if (pReq != 0)
-    {
-        m_pRequestQueue[priority] = pReq->next;
-    }
-
-    return pReq;
+    return 0;
 }
 
 int RequestQueue::work()
@@ -308,7 +275,7 @@ int RequestQueue::work()
       return 0;
     }
 
-    Request *pReq = getNextRequest();
+    SharedPointer<Request> pReq = getNextRequest();
     if (!pReq)
     {
       // Need to wait for another request.
@@ -321,22 +288,11 @@ int RequestQueue::work()
     m_RequestQueueMutex.release();
 
     // Verify that it's still valid to run the request
-    if (!pReq->bReject)
+    if (pReq->hasFinished())
     {
       // Perform the request.
       bool finished = true;
       pReq->ret = executeRequest(pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5, pReq->p6, pReq->p7, pReq->p8);
-      if (pReq->mutex.tryAcquire())
-      {
-        // Something's gone wrong - the calling thread has released the Mutex. Destroy the request
-        // and grab the next request from the queue. The calling thread has long since stopped
-        // caring about whether we're done or not.
-        NOTICE("RequestQueue::work - caller interrupted");
-        if (pReq->pThread)
-          pReq->pThread->removeRequest(pReq);
-        finished = false;
-        continue;
-      }
       switch (Processor::information().getCurrentThread()->getUnwindState())
       {
         case Thread::Continue:
@@ -349,12 +305,12 @@ int RequestQueue::work()
           break;
       }
 
-      // Request finished - post the request's mutex to wake the calling thread.
-      if (finished)
-      {
-        pReq->bCompleted = true;
-        pReq->mutex.release();
-      }
+      // We want ALL threads waiting to be woken to see that this request is
+      // now complete.
+      pReq->mutex.acquire();
+      pReq->status = Request::Completed;
+      pReq->condition.broadcast();
+      pReq->mutex.release();
     }
 
     // Acquire mutex ready to re-check condition.
@@ -365,26 +321,4 @@ int RequestQueue::work()
 #else
   return 0;
 #endif
-}
-
-bool RequestQueue::isRequestValid(const Request *r)
-{
-#ifdef THREADS
-  // Halted RequestQueue already has the RequestQueue mutex held.
-  LockGuard<Mutex> guard(m_RequestQueueMutex);
-#endif
-
-  for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES - 1; ++priority)
-  {
-    Request *pReq = m_pRequestQueue[priority];
-    while (pReq)
-    {
-      if (pReq == r)
-        return true;
-
-      pReq = pReq->next;
-    }
-  }
-
-  return false;
 }

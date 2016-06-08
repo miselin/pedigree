@@ -23,6 +23,7 @@
 #include <processor/types.h>
 #include <process/ConditionVariable.h>
 #include <process/Mutex.h>
+#include <utilities/SharedPointer.h>
 
 class Thread;
 
@@ -85,18 +86,45 @@ protected:
                     bReject(false),bCompleted(false),next(0),refcnt(0),
                     owner(0),priority(0) {}
         ~Request() {}
-        uint64_t p1,p2,p3,p4,p5,p6,p7,p8;
+
+        enum Status
+        {
+            Pending,
+            Active,
+            Rejected,
+            Completed,
+        };
+
+
+        uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
         uint64_t ret;
+
 #ifdef THREADS
         Mutex mutex;
+        ConditionVariable condition;
+
         Thread *pThread;
 #endif
-        bool bReject;
-        bool bCompleted;
-        Request *next;
-        size_t refcnt;
+
+        Status status;
         RequestQueue *owner;
         size_t priority;
+
+        /// Figures out if we're in a 'finished' state of some sort.
+        bool hasFinished() const
+        {
+            return status == Rejected || status == Completed;
+        }
+
+        bool isRejected() const
+        {
+            return status == Rejected;
+        }
+
+        bool isCompleted() const
+        {
+            return status == Completed;
+        }
     private:
         Request(const Request&);
         void operator =(const Request&);
@@ -111,11 +139,6 @@ protected:
         return false;
     }
 
-    /**
-     * Check whether the given request is still valid in terms of this RequestQueue.
-     */
-    bool isRequestValid(const Request *r);
-
     /** Thread trampoline */
     static int trampoline(void *p);
 
@@ -126,10 +149,10 @@ protected:
     int work();
 
     /** Get the next Request, or NULL if no available requests. */
-    Request *getNextRequest();
+    SharedPointer<Request> getNextRequest();
 
     /** The request queue */
-    Request *m_pRequestQueue[REQUEST_QUEUE_NUM_PRIORITIES];
+    List<SharedPointer<Request>> m_RequestQueue[REQUEST_QUEUE_NUM_PRIORITIES];
 
     /** True if the worker thread should cleanup and stop. */
     volatile bool m_Stop;

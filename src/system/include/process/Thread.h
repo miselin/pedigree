@@ -311,10 +311,10 @@ public:
     {return m_Priority;}
 
     /** Adds a request to the Thread's pending request list */
-    void addRequest(RequestQueue::Request *req);
+    void addRequest(SharedPointer<RequestQueue::Request> req);
 
     /** Removes a request from the Thread's pending request list */
-    void removeRequest(RequestQueue::Request *req);
+    void removeRequest(SharedPointer<RequestQueue::Request> req);
 
     /** An unexpected exit has occurred, perform cleanup */
     void unexpectedExit();
@@ -486,7 +486,7 @@ private:
     size_t m_Priority;
 
     /** List of requests pending on this Thread */
-    List<RequestQueue::Request*> m_PendingRequests;
+    List<SharedPointer<RequestQueue::Request>> m_PendingRequests;
     
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase;
