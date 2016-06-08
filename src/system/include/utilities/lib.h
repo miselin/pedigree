@@ -86,6 +86,12 @@ inline int max(size_t a, size_t b)
     return a > b ? a : b;
 }
 
+inline int min(size_t a, size_t b) PURE;
+inline int min(size_t a, size_t b)
+{
+    return a > b ? b : a;
+}
+
 // Memory allocation for C code
 void *malloc(size_t);
 void *realloc(void *, size_t);

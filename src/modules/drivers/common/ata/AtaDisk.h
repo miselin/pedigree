@@ -25,6 +25,7 @@
 #include <machine/Disk.h>
 #include <machine/Controller.h>
 #include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 #include <utilities/Cache.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
@@ -151,6 +152,8 @@ private:
      * \todo A condvar would really be better here.
      */
     Mutex *m_IrqReceived;
+    Mutex m_IrqLock;
+    ConditionVariable m_IrqCondition;
 
     /** What type of disk are we? */
     AtaDiskType m_AtaDiskType;
@@ -186,6 +189,9 @@ private:
 
     /** Can we do DMA? */
     bool m_bDma;
+
+    /** IRQ count. */
+    Atomic<size_t> m_IrqCount;
 };
 
 #endif

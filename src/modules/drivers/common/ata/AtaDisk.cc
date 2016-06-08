@@ -27,11 +27,13 @@
 #include <machine/Machine.h>
 #include <utilities/assert.h>
 #include <utilities/PointerGuard.h>
+#include <utilities/utility.h>
 #include "AtaController.h"
 #include "AtaDisk.h"
 #include "ata-common.h"
 
-#define ATA_DEFAULT_BLOCK_SIZE 0x1000  // 0x10000
+// #define ATA_DEFAULT_BLOCK_SIZE 0x1000
+#define ATA_DEFAULT_BLOCK_SIZE 0x10000 * 2
 
 // Note the IrqReceived mutex is deliberately started in the locked state.
 AtaDisk::AtaDisk(AtaController *pDev, bool isMaster, IoBase *commandRegs, IoBase *controlRegs, BusMasterIde *busMaster) :
@@ -716,7 +718,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
             ;
 
         // Send out sector count.
-        uint8_t nSectorsToRead = (nSectors>255) ? 255 : nSectors;
+        uint8_t nSectorsToRead = min(m_pIdent.data.max_sectors_per_irq, nSectors);
         nSectors -= nSectorsToRead;
 
         bool bDmaSetup = false;
@@ -749,14 +751,15 @@ uint64_t AtaDisk::doRead(uint64_t location)
         controlRegs->write8(0, 2);
 #endif
 
-        if (m_IrqReceived)
-            WARNING("ATA: IRQ mutex already existed");
-        m_IrqReceived = new Mutex(true);
-        PointerGuard<Mutex> guardReceivedMutex(&m_IrqReceived);
+        if (getInterruptNumber() != 0xFF)
+        {
+            bool oldInterrupts = Processor::getInterrupts();
+            if(!oldInterrupts)
+                Processor::setInterrupts(true);
 
-        bool oldInterrupts = Processor::getInterrupts();
-        if(!oldInterrupts)
-            Processor::setInterrupts(true);
+            m_IrqLock.acquire();
+        }
+        size_t targetIrqCount = m_IrqCount + 1;
 
         if(m_bDma && bDmaSetup)
         {
@@ -793,11 +796,13 @@ uint64_t AtaDisk::doRead(uint64_t location)
         {
             if (getInterruptNumber() != 0xFF)
             {
-                // 10 second timeout.
-                if (!m_IrqReceived->acquire(1, 10))
+                while (m_IrqCount < targetIrqCount)
                 {
-                    WARNING("ATA: failed to get IRQ");
+                    /// \todo timeout needed here
+                    m_IrqCondition.wait(m_IrqLock);
                 }
+
+                m_IrqLock.release();
             }
 
             // Ensure we are not busy before continuing handling.
@@ -872,7 +877,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
         }
         else
         {
-            getCache().triggerChecksum(location + buffers[i].offset);
+            // getCache().triggerChecksum(location + buffers[i].offset);
         }
     }
 
@@ -883,6 +888,8 @@ uint64_t AtaDisk::doWrite(uint64_t location)
 {
     if (location % 512)
         panic("AtaDisk: write request not on a sector boundary!");
+
+    return 0;
 
     // Safety check
 #ifdef CRIPPLE_HDD
@@ -955,7 +962,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
             ;
 
         // Send out sector count.
-        uint8_t nSectorsToWrite = (nSectors>255) ? 255 : nSectors;
+        uint8_t nSectorsToWrite = min(m_pIdent.data.max_sectors_per_irq, nSectors);
         nSectors -= nSectorsToWrite;
 
         bool bDmaSetup = false;
@@ -1093,6 +1100,9 @@ void AtaDisk::irqReceived()
 {
     if (m_IrqReceived)
         m_IrqReceived->release();
+
+    m_IrqCount += 1;
+    m_IrqCondition.signal();
 }
 
 void AtaDisk::setupLBA28(uint64_t n, uint32_t nSectors)
