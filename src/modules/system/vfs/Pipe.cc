@@ -43,7 +43,7 @@ Pipe::Pipe() :
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
 }
 
-Pipe::Pipe(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+Pipe::Pipe(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
            uintptr_t inode, Filesystem *pFs, size_t size, File *pParent,
            bool bIsAnonymous) :
     File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
