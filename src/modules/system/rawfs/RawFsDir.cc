@@ -38,12 +38,12 @@ RawFsDir::RawFsDir(String name, RawFs *pFs, File *pParent) :
 
 void RawFsDir::addEntry(File *pEntry)
 {
-    getCache().insert(pEntry->getName(), pEntry);
+    addDirectoryEntry(pEntry->getName(), pEntry);
 }
 
 void RawFsDir::removeRecursive()
 {
     /// \todo Leaky.
     NOTICE("rawfs: removing '" << getName() << "'");
-    getCache().clear();
+    /// \todo do this
 }

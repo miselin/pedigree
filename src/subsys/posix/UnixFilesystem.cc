@@ -120,7 +120,7 @@ UnixDirectory::~UnixDirectory()
 bool UnixDirectory::addEntry(String filename, File *pFile)
 {
     LockGuard<Mutex> guard(m_Lock);
-    getCache().insert(filename, pFile);
+    addDirectoryEntry(filename, pFile);
     return true;
 }
 
@@ -129,13 +129,13 @@ bool UnixDirectory::removeEntry(File *pFile)
     String filename = pFile->getName();
 
     LockGuard<Mutex> guard(m_Lock);
-    getCache().remove(filename);
+    remove(filename);
     return true;
 }
 
 void UnixDirectory::cacheDirectoryContents()
 {
-    m_bCachePopulated = true;
+    markCachePopulated();
 }
 
 UnixFilesystem::UnixFilesystem() :
