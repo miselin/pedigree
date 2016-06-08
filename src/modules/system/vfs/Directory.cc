@@ -25,10 +25,10 @@ Directory::Directory() :
 {
 }
 
-Directory::Directory(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+Directory::Directory(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
                      uintptr_t inode, Filesystem *pFs, size_t size, File *pParent) :
     File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_Cache(pFs->isCaseSensitive()), m_bCachePopulated(false)
+    m_Cache(pFs->isCaseSensitive()), m_LinearCache(), m_bCachePopulated(false)
 {
 }
 
@@ -44,21 +44,16 @@ File* Directory::getChild(size_t n)
         m_bCachePopulated = true;
     }
 
-    if(!m_Cache.count())
-        return 0;
-
-    unsigned int i = 0;
-    for (RadixTree<File*>::Iterator it = m_Cache.begin();
-         it != m_Cache.end();
-         it++)
+    if(!m_LinearCache.count())
     {
-        if (i == n)
-            return *it;
-        i++;
+        return 0;
+    }
+    else if (n >= m_LinearCache.count())
+    {
+        return 0;
     }
 
-    // Not found.
-    return 0;
+    return m_LinearCache[n];
 }
 
 size_t Directory::getNumChildren()
@@ -69,14 +64,14 @@ size_t Directory::getNumChildren()
         m_bCachePopulated = true;
     }
 
-    return m_Cache.count();
+    return m_LinearCache.count();
 }
 
 void Directory::cacheDirectoryContents()
 {
 }
 
-File *Directory::lookup(String &s) const
+File *Directory::lookup(const String &s) const
 {
     if (!m_bCachePopulated)
     {
@@ -84,4 +79,26 @@ File *Directory::lookup(String &s) const
     }
 
     return m_Cache.lookup(s);
+}
+
+void Directory::remove(const String &s)
+{
+    m_Cache.remove(s);
+
+    for (auto it = m_LinearCache.begin(); it != m_LinearCache.end(); ++it)
+    {
+        if ((*it)->getName() == s)
+        {
+            m_LinearCache.erase(it);
+            return;
+        }
+    }
+}
+
+void Directory::addDirectoryEntry(const String &name, File *pTarget)
+{
+    m_Cache.insert(name, pTarget);
+    m_LinearCache.pushBack(pTarget);
+
+    m_bCachePopulated = true;
 }

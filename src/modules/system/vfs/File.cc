@@ -58,7 +58,7 @@ void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uin
 }
 
 File::File() :
-    m_Name(""), m_AccessedTime(0), m_ModifiedTime(0),
+    m_Name(), m_AccessedTime(0), m_ModifiedTime(0),
     m_CreationTime(0), m_Inode(0), m_pFilesystem(0), m_Size(0),
     m_pParent(0), m_nWriters(0), m_nReaders(0), m_Uid(0), m_Gid(0),
     m_Permissions(0), m_DataCache(), m_bDirect(false)
@@ -71,7 +71,7 @@ File::File() :
 {
 }
 
-File::File(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+File::File(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
            uintptr_t inode, Filesystem *pFs, size_t size, File *pParent) :
     m_Name(name), m_AccessedTime(accessedTime), m_ModifiedTime(modifiedTime),
     m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
@@ -84,6 +84,14 @@ File::File(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTi
     , m_Lock(), m_MonitorTargets()
 #endif
 {
+    size_t maxBlock = size / getBlockSize();
+    if (size % getBlockSize())
+    {
+        ++maxBlock;
+    }
+
+    // Prefill the block cache with bad pages to avoid continuous resizes.
+    setCachedPage(maxBlock, FILE_BAD_BLOCK);
 }
 
 File::~File()

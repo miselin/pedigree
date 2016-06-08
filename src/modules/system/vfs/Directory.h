@@ -50,7 +50,7 @@ private:
 
 public:
     /** Constructor, should be called only by a Filesystem. */
-    Directory(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+    Directory(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
               uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
     /** Destructor - doesn't do anything. */
     virtual ~Directory();
@@ -75,21 +75,30 @@ public:
     }
 
     /** Look up the given filename in the directory. */
-    File *lookup(String &s) const;
+    File *lookup(const String &s) const;
 
     /** Remove the given filename in the directory. */
-    void remove(String &s)
-    {
-        m_Cache.remove(s);
-    }
+    void remove(const String &s);
 
 private:
     /** Directory contents cache. */
     RadixTree<File*> m_Cache;
 
+    /**
+     * Directory contents, mirroring m_Cache but allowing for improved
+     * Nth item lookups to be performed.
+     */
+    Vector<File *> m_LinearCache;
+
+    /**
+     * Whether the directory cache is populated with entries or still needs to
+     * be loaded. Directories are lazy-loaded using this.
+     */
+    bool m_bCachePopulated;
+
 protected:
     /** Provides subclasses with direct access to the directory's listing. */
-    virtual RadixTree<File *> &getCache()
+    virtual const RadixTree<File *> &getCache()
     {
         return m_Cache;
     }
@@ -100,11 +109,8 @@ protected:
         m_bCachePopulated = true;
     }
 
-    /**
-     * Whether the directory cache is populated with entries or still needs to
-     * be loaded. Directories are lazy-loaded using this.
-     */
-    bool m_bCachePopulated;
+    /** Add an entry to the direectory. */
+    void addDirectoryEntry(const String &name, File *pTarget);
 };
 
 #endif
