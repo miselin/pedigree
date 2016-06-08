@@ -23,7 +23,7 @@
 #include "Ext2File.h"
 #include "Ext2Symlink.h"
 
-Ext2Directory::Ext2Directory(String name, uintptr_t inode_num, Inode *inode,
+Ext2Directory::Ext2Directory(const String &name, uintptr_t inode_num, Inode *inode,
                              Ext2Filesystem *pFs, File *pParent) :
     Directory(name, LITTLE_TO_HOST32(inode->i_atime),
               LITTLE_TO_HOST32(inode->i_mtime),
@@ -47,8 +47,7 @@ Ext2Directory::~Ext2Directory()
 bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
 {
     // Make sure we're already cached before we add an entry.
-    if (!m_bCachePopulated)
-        cacheDirectoryContents();
+    cacheDirectoryContents();
 
     // Calculate the size of our Dir* entry.
     size_t length = 4 + /* 32-bit inode number */
@@ -180,7 +179,7 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     MemoryCopy(pDir->d_name, static_cast<const char *>(filename), filename.length());
 
     // We're all good - add the directory to our cache.
-    getCache().insert(filename, pFile);
+    addDirectoryEntry(filename, pFile);
 
     // Trigger write back to disk.
     NOTICE("writing back " << m_Blocks[i]);
@@ -264,6 +263,11 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
 
 void Ext2Directory::cacheDirectoryContents()
 {
+    if (isCachePopulated())
+    {
+        return;
+    }
+
     uint32_t i;
     Dir *pDir;
     for (i = 0; i < m_Blocks.count(); i++)
@@ -329,8 +333,7 @@ void Ext2Directory::cacheDirectoryContents()
             }
 
             // Grab filename from the entry.
-            String sFilename;
-            sFilename.assign(pDir->d_name, namelen);
+            String sFilename(pDir->d_name, namelen);
 
             File *pFile = 0;
             switch (fileType)
@@ -349,7 +352,7 @@ void Ext2Directory::cacheDirectoryContents()
             }
 
             // Add to cache.
-            getCache().insert(sFilename, pFile);
+            addDirectoryEntry(sFilename, pFile);
 
             // Next.
             pDir = pNextDir;
