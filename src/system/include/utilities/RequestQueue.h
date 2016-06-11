@@ -79,13 +79,8 @@ protected:
     class Request
     {
     public:
-        Request() : p1(0),p2(0),p3(0),p4(0),p5(0),p6(0),p7(0),p8(0),ret(0),
-#ifdef THREADS
-                    mutex(true),pThread(0),
-#endif
-                    bReject(false),bCompleted(false),next(0),refcnt(0),
-                    owner(0),priority(0) {}
-        ~Request() {}
+        Request();
+        ~Request();
 
         enum Status
         {

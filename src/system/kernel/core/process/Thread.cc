@@ -218,36 +218,7 @@ void Thread::shutdown()
 
   if(m_PendingRequests.count())
   {
-    for(auto it = m_PendingRequests.begin(); it != m_PendingRequests.end();)
-    {
-        SharedPointer<RequestQueue::Request> pReq = *it;
-
-        RequestQueue *pQueue = pReq->owner;
-
-        // Not likely, but good to check nonetheless?
-        if (!pQueue)
-        {
-            ERROR("Thread::shutdown: request in pending requests list has no owner!");
-            ++it;
-            continue;
-        }
-
-        // Halt the owning RequestQueue while we tweak this request.
-        pReq->owner->halt();
-
-        // Halted, so wait for any other threads to finish with this request.
-        pReq->mutex.acquire();
-
-        // We need to reject the request here, but only if this thread is the
-        // only owner that's interested in the Request (if it was duplicated,
-        // we need to NOT reject it as other threads will care about it).
-
-        // Allow the queue to resume operation now.
-        pQueue->resume();
-
-        // Remove the request from our internal list.
-        it = m_PendingRequests.erase(it);
-    }
+    FATAL("Thread::shutdown() - thread shutting down with pending requests.");
   }
 
   // Notify any waiters on this thread.
@@ -519,11 +490,9 @@ void Thread::removeRequest(SharedPointer<RequestQueue::Request> req)
     if(m_bRemovingRequests)
         return;
 
-    for(List<RequestQueue::Request *>::Iterator it = m_PendingRequests.begin();
-        it != m_PendingRequests.end();
-        it++)
+    for (auto it = m_PendingRequests.begin(); it != m_PendingRequests.end(); ++it)
     {
-        if(req.get() == it->get())
+        if(req.get() == (*it).get())
         {
             m_PendingRequests.erase(it);
             return;
