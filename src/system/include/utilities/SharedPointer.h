@@ -150,13 +150,14 @@ SharedPointer<T>::~SharedPointer()
 template <class T>
 SharedPointer<T>::SharedPointer(const SharedPointer<T> &p) : m_Control(0)
 {
+    if (p.m_Control)
+    {
+        __atomic_add_fetch(&p.m_Control->refcount, 1, __ATOMIC_SEQ_CST);
+    }
+
     release();
 
     m_Control = p.m_Control;
-    if (m_Control)
-    {
-        __atomic_add_fetch(&m_Control->refcount, 1, __ATOMIC_RELAXED);
-    }
 }
 
 template <class T>
@@ -199,13 +200,18 @@ T &SharedPointer<T>::operator *() const
 template <class T>
 SharedPointer<T> &SharedPointer<T>::operator =(const SharedPointer<T> &p)
 {
+    // If the other is assigned, boost its refcount before we release. If it
+    // happens that the other is in fact pointing to the same place, the counts
+    // will not potentially drop to zero then back to one this way (causing a
+    // bad pointer).
+    if (p.m_Control)
+    {
+        __atomic_add_fetch(&p.m_Control->refcount, 1, __ATOMIC_SEQ_CST);
+    }
+
     release();
 
     m_Control = p.m_Control;
-    if (m_Control)
-    {
-        __atomic_add_fetch(&m_Control->refcount, 1, __ATOMIC_RELAXED);
-    }
 
     return *this;
 }
@@ -228,7 +234,7 @@ size_t SharedPointer<T>::refcount() const
     if (!m_Control)
         return 0;
 
-    return __atomic_load_n(&m_Control->refcount, __ATOMIC_RELAXED);
+    return __atomic_load_n(&m_Control->refcount, __ATOMIC_SEQ_CST);
 }
 
 template <class T>
@@ -246,7 +252,7 @@ void SharedPointer<T>::release()
     if (!m_Control)
         return;
 
-    size_t rc = __atomic_sub_fetch(&m_Control->refcount, 1, __ATOMIC_RELAXED);
+    size_t rc = __atomic_sub_fetch(&m_Control->refcount, 1, __ATOMIC_SEQ_CST);
     if (!rc)
     {
         /// \todo allow specifying a custom function to handle deletion
