@@ -746,6 +746,9 @@ uint64_t AtaDisk::doRead(uint64_t location)
             setupLBA28(location, nSectorsToRead);
         }
 
+        m_IrqReceived = new Mutex(true);
+        PointerGuard<Mutex> irqGuard(&m_IrqReceived);
+
         if (getInterruptNumber() != 0xFF)
         {
             // Enable IRQs so we can avoid spinning if possible.
@@ -966,7 +969,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
 
         // Enable IRQs so we can avoid spinning if possible.
 #ifndef PPC_COMMON
-        controlRegs->write8(0, 6);
+        controlRegs->write8(0, 2);
 #endif
 
         if (m_IrqReceived)
