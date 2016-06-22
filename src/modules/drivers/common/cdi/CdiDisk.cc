@@ -97,6 +97,8 @@ uintptr_t CdiDisk::read(uint64_t location)
         buff = m_Cache.insert(location);
         if (cdi_storage_read(m_Device, location, 512, reinterpret_cast<void*>(buff)) != 0)
             return 0;
+
+        m_Cache.markNoLongerEditing(location);
     }
     return buff;
 }

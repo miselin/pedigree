@@ -76,6 +76,8 @@ uintptr_t RamFile::readBlock(uint64_t location)
         // Super trivial. But we are a ram filesystem... can't compact.
         buffer = m_FileBlocks.insert(location);
         pinBlock(location);
+        /// \todo Kind of irrelevant here?
+        m_FileBlocks.markNoLongerEditing(location);
     }
     return buffer;
 }

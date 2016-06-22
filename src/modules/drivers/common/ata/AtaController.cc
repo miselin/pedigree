@@ -18,3 +18,27 @@
  */
 
 #include "AtaController.h"
+#include "AtaDisk.h"
+
+bool AtaController::compareRequests(const RequestQueue::Request &a, const RequestQueue::Request &b)
+{
+    // Request type, ATA disk, and request location match.
+    if (a.p2 != b.p2)
+    {
+        return false;
+    }
+    else if (a.p1 != b.p1)
+    {
+        return false;
+    }
+
+    AtaDisk *pDisk = reinterpret_cast<AtaDisk *>(a.p2);
+
+    // Align location to block size before comparing, as the disks only do
+    // operations on aligned locations (and so we should compare the same
+    // here to reduce duplication).
+    uint64_t a_aligned_location = a.p3 & ~(pDisk->getBlockSize() - 1);
+    uint64_t b_aligned_location = b.p3 & ~(pDisk->getBlockSize() - 1);
+
+    return a_aligned_location == b_aligned_location;
+}

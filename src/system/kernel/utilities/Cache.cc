@@ -250,6 +250,7 @@ uintptr_t Cache::insert (uintptr_t key)
     pPage->location = location;
     pPage->refcnt = 1;
     pPage->checksum = 0;
+    pPage->status = CachePage::Editing;
     m_Pages.insert(key, pPage);
     linkPage(pPage);
 
@@ -318,6 +319,7 @@ uintptr_t Cache::insert (uintptr_t key, size_t size)
         // Enter into cache unpinned, but only if we can call an eviction callback.
         pPage->refcnt = 1;
         pPage->checksum = 0;
+        pPage->status = CachePage::Editing;
 
         m_Pages.insert(key + (page * 4096), pPage);
         linkPage(pPage);
@@ -567,20 +569,47 @@ void Cache::timer(uint64_t delta, InterruptState &state)
         ++it)
     {
         CachePage *page = it.value();
-        if (verifyChecksum(page, true))
+        if (page->status == CachePage::Editing)
         {
-            // Checksum didn't change from the last check. If we saw it
-            // changing, perform an actual writeback now.
-            if (!page->checksumChanging)
+            // Don't touch page if it's being edited.
+            continue;
+        }
+        else if (page->status == CachePage::EditTransition)
+        {
+            // This is now the least-recently-used page.
+            promotePage(page);
+            page->status = CachePage::ChecksumStable;
+            continue;
+        }
+        else if (page->status == CachePage::ChecksumChanging)
+        {
+            // Did the checksum change?
+            if (verifyChecksum(page, true))
+            {
+                // No. Write back.
+                page->status = CachePage::ChecksumStable;
+            }
+            else
+            {
+                // Yes - don't write back.
                 continue;
+            }
+        }
+        else if (page->status == CachePage::ChecksumStable)
+        {
+            // Is it actually stable?
+            if (!verifyChecksum(page, true))
+            {
+                // It changed again - don't write back.
+                page->status = CachePage::ChecksumChanging;
+            }
 
-            page->checksumChanging = false;
+            // No need to write back if the checksum is stable.
+            continue;
         }
         else
         {
-            // Saw the checksum change. Don't write back immediately - wait for
-            // any possible further changes to be seen.
-            page->checksumChanging = true;
+            ERROR("Unknown page status!");
             continue;
         }
 
@@ -588,6 +617,7 @@ void Cache::timer(uint64_t delta, InterruptState &state)
         promotePage(page);
 
         // Queue a writeback for this dirty page to its backing store.
+        NOTICE("** writeback @" << Hex << it.key());
         CacheManager::instance().addAsyncRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::WriteBack, it.key(), page->location);
     }
 
@@ -713,4 +743,77 @@ uint16_t Cache::checksum(const void *data, size_t len)
     }
 
     return (sum2 << 8) | sum1;
+}
+
+void Cache::markEditing(uintptr_t key, size_t length)
+{
+    LockGuard<UnlikelyLock> guard(m_Lock);
+
+    if(length % 4096)
+    {
+        WARNING("Cache::markEditing called with a length that isn't page-aligned");
+        length &= ~0xFFFU;
+    }
+
+    if (!length)
+    {
+        length = 4096;
+    }
+
+    size_t nPages = length / 4096;
+
+    for(size_t page = 0; page < nPages; page++)
+    {
+        CachePage *pPage = m_Pages.lookup(key + (page * 4096));
+        if (!pPage)
+        {
+            continue;
+        }
+
+        pPage->status = CachePage::Editing;
+    }
+}
+
+void Cache::markNoLongerEditing(uintptr_t key, size_t length)
+{
+    LockGuard<UnlikelyLock> guard(m_Lock);
+
+    if(length % 4096)
+    {
+        WARNING("Cache::markEditing called with a length that isn't page-aligned");
+        length &= ~0xFFFU;
+    }
+
+    if (!length)
+    {
+        length = 4096;
+    }
+
+    size_t nPages = length / 4096;
+
+    for(size_t page = 0; page < nPages; page++)
+    {
+        CachePage *pPage = m_Pages.lookup(key + (page * 4096));
+        if (!pPage)
+        {
+            continue;
+        }
+
+        pPage->status = CachePage::EditTransition;
+
+        // We have to checksum here as a write could happen between now and the
+        // actual handling of the EditTransition, which would lead to some pages
+        // potentially failing to complete a writeback (not good).
+        calculateChecksum(pPage);
+    }
+}
+
+CachePageGuard::CachePageGuard(Cache &cache, uintptr_t location) :
+    m_Cache(cache), m_Location(location)
+{
+}
+
+CachePageGuard::~CachePageGuard()
+{
+    m_Cache.release(m_Location);
 }

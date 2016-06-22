@@ -43,6 +43,8 @@ uintptr_t DiskImage::read(uint64_t location)
 {
     if((location > m_nSize) || !m_pBase)
     {
+        ERROR("DiskImage::read() - location " << location << " > " << m_nSize);
+        ERROR("  -> or " << m_pBase << " is null");
         return ~0;
     }
 
@@ -57,6 +59,8 @@ uintptr_t DiskImage::read(uint64_t location)
 
     buffer = m_Cache.insert(location, getBlockSize());
     MemoryCopy(reinterpret_cast<void*>(buffer), adjust_pointer(m_pBase, location), getBlockSize());
+
+    m_Cache.markNoLongerEditing(location);
 
     return buffer + offset;
 }

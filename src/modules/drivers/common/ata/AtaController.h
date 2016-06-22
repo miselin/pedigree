@@ -50,11 +50,7 @@ public:
 
     virtual void getName(String &str) = 0;
 
-    virtual bool compareRequests(const RequestQueue::Request &a, const RequestQueue::Request &b)
-    {
-        // Request type, ATA disk, and request location match.
-        return (a.p1 == b.p1) && (a.p2 == b.p2) && (a.p3 == b.p3);
-    }
+    virtual bool compareRequests(const RequestQueue::Request &a, const RequestQueue::Request &b);
 
     // IRQ handler callback.
     virtual bool irq(irq_id_t number, InterruptState &state)

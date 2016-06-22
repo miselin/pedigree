@@ -280,6 +280,8 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
                 ERROR("Reading into fill cache failed, cannot get backing page.");
                 return ~0UL;
             }
+
+            m_FillCache.markNoLongerEditing(offset, nativeBlockSize);
 #ifdef THREADS
     m_Lock.acquire();
 #endif

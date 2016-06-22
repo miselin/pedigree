@@ -30,7 +30,7 @@ RequestQueue::RequestQueue() :
 #ifdef THREADS
   , m_pThread(0)
 #endif
-  , m_Halted(false)
+  , m_Halted(false), m_nMaxAsyncRequests(256), m_nAsyncRequests(0)
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
         m_pRequestQueue[i] = 0;
@@ -75,6 +75,13 @@ void RequestQueue::destroy()
 uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
                                   uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
+  return addRequest(priority, RequestQueue::Block, p1, p2, p3, p4, p5, p6, p7, p8);
+}
+
+uint64_t RequestQueue::addRequest(size_t priority, ActionOnDuplicate action,
+                                  uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+                                  uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+{
 #ifdef THREADS
   // Create a new request object.
   Request *pReq = new Request();
@@ -99,7 +106,7 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
     while (p->next != 0)
     {
         // Wait for duplicates instead of re-inserting, if the compare function is defined.
-        if(compareRequests(*p, *pReq))
+        if(compareRequests(*p, *pReq) && action != NewRequest)
         {
             bOwnRequest = false;
             delete pReq;
@@ -109,7 +116,7 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
       p = p->next;
     }
 
-    if(bOwnRequest && compareRequests(*p, *pReq))
+    if(bOwnRequest && compareRequests(*p, *pReq) && action != NewRequest)
     {
         bOwnRequest = false;
         delete pReq;
@@ -121,6 +128,11 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
 
   if(!bOwnRequest)
   {
+    if (action == ReturnImmediately)
+    {
+      m_RequestQueueMutex.release();
+      return 0;
+    }
     ++pReq->refcnt;
   }
   else
@@ -189,9 +201,20 @@ uint64_t RequestQueue::addRequest(size_t priority, uint64_t p1, uint64_t p2, uin
 int RequestQueue::doAsync(void *p)
 {
   RequestQueue::Request *pReq = reinterpret_cast<RequestQueue::Request *>(p);
-  pReq->owner->addRequest(pReq->priority, pReq->p1, pReq->p2, pReq->p3,
-                          pReq->p4, pReq->p5, pReq->p6, pReq->p7, pReq->p8);
+
+  ++(pReq->owner->m_nAsyncRequests);
+
+  // Just return if the request is a duplicate, as our caller doesn't care and
+  // we're otherwise just using up another thread stack and burning time for
+  // no real reason.
+  pReq->owner->addRequest(pReq->priority, ReturnImmediately,
+                          pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5,
+                          pReq->p6, pReq->p7, pReq->p8);
+
+  --(pReq->owner->m_nAsyncRequests);
+
   delete pReq;
+
   return 0;
 }
 
@@ -209,6 +232,17 @@ uint64_t RequestQueue::addAsyncRequest(size_t priority, uint64_t p1, uint64_t p2
   pReq->refcnt = 0;
   pReq->owner = this;
   pReq->priority = priority;
+
+  // We cannot block, so we just have to drop the request if the queue is
+  // already overloaded with async requests.
+  if (m_nAsyncRequests >= m_nMaxAsyncRequests)
+  {
+    ERROR("RequestQueue: a request queue is not keeping up with demand for async requests");
+    ERROR(" -> priority=" << priority << ", p1=" << Hex << p1 << ", p2=" << p2 << ", p3=" << p3 << ", p4=" << p4);
+    ERROR(" -> p5=" << Hex << p5 << ", p6=" << p6 << ", p7=" << p7 << ", p8=" << p8);
+    delete pReq;
+    return 0;
+  }
 
   // Add to RequestQueue.
   Process *pProcess = Scheduler::instance().getKernelProcess();

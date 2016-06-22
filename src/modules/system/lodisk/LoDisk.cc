@@ -101,6 +101,8 @@ uintptr_t FileDisk::read(uint64_t location)
     // Read the data from the file itself
     m_pFile->read(readPage, 4096, buffer);
 
+    m_Cache.markNoLongerEditing(readPage);
+
     return buffer + pageOffset;
 }
 

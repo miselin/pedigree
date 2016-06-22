@@ -441,7 +441,7 @@ void system_reset()
     NOTICE("Resetting...");
 
 #ifdef MULTIPROCESSOR
-  Machine::instance().stopAllOtherProcessors();
+    Machine::instance().stopAllOtherProcessors();
 #endif
 
     // No need for user input anymore.

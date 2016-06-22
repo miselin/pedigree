@@ -43,7 +43,6 @@ void ScsiDisk::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc,
     {
         case CacheConstants::WriteBack:
             {
-                // Blocking write request.
                 pDisk->flush(loc);
             }
             break;
@@ -372,7 +371,7 @@ void ScsiDisk::flush(uint64_t location)
 
     ScsiController *pParent = static_cast<ScsiController*> (m_pParent);
     pParent->addRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t> (this), location + offs);
-    pParent->addRequest(0, SCSI_REQUEST_SYNC, reinterpret_cast<uint64_t> (this), location + offs);
+    pParent->addRequest(0, reinterpret_cast<uint64_t> (this), location + offs);
 
     // Undo our pin for write+sync.
     m_Cache.release(location + offs);
@@ -467,35 +466,36 @@ uint64_t ScsiDisk::doRead(uint64_t location)
         blockNum += trackStart;
     }
 
-    for(int i = 0; i < 3; i++)
+    for(int i = 0; i < 3 && !bOk; i++)
     {
         SCSI_DEBUG_LOG("SCSI: trying read(10)");
         pCommand = new ScsiCommands::Read10(blockNum, blockCount);
         bOk = sendCommand(pCommand, buffer, getBlockSize());
         delete pCommand;
-        if(bOk)
-            return 0;
     }
-    for(int i = 0; i < 3; i++)
+    for(int i = 0; i < 3 && !bOk; i++)
     {
         SCSI_DEBUG_LOG("SCSI: trying read(12)");
         pCommand = new ScsiCommands::Read12(blockNum, blockCount);
         bOk = sendCommand(pCommand, buffer, getBlockSize());
         delete pCommand;
-        if(bOk)
-            return 0;
     }
-    for(int i = 0; i < 3; i++)
+    for(int i = 0; i < 3 && !bOk; i++)
     {
         SCSI_DEBUG_LOG("SCSI: trying read(16)");
         pCommand = new ScsiCommands::Read16(blockNum, blockCount);
         bOk = sendCommand(pCommand, buffer, getBlockSize());
         delete pCommand;
-        if(bOk)
-            return 0;
     }
 
-    ERROR("SCSI: reading failed?");
+    if (bOk)
+    {
+        m_Cache.markNoLongerEditing(location, getBlockSize());
+    }
+    else
+    {
+        ERROR("SCSI: reading failed?");
+    }
 
     return 0;
 }

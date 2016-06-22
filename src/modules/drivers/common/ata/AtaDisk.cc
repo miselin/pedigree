@@ -866,6 +866,17 @@ uint64_t AtaDisk::doRead(uint64_t location)
         }
     }
 
+    // Update Cache - we're done reading.
+    for (size_t i = 0; i < nBuffers; ++i)
+    {
+        if (buffers[i].buffer == reinterpret_cast<uintptr_t>(alreadyRead))
+        {
+            continue;
+        }
+
+        getCache().markNoLongerEditing(location + buffers[i].offset);
+    }
+
     return 0;
 }
 

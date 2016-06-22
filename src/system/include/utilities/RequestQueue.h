@@ -40,6 +40,17 @@ public:
     RequestQueue();
     virtual ~RequestQueue();
 
+    // Action to perform when a duplicate request is found in the queue.
+    enum ActionOnDuplicate
+    {
+        // Block waiting for it to complete, and return its return value.
+        Block,
+        // Ignore the duplicate and create a new request.
+        NewRequest,
+        // Return immediately, ignoring the result from the request.
+        ReturnImmediately
+    };
+
     /** Initialises the queue, spawning the worker thread. */
     virtual void initialise();
 
@@ -49,6 +60,10 @@ public:
     /** Adds a request to the queue. Blocks until it finishes and returns the result.
         \param priority The priority to attach to this request. Lower number is higher priority. */
     uint64_t addRequest(size_t priority, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
+                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
+
+    /** Adds a request to the queue with optional behavior on duplicate detection. */
+    uint64_t addRequest(size_t priority, ActionOnDuplicate action, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
                         uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
 
     /** Adds an asynchronous request to the queue. Will not block. */
@@ -140,12 +155,18 @@ protected:
 
     /** Condition variable for verifying if items exist. */
     ConditionVariable m_RequestQueueCondition;
+
+    /** Condition variable for verifying if we can do an async request. */
+    ConditionVariable m_AsyncRequestQueueCondition;
     
     Thread *m_pThread;
 
     bool m_Halted;
     Mutex m_HaltAcknowledged;
 #endif
+
+    size_t m_nMaxAsyncRequests;
+    size_t m_nAsyncRequests;
 };
 
 #endif

@@ -125,6 +125,22 @@ private:
         /// Marker to check that a page's contents are in flux.
         bool checksumChanging;
 
+        /// Current page status.
+        enum Status
+        {
+            // The page is being edited and should not be considered for any
+            // writeback operation.
+            Editing,
+            // The page has been marked as no longer being edited and should
+            // only have a checksum calculated, but no writeback.
+            EditTransition,
+            // The checksum is in flux.
+            ChecksumChanging,
+            // The checksum was in flux but is now stable. A transition into
+            // this state will trigger a writeback.
+            ChecksumStable
+        } status;
+
         /// Linked list components for LRU.
         CachePage *pNext;
         CachePage *pPrev;
@@ -152,7 +168,12 @@ public:
     /** Looks for \p key , increasing \c refcnt by one if returned. */
     uintptr_t lookup (uintptr_t key);
 
-    /** Creates a cache entry with the given key. */
+    /**
+     * Creates a cache entry with the given key.
+     *
+     * The new entry will already be marked as being edited, and so won't be
+     * written back until the inserter calls markNoLongerEditing again.
+     */
     uintptr_t insert (uintptr_t key);
 
     /** Creates a bunch of cache entries to fill a specific size. Note that
@@ -243,6 +264,22 @@ public:
     {
         m_bInCritical = 0;
     }
+
+    /**
+     * Mark the given page as being edited.
+     *
+     * A page being edited will never be written back, nor will its checksum
+     * be calculated. Once a page is no longer being edited, it goes into an
+     * intermediate mode that means it'll have its checksum calculated
+     * asynchronously. After that point, normal checksum-based writebacks take
+     * place.
+     */
+    void markEditing(uintptr_t key, size_t length=0);
+
+    /**
+     * Mark the given page as no longer being edited.
+     */
+    void markNoLongerEditing(uintptr_t key, size_t length=0);
 
 private:
 
@@ -358,15 +395,8 @@ private:
 class CachePageGuard
 {
 public:
-    CachePageGuard(Cache &cache, uintptr_t location) :
-        m_Cache(cache), m_Location(location)
-    {
-    }
-
-    virtual ~CachePageGuard()
-    {
-        m_Cache.release(m_Location);
-    }
+    CachePageGuard(Cache &cache, uintptr_t location);
+    virtual ~CachePageGuard();
 
 private:
     Cache &m_Cache;
