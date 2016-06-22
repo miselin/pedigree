@@ -22,7 +22,7 @@
 #include <Log.h>
 #include <processor/Processor.h>
 
-TcpManager TcpManager::manager;
+TcpManager *TcpManager::manager = 0;
 
 size_t TcpManager::Listen(Endpoint* e, uint16_t port, Network* pCard)
 {

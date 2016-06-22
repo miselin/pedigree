@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -42,7 +41,7 @@ public:
   /** For access to the stack without declaring an instance of it */
   static NetworkStack& instance()
   {
-    return stack;
+    return *stack;
   }
   
   /** Called when a packet arrives */
@@ -79,8 +78,7 @@ public:
   }
 
 private:
-
-  static NetworkStack stack;
+  static NetworkStack *stack;
   
   struct Packet
   {

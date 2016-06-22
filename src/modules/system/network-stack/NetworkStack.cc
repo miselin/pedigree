@@ -20,15 +20,26 @@
 #include "NetworkStack.h"
 #include "Ethernet.h"
 #include "Ipv6.h"
+#include "TcpManager.h"
 #include <Module.h>
 #include <Log.h>
 #include <processor/Processor.h>
 
-NetworkStack NetworkStack::stack;
+NetworkStack *NetworkStack::stack = 0;
+
+static NetworkStack *g_NetworkStack = 0;
+static TcpManager *g_TcpManager = 0;
 
 NetworkStack::NetworkStack() :
   RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
 {
+  if (stack)
+  {
+    FATAL("NetworkStack created multiple times.");
+  }
+
+  stack = this;
+
   initialise();
 
 #if defined(X86_COMMON) || defined(HOSTED)
@@ -52,6 +63,8 @@ NetworkStack::NetworkStack() :
 NetworkStack::~NetworkStack()
 {
   destroy();
+
+  stack = 0;
 }
 
 uint64_t NetworkStack::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
@@ -143,6 +156,9 @@ extern ServiceFeatures *g_pIpv6Features;
 
 static bool entry()
 {
+    g_NetworkStack = new NetworkStack();
+    g_TcpManager = new TcpManager();
+
     // Install the IPv6 Service
     g_pIpv6Service = new Ipv6Service;
     g_pIpv6Features = new ServiceFeatures;
@@ -154,6 +170,12 @@ static bool entry()
 
 static void exit()
 {
+    ServiceManager::instance().removeService(String("ipv6"));
+    delete g_pIpv6Features;
+    delete g_pIpv6Service;
+
+    delete g_TcpManager;
+    delete g_NetworkStack;
 }
 
 // NetManager exposes a Filesystem, and so needs the vfs module.

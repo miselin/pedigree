@@ -54,6 +54,8 @@ public:
     m_CurrentConnections(), m_Endpoints(), m_ListenPorts(), m_EphemeralPorts(),
     m_TcpMutex(false), m_SequenceMutex(false), m_Nanoseconds(0)
   {
+    manager = this;
+
     // Ports 32768 -> 65535 are ephemeral ports for client->server connections.
     for(size_t n = 0; n < BASE_EPHEMERAL_PORT; ++n)
     {
@@ -74,12 +76,14 @@ public:
       NOTICE("TcpManager destructor, removing handler");
       t->unregisterHandler(this);
     }
+
+    manager = 0;
   }
 
   /** For access to the manager without declaring an instance of it */
   static TcpManager& instance()
   {
-    return manager;
+    return *manager;
   }
 
   /** Every half a second, increments sequence number by 64,000. */
@@ -229,7 +233,7 @@ public:
 
 private:
 
-  static TcpManager manager;
+  static TcpManager *manager;
 
   // next TCP sequence number to allocate
   uint32_t m_NextTcpSequence;
