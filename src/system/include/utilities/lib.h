@@ -97,6 +97,21 @@ void *malloc(size_t);
 void *realloc(void *, size_t);
 void free(void *);
 
+/// Basic 8-bit checksum check (returns 1 if checksum is correct).
+uint8_t checksum(const uint8_t *pMemory, size_t sMemory);
+
+/// Fletcher 16-bit checksum.
+uint16_t checksum16(const uint8_t *pMemory, size_t sMemory);
+
+/// Fletcher 32-bit checksum.
+uint32_t checksum32(const uint8_t *pMemory, size_t sMemory);
+
+/// Fletcher 32-bit checksum.
+uint32_t checksum32_naive(const uint8_t *pMemory, size_t sMemory);
+
+/// Checksum a page of memory.
+uint32_t checksumPage(uintptr_t address);
+
 #ifdef __cplusplus
 }
 

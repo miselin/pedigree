@@ -64,6 +64,7 @@ libutility_sources = [
     os.path.join('utilities', 'ExtensibleBitmap.cc'),
     os.path.join('utilities', 'ObjectPool.cc'),
     os.path.join('utilities', 'Buffer.cc'),
+    os.path.join('utilities', 'utility.cc'),
     os.path.join('core', 'lib', 'demangle.cc'),
     os.path.join('core', 'lib', 'string.c'),
     os.path.join('core', 'lib', 'memory.c'),

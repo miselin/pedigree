@@ -133,14 +133,6 @@
     if (value < 0) value *= -1;
     return value;
   }
-
-  inline uint8_t checksum(const uint8_t *pMemory, size_t sMemory)
-  {
-    uint8_t sum = 0;
-    for (size_t i = 0;i < sMemory;i++)
-      sum += pMemory[i];
-    return (sum == 0);
-  }
 #endif
 
 /** @} */
