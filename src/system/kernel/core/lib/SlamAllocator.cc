@@ -19,7 +19,7 @@
 
 #include "SlamAllocator.h"
 
-#ifndef BENCHMARK
+#ifndef PEDIGREE_BENCHMARK
 #include <utilities/assert.h>
 #include <utilities/MemoryTracing.h>
 #include <LockGuard.h>
@@ -42,7 +42,7 @@
 #define ATOMIC_CAS_WEAK     true
 #endif
 
-#ifndef BENCHMARK
+#ifndef PEDIGREE_BENCHMARK
 SlamAllocator SlamAllocator::m_Instance;
 #endif
 
@@ -61,7 +61,7 @@ inline T *untagged(T *p)
     /// \todo this now requires 64-bit pointers everywhere.
     // All heap pointers begin with 32 bits of ones. So we shove a tag there.
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-#if defined(BENCHMARK) || defined(HOSTED)
+#if defined(PEDIGREE_BENCHMARK) || defined(HOSTED)
     // Top four bits available to us (addresses from 0 -> 0x00007FFFFFFFFFFF).
     ptr &= ~0xFFFF000000000000ULL;
 #else
@@ -74,7 +74,7 @@ template<typename T>
 inline T *tagged(T *p)
 {
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-#if defined(BENCHMARK) || defined(HOSTED)
+#if defined(PEDIGREE_BENCHMARK) || defined(HOSTED)
     ptr &= 0xFFFFFFFFFFFFULL;
 #else
     ptr &= 0xFFFFFFFFULL;
@@ -87,7 +87,7 @@ inline T *touch_tag(T *p)
 {
     // Add one to the tag.
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-#if defined(BENCHMARK) || defined(HOSTED)
+#if defined(PEDIGREE_BENCHMARK) || defined(HOSTED)
     ptr += 0x1000000000000ULL;
 #else
     ptr += 0x100000000ULL;
@@ -97,7 +97,7 @@ inline T *touch_tag(T *p)
 
 inline void spin_pause()
 {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
     asm("pause");
 #else
     Processor::pause();
@@ -106,7 +106,7 @@ inline void spin_pause()
 
 inline uintptr_t getHeapBase()
 {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
     return SlamSupport::getHeapBase();
 #else
     return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapStart();
@@ -115,7 +115,7 @@ inline uintptr_t getHeapBase()
 
 inline uintptr_t getHeapEnd()
 {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
     return SlamSupport::getHeapEnd();
 #else
     return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapEnd();
@@ -124,7 +124,7 @@ inline uintptr_t getHeapEnd()
 
 inline size_t getPageSize()
 {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
     return 0x1000;
 #else
     return PhysicalMemoryManager::getPageSize();
@@ -133,7 +133,7 @@ inline size_t getPageSize()
 
 inline void allocateAndMapAt(void *addr)
 {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
     SlamSupport::getPageAt(addr);
 #else
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
@@ -144,7 +144,7 @@ inline void allocateAndMapAt(void *addr)
 
 inline void unmap(void *addr)
 {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
     SlamSupport::unmapPage(addr);
     // munmap(addr, getPageSize());
 #else
@@ -1078,7 +1078,7 @@ void SlamAllocator::free(uintptr_t mem)
 #endif
 
     // Ensure this pointer is even on the heap...
-#ifndef BENCHMARK
+#ifndef PEDIGREE_BENCHMARK
     if(!Processor::information().getVirtualAddressSpace().memIsInHeap(reinterpret_cast<void*>(mem)))
         FATAL_NOLOCK("SlamAllocator::free - given pointer '" << mem << "' was completely invalid.");
 #endif
@@ -1134,7 +1134,7 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     if (!mem) return true;
 
     // On the heap?
-#ifndef BENCHMARK
+#ifndef PEDIGREE_BENCHMARK
     if(!Processor::information().getVirtualAddressSpace().memIsInHeap(reinterpret_cast<void*>(mem)))
         return false;
 #endif

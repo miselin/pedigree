@@ -77,7 +77,7 @@ libutility_sources = [
 ]
 defines = [
     'HOSTED', 'UTILITY_LINUX', 'TARGET_IS_LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
-    'BENCHMARK', 'STANDALONE_MUTEXES',
+    'PEDIGREE_BENCHMARK', 'STANDALONE_MUTEXES',
 ]
 
 utility_env = env.Clone()

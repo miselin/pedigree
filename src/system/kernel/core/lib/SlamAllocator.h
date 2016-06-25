@@ -29,12 +29,12 @@
 #include <processor/types.h>
 #include <Log.h>
 
-#ifndef BENCHMARK
+#ifndef PEDIGREE_BENCHMARK
 #include <processor/PhysicalMemoryManager.h>
 #include <utilities/MemoryAllocator.h>
 
 #include <Spinlock.h>
-#else  // BENCHMARK
+#else  // PEDIGREE_BENCHMARK
 
 namespace SlamSupport
 {
@@ -221,7 +221,7 @@ class SlamAllocator
 
         static SlamAllocator &instance()
         {
-#ifdef BENCHMARK
+#ifdef PEDIGREE_BENCHMARK
             static SlamAllocator instance;
             return instance;
 #else
@@ -259,7 +259,7 @@ class SlamAllocator
         SlamAllocator(const SlamAllocator&);
         const SlamAllocator& operator = (const SlamAllocator&);
 
-#ifndef BENCHMARK
+#ifndef PEDIGREE_BENCHMARK
         static SlamAllocator m_Instance;
 #endif
 
