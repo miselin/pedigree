@@ -192,7 +192,7 @@ void parse(char *filename)
         else if (cmds[i]->val != 0)
         {
             table[idx].flags |= SPECIAL;
-            memcpy((char*)&(table[idx].val), cmds[i]->val, 4);
+            memcpy((char*)&(table[idx].val), cmds[i]->val, strlen(cmds[i]->val));
         }
     }
 }
@@ -252,7 +252,8 @@ void compile(char *filename)
     // Table created, now create the sparse tree.
     sparse((TABLE_MAX+1)/2, (TABLE_MAX+1)/2);
 
-    char *fname = (char*)malloc(strlen(filename)+3);
+    // room for .kmc + null terminator
+    char *fname = (char*)malloc(strlen(filename) + 5);
     strcpy(fname, filename);
     strcat(fname, ".kmc");
 
@@ -275,6 +276,8 @@ void compile(char *filename)
 
     printf("Compiled keymap file written to `%s'.\n", fname);
 
+    // clear fname for header part
+    memset(fname, 0, strlen(filename) + 5);
     strcpy(fname, filename);
     strcat(fname, ".h");
 
@@ -289,7 +292,7 @@ void compile(char *filename)
     // Change the filename to uppercase and underscored for the header guard.
     char *header_guard = strdup(fname);
     int i;
-    for (i = 0; i < (int)strlen(fname)+2; i++)
+    for (i = 0; i < (int)strlen(fname); i++)
     {
         if (fname[i] == '.' || fname[i] == '/')
             header_guard[i] = '_';
