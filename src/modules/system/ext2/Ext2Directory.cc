@@ -60,12 +60,16 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
 
     uint32_t i;
     Dir *pDir = 0;
+    Dir *pLastDir = 0;
+    Dir *pBlockEnd = 0;
     for (i = 0; i < m_Blocks.count(); i++)
     {
         ensureBlockLoaded(i);
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        pLastDir = pDir;
         pDir = reinterpret_cast<Dir*>(buffer);
-        while (reinterpret_cast<uintptr_t>(pDir) < buffer+m_pExt2Fs->m_BlockSize)
+        pBlockEnd = adjust_pointer(pDir, m_pExt2Fs->m_BlockSize);
+        while (pDir < pBlockEnd)
         {
             // What's the minimum length of this directory entry?
             size_t thisReclen = 4 + 2 + 1 + 1 + pDir->d_namelen;
@@ -76,32 +80,33 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
             }
 
             // Valid directory entry?
+            uint16_t entryReclen = LITTLE_TO_HOST16(pDir->d_reclen);
             if (pDir->d_inode > 0)
             {
                 // Is there enough space to add this dirent?
                 /// \todo Ensure 4-byte alignment.
-                if (pDir->d_reclen - thisReclen >= length)
+                if (entryReclen - thisReclen >= length)
                 {
                     bFound = true;
                     // Save the current reclen.
-                    uint16_t oldReclen = pDir->d_reclen;
+                    uint16_t oldReclen = entryReclen;
                     // Adjust the current record's reclen field to the minimum.
-                    pDir->d_reclen = thisReclen;
+                    pDir->d_reclen = HOST_TO_LITTLE16(thisReclen);
                     // Move to the new directory entry location.
-                    pDir = reinterpret_cast<Dir*> (reinterpret_cast<uintptr_t>(pDir) + thisReclen);
+                    pDir = adjust_pointer(pDir, thisReclen);
                     // New record length.
                     uint16_t newReclen = oldReclen - thisReclen;
                     // Set the new record length.
-                    pDir->d_reclen = newReclen;
+                    pDir->d_reclen = HOST_TO_LITTLE16(newReclen);
                     break;
                 }
             }
-            else if (pDir->d_reclen == 0)
+            else if (entryReclen == 0)
             {
                 // No more entries to follow.
                 break;
             }
-            else if (pDir->d_reclen - thisReclen >= length)
+            else if (entryReclen - thisReclen >= length)
             {
                 // We can use this unused entry - we fit into it.
                 // The record length does not need to be adjusted.
@@ -110,7 +115,8 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
             }
 
             // Next.
-            pDir = reinterpret_cast<Dir*> (reinterpret_cast<uintptr_t>(pDir) + pDir->d_reclen);
+            pLastDir = pDir;
+            pDir = adjust_pointer(pDir, entryReclen);
         }
         if (bFound) break;
     }
@@ -140,7 +146,7 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
 
         ByteSet(reinterpret_cast<void *>(buffer), 0, m_pExt2Fs->m_BlockSize);
         pDir = reinterpret_cast<Dir *>(buffer);
-        pDir->d_reclen = m_pExt2Fs->m_BlockSize;
+        pDir->d_reclen = HOST_TO_LITTLE16(m_pExt2Fs->m_BlockSize);
 
         /// \todo Update our i_size for our directory.
     }
@@ -182,7 +188,6 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     addDirectoryEntry(filename, pFile);
 
     // Trigger write back to disk.
-    NOTICE("writing back " << m_Blocks[i]);
     m_pExt2Fs->writeBlock(m_Blocks[i]);
 
     m_Size = m_nSize;
