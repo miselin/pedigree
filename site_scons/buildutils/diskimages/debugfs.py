@@ -336,6 +336,23 @@ def buildImageE2fsprogs(target, source, env):
     # Add some more useful layout features (e.g. to make /bin/sh work).
     cmdlist.append('symlink /applications/sh /applications/bash')
 
+    # Sort the command lists so we do everything in batches (e.g. mkdir, chmod)
+    def count_components(path):
+        return path.count('/')
+
+    def commandlist_sorter(item):
+        order = ['mkdir', 'write', 'symlink', 'chmod']
+        item_components = item.split()
+        item_which = item_components[0]
+        if item_which in ('mkdir', 'write', 'symlink'):
+            item_target_path = item_components[-1]
+        else:
+            item_target_path = item_components[1]
+
+        # First key - ordered commands. Second key - # of path components.
+        return (order.index(item_which), count_components(item_target_path))
+
+    cmdlist = sorted(cmdlist, key=commandlist_sorter)
 
     # Dump our files into the image using ext2img (built as part of the normal
     # Pedigree build, to run on the build system - not on Pedigree).
