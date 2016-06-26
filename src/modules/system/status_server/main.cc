@@ -30,6 +30,7 @@
 #include <vfs/VFS.h>
 #include <vfs/Filesystem.h>
 #include <core/lib/SlamAllocator.h>
+#include <compiler.h>
 
 #define LISTEN_PORT     1234
 
@@ -325,11 +326,9 @@ static int clientThread(void *p)
     return 0;
 }
 
-int mainThread(void *p) NORETURN;
-int mainThread(void *p)
+int mainThread(void *) NORETURN;
+int mainThread(void *)
 {
-    ConnectionBasedEndpoint *pEndpoint = reinterpret_cast<ConnectionBasedEndpoint *>(p);
-
     pEndpoint->listen();
 
     while(1)

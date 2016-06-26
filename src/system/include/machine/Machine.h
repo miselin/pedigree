@@ -64,7 +64,7 @@ class Machine
     virtual void deinitialise()
     {
         m_bInitialised = false;
-    };
+    }
     inline bool isInitialised(){return m_bInitialised;}
 
     /**

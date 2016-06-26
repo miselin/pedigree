@@ -30,9 +30,9 @@
  */
 #if defined(DEBUGGER) || defined(ASSERTS)
 #define assert(x) do { \
-        bool y = (x); \
-        if(UNLIKELY(!y)) \
-            _assert(y, __FILE__, __LINE__, __PRETTY_FUNCTION__); \
+        bool __pedigree_assert_chk = (x); \
+        if(UNLIKELY(!__pedigree_assert_chk)) \
+            _assert(__pedigree_assert_chk, __FILE__, __LINE__, __PRETTY_FUNCTION__); \
     } while(0)
 
 #ifndef USE_DEBUG_ALLOCATOR

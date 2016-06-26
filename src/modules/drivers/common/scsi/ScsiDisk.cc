@@ -418,7 +418,7 @@ uint64_t ScsiDisk::doRead(uint64_t location)
     size_t blockNum = location / getNativeBlockSize();
     size_t blockCount = getBlockSize() / getNativeBlockSize();
 
-    bool bOk;
+    bool bOk = false;
     ScsiCommand *pCommand;
 
     // TOC?

@@ -242,8 +242,8 @@ public:
     LogEntry &operator<< (const String &);
     /** Adds an entry to the log
      *\param[in] str the null-terminated ASCII string that should be added */
-    inline LogEntry &operator<< (char *str)
-      {return (*this) << (reinterpret_cast<const char*>(str));}
+    inline LogEntry &operator<< (char *append_str)
+      {return (*this) << (reinterpret_cast<const char*>(append_str));}
     /** Adds an entry to the log
      *\param[in] b boolean value */
     LogEntry &operator<< (bool b);
@@ -251,7 +251,11 @@ public:
      *\param[in] p pointer value */
     template<class T>
     LogEntry &operator<< (T *p)
-      {return (*this) << (reinterpret_cast<uintptr_t>(p));}
+    {
+      // Preserve the current number type but always print pointers as hex.
+      NumberType currentNumberType = numberType;
+      return (*this) << Hex << (reinterpret_cast<uintptr_t>(p)) << currentNumberType;
+    }
     /** Adds an entry to the log (integer type)
      *\param[in] n the number */
     template<class T>
