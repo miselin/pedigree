@@ -95,6 +95,11 @@ void pedigree_input_remove_callback(void *p)
     syscall1(PEDIGREE_INPUT_REMOVE_CALLBACK, (long) p);
 }
 
+void pedigree_input_inhibit_events(int inhibit)
+{
+    syscall1(PEDIGREE_INPUT_INHIBIT_EVENTS, inhibit);
+}
+
 void pedigree_event_return()
 {
     syscall0(PEDIGREE_EVENT_RETURN);

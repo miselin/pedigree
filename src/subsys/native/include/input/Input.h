@@ -76,6 +76,12 @@ namespace Input
     /// Removes a given callback
     void removeCallback(callback_t cb);
 
+    /// Inhibits input events.
+    void inhibitEvents();
+
+    /// Uninhibits events.
+    void uninhibitEvents();
+
     /// Loads a new keymap and sets it as the system-wide keymap from the
     /// given file. There is currently no supported way to obtain mappings
     /// for keys from the kernel.

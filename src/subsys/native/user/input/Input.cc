@@ -45,6 +45,16 @@ void Input::removeCallback(callback_t cb)
     pedigree_input_remove_callback(reinterpret_cast<void*>(cb));
 }
 
+void Input::inhibitEvents()
+{
+    pedigree_input_inhibit_events(1);
+}
+
+void Input::uninhibitEvents()
+{
+    pedigree_input_inhibit_events(0);
+}
+
 void Input::loadKeymapFromFile(const char *path)
 {
     // Load the file in to a buffer.

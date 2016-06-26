@@ -259,6 +259,12 @@ void pedigree_input_remove_callback(void *p)
         Processor::information().getCurrentThread());
 }
 
+void pedigree_input_inhibit_events(int inhibit)
+{
+    Thread *pThread = Processor::information().getCurrentThread();
+    pThread->inhibitEvent(EventNumbers::InputEvent, inhibit == 1);
+}
+
 int pedigree_load_keymap(uint32_t *buf, size_t len)
 {
     /// \todo check parameter is mapped in

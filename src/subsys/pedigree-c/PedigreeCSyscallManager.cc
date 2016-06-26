@@ -164,6 +164,9 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
         case PEDIGREE_INPUT_REMOVE_CALLBACK:
             pedigree_input_remove_callback(reinterpret_cast<void*>(p1));
             return 0;
+        case PEDIGREE_INPUT_INHIBIT_EVENTS:
+            pedigree_input_inhibit_events(p1);
+            break;
         case PEDIGREE_EVENT_RETURN:
             pedigree_event_return();
         case PEDIGREE_SYS_REQUEST_MEM:

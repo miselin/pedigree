@@ -191,8 +191,8 @@ void handle_input(Input::InputNotification &note)
         {
             // ALT escaped key
             c &= 0x7F;
-            write(g_MasterPty, "\e", 1);
-            write(g_MasterPty, &c, 1);
+            char buf[2] = {'\e', c};
+            write(g_MasterPty, buf, 2);
         }
         else if(c)
         {
@@ -368,7 +368,13 @@ int main(int argc, char **argv)
             // Handle incoming data from the PTY.
             if(FD_ISSET(g_MasterPty, &fds))
             {
+                // We need to inhibit any input events while we read from the
+                // master pty, as events must write to it. If we were to
+                // receive an event during this read, we'd deadlock in the
+                // kernel.
+                Input::inhibitEvents();
                 size_t len = read(g_MasterPty, buffer, maxBuffSize);
+                Input::uninhibitEvents();
                 buffer[len] = 0;
                 write(tty, buffer, len);
             }
@@ -378,7 +384,13 @@ int main(int argc, char **argv)
             {
                 size_t len = read(tty, buffer, maxBuffSize);
                 buffer[len] = 0;
+
+                // Same problem as above - if we are writing and then an event
+                // fires that triggers another write, we'll deadlock in the
+                // kernel.
+                Input::inhibitEvents();
                 write(g_MasterPty, buffer, len);
+                Input::uninhibitEvents();
             }
         }
     }

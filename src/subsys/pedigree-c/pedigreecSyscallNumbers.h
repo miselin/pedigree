@@ -53,6 +53,7 @@
 #define PEDIGREE_SYS_REQUEST_MEM            27
 
 #define PEDIGREE_HALTFS                     28
+#define PEDIGREE_INPUT_INHIBIT_EVENTS       29
 
 #define PEDIGREE_EVENT_RETURN               60
 
