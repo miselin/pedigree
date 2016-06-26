@@ -24,13 +24,14 @@
 
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
 #define USE_FILE_IO  0
 
 DiskImage::DiskImage(const char *path) : Disk(), m_pFileName(path), m_nSize(0),
-    m_pFile(0), m_pBuffer(0)
+    m_pFile(0), m_FileNo(-1), m_pBuffer(0)
 {
 }
 
@@ -41,6 +42,13 @@ DiskImage::~DiskImage()
 #if USE_FILE_IO
         fflush(m_pFile);
         delete [] (char *) m_pBuffer;
+#elif HAS_ADDRESS_SANITIZER
+        for (auto it : m_BufferMap)
+        {
+            void *buf = it.second;
+            msync(buf, 4096, MS_SYNC);
+            munmap(buf, 4096);
+        }
 #else
         msync(m_pBuffer, m_nSize, MS_SYNC);
         munmap(m_pBuffer, m_nSize);
@@ -53,6 +61,11 @@ DiskImage::~DiskImage()
         fflush(m_pFile);
         fclose(m_pFile);
     }
+
+    if (m_FileNo >= 0)
+    {
+        close(m_FileNo);
+    }
 }
 
 bool DiskImage::initialise()
@@ -64,9 +77,9 @@ bool DiskImage::initialise()
     if (!m_pFile)
         return false;
 
-    int fd = fileno(m_pFile);
+    m_FileNo = fileno(m_pFile);
     struct stat st;
-    int r = fstat(fd, &st);
+    int r = fstat(m_FileNo, &st);
     if (r < 0)
     {
         fclose(m_pFile);
@@ -78,8 +91,10 @@ bool DiskImage::initialise()
 
 #if USE_FILE_IO
     m_pBuffer = (void *) new char[m_nSize];
+#elif HAS_ADDRESS_SANITIZER
+    m_BufferMap.clear();
 #else
-    m_pBuffer = mmap(0, m_nSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    m_pBuffer = mmap(0, m_nSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, 0);
     if (m_pBuffer == MAP_FAILED)
     {
         fclose(m_pFile);
@@ -101,14 +116,30 @@ uintptr_t DiskImage::read(uint64_t location)
         return ~0;
     }
 
-#if USE_FILE_IO
     uint64_t off = location & 0xFFF;
+#if USE_FILE_IO
     location &= ~0xFFF;
     fseek(m_pFile, location, SEEK_SET);
     ssize_t x = fread(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
     if (!x)
         return ~0;
     return reinterpret_cast<uintptr_t>(m_pBuffer) + location + off;
+#elif HAS_ADDRESS_SANITIZER
+    location &= ~0xFFF;
+    auto it = m_BufferMap.find(location);
+    if (it != m_BufferMap.end())
+    {
+        return reinterpret_cast<uintptr_t>((*it).second) + off;
+    }
+
+    void *p = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, location);
+    if (p == MAP_FAILED)
+    {
+        return ~0;
+    }
+
+    m_BufferMap.insert({location, p});
+    return reinterpret_cast<uintptr_t>(p) + off;
 #else
     return reinterpret_cast<uintptr_t>(m_pBuffer) + location;
 #endif
@@ -125,6 +156,13 @@ void DiskImage::write(uint64_t location)
     location &= ~0xFFF;
     fseek(m_pFile, location, SEEK_SET);
     fwrite(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
+#elif HAS_ADDRESS_SANITIZER
+    location &= ~0xFFF;
+    auto it = m_BufferMap.find(location);
+    if (it != m_BufferMap.end())
+    {
+        msync((*it).second, 4096, MS_ASYNC);
+    }
 #else
     msync(adjust_pointer(m_pBuffer, location), getBlockSize(), MS_ASYNC);
 #endif

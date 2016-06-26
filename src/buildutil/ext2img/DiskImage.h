@@ -20,10 +20,15 @@
 #ifndef DISKIMAGE_H
 #define DISKIMAGE_H
 
+#include <compiler.h>
 #include <machine/Disk.h>
 #include <utilities/Tree.h>
 
 #include <stdio.h>
+
+#if HAS_ADDRESS_SANITIZER
+#include <map>
+#endif
 
 /** Loads a disk image as a usable disk device. */
 class DiskImage : public Disk
@@ -59,11 +64,18 @@ public:
     virtual void unpin(uint64_t location);
 
 private:
+    void *bufferForLocation(uint64_t location);
+
     const char *m_pFileName;
     size_t m_nSize;
     FILE *m_pFile;
+    int m_FileNo;
 
     void *m_pBuffer;
+
+#if HAS_ADDRESS_SANITIZER
+    std::map<uint64_t, void *> m_BufferMap;
+#endif
 };
 
 #endif
