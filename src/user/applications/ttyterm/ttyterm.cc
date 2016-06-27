@@ -191,7 +191,7 @@ void handle_input(Input::InputNotification &note)
         {
             // ALT escaped key
             c &= 0x7F;
-            char buf[2] = {'\e', c};
+            char buf[2] = {'\e', static_cast<char>(c & 0xFF)};
             write(g_MasterPty, buf, 2);
         }
         else if(c)
