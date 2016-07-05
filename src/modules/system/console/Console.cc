@@ -68,15 +68,54 @@ ConsoleMasterFile::ConsoleMasterFile(String consoleName, Filesystem *pFs) :
 
 uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
-    if (!nBytes)
+    // Check for NL->CRNL conversion which requires special logic.
+    size_t slaveFlags = m_pOther->m_Flags;
+    if (!(slaveFlags & ConsoleManager::OMapNLToCRNL))
     {
-        return 0;
+        // Easy read/write - output line discipline will not need to do any
+        // conversions that involve expansion.
+        uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+        if (!nBytes)
+        {
+            return 0;
+        }
+
+        return outputLineDiscipline(reinterpret_cast<char *>(buffer), nBytes, size);
     }
 
-    size_t endSize = outputLineDiscipline(reinterpret_cast<char *>(buffer), nBytes, size);
+    uint64_t totalBytes = 0;
+    while (totalBytes < size)
+    {
+        // Check for no longer able to read as needed.
+        if ((size / 2) == 0)
+        {
+            break;
+        }
 
-    return endSize;
+        // We assume that the worst-case buffer might be read, which contains
+        // 100% newlines that would expand to carriage return + newline.
+        // Eventually we'll reach a point where we can't halve size and then
+        // we just return what's been read so far (assuming there's still
+        // content in the buffer by that stage).
+        // Note: the integer division will floor() which is intentional.
+        uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer + totalBytes), size / 2, bCanBlock);
+        if (!nBytes)
+        {
+            break;
+        }
+
+        // Perform line discipline using the full, unhalved size so we can
+        // expand all available newlines.
+        size_t disciplineSize = outputLineDiscipline(reinterpret_cast<char *>(buffer + totalBytes), nBytes, size);
+        totalBytes += disciplineSize;
+        size -= disciplineSize;
+
+        // After the first iteration, disallow any further blocking so we read
+        // the remainder of the buffer then terminate quickly.
+        bCanBlock = false;
+    }
+
+    return totalBytes;
 }
 
 uint64_t ConsoleMasterFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
@@ -88,7 +127,6 @@ uint64_t ConsoleMasterFile::write(uint64_t location, uint64_t size, uintptr_t bu
 
     // Pass on to the input discipline, which will write to the slave.
     inputLineDiscipline(reinterpret_cast<char *>(buffer), size);
-
 
     return size;
 }
@@ -211,6 +249,7 @@ void ConsoleMasterFile::inputLineDiscipline(char *buf, size_t len)
                         {
                             // Forcefully clear out bytes so we can write what
                             // we need to to the ring buffer.
+                            WARNING("Console: dropping bytes to be able to render visual control code (e.g. ^C)");
                             char tmp[3];
                             m_Buffer.read(tmp, 3);
                         }
@@ -322,12 +361,13 @@ size_t ConsoleMasterFile::outputLineDiscipline(char *buf, size_t len, size_t max
                 if (realSize >= maxSz)
                 {
                     // We do not have any room to add in the mapped character. Drop it.
-                    // WARNING("Console ignored an NL -> CRNL conversion due to a full buffer.");
+                    WARNING("Console ignored an NL -> CRNL conversion due to a full buffer.");
                     tmpBuff[i++] = '\n';
                     continue;
                 }
 
                 realSize++;
+
                 char *newBuff = new char[realSize];
                 MemoryCopy(newBuff, tmpBuff, i);
                 delete [] tmpBuff;
