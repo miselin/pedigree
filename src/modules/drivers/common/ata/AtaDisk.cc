@@ -885,8 +885,6 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     if (location % 512)
         panic("AtaDisk: write request not on a sector boundary!");
 
-    return 0;
-
     // Safety check
 #ifdef CRIPPLE_HDD
     return 0;
