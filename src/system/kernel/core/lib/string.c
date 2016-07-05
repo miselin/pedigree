@@ -44,6 +44,11 @@ unsigned long strtoul(const char *nptr, char const **endptr, int base);
 
 size_t _StringLength(const char *src)
 {
+  if (!src)
+  {
+    return 0;
+  }
+
   // Unrolled loop that still avoids reading past the end of src (instead of
   // e.g. doing bitmasks with 64-bit views of src).
   const char *orig = src;
