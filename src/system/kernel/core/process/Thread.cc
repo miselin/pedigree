@@ -344,10 +344,23 @@ void Thread::forceToStartupProcessor()
 void Thread::setStatus(Thread::Status s)
 {
   m_Status = s;
-  m_pScheduler->threadStatusChanged(this);
 
   if(s == Thread::Zombie)
   {
+    // Wipe out any pending events that currently exist.
+    for (List<Event *>::Iterator it = m_EventQueue.begin();
+         it != m_EventQueue.end();
+         ++it)
+    {
+        Event *pEvent = *it;
+        if (pEvent->isDeletable())
+        {
+            delete pEvent;
+        }
+    }
+
+    m_EventQueue.clear();
+
     // Notify parent process we have become a zombie.
     // We do this here to avoid an amazing race between calling notifyWaiters
     // and scheduling a process into the Zombie state that can cause some
@@ -357,6 +370,8 @@ void Thread::setStatus(Thread::Status s)
         m_pParent->notifyWaiters();
     }
   }
+
+  m_pScheduler->threadStatusChanged(this);
 }
 
 SchedulerState &Thread::state()
@@ -458,6 +473,13 @@ void Thread::pokeState(size_t stateLevel, SchedulerState &state)
 
 void Thread::sendEvent(Event *pEvent)
 {
+    // Check that we aren't already a zombie (can't receive events if so).
+    if (m_Status == Zombie)
+    {
+        WARNING("Thread: dropping event as we are a zombie");
+        return;
+    }
+
     // Only need the lock to adjust the queue of events.
     m_Lock.acquire();
     m_EventQueue.pushBack(pEvent);
