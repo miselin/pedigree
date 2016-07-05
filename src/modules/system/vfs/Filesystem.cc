@@ -29,12 +29,7 @@
 #include "Symlink.h"
 
 Filesystem::Filesystem() :
-#ifdef CRIPPLE_HDD
-    m_bReadOnly(true),
-#else
-    m_bReadOnly(false),
-#endif
-    m_pDisk(0), m_nAliases(0)
+    m_bReadOnly(false), m_pDisk(0), m_nAliases(0)
 {
 }
 

@@ -166,6 +166,8 @@ bool Iso9660Filesystem::initialise(Disk *pDisk)
   m_RootDir = reinterpret_cast<Iso9660DirRecord*>(m_PrimaryVolDesc.RootDirRecord);
   m_pRoot = fileFromDirRecord(*m_RootDir, 1, 0, true);
 
+  m_bReadOnly = true;
+
   return true;
 }
 
