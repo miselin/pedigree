@@ -24,4 +24,5 @@ Import(['env', 'userspace_env'])
 
 env = userspace_env
 
-SConscript(os.path.join('SDL-1.2.14', 'SConscript'), exports=['env'])
+if env['with_graphical_apps']:
+    SConscript(os.path.join('SDL-1.2.14', 'SConscript'), exports=['env'])

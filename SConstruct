@@ -61,6 +61,7 @@ opts.AddVariables(
     BoolVariable('build_libs', 'Build in-tree libraries (e.g., `libui`).', 1),
     BoolVariable('build_images', 'Build disk images (ISOs + HDD images) - requires all build_* variables.', 1),
     BoolVariable('build_translations', 'Create/update POT/PO files, and build MO files from PO files.', 1),
+    BoolVariable('with_graphical_apps', 'Enable graphical apps (e.g. window manager, terminal).', 1),
 
     # Controls for logging facilities throughout the kernel.
     BoolVariable('posix_verbose', 'Enable verbose logging for all POSIX syscalls.', 0),

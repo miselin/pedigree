@@ -207,6 +207,13 @@ env_clone.MergeFlags({
     'CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
 })
 
+# Clean up app dependencies as needed.
+if not env['with_graphical_apps']:
+    libui_apps = []
+    pango_apps = []
+    mesa_apps = []
+    sdl_apps = []
+
 if not env['ON_PEDIGREE']:
     cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
     cpp_arch_base = os.path.join(cpp_base, env['COMPILER_TARGET'])
