@@ -1524,9 +1524,10 @@ void TextIO::flipThread()
         // Flip now, triggered by the passage of time.
         flip(true, !bBlinkOn);
 
-        // Wait for the next trigger time.
-        Time::delay(m_NextInterval * Time::Multiplier::MILLISECOND);
-    }
+    // Flip (triggered by timer).
+    flip(true, !bBlinkOn);
+
+    m_Nanoseconds = 0;
 }
 
 uint8_t TextIO::translate(uint32_t codepoint)
