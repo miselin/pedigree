@@ -319,8 +319,6 @@ static int clientThread(void *p)
     // Nothing more to send, bring down our side of the connection
     pClient->shutdown(Endpoint::ShutSending);
 
-    pClient->shutdown(Endpoint::ShutBoth);
-
     // Leave the endpoint to be cleaned up when the connection is shut down cleanly
     /// \todo Does it get cleaned up if we do this?
     return 0;

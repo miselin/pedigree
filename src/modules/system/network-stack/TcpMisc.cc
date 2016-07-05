@@ -184,3 +184,44 @@ void TcpBuffer::setSize(size_t newBufferSize)
     }
     m_Segments.clear();
 }
+
+bool StateBlockHandle::operator == (const StateBlockHandle &a)
+{
+    bool r = false;
+    if(a.listen) // Require the client to want listen sockets only
+    {
+        if(listen)
+        {
+            // NOTICE_NOLOCK("Operator == (listen) : [" << localPort << ", " << a.localPort << "]");
+            r = (localPort == a.localPort);
+        }
+    }
+    else
+    {
+        // NOTICE_NOLOCK("Operator == [" << localPort << ", " << a.localPort << "] [" << remotePort << ", " << a.remotePort << "]" << " [" << remoteHost.ip.toString() << ", " << a.remoteHost.ip.toString() << "]");
+        r = ((localPort == a.localPort) && (remoteHost.ip == a.remoteHost.ip) && (remotePort == a.remotePort));
+    }
+    return r;
+}
+
+bool StateBlockHandle::operator > (const StateBlockHandle &a)
+{
+    bool r = false;
+    if(a.listen)
+    {
+        if (listen)
+        {
+            // NOTICE_NOLOCK("Operator > (listen) : [" << localPort << ", " << a.localPort << "]");
+            r = (localPort > a.localPort);
+        }
+    }
+    else
+    {
+        // NOTICE_NOLOCK("Operator > : [" << localPort << ", " << a.localPort << "] [" << remotePort << ", " << a.remotePort << "]");
+        if(localPort)
+            r = ((localPort >= a.localPort) && (remotePort > a.remotePort));
+        else
+            r = (remotePort > a.remotePort);
+    }
+    return r;
+}
