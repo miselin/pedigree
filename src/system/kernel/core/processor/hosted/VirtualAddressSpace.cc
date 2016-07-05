@@ -121,8 +121,6 @@ bool HostedVirtualAddressSpace::isMapped(void *virtualAddress) {
 
 bool HostedVirtualAddressSpace::map(physical_uintptr_t physAddress,
                                  void *virtualAddress, size_t flags) {
-  LockGuard<Spinlock> guard(m_Lock);
-
   virtualAddress = page_align(virtualAddress);
 
   // If this should be a kernel mapping, use the kernel address space.
@@ -135,6 +133,8 @@ bool HostedVirtualAddressSpace::map(physical_uintptr_t physAddress,
   {
     return false;
   }
+
+  LockGuard<Spinlock> guard(m_Lock);
 
   // Map, backed onto the "physical memory" of the system.
   int prot = toFlags(flags, true);
@@ -471,7 +471,7 @@ void HostedVirtualAddressSpace::freeStack(Stack *pStack) {
   size_t pageSz = PhysicalMemoryManager::getPageSize();
 
   // Clean up the stack
-  uintptr_t stackTop = reinterpret_cast<uintptr_t>(pStack);
+  uintptr_t stackTop = reinterpret_cast<uintptr_t>(pStack->getTop());
   for (size_t i = 0; i < pStack->getSize(); i += pageSz) {
     stackTop -= pageSz;
     void *v = reinterpret_cast<void *>(stackTop);
