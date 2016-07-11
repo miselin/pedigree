@@ -25,6 +25,7 @@
 #include <vfs/File.h>
 #include <vfs/VFS.h>
 #include <console/Console.h>
+#include <process/Scheduler.h>
 #include <syscallError.h>
 
 #include <Subsystem.h>
