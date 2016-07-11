@@ -23,11 +23,16 @@
 #include <limits.h>
 #include <time.h>
 
+#include <map>
+
 #include <benchmark/benchmark.h>
 
 #include <utilities/Tree.h>
+#include <utilities/BloomFilter.h>
 
 #define RANDOM_MAX 0x10000
+
+template class Tree<int64_t, int64_t>;
 
 static const int RandomNumber()
 {
@@ -44,43 +49,36 @@ static const int RandomNumber()
 
 static void BM_TreeInsert(benchmark::State &state)
 {
-    Tree<int64_t, int64_t> tree;
     const int64_t value = 1;
-    int64_t i = 0;
 
     while (state.KeepRunning())
     {
-        tree.insert(i++, value);
+        Tree<int64_t, int64_t> tree;
+        for (int64_t i = 0; i < state.range_x(); ++i)
+        {
+            tree.insert(i, value);
+        }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 }
 
 static void BM_TreeInsertReverse(benchmark::State &state)
 {
-    Tree<int64_t, int64_t> tree;
-    const int64_t value = 1;
-    int64_t i = INT_MAX;
-
-    while (state.KeepRunning())
-    {
-        tree.insert(i--, value);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
-static void BM_TreeRandomlyInsert(benchmark::State &state)
-{
-    Tree<int64_t, int64_t> tree;
     const int64_t value = 1;
 
     while (state.KeepRunning())
     {
-        tree.insert(RandomNumber(), value);
+        Tree<int64_t, int64_t> tree;
+        for (int64_t i = state.range_x(); i >= 0; --i)
+        {
+            tree.insert(i, value);
+        }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 }
 
 static void BM_TreeLookupSingle(benchmark::State &state)
@@ -100,7 +98,7 @@ static void BM_TreeLookupSingle(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_TreeLookupRandom(benchmark::State &state)
+static void BM_TreeLookup(benchmark::State &state)
 {
     Tree<int64_t, int64_t> tree;
 
@@ -109,16 +107,90 @@ static void BM_TreeLookupRandom(benchmark::State &state)
         tree.insert(RandomNumber(), RandomNumber());
     }
 
+    int64_t a = 0;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(tree.lookup(RandomNumber()));
+        benchmark::DoNotOptimize(tree.lookup(a++ % state.range_x()));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range_x());
+}
+
+static void BM_TreeLookupWithFilter(benchmark::State &state)
+{
+    Tree<int64_t, int64_t> tree;
+
+    size_t n = state.range_x();
+    // ln(0.001) - where p (failure rate) = 0.001
+    // ln(2) ~= 0.6931
+    size_t m = -((n * -6.9078) / (0.6931 * 0.6931));
+    size_t k = (m / n) * 0.6931;
+
+    BloomFilter<int64_t> filter(m, k);
+
+    for (size_t i = 0; i < state.range_x(); ++i)
+    {
+        int64_t key = RandomNumber();
+        tree.insert(key, RandomNumber());
+        filter.add(key);
+    }
+
+    int64_t a = 0;
+    while (state.KeepRunning())
+    {
+        // 100% hit rate (all keys exist)
+        int64_t key = a++ % state.range_x();
+        if (filter.contains(key))
+        {
+            benchmark::DoNotOptimize(tree.lookup(a++ % state.range_x()));
+        }
+        else
+        {
+            abort();
+        }
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range_x());
+}
+
+static void BM_TreeFailedLookupWithFilter(benchmark::State &state)
+{
+    /// \todo rethink this
+    Tree<int64_t, int64_t> tree;
+
+    size_t n = state.range_x();
+    // ln(0.001) - where p (failure rate) = 0.001
+    // ln(2) ~= 0.6931
+    size_t m = -((n * -6.9078) / (0.6931 * 0.6931));
+    size_t k = (m / n) * 0.6931;
+
+    BloomFilter<int64_t> filter(m, k);
+
+    for (size_t i = 0; i < state.range_x(); ++i)
+    {
+        tree.insert(i, RandomNumber());
+        filter.add(i);
+    }
+
+    int64_t a = 0;
+    while (state.KeepRunning())
+    {
+        // 100% hit rate (all keys exist)
+        if (filter.contains(-1))
+        {
+            benchmark::DoNotOptimize(tree.lookup(-1));
+        }
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range_x());
 }
 
 static void BM_TreeLookupDoesNotExist(benchmark::State &state)
 {
+    /// \todo rethink this
     Tree<int64_t, int64_t> tree;
 
     for (size_t i = 0; i < state.range_x(); ++i)
@@ -134,9 +206,13 @@ static void BM_TreeLookupDoesNotExist(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-BENCHMARK(BM_TreeInsert);
-BENCHMARK(BM_TreeInsertReverse);
-BENCHMARK(BM_TreeRandomlyInsert);
-BENCHMARK(BM_TreeLookupSingle)->Range(8, 8<<16);
-BENCHMARK(BM_TreeLookupRandom)->Range(8, 8<<16);
-BENCHMARK(BM_TreeLookupDoesNotExist)->Range(8, 8<<16);
+/*
+BENCHMARK(BM_TreeInsert)->Range(4, 1 << 22)->Complexity();
+BENCHMARK(BM_TreeLookup)->Range(4, 1 << 22)->Complexity();
+BENCHMARK(BM_TreeInsertReverse)->Range(4, 1 << 22)->Complexity();
+BENCHMARK(BM_TreeLookupSingle)->Range(4, 1 << 22)->Complexity();
+BENCHMARK(BM_TreeLookupDoesNotExist)->Range(4, 1 << 22);
+*/
+
+BENCHMARK(BM_TreeLookupWithFilter)->Range(4, 1 << 22)->Complexity();
+BENCHMARK(BM_TreeFailedLookupWithFilter)->Range(4, 1 << 22)->Complexity();

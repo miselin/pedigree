@@ -57,6 +57,7 @@ static void BM_ExtensibleBitmapSetLinear(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 }
 
 static void BM_ExtensibleBitmapSetRandomly(benchmark::State &state)
@@ -98,6 +99,7 @@ static void BM_ExtensibleBitmapTestLinear(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 }
 
 static void BM_ExtensibleBitmapTestRandomly(benchmark::State &state)
@@ -123,7 +125,7 @@ static void BM_ExtensibleBitmapTestRandomly(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
-BENCHMARK(BM_ExtensibleBitmapSetLinear)->Range(8, 8<<16);
+BENCHMARK(BM_ExtensibleBitmapSetLinear)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_ExtensibleBitmapSetRandomly)->Range(8, 8<<16);
-BENCHMARK(BM_ExtensibleBitmapTestLinear)->Range(8, 8<<16);
+BENCHMARK(BM_ExtensibleBitmapTestLinear)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_ExtensibleBitmapTestRandomly)->Range(8, 8<<16);

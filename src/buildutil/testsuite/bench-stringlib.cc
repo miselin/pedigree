@@ -39,6 +39,7 @@ static void BM_StringLength(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 
     delete [] buf;
 }
@@ -69,6 +70,7 @@ static void BM_StringCopy(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 
     delete [] dest;
     delete [] buf;
@@ -87,6 +89,7 @@ static void BM_StringCopyN(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 
     delete [] dest;
     delete [] buf;
@@ -107,6 +110,7 @@ static void BM_StringCompare(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 
     delete [] buf2;
     delete [] buf1;
@@ -127,6 +131,7 @@ static void BM_StringCompareN(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 
     delete [] buf2;
     delete [] buf1;
@@ -145,6 +150,7 @@ static void BM_StringFind(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 }
 
 static void BM_StringReverseFind(benchmark::State &state)
@@ -160,13 +166,14 @@ static void BM_StringReverseFind(benchmark::State &state)
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
 }
 
-BENCHMARK(BM_StringLength)->Range(8, 8<<16);
+BENCHMARK(BM_StringLength)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_StringLengthConstant);
-BENCHMARK(BM_StringCopy)->Range(8, 8<<16);
-BENCHMARK(BM_StringCopyN)->Range(8, 8<<16);
-BENCHMARK(BM_StringCompare)->Range(8, 8<<16);
-BENCHMARK(BM_StringCompareN)->Range(8, 8<<16);
-BENCHMARK(BM_StringFind)->Range(8, 8<<16);
-BENCHMARK(BM_StringReverseFind)->Range(8, 8<<16);
+BENCHMARK(BM_StringCopy)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringCopyN)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringCompare)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringCompareN)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringFind)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringReverseFind)->Range(8, 8<<16)->Complexity();

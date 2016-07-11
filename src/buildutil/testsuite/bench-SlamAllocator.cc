@@ -21,6 +21,9 @@
 
 #include <benchmark/benchmark.h>
 
+#include <memory>
+#include <iostream>
+
 #include <lib/SlamAllocator.h>
 
 static void BM_SlamAllocatorBackForth(benchmark::State &state)
@@ -37,31 +40,24 @@ static void BM_SlamAllocatorBackForth(benchmark::State &state)
 
 static void BM_SlamAllocatorAllocations(benchmark::State &state)
 {
-    SlamSupport::unmapAll();
-
-
+    int64_t allocationSize = state.range_x();
     while (state.KeepRunning())
     {
         state.PauseTiming();
-        SlamAllocator *allocator = new SlamAllocator();
-        allocator->initialise();
+        SlamAllocator allocator;
+        allocator.initialise();
         state.ResumeTiming();
 
         for (size_t i = 0; i < state.range_y(); ++i)
         {
-            allocator->allocate(state.range_x());
+            allocator.allocate(state.range_x());
         }
-
-        state.PauseTiming();
-        delete allocator;
-        SlamSupport::unmapAll();
-        state.ResumeTiming();
     }
 
     int64_t items = int64_t(state.iterations()) * int64_t(state.range_y());
     state.SetItemsProcessed(items);
-    state.SetBytesProcessed(items * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_y());
 }
 
 BENCHMARK(BM_SlamAllocatorBackForth);
-BENCHMARK(BM_SlamAllocatorAllocations)->RangePair(OBJECT_MINIMUM_SIZE, 4096, 8, 1024);
+BENCHMARK(BM_SlamAllocatorAllocations)->RangePair(OBJECT_MINIMUM_SIZE, 0x20000, 8, 1024)->Complexity();
