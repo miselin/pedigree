@@ -347,7 +347,7 @@ class Tree
 
     /** Get an iterator pointing to the beginning of the Vector
      *\return iterator pointing to the beginning of the Vector */
-    inline Iterator begin()
+    Iterator begin()
     {
       // If there is no node already, create a new one
       if(!m_Begin)
@@ -362,19 +362,19 @@ class Tree
     }
     /** Get a constant iterator pointing to the beginning of the Vector
      *\return constant iterator pointing to the beginning of the Vector */
-    inline ConstIterator begin() const
+    ConstIterator begin() const
     {
       return 0;
     }
     /** Get an iterator pointing to the last element + 1
      *\return iterator pointing to the last element + 1 */
-    inline Iterator end()
+    Iterator end()
     {
       return Iterator(0);
     }
     /** Get a constant iterator pointing to the last element + 1
      *\return constant iterator pointing to the last element + 1 */
-    inline ConstIterator end() const
+    ConstIterator end() const
     {
       return 0;
     }
@@ -510,6 +510,25 @@ class Tree
 
     IteratorNode* m_Begin;
 };
+
+// External specializations.
+extern template class Tree<void *, void *>;
+extern template class Tree<int8_t, void *>;
+extern template class Tree<int16_t, void *>;
+extern template class Tree<int32_t, void *>;
+extern template class Tree<int64_t, void *>;
+extern template class Tree<uint8_t, void *>;
+extern template class Tree<uint16_t, void *>;
+extern template class Tree<uint32_t, void *>;
+extern template class Tree<uint64_t, void *>;
+extern template class Tree<int8_t, int8_t>;
+extern template class Tree<int16_t, int16_t>;
+extern template class Tree<int32_t, int32_t>;
+extern template class Tree<int64_t, int64_t>;
+extern template class Tree<uint8_t, uint8_t>;
+extern template class Tree<uint16_t, uint16_t>;
+extern template class Tree<uint32_t, uint32_t>;
+extern template class Tree<uint64_t, uint64_t>;
 
 /** @} */
 
