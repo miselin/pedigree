@@ -24,6 +24,7 @@
 #include <benchmark/benchmark.h>
 
 #include <utilities/utility.h>
+#include <utilities/smhasher/MurmurHash3.h>
 
 static void BM_Utility_Checksum(benchmark::State &state)
 {
@@ -99,6 +100,53 @@ static void BM_Utility_ChecksumPage(benchmark::State &state)
     delete [] buf;
 }
 
+static void BM_Utility_HashElf(benchmark::State &state)
+{
+    auto *buf = new char[state.range_x()];
+    memset(buf, 'a', state.range_x());
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(elfHash(buf, state.range_x()));
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+
+    delete [] buf;
+}
+
+static void BM_Utility_HashJenkins(benchmark::State &state)
+{
+    auto *buf = new char[state.range_x()];
+    memset(buf, 'a', state.range_x());
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(jenkinsHash(buf, state.range_x()));
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+
+    delete [] buf;
+}
+
+static void BM_Utility_HashMurmur(benchmark::State &state)
+{
+    auto *buf = new char[state.range_x()];
+    memset(buf, 'a', state.range_x());
+
+    while (state.KeepRunning())
+    {
+        uint64_t result[2];
+        MurmurHash3_x64_128(buf, state.range_x(), 0, result);
+        benchmark::DoNotOptimize(result);
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+
+    delete [] buf;
+}
+
 // Test checksum over a large range of sizes.
 BENCHMARK(BM_Utility_Checksum)->Range(8, 8<<24);
 BENCHMARK(BM_Utility_Checksum16)->Range(8, 8<<24);
@@ -106,3 +154,7 @@ BENCHMARK(BM_Utility_Checksum32)->Range(8, 8<<24);
 BENCHMARK(BM_Utility_Checksum32Naive)->Range(8, 8<<24);
 
 BENCHMARK(BM_Utility_ChecksumPage);
+
+BENCHMARK(BM_Utility_HashElf)->Range(8, 8<<24);
+BENCHMARK(BM_Utility_HashJenkins)->Range(8, 8<<24);
+BENCHMARK(BM_Utility_HashMurmur)->Range(8, 8<<24);

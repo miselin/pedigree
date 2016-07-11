@@ -112,6 +112,12 @@ uint32_t checksum32_naive(const uint8_t *pMemory, size_t sMemory);
 /// Checksum a page of memory.
 uint32_t checksumPage(uintptr_t address);
 
+/// ELF-style hash.
+uint32_t elfHash(const char *buffer, size_t length);
+
+/// Jenkins hash.
+uint32_t jenkinsHash(const char *buffer, size_t length);
+
 #ifdef __cplusplus
 }
 

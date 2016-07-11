@@ -74,3 +74,33 @@ uint32_t checksumPage(uintptr_t address)
     // may be able to be inlined with the knowledge of the constant size
     return checksum32(reinterpret_cast<const uint8_t *>(address), PhysicalMemoryManager::getPageSize());
 }
+
+uint32_t elfHash(const char *buffer, size_t length)
+{
+    uint32_t h = 0, g = 0;
+    for (size_t i = 0; i < length; ++i)
+    {
+        h = (h << 4) + buffer[i];
+        g = h & 0xF0000000;
+        h ^= g;
+        h ^= g >> 24;
+    }
+
+    return h;
+}
+
+uint32_t jenkinsHash(const char *buffer, size_t length)
+{
+    uint32_t h = 0;
+    for(size_t i = 0; i < length; ++i)
+    {
+        h += buffer[i];
+        h += h << 10;
+        h ^= h >> 6;
+    }
+
+    h += h << 3;
+    h ^= h >> 11;
+    h += h << 15;
+    return h;
+}
