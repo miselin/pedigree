@@ -97,6 +97,7 @@ bool Processor::saveState(SchedulerState &state)
 
 void Processor::restoreState(SchedulerState &state, volatile uintptr_t *pLock)
 {
+  NOTICE("hallo");
   sigjmp_buf _state;
   if(pLock)
       *pLock = 1;
@@ -219,11 +220,26 @@ void Processor::setInterrupts(bool bEnable)
     sigaddset(&set, SIGUSR2);
   }
 
-  m_bInterrupts = bEnable;
+  // We must mark interrupts enabled before we unmask signals, as any pending
+  // signals may trigger immediately (and will cause problems if interrupts are
+  // marked as disabled)
+  if (bEnable)
+  {
+    m_bInterrupts = true;
+  }
+
   int r = sigprocmask(SIG_SETMASK, &set, 0);
   if(r != 0)
   {
     ERROR("Processor::setInterrupts failed to set new mask");
+  }
+
+  // We can only mark interrupts disabled after masking signals as during the
+  // mask operation signals may still come in. Setting the flag here means
+  // those signals are handled correctly.
+  if (!bEnable)
+  {
+    m_bInterrupts = false;
   }
 }
 

@@ -22,6 +22,9 @@ global syscall_enter
 ; void Processor::restoreState(volatile uintptr_t *, SyscallState &)
 global _ZN9Processor12restoreStateER18HostedSyscallStatePVm
 
+; HostedProcessorInformation::getKernelStack() const
+extern _ZNK26HostedProcessorInformation14getKernelStackEv
+
 ; void PerProcessorScheduler::deleteThread(Thread *)
 extern _ZN21PerProcessorScheduler12deleteThreadEP6Thread
 ; void Processor::restoreState(SchedulerState &, volatile uintptr_t *)
@@ -103,10 +106,11 @@ syscall_enter:
     mov r12, rsp
 
     ; Switch stacks (MUST be a kernel stack).
-    ; Processor::m_Information + 0x158 = kernel stack
-    mov rax, _ZN9Processor22m_ProcessorInformationE
-    add rax, 0x158
-    mov rsp, [rax]
+    push rdi
+    mov rdi, _ZN9Processor22m_ProcessorInformationE
+    call _ZNK26HostedProcessorInformation14getKernelStackEv
+    pop rdi
+    mov rsp, rax
 
     ; Create the SyscallState
     sub rsp, 8 ; align to 16-byte boundary

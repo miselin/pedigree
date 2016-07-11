@@ -49,7 +49,7 @@ class HostedProcessorInformation
     inline void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace)
       {m_VirtualAddressSpace = &virtualAddressSpace;}
 
-    inline uintptr_t getKernelStack() const;
+    uintptr_t getKernelStack() const;
     void setKernelStack(uintptr_t stack);
 #ifdef THREADS
     inline Thread *getCurrentThread() const
@@ -101,13 +101,5 @@ class HostedProcessorInformation
 };
 
 /** @} */
-
-//
-// Part of the implementation
-//
-uintptr_t HostedProcessorInformation::getKernelStack() const
-{
-  return m_KernelStack;
-}
 
 #endif

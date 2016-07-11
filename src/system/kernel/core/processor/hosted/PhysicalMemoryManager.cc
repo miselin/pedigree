@@ -61,7 +61,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
     static bool bDidHitWatermark = false;
     static bool bHandlingPressure = false;
 
-    m_Lock.acquire();
+    m_Lock.acquire(true);
 
     physical_uintptr_t ptr;
 
@@ -73,11 +73,16 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
         {
             bHandlingPressure = true;
 
+            // Make sure the compact can trigger frees.
+            m_Lock.release();
+
             WARNING_NOLOCK("Memory pressure encountered, performing a compact...");
             if(!MemoryPressureManager::instance().compact())
                 ERROR_NOLOCK("Compact did not alleviate any memory pressure.");
             else
                 NOTICE_NOLOCK("Compact was successful.");
+
+            m_Lock.acquire(true);
 
             bDidHitWatermark = true;
             bHandlingPressure = false;
@@ -123,7 +128,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
 }
 void HostedPhysicalMemoryManager::freePage(physical_uintptr_t page)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     freePageUnlocked(page);
 }
@@ -133,18 +138,18 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
         FATAL("HostedPhysicalMemoryManager::freePageUnlocked called without an acquired lock");
 
     // Check for pinned page.
-    PageHashable key(page);
-    struct page *p = m_PageMetadata.lookup(key);
-    if (p)
+    size_t index = page >> 12;
+    if (m_PageMetadata && m_PageMetadata[index].active)
     {
-        // Drop the refcount but do not free unless zero.
-        if (--p->refcount)
+        if (--m_PageMetadata[index].refcount)
+        {
+            // Still references.
             return;
+        }
         else
         {
-            // No longer need this page's metadata, refcount is zero.
-            m_PageMetadata.remove(key);
-            delete p;
+            // No more references.
+            m_PageMetadata[index].active = false;
         }
     }
 
@@ -165,16 +170,23 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
 }
 
 void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
-    PageHashable key(page);
-    struct page *p = m_PageMetadata.lookup(key);
-    if (p)
-        ++p->refcount;
-    else {
-        p = new struct page;
-        p->refcount = 1;
-        m_PageMetadata.insert(key, p);
+    if (!m_PageMetadata)
+    {
+        // No page metadata to speak of.
+        return;
+    }
+
+    size_t index = page >> 12;
+    if (m_PageMetadata[index].active)
+    {
+        ++m_PageMetadata[index].refcount;
+    }
+    else
+    {
+        m_PageMetadata[index].refcount = 1;
+        m_PageMetadata[index].active = true;
     }
 }
 
@@ -301,7 +313,7 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     {
         m_PageStack.free(p);
     }
-    m_PageMetadata.initialise(PageHashable(HOSTED_PHYSICAL_MEMORY_SIZE).hash());
+    m_PageMetadata = new struct page[HOSTED_PHYSICAL_MEMORY_SIZE >> 12];
 
     // Initialise the free physical ranges
     m_PhysicalRanges.free(0, 0x100000000ULL);
@@ -328,7 +340,7 @@ void HostedPhysicalMemoryManager::initialisationDone()
 
 HostedPhysicalMemoryManager::HostedPhysicalMemoryManager()
     : m_PhysicalRanges(), m_MemoryRegions(), m_Lock(false, true),
-      m_RegionLock(false, true), m_PageMetadata(), m_BackingFile(-1)
+      m_RegionLock(false, true), m_PageMetadata(0), m_BackingFile(-1)
 {
     // Create our backing memory file.
     m_BackingFile = open("physical.bin", O_RDWR | O_CREAT, 0644);
@@ -338,6 +350,10 @@ HostedPhysicalMemoryManager::HostedPhysicalMemoryManager()
 
 HostedPhysicalMemoryManager::~HostedPhysicalMemoryManager()
 {
+    PhysicalMemoryManager::m_MemoryRegions.clear();
+    delete [] m_PageMetadata;
+    m_PageMetadata = 0;
+
     close(m_BackingFile);
     m_BackingFile = -1;
 }

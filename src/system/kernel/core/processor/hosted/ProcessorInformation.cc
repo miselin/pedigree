@@ -90,3 +90,8 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
 
     m_KernelStack = stack;
 }
+
+uintptr_t HostedProcessorInformation::getKernelStack() const
+{
+  return m_KernelStack;
+}

@@ -48,6 +48,19 @@ namespace __pedigree_hosted
 #define R_X86_64_GOTPLT64   30
 #define R_X86_64_PLTOFF64   31
 
+#define TWO_GIGABYTES 0x80000000ULL
+
+static bool checkPc32Displacement(uint64_t S, uint64_t A, uint64_t P, uint64_t &diff)
+{
+    if (abs_difference(S + A, P) >= 0x80000000ULL)
+    {
+        return false;
+    }
+
+    diff = (((S + A) - P) & 0xFFFFFFFFULL);
+    return true;
+}
+
 bool Elf::applyRelocation(ElfRel_t rel, ElfSectionHeader_t *pSh, SymbolTable *pSymtab, uintptr_t loadBase, SymbolTable::Policy policy)
 {
     return false;
@@ -109,16 +122,15 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
 
         if (S == 0)
         {
-#if defined(HAS_SANITIZERS) || defined(CLANG_PROFILE)
+            // Try to find via dlsym (in case we're needing a libc symbol).
             void *pSym = __pedigree_hosted::dlsym(RTLD_DEFAULT, pStr);
             if (pSym)
             {
-                WARNING("Internal relocation failed for symbol \"" << pStr << "\" - using a dlsym lookup.");
                 S = reinterpret_cast<uint64_t>(pSym);
-                WARNING(" = " << S);
+                // WARNING("Internal relocation failed for symbol \"" << pStr << "\" - using a dlsym lookup.");
+                // WARNING(" = " << Hex << S);
             }
             else
-#endif
             {
                 WARNING("Relocation failed for symbol \"" << pStr << "\" (relocation=" << R_TYPE(rel.info) << ")");
                 WARNING("Relocation at " << address << " (offset=" << rel.offset << ")...");
@@ -150,14 +162,19 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
             result = S + A;
             break;
         case R_X86_64_PC32:
-            if (abs_difference(S + A, P) >= 0x80000000ULL)
             {
-                ERROR("PC32 relocation with >2GB displacement - not possible.");
-                ERROR("Symbol is " << symbolName << " at " << S);
-                return false;
+                uint64_t diff = 0;
+                if (!checkPc32Displacement(S, A, P, diff))
+                {
+                    ERROR("PC32 relocation with >2GB displacement - not possible.");
+                    ERROR("Symbol is " << symbolName << " at " << Hex << S);
+                    return false;
+                }
+                result = (result & 0xFFFFFFFF00000000ULL) | diff;
             }
-            result = (result & 0xFFFFFFFF00000000ULL) |
-                (((S + A) - P) & 0xFFFFFFFFULL);
+            break;
+        case R_X86_64_PC64:
+            result = (S + A) - P;
             break;
         case R_X86_64_COPY:
             result = * reinterpret_cast<uintptr_t*> (S);
