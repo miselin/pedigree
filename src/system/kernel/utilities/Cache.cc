@@ -24,6 +24,15 @@
 #include <utilities/utility.h>
 #include <machine/Timer.h>
 #include <machine/Machine.h>
+#include <LockGuard.h>
+
+#ifndef STANDALONE_CACHE
+#include <processor/Processor.h>
+#include <process/Thread.h>
+#include <process/Scheduler.h>
+#endif
+
+#include <utilities/smhasher/MurmurHash3.h>
 
 // Don't allocate cache space in reverse, but DO re-use cache pages.
 // This gives us wins because we don't need to reallocate page tables for
@@ -35,37 +44,49 @@ static bool g_AllocatorInited = false;
 
 CacheManager CacheManager::m_Instance;
 
+#ifdef THREADS
 static int trimTrampoline(void *p)
 {
     CacheManager::instance().trimThread();
     return 0;
 }
+#endif
 
-CacheManager::CacheManager() : m_Caches(), m_pTrimThread(0), m_bActive(false)
+CacheManager::CacheManager() : m_Caches(),
+#ifdef THREADS
+    m_pTrimThread(0),
+#endif
+    m_bActive(false)
 {
 }
 
 CacheManager::~CacheManager()
 {
     m_bActive = false;
+#ifdef THREADS
     m_pTrimThread->join();
+#endif
 }
 
 void CacheManager::initialise()
 {
+#ifndef STANDALONE_CACHE
     Timer *t = Machine::instance().getTimer();
     if(t)
     {
         t->registerHandler(this);
     }
+#endif
 
     // Call out to the base class initialise() so the RequestQueue goes live.
     RequestQueue::initialise();
 
+#ifdef THREADS
     // Create our main trim thread.
     Process *pParent = Processor::information().getCurrentThread()->getParent();
     m_bActive = true;
     m_pTrimThread = new Thread(pParent, trimTrampoline, 0);
+#endif
 }
 
 void CacheManager::registerCache(Cache *pCache)
@@ -140,6 +161,7 @@ uint64_t CacheManager::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uin
     return pCache->executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
 }
 
+#ifdef THREADS
 void CacheManager::trimThread()
 {
     while (m_bActive)
@@ -159,15 +181,22 @@ void CacheManager::trimThread()
             Scheduler::instance().yield();
     }
 }
+#endif
 
 Cache::Cache() :
-    m_Pages(), m_pLruHead(0), m_pLruTail(0), m_Lock(), m_Callback(0),
-    m_Nanoseconds(0)
+    m_Pages(), m_PageFilter(0xe80000, 11), m_pLruHead(0), m_pLruTail(0),
+    m_Lock(false), m_Callback(0), m_Nanoseconds(0)
 {
     if (!g_AllocatorInited)
     {
+#ifdef STANDALONE_CACHE
+        uintptr_t start = 0;
+        uintptr_t end = 0;
+        discover_range(start, end);
+#else
         uintptr_t start = VirtualAddressSpace::getKernelAddressSpace().getKernelCacheStart();
         uintptr_t end = VirtualAddressSpace::getKernelAddressSpace().getKernelCacheEnd();
+#endif
         m_Allocator.free(start, end - start);
         g_AllocatorInited = true;
     }
@@ -195,12 +224,17 @@ Cache::~Cache()
 
 uintptr_t Cache::lookup (uintptr_t key)
 {
-   while(!m_Lock.enter()) Processor::pause();
+    LockGuard<Mutex> guard(m_Lock);
+
+    // Check against the bloom filter first, before we hit the tree.
+    if (!m_PageFilter.contains(key))
+    {
+        return 0;
+    }
 
     CachePage *pPage = m_Pages.lookup(key);
     if (!pPage)
     {
-        m_Lock.leave();
         return 0;
     }
 
@@ -208,60 +242,62 @@ uintptr_t Cache::lookup (uintptr_t key)
     pPage->refcnt ++;
     promotePage(pPage);
 
-    m_Lock.leave();
     return ptr;
 }
 
 uintptr_t Cache::insert (uintptr_t key)
 {
-    while(!m_Lock.acquire());
+    LockGuard<Mutex> guard(m_Lock);
 
-    CachePage *pPage = m_Pages.lookup(key);
-
-    if (pPage)
+    // We check the bloom filter to avoid hitting the tree, which is useful
+    // as this is quite a hot path at times.
+    CachePage *pPage = 0;
+    if (m_PageFilter.contains(key))
     {
-        m_Lock.release();
-        return pPage->location;
+        pPage = m_Pages.lookup(key);
+        if (pPage)
+        {
+            return pPage->location;
+        }
     }
 
     m_AllocatorLock.acquire();
-    uintptr_t location;
+    uintptr_t location = 0;
     bool succeeded = m_Allocator.allocate(4096, location);
     m_AllocatorLock.release();
 
     if (!succeeded)
     {
-        m_Lock.release();
-        FATAL("Cache: out of address space.");
+        FATAL("Cache: out of address space [have " << m_Pages.count() << " items].");
         return 0;
     }
 
     // Do we have memory pressure - do we need to do an LRU eviction?
     lruEvict();
 
-    uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-    if (!Processor::information().getVirtualAddressSpace().map(phys, reinterpret_cast<void*>(location), VirtualAddressSpace::Write|VirtualAddressSpace::KernelMode))
+    if (!map(location))
     {
         FATAL("Map failed in Cache::insert())");
     }
 
     pPage = new CachePage;
+    ByteSet(pPage, 0, sizeof(CachePage));
     pPage->key = key;
     pPage->location = location;
     pPage->refcnt = 1;
-    pPage->checksum = 0;
+    pPage->checksum[0] = 0;
+    pPage->checksum[1] = 0;
     pPage->status = CachePage::Editing;
     m_Pages.insert(key, pPage);
+    m_PageFilter.add(key);
     linkPage(pPage);
-
-    m_Lock.release();
 
     return location;
 }
 
 uintptr_t Cache::insert (uintptr_t key, size_t size)
 {
-    while(!m_Lock.acquire());
+    LockGuard<Mutex> guard(m_Lock);
 
     if(size % 4096)
     {
@@ -272,11 +308,14 @@ uintptr_t Cache::insert (uintptr_t key, size_t size)
     size_t nPages = size / 4096;
 
     // Already allocated buffer?
-    CachePage *pPage = m_Pages.lookup(key);
-    if (pPage)
+    CachePage *pPage = 0;
+    if (m_PageFilter.contains(key))
     {
-        m_Lock.release();
-        return pPage->location;
+        pPage = m_Pages.lookup(key);
+        if (pPage)
+        {
+            return pPage->location;
+        }
     }
 
     // Nope, so let's allocate this block
@@ -287,7 +326,6 @@ uintptr_t Cache::insert (uintptr_t key, size_t size)
 
     if (!succeeded)
     {
-        m_Lock.release();
         ERROR("Cache: can't allocate " << Dec << size << Hex << " bytes.");
         return 0;
     }
@@ -306,8 +344,7 @@ uintptr_t Cache::insert (uintptr_t key, size_t size)
         // Check for and evict pages if we're running low on memory.
         lruEvict();
 
-        uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-        if (!Processor::information().getVirtualAddressSpace().map(phys, reinterpret_cast<void*>(location), VirtualAddressSpace::Write|VirtualAddressSpace::KernelMode))
+        if (!map(location))
         {
             FATAL("Map failed in Cache::insert())");
         }
@@ -318,16 +355,16 @@ uintptr_t Cache::insert (uintptr_t key, size_t size)
 
         // Enter into cache unpinned, but only if we can call an eviction callback.
         pPage->refcnt = 1;
-        pPage->checksum = 0;
+        pPage->checksum[0] = 0;
+        pPage->checksum[1] = 0;
         pPage->status = CachePage::Editing;
 
         m_Pages.insert(key + (page * 4096), pPage);
+        m_PageFilter.add(key + (page * 4096));
         linkPage(pPage);
 
         location += 4096;
     }
-
-    m_Lock.release();
 
     if(bOverlap)
         return false;
@@ -335,13 +372,30 @@ uintptr_t Cache::insert (uintptr_t key, size_t size)
     return returnLocation;
 }
 
+bool Cache::map(uintptr_t virt) const
+{
+#ifdef STANDALONE_CACHE
+    // Will be part of the already-OK region in the allocator.
+    return true;
+#else
+    physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
+    return Processor::information().getVirtualAddressSpace().map(phys, reinterpret_cast<void*>(virt), VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);
+#endif
+}
+
 bool Cache::exists(uintptr_t key, size_t length)
 {
-    while(!m_Lock.enter());
+    LockGuard<Mutex> guard(m_Lock);
 
     bool result = true;
     for (size_t i = 0; i < length; i += 0x1000)
     {
+        if (!m_PageFilter.contains(key + (i * 0x1000)))
+        {
+            result = false;
+            break;
+        }
+
         CachePage *pPage = m_Pages.lookup(key + (i * 0x1000));
         if (!pPage)
         {
@@ -349,8 +403,6 @@ bool Cache::exists(uintptr_t key, size_t length)
             break;
         }
     }
-
-    m_Lock.leave();
 
     return result;
 }
@@ -362,7 +414,7 @@ bool Cache::evict(uintptr_t key)
 
 void Cache::empty()
 {
-    while(!m_Lock.acquire());
+    LockGuard<Mutex> guard(m_Lock);
 
     // Remove anything older than the given time threshold.
     for(Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
@@ -376,16 +428,20 @@ void Cache::empty()
     }
 
     m_Pages.clear();
-
-    m_Lock.release();
 }
 
 bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
 {
     if(bLock)
-        while(!m_Lock.acquire());
+    {
+        m_Lock.acquire();
+    }
 
-    CachePage *pPage = m_Pages.lookup(key);
+    CachePage *pPage = 0;
+    if (!m_PageFilter.contains(key))
+    {
+        pPage = m_Pages.lookup(key);
+    }
     if (!pPage)
     {
         NOTICE("Cache::evict didn't evict " << key << " as it didn't actually exist");
@@ -403,18 +459,20 @@ bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
     // to permit the eviction.
     if((m_Callback && pPage->refcnt <= 1) || ((!m_Callback) && (!pPage->refcnt)))
     {
-        VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-        void *loc = reinterpret_cast<void *>(pPage->location);
-
         // Good to go. Trigger a writeback if we know this was a dirty page.
         if (!verifyChecksum(pPage))
         {
             m_Callback(CacheConstants::WriteBack, key, pPage->location, m_CallbackMeta);
         }
 
+#ifndef STANDALONE_CACHE
+        VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+        void *loc = reinterpret_cast<void *>(pPage->location);
+
         physical_uintptr_t phys;
         size_t flags;
         va.getMapping(loc, phys, flags);
+#endif
 
         // Remove from our tracking.
         if(bRemove)
@@ -427,9 +485,11 @@ bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
         if(m_Callback)
             m_Callback(CacheConstants::Eviction, key, pPage->location, m_CallbackMeta);
 
+#ifndef STANDALONE_CACHE
         // Clean up resources now that all callbacks and removals are complete.
         va.unmap(loc);
         PhysicalMemoryManager::instance().freePage(phys);
+#endif
 
         // Allow the space to be used again.
         m_Allocator.free(pPage->location, 4096);
@@ -445,30 +505,37 @@ bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
 
 bool Cache::pin (uintptr_t key)
 {
-    while(!m_Lock.acquire());
+    LockGuard<Mutex> guard(m_Lock);
+
+    if (!m_PageFilter.contains(key))
+    {
+        return false;
+    }
 
     CachePage *pPage = m_Pages.lookup(key);
     if (!pPage)
     {
-        m_Lock.release();
         return false;
     }
 
     pPage->refcnt ++;
     promotePage(pPage);
 
-    m_Lock.release();
     return true;
 }
 
 void Cache::release (uintptr_t key)
 {
-    while(!m_Lock.acquire());
+    LockGuard<Mutex> guard(m_Lock);
+
+    if (!m_PageFilter.contains(key))
+    {
+        return;
+    }
 
     CachePage *pPage = m_Pages.lookup(key);
     if (!pPage)
     {
-        m_Lock.release();
         return;
     }
 
@@ -481,13 +548,11 @@ void Cache::release (uintptr_t key)
         // anything if the refcnt is raised again.
         CacheManager::instance().addAsyncRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::PleaseEvict, key);
     }
-
-    m_Lock.release();
 }
 
 size_t Cache::trim(size_t count)
 {
-    LockGuard<UnlikelyLock> guard(m_Lock);
+    LockGuard<Mutex> guard(m_Lock);
 
     if(!count)
         return 0;
@@ -509,19 +574,21 @@ void Cache::sync(uintptr_t key, bool async)
     if(!m_Callback)
         return;
 
-    while(!m_Lock.acquire());
+    LockGuard<Mutex> guard(m_Lock);
+
+    if (!m_PageFilter.contains(key))
+    {
+        return;
+    }
 
     CachePage *pPage = m_Pages.lookup(key);
     if (!pPage)
     {
-        m_Lock.release();
         return;
     }
 
     uintptr_t location = pPage->location;
     promotePage(pPage);
-
-    m_Lock.release();
 
     if(async)
         CacheManager::instance().addAsyncRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::WriteBack, key, location);
@@ -531,7 +598,12 @@ void Cache::sync(uintptr_t key, bool async)
 
 void Cache::triggerChecksum(uintptr_t key)
 {
-    LockGuard<UnlikelyLock> guard(m_Lock);
+    LockGuard<Mutex> guard(m_Lock);
+
+    if (!m_PageFilter.contains(key))
+    {
+        return;
+    }
 
     CachePage *pPage = m_Pages.lookup(key);
     if (!pPage)
@@ -555,14 +627,7 @@ void Cache::timer(uint64_t delta, InterruptState &state)
         return;
     }
 
-    if(!m_Lock.enter())
-    {
-        // IGNORE the timer firing for this particular callback.
-        // We cannot block here as we are in the context of a timer IRQ.
-        WARNING_NOLOCK("Cache: writeback timer fired, but couldn't get lock");
-        m_Nanoseconds = 0;
-        return;
-    }
+    /// \todo something with locks
 
     for(Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
         it != m_Pages.end();
@@ -621,8 +686,6 @@ void Cache::timer(uint64_t delta, InterruptState &state)
         CacheManager::instance().addAsyncRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::WriteBack, it.key(), page->location);
     }
 
-    m_Lock.leave();
-
     m_Nanoseconds = 0;
 }
 
@@ -664,6 +727,9 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
 
 size_t Cache::lruEvict(bool force)
 {
+#ifdef STANDALONE_CACHE
+    return 0;
+#else
     if (!(m_pLruHead && m_pLruTail))
         return 0;
 
@@ -683,6 +749,7 @@ size_t Cache::lruEvict(bool force)
     }
 
     return 0;
+#endif
 }
 
 void Cache::linkPage(CachePage *pPage)
@@ -717,37 +784,34 @@ void Cache::unlinkPage(CachePage *pPage)
 void Cache::calculateChecksum(CachePage *pPage)
 {
     void *buffer = reinterpret_cast<void *>(pPage->location);
-    pPage->checksum = checksum(buffer, 4096);
+    checksum(buffer, 4096, pPage->checksum);
 }
 
 bool Cache::verifyChecksum(CachePage *pPage, bool replace)
 {
     void *buffer = reinterpret_cast<void *>(pPage->location);
-    uint16_t current = checksum(buffer, 4096);
-    bool result = (pPage->checksum == 0) || (pPage->checksum == current);
+
+    uint64_t new_checksum[2];
+    checksum(buffer, 4096, new_checksum);
+
+    bool result = pPage->checkZeroChecksum() || pPage->checkChecksum(new_checksum);
     if (replace)
-        pPage->checksum = current;
+    {
+        pPage->checksum[0] = new_checksum[0];
+        pPage->checksum[1] = new_checksum[1];
+    }
+
     return result;
 }
 
-uint16_t Cache::checksum(const void *data, size_t len)
+void Cache::checksum(const void *data, size_t len, uint64_t out[2])
 {
-    // Fletcher 16-bit checksum.
-    uint16_t sum1 = 0, sum2 = 0;
-    const uint8_t *p = reinterpret_cast<const uint8_t *>(data);
-
-    for (size_t i = 0; i < len; ++i)
-    {
-        sum1 = (sum1 + p[i]) % 255;
-        sum2 = (sum2 + sum1) % 255;
-    }
-
-    return (sum2 << 8) | sum1;
+    MurmurHash3_x64_128(data, len, 0, out);
 }
 
 void Cache::markEditing(uintptr_t key, size_t length)
 {
-    LockGuard<UnlikelyLock> guard(m_Lock);
+    LockGuard<Mutex> guard(m_Lock);
 
     if(length % 4096)
     {
@@ -764,6 +828,11 @@ void Cache::markEditing(uintptr_t key, size_t length)
 
     for(size_t page = 0; page < nPages; page++)
     {
+        if (!m_PageFilter.contains(key + (page * 4096)))
+        {
+            continue;
+        }
+
         CachePage *pPage = m_Pages.lookup(key + (page * 4096));
         if (!pPage)
         {
@@ -776,7 +845,7 @@ void Cache::markEditing(uintptr_t key, size_t length)
 
 void Cache::markNoLongerEditing(uintptr_t key, size_t length)
 {
-    LockGuard<UnlikelyLock> guard(m_Lock);
+    LockGuard<Mutex> guard(m_Lock);
 
     if(length % 4096)
     {
@@ -793,6 +862,11 @@ void Cache::markNoLongerEditing(uintptr_t key, size_t length)
 
     for(size_t page = 0; page < nPages; page++)
     {
+        if (!m_PageFilter.contains(key + (page * 4096)))
+        {
+            continue;
+        }
+
         CachePage *pPage = m_Pages.lookup(key + (page * 4096));
         if (!pPage)
         {
@@ -816,4 +890,14 @@ CachePageGuard::CachePageGuard(Cache &cache, uintptr_t location) :
 CachePageGuard::~CachePageGuard()
 {
     m_Cache.release(m_Location);
+}
+
+bool Cache::CachePage::checkChecksum(uint64_t other[2]) const
+{
+    return checksum[0] == other[0] && checksum[1] == other[1];
+}
+
+bool Cache::CachePage::checkZeroChecksum() const
+{
+    return checksum[0] == 0 && checksum[1] == 0;
 }

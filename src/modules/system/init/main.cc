@@ -21,6 +21,8 @@
 #include <Log.h>
 #include <Module.h>
 #include <vfs/VFS.h>
+#include <processor/Processor.h>
+#include <process/Scheduler.h>
 #include <subsys/posix/PosixSubsystem.h>
 #include <subsys/posix/PosixProcess.h>
 #include <core/BootIO.h>

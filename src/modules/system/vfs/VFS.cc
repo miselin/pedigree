@@ -24,6 +24,7 @@
 #include <syscallError.h>
 
 #ifndef VFS_STANDALONE
+#include <processor/Processor.h>
 #include <Module.h>
 #endif
 

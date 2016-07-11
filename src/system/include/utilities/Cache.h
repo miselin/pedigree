@@ -21,11 +21,11 @@
 #define CACHE_H
 
 #include <processor/types.h>
-#include <processor/Processor.h>
 #include <utilities/MemoryAllocator.h>
 #include <utilities/UnlikelyLock.h>
 #include <utilities/Tree.h>
 #include <utilities/RequestQueue.h>
+#include <utilities/BloomFilter.h>
 #include <Spinlock.h>
 
 #include <machine/TimerHandler.h>
@@ -73,7 +73,9 @@ class CacheManager : public TimerHandler, public RequestQueue
 
         virtual void timer(uint64_t delta, InterruptState &state);
 
+#ifdef THREADS
         void trimThread();
+#endif
 
     private:
         /**
@@ -98,7 +100,9 @@ class CacheManager : public TimerHandler, public RequestQueue
 
         List<Cache*> m_Caches;
 
+#ifdef THREADS
         Thread *m_pTrimThread;
+#endif
 
         bool m_bActive;
 };
@@ -120,7 +124,7 @@ private:
         size_t refcnt;
 
         /// Checksum of the page's contents (for dirty detection).
-        uint16_t checksum;
+        uint64_t checksum[2];
 
         /// Marker to check that a page's contents are in flux.
         bool checksumChanging;
@@ -144,6 +148,12 @@ private:
         /// Linked list components for LRU.
         CachePage *pNext;
         CachePage *pPrev;
+
+        /// Check the checksum against another.
+        bool checkChecksum(uint64_t other[2]) const;
+
+        /// Check for an unset checksum.
+        bool checkZeroChecksum() const;
     };
 
 public:
@@ -282,6 +292,8 @@ public:
     void markNoLongerEditing(uintptr_t key, size_t length=0);
 
 private:
+    /** mapping doer */
+    bool map(uintptr_t virt) const;
 
     /**
      * evict doer
@@ -326,7 +338,7 @@ private:
     /**
      * Checksum do-er.
      */
-    uint16_t checksum(const void *data, size_t len);
+    void checksum(const void *data, size_t len, uint64_t out[2]);
 
     struct callbackMeta
     {
@@ -358,6 +370,9 @@ private:
     /** Key-item pairs. */
     Tree<uintptr_t, CachePage*> m_Pages;
 
+    /** Bloom filter for lookups into m_Pages. */
+    BloomFilter<uintptr_t> m_PageFilter;
+
     /**
      * List of known CachePages, kept up-to-date with m_Pages but in LRU order.
      */
@@ -371,7 +386,7 @@ private:
     static Spinlock m_AllocatorLock;
 
     /** Lock for this cache. */
-    UnlikelyLock m_Lock;
+    Mutex m_Lock;
 
     /** Callback to be called in the write-back timer handler. */
     writeback_t m_Callback;
@@ -384,6 +399,11 @@ private:
 
     /** Are we currently in a critical section? */
     Atomic<size_t> m_bInCritical;
+
+#ifdef STANDALONE_CACHE
+    /** Determines the range of addresses permitted for use for Cache. */
+    static void discover_range(uintptr_t &start, uintptr_t &end);
+#endif
 };
 
 /**

@@ -22,6 +22,7 @@
 #include <Version.h>
 #include <machine/Network.h>
 #include <processor/Processor.h>
+#include <process/Scheduler.h>
 #include <network-stack/Endpoint.h>
 #include <network-stack/TcpManager.h>
 #include <network-stack/RoutingTable.h>

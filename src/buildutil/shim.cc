@@ -31,6 +31,7 @@
 #include <Spinlock.h>
 #include <process/Mutex.h>
 #include <process/ConditionVariable.h>
+#include <utilities/Cache.h>
 
 void *g_pBootstrapInfo = 0;
 
@@ -53,14 +54,28 @@ void panic(const char *s)
 
 namespace SlamSupport
 {
+static const size_t heapSize = 0x40000000ULL;
 uintptr_t getHeapBase()
 {
-    return 0x10000000ULL;
+    static void *base = 0;
+    if (base)
+    {
+        return reinterpret_cast<uintptr_t>(base);
+    }
+
+    base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED)
+    {
+        fprintf(stderr, "cannot get a region of memory for SlamAllocator: %s\n", strerror(errno));
+        abort();
+    }
+
+    return reinterpret_cast<uintptr_t>(base);
 }
 
 uintptr_t getHeapEnd()
 {
-    return 0x50000000ULL;
+    return getHeapBase() + heapSize;
 }
 
 void getPageAt(void *addr)
@@ -81,7 +96,7 @@ void unmapPage(void *page)
 
 void unmapAll()
 {
-    munmap((void *) getHeapBase(), getHeapEnd() - getHeapBase());
+    munmap((void *) getHeapBase(), heapSize);
 }
 }  // namespace SlamSupport
 
@@ -186,3 +201,28 @@ void Mutex::release()
     pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
     pthread_mutex_unlock(mutex);
 }
+
+/** Cache implementation. */
+#ifdef STANDALONE_CACHE
+void Cache::discover_range(uintptr_t &start, uintptr_t &end)
+{
+    static uintptr_t alloc_start = 0;
+    const size_t length = 0x80000000U;
+
+    if (alloc_start)
+    {
+        start = alloc_start;
+        end = start + length;
+        return;
+    }
+
+    void *p = mmap(0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p != MAP_FAILED)
+    {
+        alloc_start = reinterpret_cast<uintptr_t>(p);
+
+        start = alloc_start;
+        end = start + length;
+    }
+}
+#endif
