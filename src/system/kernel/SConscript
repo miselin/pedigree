@@ -171,6 +171,7 @@ env_clone['LIBS'] += [libudis86]
 libhash = ext_libs_env.StaticLibrary('hash', [
     Glob('utilities/sha1/*.cc'),
     Glob('utilities/md5/*.cc'),
+    '../../../external/smhasher/src/MurmurHash3.cpp',
 ])
 env_clone['LIBS'] += [libhash]
 
