@@ -20,9 +20,8 @@
 #ifndef UNLIKELY_LOCK_H
 #define UNLIKELY_LOCK_H
 
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
-#include <process/Semaphore.h>
+#include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 
 /** \file UnlikelyLock.h
     \author James Molloy
@@ -62,7 +61,11 @@ public:
     void release();
 
 private:
-    Semaphore m_Semaphore;
+    Mutex m_Lock;
+    ConditionVariable m_Condition;
+
+    uint64_t m_nReaders;
+    bool m_bActiveWriter;
 };
 
 #endif

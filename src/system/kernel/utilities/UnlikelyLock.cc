@@ -18,10 +18,10 @@
  */
 
 #include <utilities/UnlikelyLock.h>
-#include <process/Scheduler.h>
+#include <LockGuard.h>
 
 UnlikelyLock::UnlikelyLock() :
-    m_Semaphore(UNLIKELY_LOCK_MAX_READERS + 1)
+    m_Lock(false), m_Condition(), m_nReaders(0), m_bActiveWriter(false)
 {
 }
 
@@ -31,30 +31,40 @@ UnlikelyLock::~UnlikelyLock()
 
 bool UnlikelyLock::enter()
 {
-    // Yield if we fail to enter - let some other timeslice run.
-    bool result = false;
-    if (!(result = m_Semaphore.tryAcquire(1)))
-        Scheduler::instance().yield();
-    return result;
+    LockGuard<Mutex> guard(m_Lock);
+    while (m_bActiveWriter)
+    {
+        m_Condition.wait(m_Lock);
+    }
+
+    ++m_nReaders;
+    return true;
 }
 
 void UnlikelyLock::leave()
 {
-    m_Semaphore.release(1);
+    LockGuard<Mutex> guard(m_Lock);
+    if (!--m_nReaders)
+    {
+        m_Condition.signal();
+    }
 }
 
 bool UnlikelyLock::acquire()
 {
-    // acquire() is defined to not return until all other threads have left
-    // the critical section, so we simply loop in case the Semaphore fails to
-    // acquire after blocking (eg, interrupted).
-    while(!m_Semaphore.acquire(UNLIKELY_LOCK_MAX_READERS + 1))
-        Scheduler::instance().yield();
+    LockGuard<Mutex> guard(m_Lock);
+    while (m_bActiveWriter || m_nReaders)
+    {
+        m_Condition.wait(m_Lock);
+    }
 
+    m_bActiveWriter = true;
     return true;
 }
 
 void UnlikelyLock::release()
 {
-    m_Semaphore.release(UNLIKELY_LOCK_MAX_READERS + 1);
+    LockGuard<Mutex> guard(m_Lock);
+    m_bActiveWriter = false;
+    m_Condition.broadcast();
 }
