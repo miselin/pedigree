@@ -53,7 +53,7 @@ public:
 
     virtual size_t getBlockSize() const
     {
-        return 4096;
+        return 0x10000;
     }
 
     virtual void pin(uint64_t location);

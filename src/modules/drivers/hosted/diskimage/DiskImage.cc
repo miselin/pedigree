@@ -54,7 +54,7 @@ uintptr_t DiskImage::read(uint64_t location)
     uintptr_t buffer = m_Cache.lookup(location);
     if(buffer)
     {
-        return buffer;
+        return buffer + offset;
     }
 
     buffer = m_Cache.insert(location, getBlockSize());
