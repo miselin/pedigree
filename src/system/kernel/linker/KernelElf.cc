@@ -313,6 +313,14 @@ KernelElf::~KernelElf()
 #ifdef X86_COMMON
     delete m_AdditionalSectionHeaders;
 #endif
+
+    // All of these non-alloc sections are just pointers into the loaded kernel
+    // ELF, which is not heap allocated. In normal Elf objects these are
+    // allocated and then copied into. Not so here.
+    m_pSymbolTable = nullptr;
+    m_pStringTable = nullptr;
+    m_pShstrtab = nullptr;
+    m_pDebugTable = nullptr;
 }
 
 Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
