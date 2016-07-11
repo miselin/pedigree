@@ -176,7 +176,7 @@ SlamCache::~SlamCache()
 {
 }
 
-void SlamCache::initialise(size_t objectSize)
+void SlamCache::initialise(SlamAllocator *parent, size_t objectSize)
 {
     if (objectSize < OBJECT_MINIMUM_SIZE)
         return;
@@ -199,6 +199,8 @@ void SlamCache::initialise(size_t objectSize)
     // Make the empty node loop always, so it can be easily linked into place.
     ByteSet(&m_EmptyNode, 0xAB, sizeof(m_EmptyNode));
     m_EmptyNode.next = tagged(&m_EmptyNode);
+
+    m_pParentAllocator = parent;
 
     assert( (m_SlabSize % m_ObjectSize) == 0 );
 }
@@ -256,7 +258,7 @@ uintptr_t SlamCache::allocate()
         Node *pNode = initialiseSlab(getSlab());
         uintptr_t slab = reinterpret_cast<uintptr_t>(pNode);
 #if CRIPPLINGLY_VIGILANT
-        if (SlamAllocator::instance().getVigilance())
+        if (m_pParentAllocator->getVigilance())
             trackSlab(slab);
 #endif
         return slab;
@@ -325,12 +327,12 @@ bool SlamCache::isPointerValid(uintptr_t object)
 
 uintptr_t SlamCache::getSlab()
 {
-    return SlamAllocator::instance().getSlab(m_SlabSize);
+    return m_pParentAllocator->getSlab(m_SlabSize);
 }
 
 void SlamCache::freeSlab(uintptr_t slab)
 {
-    SlamAllocator::instance().freeSlab(slab, m_SlabSize);
+    m_pParentAllocator->freeSlab(slab, m_SlabSize);
 }
 
 size_t SlamCache::recovery(size_t maxSlabs)
@@ -701,18 +703,28 @@ void SlamAllocator::initialise()
 #endif
 
     // Good to go - wipe the bitmap and we are now configured.
-    ByteSet(m_SlabRegionBitmap, 0, bitmapBytes);
+    QuadWordSet(m_SlabRegionBitmap, 0, bitmapBytes / 8);
 
+#ifndef PEDIGREE_BENCHMARK
     NOTICE("Kernel heap range prepared from " << Hex << m_Base << " to " << heapEnd << ", size: " << (heapEnd - m_Base));
     DEBUG_LOG("  -> kernel heap bitmap is " << Dec << (bitmapBytes / 1024) << Hex << "K");
+#endif
 
     for (size_t i =0; i < 32; i++)
     {
-        m_Caches[i].initialise(1ULL << i);
+        m_Caches[i].initialise(this, 1ULL << i);
     }
 
     m_bInitialised = true;
 }
+
+#ifdef PEDIGREE_BENCHMARK
+void SlamAllocator::clearAll()
+{
+    m_bInitialised = false;
+    initialise();
+}
+#endif
 
 uintptr_t SlamAllocator::getSlab(size_t fullSize)
 {
@@ -828,7 +840,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
 
     if(bit == ~0UL)
     {
-        FATAL("SlamAllocator::getSlab cannot find a place to allocate this slab (" << Dec << fullSize << Hex << " bytes) - allocator is consuming " << m_HeapPageCount << " pages!");
+        FATAL("SlamAllocator::getSlab cannot find a place to allocate this slab (" << Dec << fullSize << Hex << " bytes) - consumed " << m_HeapPageCount << " pages! " << " --> " << this);
     }
 
     uintptr_t slab = m_Base + (((entry * 64) + bit) * getPageSize());

@@ -46,6 +46,8 @@ void unmapAll();
 }  // namespace SlamSupport
 #endif
 
+class SlamAllocator;
+
 /// Size of each slab in 4096-byte pages
 #define SLAB_SIZE                       1
 
@@ -128,7 +130,7 @@ public:
     virtual ~SlamCache();
 
     /** Main init function. */
-    void initialise(size_t objectSize);
+    void initialise(SlamAllocator *parent, size_t objectSize);
 
     /** Allocates an object. */
     uintptr_t allocate();
@@ -199,6 +201,9 @@ private:
     Spinlock m_RecoveryLock;
 #endif
 
+    /** Pointer back to the associated SlamAllocator. */
+    SlamAllocator *m_pParentAllocator;
+
     struct Node m_EmptyNode;
 };
 
@@ -209,6 +214,11 @@ class SlamAllocator
         virtual ~SlamAllocator();
 
         void initialise();
+
+#ifdef PEDIGREE_BENCHMARK
+        // quickly clear all allocations from the allocator
+        void clearAll();
+#endif
 
         uintptr_t allocate(size_t nBytes);
         void free(uintptr_t mem);
