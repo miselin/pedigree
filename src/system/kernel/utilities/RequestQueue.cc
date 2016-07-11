@@ -26,11 +26,11 @@
 #include <utilities/assert.h>
 
 RequestQueue::RequestQueue() :
-  m_Stop(false), m_RequestQueueMutex(false)
+  m_Stop(false),
 #ifdef THREADS
-  , m_pThread(0)
+  m_RequestQueueMutex(false), m_pThread(0), m_Halted(false),
 #endif
-  , m_Halted(false), m_nMaxAsyncRequests(256), m_nAsyncRequests(0)
+  m_nMaxAsyncRequests(256), m_nAsyncRequests(0)
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
         m_pRequestQueue[i] = 0;
