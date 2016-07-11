@@ -20,6 +20,7 @@
 #include <Log.h>
 #include <Module.h>
 #include <processor/Processor.h>
+#include <process/Scheduler.h>
 #include <syscallError.h>
 #include <utilities/List.h>
 #include <utilities/StaticString.h>
