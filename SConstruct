@@ -152,6 +152,9 @@ opts.AddVariables(
     BoolVariable('clang_profile', 'If hosted, use clang instrumentation to profile.', 0),
     BoolVariable('instrumentation', 'Build with function instrumentation (SLOW).', 0),
 
+    # Hosted build flags.
+    BoolVariable('hosted_system_malloc', 'Use the system malloc instead of the Pedigree allocator.', 0),
+
     # analyses and clang
     BoolVariable('clang_analyse', 'If using clang, pass --analyze (only for kernel+modules).', 0),
     BoolVariable('clang_max_pedantry', 'Use -Weverything with clang, with some specific warnings blacklisted (e.g. -Wdocumentation).', 0),
@@ -820,6 +823,10 @@ if env['hosted']:
     env['CPPDEFINES'] = [x for x in env['CPPDEFINES'] if x not in removal_defines]
     env['CPPDEFINES'] += ['__pedigree__']
 
+    removal_flags = ('-mcmodel=kernel',)
+    for key in ('CCFLAGS', 'TARGET_CCFLAGS'):
+        env[key] = [x for x in env[key] if x not in removal_flags]
+
     # Copy across userspace defines as HOSTED_*
     env['CPPDEFINES'] += ['HOSTED_%s' % x for x in userspace_env['CPPDEFINES']]
 
@@ -855,6 +862,13 @@ if env['hosted']:
 
     if not env['warnings']:
         env.MergeFlags({'CCFLAGS': '-Werror'})
+
+    # Use the large memory model to avoid making any assumptions about the
+    # address space (e.g. PC32 relocations).
+    env.MergeFlags({
+        'CCFLAGS': ['-mcmodel=large', '-g3', '-ggdb'],
+        'TARGET_CCFLAGS': ['-mcmodel=large', '-g3', '-ggdb'],
+    })
 
     # Not a PC.
     env['mach_pc'] = False
