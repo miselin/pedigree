@@ -198,21 +198,23 @@ extern "C" void __cxa_guard_release()
 }
 #endif
 
-#if !(defined(HAS_ADDRESS_SANITIZER) || defined(HAS_THREAD_SANITIZER))
+#if !(defined(HOSTED) && defined(HOSTED_SYSTEM_MALLOC))
 #ifdef HOSTED
-extern "C" void *_malloc(size_t sz)
+#define MALLOC _malloc
+#define FREE _free
+#define REALLOC _realloc
 #else
-extern "C" void *malloc(size_t sz)
+#define MALLOC malloc
+#define FREE free
+#define REALLOC realloc
 #endif
+
+extern "C" void *MALLOC(size_t sz)
 {
     return reinterpret_cast<void *>(new uint8_t[sz]); //SlamAllocator::instance().allocate(sz));
 }
 
-#ifdef HOSTED
-extern "C" void _free(void *p)
-#else
-extern "C" void free(void *p)
-#endif
+extern "C" void FREE(void *p)
 {
     if (p == 0)
         return;
@@ -220,14 +222,10 @@ extern "C" void free(void *p)
     delete [] reinterpret_cast<uint8_t*>(p);
 }
 
-#ifdef HOSTED
-extern "C" void *_realloc(void *p, size_t sz)
-#else
-extern "C" void *realloc(void *p, size_t sz)
-#endif
+extern "C" void *REALLOC(void *p, size_t sz)
 {
     if (p == 0)
-        return malloc(sz);
+        return MALLOC(sz);
     if (sz == 0)
     {
         free(p);
@@ -240,9 +238,9 @@ extern "C" void *realloc(void *p, size_t sz)
         copySz = sz;
     
     /// \note If sz > p's original size, this may fail.
-    void *tmp = malloc(sz);
+    void *tmp = MALLOC(sz);
     MemoryCopy(tmp, p, copySz);
-    free(p);
+    FREE(p);
 
     return tmp;
 }
@@ -287,9 +285,8 @@ void operator delete[] (void *p, void *q) noexcept
   // TODO
   panic("Operator delete[] (placement) -implement");
 }
-#endif
 
-#if defined(HOSTED) && (!(defined(HAS_ADDRESS_SANITIZER) || defined(HAS_THREAD_SANITIZER)))
+#ifdef HOSTED
 extern "C"
 {
 
@@ -309,4 +306,6 @@ void __wrap_free(void *p)
 }
 
 }
+#endif
+
 #endif

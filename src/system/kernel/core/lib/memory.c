@@ -192,7 +192,7 @@ void *DoubleWordSet(void *buf, unsigned int c, size_t n)
 
 void *QuadWordSet(void *buf, unsigned long long c, size_t n)
 {
-#ifdef X64
+#ifdef TARGET_IS_X86
     int a, b;
     __asm__ __volatile__("rep stosq" : "=&D" (a), "=&c" (b) : "0" (buf), "a" (c), "1" (n) : "memory");
     return buf;

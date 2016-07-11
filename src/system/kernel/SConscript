@@ -94,7 +94,7 @@ include_dirs = [
     'linker/',
     'core/',
     'core/lib/',
-    '.'
+    '.',
 ]
 
 # Pull in machine implementation.
@@ -178,16 +178,15 @@ env_clone['LIBS'] += [libhash]
 # Fix up flags for hosted builds.
 if env['hosted']:
     env_clone['LSCRIPT'] = env.File('#src/system/kernel/core/processor/hosted/kernel.ld')
-    if env['clang']:
-        wraps = ('strchr',)
-    else:
+    wraps = ()
+    if not env['hosted_system_malloc']:
         wraps = ('malloc', 'realloc', 'free', 'strchr')
     for wrap in wraps:
         env_clone['LINKFLAGS'] += ['-Wl,-wrap=%s' % wrap]
     env_clone['LINKFLAGS'] += ['-Wl,-T,$LSCRIPT']
     env_clone['LIBS'] += ['rt', 'dl']
 
-for entry in ('memory_tracing', 'bochs', 'track_locks'):
+for entry in ('memory_tracing', 'bochs', 'track_locks', 'hosted_system_malloc'):
     if env[entry]:
         env_clone.MergeFlags({
             'CPPDEFINES': [entry.upper()],
