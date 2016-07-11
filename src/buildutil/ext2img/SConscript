@@ -43,6 +43,7 @@ build_env.Append(CPPPATH=header_paths)
 defines = [
     'HOSTED', 'VFS_NOMMU', 'VFS_STANDALONE', 'EXT2_STANDALONE',
     'UTILITY_LINUX', 'DEVICE_IGNORE_ADDRESSES', 'TARGET_IS_LITTLE_ENDIAN',
+	'STANDALONE_MUTEXES',
 ]
 
 libs = ['ext2', 'vfs', 'part', 'utility', 'kern']

@@ -58,6 +58,7 @@ header_paths = [
 ]
 libutility_sources = [
     os.path.join('utilities', 'String.cc'),
+    os.path.join('utilities', 'Cache.cc'),
     os.path.join('utilities', 'List.cc'),
     os.path.join('utilities', 'Vector.cc'),
     os.path.join('utilities', 'Tree.cc'),
@@ -65,6 +66,10 @@ libutility_sources = [
     os.path.join('utilities', 'ObjectPool.cc'),
     os.path.join('utilities', 'Buffer.cc'),
     os.path.join('utilities', 'utility.cc'),
+    os.path.join('utilities', 'UnlikelyLock.cc'),
+    os.path.join('utilities', 'RequestQueue.cc'),
+    os.path.join('utilities', 'BloomFilter.cc'),
+    os.path.join('utilities', 'smhasher', 'MurmurHash3.cpp'),
     os.path.join('core', 'lib', 'demangle.cc'),
     os.path.join('core', 'lib', 'string.c'),
     os.path.join('core', 'lib', 'memory.c'),
@@ -78,7 +83,7 @@ libutility_sources = [
 ]
 defines = [
     'HOSTED', 'UTILITY_LINUX', 'TARGET_IS_LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
-    'PEDIGREE_BENCHMARK', 'STANDALONE_MUTEXES',
+    'PEDIGREE_BENCHMARK', 'STANDALONE_MUTEXES', 'STANDALONE_CACHE',
 ]
 
 utility_env = env.Clone()
@@ -87,7 +92,7 @@ utility_env.Append(**{
     'CPPDEFINES': defines,
 })
 utility_env.MergeFlags({
-    'CCFLAGS': ['-g3', '-ggdb', '-O3'],
+    'CCFLAGS': ['-g3', '-ggdb', '-O3', '-march=native', '-mtune=native'],
     'COVERAGE_CCFLAGS': ['-g3', '-ggdb', '-O3'],
     'CXXFLAGS': ['-std=c++11'],
     'CFLAGS': ['-std=gnu99'],
