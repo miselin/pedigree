@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <compiler.h>
 #include <processor/types.h>
 #include <machine/Device.h>
 #include <machine/Disk.h>
@@ -638,8 +639,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
         return ScsiDisk::doRead(location);
 
     // Memory for the "already-read" buffers to point at for DMA scatter/gather
-    char *alreadyRead = 0;
-    PointerGuard<char> guard(alreadyRead);
+    static char alreadyRead[4096] ALIGN(4096);
 
     // Create our set of buffers to read into.
     size_t nBytes = getBlockSize();
@@ -660,12 +660,6 @@ uint64_t AtaDisk::doRead(uint64_t location)
         if (buffer)
         {
             getCache().release(location + buffers[i].offset);
-
-            // Already read - we can't safely use this buffer as it may be
-            // dirty, so we dodge it.
-            if (!alreadyRead)
-                alreadyRead = new char[0x1000];
-
             buffer = reinterpret_cast<uintptr_t>(alreadyRead);
         }
         else
@@ -711,6 +705,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
     // Wait for it to be selected
     ataWait(commandRegs, controlRegs);
 
+    size_t buffersConsumed = 0;
     while (nSectors > 0)
     {
         // Wait for status to be ready - spin until READY bit is set.
@@ -721,18 +716,24 @@ uint64_t AtaDisk::doRead(uint64_t location)
         uint8_t nSectorsToRead = min(m_pIdent.data.max_sectors_per_irq, nSectors);
         nSectors -= nSectorsToRead;
 
+        // Buffers are 4K each, so calculate the number of buffers used for
+        // this particular read.
+        size_t buffersThisRead = (nSectorsToRead * 512) / 0x1000;
+
         bool bDmaSetup = false;
         if(m_bDma)
         {
-            for (size_t i = 0; i < nBuffers; ++i)
+            for (size_t i = 0; i < buffersThisRead; ++i)
             {
-                bDmaSetup = m_BusMaster->add(buffers[i].buffer, 0x1000);
+                bDmaSetup = m_BusMaster->add(buffers[buffersConsumed + i].buffer, 0x1000);
                 if (!bDmaSetup)
                 {
                     ERROR("DMA setup failed!");
                     break;
                 }
             }
+
+            buffersConsumed += buffersThisRead;
         }
 
         if (m_SupportsLBA48)
@@ -826,18 +827,24 @@ uint64_t AtaDisk::doRead(uint64_t location)
                     bool bError = m_BusMaster->hasError();
                     m_BusMaster->commandComplete();
                     if(bError)
+                    {
                         return 0;
+                    }
                     else
+                    {
                         break;
+                    }
                 }
             }
             else
+            {
                 break;
+            }
         }
 
         if(!m_bDma && !bDmaSetup)
         {
-            size_t byteOffset = 0;
+            size_t byteOffset = buffersConsumed * 0x1000;
             for (int i = 0; i < nSectorsToRead; i++)
             {
                 // Wait until !BUSY
@@ -864,7 +871,11 @@ uint64_t AtaDisk::doRead(uint64_t location)
                 byteOffset += 512;
             }
         }
+
+        location += nSectorsToRead * 512;
     }
+
+    assert(buffersConsumed == nBuffers);
 
     // Update Cache - we're done reading.
     for (size_t i = 0; i < nBuffers; ++i)
