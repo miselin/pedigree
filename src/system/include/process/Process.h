@@ -495,7 +495,7 @@ private:
 
         /// Time at which process started.
         Time::Timestamp startTime;
-    } ALIGN(4096) m_Metadata;
+    } m_Metadata;
 
     /** Last time we entered the kernel. */
     Time::Timestamp m_LastKernelEntry;
