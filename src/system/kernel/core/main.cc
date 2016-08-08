@@ -432,6 +432,9 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     // be made ready without an interrupt).
     Processor::setInterrupts(true);
     Processor::haltUntilInterrupt();
+
+    // Give up our timeslice (needed especially for no-tick scheduling)
+    Scheduler::instance().yield();
   }
 }
 
