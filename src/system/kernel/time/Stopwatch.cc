@@ -19,17 +19,21 @@
 
 #include <time/Time.h>
 #include <time/Stopwatch.h>
+#include <utilities/assert.h>
+#include <Log.h>
 
 namespace Time
 {
 
 Stopwatch::Stopwatch(bool startRunning) :
-    m_Value(), m_StartValue(), m_bRunning(startRunning)
+    m_Value(0), m_StartValue(), m_bRunning(startRunning)
 {
     reset();
 
-    if (m_bRunning)
+    if (startRunning)
+    {
         start();
+    }
 }
 
 Stopwatch::~Stopwatch()
@@ -39,13 +43,14 @@ Stopwatch::~Stopwatch()
 void Stopwatch::start()
 {
     m_bRunning = true;
-    m_StartValue = Time::getTimeNanoseconds(false);
+    m_StartValue = Time::getTicks();
 }
 
 void Stopwatch::stop()
 {
+    assert(m_bRunning);
     m_bRunning = false;
-    Timestamp now = Time::getTimeNanoseconds(false);
+    Timestamp now = Time::getTicks();
     m_Value += now - m_StartValue;
 }
 
