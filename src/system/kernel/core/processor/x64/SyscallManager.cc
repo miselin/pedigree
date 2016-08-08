@@ -26,6 +26,8 @@
 
 X64SyscallManager X64SyscallManager::m_Instance;
 
+#define TIME_SYSCALLS 0
+
 SyscallManager &SyscallManager::instance()
 {
   return X64SyscallManager::instance();
@@ -51,11 +53,15 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
 {
   SyscallHandler *pHandler;
   TimeTracker tracker(0, true);
-#ifdef TIME_SYSCALLS
+#if TIME_SYSCALLS
   Process *pProcess = Processor::information().getCurrentThread()->getParent();
   Time::Stopwatch syscallTimer(true);
   size_t syscallNumber = syscallState.getSyscallNumber();
 #endif
+
+  // Enable IRQs - stack switching and such are done now and it's now safe to
+  // start processing interrupts elsewhere.
+  Processor::setInterrupts(true);
 
   size_t serviceNumber = syscallState.getSyscallService();
 
@@ -92,7 +98,7 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
     syscallState.m_RFlagsR11 |= 0x200;
   }
 
-#ifdef TIME_SYSCALLS
+#if TIME_SYSCALLS
   syscallTimer.stop();
   Time::Timestamp value = syscallTimer.value();
   NOTICE("SYSCALL pid=" << Dec << pProcess->getId() << " service=" << serviceNumber << " num=" << syscallNumber << " ns=" << value << Hex);

@@ -162,7 +162,7 @@ uintptr_t posix_brk(uintptr_t theBreak)
 
 int posix_fork(SyscallState &state)
 {
-    SC_NOTICE("fork()");
+    SC_NOTICE("fork");
 
     Processor::setInterrupts(false);
 
@@ -245,12 +245,12 @@ int posix_fork(SyscallState &state)
     pThread->detach();
 
     // Fix up the main thread in the child.
+    /// \todo this is too late - the Thread constructor starts the thread
+    ///       already! We need a way to have threads start suspended so they
+    ///       can be unblocked by callers when they are ready to run.
     pedigree_copy_posix_thread(
         Processor::information().getCurrentThread(), pParentSubsystem,
         pThread, pSubsystem);
-
-    // Kick off the new thread immediately.
-    Scheduler::instance().yield();
 
     // Parent returns child ID.
     return pProcess->getId();
