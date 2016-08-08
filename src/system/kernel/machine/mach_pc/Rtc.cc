@@ -205,13 +205,21 @@ uint64_t Rtc::getNanosecond()
 }
 uint64_t Rtc::getTickCount()
 {
-  return m_TickCount / 1000ULL;
+  return getTickCountNano() / 1000ULL;
 }
 uint64_t Rtc::getTickCountNano()
 {
-  return m_TickCount;
-}
+  uint32_t edx, eax;
+  asm volatile ("rdtsc" : "=d" (edx), "=a" (eax) :: "memory");
 
+  uint64_t tsc;
+  tsc = (static_cast<uint64_t>(edx) << 32UL) | eax;
+
+  // calculate # ns since startup
+  uint64_t ns = (tsc - m_Tsc0) / m_TscTicksPerNanosecond;
+
+  return ns;
+}
 bool Rtc::initialise1()
 {
   NOTICE("Rtc::initialise1");
@@ -281,6 +289,29 @@ bool Rtc::initialise2()
   write(0x0B, statusb | 0x40);
   read(0x0C); // Some RTC chips need the interrupt status to be cleared after
               // changing the control register.
+
+  // Calibrate against TSC (assumes constant TSC - need to check CPUID!)
+  uint64_t tsc0, tsc1;
+  m_TickCount = 0;
+
+  uint32_t edx, eax;
+  asm volatile ("rdtsc" : "=d" (edx), "=a" (eax) :: "memory");
+  tsc0 = (static_cast<uint64_t>(edx) << 32UL) | eax;
+
+  // Burn some cycles.
+  for (size_t i = 0; i < 1000; ++i)
+  {
+    Processor::haltUntilInterrupt();
+  }
+
+  asm volatile ("rdtsc" : "=d" (edx), "=a" (eax) :: "memory");
+  tsc1 = (static_cast<uint64_t>(edx) << 32UL) | eax;
+
+  uint64_t diff = tsc1 - tsc0;
+  m_TscTicksPerNanosecond = diff / m_TickCount;
+  NOTICE("TSC ticks/ns: " << m_TscTicksPerNanosecond);
+
+  m_Tsc0 = tsc1;
 
   return true;
 }

@@ -45,7 +45,6 @@ Timestamp getTimeNanoseconds(bool sync)
 Timestamp getTicks()
 {
     Timer *pTimer = Machine::instance().getTimer();
-    pTimer->synchronise();
     return pTimer->getTickCountNano();
 }
 

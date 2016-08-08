@@ -175,6 +175,12 @@ class Rtc : public Timer,
     List<Alarm*> m_Alarms;
     /** Protects m_Alarms. */
     Spinlock m_Lock;
+
+    /** Tracks the number of nanoseconds per TSC tick. */
+    uint64_t m_TscTicksPerNanosecond;
+
+    /** Initial TSC value. */
+    uint64_t m_Tsc0;
 };
 
 /** @} */
