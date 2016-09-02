@@ -1,75 +1,75 @@
-From 7b9cfe82e3f18c1c55bcbf4ba58003a11508fcf3 Mon Sep 17 00:00:00 2001
+From c3847f5ea08d0ebee0a8437059a97eeaf85a2e70 Mon Sep 17 00:00:00 2001
 From: Matthew Iselin <matthew@theiselins.net>
-Date: Tue, 22 Apr 2014 14:57:26 +1000
+Date: Wed, 31 Aug 2016 11:29:02 +1000
 Subject: [PATCH] Pedigree OS target
 
 ---
- bfd/config.bfd                   | 13 +++++++++++++
+ bfd/config.bfd                   | 16 +++++++++++++++-
  config.sub                       |  3 +++
  gas/configure.tgt                |  2 ++
- ld/Makefile.in                   | 10 ++++++++++
- ld/configure.tgt                 |  3 +++
+ ld/Makefile.in                   | 16 ++++++++++++++++
+ ld/configure.tgt                 |  4 ++++
  ld/emulparams/pedigree_arm.sh    | 35 +++++++++++++++++++++++++++++++++++
- ld/emulparams/pedigree_i386.sh   | 16 ++++++++++++++++
- ld/emulparams/pedigree_x86_64.sh | 26 ++++++++++++++++++++++++++
- 8 files changed, 108 insertions(+)
+ ld/emulparams/pedigree_i386.sh   | 15 +++++++++++++++
+ ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++++
+ 8 files changed, 115 insertions(+), 1 deletion(-)
  create mode 100644 ld/emulparams/pedigree_arm.sh
  create mode 100644 ld/emulparams/pedigree_i386.sh
  create mode 100644 ld/emulparams/pedigree_x86_64.sh
 
 diff --git a/bfd/config.bfd b/bfd/config.bfd
-index 5324d39..fb6254d 100644
+index 6400722..a44c592 100644
 --- a/bfd/config.bfd
 +++ b/bfd/config.bfd
-@@ -301,7 +302,11 @@ case "${targ}" in
+@@ -336,7 +336,11 @@ case "${targ}" in
      targ_underscore=no
      targ_cflags="-DARM_WINCE -DARM_COFF_BUGFIX"
      ;;
 -  arm-*-pe*)
 +   arm*-*-pedigree*)
-+    targ_defvec=bfd_elf32_littlearm_vec
-+    targ_selvecs=bfd_elf32_bigarm_vec
++    targ_defvec=arm_elf32_le_vec
++    targ_selvecs=arm_elf32_be_vec
 +    ;;
 + arm-*-pe*)
-     targ_defvec=armpe_little_vec
-     targ_selvecs="armpe_little_vec armpe_big_vec armpei_little_vec armpei_big_vec"
+     targ_defvec=arm_pe_le_vec
+     targ_selvecs="arm_pe_le_vec arm_pe_be_vec arm_pei_le_vec arm_pei_be_vec"
      targ_underscore=yes
-@@ -514,6 +518,16 @@ case "${targ}" in
-     targ_defvec=bfd_elf32_i386_vec
-     targ_selvecs=i386coff_vec
+@@ -562,6 +566,16 @@ case "${targ}" in
+     targ_defvec=i386_elf32_vec
+     targ_selvecs="iamcu_elf32_vec i386_coff_vec"
      ;;
 +  i[3-7]86-*-pedigree*)
-+    targ_defvec=bfd_elf32_i386_vec
++    targ_defvec=i386_elf32_vec
 +    ;;
 +#ifdef BFD64
 +  amd64-*-pedigree* | \
 +  x86_64-*-pedigree*)
-+    targ_defvec=bfd_elf64_x86_64_vec
-+    targ_selvecs=bfd_elf32_i386_vec
++    targ_defvec=x86_64_elf64_vec
++    targ_selvecs=i386_elf32_vec
 +    ;;
 +#endif
    i[3-7]86-*-solaris2*)
-     targ_defvec=bfd_elf32_i386_sol2_vec
-     targ_selvecs="i386coff_vec"
+     targ_defvec=i386_elf32_sol2_vec
+     targ_selvecs="iamcu_elf32_vec i386_coff_vec i386_pei_vec"
 diff --git a/config.sub b/config.sub
-index 61cb4bc..2a6239e 100755
+index 2377e13..78f989e 100755
 --- a/config.sub
 +++ b/config.sub
-@@ -1508,6 +1508,9 @@ case $os in
+@@ -1531,6 +1531,9 @@ case $os in
  		;;
  	-nacl*)
  		;;
 +	-pedigree*)
 +		os=-pedigree
 +		;;
- 	-none)
+ 	-ios)
  		;;
- 	*)
+ 	-none)
 diff --git a/gas/configure.tgt b/gas/configure.tgt
-index 77c1d9b..26f0e82 100644
+index e2df659..c84b208 100644
 --- a/gas/configure.tgt
 +++ b/gas/configure.tgt
-@@ -150,6 +150,7 @@ case ${generic_target} in
+@@ -159,6 +159,7 @@ case ${generic_target} in
  					fmt=coff em=wince-pe ;;
    arm-*-pe)				fmt=coff em=pe ;;
    arm-*-riscix*)			fmt=aout em=riscix ;;
@@ -77,7 +77,7 @@ index 77c1d9b..26f0e82 100644
  
    avr-*-*)				fmt=elf bfd_gas=yes ;;
  
-@@ -270,6 +271,7 @@ case ${generic_target} in
+@@ -283,6 +284,7 @@ case ${generic_target} in
    i386-*-chaos)				fmt=elf ;;
    i386-*-rdos*)				fmt=elf ;;
    i386-*-darwin*)			fmt=macho ;;
@@ -86,62 +86,110 @@ index 77c1d9b..26f0e82 100644
    i860-*-*)				fmt=elf endian=little ;;
  
 diff --git a/ld/Makefile.in b/ld/Makefile.in
-index b95a3d1..1b831b2 100644
+index 1ce019a..a7ca643 100644
 --- a/ld/Makefile.in
 +++ b/ld/Makefile.in
-@@ -2234,6 +2234,10 @@ earmelf_nacl.c: $(srcdir)/emulparams/armelf_nacl.sh \
+@@ -546,6 +546,7 @@ ALL_EMULATION_SOURCES = \
+ 	earmelf_linux.c \
+ 	earmelf_linux_eabi.c \
+ 	earmelf_nacl.c \
++    epedigree_arm.c \
+ 	earmelf_nbsd.c \
+ 	earmelf_phoenix.c \
+ 	earmelf_vxworks.c \
+@@ -660,6 +661,7 @@ ALL_EMULATION_SOURCES = \
+ 	eelf_i386_fbsd.c \
+ 	eelf_i386_ldso.c \
+ 	eelf_i386_nacl.c \
++    epedigree_i386.c \
+ 	eelf_i386_sol2.c \
+ 	eelf_i386_vxworks.c \
+ 	eelf_iamcu.c \
+@@ -873,6 +875,7 @@ ALL_64_EMULATION_SOURCES = \
+ 	eelf_x86_64_cloudabi.c \
+ 	eelf_x86_64_fbsd.c \
+ 	eelf_x86_64_nacl.c \
++    epedigree_x86_64.c \
+ 	eelf_x86_64_sol2.c \
+ 	ehppa64linux.c \
+ 	ei386pep.c \
+@@ -1183,6 +1186,7 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/earmelf_linux.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/earmelf_linux_eabi.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/earmelf_nacl.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_arm.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/earmelf_nbsd.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/earmelf_phoenix.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/earmelf_vxworks.Po@am__quote@
+@@ -1344,6 +1348,7 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_fbsd.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_ldso.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_nacl.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_i386.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_sol2.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_i386_vxworks.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_iamcu.Po@am__quote@
+@@ -1356,6 +1361,7 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_cloudabi.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_fbsd.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_nacl.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_x86_64.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eelf_x86_64_sol2.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/egld960.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/egld960coff.Po@am__quote@
+@@ -2361,6 +2367,10 @@ earmelf_nacl.c: $(srcdir)/emulparams/armelf_nacl.sh \
    $(ELF_DEPS) $(srcdir)/emultempl/armelf.em \
    $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
- 	${GENSCRIPTS} armelf_nacl "$(tdir_armelf_nacl)"
+ 
 +epedigree_arm.c: $(srcdir)/emulparams/pedigree_arm.sh \
 +  $(ELF_DEPS) $(srcdir)/emultempl/armelf.em \
 +  $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
-+	${GENSCRIPTS} pedigree_arm "$(tdir_pedigree_arm)"
++
  earmelf_nbsd.c: $(srcdir)/emulparams/armelf_nbsd.sh \
    $(srcdir)/emulparams/armelf.sh \
    $(ELF_DEPS) $(srcdir)/emultempl/armelf.em \
-@@ -2770,6 +2774,9 @@ eelf_i386_nacl.c: $(srcdir)/emulparams/elf_i386_nacl.sh \
+@@ -2918,6 +2928,9 @@ eelf_i386_nacl.c: $(srcdir)/emulparams/elf_i386_nacl.sh \
    $(srcdir)/emulparams/elf_nacl.sh \
-   $(ELF_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
- 	${GENSCRIPTS} elf_i386_nacl "$(tdir_elf_i386_nacl)"
+   $(ELF_X86_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
+ 
 +epedigree_i386.c: $(srcdir)/emulparams/pedigree_i386.sh \
-+  $(ELF_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
-+	${GENSCRIPTS} pedigree_i386 "$(tdir_pedigree_i386)"
++  $(ELF_X86_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
++
  eelf_i386_sol2.c: $(srcdir)/emulparams/elf_i386_sol2.sh \
    $(srcdir)/emulparams/solaris2.sh \
    $(srcdir)/emultempl/solaris2.em \
-@@ -3631,6 +3638,9 @@ eelf_x86_64_nacl.c: $(srcdir)/emulparams/elf_x86_64_nacl.sh \
+@@ -3606,6 +3619,9 @@ eelf_x86_64_nacl.c: $(srcdir)/emulparams/elf_x86_64_nacl.sh \
    $(srcdir)/emulparams/elf_nacl.sh \
-   $(ELF_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
- 	${GENSCRIPTS} elf_x86_64_nacl "$(tdir_elf_x86_64_nacl)"
+   $(ELF_X86_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
+ 
 +epedigree_x86_64.c: $(srcdir)/emulparams/pedigree_x86_64.sh \
-+  $(ELF_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
-+	${GENSCRIPTS} pedigree_x86_64 "$(tdir_pedigree_x86_64)"
++  $(ELF_X86_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
++
  eelf_x86_64_sol2.c: $(srcdir)/emulparams/elf_x86_64_sol2.sh \
    $(srcdir)/emulparams/elf_x86_64.sh \
    $(srcdir)/emulparams/solaris2.sh \
 diff --git a/ld/configure.tgt b/ld/configure.tgt
-index c50730b..c866dd5 100644
+index 6f3cd4f..8d85aef 100644
 --- a/ld/configure.tgt
 +++ b/ld/configure.tgt
-@@ -92,6 +92,7 @@ arm-*-netbsd*)		targ_emul=armnbsd;
+@@ -103,6 +103,7 @@ arm-*-netbsd*)		targ_emul=armnbsd;
  			targ_extra_emuls="armelf armelf_nbsd armelfb_nbsd"  ;;
  arm-*-nto*)		targ_emul=armnto ;;
  arm-*-openbsd*)		targ_emul=armnbsd ;;
 +arm-*-pedigree*)	targ_emul=pedigree_arm ;;
+ arm-*-phoenix*)		targ_emul=armelf ;;
  arm-*-rtems*)		targ_emul=armelf ;;
- armeb-*-elf)		targ_emul=armelfb ;;
- arm-*-elf | arm*-*-eabi*)
-@@ -218,6 +219,9 @@ i[3-7]86-*-lynxos*)	targ_emul=i386lynx ;;
- i[3-7]86-*-coff)	targ_emul=i386coff ;;
- i[3-7]86-*-rtems*)	targ_emul=elf_i386 ;;
- i[3-7]86-*-aros*)	targ_emul=elf_i386 ;;
+ armeb-*-elf | armeb-*-eabi*)
+@@ -238,6 +239,9 @@ i[3-7]86-*-rtems*)	targ_emul=elf_i386
+ 			targ_extra_emuls=elf_iamcu ;;
+ i[3-7]86-*-aros*)	targ_emul=elf_i386
+ 			targ_extra_emuls=elf_iamcu ;;
 +i[3-7]86-*-pedigree*)	targ_emul=pedigree_i386 ;;
 +x86_64-*-pedigree*)	targ_emul=pedigree_x86_64
-+                       targ_extra_emuls="elf_i386 pedigree_i386" ;;
- i[3-7]86-*-rdos*)	targ_emul=elf_i386 ;;
++			targ_extra_emuls="elf_i386 pedigree_i386" ;;
+ i[3-7]86-*-rdos*)	targ_emul=elf_i386
+ 			targ_extra_emuls=elf_iamcu ;;
  x86_64-*-rdos*)		targ_emul=elf64rdos ;;
- i[3-7]86-*-bsd)		targ_emul=i386bsd ;;
 diff --git a/ld/emulparams/pedigree_arm.sh b/ld/emulparams/pedigree_arm.sh
 new file mode 100644
 index 0000000..672b208
@@ -185,10 +233,10 @@ index 0000000..672b208
 +NO_SMALL_DATA=yes
 diff --git a/ld/emulparams/pedigree_i386.sh b/ld/emulparams/pedigree_i386.sh
 new file mode 100644
-index 0000000..d5502aa
+index 0000000..665a1ad
 --- /dev/null
 +++ b/ld/emulparams/pedigree_i386.sh
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,15 @@
 +. ${srcdir}/emulparams/plt_unwind.sh
 +SCRIPT_NAME=elf
 +OUTPUT_FORMAT="elf32-i386"
@@ -204,13 +252,12 @@ index 0000000..d5502aa
 +NO_SMALL_DATA=yes
 +SEPARATE_GOTPLT="SIZEOF (.got.plt) >= 12 ? 12 : 0"
 +IREL_IN_PLT=
-+
 diff --git a/ld/emulparams/pedigree_x86_64.sh b/ld/emulparams/pedigree_x86_64.sh
 new file mode 100644
-index 0000000..43a1855
+index 0000000..58c80e9
 --- /dev/null
 +++ b/ld/emulparams/pedigree_x86_64.sh
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,25 @@
 +. ${srcdir}/emulparams/plt_unwind.sh
 +SCRIPT_NAME=elf
 +ELFSIZE=64
@@ -236,7 +283,6 @@ index 0000000..43a1855
 +      NATIVE=yes
 +  esac
 +fi
-+
 -- 
-1.9.1.423.g4596e3a
+2.8.0.rc3.226.g39d4020
 

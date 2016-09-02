@@ -215,6 +215,7 @@ index 943ea67..11c46b6 100644
      ;;
 +  *-pedigree*)
 +    AC_CHECK_HEADERS([sys/types.h locale.h float.h])
++    GLIBCXX_CHECK_COMPLEX_MATH_SUPPORT
 +    ;;
    *-qnx6.1* | *-qnx6.2*)
      SECTION_FLAGS='-ffunction-sections -fdata-sections'

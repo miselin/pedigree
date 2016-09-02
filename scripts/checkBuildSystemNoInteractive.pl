@@ -19,7 +19,7 @@ my $gcc_libcpp_install = "";
 
 # Handle special arguments. These are given to change the behaviour of the script, or to
 # work around issues with specific operating systems.
-for(my $i = 1; $i < @ARGV; $i++)
+for(my $i = 2; $i < @ARGV; $i++)
 {
     if($ARGV[$i] eq "osx-compat")
     {
@@ -78,7 +78,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'test' => './bin/nasm' },
                 {'dir' => "binutils-$binutils_version",
                  'name' => "Binutils",
-                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls",
+                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --disable-werror",
                  'make' => "all",
                  'install' => "install",
                  'arch' => 'all',
@@ -175,7 +175,7 @@ foreach (@download) {
         exit 1;
       }
     }
-    `cd ./compilers/dir/build_tmp; cp ../dl_cache/$download{filename} ./; $download{extract}`;
+    `cd ./compilers/dir/build_tmp; ln -f ../dl_cache/$download{filename} ./; $download{extract}`;
     if ($? != 0) {
       print "Failed (extract).\n";
       exit 1;
