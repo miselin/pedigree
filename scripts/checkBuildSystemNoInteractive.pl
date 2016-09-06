@@ -7,9 +7,9 @@ die ("No target given!") unless scalar @ARGV > 0;
 
 my $target = $ARGV[0];
 
-my $gcc_version = "4.8.2";
-my $binutils_version = "2.24";
-my $nasm_version = "2.11.02";
+my $gcc_version = "6.2.0";
+my $binutils_version = "2.27";
+my $nasm_version = "2.12.02";
 
 my $gcc_configure_special = " --disable-werror ";
 my $binutils_configure_special = " --disable-werror ";
@@ -78,14 +78,14 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'test' => './bin/nasm' },
                 {'dir' => "binutils-$binutils_version",
                  'name' => "Binutils",
-                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --disable-werror",
+                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --enable-lto --disable-werror",
                  'make' => "all",
                  'install' => "install",
                  'arch' => 'all',
                  'test' => './bin/!TARGET-objdump'},
                 {'dir' => "gcc-$gcc_version",
                  'name' => "Gcc",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib",
+                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --enable-lto",
                  'make' => "all-gcc all-target-libgcc",
                  'install' => "install-gcc install-target-libgcc",
                  'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
@@ -94,7 +94,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                 {'dir' => "gcc-$gcc_version",
                  'ok' => $gcc_libcpp_make ne "",
                  'name' => "libstdc++",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --without-newlib --disable-libstdcxx-pch --enable-shared",
+                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --without-newlib --disable-libstdcxx-pch --enable-shared --enable-lto",
                  'make' => "$gcc_libcpp_make",
                  'install' => "$gcc_libcpp_install",
                  'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',

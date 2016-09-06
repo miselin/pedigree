@@ -29,6 +29,28 @@ index 707e9e2..5c71437 100755
  	-none)
  		;;
  	*)
+diff --git a/configure.ac b/configure.ac
+index 51b53b5..73efd8a 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1806,7 +1806,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+   build_lto_plugin=yes
+ ],[if test x"$default_enable_lto" = x"yes" ; then
+     case $target in
+-      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp*) ;;
++      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
+       # On other non-ELF platforms, LTO has yet to be validated.
+       *) enable_lto=no ;;
+     esac
+@@ -1817,7 +1817,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+   # warn during gcc/ subconfigure; unless you're bootstrapping with
+   # -flto it won't be needed until after installation anyway.
+     case $target in
+-      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp*) ;;
++      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp* | *pedigree*) ;;
+       *) if test x"$enable_lto" = x"yes"; then
+ 	AC_MSG_ERROR([LTO support is not enabled for this target.])
+         fi
 diff --git a/gcc/config.gcc b/gcc/config.gcc
 index 92d57dd..871f92f 100644
 --- a/gcc/config.gcc
@@ -98,7 +120,7 @@ new file mode 100644
 index 0000000..95e66a5
 --- /dev/null
 +++ b/gcc/config/pedigree.h
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,48 @@
 +#define NO_IMPLICIT_EXTERN_C
 +
 +#undef STARTFILE_SPEC

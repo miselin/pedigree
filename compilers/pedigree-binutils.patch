@@ -1,4 +1,4 @@
-From c3847f5ea08d0ebee0a8437059a97eeaf85a2e70 Mon Sep 17 00:00:00 2001
+From 64c67077dbf78312f66f02a017e318d1c4fac639 Mon Sep 17 00:00:00 2001
 From: Matthew Iselin <matthew@theiselins.net>
 Date: Wed, 31 Aug 2016 11:29:02 +1000
 Subject: [PATCH] Pedigree OS target
@@ -6,13 +6,14 @@ Subject: [PATCH] Pedigree OS target
 ---
  bfd/config.bfd                   | 16 +++++++++++++++-
  config.sub                       |  3 +++
+ configure.ac                     |  4 ++--
  gas/configure.tgt                |  2 ++
  ld/Makefile.in                   | 16 ++++++++++++++++
  ld/configure.tgt                 |  4 ++++
  ld/emulparams/pedigree_arm.sh    | 35 +++++++++++++++++++++++++++++++++++
  ld/emulparams/pedigree_i386.sh   | 15 +++++++++++++++
  ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++++
- 8 files changed, 115 insertions(+), 1 deletion(-)
+ 9 files changed, 117 insertions(+), 3 deletions(-)
  create mode 100644 ld/emulparams/pedigree_arm.sh
  create mode 100644 ld/emulparams/pedigree_i386.sh
  create mode 100644 ld/emulparams/pedigree_x86_64.sh
@@ -65,6 +66,28 @@ index 2377e13..78f989e 100755
  	-ios)
  		;;
  	-none)
+diff --git a/configure.ac b/configure.ac
+index a27985c..28512a7 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1817,7 +1817,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+   build_lto_plugin=yes
+ ],[if test x"$default_enable_lto" = x"yes" ; then
+     case $target in
+-      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp*) ;;
++      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
+       # On other non-ELF platforms, LTO has yet to be validated.
+       *) enable_lto=no ;;
+     esac
+@@ -1828,7 +1828,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+   # warn during gcc/ subconfigure; unless you're bootstrapping with
+   # -flto it won't be needed until after installation anyway.
+     case $target in
+-      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp*) ;;
++      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp* | *pedigree*) ;;
+       *) if test x"$enable_lto" = x"yes"; then
+ 	AC_MSG_ERROR([LTO support is not enabled for this target.])
+         fi
 diff --git a/gas/configure.tgt b/gas/configure.tgt
 index e2df659..c84b208 100644
 --- a/gas/configure.tgt
