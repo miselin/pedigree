@@ -163,6 +163,8 @@ opts.AddVariables(
     BoolVariable('modules_on_disk', 'Put kernel module files onto hard disk images?', 1),
 
     BoolVariable('pcap', 'Build the PCAP module, which writes all network traffic to a serial port?', 0),
+
+    BoolVariable('optimise_for_size', 'Optimise for size, not speed (e.g. -Os instead of -O3)', 0),
     
     ('uimage_target', 'Where to copy the generated uImage.bin file to.', '~'),
 )
@@ -568,7 +570,7 @@ if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET
         extra_defines += ['PPC']
         env['ARCH_TARGET'] = 'PPC'
         flags_machine = 'mac'
-    elif re.match('arm',host_arch) is not None:
+    elif re.match('arm', host_arch) is not None:
         flags_arch = 'arm'
 
         # Handle input options
@@ -614,6 +616,11 @@ if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET
 
     flags = default_flags.get(flags_arch)
     if flags is not None:
+        # Fix up optimisation flags.
+        if env['optimise_for_size']:
+            default_flags[flags_arch] = [
+                x.replace('-O3', '-Os') for x in default_flags[flags_arch]]
+
         mapping = {
             'CCFLAGS': default_flags[flags_arch],
             'CFLAGS': default_cflags[flags_arch],
@@ -807,10 +814,12 @@ if env['hosted']:
     userspace_env = env.Clone()
 
     # Remove multiprocessor-related flags (not sensible for hosted targets).
+    '''
     env['CPPDEFINES'] = misc.removeFlags(
         env['CPPDEFINES'],
         ['MULTIPROCESSOR', 'APIC', 'ACPI', 'SMP']
     )
+    '''
 
     # Fix tools to use host.
     SCons.Tool.gcc.compilers = SCons.Tool.gcc.preserved_compilers
@@ -866,8 +875,9 @@ if env['hosted']:
     # Use the large memory model to avoid making any assumptions about the
     # address space (e.g. PC32 relocations).
     env.MergeFlags({
-        'CCFLAGS': ['-mcmodel=large', '-g3', '-ggdb'],
-        'TARGET_CCFLAGS': ['-mcmodel=large', '-g3', '-ggdb'],
+        'CCFLAGS': ['-mcmodel=large', '-g3', '-ggdb', '-pg'],
+        'TARGET_CCFLAGS': ['-mcmodel=large', '-g3', '-ggdb', '-pg'],
+        'LINKFLAGS': ['-mcmodel=large', '-pg'],
     })
 
     # Not a PC.
