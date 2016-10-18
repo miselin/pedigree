@@ -303,6 +303,7 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
     if (!pSubsystem->invoke(name, listArgv, listEnv, state))
     {
         SC_NOTICE(" -> execve failed in invoke");
+        SYSCALL_ERROR(ExecFormatError);
         return -1;
     }
 
