@@ -1121,7 +1121,7 @@ bool PosixSubsystem::parseShebang(File *pFile, File *&pOutFile, List<SharedPoint
 static File *traverseForInvoke(File *pFile)
 {
     // Do symlink traversal.
-    while (pFile->isSymlink())
+    while (pFile && pFile->isSymlink())
     {
         pFile = Symlink::fromFile(pFile)->followLink();
     }
@@ -1205,24 +1205,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     for(int sig = 0; sig < 32; sig++)
         Processor::information().getCurrentThread()->inhibitEvent(sig, true);
 
-    // Wipe out old address space.
-    MemoryMapManager::instance().unmapAll();
-    pProcess->getAddressSpace()->revertToKernelAddressSpace();
-
-    // We now need to clean up the process' address space.
-    pProcess->getSpaceAllocator().clear();
-    pProcess->getDynamicSpaceAllocator().clear();
-    pProcess->getSpaceAllocator().free(
-            pProcess->getAddressSpace()->getUserStart(),
-            pProcess->getAddressSpace()->getUserReservedStart() - pProcess->getAddressSpace()->getUserStart());
-    if(pProcess->getAddressSpace()->getDynamicStart())
-    {
-        pProcess->getDynamicSpaceAllocator().free(
-            pProcess->getAddressSpace()->getDynamicStart(),
-            pProcess->getAddressSpace()->getDynamicEnd() - pProcess->getAddressSpace()->getDynamicStart());
-    }
-    pProcess->getAddressSpace()->revertToKernelAddressSpace();
-
     // Determine if the target uses an interpreter or not.
     String interpreter("");
     DynamicLinker *pLinker = new DynamicLinker();
@@ -1248,6 +1230,24 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         ERROR("PosixSubsystem::invoke: target does not have a dynamic linker");
         return false;
     }
+
+    // Wipe out old address space.
+    MemoryMapManager::instance().unmapAll();
+    pProcess->getAddressSpace()->revertToKernelAddressSpace();
+
+    // We now need to clean up the process' address space.
+    pProcess->getSpaceAllocator().clear();
+    pProcess->getDynamicSpaceAllocator().clear();
+    pProcess->getSpaceAllocator().free(
+            pProcess->getAddressSpace()->getUserStart(),
+            pProcess->getAddressSpace()->getUserReservedStart() - pProcess->getAddressSpace()->getUserStart());
+    if(pProcess->getAddressSpace()->getDynamicStart())
+    {
+        pProcess->getDynamicSpaceAllocator().free(
+            pProcess->getAddressSpace()->getDynamicStart(),
+            pProcess->getAddressSpace()->getDynamicEnd() - pProcess->getAddressSpace()->getDynamicStart());
+    }
+    pProcess->getAddressSpace()->revertToKernelAddressSpace();
 
     // Map in the two ELF files so we can load them into the address space.
     uintptr_t originalBase = 0, interpreterBase = 0;
