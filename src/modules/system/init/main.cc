@@ -78,6 +78,19 @@ static bool init()
     PosixSubsystem *pSubsystem = new PosixSubsystem;
     pProcess->setSubsystem(pSubsystem);
 
+    // add an empty stdout, stdin
+    File *pNull = VFS::instance().find(String("dev»/null"));
+    if (!pNull)
+    {
+        error("dev»/null does not exist");
+    }
+
+    FileDescriptor *stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, 0);
+    FileDescriptor *stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, 0);
+
+    pSubsystem->addFileDescriptor(0, stdinDescriptor);
+    pSubsystem->addFileDescriptor(1, stdoutDescriptor);
+
     Thread *pThread = new Thread(pProcess, init_stage2, 0);
     pThread->detach();
 #endif
