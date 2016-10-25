@@ -25,6 +25,8 @@
 
 #include "TextIO.h"
 
+static int startFlipThread(void *param);
+
 TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     File(str, 0, 0, 0, inode, pParentFS, 0, pParent),
     m_bInitialised(false), m_bControlSeq(false), m_bBracket(false),
@@ -34,16 +36,10 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     m_CurrentParam(0), m_Params(), m_Fore(TextIO::LightGrey), m_Back(TextIO::Black),
     m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
     m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'),
-    m_Nanoseconds(0), m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0),
-    m_bActive(false), m_Lock(false)
+    m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false),
+    m_Lock(false)
 {
     m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
-
-    Timer *t = Machine::instance().getTimer();
-    if(t)
-    {
-        t->registerHandler(this);
-    }
 
     // r/w for root user/group, no access for everyone else.
     setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
@@ -53,12 +49,6 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
 
 TextIO::~TextIO()
 {
-    Timer *t = Machine::instance().getTimer();
-    if(t)
-    {
-        t->unregisterHandler(this);
-    }
-
     delete [] m_pBackbuffer;
     m_pBackbuffer = 0;
 }
@@ -113,9 +103,15 @@ bool TextIO::initialise(bool bClear)
 
             m_G0 = m_G1 = 'B';
 
-            m_Nanoseconds = 0;
             m_NextInterval = BLINK_OFF_PERIOD;
         }
+    }
+
+    if (m_bInitialised)
+    {
+        Process *parent = Processor::information().getCurrentThread()->getParent();
+        m_pFlipThread = new Thread(parent, startFlipThread, this);
+        m_pFlipThread->detach();
     }
 
     return m_bInitialised;
@@ -1515,28 +1511,26 @@ int TextIO::select(bool bWriting, int timeout)
     }
 }
 
-void TextIO::timer(uint64_t delta, InterruptState &state)
+void TextIO::flipThread()
 {
-    m_Nanoseconds += delta;
-    if(LIKELY(m_Nanoseconds < (m_NextInterval * 1000000ULL)))
-        return;
+    while (m_bInitialised)
+    {
+        bool bBlinkOn = m_NextInterval != BLINK_ON_PERIOD;
+        if(bBlinkOn)
+            m_NextInterval = BLINK_ON_PERIOD;
+        else
+            m_NextInterval = BLINK_OFF_PERIOD;
 
-    bool bBlinkOn = m_NextInterval != BLINK_ON_PERIOD;
-    if(bBlinkOn)
-        m_NextInterval = BLINK_ON_PERIOD;
-    else
-        m_NextInterval = BLINK_OFF_PERIOD;
+        // Flip now, triggered by the passage of time.
+        flip(true, !bBlinkOn);
 
-    // Flip (triggered by timer).
-    flip(true, !bBlinkOn);
-
-    m_Nanoseconds = 0;
+        // Wait for the next trigger time.
+        Time::delay(m_NextInterval * Time::Multiplier::MILLISECOND);
+    }
 }
 
 uint8_t TextIO::translate(uint32_t codepoint)
 {
-    NOTICE("translate(" << codepoint << ")");
-
     // Translate codepoints into Code Page 437 representation.
     switch(codepoint)
     {
@@ -1674,4 +1668,11 @@ uint8_t TextIO::translate(uint32_t codepoint)
         return codepoint & 0xFF;
     else
         return 219; // ASCII shaded box.
+}
+
+static int startFlipThread(void *param)
+{
+    TextIO *tio = reinterpret_cast<TextIO *>(param);
+    tio->flipThread();
+    return 0;
 }

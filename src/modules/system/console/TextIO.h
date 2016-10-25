@@ -24,8 +24,6 @@
 #include <utilities/Buffer.h>
 #include <process/Mutex.h>
 
-#include <machine/TimerHandler.h>
-
 #include <vfs/File.h>
 
 class Vga;
@@ -42,7 +40,7 @@ class Vga;
  * Provides exceptionally simple VT100 emulation to the Vga class, if
  * one exists. Note that this is NOT xterm emulation.
  */
-class TextIO : public File, public TimerHandler
+class TextIO : public File
 {
 private:
     static const int COLOUR_BRIGHT_ADDEND = 8;
@@ -131,7 +129,7 @@ public:
     virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
     virtual int select(bool bWriting = false, int timeout = 0);
 
-    virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void flipThread();
 
 private:
     static const ssize_t BACKBUFFER_COLS_WIDE = 132;
@@ -213,9 +211,6 @@ private:
      */
     uint8_t m_G0, m_G1;
 
-    /** Timer interface: number of nanoseconds counted so far in the timer handler. */
-    uint64_t m_Nanoseconds;
-
     /** Next interval to wait for (milliseconds). */
     uint64_t m_NextInterval;
 
@@ -240,6 +235,11 @@ private:
      * incorrect rendering.
      */
     Mutex m_Lock;
+
+    /**
+     * Running flip thread for things like the cursor blinking.
+     */
+    Thread *m_pFlipThread;
 };
 
 #endif
