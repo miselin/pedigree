@@ -729,6 +729,8 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
 
 int posix_writev(int fd, const struct iovec *iov, int iovcnt)
 {
+    F_NOTICE("writev(" << fd << ", <iov>, " << iovcnt << ")");
+
     /// \todo check iov
 
     if (iovcnt <= 0)
@@ -740,10 +742,12 @@ int posix_writev(int fd, const struct iovec *iov, int iovcnt)
     int totalWritten = 0;
     for (int i = 0; i < iovcnt; ++i)
     {
+        F_NOTICE("writev: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov->iov_len << " bytes.");
+
         if (!iov[i].iov_len)
             continue;
 
-        int r = posix_write(fd, reinterpret_cast<char *>(iov->iov_base), iov->iov_len, false);
+        int r = posix_write(fd, reinterpret_cast<char *>(iov[i].iov_base), iov[i].iov_len, false);
         if (r < 0)
         {
             /// \todo fd should not be seeked any further, even if past writes
@@ -759,6 +763,8 @@ int posix_writev(int fd, const struct iovec *iov, int iovcnt)
 
 int posix_readv(int fd, const struct iovec *iov, int iovcnt)
 {
+    F_NOTICE("readv(" << fd << ", <iov>, " << iovcnt << ")");
+
     /// \todo check iov
 
     if (iovcnt <= 0)
@@ -770,10 +776,12 @@ int posix_readv(int fd, const struct iovec *iov, int iovcnt)
     int totalRead = 0;
     for (int i = 0; i < iovcnt; ++i)
     {
+        F_NOTICE("readv: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov->iov_len << " bytes.");
+
         if (!iov[i].iov_len)
             continue;
 
-        int r = posix_read(fd, reinterpret_cast<char *>(iov->iov_base), iov->iov_len);
+        int r = posix_read(fd, reinterpret_cast<char *>(iov[i].iov_base), iov[i].iov_len);
         if (r < 0)
         {
             /// \todo fd should not be seeked any further, even if past writes
