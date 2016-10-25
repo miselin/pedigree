@@ -39,7 +39,7 @@ def buildImageE2fsprogs(target, source, env):
     modsdir = env.Dir(env['PEDIGREE_BUILD_MODULES']).abspath
     drvsdir = env.Dir(env['PEDIGREE_BUILD_DRIVERS']).abspath
     libsdir = os.path.join(builddir, 'libs')
-    i18ndir = os.path.join(builddir, 'locale')
+    i18ndir = os.path.join(builddir, 'po', 'locale')
     keymaps_dir = os.path.join(env['HOST_BUILDDIR'], 'keymaps')
 
     outFile = target[0].abspath
