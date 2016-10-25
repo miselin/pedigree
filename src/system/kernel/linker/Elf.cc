@@ -280,6 +280,37 @@ bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
     return true;
 }
 
+bool Elf::validate(uint8_t *pBuffer, size_t length)
+{
+    ElfHeader_t *pHeader = reinterpret_cast<ElfHeader_t *>(pBuffer);
+
+    if (length < sizeof(ElfHeader_t))
+    {
+        return false;
+    }
+
+    if ( (pHeader->ident[1] != 'E') ||
+         (pHeader->ident[2] != 'L') ||
+         (pHeader->ident[3] != 'F') ||
+         (pHeader->ident[0] != 127) )
+    {
+        return false;
+    }
+
+    if (pHeader->ident[4] !=
+#ifdef BITS_32
+        1 /* ELFCLASS32 */
+#else
+        2 /* ELFCLASS64 */
+#endif
+        )
+    {
+        return false;
+    }
+
+    return true;
+}
+
 bool Elf::create(uint8_t *pBuffer, size_t length)
 {
     NOTICE("Elf::create: buffer at " << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len " << length);

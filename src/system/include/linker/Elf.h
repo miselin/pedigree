@@ -196,6 +196,9 @@ class Elf
         /** The copy-constructor */
         Elf(const Elf &);
 
+        /** Validates the ELF object at the given location. */
+        bool validate(uint8_t *pBuffer, size_t length);
+
         /** Constructs an Elf object, and assumes the given pointer to be
         * to a contiguous region of memory containing an ELF object. */
         bool create(uint8_t *pBuffer, size_t length);

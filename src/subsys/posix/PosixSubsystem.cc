@@ -1172,23 +1172,32 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         return false;
     }
 
-    File *shebangFile = 0;
-    if (!parseShebang(originalFile, shebangFile, argv))
-    {
-        ERROR("PosixSubsystem::invoke: failed to parse shebang line in '" << name << "'");
-        return false;
-    }
+    uint8_t validateBuffer[128];
+    size_t nBytes = originalFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
 
-    // Switch to the real target if we must; parseShebang adjusts argv for us.
-    if (shebangFile)
+    Elf *validElf = new Elf();
+    if (!validElf->validate(validateBuffer, nBytes))
     {
-        originalFile = shebangFile;
+        WARNING("PosixSubsystem::invoke: '" << name << "' is not an ELF binary, looking for shebang...");
 
-        // Handle symlinks in shebang target.
-        originalFile = traverseForInvoke(originalFile);
-        if (!originalFile)
+        File *shebangFile = 0;
+        if (!parseShebang(originalFile, shebangFile, argv))
         {
+            ERROR("PosixSubsystem::invoke: failed to parse shebang line in '" << name << "'");
             return false;
+        }
+
+        // Switch to the real target if we must; parseShebang adjusts argv for us.
+        if (shebangFile)
+        {
+            originalFile = shebangFile;
+
+            // Handle symlinks in shebang target.
+            originalFile = traverseForInvoke(originalFile);
+            if (!originalFile)
+            {
+                return false;
+            }
         }
     }
 
