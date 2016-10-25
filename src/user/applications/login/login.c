@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE 1
+
 #include <pwd.h>
 #include <stdio.h>
 #include <signal.h>
@@ -32,6 +34,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <utmp.h>
 #include <utmpx.h>
 #include <libintl.h>
 #include <locale.h>
@@ -107,13 +110,6 @@ int main(int argc, char **argv)
     setenv("TERM", TERM, 1);
   }
 
-  const char *envLcAll = getenv("LC_ALL");
-  if (!envLcAll)
-  {
-    envLcAll = "en_US.UTF-8";
-    setenv("LC_ALL", envLcAll, 1);
-  }
-
   // Turn on output processing if it's not already on (we depend on it)
   struct termios curt;
   tcgetattr(1, &curt);
@@ -142,11 +138,10 @@ int main(int argc, char **argv)
 
     // This handles the case where a bad character goes into the stream and is
     // impossible to get out. Everything else I've tried does not work...
-    fclose(stdin);
+    close(0);
     int fd = open("/dev/tty", 0);
     if(fd != 0)
         dup2(fd, 0);
-    stdin = fdopen(fd, "r");
 
     // Get username
     printf(gettext("Username: "));
