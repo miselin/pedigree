@@ -47,7 +47,7 @@ for domain, path in translate_dirs:
     po_targets = [env.Dir('%s/%s' % (lang, domain)).srcnode().abspath
                   for lang in languages]
     # Collect expected .mo files and place them in the build directory.
-    mo_targets = ['locale/%s/LC_MESSAGES/%s' % (lang, domain)
+    mo_targets = ['locale/%s.UTF-8/LC_MESSAGES/%s' % (lang, domain)
                   for lang in languages]
 
     env.POTUpdate(domain, files)
