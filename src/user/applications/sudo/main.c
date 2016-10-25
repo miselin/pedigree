@@ -29,8 +29,8 @@
 #include <errno.h>
 #include <string.h>
 
-// Pedigree function, defined in glue.c
-extern int login(int uid, char *password);
+// Pedigree function, from libpedigree-c
+extern int pedigree_login(int uid, char *password);
 
 int main(int argc, char *argv[])
 {
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     password[i] = '\0';
 
     // Attempt to log in as that user
-    if(login(pw->pw_uid, password) != 0)
+    if(pedigree_login(pw->pw_uid, password) != 0)
     {
         fprintf(stderr, "sudo: password is incorrect\n");
         return 1;

@@ -208,7 +208,7 @@ char *pedigree_config_escape_string(const char *str)
 }
 
 // Pedigree-specific function: login with given uid and password.
-int login(uid_t uid, const char *password)
+int pedigree_login(uid_t uid, const char *password)
 {
     return (long)syscall2(PEDIGREE_LOGIN, uid, (long)password);
 }

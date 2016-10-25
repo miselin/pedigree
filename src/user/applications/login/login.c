@@ -45,8 +45,8 @@
 // PID of the process we're running
 int g_RunningPid = -1;
 
-// Pedigree function, defined in glue.c
-extern int login(int uid, const char *password);
+// Pedigree function, from libpedigree-c
+extern int pedigree_login(int uid, const char *password);
 
 // SIGINT handler
 void sigint(int sig)
@@ -219,7 +219,7 @@ int main(int argc, char **argv)
 #endif
 
     // Perform login - this function is in glue.c.
-    if(login(pw->pw_uid, password) != 0)
+    if(pedigree_login(pw->pw_uid, password) != 0)
     {
       printf(gettext("Password incorrect.\n"));
       continue;
