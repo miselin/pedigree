@@ -53,6 +53,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <termios.h>
 #include <utime.h>
 
 extern int posix_getpid();
@@ -1603,6 +1604,38 @@ int posix_ioctl(int fd, int command, void *buf)
 
     switch (command)
     {
+        case TCGETS:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return posix_tcgetattr(fd, reinterpret_cast<struct termios*>(buf));
+            }
+        }
+
+        case TCSETS:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return posix_tcsetattr(fd, TCSANOW, reinterpret_cast<struct termios*>(buf));
+            }
+        }
+
+        case TCSETSW:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return posix_tcsetattr(fd, TCSADRAIN, reinterpret_cast<struct termios*>(buf));
+            }
+        }
+
+        case TCSETSF:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return posix_tcsetattr(fd, TCSAFLUSH, reinterpret_cast<struct termios*>(buf));
+            }
+        }
+
         case TIOCGWINSZ:
         {
             if (ConsoleManager::instance().isConsole(f->file))
