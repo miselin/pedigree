@@ -137,24 +137,19 @@ uintptr_t posix_brk(uintptr_t theBreak)
     void *currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
     if (newBreak < currentBreak)
     {
-        NOTICE("informing of current: " << Hex << currentBreak);
         return reinterpret_cast<uintptr_t >(currentBreak);
     }
 
     intptr_t difference = pointer_diff(currentBreak, newBreak);
     if (!difference)
     {
-        NOTICE("same as current break");
         return reinterpret_cast<uintptr_t >(currentBreak);
     }
-
-    NOTICE("expansion: " << difference);
 
     // OK, good to go.
     void *result = Processor::information().getVirtualAddressSpace().expandHeap(difference, VirtualAddressSpace::Write);
     if (!result)
     {
-        NOTICE("brk failed");
         SYSCALL_ERROR(OutOfMemory);
         return -1;
     }
@@ -162,7 +157,6 @@ uintptr_t posix_brk(uintptr_t theBreak)
     // Return new end of heap.
     currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
 
-    NOTICE("brk returns: " << Hex << currentBreak);
     return reinterpret_cast<uintptr_t>(currentBreak);
 }
 

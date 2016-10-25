@@ -88,7 +88,6 @@ void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
   }
   else
   {
-      NOTICE("chk: " << newHeapEnd << " vs " << m_HeapEnd);
       while (reinterpret_cast<uintptr_t>(newHeapEnd) > reinterpret_cast<uintptr_t>(m_HeapEnd))
       {
           // Allocate a page
@@ -107,7 +106,6 @@ void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
           }
 
           // Map the page
-          NOTICE("map: " << Hex << m_HeapEnd);
           if (map(page, m_HeapEnd, flags) == false)
           {
               // Map failed - probable double mapping. Go to the next page.
@@ -117,7 +115,6 @@ void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
           else
           {
               // Empty the page.
-              NOTICE("zero: " << Hex << m_HeapEnd);
               ByteSet(m_HeapEnd, 0, PhysicalMemoryManager::getPageSize());
           }
 
@@ -127,7 +124,6 @@ void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
       }
   }
 
-  NOTICE("new end: " << Hex << m_HeapEnd);
   m_HeapEnd = newHeapEnd;
   return Heap;
 }
