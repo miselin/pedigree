@@ -283,9 +283,6 @@ for app in set(apps):
         app_env['LIBS'] += ['intl']
         app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]
 
-        print 'While porting musl, gettext apps are not available.'
-        continue
-
     # Handle Mesa dependencies.
     if app in mesa_apps:
         app_env['LIBS'] += ['OSMesa']
