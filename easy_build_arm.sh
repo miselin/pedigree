@@ -53,7 +53,7 @@ $script_dir/run_pup.py sync
 $script_dir/run_pup.py install ncurses
 
 # Run a quick build of libc and libm for the rest of the build system.
-scons CROSS=$script_dir/compilers/dir/bin/arm-pedigree- $ARM_SCONS_OPTS build/libc.so build/libm.so
+scons CROSS=$script_dir/compilers/dir/bin/arm-pedigree- $ARM_SCONS_OPTS build/musl/lib/libc.so
 
 # Pull down libtool.
 $script_dir/run_pup.py install libtool
