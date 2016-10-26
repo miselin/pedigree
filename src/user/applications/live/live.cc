@@ -126,7 +126,6 @@ int languages()
     std::string chosen_language = std::string(dialog_vars.input_result);
     dlg_clr_result();
 
-    chosen_language += ".UTF-8";
     setenv("LC_ALL", chosen_language.c_str(), 1);
 
     return 0;
