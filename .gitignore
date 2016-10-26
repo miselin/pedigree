@@ -8,6 +8,7 @@
 *.suo
 *.swp
 *.vcproj*
+*.po~
 .autogen.cache
 .DS_Store
 .easy_os
