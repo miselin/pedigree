@@ -265,15 +265,13 @@ int main(int argc, char **argv)
         g_RunningPid = -1;
 
         // Environment - only pass certain variables to the new process.
-        char *newenv[4];
+        char *newenv[3];
         newenv[0] = (char*)malloc(256);
         newenv[1] = (char*)malloc(256);
-        newenv[2] = (char*)malloc(256);
-        newenv[3] = 0;
+        newenv[2] = 0;
 
         sprintf(newenv[0], "HOME=%s", pw->pw_dir);
         sprintf(newenv[1], "TERM=%s", TERM);
-        sprintf(newenv[2], "LC_ALL=%s", envLcAll);
 
         // Make sure we're starting a login shell.
         char *shell = (char *) malloc(strlen(pw->pw_shell) + 1);
