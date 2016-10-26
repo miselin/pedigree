@@ -1911,8 +1911,10 @@ int posix_fcntl(int fd, int cmd, void* arg)
             break;
 
         case F_GETFD:
+            F_NOTICE("  -> get fd flags");
             return f->fdflags;
         case F_SETFD:
+            F_NOTICE("  -> set fd flags: " << arg);
             f->fdflags = reinterpret_cast<size_t>(arg);
             return 0;
         case F_GETFL:
@@ -1926,88 +1928,12 @@ int posix_fcntl(int fd, int cmd, void* arg)
         case F_GETLK: // Get record-locking information
         case F_SETLK: // Set or clear a record lock (without blocking
         case F_SETLKW: // Set or clear a record lock (with blocking)
-
-            /// \todo this doesn't work for multiple locks with different start
-            /// and len values, which means it is insufficient for sqlite3.
-
+            F_NOTICE("  -> fcntl locks (stubbed)");
             /// \note advisory locking disabled for now
             return 0;
 
-            // Grab the lock information structure
-            struct flock *lock = reinterpret_cast<struct flock*>(arg);
-            if(!lock)
-            {
-                SYSCALL_ERROR(InvalidArgument);
-                return -1;
-            }
-
-            // Lock the LockedFile map
-            // LockGuard<Mutex> lockFileGuard(g_PosixLockedFileMutex);
-
-            // Can only take exclusive locks...
-            if(cmd == F_GETLK)
-            {
-                if(f->lockedFile)
-                {
-                    lock->l_type = F_WRLCK;
-                    lock->l_whence = SEEK_SET;
-                    lock->l_start = lock->l_len = 0;
-                    lock->l_pid = f->lockedFile->getLocker();
-                }
-                else
-                    lock->l_type = F_UNLCK;
-
-                return 0;
-            }
-
-            // Trying to set an exclusive lock?
-            if(lock->l_type == F_WRLCK)
-            {
-                // Already got a LockedFile instance?
-                if(f->lockedFile)
-                {
-                    if(cmd == F_SETLK)
-                    {
-                        return f->lockedFile->lock(false) ? 0 : -1;
-                    }
-                    else
-                    {
-                        // Lock the file, blocking
-                        f->lockedFile->lock(true);
-                        return 0;
-                    }
-                }
-
-                // Not already locked!
-                LockedFile *lf = new LockedFile(f->file);
-                if(!lf)
-                {
-                    SYSCALL_ERROR(OutOfMemory);
-                    return -1;
-                }
-
-                // Insert
-                g_PosixGlobalLockedFiles.insert(f->file->getFullPath(), lf);
-                f->lockedFile = lf;
-
-                // The file is now locked
-                return 0;
-            }
-
-            // Trying to unlock?
-            if(lock->l_type == F_UNLCK)
-            {
-                // No locked file? The unlock still succeeds.
-                if(f->lockedFile)
-                {
-                    f->lockedFile->unlock();
-                }
-
-                return 0;
-            }
-
-            // Success, none of the above, no reason to be unlockable
-            return 0;
+        default:
+            WARNING("fcntl: unknown control " << cmd << " on fd " << fd);
     }
 
     SYSCALL_ERROR(Unimplemented);
