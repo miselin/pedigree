@@ -100,6 +100,7 @@ $script_dir/run_pup.py install gettext
 
 $script_dir/run_pup.py install pango
 $script_dir/run_pup.py install glib
+$script_dir/run_pup.py install libpcre
 $script_dir/run_pup.py install harfbuzz
 $script_dir/run_pup.py install libffi
 $script_dir/run_pup.py install dialog

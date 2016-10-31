@@ -25,6 +25,7 @@
 #include <sys/fb.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <native/graphics/Graphics.h>
 

@@ -1075,7 +1075,7 @@ int main(int argc, char *argv[])
     struct sockaddr_un bind_addr;
     bind_addr.sun_family = AF_UNIX;
     memset(bind_addr.sun_path, 0, sizeof bind_addr.sun_path);
-    strncpy(bind_addr.sun_path, WINMAN_SOCKET_PATH, UNIX_PATH_MAX);
+    strncpy(bind_addr.sun_path, WINMAN_SOCKET_PATH, sizeof bind_addr.sun_path);
     socklen_t socklen = sizeof(bind_addr);
     result = bind(g_iSocket, (struct sockaddr *) &bind_addr, socklen);
     if (result != 0)
