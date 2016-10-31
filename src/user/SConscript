@@ -286,9 +286,6 @@ for app in set(apps):
         app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]
         app_env['CPPPATH'] += [EXTERNAL_INCLUDE_DIR]
 
-        print 'While porting musl, OSMesa apps are not available.'
-        continue
-
     # Handle C++-related dependencies.
     if app in set(cpp_apps + sdl_apps + mesa_apps + cpp_11_apps):
         app_env['LIBPATH'] += [EXTERNAL_LIBRARY_DIR]

@@ -58,6 +58,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <sys/time.h>
 
 #include <GL/gl.h>
 #include <GL/osmesa.h>
