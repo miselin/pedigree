@@ -36,6 +36,8 @@
 #include <Widget.h>
 
 #include <syslog.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <cairo/cairo.h>
 
