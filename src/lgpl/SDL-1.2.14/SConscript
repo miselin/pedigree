@@ -102,6 +102,7 @@ libpaths = [
     os.path.join(imagesdir, 'libraries'),
     builddir,
     os.path.join(builddir, 'libs'),
+    os.path.join(builddir, 'musl', 'lib'),
 ]
 
 env_clone['CFLAGS'] = buildutils.userspace.fixFlags(env, env_clone['CFLAGS'])
