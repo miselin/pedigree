@@ -207,8 +207,7 @@ env_clone.MergeFlags({
 })
 
 if not env['ON_PEDIGREE']:
-    # cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
-    cpp_base = '#images/local/include/c++/%s' % env['CCVERSION']
+    cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
     cpp_arch_base = os.path.join(cpp_base, env['COMPILER_TARGET'])
 
 # -static stops GCC placing the path to the dynamic linker into the binary, and creates a non-relocateable executable.
