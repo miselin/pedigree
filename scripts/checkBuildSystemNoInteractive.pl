@@ -278,6 +278,9 @@ print "Complete; linking crt*.o...\n";
 `ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
 `ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
 `ln -sf $prefix/build/musl/include ./compilers/dir/$target/`;
+
+# include-fixed is NOT necessary
+`rm -rf ./compilers/dir/lib/gcc/$target/$gcc_version/include-fixed`;
 print "Done.\n";
 
 `rm -rf ./compilers/dir/build_tmp`;
