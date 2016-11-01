@@ -54,7 +54,7 @@ my @command = ( {'cwd' => "gcc-$gcc_version",
                  'arch' => 'all'},
                 {'cwd' => "gcc-$gcc_version/libstdc++-v3",
                  'name' => "libstdc++ crossconfig",
-                 'cmd' => "autoreconf --force",
+                 'cmd' => "autoconf --force",
                  'arch' => 'all'} );
 
 my @patch = ( {'cwd' => "gcc-$gcc_version",
