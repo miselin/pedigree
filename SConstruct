@@ -506,6 +506,11 @@ if (not env['build_tests_only']) and (env['CROSS'] or env['ON_PEDIGREE']):
     env['STRIP'] = tools['strip']
     env['OBJCOPY'] = tools['objcopy']
 
+    ccversion = env.get('CCVERSION')
+    if not ccversion:
+        ccversion = commands.getoutput('%s -dumpversion' % env['CC'])
+        env['CCVERSION'] = ccversion
+
     # Set up target-specific versions of the various tools. These are used
     # where code should only ever be built for Pedigree; for almost every build
     # type they should match the non-target-specific versions. For a hosted
