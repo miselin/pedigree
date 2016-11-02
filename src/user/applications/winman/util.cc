@@ -18,7 +18,7 @@
  */
 
 #include <fcntl.h>
-#include <syslog.h>
+#include <sys/klog.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -59,7 +59,7 @@ bool Framebuffer::initialise()
     m_Fb = open("/dev/fb", O_RDWR);
     if(m_Fb < 0)
     {
-        syslog(LOG_INFO, "winman: no framebuffer device");
+        klog(LOG_INFO, "winman: no framebuffer device");
         fprintf(stderr, "winman: couldn't open framebuffer device");
         return false;
     }
@@ -110,7 +110,7 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
         // No! Bad!
         /// \note Mode set logic will try and find a mode in a lower colour depth
         ///       if the desired one cannot be set.
-        syslog(LOG_INFO, "winman: can't set the desired mode");
+        klog(LOG_INFO, "winman: can't set the desired mode");
         fprintf(stderr, "winman: could not set desired mode (%ux%u) in any colour depth.\n", mode.width, mode.height);
         return EXIT_FAILURE;
     }
@@ -119,7 +119,7 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
     result = ioctl(m_Fb, PEDIGREE_FB_GETMODE, &set_mode);
     if(result < 0)
     {
-        syslog(LOG_INFO, "winman: can't get mode info");
+        klog(LOG_INFO, "winman: can't get mode info");
         fprintf(stderr, "winman: could not get mode information after setting mode.\n");
 
         // Back to text.
@@ -153,7 +153,7 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
     int stride = cairo_format_stride_for_width(m_Format, set_mode.width);
 
     // Map the framebuffer in to our address space.
-    syslog(LOG_INFO, "Mapping /dev/fb in (sz=%x)...", stride * set_mode.height);
+    klog(LOG_INFO, "Mapping /dev/fb in (sz=%x)...", stride * set_mode.height);
     m_pFramebuffer = mmap(
         0,
         stride * set_mode.height,
@@ -161,16 +161,16 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
         MAP_SHARED,
         m_Fb,
         0);
-    syslog(LOG_INFO, "Got %p...", m_pFramebuffer);
+    klog(LOG_INFO, "Got %p...", m_pFramebuffer);
 
     if(m_pFramebuffer == MAP_FAILED)
     {
-        syslog(LOG_CRIT, "winman: couldn't map framebuffer into address space");
+        klog(LOG_CRIT, "winman: couldn't map framebuffer into address space");
         return EXIT_FAILURE;
     }
     else
     {
-        syslog(LOG_INFO, "winman: mapped framebuffer at %p", m_pFramebuffer);
+        klog(LOG_INFO, "winman: mapped framebuffer at %p", m_pFramebuffer);
     }
 
     m_FramebufferSize = stride * set_mode.height;

@@ -26,7 +26,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
-#include <syslog.h>
+#include <sys/klog.h>
 #include <malloc.h>
 
 #include <string>
@@ -233,7 +233,7 @@ extern "C" int main(int argc, const char *argv[])
     }
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so starting...");
+    klog(LOG_INFO, "libload.so starting...");
 #endif
 
     char *ld_libpath = getenv("LD_LIBRARY_PATH");
@@ -266,7 +266,7 @@ extern "C" int main(int argc, const char *argv[])
     }
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so loading main object");
+    klog(LOG_INFO, "libload.so loading main object");
 #endif
 
     // Ungodly hack.
@@ -277,13 +277,13 @@ extern "C" int main(int argc, const char *argv[])
         if(!argv[0])
         {
             // Assume bash.
-            syslog(LOG_WARNING, "libload: $SHELL is undefined and /bin/sh was requested");
+            klog(LOG_WARNING, "libload: $SHELL is undefined and /bin/sh was requested");
             argv[0] = "bash";
         }
     }
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so main object is %s", argv[0]);
+    klog(LOG_INFO, "libload.so main object is %s", argv[0]);
 #endif
 
     // Load the main object passed on the command line.
@@ -298,7 +298,7 @@ extern "C" int main(int argc, const char *argv[])
     g_LoadedObjects.insert(meta->filename);
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so loading preload, if one exists");
+    klog(LOG_INFO, "libload.so loading preload, if one exists");
 #endif
 
     // Preload?
@@ -315,7 +315,7 @@ extern "C" int main(int argc, const char *argv[])
     }
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so loading dependencies");
+    klog(LOG_INFO, "libload.so loading dependencies");
 #endif
 
     // Any libraries to load?
@@ -329,7 +329,7 @@ extern "C" int main(int argc, const char *argv[])
     }
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so relocating dependencies");
+    klog(LOG_INFO, "libload.so relocating dependencies");
 #endif
 
     // Relocate preloads.
@@ -347,7 +347,7 @@ extern "C" int main(int argc, const char *argv[])
     }
 
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so relocating main object");
+    klog(LOG_INFO, "libload.so relocating main object");
 #endif
 
     // Do initial relocation of the binary (non-GOT entries)
@@ -362,7 +362,7 @@ extern "C" int main(int argc, const char *argv[])
         ++it) {
         if((*it)->init_func) {
 #ifdef DEBUG_LIBLOAD
-            syslog(LOG_INFO, "libload.so running init_func for %s", (*it)->filename.c_str());
+            klog(LOG_INFO, "libload.so running init_func for %s", (*it)->filename.c_str());
 #endif
             init_fini_func_t init = (init_fini_func_t) (*it)->init_func;
             init();
@@ -373,7 +373,7 @@ extern "C" int main(int argc, const char *argv[])
     if(meta->init_func) {
         init_fini_func_t init = (init_fini_func_t) meta->init_func;
 #ifdef DEBUG_LIBLOAD
-        syslog(LOG_INFO, "libload.so running init_func for %s", meta->filename.c_str());
+        klog(LOG_INFO, "libload.so running init_func for %s", meta->filename.c_str());
 #endif
         init();
     }
@@ -397,7 +397,7 @@ extern "C" int main(int argc, const char *argv[])
     // argv[0] is passed to us by the kernel and holds the path to the binary
     // we need to load. argv[1:] is the original argv.
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so running entry point");
+    klog(LOG_INFO, "libload.so running entry point");
 #endif
     meta->entry(&argv[1], environ);
 
@@ -421,7 +421,7 @@ std::string findObject(std::string name, bool envpath) {
 
         do {
 #ifdef SUPERDEBUG
-            syslog(LOG_INFO, "Trying %s", fixed_path.c_str());
+            klog(LOG_INFO, "Trying %s", fixed_path.c_str());
 #endif
 
             struct stat st;
@@ -453,7 +453,7 @@ std::string findObject(std::string name, bool envpath) {
                     fixed_path += name;
 
 #ifdef SUPERDEBUG
-                    syslog(LOG_INFO, "Trying %s", fixed_path.c_str());
+                    klog(LOG_INFO, "Trying %s", fixed_path.c_str());
 #endif
 
                     std::string result = findObject(fixed_path, false);
@@ -511,7 +511,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
     meta->filename = filename;
     meta->path = findObject(meta->filename, envpath);
 #ifdef DEBUG_LIBLOAD
-    syslog(LOG_INFO, "libload.so loading %s", filename);
+    klog(LOG_INFO, "libload.so loading %s", filename);
 #endif
 
     // Okay, let's open up the file for reading...
@@ -528,7 +528,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
 #ifdef DEBUG_LIBLOAD
         fprintf(stderr, "libload.so: couldn't read file header (%s)\n", strerror(errno));
 #else
-        syslog(LOG_INFO, "libload.so: couldn't read file header (%s)", strerror(errno));
+        klog(LOG_INFO, "libload.so: couldn't read file header (%s)", strerror(errno));
 #endif
         close(fd);
         return false;
@@ -536,7 +536,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
 #ifdef DEBUG_LIBLOAD
         fprintf(stderr, "libload.so: read was not the correct size\n");
 #else
-        syslog(LOG_INFO, "libload.so: read was not the correct size");
+        klog(LOG_INFO, "libload.so: read was not the correct size");
 #endif
         close(fd);
         errno = ENOEXEC;
@@ -550,7 +550,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
 #ifdef DEBUG_LIBLOAD
         fprintf(stderr, "libload.so: bad ELF magic\n");
 #else
-        syslog(LOG_INFO, "libload.so: bad ELF magic");
+        klog(LOG_INFO, "libload.so: bad ELF magic");
 #endif
         close(fd);
         errno = ENOEXEC;
@@ -562,7 +562,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
 #ifdef DEBUG_LIBLOAD
         fprintf(stderr, "libload.so: not a valid ELF class\n");
 #else
-        syslog(LOG_INFO, "libload.so: not a valid ELF class");
+        klog(LOG_INFO, "libload.so: not a valid ELF class");
 #endif
         close(fd);
         errno = ENOEXEC;
@@ -582,7 +582,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
 #ifdef DEBUG_LIBLOAD
         fprintf(stderr, "libload.so: could not mmap binary\n");
 #else
-        syslog(LOG_INFO, "libload.so: could not mmap binary");
+        klog(LOG_INFO, "libload.so: could not mmap binary");
 #endif
         close(fd);
         errno = ENOEXEC;
@@ -656,7 +656,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
             if(!p) {
                 munmap(const_cast<char *>(pBuffer), meta->mapped_file_sz);
                 errno = ENOEXEC;
-                syslog(LOG_INFO, "libload.so: couldn't get memory for relocated object");
+                klog(LOG_INFO, "libload.so: couldn't get memory for relocated object");
                 return false;
             }
 
@@ -790,7 +790,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
                             if(p == MAP_FAILED)
                             {
                                 /// \todo cleanup.
-                                syslog(LOG_INFO, "libload.so: mmap failed for program header (anonymous section)");
+                                klog(LOG_INFO, "libload.so: mmap failed for program header (anonymous section)");
                                 errno = ENOEXEC;
                                 return false;
                             }
@@ -798,7 +798,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
                         }
 #ifdef DEBUG_LIBLOAD
                         else
-                            syslog(LOG_INFO, "libload.so: not mapping filesz section at %p", vaddr_start);
+                            klog(LOG_INFO, "libload.so: not mapping filesz section at %p", vaddr_start);
 #endif
                     }
 
@@ -806,7 +806,7 @@ bool loadObject(const char *filename, object_meta_t *meta, bool envpath) {
                     if(p == MAP_FAILED) {
                         /// \todo cleanup.
                         errno = ENOEXEC;
-                        syslog(LOG_INFO, "libload.so: mmap failed for program header");
+                        klog(LOG_INFO, "libload.so: mmap failed for program header");
                         return false;
                     }
 
@@ -1097,7 +1097,7 @@ void doRelocation(object_meta_t *meta) {
         size_t alignExtra = meta->phdrs[i].vaddr & (getpagesize() - 1);
         uintptr_t protectaddr = meta->phdrs[i].vaddr & ~(getpagesize() - 1);
 #ifdef DEBUG_LIBLOAD
-        syslog(LOG_INFO, "map %s %p -> %p [%p] %s%s%s", meta->filename.c_str(), meta->phdrs[i].vaddr, meta->phdrs[i].vaddr + meta->phdrs[i].memsz, meta->phdrs[i].offset, flags & PROT_READ ? "r" : "-", flags & PROT_WRITE ? "w" : "-", flags & PROT_EXEC ? "x" : "-");
+        klog(LOG_INFO, "map %s %p -> %p [%p] %s%s%s", meta->filename.c_str(), meta->phdrs[i].vaddr, meta->phdrs[i].vaddr + meta->phdrs[i].memsz, meta->phdrs[i].offset, flags & PROT_READ ? "r" : "-", flags & PROT_WRITE ? "w" : "-", flags & PROT_EXEC ? "x" : "-");
 #endif
         mprotect((void *) protectaddr, meta->phdrs[i].memsz + alignExtra, flags);
     }
@@ -1323,7 +1323,7 @@ uintptr_t doThisRelocation(ElfRela_t rel, object_meta_t *meta) {
             result = (S + A) & 0xFFFFFFFF;
             break;
         default:
-            syslog(LOG_WARNING, "libload: unsupported relocation for '%s' in %s: %d", symbolname.c_str(), meta->filename.c_str(), R_TYPE(rel.info));
+            klog(LOG_WARNING, "libload: unsupported relocation for '%s' in %s: %d", symbolname.c_str(), meta->filename.c_str(), R_TYPE(rel.info));
     }
 
     if(R_TYPE(rel.info) != R_X86_64_COPY)

@@ -21,7 +21,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <syslog.h>
+#include <sys/klog.h>
 #include <string.h>
 #include <sched.h>
 #include <math.h>
@@ -128,7 +128,7 @@ void startClient()
     pid_t pid = fork();
     if(pid == -1)
     {
-        syslog(LOG_CRIT, "winman: fork failed: %s\n", strerror(errno));
+        klog(LOG_CRIT, "winman: fork failed: %s\n", strerror(errno));
     }
     else if(pid == 0)
     {
@@ -160,7 +160,7 @@ void fps()
     {
         float seconds = now.tv_sec - start_time;
         float fps = frames / seconds;
-        syslog(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS", frames, seconds, fps);
+        klog(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS", frames, seconds, fps);
         start_time = now.tv_sec;
         frames = 0;
     }
@@ -250,7 +250,7 @@ void handleDestroy(Window *pWindow)
     {
         // assertion may be taking place before we remove the final window
         // from g_Windows - hence the <= 1.
-        syslog(LOG_INFO, "winman: no new focus window, terminating");
+        klog(LOG_INFO, "winman: no new focus window, terminating");
         assert(g_Windows->size() <= 1);
         g_bAlive = false;
     }
@@ -389,7 +389,7 @@ void handleMessage(char *messageData, struct sockaddr *src, socklen_t slen)
     }
     else
     {
-        syslog(LOG_INFO, "winman: unhandled message type");
+        klog(LOG_INFO, "winman: unhandled message type");
     }
 }
 
@@ -559,7 +559,7 @@ enum ActualKey
  */
 void queueInputCallback(Input::InputNotification &note)
 {
-    syslog(LOG_INFO, "winman: system input (type=%d)", note.type);
+    klog(LOG_INFO, "winman: system input (type=%d)", note.type);
     static bool bResize = false;
 
     bool bHandled = false;
@@ -599,7 +599,7 @@ void queueInputCallback(Input::InputNotification &note)
         {
             bool bShift = (c & SHIFT_KEY);
 
-            syslog(LOG_INFO, "ALT-%d [%x%x] %c", (uint32_t) c, (uint32_t) (c >> 32ULL), (uint32_t) c, (char) c);
+            klog(LOG_INFO, "ALT-%d [%x%x] %c", (uint32_t) c, (uint32_t) (c >> 32ULL), (uint32_t) c, (char) c);
 
             c &= 0xFFFFFFFFULL;
             Container *focusParent = g_pFocusWindow->getParent();
@@ -609,7 +609,7 @@ void queueInputCallback(Input::InputNotification &note)
             {
                 if(c == 'R')
                 {
-                    syslog(LOG_INFO, "winman: retiling");
+                    klog(LOG_INFO, "winman: retiling");
                     g_pRootContainer->retile();
                     bHandled = true;
                 }
@@ -621,7 +621,7 @@ void queueInputCallback(Input::InputNotification &note)
                     {
                         if(focusParent->getChildCount() == 1)
                         {
-                            syslog(LOG_INFO, "winman: can't (yet) terminate only child of root container!");
+                            klog(LOG_INFO, "winman: can't (yet) terminate only child of root container!");
                             bSafe = false;
                         }
                     }
@@ -829,7 +829,7 @@ void queueInputCallback(Input::InputNotification &note)
         if(g_CursorY >= g_nHeight)
             g_CursorY = g_nHeight - 1;
 
-        syslog(LOG_INFO, "Cursor update %zd, %zd [rel %zd %zd]", g_CursorX, g_CursorY, note.data.pointy.relx, note.data.pointy.rely);
+        klog(LOG_INFO, "Cursor update %zd, %zd [rel %zd %zd]", g_CursorX, g_CursorY, note.data.pointy.relx, note.data.pointy.rely);
 
         // Trigger a render.
         g_bCursorUpdate = true;
@@ -897,28 +897,28 @@ void systemInputCallback(Input::InputNotification &note)
 
 void sigchld(int s)
 {
-    syslog(LOG_INFO, "SIGCHLD");
+    klog(LOG_INFO, "SIGCHLD");
     int status = 0;
     pid_t pid = waitpid(-1, &status, WNOHANG);
     if (pid <= 0)
     {
-        syslog(LOG_ALERT, "SIGCHLD handler called but no children to reap.");
+        klog(LOG_ALERT, "SIGCHLD handler called but no children to reap.");
         return;
     }
 
     if (WIFEXITED(status))
     {
         int exit_status = WEXITSTATUS(status);
-        syslog(LOG_INFO, "Child %d exited with status %d.", pid, exit_status);
+        klog(LOG_INFO, "Child %d exited with status %d.", pid, exit_status);
     }
     else if(WIFSIGNALED(status))
     {
         int term_signal = WTERMSIG(status);
-        syslog(LOG_INFO, "Child %d terminated with signal %d.", pid, term_signal);
+        klog(LOG_INFO, "Child %d terminated with signal %d.", pid, term_signal);
     }
     else
     {
-        syslog(LOG_INFO, "Child %d terminated for an unknown reason.", pid);
+        klog(LOG_INFO, "Child %d terminated for an unknown reason.", pid);
     }
 
     // Now, we don't know what resources it held.
@@ -928,10 +928,10 @@ void sigchld(int s)
     {
         uint64_t handle = it->first;
         pid_t window_pid = (handle >> 32ULL) & 0xFFFFFFFFU;
-        syslog(LOG_INFO, "%d vs %d", window_pid, pid);
+        klog(LOG_INFO, "%d vs %d", window_pid, pid);
         if (window_pid == pid)
         {
-            syslog(LOG_INFO, "Found a child window for the terminated child.");
+            klog(LOG_INFO, "Found a child window for the terminated child.");
             handleDestroy(it->second);
             delete it->second;
 
@@ -993,7 +993,7 @@ int main(int argc, char *argv[])
     openlog("winman", LOG_PID, LOG_USER);
 #endif
 
-    syslog(LOG_INFO, "winman: starting up...");
+    klog(LOG_INFO, "winman: starting up...");
     fprintf(stderr, "I am PID %d\n", getpid());
 
     // Create ourselves a lock file so we don't end up getting run twice.
@@ -1101,7 +1101,7 @@ int main(int argc, char *argv[])
     g_nWidth = pFramebuffer->getWidth();
     g_nHeight = pFramebuffer->getHeight();
 
-    syslog(LOG_INFO, "Actual mode is %ux%u", g_nWidth, g_nHeight);
+    klog(LOG_INFO, "Actual mode is %ux%u", g_nWidth, g_nHeight);
 
     cairo_format_t format = pFramebuffer->getFormat();
 
@@ -1122,14 +1122,14 @@ int main(int argc, char *argv[])
     int e = FT_Init_FreeType(&font_library);
     if(e)
     {
-        syslog(LOG_CRIT, "error: couldn't initialise Freetype");
+        klog(LOG_CRIT, "error: couldn't initialise Freetype");
         return 0;
     }
 
     e = FT_New_Face(font_library, DEJAVU_FONT, 0, &ft_face);
     if(e)
     {
-        syslog(LOG_CRIT, "winman: error: couldn't load required font");
+        klog(LOG_CRIT, "winman: error: couldn't load required font");
         return 0;
     }
 
@@ -1164,7 +1164,7 @@ int main(int argc, char *argv[])
 
     infoPanel(cr);
 
-    syslog(LOG_INFO, "winman: entering main loop pid=%d", getpid());
+    klog(LOG_INFO, "winman: entering main loop pid=%d", getpid());
 
     g_Windows = new std::map<uint64_t, Window*>();
 
@@ -1333,7 +1333,7 @@ int main(int argc, char *argv[])
     }
 
     /// \todo Clean up?
-    syslog(LOG_INFO, "winman terminating");
+    klog(LOG_INFO, "winman terminating");
 
     // Clean up wallpaper, if one exists.
     if(wallpaper)

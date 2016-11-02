@@ -31,10 +31,10 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
-#include <syslog.h>
 #include <unistd.h>
 #include <utmp.h>
 #include <utmpx.h>
+#include <sys/klog.h>
 
 extern void pedigree_reboot();
 
@@ -52,17 +52,17 @@ static pid_t start(const char *proc)
   pid_t f = fork();
   if(f == -1)
   {
-    syslog(LOG_ALERT, "init: fork failed %s", strerror(errno));
+    klog(LOG_ALERT, "init: fork failed %s", strerror(errno));
     exit(errno);
   }
   if(f == 0)
   {
-    syslog(LOG_INFO, "init: starting %s...", proc);
+    klog(LOG_INFO, "init: starting %s...", proc);
     execl(proc, proc, 0);
-    syslog(LOG_INFO, "init: loading %s failed: %s", proc, strerror(errno));
+    klog(LOG_INFO, "init: loading %s failed: %s", proc, strerror(errno));
     exit(errno);
   }
-  syslog(LOG_INFO, "init: %s running with pid %d", proc, f);
+  klog(LOG_INFO, "init: %s running with pid %d", proc, f);
 
   // Avoid calling basename() on the given parameter, as basename is non-const.
   char basename_buf[PATH_MAX];
@@ -97,7 +97,7 @@ static void runScripts()
   int count = scandir("/system/initscripts", &namelist, 0, alphasort);
   if (count < 0)
   {
-    syslog(LOG_CRIT, "could not scan /system/initscripts: %s", strerror(errno));
+    klog(LOG_CRIT, "could not scan /system/initscripts: %s", strerror(errno));
   }
   else
   {
@@ -121,17 +121,17 @@ static void runScripts()
         if (S_ISREG(st.st_mode) && (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
         {
           // OK - we can run this.
-          syslog(LOG_INFO, "init: running %s", script);
+          klog(LOG_INFO, "init: running %s", script);
           startAndWait(script);
         }
         else
         {
-          syslog(LOG_INFO, "init: not running %s (not a file, or not executable)", script);
+          klog(LOG_INFO, "init: not running %s (not a file, or not executable)", script);
         }
       }
       else
       {
-        syslog(LOG_INFO, "init: cannot stat %s (broken symlink?)", script);
+        klog(LOG_INFO, "init: cannot stat %s (broken symlink?)", script);
       }
     }
 
@@ -141,7 +141,7 @@ static void runScripts()
 
 int main(int argc, char **argv)
 {
-  syslog(LOG_INFO, "init: starting...");
+  klog(LOG_INFO, "init: starting...");
 
   // Make sure we have a utmp file.
   int fd = open(UTMP_FILE, O_CREAT | O_RDWR, 0664);
@@ -172,14 +172,14 @@ int main(int argc, char **argv)
 
 #ifdef HOSTED
   // Reboot the system instead of starting up.
-  syslog(LOG_INFO, "init: hosted build, triggering a reboot");
+  klog(LOG_INFO, "init: hosted build, triggering a reboot");
   pedigree_reboot();
 #else
   runScripts();
 #endif
 
   // Done, enter PID reaping loop.
-  syslog(LOG_INFO, "init: complete!");
+  klog(LOG_INFO, "init: complete!");
   while(1)
   {
     /// \todo Do we want to eventually recognise that we have no more
@@ -188,11 +188,11 @@ int main(int argc, char **argv)
     pid_t changer = waitpid(-1, &status, g_Running == 0 ? WNOHANG : 0);
     if(changer > 0)
     {
-      syslog(LOG_INFO, "init: child %d exited with status %d", changer, WEXITSTATUS(status));
+      klog(LOG_INFO, "init: child %d exited with status %d", changer, WEXITSTATUS(status));
     }
     else if (!g_Running)
     {
-      syslog(LOG_INFO, "init: no more children and have been asked to terminate, terminating...");
+      klog(LOG_INFO, "init: no more children and have been asked to terminate, terminating...");
       break;
     }
     else

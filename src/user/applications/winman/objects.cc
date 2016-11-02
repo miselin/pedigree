@@ -21,6 +21,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/klog.h>
 #include <errno.h>
 
 #include <protocol.h>
@@ -106,22 +107,22 @@ void Window::refreshContext()
     {
         // Not refreshing context currently.
         m_bPendingDecoration = true;
-        syslog(LOG_DEBUG, "not refreshing context, marking for redecoration");
+        klog(LOG_DEBUG, "not refreshing context, marking for redecoration");
         return;
     }
 
     if((me.getW() < WINDOW_CLIENT_LOST_W) || (me.getH() < WINDOW_CLIENT_LOST_H))
     {
         // We have some basic requirements for window sizes.
-        syslog(LOG_DEBUG, "extents %ux%u are too small for a new context",
+        klog(LOG_DEBUG, "extents %ux%u are too small for a new context",
                me.getW(), me.getH());
         return;
     }
 
-    syslog(LOG_DEBUG, "destroying old framebuffer...");
+    klog(LOG_DEBUG, "destroying old framebuffer...");
     delete m_Framebuffer;
     m_Framebuffer = 0;
-    syslog(LOG_DEBUG, "destroying old framebuffer complete");
+    klog(LOG_DEBUG, "destroying old framebuffer complete");
 
     // Size of the IPC region we need to allocate.
     size_t regionWidth = me.getW() - WINDOW_CLIENT_LOST_W;
@@ -131,7 +132,7 @@ void Window::refreshContext()
     m_Framebuffer = new SharedBuffer(regionSize);
     memset(m_Framebuffer->getBuffer(), 0, regionSize);
 
-    syslog(LOG_DEBUG, "new framebuffer created: %zd bytes @%p", regionSize,
+    klog(LOG_DEBUG, "new framebuffer created: %zd bytes @%p", regionSize,
            m_Framebuffer->getBuffer());
 
     m_nRegionWidth = regionWidth;
@@ -413,7 +414,7 @@ void Container::retile()
 {
     if(m_Children.size() == 0)
     {
-        syslog(LOG_INFO, "winman: no children in container, no retile");
+        klog(LOG_INFO, "winman: no children in container, no retile");
         return;
     }
 
@@ -493,7 +494,7 @@ void Container::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pCh
         }
 
         if(!bResize)
-            syslog(LOG_INFO, "winman: didn't find children for resize???");
+            klog(LOG_INFO, "winman: didn't find children for resize???");
     }
     else
     {

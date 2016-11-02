@@ -30,6 +30,7 @@
 #include <sys/wait.h>
 #include <pwd.h>
 #include <utmp.h>
+#include <sys/klog.h>
 
 #include <native/graphics/Graphics.h>
 
@@ -79,7 +80,7 @@ bool Terminal::initialise()
     m_MasterPty = posix_openpt(O_RDWR | O_NOCTTY);
     if(m_MasterPty < 0)
     {
-        syslog(LOG_INFO, "TUI: Couldn't create terminal: %s", strerror(errno));
+        klog(LOG_INFO, "TUI: Couldn't create terminal: %s", strerror(errno));
         return false;
     }
 
@@ -101,7 +102,7 @@ bool Terminal::initialise()
     int pid = m_Pid = fork();
     if (pid == -1)
     {
-        syslog(LOG_INFO, "TUI: Couldn't fork: %s", strerror(errno));
+        klog(LOG_INFO, "TUI: Couldn't fork: %s", strerror(errno));
         DirtyRectangle rect;
         write("Couldn't fork: ", rect);
         write(strerror(errno), rect);
@@ -126,12 +127,12 @@ bool Terminal::initialise()
 
         if (n < 0)
         {
-            syslog(LOG_INFO, "opening %s failed", slavename);
-            syslog(LOG_INFO, "opening stdin failed %d %s", errno, strerror(errno));
+            klog(LOG_INFO, "opening %s failed", slavename);
+            klog(LOG_INFO, "opening stdin failed %d %s", errno, strerror(errno));
         }
 
         // Mark opened slave as our ctty.
-        syslog(LOG_INFO, "Trying to set CTTY");
+        klog(LOG_INFO, "Trying to set CTTY");
         ioctl(1, TIOCSCTTY, 0);
 
         // Set ourselves as the terminal's foreground process group.
@@ -151,7 +152,7 @@ bool Terminal::initialise()
             if(!prog)
             {
                 // Fall back to bash
-                syslog(LOG_WARNING, "$SHELL unset, falling back to /applications/bash");
+                klog(LOG_WARNING, "$SHELL unset, falling back to /applications/bash");
                 prog = "/applications/bash";
             }
         }
@@ -175,8 +176,8 @@ bool Terminal::initialise()
 
         // Launch the shell now.
         execl(prog, prog, NULL);
-        syslog(LOG_ALERT, "Launching shell failed (next line is the error in errno...)");
-        syslog(LOG_ALERT, "error: %s", strerror(errno));
+        klog(LOG_ALERT, "Launching shell failed (next line is the error in errno...)");
+        klog(LOG_ALERT, "error: %s", strerror(errno));
 
         DirtyRectangle rect;
         write("Couldn't load shell for this terminal... ", rect);
@@ -262,7 +263,7 @@ void Terminal::write(const char *pStr, DirtyRectangle &rect)
 
     bool bWasAlreadyRunning = m_WriteInProgress;
     m_WriteInProgress = true;
-    //syslog(LOG_NOTICE, "Beginning write...");
+    //klog(LOG_NOTICE, "Beginning write...");
     while (!m_Cancel && (*pStr || m_WriteBufferLen))
     {
         // Fill the buffer.
@@ -326,7 +327,7 @@ void Terminal::write(const char *pStr, DirtyRectangle &rect)
         m_pXterm->write(static_cast<uint8_t>(utf32&0xFF));
 #endif
     }
-    //syslog(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not ");
+    //klog(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not ");
 
     if(!bWasAlreadyRunning)
     {
@@ -365,7 +366,7 @@ void Terminal::addToQueue(char c, bool bFlush)
         }
         else
         {
-            syslog(LOG_ALERT, "Terminal::addToQueue flush failed");
+            klog(LOG_ALERT, "Terminal::addToQueue flush failed");
         }
     }
 }

@@ -29,7 +29,6 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -38,6 +37,7 @@
 #include <utmpx.h>
 #include <libintl.h>
 #include <locale.h>
+#include <sys/klog.h>
 
 // Force immediate login if we're running a live CD.
 #ifdef LIVECD
@@ -63,7 +63,7 @@ void sigint(int sig)
     {
         // Do not kill us! CTRL-C does not do anything while the login prompt
         // is active
-        syslog(LOG_NOTICE, "SIGINT ignored");
+        klog(LOG_NOTICE, "SIGINT ignored");
     }
 }
 
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
 
   // Are we on Travis-CI?
 #ifdef TRAVIS
-  syslog(LOG_INFO, "-- Hello, Travis! --");
+  klog(LOG_INFO, "-- Hello, Travis! --");
 #endif
 
   // New process group for job control. We'll ignore SIGINT for now.

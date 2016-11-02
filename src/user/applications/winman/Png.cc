@@ -19,7 +19,7 @@
 
 #include "Png.h"
 
-#include <syslog.h>
+#include <sys/klog.h>
 #include <unistd.h>
 
 Png::Png(const char *filename) :
@@ -29,7 +29,7 @@ Png::Png(const char *filename) :
     FILE *stream = fopen(filename, "rb");
     if (!stream)
     {
-        syslog(LOG_ALERT, "PNG file failed to open");
+        klog(LOG_ALERT, "PNG file failed to open");
         return;
     }
 
@@ -37,13 +37,13 @@ Png::Png(const char *filename) :
     char buf[4];
     if (fread(buf, 1, 4, stream) != 4)
     {
-        syslog(LOG_ALERT, "PNG file failed to read ident");
+        klog(LOG_ALERT, "PNG file failed to read ident");
         fclose(stream);
         return;
     }
     if (png_sig_cmp(reinterpret_cast<png_byte*>(buf), 0, 4) != 0)
     {
-        syslog(LOG_ALERT, "PNG file failed IDENT check");
+        klog(LOG_ALERT, "PNG file failed IDENT check");
         fclose(stream);
         return;
     }
@@ -53,7 +53,7 @@ Png::Png(const char *filename) :
 
     if (m_PngPtr == 0)
     {
-        syslog(LOG_ALERT, "PNG file failed to initialise");
+        klog(LOG_ALERT, "PNG file failed to initialise");
         fclose(stream);
         return;
     }
@@ -61,7 +61,7 @@ Png::Png(const char *filename) :
     m_InfoPtr = png_create_info_struct(m_PngPtr);
     if (m_InfoPtr == 0)
     {
-        syslog(LOG_ALERT, "PNG info failed to initialise");
+        klog(LOG_ALERT, "PNG info failed to initialise");
         png_destroy_read_struct(&m_PngPtr, NULL, NULL);
         fclose(stream);
         return;
@@ -91,12 +91,12 @@ Png::Png(const char *filename) :
     /// \todo clean up after these errors.
     if (bit_depth != 8)
     {
-        syslog(LOG_ALERT, "PNG - invalid bit depth");
+        klog(LOG_ALERT, "PNG - invalid bit depth");
         return;
     }
     if (color_type != PNG_COLOR_TYPE_RGB)
     {
-        syslog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
+        klog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
         return;
     }
 
@@ -116,7 +116,7 @@ Png::Png(const char *filename) :
 
     fclose(stream);
 
-    syslog(LOG_INFO, "PNG loaded %zd %zd", m_nWidth, m_nHeight);
+    klog(LOG_INFO, "PNG loaded %zd %zd", m_nWidth, m_nHeight);
 }
 
 Png::~Png()

@@ -23,7 +23,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
-#include <syslog.h>
+#include <sys/klog.h>
 
 #include <list>
 
@@ -94,7 +94,7 @@ int main()
 #endif
 
     // syslog used to split up debug logs.
-    syslog(LOG_INFO, "TEST 0");
+    klog(LOG_INFO, "TEST 0");
     printf("Locking with deadlock\n");
     pthread_mutex_t deadlock_mutex;
     errno = 0;
@@ -106,7 +106,7 @@ int main()
     printf("Second lock: %d (%s)\n", i, strerror(errno));
     pthread_mutex_unlock(&deadlock_mutex);
 
-    syslog(LOG_INFO, "TEST 1");
+    klog(LOG_INFO, "TEST 1");
 
     printf("Locking without any contention...\n");
     pthread_mutex_t contention_mutex;
@@ -116,7 +116,7 @@ int main()
     pthread_mutex_unlock(&contention_mutex);
     printf("Released!\n");
 
-    syslog(LOG_INFO, "TEST 2");
+    klog(LOG_INFO, "TEST 2");
 
     printf("Creating a recursive lock!\n");
     pthread_mutex_t recursive;
@@ -144,13 +144,13 @@ int main()
     // Measuring time before starting the threads...
     gettimeofday(&tv1, NULL);
 
-    syslog(LOG_INFO, "TEST 3");
+    klog(LOG_INFO, "TEST 3");
     pthread_create(&thr1, NULL, consumer, (void *) 1);
     pthread_create(&thr2, NULL, consumer, (void *) 2);
 
     pthread_join(thr1, NULL);
     pthread_join(thr2, NULL);
-    syslog(LOG_INFO, "TEST 4");
+    klog(LOG_INFO, "TEST 4");
 
     // Measuring time after threads finished...
     gettimeofday(&tv2, NULL);

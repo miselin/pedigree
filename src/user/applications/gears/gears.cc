@@ -57,7 +57,7 @@
 #include <sched.h>
 #include <string.h>
 #include <unistd.h>
-#include <syslog.h>
+#include <sys/klog.h>
 #include <sys/time.h>
 
 #include <GL/gl.h>
@@ -92,7 +92,7 @@ void fps()
     {
         GLfloat seconds = now.tv_sec - start_time;
         GLfloat fps = frames / seconds;
-        syslog(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS\n", frames, seconds, fps);
+        klog(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS\n", frames, seconds, fps);
         start_time = now.tv_sec;
         frames = 0;
     }
@@ -429,7 +429,7 @@ bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
         case KeyUp:
             {
                 const uint64_t *key = reinterpret_cast<const uint64_t*>(msgData);
-                syslog(LOG_INFO, "gears: keypress %d '%c'", (uint32_t) *key, (char) (*key & 0xFF));
+                klog(LOG_INFO, "gears: keypress %d '%c'", (uint32_t) *key, (char) (*key & 0xFF));
 
                 // What do we have?
                 /// \todo don't do this this is silly.
@@ -456,7 +456,7 @@ bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
             g_bRunning = false;
             break;
         default:
-            syslog(LOG_INFO, "gears: unhandled callback");
+            klog(LOG_INFO, "gears: unhandled callback");
     }
     return true;
 }
@@ -469,19 +469,19 @@ int main (int argc, char ** argv) {
 
     g_pGears = new Gears();
     if(!g_pGears->construct(endpoint, "OSMesa 3D Gears", callback, rt)) {
-        syslog(LOG_ERR, "gears: not able to construct widget");
+        klog(LOG_ERR, "gears: not able to construct widget");
         delete g_pGears;
         return 1;
     }
-    syslog(LOG_INFO, "gears: widget constructed");
+    klog(LOG_INFO, "gears: widget constructed");
 
     g_pGears->initOpenGL();
 
-    syslog(LOG_INFO, "gears: reshaping");
+    klog(LOG_INFO, "gears: reshaping");
 
     init();
 
-    syslog(LOG_INFO, "gears: entering main loop");
+    klog(LOG_INFO, "gears: entering main loop");
 
     g_bRunning = true;
     while (g_bRunning) {

@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include <native/ipc/Ipc.h>
 
-#include <syslog.h>
+#include <sys/klog.h>
 
 using namespace PedigreeIpc;
 
@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     IpcMessage *pMessage = new IpcMessage();
 
     if(!pMessage)
-        syslog(LOG_ERR, "operator new returned null");
+        klog(LOG_ERR, "operator new returned null");
 
     if(!pMessage->initialise())
     {

@@ -22,7 +22,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
+#include <sys/klog.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -60,11 +60,11 @@ int main(int argc, char **argv)
   pid_t f = fork();
   if (f != 0)
   {
-    syslog(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
+    klog(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
     return 0;
   }
 
-  syslog(LOG_INFO, "preloadd: daemon starting...");
+  klog(LOG_INFO, "preloadd: daemon starting...");
 
   size_t n = 0;
   const char *s = g_FilesToPreload[n++];
@@ -75,16 +75,16 @@ int main(int argc, char **argv)
     int e = stat(s, &st);
     if(e == 0)
     {
-      syslog(LOG_INFO, "preloadd: preloading %s...", s);
+      klog(LOG_INFO, "preloadd: preloading %s...", s);
       FILE *fp = fopen(s, "rb");
       for(off_t off = 0; off < st.st_size; off += BLOCK_READ_SIZE)
         fread(buf, BLOCK_READ_SIZE, 1, fp);
       fclose(fp);
-      syslog(LOG_INFO, "preloadd: preloading %s complete!", s);
+      klog(LOG_INFO, "preloadd: preloading %s complete!", s);
     }
     else
     {
-      syslog(LOG_INFO, "preloadd: %s probably does not exist", s);
+      klog(LOG_INFO, "preloadd: %s probably does not exist", s);
     }
     s = g_FilesToPreload[n++];
   } while(s);

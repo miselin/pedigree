@@ -26,7 +26,7 @@
 #include <string.h>
 #include <setjmp.h>
 
-#include <syslog.h>
+#include <sys/klog.h>
 
 #include <native/graphics/Graphics.h>
 
@@ -55,7 +55,7 @@ Font::Font(size_t requestedSize, const char *pFilename, bool bCache, size_t nWid
     m_CellHeight = (pango_font_metrics_get_ascent(metrics) + pango_font_metrics_get_descent(metrics)) / PANGO_SCALE;
     m_Baseline = pango_font_metrics_get_ascent(metrics) / PANGO_SCALE;
 
-    syslog(LOG_INFO, "metrics: %dx%d", m_CellWidth, m_CellHeight);
+    klog(LOG_INFO, "metrics: %dx%d", m_CellWidth, m_CellHeight);
 
     pango_font_metrics_unref(metrics);
 
@@ -63,7 +63,7 @@ Font::Font(size_t requestedSize, const char *pFilename, bool bCache, size_t nWid
     m_Iconv = iconv_open("UTF-8", "UTF-32LE");
     if(m_Iconv == (iconv_t) -1)
     {
-        syslog(LOG_WARNING, "TUI: Font instance couldn't create iconv (%s)", strerror(errno));
+        klog(LOG_WARNING, "TUI: Font instance couldn't create iconv (%s)", strerror(errno));
     }
 
     for(uint32_t c = 32; c < 127; ++c)
@@ -93,7 +93,7 @@ size_t Font::render(PedigreeGraphics::Framebuffer *pFb, uint32_t c, size_t x, si
     const char *convertOut = precache(c);
     if(!convertOut)
     {
-        syslog(LOG_WARNING, "TUI: Character '%x' was not able to be precached?", c);
+        klog(LOG_WARNING, "TUI: Character '%x' was not able to be precached?", c);
         return 0;
     }
 
@@ -177,7 +177,7 @@ const char *Font::precache(uint32_t c)
 {
     if(m_Iconv == (iconv_t) -1)
     {
-        syslog(LOG_WARNING, "TUI: Font instance with bad iconv.");
+        klog(LOG_WARNING, "TUI: Font instance with bad iconv.");
         return 0;
     }
 
@@ -199,7 +199,7 @@ const char *Font::precache(uint32_t c)
 
         if(res == ((size_t) -1))
         {
-            syslog(LOG_WARNING, "TUI: Font::render couldn't convert input UTF-32 %x", c);
+            klog(LOG_WARNING, "TUI: Font::render couldn't convert input UTF-32 %x", c);
             delete [] out;
         }
         else

@@ -30,7 +30,7 @@
 #include <sched.h>
 
 #include "environment.h"
-#include <syslog.h>
+#include <sys/klog.h>
 
 #include <pthread.h>
 
@@ -108,7 +108,7 @@ void checkFramebuffer()
                 stride);
         g_Cairo = cairo_create(g_Surface);
 
-        syslog(LOG_INFO, "created cairo f=%p s=%p cr=%p %zdx%zd",
+        klog(LOG_INFO, "created cairo f=%p s=%p cr=%p %zdx%zd",
                 g_pEmu->getRawFramebuffer(), g_Surface, g_Cairo, g_nWidth,
                 g_nHeight);
     }
@@ -122,7 +122,7 @@ void modeChanged(size_t width, size_t height)
         return;
     }
 
-    syslog(LOG_ALERT, "w: %zd, h: %zd", width, height);
+    klog(LOG_ALERT, "w: %zd, h: %zd", width, height);
 
     g_nWidth = width;
     g_nHeight = height;
@@ -205,7 +205,7 @@ Font *g_BoldFont = NULL;
 
 void sigint(int)
 {
-    syslog(LOG_NOTICE, "TUI sent SIGINT, oops!");
+    klog(LOG_NOTICE, "TUI sent SIGINT, oops!");
 }
 
 void key_input_handler(uint64_t c)
@@ -244,7 +244,7 @@ void input_handler(Input::InputNotification &note)
 
 int tui_do(PedigreeGraphics::Framebuffer *pFramebuffer)
 {
-    syslog(LOG_INFO, "TUI: preparing for main loop");
+    klog(LOG_INFO, "TUI: preparing for main loop");
 
     g_pFramebuffer = pFramebuffer;
 
@@ -253,7 +253,7 @@ int tui_do(PedigreeGraphics::Framebuffer *pFramebuffer)
 
     if (!g_Cairo)
     {
-        syslog(LOG_ALERT, "TUI: g_Cairo is not yet valid!");
+        klog(LOG_ALERT, "TUI: g_Cairo is not yet valid!");
         return 1;
     }
 
@@ -270,14 +270,14 @@ int tui_do(PedigreeGraphics::Framebuffer *pFramebuffer)
                             true, g_nWidth);
     if (!g_NormalFont)
     {
-        syslog(LOG_EMERG, "Error: Font '%s' not loaded!", NORMAL_FONT_PATH);
+        klog(LOG_EMERG, "Error: Font '%s' not loaded!", NORMAL_FONT_PATH);
         return 0;
     }
     g_BoldFont = new Font(FONT_SIZE, BOLD_FONT_PATH,
                           true, g_nWidth);
     if (!g_BoldFont)
     {
-        syslog(LOG_EMERG, "Error: Font '%s' not loaded!", BOLD_FONT_PATH);
+        klog(LOG_EMERG, "Error: Font '%s' not loaded!", BOLD_FONT_PATH);
         return 0;
     }
 
@@ -290,7 +290,7 @@ int tui_do(PedigreeGraphics::Framebuffer *pFramebuffer)
 
     if(!pCurrentTerminal)
     {
-        syslog(LOG_ALERT, "TUI: couldn't start up a terminal - failing gracefully...");
+        klog(LOG_ALERT, "TUI: couldn't start up a terminal - failing gracefully...");
         g_BoldFont->render("There are no pseudo-terminals available.", 5, 5, 0xFFFFFF, 0x000000, false);
         g_BoldFont->render("Press any key to close this window.", 5, g_BoldFont->getHeight() + 5, 0xFFFFFF, 0x000000, false);
 
@@ -381,7 +381,7 @@ int tui_do(PedigreeGraphics::Framebuffer *pFramebuffer)
             doRedraw(dirtyRect);
     }
 
-    syslog(LOG_INFO, "TUI shutting down cleanly.");
+    klog(LOG_INFO, "TUI shutting down cleanly.");
 
     // Clean up.
     delete pCurrentTerminal;
@@ -404,19 +404,19 @@ bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
     {
         case Reposition:
             {
-                syslog(LOG_INFO, "-- REPOSITION --");
+                klog(LOG_INFO, "-- REPOSITION --");
                 const PedigreeGraphics::Rect *rt = reinterpret_cast<const PedigreeGraphics::Rect*>(msgData);
-                syslog(LOG_INFO, " -> handling...");
+                klog(LOG_INFO, " -> handling...");
                 g_pEmu->handleReposition(*rt);
                 g_nWidth = g_pEmu->getWidth();
                 g_nHeight = g_pEmu->getHeight();
-                syslog(LOG_INFO, " -> new extents are %zdx%zd", g_nWidth,
+                klog(LOG_INFO, " -> new extents are %zdx%zd", g_nWidth,
                        g_nHeight);
-                syslog(LOG_INFO, " -> creating new framebuffer");
+                klog(LOG_INFO, " -> creating new framebuffer");
                 checkFramebuffer();
-                syslog(LOG_INFO, " -> registering the mode change");
+                klog(LOG_INFO, " -> registering the mode change");
                 modeChanged(rt->getW(), rt->getH());
-                syslog(LOG_INFO, " -> reposition complete!");
+                klog(LOG_INFO, " -> reposition complete!");
             }
             break;
         case KeyUp:
@@ -448,11 +448,11 @@ bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
             // Ignore.
             break;
         case Terminate:
-            syslog(LOG_INFO, "TUI: termination request");
+            klog(LOG_INFO, "TUI: termination request");
             g_bRunning = false;
             break;
         default:
-            syslog(LOG_INFO, "TUI: unhandled callback");
+            klog(LOG_INFO, "TUI: unhandled callback");
     }
 
     doRedraw(dirty);
@@ -465,7 +465,7 @@ int main(int argc, char *argv[])
     openlog("tui", LOG_PID, LOG_USER);
 #endif
 
-    syslog(LOG_INFO, "I am %d", getpid());
+    klog(LOG_INFO, "I am %d", getpid());
 
     char endpoint[256];
     sprintf(endpoint, "tui.%d", getpid());
@@ -473,14 +473,14 @@ int main(int argc, char *argv[])
     PedigreeGraphics::Rect rt;
 
     g_pEmu = new PedigreeTerminalEmulator();
-    syslog(LOG_INFO, "TUI: constructing widget '%s'...", endpoint);
+    klog(LOG_INFO, "TUI: constructing widget '%s'...", endpoint);
     if(!g_pEmu->construct(endpoint, "Pedigree xterm Emulator", callback, rt))
     {
-        syslog(LOG_ERR, "tui: couldn't construct widget");
+        klog(LOG_ERR, "tui: couldn't construct widget");
         delete g_pEmu;
         return 1;
     }
-    syslog(LOG_INFO, "TUI: widget constructed!");
+    klog(LOG_INFO, "TUI: widget constructed!");
 
     signal(SIGINT, sigint);
 

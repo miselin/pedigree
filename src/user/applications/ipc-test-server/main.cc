@@ -21,7 +21,7 @@
 #include <native/ipc/Ipc.h>
 
 #include <unistd.h>
-#include <syslog.h>
+#include <sys/klog.h>
 
 using namespace PedigreeIpc;
 
@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
         createEndpoint("ipc-test");
         IpcEndpoint *pEndpoint = getEndpoint("ipc-test");
 
-        syslog(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
+        klog(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
 
         while(true)
         {
@@ -49,12 +49,12 @@ int main(int argc, char *argv[])
             IpcMessage *pRecv = 0;
             if(!recv(pEndpoint, &pRecv, false))
             {
-                syslog(LOG_WARNING, "IPC Test: Server failed to receive a message.");
+                klog(LOG_WARNING, "IPC Test: Server failed to receive a message.");
                 continue;
             }
 
             // Log it.
-            syslog(LOG_NOTICE, "IPC Test: Server got message '%s'.", pRecv->getBuffer());
+            klog(LOG_NOTICE, "IPC Test: Server got message '%s'.", pRecv->getBuffer());
             delete pRecv;
 
             // Send a response.
@@ -63,16 +63,16 @@ int main(int argc, char *argv[])
             char *pBuffer = reinterpret_cast<char *>(pResponse->getBuffer());
             if(!pBuffer)
             {
-                syslog(LOG_WARNING, "IPC Test: Server message creation failed.");
+                klog(LOG_WARNING, "IPC Test: Server message creation failed.");
                 continue;
             }
             else
-                syslog(LOG_NOTICE, "IPC Test: Server is writing into message %x", pBuffer);
+                klog(LOG_NOTICE, "IPC Test: Server is writing into message %x", pBuffer);
 
             sprintf(pBuffer, "Server received message successfully!\n");
 
             if(!send(pEndpoint, pResponse, false))
-                syslog(LOG_WARNING, "IPC Test: Server failed to send a response.");
+                klog(LOG_WARNING, "IPC Test: Server failed to send a response.");
 
             // Clean up.
             delete pResponse;

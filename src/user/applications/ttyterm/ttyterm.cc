@@ -28,7 +28,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <syslog.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -36,6 +35,7 @@
 #include <utmp.h>
 
 #include <sys/fb.h>
+#include <sys/klog.h>
 
 #include <native/input/Input.h>
 
@@ -121,13 +121,13 @@ void handle_input(Input::InputNotification &note)
         {
             if(current_mode.width && current_mode.height && current_mode.depth)
             {
-                syslog(LOG_INFO, "ttyterm: dropping input, currently in graphics mode!");
+                klog(LOG_INFO, "ttyterm: dropping input, currently in graphics mode!");
                 return;
             }
         }
     }
 
-    syslog(LOG_INFO, "ttyterm: system input (type=%d)", note.type);
+    klog(LOG_INFO, "ttyterm: system input (type=%d)", note.type);
 
     if(note.type & Input::Key)
     {
@@ -236,7 +236,7 @@ void handle_input(Input::InputNotification &note)
 
 int main(int argc, char **argv)
 {
-    syslog(LOG_INFO, "ttyterm: starting up...");
+    klog(LOG_INFO, "ttyterm: starting up...");
 
     // Create ourselves a lock file so we don't end up getting run twice.
     int fd = open("runtime»/ttyterm.lck", O_WRONLY | O_EXCL | O_CREAT);
@@ -256,14 +256,14 @@ int main(int argc, char **argv)
     if(fb >= 0)
     {
         /// \todo error handling?
-        syslog(LOG_INFO, "ttyterm: forcing text mode");
+        klog(LOG_INFO, "ttyterm: forcing text mode");
         pedigree_fb_modeset mode = {0, 0, 0};
         int rc = ioctl(fb, PEDIGREE_FB_SETMODE, &mode);
         close(fb);
 
         if (rc < 0)
         {
-            syslog(LOG_INFO, "ttyterm: couldn't force text mode, exiting");
+            klog(LOG_INFO, "ttyterm: couldn't force text mode, exiting");
             return 1;
         }
     }
@@ -272,7 +272,7 @@ int main(int argc, char **argv)
     int tty = open("/dev/textui", O_WRONLY);
     if(tty < 0)
     {
-        syslog(LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s", strerror(errno));
+        klog(LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s", strerror(errno));
         return 1;
     }
 
@@ -280,7 +280,7 @@ int main(int argc, char **argv)
     if(g_MasterPty < 0)
     {
         close(tty);
-        syslog(LOG_ALERT, "ttyterm: couldn't get a pseudo-terminal to use: %s", strerror(errno));
+        klog(LOG_ALERT, "ttyterm: couldn't get a pseudo-terminal to use: %s", strerror(errno));
         return 1;
     }
 
@@ -305,7 +305,7 @@ int main(int argc, char **argv)
     g_RunningPid = fork();
     if(g_RunningPid == -1)
     {
-        syslog(LOG_ALERT, "ttyterm: couldn't fork: %s", strerror(errno));
+        klog(LOG_ALERT, "ttyterm: couldn't fork: %s", strerror(errno));
         return EXIT_FAILURE;
     }
     else if(g_RunningPid == 0)
@@ -345,10 +345,10 @@ int main(int argc, char **argv)
         // Enable autowrap before loading the login process.
         write(slave, "\e[?7h", 5);
 
-        syslog(LOG_INFO, "Starting up '" FIRST_PROGRAM "' on pty %s", slavename);
+        klog(LOG_INFO, "Starting up '" FIRST_PROGRAM "' on pty %s", slavename);
         execl(FIRST_PROGRAM, FIRST_PROGRAM, 0);
-        syslog(LOG_ALERT, "Launching " FIRST_PROGRAM " failed (next line is the error in errno...)");
-        syslog(LOG_ALERT, strerror(errno));
+        klog(LOG_ALERT, "Launching " FIRST_PROGRAM " failed (next line is the error in errno...)");
+        klog(LOG_ALERT, strerror(errno));
         exit(1);
     }
 
