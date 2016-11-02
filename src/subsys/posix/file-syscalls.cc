@@ -323,50 +323,50 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         nameToOpen = name;
         return true;
     }
-    else if (!StringCompareN(name, "/dev", StringLength("/dev")))
+    else if (!StringCompareN(name, "/dev/", StringLength("/dev/")))
     {
-        nameToOpen = "dev»";
-        nameToOpen += (name + StringLength("/dev"));
+        nameToOpen = "dev»/";
+        nameToOpen += (name + StringLength("/dev/"));
         if (onDevFs)
             *onDevFs = true;
         return true;
     }
-    else if (!StringCompareN(name, "/bin", StringLength("/bin")))
+    else if (!StringCompareN(name, "/bin/", StringLength("/bin/")))
     {
-        nameToOpen = "/applications";
-        nameToOpen += (name + StringLength("/bin"));
+        nameToOpen = "/applications/";
+        nameToOpen += (name + StringLength("/bin/"));
         return true;
     }
-    else if (!StringCompareN(name, "/lib", StringLength("/lib")))
+    else if (!StringCompareN(name, "/lib/", StringLength("/lib/")))
     {
-        nameToOpen = "/libraries";
-        nameToOpen += (name + StringLength("/lib"));
+        nameToOpen = "/libraries/";
+        nameToOpen += (name + StringLength("/lib/"));
         return true;
     }
-    else if (!StringCompareN(name, "/etc", StringLength("/etc")))
+    else if (!StringCompareN(name, "/etc/", StringLength("/etc/")))
     {
-        nameToOpen = "/config";
-        nameToOpen += (name + StringLength("/etc"));
+        nameToOpen = "/config/";
+        nameToOpen += (name + StringLength("/etc/"));
         return true;
     }
-    else if (!StringCompareN(name, "/tmp", StringLength("/tmp")))
+    else if (!StringCompareN(name, "/tmp/", StringLength("/tmp/")))
     {
-        nameToOpen = "scratch»";
-        nameToOpen += (name + StringLength("/tmp"));
+        nameToOpen = "scratch»/";
+        nameToOpen += (name + StringLength("/tmp/"));
         return true;
     }
-    else if (!StringCompareN(name, "/var/run", StringLength("/var/run")))
+    else if (!StringCompareN(name, "/var/run/", StringLength("/var/run/")))
     {
-        nameToOpen = "runtime»";
-        nameToOpen += (name + StringLength("/var/run"));
+        nameToOpen = "runtime»/";
+        nameToOpen += (name + StringLength("/var/run/"));
         return true;
     }
-    else if (!StringCompareN(name, "/@", StringLength("/@")))
+    else if (!StringCompareN(name, "/@/", StringLength("/@/")))
     {
         // Absolute UNIX paths for POSIX stupidity.
         // /@/path/to/foo = /path/to/foo
         // /@/root»/applications = root»/applications
-        const char *newName = name + StringLength("/@");
+        const char *newName = name + StringLength("/@/");
         if (*newName == '/')
             ++newName;
         nameToOpen = newName;
