@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <bits/syscall.h>
+#include <stdarg.h>
 
 // From the Pedigree source tree (syscall stubs). References musl errno.
 #include <posix-syscall.h>
@@ -171,4 +172,15 @@ long __syscall(long which, long a1, long a2, long a3, long a4,
                long a5, long a6)
 {
     return pedigree_translate_syscall(which, a1, a2, a3, a4, a5, a6);
+}
+
+// Extension that provides write access to the kernel log.
+int klog(int prio, const char *fmt, ...)
+{
+    static char print_temp[1024];
+    va_list argptr;
+    va_start(argptr, fmt);
+    vsnprintf(print_temp, sizeof print_temp, fmt, argptr);
+    syscall2(POSIX_SYSLOG, (long) print_temp, prio);
+    va_end(argptr);
 }

@@ -1067,7 +1067,7 @@ int posix_syslog(const char *msg, int prio)
 {
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(msg), PATH_MAX, PosixSubsystem::SafeRead))
     {
-        SC_NOTICE("syslog -> invalid address");
+        SC_NOTICE("klog -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
@@ -1076,18 +1076,18 @@ int posix_syslog(const char *msg, int prio)
     if(id <= 1)
     {
         if(prio <= LOG_CRIT)
-            FATAL("[" << Dec << id << Hex << "]\tsyslog: " << msg);
+            FATAL("[" << Dec << id << Hex << "]\tklog: " << msg);
     }
 
     if(prio <= LOG_ERR)
-        ERROR("[" << Dec << id << Hex << "]\tsyslog: " << msg);
+        ERROR("[" << Dec << id << Hex << "]\tklog: " << msg);
     else if(prio == LOG_WARNING)
-        WARNING("[" << Dec << id << Hex << "]\tsyslog: " << msg);
+        WARNING("[" << Dec << id << Hex << "]\tklog: " << msg);
     else if(prio == LOG_NOTICE || prio == LOG_INFO)
-        NOTICE("[" << Dec << id << Hex << "]\tsyslog: " << msg);
+        NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
 #if DEBUGGER
     else
-        NOTICE("[" << Dec << id << Hex << "]\tsyslog: " << msg);
+        NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
 #endif
     return 0;
 }

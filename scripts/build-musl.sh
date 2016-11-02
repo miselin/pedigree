@@ -24,6 +24,7 @@ cp "$SRCDIR/src/subsys/posix/musl/syscall_cp-x86_64.musl-s" src/thread/x86_64/sy
 
 # Copy custom headers.
 cp "$SRCDIR/src/subsys/posix/musl/fb.h" include/sys/
+cp "$SRCDIR/src/subsys/posix/musl/klog.h" include/sys/
 
 rm -rf build
 mkdir -p build
