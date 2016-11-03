@@ -151,6 +151,7 @@ custom_libs = {
     'modunload': ['pedigree-c'],
     'mount': ['pedigree-c'],
     'sudo': ['pedigree-c'],
+    'init': ['pedigree-c'],
 }
 
 # Applications to not enable -Werror for.
