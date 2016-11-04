@@ -51,7 +51,9 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
         case SYS_mprotect: pedigree_translation = POSIX_MPROTECT; break;
         case SYS_munmap: pedigree_translation = POSIX_MUNMAP; break;
         case SYS_brk: pedigree_translation = POSIX_BRK; break;
-        // ...
+        case SYS_rt_sigaction: pedigree_translation = POSIX_SIGACTION; break;
+        case SYS_rt_sigprocmask: pedigree_translation = POSIX_SIGPROCMASK; break;
+        case SYS_rt_sigreturn: pedigree_translation = PEDIGREE_SIGRET; break;
         case SYS_ioctl: pedigree_translation = POSIX_IOCTL; break;
         // ...
         case SYS_readv: pedigree_translation = POSIX_READV; break;
@@ -108,6 +110,7 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
         case SYS_link: pedigree_translation = POSIX_LINK; break;
         case SYS_unlink: pedigree_translation = POSIX_UNLINK; break;
         case SYS_symlink: pedigree_translation = POSIX_SYMLINK; break;
+        case SYS_readlink: pedigree_translation = POSIX_READLINK; break;
         case SYS_chmod: pedigree_translation = POSIX_CHMOD; break;
         case SYS_fchmod: pedigree_translation = POSIX_FCHMOD; break;
         case SYS_chown: pedigree_translation = POSIX_CHOWN; break;
