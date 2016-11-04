@@ -294,7 +294,11 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
         listEnv.pushBack(SharedPointer<String>(new String(*e)));
     }
 
-    if (!pSubsystem->invoke(name, listArgv, listEnv, state))
+    // Normalise path to ensure we have the correct path to invoke.
+    String invokePath;
+    normalisePath(invokePath, name);
+
+    if (!pSubsystem->invoke(invokePath, listArgv, listEnv, state))
     {
         SC_NOTICE(" -> execve failed in invoke");
         SYSCALL_ERROR(ExecFormatError);
