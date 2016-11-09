@@ -96,6 +96,11 @@ void HostedMachine::setKeyboard(Keyboard *kb)
   m_Keyboard = kb;
 }
 
+void HostedMachine::stopAllOtherProcessors()
+{
+  // no-op
+}
+
 HostedMachine::HostedMachine()
 {
 }

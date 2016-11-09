@@ -49,6 +49,7 @@ class HostedMachine : public Machine
     virtual Timer *getTimer();
     virtual Keyboard *getKeyboard();
     virtual void setKeyboard(Keyboard *kb);
+    virtual void stopAllOtherProcessors();
 
   private:
     /**
