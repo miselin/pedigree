@@ -543,6 +543,8 @@ if env['hosted']:
             'cross-compiler to build userspace components.')
 
     # We fix tools later in SConstruct.
+    env['multiprocessor'] = 0  # force-disable MP support on hosted
+    env['smp'] = 0
 
 if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET']):
     if env['ON_PEDIGREE'] or env['hosted']:
