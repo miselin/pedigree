@@ -82,9 +82,6 @@ class String
         /** Removes the last character from the string. */
         void chomp();
 
-        /** Removes the first character from the string. */
-        void lchomp();
-
         /** Removes the whitespace from the both ends of the string. */
         void strip();
 

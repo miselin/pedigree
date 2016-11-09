@@ -436,25 +436,6 @@ void String::chomp()
     }
 }
 
-void String::lchomp()
-{
-    char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
-
-    StringCopy(buf, buf + 1);
-    m_Length--;
-
-    // Did we suddenly drop below the static size?
-    if ((buf == m_Data) && (m_Length < StaticSize))
-    {
-        MemoryCopy(m_Static, m_Data, m_Length + 1);
-        m_Size = StaticSize;
-        delete [] m_Data;
-        m_Data = 0;
-    }
-}
-
 void String::Format(const char *fmt, ...)
 {
     reserve(256);

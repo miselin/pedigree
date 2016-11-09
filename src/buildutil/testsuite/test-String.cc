@@ -89,25 +89,10 @@ TEST(PedigreeString, LChomp)
     EXPECT_EQ(s, "hello");
 }
 
-TEST(PedigreeString, LChomp)
-{
-    String s(" hello");
-    s.lchomp();
-    EXPECT_EQ(s, "hello");
-}
-
 TEST(PedigreeString, ChompDynamicToStatic)
 {
     String s("hello                                                           ");
     s.chomp();
-    EXPECT_EQ(s.length(), 63);
-    EXPECT_EQ(s.size(), 64);
-}
-
-TEST(PedigreeString, LChompDynamicToStatic)
-{
-    String s("hello                                                           ");
-    s.lchomp();
     EXPECT_EQ(s.length(), 63);
     EXPECT_EQ(s.size(), 64);
 }
