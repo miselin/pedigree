@@ -91,8 +91,9 @@ private:
         void removeChild(Node *pChild);
 
         /** Compares cpKey and this node's key, returning the type of match
-            found. */
-        MatchType matchKey(const char *cpKey) const;
+            found. The offset out parameter provides the position where a
+            partial match ceases. */
+        MatchType matchKey(const char *cpKey, size_t &offset) const;
 
         /** Returns the first found child of the node. */
         Node *getFirstChild() const;
@@ -110,6 +111,8 @@ private:
         inline const T &getValue() const {return value;}
         inline void setParent(Node *pP) {m_pParent = pP;}
         inline Node *getParent() const {return m_pParent;}
+
+        void dump(void (*emit_line)(const char *s)) const;
 
         /** Node key, zero terminated. */
         String m_Key;
@@ -215,6 +218,9 @@ public:
         return ConstIterator(0);
     }
 
+    /** Dump the RadixTree in dot format. */
+    void dump(void (*emit_line)(const char *s)) const;
+
 private:
     /** Internal function to create a copy of a subtree. */
     Node *cloneNode(Node *node, Node *parent);
@@ -309,7 +315,8 @@ void RadixTree<T>::insert(const String &key, const T &value)
 
     while (true)
     {
-        switch (pNode->matchKey(cpKey))
+        size_t partialOffset = 0;
+        switch (pNode->matchKey(cpKey, partialOffset))
         {
             case Node::ExactMatch:
             {
@@ -330,18 +337,12 @@ void RadixTree<T>::insert(const String &key, const T &value)
                 // partial match, then adjust the key of this node.
 
                 // Find the common key prefix.
-                size_t i = 0;
-                if (m_bCaseSensitive)
-                    while (cpKey[i] == pNode->getKey()[i])
-                        i++;
-                else
-                    while (toLower(cpKey[i]) == toLower(pNode->getKey()[i]))
-                        i++;
+                size_t i = partialOffset;
 
                 Node *pInter = getNewNode();
                 
                 // Intermediate node's key is the common prefix of both keys.
-                pInter->m_Key.assign(cpKey, i);
+                pInter->m_Key.assign(cpKey, partialOffset);
 
                 // Must do this before pNode's key is changed.
                 pNode->getParent()->replaceChild(pNode, pInter);
@@ -353,14 +354,14 @@ void RadixTree<T>::insert(const String &key, const T &value)
                 // because it's smaller than the current string in m_Key. We'll
                 // not overwrite because we're copying from deeper in the
                 // string. The null write will suffice.
-                pNode->m_Key.assign(&pNode->getKey()[i], len - i);
+                pNode->m_Key.assign(&pNode->getKey()[partialOffset], len - partialOffset);
 
                 // If the uncommon postfix of the key is non-zero length, we have
                 // to create another node, a child of pInter.
-                if (cpKey[i] != 0)
+                if (cpKey[partialOffset] != 0)
                 {
                     Node *pChild = getNewNode();
-                    pChild->setKey(&cpKey[i], (cpKeyLength - i - (cpKey - cpKeyOrig)));
+                    pChild->setKey(&cpKey[partialOffset], (cpKeyLength - partialOffset - (cpKey - cpKeyOrig)));
                     pChild->setValue(value);
                     pChild->setParent(pInter);
                     pInter->addChild(pChild);
@@ -419,7 +420,8 @@ T RadixTree<T>::lookup(const String &key) const
 
     while (true)
     {
-        switch (pNode->matchKey(cpKey))
+        size_t offset = 0;
+        switch (pNode->matchKey(cpKey, offset))
         {
             case Node::ExactMatch:
                 return pNode->getValue();
@@ -469,7 +471,8 @@ void RadixTree<T>::remove(const String &key)
 
     while (true)
     {
-        switch (pNode->matchKey(cpKey))
+        size_t offset = 0;
+        switch (pNode->matchKey(cpKey, offset))
         {
             case Node::ExactMatch:
             {
@@ -590,6 +593,15 @@ void RadixTree<T>::clear()
     m_nItems = 0;
 }
 
+template<class T>
+void RadixTree<T>::dump(void (*emit_line)(const char *s)) const
+{
+    if (m_pRoot)
+    {
+        m_pRoot->dump(emit_line);
+    }
+}
+
 //
 // RadixTree::Node implementation.
 //
@@ -619,7 +631,8 @@ typename RadixTree<T>::Node *RadixTree<T>::Node::findChild(const char *cpKey) co
 {
     for (auto it : m_Children)
     {
-        if (it->matchKey(cpKey) != NoMatch)
+        size_t offset = 0;
+        if (it->matchKey(cpKey, offset) != NoMatch)
         {
             return it;
         }
@@ -664,37 +677,40 @@ void RadixTree<T>::Node::removeChild(Node *pChild)
 }
 
 template<class T>
-typename RadixTree<T>::Node::MatchType RadixTree<T>::Node::matchKey(const char *cpKey) const
+typename RadixTree<T>::Node::MatchType RadixTree<T>::Node::matchKey(const char *cpKey, size_t &offset) const
 {
-    if (!m_Key.length()) return OverMatch;
+    // Cannot partially match (e.g. toast/toastier == PartialMatch if the
+    // cpKey is longer (e.g. toastier/toast == OverMatch)).
+    if (!m_Key.length())
+    {
+        return OverMatch;
+    }
 
     const char *myKey = getKey();
 
     size_t i = 0;
-    while (cpKey[i] && myKey[i])
+    int r = StringCompareCase(cpKey, myKey, m_bCaseSensitive, m_Key.length() + 1, &i);
+
+    if (r == 0)
     {
-        bool bMatch = false;
-        if (m_bCaseSensitive)
-        {
-            bMatch = cpKey[i] == myKey[i];
-        }
-        else
-        {
-            bMatch = toLower(cpKey[i]) == toLower(myKey[i]);
-        }
-
-        if (!bMatch)
-            return (i==0) ? NoMatch : PartialMatch;
-        i++;
-    }
-
-    // Why did the loop exit?
-    if (cpKey[i] == 0 && myKey[i] == 0)
+        // exact match, all characters & null terminators matched
         return ExactMatch;
-    else if (cpKey[i] == 0)
-        return PartialMatch;
-    else
+    }
+    else if (i == 0)
+    {
+        // non-partial, first character didn't even match
+        return NoMatch;
+    }
+    else if (m_Key[i] == 0)
+    {
         return OverMatch;
+    }
+    else
+    {
+        // partial, both strings share a common prefix
+        offset = i;
+        return PartialMatch;
+    }
 }
 
 template<class T>
@@ -766,6 +782,21 @@ typename RadixTree<T>::Node *RadixTree<T>::Node::getNextSibling() const
     }
 
     return 0;
+}
+
+template<class T>
+void RadixTree<T>::Node::dump(void (*emit_line)(const char *s)) const
+{
+    for (auto it : m_Children)
+    {
+        // depth-first dump the next node
+        it->dump(emit_line);
+
+        // dump this connection
+        String s;
+        s.Format("  \"Node<%x: %s>\" -> \"Node<%x: %s>\";", it, it->getKey(), this, static_cast<const char *>(m_Key));
+        emit_line(static_cast<const char *>(s));
+    }
 }
 
 // Explicitly instantiate RadixTree<void*> early.
