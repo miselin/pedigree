@@ -72,6 +72,7 @@ opts.AddVariables(
     BoolVariable('posix_subsys_verbose', 'Enable verbose logging for the PosixSubsystem class.', 0),
     BoolVariable('posix_sig_verbose', 'Enable verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_sig_ultra_verbose', 'Enable even more verbose logging for POSIX signal syscalls.', 0),
+    BoolVariable('posix_syscall_verbose', 'Enable logging of every incoming POSIX syscall (PID + syscall number).', 0),
 
     BoolVariable('posix_musl', 'Build and use musl instead of newlib.', 1),
 

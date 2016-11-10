@@ -33,6 +33,7 @@
 #include "pthread-syscalls.h"
 #include "select-syscalls.h"
 #include "poll-syscalls.h"
+#include "logging.h"
 
 PosixSyscallManager::PosixSyscallManager()
 {
@@ -68,7 +69,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
     uintptr_t p5 = state.getSyscallParameter(4);
     uintptr_t p6 = state.getSyscallParameter(5);
     
+#ifdef POSIX_VERBOSE_SYSCALLS
     NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec << state.getSyscallNumber() << Hex);
+#endif
 
     // We're interruptible.
     Processor::setInterrupts(true);

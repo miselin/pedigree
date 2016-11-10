@@ -150,6 +150,8 @@ else:
         logging_mask |= 32
     if env_clone['posix_sig_ultra_verbose']:
         logging_mask |= 64
+    if env_clone['posix_syscall_verbose']:
+        logging_mask |= 128
 
 env_clone['CPPDEFINES'] += ['POSIX_LOG_FACILITIES=%d' % logging_mask]
 
