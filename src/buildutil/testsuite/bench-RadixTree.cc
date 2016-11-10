@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include <vector>
+#include <fstream>
+
 #include <benchmark/benchmark.h>
 
 #include <utilities/RadixTree.h>
@@ -41,34 +44,55 @@ static const int RandomNumber(const int maximum = RANDOM_MAX)
     return rand() % maximum;
 }
 
+static void LoadWords(std::vector<String> &result)
+{
+    size_t i = 0;
+
+    std::ifstream ifs("/usr/share/dict/words");
+    while (ifs.good())
+    {
+        std::string s;
+        std::getline(ifs, s);
+
+        String word(s.c_str());
+        result.push_back(word);
+    }
+}
+
 static void BM_RadixTreeInsert(benchmark::State &state)
 {
-    RadixTree<int64_t> tree;
+    std::vector<String> words;
     const int64_t value = 1;
-    int64_t key_n = 0;
 
-    String key;
+    LoadWords(words);
+
+    RadixTree<int64_t> tree;
     while (state.KeepRunning())
     {
         state.PauseTiming();
-        key.Format("%ld", key_n++);
+        tree.clear();
         state.ResumeTiming();
-        tree.insert(key, value);
+
+        for (auto word : words)
+        {
+            tree.insert(word, value);
+        }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
 }
 
 static void BM_RadixTreeInsertSame(benchmark::State &state)
 {
-    RadixTree<int64_t> tree;
+    std::vector<String> words;
     const int64_t value = 1;
 
-    String key("key");
+    LoadWords(words);
 
+    RadixTree<int64_t> tree;
     while (state.KeepRunning())
     {
-        tree.insert(key, value);
+        tree.insert(words[0], value);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -76,26 +100,21 @@ static void BM_RadixTreeInsertSame(benchmark::State &state)
 
 static void BM_RadixTreeLookupHit(benchmark::State &state)
 {
-    // NOTE: all of these will hit in the RadixTree.
-
-    RadixTree<int64_t> tree;
+    std::vector<String> words;
     const int64_t value = 1;
 
-    // Fill the RadixTree for the lookup iterations.
-    for (size_t i = 0; i < state.range_x(); ++i)
+    LoadWords(words);
+
+    RadixTree<int64_t> tree;
+    for (auto word : words)
     {
-        String key;
-        key.Format("%d", RandomNumber());
-        tree.insert(key, value);
+        tree.insert(word, value);
     }
 
     String key;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        key.Format("%d", RandomNumber(state.range_x()));
-        state.ResumeTiming();
-        benchmark::DoNotOptimize(tree.lookup(key));
+        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -103,34 +122,125 @@ static void BM_RadixTreeLookupHit(benchmark::State &state)
 
 static void BM_RadixTreeLookupMiss(benchmark::State &state)
 {
-    // NOTE: all of these will NOT hit in the RadixTree.
-
-    RadixTree<int64_t> tree;
+    std::vector<String> words;
     const int64_t value = 1;
 
-    // Fill the RadixTree for the lookup iterations.
-    for (size_t i = 0; i < state.range_x(); ++i)
+    LoadWords(words);
+
+    RadixTree<int64_t> tree;
+    for (auto word : words)
     {
-        String key;
-        key.Format("%d", RandomNumber());
-        tree.insert(key, value);
+        String copy = word;
+        copy += "_";  // to never allow a match
+        tree.insert(copy, value);
     }
 
     String key;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        // We adjust the key so we'll never get a hit, but every miss is not
-        // optimal (e.g. end of string).
-        key.Format("%d_", RandomNumber(state.range_x()));
-        state.ResumeTiming();
-        benchmark::DoNotOptimize(tree.lookup(key));
+        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
+static void BM_RadixTreeCaseInsensitiveInsert(benchmark::State &state)
+{
+    std::vector<String> words;
+    const int64_t value = 1;
+
+    LoadWords(words);
+
+    RadixTree<int64_t> tree(false);
+    while (state.KeepRunning())
+    {
+        state.PauseTiming();
+        tree.clear();
+        state.ResumeTiming();
+
+        for (auto word : words)
+        {
+            tree.insert(word, value);
+        }
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
+}
+
+static void BM_RadixTreeCaseInsensitiveInsertSame(benchmark::State &state)
+{
+    std::vector<String> words;
+    const int64_t value = 1;
+
+    LoadWords(words);
+
+    RadixTree<int64_t> tree(false);
+    while (state.KeepRunning())
+    {
+        tree.insert(words[0], value);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_RadixTreeCaseInsensitiveLookupHit(benchmark::State &state)
+{
+    std::vector<String> words;
+    const int64_t value = 1;
+
+    LoadWords(words);
+
+    RadixTree<int64_t> tree(false);
+    for (auto word : words)
+    {
+        tree.insert(word, value);
+    }
+
+    String key;
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_RadixTreeCaseInsensitiveLookupMiss(benchmark::State &state)
+{
+    std::vector<String> words;
+    const int64_t value = 1;
+
+    LoadWords(words);
+
+    RadixTree<int64_t> tree(false);
+    for (auto word : words)
+    {
+        String copy = word;
+        copy += "_";  // to never allow a match
+        tree.insert(copy, value);
+    }
+
+    String key;
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+/*
 BENCHMARK(BM_RadixTreeInsert);
 BENCHMARK(BM_RadixTreeInsertSame);
-BENCHMARK(BM_RadixTreeLookupHit)->Range(8, 2048);
-BENCHMARK(BM_RadixTreeLookupMiss)->Range(8, 2048);
+*/
+BENCHMARK(BM_RadixTreeLookupHit);
+/*
+BENCHMARK(BM_RadixTreeLookupMiss);
+
+BENCHMARK(BM_RadixTreeCaseInsensitiveInsert);
+BENCHMARK(BM_RadixTreeCaseInsensitiveInsertSame);
+*/
+BENCHMARK(BM_RadixTreeCaseInsensitiveLookupHit);
+/*
+BENCHMARK(BM_RadixTreeCaseInsensitiveLookupMiss);
+*/
