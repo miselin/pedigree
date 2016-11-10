@@ -49,6 +49,11 @@ int VStringFormat(char *buf, const char *fmt, va_list arg);
 int StringFormat(char *buf, const char *fmt, ...) FORMAT(printf, 2, 3);
 unsigned long StringToUnsignedLong(const char *nptr, char const **endptr, int base);
 
+// Compares the two strings with optional case-sensitivity. The offset out
+// parameter holds the offset of a failed match in the case of a non-zero
+// return, or the length of the string otherwise.
+int StringCompareCase(const char *s1, const char *s2, int sensitive, size_t length, size_t *offset);
+
 // Memory functions.
 void *ByteSet(void *buf, int c, size_t len);
 void *WordSet(void *buf, int c, size_t len);

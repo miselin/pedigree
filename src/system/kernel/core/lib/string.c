@@ -140,6 +140,7 @@ int StringCompareN(const char *p1, const char *p2, size_t n)
       return c;
     else if (!--n)
       return 0;
+
     ++p1;
     ++p2;
   }
@@ -305,6 +306,80 @@ const char *StringReverseFind(const char *str, int target)
     UNROLL(7);
 #undef UNROLL
     str += 8;
+  }
+}
+
+int StringCompareCase(const char *s1, const char *s2, int sensitive, size_t length, size_t *offset)
+{
+  if (!length)
+  {
+    return 0;
+  }
+  else if (s1 == s2)
+  {
+    *offset = StringLength(s1);
+    return 0;
+  }
+  else if (!s1)
+  {
+    return -1;
+  }
+  else if (!s2)
+  {
+    return 1;
+  }
+
+  static size_t local = 0;
+  if (UNLIKELY(!offset))
+  {
+    offset = &local;
+  }
+
+  if (LIKELY(sensitive))
+  {
+    size_t i = 0;
+    while (*s1 && *s2)
+    {
+      char c = *s1 - *s2;
+      if (c)
+      {
+        break;
+      }
+      else if (!--length)
+      {
+        break;
+      }
+
+      ++s1;
+      ++s2;
+      ++i;
+    }
+
+    *offset = i;
+    return *s1 - *s2;
+  }
+  else
+  {
+    size_t i = 0;
+    while (*s1 && *s2)
+    {
+      char c = toLower(*s1) - toLower(*s2);
+      if (c)
+      {
+        break;
+      }
+      else if (!--length)
+      {
+        break;
+      }
+
+      ++s1;
+      ++s2;
+      ++i;
+    }
+
+    *offset = i;
+    return toLower(*s1) - toLower(*s2);
   }
 }
 

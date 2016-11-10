@@ -137,6 +137,48 @@ static void BM_StringCompareN(benchmark::State &state)
     delete [] buf1;
 }
 
+static void BM_StringCompareCaseSensitive(benchmark::State &state)
+{
+    char *buf1 = new char[state.range_x()];
+    memset(buf1, 'a', state.range_x());
+    buf1[state.range_x() - 1] = '\0';
+    char *buf2 = new char[state.range_x()];
+    memset(buf2, 'a', state.range_x());
+    buf2[state.range_x() - 1] = '\0';
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(StringCompareCase(buf1, buf2, 1, state.range_x(), 0));
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
+
+    delete [] buf2;
+    delete [] buf1;
+}
+
+static void BM_StringCompareCaseInsensitive(benchmark::State &state)
+{
+    char *buf1 = new char[state.range_x()];
+    memset(buf1, 'a', state.range_x());
+    buf1[state.range_x() - 1] = '\0';
+    char *buf2 = new char[state.range_x()];
+    memset(buf2, 'a', state.range_x());
+    buf2[state.range_x() - 1] = '\0';
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(StringCompareCase(buf1, buf2, 0, state.range_x(), 0));
+    }
+
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetComplexityN(state.range_x());
+
+    delete [] buf2;
+    delete [] buf1;
+}
+
 static void BM_StringFind(benchmark::State &state)
 {
     char *buf = new char[state.range_x()];
@@ -174,6 +216,8 @@ BENCHMARK(BM_StringLengthConstant);
 BENCHMARK(BM_StringCopy)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_StringCopyN)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_StringCompare)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringCompareCaseSensitive)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringCompareCaseInsensitive)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_StringCompareN)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_StringFind)->Range(8, 8<<16)->Complexity();
 BENCHMARK(BM_StringReverseFind)->Range(8, 8<<16)->Complexity();
