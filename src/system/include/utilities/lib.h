@@ -98,9 +98,11 @@ inline int min(size_t a, size_t b)
 }
 
 // Memory allocation for C code
+#ifndef UTILITY_LINUX
 void *malloc(size_t);
 void *realloc(void *, size_t);
 void free(void *);
+#endif
 
 /// Basic 8-bit checksum check (returns 1 if checksum is correct).
 uint8_t checksum(const uint8_t *pMemory, size_t sMemory);

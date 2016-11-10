@@ -794,7 +794,7 @@ void RadixTree<T>::Node::dump(void (*emit_line)(const char *s)) const
 
         // dump this connection
         String s;
-        s.Format("  \"Node<%x: %s>\" -> \"Node<%x: %s>\";", it, it->getKey(), this, static_cast<const char *>(m_Key));
+        s.Format("  \"Node<%p: %s>\" -> \"Node<%p: %s>\";", it, it->getKey(), this, static_cast<const char *>(m_Key));
         emit_line(static_cast<const char *>(s));
     }
 }
