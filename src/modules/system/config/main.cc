@@ -58,6 +58,16 @@ extern "C" int atoi(const char *str)
     return StringToUnsignedLong(str, 0, 10);
 }
 
+extern "C" struct tm *gmtime(struct tm *timep)
+{
+    return 0;
+}
+
+extern "C" size_t strftime(char *s, size_t max, const char *format, const struct tm *tm)
+{
+    return 0;
+}
+
 static int xClose(sqlite3_file *file)
 {
     return 0;
@@ -173,7 +183,13 @@ static struct sqlite3_io_methods theio =
     &xCheckReservedLock,
     &xFileControl,
     &xSectorSize,
-    &xDeviceCharacteristics
+    &xDeviceCharacteristics,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
 };
 
 static struct sqlite3_io_methods theio_fail = 
@@ -190,7 +206,13 @@ static struct sqlite3_io_methods theio_fail =
     &xCheckReservedLock,
     &xFileControl,
     &xSectorSize,
-    &xDeviceCharacteristics
+    &xDeviceCharacteristics,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
 };
 
 
@@ -285,7 +307,11 @@ static struct sqlite3_vfs thevfs =
     &xRandomness,
     &xSleep,
     &xCurrentTime,
-    &xGetLastError
+    &xGetLastError,
+    0,
+    0,
+    0,
+    0
 };
 
 int sqlite3_os_init()
