@@ -41,4 +41,8 @@ int posix_pedigree_thread_wait_for(void *waiter);
 int posix_pedigree_thread_trigger(void *waiter);
 void posix_pedigree_destroy_waiter(void *waiter);
 
+int posix_futex(int *uaddr, int futex_op, int val, const struct timespec *timeout);
+
+pid_t posix_gettid();
+
 #endif

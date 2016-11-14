@@ -323,6 +323,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_readv(static_cast<int>(p1), reinterpret_cast<const struct iovec *>(p2), p3);
         case POSIX_GETDENTS:
             return posix_getdents(static_cast<int>(p1), reinterpret_cast<struct dirent *>(p2), static_cast<int>(p3));
+        case POSIX_GETTID:
+            return posix_gettid();
         case POSIX_BRK:
             return posix_brk(p1);
 
@@ -342,6 +344,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_SET_TLS_AREA:
             Processor::information().getCurrentThread()->setTlsBase(p1);
             return 0;
+
+        case POSIX_FUTEX:
+            return posix_futex(reinterpret_cast<int *>(p1), static_cast<int>(p2), static_cast<int>(p3), reinterpret_cast<const struct timespec *>(p4));
 
         default: ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber() << Hex); return 0;
     }

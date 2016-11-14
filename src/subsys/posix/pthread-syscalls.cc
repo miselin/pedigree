@@ -18,15 +18,131 @@
  */
 
 #include <process/Scheduler.h>
+#include <utilities/Tree.h>
+#include <utilities/List.h>
 #include <pthread-syscalls.h>
 #include <syscallError.h>
 #include "errors.h"
 #include "PosixSubsystem.h"
 
+/// \todo add paths to include from path/to/musl-<vers>/src/internal/futex.h
+#define FUTEX_WAIT      0
+#define FUTEX_WAKE      1
+#define FUTEX_FD        2
+#define FUTEX_REQUEUE       3
+#define FUTEX_CMP_REQUEUE   4
+#define FUTEX_WAKE_OP       5
+#define FUTEX_LOCK_PI       6
+#define FUTEX_UNLOCK_PI     7
+#define FUTEX_TRYLOCK_PI    8
+#define FUTEX_WAIT_BITSET   9
+#define FUTEX_PRIVATE 128
+#define FUTEX_CLOCK_REALTIME 256
+
 extern "C"
 {
     extern void pthread_stub();
     extern char pthread_stub_end;
+}
+
+Tree<int *, List<Thread *> *> g_futexes;
+
+int posix_futex(int *uaddr, int futex_op, int val, const struct timespec *timeout)
+{
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if(!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
+    PT_NOTICE("futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", " << timeout << ")");
+
+    if (!(futex_op & FUTEX_PRIVATE))
+    {
+        PT_NOTICE(" -> warning: public futexes are not yet supported");
+    }
+
+    if (futex_op & FUTEX_CLOCK_REALTIME)
+    {
+        PT_NOTICE(" -> warning: clock choice (monotonic vs realtime) is not yet supported");
+        futex_op &= ~FUTEX_CLOCK_REALTIME;
+    }
+
+    futex_op &= ~FUTEX_PRIVATE;
+
+    int r = 0;
+    int supported = 0;
+
+    switch (futex_op)
+    {
+        case FUTEX_WAIT:
+        {
+            PT_NOTICE(" -> FUTEX_WAIT");
+
+            /// \todo this is not atomic at all
+            if (*uaddr != val)
+            {
+                PT_NOTICE(" -> value changed");
+                SYSCALL_ERROR(NoMoreProcesses);  // EAGAIN
+                r = -1;
+            }
+            else
+            {
+                bool newLock = false;
+
+                List<Thread *> *threads = g_futexes.lookup(uaddr);
+                if (!threads)
+                {
+                    threads = new List<Thread *>;
+                    threads->pushBack(pThread);
+                    g_futexes.insert(uaddr, threads);
+                }
+
+                // good to go for sleeping
+                /// \todo timeout
+                PT_NOTICE(" -> waiting...");
+                Processor::information().getScheduler().sleep();
+                PT_NOTICE(" -> waiting complete!");
+            }
+            break;
+        }
+
+        case FUTEX_WAKE:
+        {
+            PT_NOTICE(" -> FUTEX_WAKE");
+
+            List<Thread *> *threads = g_futexes.lookup(uaddr);
+            if (threads)
+            {
+                int woken = 0;
+                for (int i = 0; i < val && threads->count() > 0; ++i)
+                {
+                    Thread *pWakeThread = threads->popFront();
+                    PT_NOTICE(" -> waking " << pWakeThread);
+                    pWakeThread->getLock().acquire();
+                    pWakeThread->setStatus(Thread::Ready);
+                    pWakeThread->getLock().release();
+                    PT_NOTICE(" -> woken!");
+                    ++woken;
+                }
+
+                PT_NOTICE(" -> woke " << Dec << woken << " threads.");
+                r = woken;
+            }
+            break;
+        }
+
+        default:
+            PT_NOTICE(" -> unsupported futex operation");
+            SYSCALL_ERROR(Unimplemented);
+            r = -1;
+    }
+
+    PT_NOTICE(" -> " << Dec << r);
+    return r;
 }
 
 /**
@@ -194,4 +310,18 @@ void posix_pedigree_destroy_waiter(void *waiter)
     }
     pSubsystem->removeThreadWaiter(waiter);
     delete sem;
+}
+
+pid_t posix_gettid()
+{
+    // Single-threaded process, gettid() returns the PID.
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
+    if (pProcess->getNumThreads() == 1)
+    {
+        return pProcess->getId();
+    }
+
+    // Otherwise, we return the current thread's ID.
+    return pThread->getId();
 }

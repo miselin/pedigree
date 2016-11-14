@@ -217,4 +217,6 @@
 // For pthreads
 #define POSIX_SET_TLS_AREA      211
 
+#define POSIX_FUTEX             212
+
 #endif

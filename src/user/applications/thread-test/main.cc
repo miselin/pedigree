@@ -95,18 +95,6 @@ int main()
 
     // syslog used to split up debug logs.
     klog(LOG_INFO, "TEST 0");
-    printf("Locking with deadlock\n");
-    pthread_mutex_t deadlock_mutex;
-    errno = 0;
-    pthread_mutex_init(&deadlock_mutex, 0);
-    i = pthread_mutex_lock(&deadlock_mutex);
-    printf("First lock: %d (%s)\n", i, strerror(errno));
-    i = pthread_mutex_lock(&deadlock_mutex);
-    if (errno != EDEADLK) printf("Didn't get EDEADLK!\n");
-    printf("Second lock: %d (%s)\n", i, strerror(errno));
-    pthread_mutex_unlock(&deadlock_mutex);
-
-    klog(LOG_INFO, "TEST 1");
 
     printf("Locking without any contention...\n");
     pthread_mutex_t contention_mutex;
@@ -116,11 +104,12 @@ int main()
     pthread_mutex_unlock(&contention_mutex);
     printf("Released!\n");
 
-    klog(LOG_INFO, "TEST 2");
+    klog(LOG_INFO, "TEST 1");
 
     printf("Creating a recursive lock!\n");
     pthread_mutex_t recursive;
     pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&recursive, &attr);
     printf("Testing recursion...\n");
@@ -131,11 +120,21 @@ int main()
     pthread_mutex_unlock(&recursive);
     pthread_mutex_unlock(&recursive);
     pthread_mutex_unlock(&recursive);
-    int r = pthread_mutex_unlock(&recursive);
-    if (r >= 0) printf("Final unlock was not an error, not OK.\n");
     printf("Testing re-acquire...\n");
     pthread_mutex_lock(&recursive);
     printf("OK!\n");
+
+    klog(LOG_INFO, "TEST 2");
+    printf("Locking with deadlock\n");
+    pthread_mutex_t deadlock_mutex;
+    errno = 0;
+    pthread_mutex_init(&deadlock_mutex, 0);
+    i = pthread_mutex_lock(&deadlock_mutex);
+    printf("First lock: %d (%s)\n", i, strerror(errno));
+    i = pthread_mutex_lock(&deadlock_mutex);
+    if (errno != EDEADLK) printf("Didn't get EDEADLK!\n");
+    printf("Second lock: %d (%s)\n", i, strerror(errno));
+    pthread_mutex_unlock(&deadlock_mutex);
 
     // Creating the list content...
     for (i = 0; i < LOOPS; i++)
