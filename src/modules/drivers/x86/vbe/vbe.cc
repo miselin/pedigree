@@ -203,17 +203,34 @@ static bool entry()
   // Allocate some space for the information structure and prepare for a BIOS call.
   vbeControllerInfo *info = reinterpret_cast<vbeControllerInfo*> (Bios::instance().malloc(/*sizeof(vbeControllerInfo)*/256));
   vbeModeInfo *mode = reinterpret_cast<vbeModeInfo*> (Bios::instance().malloc(/*sizeof(vbeModeInfo)*/256));
+  QuadWordSet(info, 0, 256 / 8);
+  QuadWordSet(mode, 0, 256 / 8);
   StringCopyN(info->signature, "VBE2", 4);
   Bios::instance().setAx (0x4F00);
   Bios::instance().setEs (0x0000);
   Bios::instance().setDi (static_cast<uint16_t>(reinterpret_cast<uintptr_t>(info)&0xFFFF));
 
+  uint16_t ax = Bios::instance().getAx();
+  uint16_t bx = Bios::instance().getBx();
+  uint16_t cx = Bios::instance().getCx();
+  uint16_t dx = Bios::instance().getDx();
+  uint16_t di = Bios::instance().getDi();
+    NOTICE("abcd: " << Hex << ax << ", " << bx << ", " << cx << ", " << dx);
+    NOTICE("di: " << Hex << di);
+
   Bios::instance().executeInterrupt (0x10);
 
   // Check the signature.
-  if (Bios::instance().getAx() != 0x004F || StringCompareN(info->signature, "VESA", 4) != 0)
+  ax = Bios::instance().getAx();
+  bx = Bios::instance().getBx();
+  cx = Bios::instance().getCx();
+  dx = Bios::instance().getDx();
+  di = Bios::instance().getDi();
+  if (ax != 0x004F || StringCompareN(info->signature, "VESA", 4) != 0)
   {
-    ERROR("VBE: VESA not supported!");
+    ERROR("VBE: VESA not supported (ax=" << Hex << ax << ", signature=" << info->signature << ")!");
+    NOTICE("abcd: " << Hex << ax << ", " << bx << ", " << cx << ", " << dx);
+    NOTICE("di: " << Hex << di);
     Bios::instance().free(reinterpret_cast<uintptr_t>(info));
     Bios::instance().free(reinterpret_cast<uintptr_t>(mode));
     return false;
@@ -242,6 +259,9 @@ static bool entry()
   size_t maxHeight = 0;
   size_t maxBpp = 0;
 
+  size_t maxTextWidth = 0;
+  size_t maxTextHeight = 0;
+
   uintptr_t fbAddr = 0;
   uint16_t *modes = reinterpret_cast<uint16_t*> (REALMODE_PTR(info->videomodes));
   for (int i = 0; modes[i] != 0xFFFF; i++)
@@ -253,13 +273,30 @@ static bool entry()
 
     Bios::instance().executeInterrupt (0x10);
 
-    if (Bios::instance().getAx() != 0x004F) continue;
+    ax = Bios::instance().getAx();
+    if (ax != 0x004F)
+    {
+      WARNING("Testing for mode " << Hex << modes[i] << " failed, ax=" << ax);
+      continue;
+    }
 
-    // Check if this is a graphics mode with LFB support.
-    if ( (mode->attributes & 0x90) != 0x90 ) continue;
+    // graphics/text mode bit
+    bool isGraphicsMode = mode->attributes & 0x10;
+    bool hasLFB = mode->attributes & 0x80;
 
-    // Check if this is a packed pixel or direct colour mode.
-    if (mode->memory_model != 4 && mode->memory_model != 6) continue;
+    if (isGraphicsMode)
+    {
+      // We only want graphics modes with LFB support.
+      if (!hasLFB)
+      {
+        continue;
+      }
+      // Check if this is a packed pixel or direct colour mode.
+      else if (mode->memory_model != 4 && mode->memory_model != 6)
+      {
+        continue;
+      }
+    }
 
     // Add this pixel mode.
     Display::ScreenMode *pSm = new Display::ScreenMode;
@@ -268,6 +305,7 @@ static bool entry()
     pSm->height = mode->Yres;
     pSm->refresh = 0;
     pSm->framebuffer = mode->framebuffer;
+    pSm->textMode = !isGraphicsMode;
     fbAddr = mode->framebuffer;
     pSm->pf.mRed = mode->red_mask;
     pSm->pf.pRed = mode->red_position;
@@ -279,10 +317,20 @@ static bool entry()
     pSm->pf.nPitch = mode->pitch;
     modeList.pushBack(pSm);
 
-    if(mode->Xres > maxWidth)
-      maxWidth = mode->Xres;
-    if(mode->Yres > maxHeight)
-      maxHeight = mode->Yres;
+    if(isGraphicsMode)
+    {
+      if (mode->Xres > maxWidth)
+        maxWidth = mode->Xres;
+      if (mode->Yres > maxHeight)
+        maxHeight = mode->Yres;
+    }
+    else
+    {
+      if (mode->Xres > maxTextWidth)
+        maxTextWidth = mode->Xres;
+      if (mode->Yres > maxTextHeight)
+        maxTextHeight = mode->Yres;
+    }
     if(mode->bpp > maxBpp)
       maxBpp = mode->bpp;
   }
@@ -302,7 +350,14 @@ static bool entry()
     Display::ScreenMode *pSm = *it;
     NOTICE(Hex << pSm->id << "\t " << Dec << pSm->width << "x" << pSm->height << "x" << pSm->pf.nBpp << "\t " << Hex <<
            pSm->framebuffer);
-    NOTICE("    " << pSm->pf.mRed << "<<" << pSm->pf.pRed << "    " << pSm->pf.mGreen << "<<" << pSm->pf.pGreen << "    " << pSm->pf.mBlue << "<<" << pSm->pf.pBlue);
+    if (!pSm->textMode)
+    {
+      NOTICE("    " << pSm->pf.mRed << "<<" << pSm->pf.pRed << "    " << pSm->pf.mGreen << "<<" << pSm->pf.pGreen << "    " << pSm->pf.mBlue << "<<" << pSm->pf.pBlue);
+    }
+    else
+    {
+      NOTICE("    text mode");
+    }
   }
   NOTICE("VBE: End of compatible display modes.");
 
@@ -384,6 +439,8 @@ static bool entry()
   pProvider->pFramebuffer = pFramebuffer;
   pProvider->maxWidth = maxWidth;
   pProvider->maxHeight = maxHeight;
+  pProvider->maxTextWidth = maxTextWidth;
+  pProvider->maxTextHeight = maxTextHeight;
   pProvider->maxDepth = maxBpp;
   pProvider->bHardwareAccel = false;
   pProvider->bTextModes = true;

@@ -98,7 +98,7 @@ public:
     /// \todo pinBlock/unpinBlock should pin/unpin physical pages!
 
 private:
-    GraphicsService::GraphicsProvider *m_pProvider;
+    GraphicsService::GraphicsParameters *m_pGraphicsParameters;
 
     bool m_bTextMode;
     size_t m_nDepth;

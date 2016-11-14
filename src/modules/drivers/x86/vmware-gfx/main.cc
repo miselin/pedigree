@@ -97,8 +97,8 @@ class VmwareGraphics : public Display
             writeRegister(SVGA_REG_GUEST_ID, 0x500A);
             
             // Debug notification
-            NOTICE("vmware-gfx found, caps=" << caps << ", maximum resolution is " << Dec << maxWidth << "x" << maxHeight << Hex);
-            NOTICE("vmware-gfx        framebuffer at " << fbBase << " - " << (fbBase + fbSize) << ", command FIFO at " << cmdBase);
+            NOTICE("vmware-gfx found, caps=" << Hex << caps << ", maximum resolution is " << Dec << maxWidth << "x" << maxHeight << Hex);
+            NOTICE("vmware-gfx        framebuffer at " << Hex << fbBase << " - " << (fbBase + fbSize) << ", command FIFO at " << cmdBase);
             
             if(m_Addresses[1]->m_Address == fbBase)
             {
@@ -151,6 +151,8 @@ class VmwareGraphics : public Display
             pProvider->pFramebuffer = m_pFramebuffer;
             pProvider->maxWidth = maxWidth;
             pProvider->maxHeight = maxHeight;
+            pProvider->maxTextWidth = 0;
+            pProvider->maxTextHeight = 0;
             pProvider->maxDepth = 32;
             pProvider->bHardwareAccel = true;
             pProvider->bTextModes = false;

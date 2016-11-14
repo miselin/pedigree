@@ -102,7 +102,7 @@ uint64_t ZeroFile::write(uint64_t location, uint64_t size, uintptr_t buffer, boo
 }
 
 FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
-    File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_pProvider(0), m_bTextMode(false), m_nDepth(0)
+    File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_pGraphicsParameters(0), m_bTextMode(false), m_nDepth(0)
 {
     // r/w only for root
     setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
@@ -112,7 +112,7 @@ FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem *pParentFS
 
 FramebufferFile::~FramebufferFile()
 {
-    delete m_pProvider;
+    delete m_pGraphicsParameters;
 }
 
 bool FramebufferFile::initialise()
@@ -123,18 +123,19 @@ bool FramebufferFile::initialise()
     {
         if(pService)
         {
-            m_pProvider = new GraphicsService::GraphicsProvider;
-            if(!pService->serve(ServiceFeatures::probe, m_pProvider, sizeof(*m_pProvider)))
+            m_pGraphicsParameters = new GraphicsService::GraphicsParameters;
+            m_pGraphicsParameters->wantTextMode = false;
+            if(!pService->serve(ServiceFeatures::probe, m_pGraphicsParameters, sizeof(*m_pGraphicsParameters)))
             {
-                delete m_pProvider;
-                m_pProvider = 0;
+                delete m_pGraphicsParameters;
+                m_pGraphicsParameters = 0;
 
                 return false;
             }
             else
             {
                 // Set the file size to reflect the size of the framebuffer.
-                setSize(m_pProvider->pFramebuffer->getHeight() * m_pProvider->pFramebuffer->getBytesPerLine());
+                setSize(m_pGraphicsParameters->providerResult.pFramebuffer->getHeight() * m_pGraphicsParameters->providerResult.pFramebuffer->getBytesPerLine());
             }
         }
     }
@@ -144,7 +145,7 @@ bool FramebufferFile::initialise()
 
 uintptr_t FramebufferFile::readBlock(uint64_t location)
 {
-    if(!m_pProvider)
+    if(!m_pGraphicsParameters)
         return 0;
 
     if(location > getSize())
@@ -154,7 +155,7 @@ uintptr_t FramebufferFile::readBlock(uint64_t location)
     }
 
     /// \todo If this is NOT virtual, we need to do something about that.
-    return reinterpret_cast<uintptr_t>(m_pProvider->pFramebuffer->getRawBuffer()) + location;
+    return reinterpret_cast<uintptr_t>(m_pGraphicsParameters->providerResult.pFramebuffer->getRawBuffer()) + location;
 }
 
 bool FramebufferFile::supports(const int command)
@@ -164,14 +165,14 @@ bool FramebufferFile::supports(const int command)
 
 int FramebufferFile::command(const int command, void *buffer)
 {
-    if(!m_pProvider)
+    if(!m_pGraphicsParameters)
     {
         ERROR("FramebufferFile::command called on an invalid FramebufferFile");
         return -1;
     }
 
-    Display *pDisplay = m_pProvider->pDisplay;
-    Framebuffer *pFramebuffer = m_pProvider->pFramebuffer;
+    Display *pDisplay = m_pGraphicsParameters->providerResult.pDisplay;
+    Framebuffer *pFramebuffer = m_pGraphicsParameters->providerResult.pFramebuffer;
 
     switch(command)
     {
@@ -186,7 +187,7 @@ int FramebufferFile::command(const int command, void *buffer)
                 if(!(desiredWidth && desiredHeight && desiredDepth))
                 {
                     bool bSuccess = false;
-                    if(!m_pProvider->bTextModes)
+                    if(!m_pGraphicsParameters->providerResult.bTextModes)
                     {
                         bSuccess = pDisplay->setScreenMode(0);
                     }
@@ -237,7 +238,7 @@ int FramebufferFile::command(const int command, void *buffer)
 
                     setSize(pFramebuffer->getHeight() * pFramebuffer->getBytesPerLine());
 
-                    if(m_pProvider->bTextModes && m_bTextMode)
+                    if(m_pGraphicsParameters->providerResult.bTextModes && m_bTextMode)
                     {
                         // Okay, we need to 'undo' the text mode.
                         if(Machine::instance().getNumVga())

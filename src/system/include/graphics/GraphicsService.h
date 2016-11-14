@@ -48,6 +48,9 @@ class GraphicsService : public Service
             size_t maxWidth;
             size_t maxHeight;
             size_t maxDepth;
+
+            size_t maxTextWidth;
+            size_t maxTextHeight;
             
             /// Set to true if this display can drop back to a text-based mode
             /// with x86's int 10h thing. If this is false, the driver should
@@ -55,15 +58,35 @@ class GraphicsService : public Service
             bool bTextModes;
         };
 
+        struct GraphicsParameters
+        {
+            // Typically, the current "best" provider will be used for a probe.
+            // However, setting this adjusts the determination of the best
+            // provider to give one with the largest possible text mode.
+            bool wantTextMode;
+
+            // Provider target, the resulting provider will be copied into this.
+            // It is only valid if providerFound is true.
+            bool providerFound;
+            GraphicsProvider providerResult;
+        };
+
         /** serve: Interface through which clients interact with the Service */
         bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
     
     private:
-        GraphicsProvider *determineBestProvider();
+        struct ProviderPair
+        {
+            GraphicsProvider *bestBase;
+            GraphicsProvider *bestText;
+        };
+
+        ProviderPair determineBestProvider();
     
         List<GraphicsProvider*> m_Providers;
         
         GraphicsProvider *m_pCurrentProvider;
+        GraphicsProvider *m_pCurrentTextProvider;
 };
 
 #endif

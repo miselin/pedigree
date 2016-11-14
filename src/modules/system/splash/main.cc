@@ -58,7 +58,7 @@ static size_t g_LogBoxX, g_LogBoxY;
 static size_t g_LogX, g_LogY;
 static size_t g_LogW, g_LogH;
 
-static GraphicsService::GraphicsProvider pProvider;
+static GraphicsService::GraphicsParameters g_GraphicsParams;
 
 static size_t g_Previous = 0;
 static bool g_LogMode = false;
@@ -413,6 +413,9 @@ static bool handleSplash()
     getColor("border", g_ProgressBorderColour);
     getColor("fill", g_ProgressColour);
 
+    // No text mode for us - we're the splash screen!
+    g_GraphicsParams.wantTextMode = false;
+
     // Grab the current graphics provider for the system, use it to display the
     // splash screen to the user.
     /// \todo Check for failure
@@ -421,15 +424,15 @@ static bool handleSplash()
     bool bSuccess = false;
     if(pFeatures && pFeatures->provides(ServiceFeatures::probe))
         if(pService)
-            bSuccess = pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&pProvider), sizeof(pProvider));
+            bSuccess = pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&g_GraphicsParams), sizeof(g_GraphicsParams));
 
-    if(!bSuccess)
+    if(!(bSuccess && g_GraphicsParams.providerFound))
     {
         NOTICE("splash: this system does not support graphics, using fallback log callback");
         return handleNoSplash();
     }
 
-    Display *pDisplay = pProvider.pDisplay;
+    Display *pDisplay = g_GraphicsParams.providerResult.pDisplay;
 
     // Get the desired mode from the database
     size_t nDesiredWidth = 0, nDesiredHeight = 0, nDesiredBpp = 0;
@@ -485,7 +488,7 @@ static bool handleSplash()
         return handleNoSplash();
     }
 
-    Framebuffer *pParentFramebuffer = pProvider.pFramebuffer;
+    Framebuffer *pParentFramebuffer = g_GraphicsParams.providerResult.pFramebuffer;
 
     g_Width   = pParentFramebuffer->getWidth();
     g_Height  = pParentFramebuffer->getHeight();

@@ -66,6 +66,8 @@ public:
     /** Describes a screen mode / resolution */
     struct ScreenMode
     {
+        ScreenMode();
+
         uint32_t id;
         uint32_t width;
         uint32_t height;
@@ -76,6 +78,8 @@ public:
         Graphics::PixelFormat pf2;
         uint32_t bytesPerLine;
         uint32_t bytesPerPixel;
+
+        bool textMode;  // is a text mode, not a graphics mode
     };
 
     Display()
