@@ -146,6 +146,9 @@ UnixFilesystem::UnixFilesystem() :
     pRoot->addEntry(String(".."), pRoot);
 
     m_pRoot = pRoot;
+
+    // allow owner/group rwx but others only r-x on the filesystem root
+    m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
 }
 
 UnixFilesystem::~UnixFilesystem()
@@ -164,6 +167,9 @@ bool UnixFilesystem::createFile(File *parent, String filename, uint32_t mask)
         return false;
     }
 
+    // give owner/group full permission to the socket by default
+    pSocket->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
+
     return true;
 }
 
@@ -180,6 +186,9 @@ bool UnixFilesystem::createDirectory(File *parent, String filename, uint32_t mas
 
     pChild->addEntry(String("."), pChild);
     pChild->addEntry(String(".."), pParent);
+
+    // give owner/group full permission to the directory by default
+    pChild->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
 
     return true;
 }
