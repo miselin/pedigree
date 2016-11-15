@@ -433,6 +433,11 @@ void File::truncate()
 {
 }
 
+File *File::open()
+{
+    return this;
+}
+
 void File::dataChanged()
 {
 #ifdef THREADS

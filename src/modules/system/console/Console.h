@@ -50,7 +50,7 @@ class ConsoleFile : public File
     friend class ConsoleManager;
 
     public:
-        ConsoleFile(String consoleName, Filesystem *pFs);
+        ConsoleFile(size_t consoleNumber, String consoleName, Filesystem *pFs);
         virtual ~ConsoleFile()
         {}
 
@@ -103,6 +103,11 @@ class ConsoleFile : public File
             return PTY_BUFFER_SIZE;
         }
 
+        size_t getConsoleNumber() const
+        {
+            return m_ConsoleNumber;
+        }
+
     protected:
 
         /// select - check and optionally for a particular state.
@@ -123,6 +128,7 @@ class ConsoleFile : public File
     private:
 
         Buffer<char> m_Buffer;
+        size_t m_ConsoleNumber;
         String m_Name;
 
         /**
@@ -136,7 +142,7 @@ class ConsoleFile : public File
 class ConsoleMasterFile : public ConsoleFile
 {
     public:
-        ConsoleMasterFile(String consoleName, Filesystem *pFs);
+        ConsoleMasterFile(size_t consoleNumber, String consoleName, Filesystem *pFs);
         virtual ~ConsoleMasterFile()
         {}
 
@@ -204,7 +210,7 @@ class ConsoleMasterFile : public ConsoleFile
 class ConsoleSlaveFile : public ConsoleFile
 {
     public:
-        ConsoleSlaveFile(String consoleName, Filesystem *pFs);
+        ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem *pFs);
         virtual ~ConsoleSlaveFile()
         {}
 

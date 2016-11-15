@@ -28,10 +28,11 @@ extern const char defaultControl[MAX_CONTROL_CHAR];
 
 ConsoleManager ConsoleManager::m_Instance;
 
-ConsoleFile::ConsoleFile(String consoleName, Filesystem *pFs) :
+ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
     File(consoleName, 0, 0, 0, 0xdeadbeef, pFs, 0, 0),
     m_Flags(DEFAULT_FLAGS), m_Rows(25), m_Cols(80),
-    m_Buffer(PTY_BUFFER_SIZE), m_Name(consoleName), m_pEvent(0)
+    m_Buffer(PTY_BUFFER_SIZE), m_ConsoleNumber(consoleNumber),
+    m_Name(consoleName), m_pEvent(0)
 {
     MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
 
@@ -60,8 +61,8 @@ void ConsoleFile::inject(char *buf, size_t len, bool canBlock)
     dataChanged();
 }
 
-ConsoleMasterFile::ConsoleMasterFile(String consoleName, Filesystem *pFs) :
-    ConsoleFile(consoleName, pFs), bLocked(false), pLocker(0), m_LineBuffer(), m_LineBufferSize(0),
+ConsoleMasterFile::ConsoleMasterFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
+    ConsoleFile(consoleNumber, consoleName, pFs), bLocked(false), pLocker(0), m_LineBuffer(), m_LineBufferSize(0),
     m_LineBufferFirstNewline(~0), m_Last(0), m_EventTrigger(true)
 {
 }
@@ -433,8 +434,8 @@ void ConsoleMasterFile::triggerEvent(char cause)
     }
 }
 
-ConsoleSlaveFile::ConsoleSlaveFile(String consoleName, Filesystem *pFs) :
-    ConsoleFile(consoleName, pFs)
+ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
+    ConsoleFile(consoleNumber, consoleName, pFs)
 {
 }
 
@@ -504,8 +505,8 @@ void ConsoleManager::newConsole(char c, size_t i)
 
     String masterName(master), slaveName(slave);
 
-    ConsoleMasterFile *pMaster = new ConsoleMasterFile(masterName, this);
-    ConsoleSlaveFile *pSlave = new ConsoleSlaveFile(slaveName, this);
+    ConsoleMasterFile *pMaster = new ConsoleMasterFile(i, masterName, this);
+    ConsoleSlaveFile *pSlave = new ConsoleSlaveFile(i, slaveName, this);
 
     pMaster->setOther(pSlave);
     pSlave->setOther(pMaster);

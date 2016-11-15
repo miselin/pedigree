@@ -74,40 +74,6 @@ void sigint(int sig)
     // Ignore, but don't log (running program)
 }
 
-/// \todo ptmx support so we don't need to do this
-int posix_openpt(int oflag)
-{
-    int master = 0;
-    char name[16] = {0};
-    const char *x, *y;
-
-    oflag &= O_RDWR | O_NOCTTY;
-
-    strcpy(name, "/dev/ptyXX");
-    for(x = "pqrstuvwxyzabcde"; *x; ++x)
-    {
-        for(y = "0123456789abcdef"; *y; ++y)
-        {
-            name[8] = *x;
-            name[9] = *y;
-
-            master = open(name, oflag);
-            if(master >= 0)
-                return master;
-            else if(errno == ENOENT)
-            {
-                // Console does not exist.
-                return -1;
-            }
-            else
-                continue; // Console already used.
-        }
-    }
-
-    errno = EAGAIN;
-    return -1;
-}
-
 void handle_input(Input::InputNotification &note)
 {
     pedigree_fb_mode current_mode;
@@ -290,9 +256,8 @@ int main(int argc, char **argv)
     ptySize.ws_row = 25;
     ioctl(g_MasterPty, TIOCSWINSZ, &ptySize);
 
-    char slavename[16] = {0};
-    //strncpy(slavename, ptsname(g_MasterPty), 16);
-    strncpy(slavename, "/dev/ttyp0", 16);
+    char slavename[64] = {0};
+    strncpy(slavename, ptsname(g_MasterPty), 64);
     slavename[15] = 0;
 
     // Clear the screen.

@@ -39,6 +39,9 @@ int console_ttyname(int fd, char *buf);
 int console_setctty(int fd, bool steal);
 int console_notty(int fd);
 
+// get the terminal's number (e.g. ptyp0 returns 0)
+unsigned int console_getptn(int fd);
+
 pid_t posix_tcgetpgrp(int fd);
 int posix_tcsetpgrp(int fd, pid_t pgid_id);
 

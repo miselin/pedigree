@@ -589,3 +589,30 @@ pid_t posix_tcgetpgrp(int fd)
     return result;
 }
 
+unsigned int console_getptn(int fd)
+{
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if(!pSubsystem)
+    {
+        ERROR("No subsystem for one or both of the processes!");
+        return ~0U;
+    }
+
+    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
+    if (!pFd)
+    {
+        // Error - no such file descriptor.
+        SYSCALL_ERROR(BadFileDescriptor);
+        return ~0U;
+    }
+
+    if (!ConsoleManager::instance().isConsole(pFd->file))
+    {
+        SYSCALL_ERROR(NotAConsole);
+        return ~0U;
+    }
+
+    ConsoleFile *pConsole = static_cast<ConsoleFile *>(pFd->file);
+    return pConsole->getConsoleNumber();
+}

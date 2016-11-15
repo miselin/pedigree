@@ -90,6 +90,54 @@ uint64_t NullFile::write(uint64_t location, uint64_t size, uintptr_t buffer, boo
     return size;
 }
 
+PtmxFile::PtmxFile(String str, size_t inode, Filesystem *pParentFS, File *pParent, DevFsDirectory *ptsDirectory) :
+    File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_Terminals(), m_pPtsDirectory(ptsDirectory)
+{
+    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setUidOnly(0);
+    setGidOnly(0);
+}
+
+PtmxFile::~PtmxFile()
+{
+    delete m_pPtsDirectory;
+}
+
+uint64_t PtmxFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+uint64_t PtmxFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+File *PtmxFile::open()
+{
+    // find a new terminal ID that we can safely use
+    size_t terminal = m_Terminals.getFirstClear();
+    m_Terminals.set(terminal);
+
+    // create the terminals
+    String masterName, slaveName;
+    masterName.Format("pty%d", terminal);
+    slaveName.Format("%d", terminal);
+
+    ConsoleMasterFile *pMaster = new ConsoleMasterFile(terminal, masterName, m_pPtsDirectory->getFilesystem());
+    ConsoleSlaveFile *pSlave = new ConsoleSlaveFile(terminal, slaveName, m_pPtsDirectory->getFilesystem());
+
+    pMaster->setOther(pSlave);
+    pSlave->setOther(pMaster);
+
+    m_pPtsDirectory->addEntry(slaveName, pSlave);
+
+    // we actually open the newly-created master, which does not exist in the
+    // filesystem at all
+    /// \todo so, when this master is closed, we'll leak these resources...
+    return pMaster;
+}
+
 uint64_t ZeroFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     ByteSet(reinterpret_cast<void *>(buffer), 0, size);
@@ -296,25 +344,44 @@ DevFs::~DevFs()
 {
     delete m_pTty;
     delete m_pRoot;
-};
+}
 
 bool DevFs::initialise(Disk *pDisk)
 {
     // Deterministic inode assignment to each devfs node
-    size_t baseInode = 0;
+    m_NextInode = 0;
 
-    m_pRoot = new DevFsDirectory(String(""), 0, 0, 0, ++baseInode, this, 0, 0);
+    if (m_pRoot)
+    {
+        delete m_pRoot;
+    }
+
+    m_pRoot = new DevFsDirectory(String(""), 0, 0, 0, getNextInode(), this, 0, 0);
     // Allow user/group to read and write, but disallow all others anything
     // other than the ability to list and access files.
     m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
 
     // Create /dev/null and /dev/zero nodes
-    NullFile *pNull = new NullFile(String("null"), ++baseInode, this, m_pRoot);
-    ZeroFile *pZero = new ZeroFile(String("zero"), ++baseInode, this, m_pRoot);
+    NullFile *pNull = new NullFile(String("null"), getNextInode(), this, m_pRoot);
+    ZeroFile *pZero = new ZeroFile(String("zero"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pNull->getName(), pNull);
     m_pRoot->addEntry(pZero->getName(), pZero);
 
+    // Create the /dev/pts directory for ptys to go into.
+    DevFsDirectory *pPts = new DevFsDirectory(String("pts"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+    pPts->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+    m_pRoot->addEntry(pPts->getName(), pPts);
+
+    // Create the /dev/ptmx device.
+    PtmxFile *pPtmx = new PtmxFile(String("ptmx"), getNextInode(), this, m_pRoot, pPts);
+    m_pRoot->addEntry(pPtmx->getName(), pPtmx);
+
+    // Create the /dev/pts directory for the terminals the ptmx file will
+    // create as side-effects of open().
+    //
+
     // Create nodes for psuedoterminals.
+    /*
     const char *ptyletters = "pqrstuvwxyzabcde";
     for(size_t i = 0; i < 16; ++i)
     {
@@ -337,24 +404,25 @@ bool DevFs::initialise(Disk *pDisk)
             m_pRoot->addEntry(slaveName, pSlave);
         }
     }
+    */
 
     // Create /dev/urandom for the RNG.
-    RandomFile *pRandom = new RandomFile(String("urandom"), ++baseInode, this, m_pRoot);
+    RandomFile *pRandom = new RandomFile(String("urandom"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pRandom->getName(), pRandom);
 
     // Create /dev/fb for the framebuffer device.
-    FramebufferFile *pFb = new FramebufferFile(String("fb"), ++baseInode, this, m_pRoot);
+    FramebufferFile *pFb = new FramebufferFile(String("fb"), getNextInode(), this, m_pRoot);
     if(pFb->initialise())
         m_pRoot->addEntry(pFb->getName(), pFb);
     else
     {
         WARNING("POSIX: no /dev/fb - framebuffer failed to initialise.");
-        --baseInode;
+        revertInode();
         delete pFb;
     }
 
     // Create /dev/textui for the text-only UI device.
-    m_pTty = new TextIO(String("textui"), ++baseInode, this, m_pRoot);
+    m_pTty = new TextIO(String("textui"), getNextInode(), this, m_pRoot);
     if(m_pTty->initialise(false))
     {
         m_pRoot->addEntry(m_pTty->getName(), m_pTty);
@@ -362,9 +430,19 @@ bool DevFs::initialise(Disk *pDisk)
     else
     {
         WARNING("POSIX: no /dev/tty - TextIO failed to initialise.");
-        --baseInode;
+        revertInode();
         delete m_pTty;
     }
 
     return true;
+}
+
+size_t DevFs::getNextInode()
+{
+    return m_NextInode++;
+}
+
+void DevFs::revertInode()
+{
+    --m_NextInode;
 }

@@ -25,11 +25,15 @@
 #include <vfs/Filesystem.h>
 #include <vfs/Directory.h>
 #include <vfs/File.h>
+#include <utilities/ExtensibleBitmap.h>
 
 #include <console/TextIO.h>
 
 #include <graphics/Graphics.h>
 #include <graphics/GraphicsService.h>
+
+class DevFs;
+class DevFsDirectory;
 
 class RandomFile : public File
 {
@@ -80,6 +84,24 @@ public:
 
     uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
     uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+};
+
+class PtmxFile : public File
+{
+    public:
+        PtmxFile(String str, size_t inode, Filesystem *pParentFS, File *pParent, DevFsDirectory *m_pPtsDirectory);
+        ~PtmxFile();
+
+        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+        // override open() to correctly handle returning a master and creating
+        // the associated slave.
+        virtual File *open();
+
+    private:
+        ExtensibleBitmap m_Terminals;
+        DevFsDirectory *m_pPtsDirectory;
 };
 
 class FramebufferFile : public File
@@ -146,6 +168,9 @@ public:
     return String("dev");
   }
 
+  virtual size_t getNextInode();
+  virtual void revertInode();
+
 protected:
   virtual bool createFile(File* parent, String filename, uint32_t mask)
   {return false;}
@@ -164,6 +189,8 @@ private:
   DevFsDirectory *m_pRoot;
 
   TextIO *m_pTty;
+
+  size_t m_NextInode;
 };
 
 #endif

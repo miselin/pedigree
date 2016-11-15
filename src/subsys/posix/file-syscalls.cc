@@ -560,6 +560,9 @@ int posix_open(const char *name, int flags, int mode)
     // O_RDONLY is zero.
     bool checkRead = (flags == O_RDONLY) || (flags & O_RDWR);
 
+    // Handle side effects.
+    File *newFile = file->open();
+
     // Check for the desired permissions.
     if (!VFS::checkAccess(file,
         checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
@@ -568,6 +571,17 @@ int posix_open(const char *name, int flags, int mode)
         F_NOTICE("  -> file access denied.");
         return -1;
     }
+    // Check for the desired permissions.
+    if ((newFile != file) && (!VFS::checkAccess(newFile,
+        checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false)))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        F_NOTICE("  -> file access denied.");
+        return -1;
+    }
+
+    // ensure we tweak the correct file now
+    file = newFile;
 
     // Check for console (as we have special handling needed here)
     if (ConsoleManager::instance().isConsole(file))
@@ -1661,6 +1675,24 @@ int posix_ioctl(int fd, int command, void *buf)
                 F_NOTICE(" -> TIOCSCTTY");
                 return console_setctty(fd, reinterpret_cast<uintptr_t>(buf) == 1);
             }
+        }
+
+        case TIOCGPTN:
+        {
+            F_NOTICE(" -> TIOCGPTN");
+            unsigned int *out = reinterpret_cast<unsigned int *>(buf);
+            unsigned int result = console_getptn(fd);
+            if (result < ~0U)
+            {
+                *out = result;
+                return 0;
+            }
+            else
+            {
+                // console_getptn will set the syscall error
+                return -1;
+            }
+            break;
         }
 
         case FIONBIO:

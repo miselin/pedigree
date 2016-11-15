@@ -285,6 +285,14 @@ public:
     {
     }
 
+    /** Obtain the actual File object to use when opening this file.
+     *
+     * This allows a File to exist and perform logic on an open() before
+     * returning either itself or some other File object. Some files require
+     * side effects as part of their opening, this facilitates that.
+     */
+    virtual File *open();
+
 protected:
 
     /** Internal function to retrieve an aligned 512byte section of the file. */
