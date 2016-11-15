@@ -21,6 +21,7 @@
 #include "Font.h"
 #include "Terminal.h"
 #include <sys/klog.h>
+#include <string.h>
 #include <time.h>
 
 #define XTERM_BOLD      0x1
@@ -50,6 +51,8 @@
 
 #include <native/config/Config.h>
 #include <native/graphics/Graphics.h>
+
+#include <cairo/cairo.h>
 
  // RGBA -> BGRA
 
@@ -1528,9 +1531,6 @@ void Xterm::Window::resize(size_t nWidth, size_t nHeight, bool bActive)
 #ifdef XTERM_DEBUG
     klog(LOG_INFO, " -> cols %zd, %zd", nWidth, nHeight);
 #endif
-
-    g_NormalFont->setWidth(nWidth);
-    g_BoldFont->setWidth(nWidth);
 
     if(bActive && m_Bg && g_Cairo)
     {

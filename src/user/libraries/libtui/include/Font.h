@@ -28,16 +28,6 @@
 
 #include <map>
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
-
-#include <cairo/cairo.h>
-#include <cairo/cairo-ft.h>
-
-#include <pango/pangocairo.h>
-
-#include <iconv.h>
-
 class Font
 {
 public:
@@ -58,11 +48,6 @@ public:
     size_t getBaseline()
     {return m_Baseline;}
 
-    void setWidth(size_t w)
-    {
-        m_nWidth = w;
-    }
-
     const char *precache(uint32_t c);
 
 private:
@@ -70,47 +55,15 @@ private:
     Font(const Font&);
     Font &operator = (const Font&);
 
-    struct Glyph
-    {
-        rgb_t *buffer;
-        
-        PedigreeGraphics::Buffer *pBlitBuffer;
-    };
-    void drawGlyph(PedigreeGraphics::Framebuffer *pFb, Glyph *pBitmap, int left, int top);
-    Glyph *generateGlyph(uint32_t c, uint32_t f, uint32_t b);
-    void cacheInsert(Glyph *pGlyph, uint32_t c, uint32_t f, uint32_t b);
-    Glyph *cacheLookup(uint32_t c, uint32_t f, uint32_t b);
-
-    static FT_Library m_Library;
-    static bool m_bLibraryInitialised;
-    
-    FT_Face m_Face;
     size_t m_CellWidth;
     size_t m_CellHeight;
-    size_t m_nWidth;
     size_t m_Baseline;
-
-    bool m_bCache;
-    struct CacheEntry
-    {
-        uint32_t c;
-        uint32_t f, b;
-        Glyph *value;
-        CacheEntry *next;
-    };
-    CacheEntry **m_pCache;
-    size_t m_CacheSize;
-
-    cairo_user_data_key_t key;
-    cairo_font_face_t *font_face;
-
-    size_t m_FontSize;
-
-    iconv_t m_Iconv;
 
     std::map<uint32_t, char *> m_ConversionCache;
 
-    PangoFontDescription *m_FontDesc;
+    // opaque pointer that allows the .cc files to refer to pango etc without
+    // requiring clients to also see the headers
+    struct FontLibraries *m_FontLibraries;
 };
 
 #endif

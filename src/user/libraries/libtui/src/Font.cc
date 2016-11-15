@@ -30,25 +30,35 @@
 
 #include <native/graphics/Graphics.h>
 
-extern PedigreeGraphics::Framebuffer *g_pFramebuffer;
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
-FT_Library Font::m_Library;
-bool Font::m_bLibraryInitialised = false;
+#include <cairo/cairo.h>
+#include <cairo/cairo-ft.h>
+
+#include <pango/pangocairo.h>
+
+struct FontLibraries
+{
+    iconv_t m_Iconv;
+    PangoFontDescription *m_FontDesc;
+};
+
+extern PedigreeGraphics::Framebuffer *g_pFramebuffer;
 
 extern cairo_t *g_Cairo;
 
 Font::Font(size_t requestedSize, const char *pFilename, bool bCache, size_t nWidth) :
-    m_Face(), m_CellWidth(0), m_CellHeight(0), m_nWidth(nWidth), m_Baseline(requestedSize), m_bCache(bCache),
-    m_pCache(0), m_CacheSize(0), key(), m_FontSize(requestedSize),
-    m_Iconv(0), m_ConversionCache(), m_FontDesc(0)
+    m_CellWidth(0), m_CellHeight(0), m_Baseline(requestedSize), m_ConversionCache()
 {
-    m_FontDesc = pango_font_description_from_string(pFilename);
+    m_FontLibraries = new FontLibraries();
+    m_FontLibraries->m_FontDesc = pango_font_description_from_string(pFilename);
 
     PangoFontMetrics *metrics = 0;
     PangoFontMap *fontmap = pango_cairo_font_map_get_default();
     PangoContext *context = pango_font_map_create_context(fontmap);
-    pango_context_set_font_description(context, m_FontDesc);
-    metrics = pango_context_get_metrics(context, m_FontDesc, NULL);
+    pango_context_set_font_description(context, m_FontLibraries->m_FontDesc);
+    metrics = pango_context_get_metrics(context, m_FontLibraries->m_FontDesc, NULL);
     g_object_unref(context);
 
     m_CellWidth = pango_font_metrics_get_approximate_char_width(metrics) / PANGO_SCALE;
@@ -60,8 +70,8 @@ Font::Font(size_t requestedSize, const char *pFilename, bool bCache, size_t nWid
     pango_font_metrics_unref(metrics);
 
     /// \todo UTF-32 endianness
-    m_Iconv = iconv_open("UTF-8", "UTF-32LE");
-    if(m_Iconv == (iconv_t) -1)
+    m_FontLibraries->m_Iconv = iconv_open("UTF-8", "UTF-32LE");
+    if(m_FontLibraries->m_Iconv == (iconv_t) -1)
     {
         klog(LOG_WARNING, "TUI: Font instance couldn't create iconv (%s)", strerror(errno));
     }
@@ -74,7 +84,7 @@ Font::Font(size_t requestedSize, const char *pFilename, bool bCache, size_t nWid
 
 Font::~Font()
 {
-    iconv_close(m_Iconv);
+    iconv_close(m_FontLibraries->m_Iconv);
 
     // Destroy our precached glyphs.
     for (std::map<uint32_t,char *>::iterator it = m_ConversionCache.begin();
@@ -84,7 +94,9 @@ Font::~Font()
         delete [] it->second;
     }
 
-    pango_font_description_free(m_FontDesc);
+    pango_font_description_free(m_FontLibraries->m_FontDesc);
+
+    delete m_FontLibraries;
 }
 
 size_t Font::render(PedigreeGraphics::Framebuffer *pFb, uint32_t c, size_t x, size_t y, uint32_t f, uint32_t b, bool bBack, bool bBold, bool bItalic, bool bUnderline)
@@ -124,7 +136,7 @@ size_t Font::render(const char *s, size_t x, size_t y, uint32_t f, uint32_t b,
     cairo_save(g_Cairo);
     PangoLayout *layout = pango_cairo_create_layout(g_Cairo);
     pango_layout_set_attributes(layout, attrs);
-    pango_layout_set_font_description(layout, m_FontDesc);
+    pango_layout_set_font_description(layout, m_FontLibraries->m_FontDesc);
     pango_layout_set_text(layout, s, -1);  // Not using markup here - intentional.
     pango_attr_list_unref(attrs);
 
@@ -175,7 +187,7 @@ size_t Font::render(const char *s, size_t x, size_t y, uint32_t f, uint32_t b,
 
 const char *Font::precache(uint32_t c)
 {
-    if(m_Iconv == (iconv_t) -1)
+    if(m_FontLibraries->m_Iconv == (iconv_t) -1)
     {
         klog(LOG_WARNING, "TUI: Font instance with bad iconv.");
         return 0;
@@ -186,7 +198,7 @@ const char *Font::precache(uint32_t c)
     if(it == m_ConversionCache.end())
     {
         // Reset iconv conversion state.
-        iconv(m_Iconv, 0, 0, 0, 0);
+        iconv(m_FontLibraries->m_Iconv, 0, 0, 0, 0);
 
         // Convert UTF-32 input character to UTF-8 for Cairo rendering.
         uint32_t utf32[] = {c, 0};
@@ -195,7 +207,7 @@ const char *Font::precache(uint32_t c)
         char *out_c = out;
         size_t utf32_len = 8;
         size_t out_len = 100;
-        size_t res = iconv(m_Iconv, &utf32_c, &utf32_len, &out_c, &out_len);
+        size_t res = iconv(m_FontLibraries->m_Iconv, &utf32_c, &utf32_len, &out_c, &out_len);
 
         if(res == ((size_t) -1))
         {

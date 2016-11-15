@@ -39,11 +39,13 @@ if env['ON_PEDIGREE']:
 
 # Libraries to compile
 libs = [
+    'libtui',
     'libui',
 ]
 
 # Subsystem for each set of libraries
 subsys = {
+    'libtui' : 'posix',
     'libui' : 'native',
 }
 
@@ -55,6 +57,17 @@ lib_deps = {
 base_include_dirs = [
     EXTERNAL_INCLUDE_DIR,
 ]
+
+custom_include_dirs = {
+    'libtui': [
+        '#src/user/libraries/libui/include',
+        EXTERNAL_INCLUDE_DIR + '/freetype2',
+        EXTERNAL_LIBRARY_DIR + '/glib-2.0/include',
+        EXTERNAL_INCLUDE_DIR + '/glib-2.0',
+        EXTERNAL_INCLUDE_DIR + '/pango-1.0',
+        EXTERNAL_INCLUDE_DIR + '/cairo',
+    ],
+}
 
 env_clone['CFLAGS'] = buildutils.userspace.fixFlags(env, env['CFLAGS'])
 env_clone['CCFLAGS'] = buildutils.userspace.fixFlags(env, env['CCFLAGS'])
@@ -84,6 +97,8 @@ for library in libs:
                 cpp_base,
                 '%s/%s' % (cpp_base, env['COMPILER_TARGET']),
             ]
+    elif s == 'posix':
+        pass
     else:
         print "** Library with subsys '%s' is not buildable - fix src/user/libraries/SConscript!" % (s)
 
@@ -93,6 +108,8 @@ for library in libs:
     custom_include_dir = os.path.join(srcdir, 'include')
     if(os.path.exists(custom_include_dir)):
         incpath.append(custom_include_dir)
+
+    incpath.extend(custom_include_dirs.get(library, ()))
 
     library_env['CPPPATH'] += incpath
     library_env['LIBS'] = lib_deps.get(library, [])

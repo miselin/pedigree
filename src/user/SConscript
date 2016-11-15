@@ -123,7 +123,9 @@ pango_apps = [
 # Custom include paths for specific applications.
 custom_incpath = {
     'TUI' : [EXTERNAL_INCLUDE_DIR,
-             EXTERNAL_INCLUDE_DIR + '/freetype2'],
+             EXTERNAL_INCLUDE_DIR + '/freetype2',
+             '#src/user/libraries/libtui/include',
+    ],
     'winman' : ['#src/user/libraries/libui/include',
                 '#src/user/libraries/libui/src',
                 EXTERNAL_INCLUDE_DIR,
@@ -138,7 +140,7 @@ custom_libs = {
     'ipc-test-server': ['pedigree'],
     'thread-test' : ['pthread'],
     'ttyterm': ['pedigree'],
-    'TUI' : ['cairo', 'freetype', 'png', 'iconv', 'pedigree'],
+    'TUI' : ['tui', 'cairo', 'freetype', 'png', 'iconv', 'pedigree'],
     'uitest' : ['pedigree'],
     'winman': ['cairo', 'freetype', 'png', 'pedigree'],
     'apptest': ['pedigree'],
