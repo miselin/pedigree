@@ -86,17 +86,21 @@ env_clone.MergeFlags({
 
 for library in libs:
     library_env = env_clone.Clone()
-    
-    # Determine the subsystem and include directories for this library
+
     incpath = base_include_dirs[:]
+
+    # C++ headers.
+    if not env['ON_PEDIGREE']:
+        cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
+        incpath += [
+            cpp_base,
+            '%s/%s' % (cpp_base, env['COMPILER_TARGET']),
+        ]
+
+    # Determine the subsystem for the library and add any extra options.
     s = subsys[library]
     if s == 'native':
-        if not env['ON_PEDIGREE']:
-            cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
-            incpath += [
-                cpp_base,
-                '%s/%s' % (cpp_base, env['COMPILER_TARGET']),
-            ]
+        pass
     elif s == 'posix':
         pass
     else:
