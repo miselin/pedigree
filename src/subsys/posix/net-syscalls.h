@@ -32,7 +32,7 @@ int posix_socket(int domain, int type, int protocol);
 int posix_connect(int sock, struct sockaddr* address, size_t addrlen);
 
 ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags);
-ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen);
+ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t addrlen);
 ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags);
 ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen);
 

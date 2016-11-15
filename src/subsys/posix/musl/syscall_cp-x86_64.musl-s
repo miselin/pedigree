@@ -28,7 +28,9 @@ __cp_begin:
     mov 8(%rsp), %r9
     mov 16(%rsp), %r10
     mov %r10, 8(%rsp)
+    push %r10
     call pedigree_translate_syscall
+    pop %r10
     mov %r11, 8(%rsp)
 __cp_end:
     ret

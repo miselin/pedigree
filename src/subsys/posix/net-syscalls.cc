@@ -314,11 +314,16 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
     return success ? bufflen : -1;
 }
 
-ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen)
+ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t addrlen)
 {
-    /// \todo Check addresses...
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeRead))
+    {
+        N_NOTICE("sendto -> invalid address for transmission buffer");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
 
-    N_NOTICE("posix_sendto");
+    N_NOTICE("posix_sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address << ", " << addrlen << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -335,7 +340,7 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         return -1;
     }
 
-    if(f->so_domain != address->sa_family)
+    if(address && (f->so_domain != address->sa_family))
     {
         // EAFNOSUPPORT
         return -1;
@@ -343,14 +348,32 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
 
     if(f->so_domain == AF_UNIX)
     {
-        const struct sockaddr_un *un = reinterpret_cast<const struct sockaddr_un *>(address);
-        File *pFile = VFS::instance().find(String(un->sun_path));
-        if(!pFile)
+        File *pFile = 0;
+        if (address)
         {
-            SYSCALL_ERROR(DoesNotExist);
-            return -1;
+            if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_un), PosixSubsystem::SafeRead))
+            {
+                N_NOTICE("sendto -> invalid address for AF_UNIX struct sockaddr_un");
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
+            }
+
+            const struct sockaddr_un *un = reinterpret_cast<const struct sockaddr_un *>(address);
+
+            pFile = VFS::instance().find(String(un->sun_path));
+            if(!pFile)
+            {
+                SYSCALL_ERROR(DoesNotExist);
+                return -1;
+            }
+        }
+        else
+        {
+            // Assume we're connect()'d, write to socket.
+            pFile = f->file;
         }
 
+        /// \todo sanity check pFile?
         return pFile->write(reinterpret_cast<uintptr_t>(static_cast<const char *>(f->so_localPath)), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
     }
 
@@ -380,10 +403,30 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
 
         Endpoint::RemoteEndpoint remoteHost;
-        const struct sockaddr_in* sin = reinterpret_cast<const struct sockaddr_in*>(address);
-        remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
-        remoteHost.ip.setIp(sin->sin_addr.s_addr);
-        return ce->send(bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
+        bool remoteOk = false;
+        if (address)
+        {
+            const struct sockaddr_in* sin = reinterpret_cast<const struct sockaddr_in*>(address);
+            remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
+            remoteHost.ip.setIp(sin->sin_addr.s_addr);
+            remoteOk = true;
+        }
+        else
+        {
+            // special handling - need to check for a remote host
+            IpAddress remoteIp = p->getRemoteIp();
+            if (remoteIp.getIp() != 0)
+            {
+                remoteHost.remotePort = p->getRemotePort();
+                remoteHost.ip = remoteIp;
+                remoteOk = true;
+            }
+        }
+
+        if (remoteOk)
+        {
+            return ce->send(bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
+        }
     }
 
     return -1;
@@ -445,9 +488,15 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
 
 ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen)
 {
-    /// \todo Check pointer.....
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeWrite) &&
+        ((!address) || PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t), PosixSubsystem::SafeWrite))))
+    {
+        N_NOTICE("recvfrom -> invalid address for receive buffer or addrlen parameter");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
 
-    N_NOTICE("posix_recvfrom");
+    N_NOTICE("posix_recvfrom(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address << ", " << addrlen);
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -467,12 +516,22 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
     if(f->so_domain == AF_UNIX)
     {
         File *pFile = f->so_local;
-        struct sockaddr_un *un = reinterpret_cast<struct sockaddr_un *>(address);
-        un->sun_family = AF_UNIX;
+        struct sockaddr_un un_temp;
+        struct sockaddr_un *un = 0;
+        if (address)
+        {
+            un = reinterpret_cast<struct sockaddr_un *>(address);
+        }
+        else
+        {
+            un = &un_temp;
+        }
 
+        // this will load sun_path into sun_path automatically
+        un->sun_family = AF_UNIX;
         ssize_t r = pFile->read(reinterpret_cast<uintptr_t>(un->sun_path), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
 
-        if(r > 0)
+        if((r > 0) && address && addrlen)
         {
             *addrlen = sizeof(struct sockaddr_un);
         }

@@ -133,7 +133,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_RECVFROM:
             return posix_recvfrom(static_cast<int>(p1), reinterpret_cast<void *>(p2), p3, static_cast<int>(p4), reinterpret_cast<struct sockaddr *>(p5), reinterpret_cast<socklen_t *>(p6));
         case POSIX_SENDTO:
-            return posix_sendto(static_cast<int>(p1), reinterpret_cast<void *>(p2), p3, static_cast<int>(p4), reinterpret_cast<struct sockaddr *>(p5), reinterpret_cast<socklen_t *>(p6));
+            return posix_sendto(static_cast<int>(p1), reinterpret_cast<void *>(p2), p3, static_cast<int>(p4), reinterpret_cast<struct sockaddr *>(p5), static_cast<socklen_t>(p6));
         case POSIX_GETTIMEOFDAY:
             return posix_gettimeofday(reinterpret_cast<struct timeval *>(p1), reinterpret_cast<struct timezone *>(p2));
         case POSIX_DUP:
