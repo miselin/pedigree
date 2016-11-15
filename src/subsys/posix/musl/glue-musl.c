@@ -150,6 +150,9 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
         // ...
         case SYS_utimes: pedigree_translation = POSIX_UTIMES; break;
         // ...
+
+        // Pedigree pass-through syscalls.
+        case 0x8000: pedigree_translation = POSIX_TTYNAME;
     }
 
     if (pedigree_translation == -1)

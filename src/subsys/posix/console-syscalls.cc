@@ -418,7 +418,7 @@ int console_ttyname(int fd, char *buf)
   }
 
   File *tty = pFd->file;
-  StringFormat(buf, "/dev/%s", static_cast<const char *>(tty->getName()));
+  StringFormat(buf, "/dev/pts/%s", static_cast<const char *>(tty->getName()));
   return 0;
 }
 

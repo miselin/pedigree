@@ -22,6 +22,9 @@ rm -f src/thread/x86_64/{clone,__unmapself,__set_thread_area}.s
 # Custom syscall_cp to use Pedigree's syscall mechanism.
 cp "$SRCDIR/src/subsys/posix/musl/syscall_cp-x86_64.musl-s" src/thread/x86_64/syscall_cp.s
 
+# Custom ttyname that doesn't use /proc
+cp "$SRCDIR/src/subsys/posix/musl/ttyname.c" src/unistd/ttyname_r.c
+
 # Copy custom headers.
 cp "$SRCDIR/src/subsys/posix/musl/fb.h" include/sys/
 cp "$SRCDIR/src/subsys/posix/musl/klog.h" include/sys/
