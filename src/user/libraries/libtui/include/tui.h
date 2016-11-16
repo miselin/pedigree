@@ -25,11 +25,19 @@
 class Widget;
 class DirtyRectangle;
 
+class TuiRedrawer
+{
+    public:
+        virtual ~TuiRedrawer() = default;
+
+        virtual void redraw(size_t x, size_t y, size_t w, size_t h) = 0;
+};
+
 class Tui
 {
     public:
         /// Default constructor which builds without using a widget.
-        Tui();
+        Tui(TuiRedrawer *pRedrawer);
 
         /// Constructor which builds using a widget.
         Tui(Widget *widget);
@@ -64,6 +72,7 @@ class Tui
         struct TuiLocal *m_LocalData;
 
         Widget *m_pWidget;
+        TuiRedrawer *m_pRedrawer;
 };
 
 #endif

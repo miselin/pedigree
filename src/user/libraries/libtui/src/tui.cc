@@ -46,12 +46,12 @@ struct TuiLocal
     Font *pBoldFont = nullptr;
 };
 
-Tui::Tui() : m_LocalData(nullptr), m_pWidget(nullptr)
+Tui::Tui(TuiRedrawer *pRedrawer) : m_LocalData(nullptr), m_pWidget(nullptr), m_pRedrawer(pRedrawer)
 {
     m_LocalData = new TuiLocal;
 }
 
-Tui::Tui(Widget *widget) : Tui()
+Tui::Tui(Widget *widget) : Tui(static_cast<TuiRedrawer *>(nullptr))
 {
     m_pWidget = widget;
 }
@@ -370,5 +370,9 @@ void Tui::redraw(DirtyRectangle &rect)
     if (m_pWidget)
     {
         m_pWidget->redraw(rt);
+    }
+    else if (m_pRedrawer)
+    {
+        m_pRedrawer->redraw(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
     }
 }
