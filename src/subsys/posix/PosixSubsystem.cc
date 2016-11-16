@@ -44,6 +44,8 @@
 #include <vfs/LockedFile.h>
 #include <vfs/MemoryMappedFile.h>
 
+#include "file-syscalls.h"
+
 #define O_RDONLY    0
 #define O_WRONLY    1
 #define O_RDWR      2
@@ -1095,8 +1097,16 @@ bool PosixSubsystem::parseShebang(File *pFile, File *&pOutFile, List<SharedPoint
         return true;
     }
 
-    // Can we load the new program?
+    // Normalise path to ensure we have the correct path to invoke.
+    String invokePath;
     SharedPointer<String> newTarget = *additionalArgv.begin();
+    if (normalisePath(invokePath, static_cast<const char *>(*newTarget)))
+    {
+        // rewrote, update argv[0] accordingly.
+        *newTarget = invokePath;
+    }
+
+    // Can we load the new program?
     File *pNewTarget = VFS::instance().find(*newTarget, pProcess->getCwd());
     if (!pNewTarget)
     {
