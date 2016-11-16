@@ -157,6 +157,8 @@ int main(int argc, char **argv)
     const char *username = FORCE_LOGIN_USER;
     printf("%s\n", username);
 #else
+    fflush(stdout);
+
     char buffer[256];
     char *username = fgets(buffer, 256, stdin);
     if(!username)
