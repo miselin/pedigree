@@ -41,11 +41,13 @@ if env['ON_PEDIGREE']:
 libs = [
     'libtui',
     'libui',
+    'libfb',
 ]
 
 # Subsystem for each set of libraries
 subsys = {
     'libtui' : 'posix',
+    'libfb' : 'posix',
     'libui' : 'native',
 }
 

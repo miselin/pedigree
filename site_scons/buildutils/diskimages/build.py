@@ -85,9 +85,11 @@ def buildDiskImages(env, config_database):
     if env['ARCH_TARGET'] != 'ARM':
         libui = os.path.join(builddir, 'libs', 'libui.so')
         libtui = os.path.join(builddir, 'libs', 'libtui.so')
+        libfb = os.path.join(builddir, 'libs', 'libfb.so')
     else:
         libui = None
         libtui = None
+        libfb = None
 
     libpedigree = os.path.join(builddir, 'libpedigree.so')
     libpedigree_c = os.path.join(builddir, 'libpedigree-c.so')
@@ -153,6 +155,7 @@ def buildDiskImages(env, config_database):
         libpedigree_c,
         libui,
         libtui,
+        libfb,
     ]
 
     if env['ARCH_TARGET'] != 'ARM':
