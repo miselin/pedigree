@@ -21,83 +21,8 @@
 #define _WINMAN_UTIL_H
 
 #ifndef TARGET_LINUX
-#include <sys/fb.h>
-
 #include <native/ipc/Ipc.h>
-#else
-#include <SDL/SDL.h>
 #endif
-
-#include <cairo/cairo.h>
-
-/**
- * \brief Abstracts the system's framebuffer offering.
- *
- * This is needed to abstract out the Pedigree-specific framebuffer parts so
- * the window manager can be run under SDL on Linux for rapid development.
- */
-class Framebuffer
-{
-    public:
-        Framebuffer();
-        virtual ~Framebuffer();
-
-        /** General system-specific initialisation. */
-        bool initialise();
-
-        /** Store current mode (before switching). */
-        void storeMode();
-
-        /** Restore saved mode. */
-        void restoreMode();
-
-        /** Create framebuffer, enter desired mode. */
-        int enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp);
-
-        /** Retrieve base address of the framebuffer. */
-        void *getFramebuffer() const
-        {
-            return m_pFramebuffer;
-        }
-
-        /** Flush framebuffer in the given region. */
-        void flush(size_t x, size_t y, size_t w, size_t h);
-
-        /** Get framebuffer colour format. */
-        cairo_format_t getFormat() const
-        {
-            return m_Format;
-        }
-
-        /** Get framebuffer dimensions. */
-        size_t getWidth() const
-        {
-            return m_Width;
-        }
-        size_t getHeight() const
-        {
-            return m_Height;
-        }
-
-    private:
-        void *m_pFramebuffer;
-        size_t m_FramebufferSize;
-
-        cairo_format_t m_Format;
-
-        size_t m_Width;
-        size_t m_Height;
-
-#ifdef TARGET_LINUX
-        SDL_Surface *m_pScreen;
-        SDL_Surface *m_pBackbuffer;
-#else
-        int m_Fb;
-
-        bool m_bStoredMode;
-        pedigree_fb_mode m_StoredMode;
-#endif
-};
 
 /**
  * \brief Abstracts a buffer shared between multiple processes.

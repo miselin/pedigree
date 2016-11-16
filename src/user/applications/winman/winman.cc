@@ -52,6 +52,7 @@
 #include <pango/pangocairo.h>
 
 #include <protocol.h>
+#include <pedigree_fb.h>
 
 #ifdef TARGET_LINUX
 #include <SDL/SDL.h>
