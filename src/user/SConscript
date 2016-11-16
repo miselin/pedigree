@@ -97,6 +97,7 @@ cpp_apps = [
     'thread-test',
     'ttyterm',
     'TUI',
+    'gfxcon',
     'uitest',
 ]
 
@@ -111,6 +112,7 @@ cpp_11_apps = [
 libui_apps = [
     'gears',
     'TUI',
+    'gfxcon',
     'uitest',
 ]
 
@@ -118,6 +120,7 @@ libui_apps = [
 pango_apps = [
     'winman',
     'TUI',
+    'gfxcon',
 ]
 
 # Custom include paths for specific applications.
@@ -125,6 +128,10 @@ custom_incpath = {
     'TUI' : [EXTERNAL_INCLUDE_DIR,
              EXTERNAL_INCLUDE_DIR + '/freetype2',
              '#src/user/libraries/libtui/include',
+    ],
+    'gfxcon': [
+        '#src/user/libraries/libtui/include',
+        '#src/user/libraries/libfb/include',
     ],
     'winman' : ['#src/user/libraries/libui/include',
                 '#src/user/libraries/libui/src',
@@ -142,6 +149,7 @@ custom_libs = {
     'thread-test' : ['pthread'],
     'ttyterm': ['pedigree'],
     'TUI' : ['tui', 'cairo', 'freetype', 'png', 'iconv', 'pedigree'],
+    'gfxcon' : ['fb', 'tui', 'cairo', 'freetype', 'png', 'iconv', 'pedigree'],
     'uitest' : ['pedigree'],
     'winman': ['fb', 'cairo', 'freetype', 'png', 'pedigree'],
     'apptest': ['pedigree'],
