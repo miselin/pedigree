@@ -46,6 +46,7 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
         case SYS_stat: pedigree_translation = POSIX_STAT; break;
         case SYS_fstat: pedigree_translation = POSIX_FSTAT; break;
         case SYS_lstat: pedigree_translation = POSIX_LSTAT; break;
+        case SYS_poll: pedigree_translation = POSIX_POLL; break;
         case SYS_lseek: pedigree_translation = POSIX_LSEEK; break;
         case SYS_mmap: pedigree_translation = POSIX_MMAP; break;
         case SYS_mprotect: pedigree_translation = POSIX_MPROTECT; break;

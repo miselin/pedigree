@@ -74,6 +74,7 @@ PollEvent::~PollEvent()
 
 void PollEvent::fire()
 {
+    NOTICE("adding " << m_nREvent << " to revents!");
     m_pFd->revents |= m_nREvent;
 
     m_pSemaphore->release();
@@ -155,7 +156,7 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
-    size_t nRet = 0;
+    ssize_t nRet = 0;
     // Can be interrupted while waiting for sem - EINTR.
     Semaphore sem(0, true);
     Spinlock reentrancyLock;
@@ -275,7 +276,7 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
             // While the semaphore is nonzero, more FDs are ready.
             while (sem.tryAcquire())
                 nRet++;
-        }
+    }
         else
         {
             // The timeout event sets the interrupted state, so while this
@@ -318,7 +319,13 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
         Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::PollEvent, false);
     }
 
+    for (size_t i = 0; i < nfds; ++i)
+    {
+        F_NOTICE("    -> pollfd[" << i << "]: fd=" << fds[i].fd << ", events=" << fds[i].events << ", revents=" << fds[i].revents);
+    }
+
     F_NOTICE("    -> " << Dec << ((bError) ? -1 : nRet) << Hex);
+    F_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
 
     return (bError) ? -1 : nRet;
 }

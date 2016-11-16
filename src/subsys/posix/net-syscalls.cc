@@ -71,6 +71,7 @@ int posix_socket(int domain, int type, int protocol)
         }
         else
         {
+            SYSCALL_ERROR(InvalidArgument);
             valid = false;
         }
     }
@@ -94,11 +95,15 @@ int posix_socket(int domain, int type, int protocol)
     else
     {
         WARNING("domain = " << domain << " - not known!");
+        SYSCALL_ERROR(InvalidArgument);
         valid = false;
     }
 
     if (!valid)
+    {
+        N_NOTICE(" -> invalid socket parameters");
         return -1;
+    }
 
     FileDescriptor *f = new FileDescriptor;
     f->file = file;
@@ -160,12 +165,14 @@ int posix_connect(int sock, struct sockaddr* address, size_t addrlen)
         }
 
         SYSCALL_ERROR(BadFileDescriptor);
+        N_NOTICE(" -> bad fd");
         return -1;
     }
     Socket *s = static_cast<Socket *>(f->file);
     if(f->so_domain != address->sa_family)
     {
         // EAFNOSUPPORT
+        N_NOTICE(" -> address family unsupported");
         return -1;
     }
 
@@ -180,12 +187,14 @@ int posix_connect(int sock, struct sockaddr* address, size_t addrlen)
             {
                 // EALREADY - connection attempt in progress
                 SYSCALL_ERROR(Already);
+                N_NOTICE(" -> connection attempt in progress already");
                 return -1;
             }
             else
             {
                 // EISCONN - already connected
                 SYSCALL_ERROR(IsConnected);
+                N_NOTICE(" -> already connected");
                 return -1;
             }
         }
@@ -202,6 +211,7 @@ int posix_connect(int sock, struct sockaddr* address, size_t addrlen)
     if(!iface || !iface->isConnected())
     {
         // Can't use this interface...
+        N_NOTICE(" -> interface not connected");
         return false;
     }
     StationInfo iface_info = iface->getStationInfo();
@@ -221,6 +231,7 @@ int posix_connect(int sock, struct sockaddr* address, size_t addrlen)
         if (!blocking)
         {
             SYSCALL_ERROR(InProgress);
+            N_NOTICE(" -> connection now in progress");
             return -1;
         }
     }
@@ -249,8 +260,7 @@ int posix_connect(int sock, struct sockaddr* address, size_t addrlen)
         success = true;
     }
 
-    NOTICE("posix_connect returns");
-
+    N_NOTICE(" -> success=" << success);
     return success ? 0 : -1;
 }
 
@@ -842,7 +852,7 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
     else
     {
         /// \todo NotConnected more correct?
-        SYSCALL_ERROR(NotSupported);
+        SYSCALL_ERROR(OperationNotSupported);
         return -1;
     }
 
@@ -920,6 +930,7 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *o
     if (!f || !f->file)
     {
         SYSCALL_ERROR(BadFileDescriptor);
+        N_NOTICE(" -> bad file descriptor");
         return -1;
     }
 
@@ -928,6 +939,7 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *o
     if (level != SOL_SOCKET)
     {
         SYSCALL_ERROR(InvalidArgument);
+        N_NOTICE(" -> invalid argument, level is not SOL_SOCKET");
         return -1;
     }
 
@@ -936,9 +948,10 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *o
         case SO_ERROR:
         {
             Endpoint* p = s->getEndpoint();
-            N_NOTICE(" -> getting error [" << static_cast<int>(p->getError()) << "]");
-            *reinterpret_cast<Error::PosixError *>(optvalue) = p->getError();
-            *optlen = sizeof(Error::PosixError);
+            int err = static_cast<int>(p->getError());
+            N_NOTICE(" -> getting error [" << err << "]");
+            *reinterpret_cast<int *>(optvalue) = err;
+            *optlen = sizeof(int);
             p->resetError();
             break;
         }
@@ -951,6 +964,7 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *o
             return -1;
     }
 
+    N_NOTICE(" -> 0");
     return 0;
 }
 
