@@ -337,6 +337,12 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         nameToOpen += (name + StringLength("/bin/"));
         return true;
     }
+    else if (!StringCompareN(name, "/usr/bin/", StringLength("/usr/bin/")))
+    {
+        nameToOpen = "/applications/";
+        nameToOpen += (name + StringLength("/usr/bin/"));
+        return true;
+    }
     else if (!StringCompareN(name, "/lib/", StringLength("/lib/")))
     {
         nameToOpen = "/libraries/";
