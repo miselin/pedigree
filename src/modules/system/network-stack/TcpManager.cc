@@ -162,6 +162,7 @@ size_t TcpManager::Connect(Endpoint::RemoteEndpoint remoteHost, uint16_t localPo
   }
 
   Tcp::send(stateBlock->remoteHost.ip, stateBlock->localPort, stateBlock->remoteHost.remotePort, stateBlock->iss, 0, Tcp::SYN, stateBlock->snd_wnd, 0, 0);
+  endpoint->reportError(Error::InProgress);
 
   if(!bBlock)
     return connId; // connection in progress - assume it works
@@ -172,9 +173,16 @@ size_t TcpManager::Connect(Endpoint::RemoteEndpoint remoteHost, uint16_t localPo
     timedOut = true;
 
   if((stateBlock->currentState != Tcp::ESTABLISHED) || timedOut)
+  {
+    /// \todo record a proper error somehow
+    endpoint->reportError(Error::ConnectionRefused);
     return 0; /// \todo Keep track of an error number somewhere in StateBlock
+  }
   else
+  {
+    endpoint->resetError();
     return connId;
+  }
 }
 
 void TcpManager::Shutdown(size_t connectionId, bool bOnlyStopReceive)

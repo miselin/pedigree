@@ -266,6 +266,13 @@ void TcpEndpoint::stateChanged(Tcp::TcpState newState)
     // If we've moved into a data transfer state, notify the socket.
     if(newState == Tcp::ESTABLISHED || newState == Tcp::CLOSED)
     {
+        // If we've moved into a data transfer state, getsockopt() can report
+        // something other than InProgress now.
+        if (newState == Tcp::ESTABLISHED)
+        {
+            resetError();
+        }
+
         for(List<Socket*>::Iterator it = m_Sockets.begin(); it != m_Sockets.end(); ++it)
         {
           (*it)->endpointStateChanged();
