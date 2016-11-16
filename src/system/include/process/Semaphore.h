@@ -37,7 +37,7 @@ public:
      * \param nInitialValue The initial value of the semaphore.
      * \param canInterrupt If false, acquire() retries after interrupt rather
      *      than returning a failure status.*/
-    Semaphore(size_t nInitialValue, bool canInterrupt = false);
+    Semaphore(size_t nInitialValue, bool canInterrupt = true);
     /** Destructor */
     virtual ~Semaphore();
 

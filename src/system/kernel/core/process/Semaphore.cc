@@ -130,6 +130,7 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
     m_Queue.pushBack(pThread);
 
     pThread->setInterrupted(false);
+    pThread->setUnwindState(Thread::Continue);
     pThread->setDebugState(Thread::SemWait, reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
     Processor::information().getScheduler().sleep(&m_BeingModified);
     pThread->setDebugState(Thread::None, 0);
@@ -139,7 +140,7 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
 
     // Why were we woken?
     bool bState = true;
-    if (pThread->wasInterrupted() || pThread->getUnwindState() != Thread::Continue || m_bCanInterrupt)
+    if (m_bCanInterrupt && (pThread->wasInterrupted() || pThread->getUnwindState() != Thread::Continue))
     {
         // We were deliberately interrupted - most likely because of a timeout.
         if (pEvent)
