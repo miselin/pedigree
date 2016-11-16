@@ -50,19 +50,20 @@ int UdpEndpoint::recv(uintptr_t buffer, size_t maxSize, bool bBlock, RemoteEndpo
   // Check for data to be ready. dataReady (acquire) takes one from the Semaphore,
   // so using dataReady *again* to see if data is available is *wrong* unless
   // the queue is empty.
+  /// \todo we should replace this with proper condition checking and use the Mutex
+  ///       but we need to handle block == false properly then
   bool bDataReady = false;
   while(1)
   {
       if(dataReady(bBlock, nTimeout))
       {
-          if(m_DataQueueSize.acquire())
-          {
-              bDataReady = true;
-              break;
-          }
+          bDataReady = true;
+          break;
       }
       else if(!bBlock)
+      {
           break;
+      }
   }
 
   if(bDataReady)
@@ -140,8 +141,10 @@ size_t UdpEndpoint::depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpo
   newBlock->size = nBytes;
   newBlock->remoteHost = remoteHost;
 
+  m_Lock.acquire();
   m_DataQueue.pushBack(newBlock);
-  m_DataQueueSize.release();
+  m_Condition.signal();
+  m_Lock.release();
 
   // Data has arrived!
   for(List<Socket*>::Iterator it = m_Sockets.begin(); it != m_Sockets.end(); ++it)
@@ -155,24 +158,23 @@ size_t UdpEndpoint::depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpo
 
 bool UdpEndpoint::dataReady(bool block, uint32_t tmout)
 {
-    // Fast check for data in queue.
-    bool bResult = m_DataQueueSize.tryAcquire();
-    if(!bResult)
+    if (!block)
     {
-        // No data, no blocking - no go!
-        if(!block)
-            return false;
+        return m_DataQueue.count() > 0;
+    }
+    else
+    {
+        /// \todo timeout
+        LockGuard<Mutex> guard(m_Lock);
 
-        // Block (until a timeout, if one is present)
-        if(tmout)
-            bResult = m_DataQueueSize.acquire(1, tmout);
-        else
-            bResult = m_DataQueueSize.acquire();
+        while (m_DataQueue.count() == 0)
+        {
+            while (!m_Condition.wait(m_Lock))
+                ;
+        }
     }
 
-    if(bResult)
-        m_DataQueueSize.release(); // Undo the acquire we just did.
-    return bResult;
+    return true;
 }
 
 void UdpManager::receive(IpAddress from, IpAddress to, uint16_t sourcePort, uint16_t destPort, uintptr_t payload, size_t payloadSize, Network* pCard)

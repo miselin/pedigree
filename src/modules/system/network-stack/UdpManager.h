@@ -25,6 +25,7 @@
 #include <utilities/List.h>
 #include <process/Semaphore.h>
 #include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 #include <machine/Network.h>
 #include <utilities/ExtensibleBitmap.h>
 
@@ -46,17 +47,17 @@ class UdpEndpoint : public ConnectionlessEndpoint
 
     /** Constructors and destructors */
     UdpEndpoint() :
-      ConnectionlessEndpoint(), m_DataQueue(), m_DataQueueSize(0),
+      ConnectionlessEndpoint(), m_DataQueue(), m_Lock(false), m_Condition(),
       m_bAcceptAll(false), m_bCanSend(true), m_bCanRecv(true)
     {}
     UdpEndpoint(uint16_t local, uint16_t remote) :
       ConnectionlessEndpoint(local, remote), m_DataQueue(),
-      m_DataQueueSize(0), m_bAcceptAll(false), m_bCanSend(true),
+      m_Lock(false), m_Condition(), m_bAcceptAll(false), m_bCanSend(true),
       m_bCanRecv(true)
     {}
     UdpEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
       ConnectionlessEndpoint(remoteIp, local, remote), m_DataQueue(),
-      m_DataQueueSize(0), m_bAcceptAll(false), m_bCanSend(true),
+      m_Lock(false), m_Condition(), m_bAcceptAll(false), m_bCanSend(true),
       m_bCanRecv(true)
     {}
 
@@ -107,8 +108,8 @@ class UdpEndpoint : public ConnectionlessEndpoint
     /** Incoming data queue */
     List<DataBlock*> m_DataQueue;
 
-    /** Data queue size */
-    Semaphore m_DataQueueSize;
+    Mutex m_Lock;
+    ConditionVariable m_Condition;
 
     /** Accept any address? */
     bool m_bAcceptAll;
