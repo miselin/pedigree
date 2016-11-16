@@ -45,43 +45,6 @@ namespace Keyboard
     };
 }
 
-class PedigreeTerminalEmulator : public Widget
-{
-    public:
-        PedigreeTerminalEmulator() : Widget(), m_nWidth(0), m_nHeight(0)
-        {};
-
-        virtual ~PedigreeTerminalEmulator()
-        {};
-
-        virtual bool render(PedigreeGraphics::Rect &rt, PedigreeGraphics::Rect &dirty)
-        {
-            return true;
-        }
-
-        void handleReposition(const PedigreeGraphics::Rect &rt)
-        {
-            m_nWidth = rt.getW();
-            m_nHeight = rt.getH();
-        }
-
-        size_t getWidth() const
-        {
-            return m_nWidth;
-        }
-
-        size_t getHeight() const
-        {
-            return m_nHeight;
-        }
-
-    private:
-        size_t m_nWidth;
-        size_t m_nHeight;
-};
-
-extern PedigreeTerminalEmulator *g_pEmu;
-
 namespace Display
 {
 
@@ -135,8 +98,6 @@ public:
 private:
     size_t m_X, m_Y, m_X2, m_Y2;
 };
-
-void doRedraw(DirtyRectangle &rect);
 
 rgb_t interpolateColour(rgb_t col1, rgb_t col2, uint16_t a);
 

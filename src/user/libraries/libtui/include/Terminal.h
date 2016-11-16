@@ -31,6 +31,8 @@
 
 #include <native/graphics/Graphics.h>
 
+#include <cairo/cairo.h>
+
 /** A Terminal is a wrapper around an Xterm class - it provides UTF-8 <->
     UTF-32 conversion and input queueing. */
 class Terminal
@@ -38,7 +40,9 @@ class Terminal
 public:
     friend class Xterm;
     Terminal(char *pName, size_t nWidth, size_t nHeight,
-             size_t offsetLeft, size_t offsetTop, rgb_t *pBackground);
+             size_t offsetLeft, size_t offsetTop, rgb_t *pBackground,
+             cairo_t *pCairo, class Widget *pWidget, class Tui *pTui,
+             class Font *pNormalFont, class Font *pBoldFont);
     ~Terminal();
 
     bool initialise();
@@ -139,6 +143,16 @@ public:
         {
             m_Cancel = 1;
         }
+    }
+
+    void setCairo(cairo_t *pCairo, cairo_surface_t *pSurface)
+    {
+        m_pXterm->setCairo(pCairo, pSurface);
+    }
+
+    void setFonts(Font *pNormalFont, Font *pBoldFont)
+    {
+        m_pXterm->setFonts(pNormalFont, pBoldFont);
     }
 
 private:

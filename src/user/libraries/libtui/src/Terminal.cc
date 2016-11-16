@@ -38,27 +38,26 @@
 
 extern PedigreeGraphics::Framebuffer *g_pFramebuffer;
 
-extern cairo_t *g_Cairo;
-
-Terminal::Terminal(char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft, size_t offsetTop, rgb_t *pBackground) :
+Terminal::Terminal(char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft, size_t offsetTop, rgb_t *pBackground,
+             cairo_t *pCairo, class Widget *pWidget, class Tui *pTui, class Font *pNormalFont, class Font *pBoldFont) :
     m_pBuffer(0), m_pFramebuffer(0), m_pXterm(0), m_Len(0), m_WriteBufferLen(0), m_bHasPendingRequest(false),
     m_PendingRequestSz(0), m_Pid(0), m_OffsetLeft(offsetLeft), m_OffsetTop(offsetTop), m_Cancel(0), m_WriteInProgress(0)
 {
-    cairo_save(g_Cairo);
-    cairo_set_operator(g_Cairo, CAIRO_OPERATOR_SOURCE);
+    cairo_save(pCairo);
+    cairo_set_operator(pCairo, CAIRO_OPERATOR_SOURCE);
 
-    cairo_set_source_rgba(g_Cairo, 0, 0, 0, 0.8);
+    cairo_set_source_rgba(pCairo, 0, 0, 0, 0.8);
 
-    cairo_rectangle(g_Cairo, m_OffsetLeft, m_OffsetTop, nWidth, nHeight);
-    cairo_fill(g_Cairo);
+    cairo_rectangle(pCairo, m_OffsetLeft, m_OffsetTop, nWidth, nHeight);
+    cairo_fill(pCairo);
 
-    cairo_restore(g_Cairo);
+    cairo_restore(pCairo);
 
     strncpy(m_pName, pName, 256);
     m_pName[255] = 0;
 
 #ifndef NEW_XTERM
-    m_pXterm = new Xterm(0, nWidth, nHeight, m_OffsetLeft, m_OffsetTop, this);
+    m_pXterm = new Xterm(0, nWidth, nHeight, m_OffsetLeft, m_OffsetTop, this, pWidget, pTui, pNormalFont, pBoldFont);
 #else
     Display::ScreenMode mode;
     mode.width = nWidth - 1;

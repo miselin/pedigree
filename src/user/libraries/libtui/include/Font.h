@@ -28,10 +28,12 @@
 
 #include <map>
 
+#include <cairo/cairo.h>
+
 class Font
 {
 public:
-    Font(size_t requestedSize, const char *pFilename, bool bCache, size_t nWidth);
+    Font(cairo_t *pCairo, size_t requestedSize, const char *pFilename, bool bCache, size_t nWidth);
     virtual ~Font();
 
     virtual size_t render(PedigreeGraphics::Framebuffer *pFb, uint32_t c,
@@ -49,6 +51,8 @@ public:
     {return m_Baseline;}
 
     const char *precache(uint32_t c);
+
+    void updateCairo(cairo_t *pCairo);
 
 private:
 

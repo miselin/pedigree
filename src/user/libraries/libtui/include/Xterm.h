@@ -21,10 +21,13 @@
 #define XTERM_H
 
 #include "environment.h"
+#include "tui.h"
 
 #include <string>
 
 #include <native/graphics/Graphics.h>
+
+#include <cairo/cairo.h>
 
 #define XTERM_MAX_PARAMS        16
 
@@ -41,7 +44,9 @@
 class Xterm
 {
 public:
-    Xterm(PedigreeGraphics::Framebuffer *pFramebuffer, size_t nWidth, size_t nHeight, size_t offsetLeft, size_t offsetTop, class Terminal *pT);
+    Xterm(PedigreeGraphics::Framebuffer *pFramebuffer, size_t nWidth, size_t nHeight,
+        size_t offsetLeft, size_t offsetTop, class Terminal *pT,
+        class Widget *pWidget, Tui *pTui, class Font *pNormalFont, class Font *pBoldFont);
     ~Xterm();
 
     /** Writes the given UTF-32 character to the Xterm. */
@@ -90,6 +95,18 @@ public:
 
     /** Processes the given key and injects to the terminal, based on xterm modes. */
     void processKey(uint64_t key);
+
+    void setCairo(cairo_t *pCairo, cairo_surface_t *pSurface)
+    {
+        m_pCairo = pCairo;
+        m_pCairoSurface = pSurface;
+    }
+
+    void setFonts(Font *pNormalFont, Font *pBoldFont)
+    {
+        m_pNormalFont = pNormalFont;
+        m_pBoldFont = pBoldFont;
+    }
 
 private:
     class Window
@@ -414,6 +431,16 @@ private:
     class Terminal *m_pT;
 
     bool m_bFbMode;
+
+    class Widget *m_pWidget;
+
+    Tui *m_pTui;
+
+    cairo_t *m_pCairo;
+    cairo_surface_t *m_pCairoSurface;
+
+    Font *m_pNormalFont;
+    Font *m_pBoldFont;
 };
 
 #endif

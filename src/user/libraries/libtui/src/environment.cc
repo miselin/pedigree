@@ -23,24 +23,6 @@
 
 #include <cairo/cairo.h>
 
-extern PedigreeGraphics::Framebuffer *g_pFramebuffer;
-
-extern cairo_surface_t *g_Surface;
-
-void doRedraw(DirtyRectangle &rect)
-{
-    if(rect.getX() == ~0UL && rect.getY() == ~0UL &&
-       rect.getX2() == 0 && rect.getY2() == 0)
-        return;
-
-    if(g_pEmu && g_Surface)
-    {
-        PedigreeGraphics::Rect rt(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
-        cairo_surface_flush(g_Surface);
-        g_pEmu->redraw(rt);
-    }
-}
-
 DirtyRectangle::DirtyRectangle() :
     m_X(~0), m_Y(~0), m_X2(0), m_Y2(0)
 {
