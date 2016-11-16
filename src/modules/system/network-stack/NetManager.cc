@@ -111,7 +111,10 @@ int Socket::select(bool bWriting, int timeout)
                         (state == Tcp::CLOSED))
                         return 1;
 
-                    Scheduler::instance().yield();
+                    if (timeout)
+                    {
+                        Scheduler::instance().yield();
+                    }
                     state = ce->state();
                 }
                 while(timeout != 0);
