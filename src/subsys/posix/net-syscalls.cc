@@ -562,10 +562,16 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
 
         ret = ce->recv(reinterpret_cast<uintptr_t>(buff), bufflen, blocking, flags & MSG_PEEK);
 
-        struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
-        sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
-        sin->sin_addr.s_addr = p->getRemoteIp().getIp();
-        *addrlen = sizeof(struct sockaddr_in);
+        if (address)
+        {
+            struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+            sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
+            sin->sin_addr.s_addr = p->getRemoteIp().getIp();
+            if (addrlen)
+            {
+                *addrlen = sizeof(struct sockaddr_in);
+            }
+        }
     }
     else if (s->getProtocol() == NETMAN_TYPE_UDP || s->getProtocol() == NETMAN_TYPE_RAW)
     {
@@ -574,11 +580,17 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
         Endpoint::RemoteEndpoint remoteHost;
         ret = ce->recv(reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
 
-        struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
-        sin->sin_port = HOST_TO_BIG16(remoteHost.remotePort);
-        sin->sin_addr.s_addr = remoteHost.ip.getIp();
-        sin->sin_family = AF_INET;
-        *addrlen = sizeof(struct sockaddr_in);
+        if (address)
+        {
+            struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+            sin->sin_port = HOST_TO_BIG16(remoteHost.remotePort);
+            sin->sin_addr.s_addr = remoteHost.ip.getIp();
+            sin->sin_family = AF_INET;
+            if (addrlen)
+            {
+                *addrlen = sizeof(struct sockaddr_in);
+            }
+        }
     }
 
     N_NOTICE("  -> " << Dec << ret << Hex);
