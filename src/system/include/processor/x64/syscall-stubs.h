@@ -32,11 +32,16 @@ static long syscall6(long function, long p1, long p2, long p3, long p4, long p5,
   long eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
   long ret;
   long err;
+  register long p5_r __asm__ ("r8") = p5;
+  register long p6_r __asm__ ("r9") = p6;
+
   SERVICE_INIT;
-  __asm__ __volatile__ ("mov %7, %%r8; mov %8, %%r9; syscall" :
+
+  __asm__ __volatile__ ("syscall" :
       "=a" (ret), "=b" (err) :
-      "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5), "m" (p6) :
-      "rcx", "r8", "r9", "r11");
+      "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "r" (p5_r), "r" (p6_r) :
+      "rcx", "r11", "memory");
+
   if (err)
   {
     SERVICE_ERROR = err;
@@ -48,11 +53,15 @@ static long syscall6_err(long function, long p1, long p2, long p3, long p4, long
 {
   long eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
   long ret;
+  register long p5_r __asm__ ("r8") = p5;
+  register long p6_r __asm__ ("r9") = p6;
+
   *err = 0;
-  __asm__ __volatile__ ("mov %7, %%r8; mov %8, %%r9; syscall" :
+  __asm__ __volatile__ ("syscall" :
       "=a" (ret), "=b" (*err) :
-      "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "m" (p5), "m" (p6) :
-      "rcx", "r8", "r9", "r11");
+      "0" (eax), "1" (p1), "d" (p2), "S" (p3), "D" (p4), "r" (p5_r), "r" (p6_r) :
+      "rcx", "r11", "memory");
+
   return ret;
 }
 
