@@ -17,6 +17,7 @@ __cp_begin:
     mov (%rdi),%eax
     test %eax,%eax
     jnz __cp_cancel
+
     mov %rdi, %r11
 
     # Shuffle registers for syscall translation
@@ -27,11 +28,10 @@ __cp_begin:
     mov %r9, %r8
     mov 8(%rsp), %r9
     mov 16(%rsp), %r10
-    mov %r10, 8(%rsp)
+    mov %r11, 8(%rsp)
     push %r10
     call pedigree_translate_syscall
     pop %r10
-    mov %r11, 8(%rsp)
 __cp_end:
     ret
 __cp_cancel:
