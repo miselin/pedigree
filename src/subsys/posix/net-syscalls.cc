@@ -117,7 +117,7 @@ int posix_socket(int domain, int type, int protocol)
     return static_cast<int> (fd);
 }
 
-int posix_connect(int sock, struct sockaddr* address, size_t addrlen)
+int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
 {
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen, PosixSubsystem::SafeRead))
     {
@@ -597,7 +597,7 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
     return ret;
 }
 
-int posix_bind(int sock, const struct sockaddr *address, size_t addrlen)
+int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 {
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen, PosixSubsystem::SafeRead))
     {
@@ -726,10 +726,10 @@ int posix_listen(int sock, int backlog)
     return 0;
 }
 
-int posix_accept(int sock, struct sockaddr* address, size_t* addrlen)
+int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
 {
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(size_t), PosixSubsystem::SafeWrite)))
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("accept -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -825,7 +825,7 @@ int posix_shutdown(int socket, int how)
 int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_len)
 {
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(size_t), PosixSubsystem::SafeWrite)))
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getpeername -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -874,7 +874,7 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
 int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_len)
 {
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(size_t), PosixSubsystem::SafeWrite)))
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getsockname -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -911,18 +911,19 @@ int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_l
     return 0;
 }
 
-int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *optlen)
+int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t *optlen)
 {
     N_NOTICE("getsockopt");
 
     // Check optlen first, then use it to check optvalue.
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(size_t), PosixSubsystem::SafeWrite)))
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t), PosixSubsystem::SafeRead) &&
+         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getsockopt -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optvalue), sizeof(*optlen), PosixSubsystem::SafeWrite)))
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optvalue), *optlen, PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getsockopt -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -962,8 +963,9 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, size_t *o
             Endpoint* p = s->getEndpoint();
             int err = static_cast<int>(p->getError());
             N_NOTICE(" -> getting error [" << err << "]");
-            *reinterpret_cast<int *>(optvalue) = err;
-            *optlen = sizeof(int);
+            /// \todo handle optlen < sizeof(socklen_t)!
+            *reinterpret_cast<uint32_t *>(optvalue) = err;
+            *optlen = sizeof(socklen_t);
             p->resetError();
             break;
         }

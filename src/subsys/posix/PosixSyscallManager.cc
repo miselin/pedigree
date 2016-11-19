@@ -129,7 +129,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_LISTEN:
             return posix_listen(static_cast<int>(p1), static_cast<int>(p2));
         case POSIX_ACCEPT:
-            return posix_accept(static_cast<int>(p1), reinterpret_cast<sockaddr*>(p2), reinterpret_cast<size_t*>(p3));
+            return posix_accept(static_cast<int>(p1), reinterpret_cast<sockaddr*>(p2), reinterpret_cast<socklen_t*>(p3));
         case POSIX_RECVFROM:
             return posix_recvfrom(static_cast<int>(p1), reinterpret_cast<void *>(p2), p3, static_cast<int>(p4), reinterpret_cast<struct sockaddr *>(p5), reinterpret_cast<socklen_t *>(p6));
         case POSIX_SENDTO:
@@ -301,7 +301,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_GETRUSAGE:
             return posix_getrusage(p1, reinterpret_cast<struct rusage *>(p2));
         case POSIX_GETSOCKOPT:
-            return posix_getsockopt(p1, p2, p3, reinterpret_cast<void *>(p4), reinterpret_cast<size_t *>(p5));
+            return posix_getsockopt(p1, p2, p3, reinterpret_cast<void *>(p4), reinterpret_cast<socklen_t *>(p5));
         case POSIX_GETPPID:
             return posix_getppid();
         case POSIX_UTIME:
