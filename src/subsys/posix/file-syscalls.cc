@@ -570,20 +570,26 @@ int posix_open(const char *name, int flags, int mode)
     File *newFile = file->open();
 
     // Check for the desired permissions.
-    if (!VFS::checkAccess(file,
-        checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
+    // Note: we are permitted to create a file that we cannot open for writing
+    // again. It will be open for the original mode requested if it was
+    // created.
+    if (!bCreated)
     {
-        // checkAccess does a SYSCALL_ERROR for us.
-        F_NOTICE("  -> file access denied.");
-        return -1;
-    }
-    // Check for the desired permissions.
-    if ((newFile != file) && (!VFS::checkAccess(newFile,
-        checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false)))
-    {
-        // checkAccess does a SYSCALL_ERROR for us.
-        F_NOTICE("  -> file access denied.");
-        return -1;
+        if (!VFS::checkAccess(file,
+            checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
+        {
+            // checkAccess does a SYSCALL_ERROR for us.
+            F_NOTICE("  -> file access denied.");
+            return -1;
+        }
+        // Check for the desired permissions.
+        if ((newFile != file) && (!VFS::checkAccess(newFile,
+            checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false)))
+        {
+            // checkAccess does a SYSCALL_ERROR for us.
+            F_NOTICE("  -> file access denied.");
+            return -1;
+        }
     }
 
     // ensure we tweak the correct file now
