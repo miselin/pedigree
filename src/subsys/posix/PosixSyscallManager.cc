@@ -21,6 +21,7 @@
 #include <processor/Processor.h>
 #include <process/Scheduler.h>
 #include <Log.h>
+#include <syscallError.h>
 
 #include "PosixSyscallManager.h"
 #include "posixSyscallNumbers.h"
@@ -348,7 +349,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_FUTEX:
             return posix_futex(reinterpret_cast<int *>(p1), static_cast<int>(p2), static_cast<int>(p3), reinterpret_cast<const struct timespec *>(p4));
 
-        default: ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber() << Hex); return 0;
+        default:
+            ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber() << Hex);
+            SYSCALL_ERROR(Unimplemented);
+            return -1;
     }
 
     return 0;
