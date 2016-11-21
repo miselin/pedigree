@@ -769,7 +769,7 @@ int posix_writev(int fd, const struct iovec *iov, int iovcnt)
     int totalWritten = 0;
     for (int i = 0; i < iovcnt; ++i)
     {
-        F_NOTICE("writev: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov->iov_len << " bytes.");
+        F_NOTICE("writev: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov[i].iov_len << " bytes.");
 
         if (!iov[i].iov_len)
             continue;
@@ -803,7 +803,7 @@ int posix_readv(int fd, const struct iovec *iov, int iovcnt)
     int totalRead = 0;
     for (int i = 0; i < iovcnt; ++i)
     {
-        F_NOTICE("readv: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov->iov_len << " bytes.");
+        F_NOTICE("readv: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov[i].iov_len << " bytes.");
 
         if (!iov[i].iov_len)
             continue;
