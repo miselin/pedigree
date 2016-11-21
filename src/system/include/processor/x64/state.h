@@ -458,6 +458,15 @@ uintptr_t X64SyscallState::getSyscallParameter(size_t n) const
     case 3: return m_Rdi;
     case 4: return m_R8;
     case 5: return m_R9;
+
+    // redirection for linux syscall parameters
+    case 6: return m_Rdi;
+    case 7: return m_Rsi;
+    case 8: return m_Rdx;
+    case 9: return m_R10;
+    case 10: return m_R8;
+    case 11: return m_R9;
+
     default:
       WARNING("Bad syscall parameter requested: " << Dec << n);
       return 0;

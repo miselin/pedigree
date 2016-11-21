@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,8 +23,8 @@
 /** Standard syscall service numbers */
 enum Service_t
 {
-  /** Syscall service number of the kernel core */
-  kernelCore = 0,
+  /** Linux syscall wrapper (redirects to POSIX). */
+  linux = 0,
 
   /** Service number for the POSIX subsystem
    * \note If you change this, ensure you change src/subsys/posix/syscall.h ! */
@@ -40,6 +39,9 @@ enum Service_t
 
   /** Pedigree C calls (NOT the native subsystem) */
   pedigree_c = 4,
+
+  /** Syscall service number of the kernel core */
+  kernelCore = 5,
   
   /** The number of syscall service numbers */
   serviceEnd

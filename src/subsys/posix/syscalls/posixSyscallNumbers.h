@@ -218,5 +218,7 @@
 #define POSIX_SET_TLS_AREA      211
 
 #define POSIX_FUTEX             212
+#define POSIX_UNAME             213
+#define POSIX_ARCH_PRCTL        214
 
 #endif

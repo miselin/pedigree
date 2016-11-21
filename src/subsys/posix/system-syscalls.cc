@@ -43,6 +43,7 @@
 #include <linker/DynamicLinker.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
+#include <Version.h>
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include <machine/Machine.h>
@@ -62,6 +63,11 @@
 #include <sys/times.h>
 #include <sys/wait.h>
 #include <syslog.h>
+#include <sys/utsname.h>
+
+// arch_prctl
+#define ARCH_SET_FS 0x1002
+#define ARCH_GET_FS 0x1003
 
 //
 // Syscalls pertaining to system operations.
@@ -1179,3 +1185,42 @@ int pedigree_reboot()
     system_reset();
     return 0;
 }
+
+int posix_uname(struct utsname *n)
+{
+    if (!n)
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    StringCopy(n->sysname, "Pedigree");
+    StringCopy(n->release, g_pBuildRevision);
+    StringCopy(n->version, "Foster");
+    StringCopy(n->machine, g_pBuildTarget);
+    StringCopy(n->nodename, "pedigree.local");
+    return 0;
+}
+
+int posix_arch_prctl(int code, unsigned long addr)
+{
+    unsigned long *pAddr = reinterpret_cast<unsigned long *>(addr);
+
+    switch (code)
+    {
+        case ARCH_SET_FS:
+            Processor::information().getCurrentThread()->setTlsBase(addr);
+            break;
+
+        case ARCH_GET_FS:
+            *pAddr = Processor::information().getCurrentThread()->getTlsBase();
+            break;
+
+        default:
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+    }
+
+    return 0;
+}
+

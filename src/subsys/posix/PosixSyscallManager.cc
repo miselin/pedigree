@@ -35,6 +35,7 @@
 #include "select-syscalls.h"
 #include "poll-syscalls.h"
 #include "logging.h"
+#include "syscalls/translate.h"
 
 PosixSyscallManager::PosixSyscallManager()
 {
@@ -46,6 +47,7 @@ PosixSyscallManager::~PosixSyscallManager()
 
 void PosixSyscallManager::initialise()
 {
+    SyscallManager::instance().registerSyscallHandler(linux, this);
     SyscallManager::instance().registerSyscallHandler(posix, this);
 }
 
@@ -63,21 +65,40 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
 
 uintptr_t PosixSyscallManager::syscall(SyscallState &state)
 {
-    uintptr_t p1 = state.getSyscallParameter(0);
-    uintptr_t p2 = state.getSyscallParameter(1);
-    uintptr_t p3 = state.getSyscallParameter(2);
-    uintptr_t p4 = state.getSyscallParameter(3);
-    uintptr_t p5 = state.getSyscallParameter(4);
-    uintptr_t p6 = state.getSyscallParameter(5);
+    uint64_t syscallNumber = state.getSyscallNumber();
+
+    uintptr_t base = 0;
+    if (state.getSyscallService() == linux)
+    {
+        base = 6;  // use Linux syscall ABI
+
+        // Translate the syscall.
+        long which = posix_translate_syscall(syscallNumber);
+        if (which < 0)
+        {
+            ERROR("POSIX: unknown Linux syscall " << syscallNumber << ", translation failed!");
+            SYSCALL_ERROR(Unimplemented);
+            return -1;
+        }
+
+        syscallNumber = which;
+    }
+
+    uintptr_t p1 = state.getSyscallParameter(base + 0);
+    uintptr_t p2 = state.getSyscallParameter(base + 1);
+    uintptr_t p3 = state.getSyscallParameter(base + 2);
+    uintptr_t p4 = state.getSyscallParameter(base + 3);
+    uintptr_t p5 = state.getSyscallParameter(base + 4);
+    uintptr_t p6 = state.getSyscallParameter(base + 5);
     
 #ifdef POSIX_VERBOSE_SYSCALLS
-    NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec << state.getSyscallNumber() << Hex);
+    NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec << syscallNumber << Hex);
 #endif
 
     // We're interruptible.
     Processor::setInterrupts(true);
 
-    switch (state.getSyscallNumber())
+    switch (syscallNumber)
     {
         // POSIX system calls
         case POSIX_OPEN:
@@ -348,9 +369,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
 
         case POSIX_FUTEX:
             return posix_futex(reinterpret_cast<int *>(p1), static_cast<int>(p2), static_cast<int>(p3), reinterpret_cast<const struct timespec *>(p4));
+        case POSIX_UNAME:
+            return posix_uname(reinterpret_cast<struct utsname *>(p1));
+        case POSIX_ARCH_PRCTL:
+            return posix_arch_prctl(p1, p2);
 
         default:
-            ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber() << Hex);
+            ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);
             SYSCALL_ERROR(Unimplemented);
             return -1;
     }

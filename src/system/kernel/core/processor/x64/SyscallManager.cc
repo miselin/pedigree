@@ -80,8 +80,25 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
   if (LIKELY(pHandler != 0))
   {
     uint64_t result = pHandler->syscall(syscallState);
-    syscallState.setSyscallReturnValue(result);
-    syscallState.setSyscallErrno(Processor::information().getCurrentThread()->getErrno());
+    uint64_t errno = Processor::information().getCurrentThread()->getErrno();
+    /// \todo this is an extraordinary hack, this should be done in a way more
+    ///       abstract way than this!!
+    if (serviceNumber == linux)
+    {
+      if (static_cast<int64_t>(result) < 0)
+      {
+        syscallState.setSyscallReturnValue(-errno);
+      }
+      else
+      {
+        syscallState.setSyscallReturnValue(result);
+      }
+    }
+    else
+    {
+      syscallState.setSyscallReturnValue(result);
+      syscallState.setSyscallErrno(errno);
+    }
     // Reset error number now that we've extracted it.
     Processor::information().getCurrentThread()->setErrno(0);
 

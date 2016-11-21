@@ -80,5 +80,9 @@ int pedigree_login(int uid, const char *password);
 
 int pedigree_reboot();
 
+int posix_uname(struct utsname *n);
+
+int posix_arch_prctl(int code, unsigned long addr);
+
 #endif
 

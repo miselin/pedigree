@@ -161,6 +161,7 @@ env_clone.MergeFlags({
     'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
     'TARGET_CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
 })
+env_clone['CPPPATH'].append('#src/system/kernel')  # Version.h
 buildutils.modules.buildModule(env_clone, final_output, posix_objname, posix_files)
 
 posix_env = userspace_env_clone.Clone()
