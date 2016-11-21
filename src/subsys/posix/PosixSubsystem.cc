@@ -966,7 +966,10 @@ bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
             offset &= ~(pageSz - 1);
         }
 
-        size_t length = phdrs[i].memsz;
+        // if we don't add the unaligned part to the length, we can map only
+        // enough to cover the aligned page even though the alignment may lead
+        // to the region covering two pages...
+        size_t length = phdrs[i].memsz + (unalignedBase & (pageSz - 1));
         if (length & (pageSz - 1))
         {
             length = (length + pageSz) & ~(pageSz - 1);
