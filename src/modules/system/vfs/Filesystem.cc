@@ -228,6 +228,13 @@ bool Filesystem::remove(String path, File *pStartNode)
         Directory *removalDir = Directory::fromFile(pFile);
         if (removalDir->getNumChildren())
         {
+            if (removalDir->getNumChildren() > 2)
+            {
+                // There's definitely more than just . and .. here.
+                SYSCALL_ERROR(NotEmpty);
+                return false;
+            }
+
             // Are the entries only ., ..?
             for (auto it : removalDir->getCache())
             {
