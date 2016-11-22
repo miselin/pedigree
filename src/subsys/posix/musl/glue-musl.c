@@ -24,6 +24,8 @@
 #include <stdarg.h>
 
 // From the Pedigree source tree (syscall stubs). References musl errno.
+#include <posix-syscall.h>
+#include <posixSyscallNumbers.h>
 #include <translate.h>
 
 #define STUBBED(which) do { \
