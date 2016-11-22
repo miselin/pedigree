@@ -40,8 +40,8 @@
 #define USERSPACE_DYNAMIC_START                 reinterpret_cast<void*>(0x100000000)
 #define USERSPACE_DYNAMIC_END                   reinterpret_cast<void*>(0x00000FFFFFFFFFFF)
 #define USERSPACE_VIRTUAL_LOWEST_STACK          reinterpret_cast<void*>(USERSPACE_DYNAMIC_END + USERSPACE_VIRTUAL_MAX_STACK_SIZE)
-#define USERSPACE_VIRTUAL_STACK                 reinterpret_cast<void*>(0x00007FFFFFFFF000)
-#define KERNEL_VIRTUAL_EVENT_BASE               reinterpret_cast<void*>(0x80000000)
+#define USERSPACE_VIRTUAL_STACK                 reinterpret_cast<void*>(0x00007FFFEFFFF000)  // right below the Event base
+#define KERNEL_VIRTUAL_EVENT_BASE               reinterpret_cast<void*>(0x00007FFFF0000000)  // right above the stacks
 #define KERNEL_VIRTUAL_MODULE_BASE              reinterpret_cast<void*>(0xFFFFFFFFF0000000)
 #define KERNEL_VIRTUAL_MODULE_SIZE              0x400000
 #define KERNEL_VIRTUAL_HEAP                     reinterpret_cast<void*>(0xFFFFFFFF00000000)
