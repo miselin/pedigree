@@ -1,0 +1,86 @@
+/*
+ * Copyright (c) 2008-2014, Pedigree Developers
+ *
+ * Please see the CONTRIB file in the root of the source tree for a full
+ * list of contributors.
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include "Console.h"
+#include <vfs/VFS.h>
+
+#include <processor/Processor.h>
+#include <process/Scheduler.h>
+
+extern const char defaultControl[MAX_CONTROL_CHAR];
+
+ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
+    ConsoleFile(consoleNumber, consoleName, pFs)
+{
+}
+
+uint64_t ConsoleSlaveFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+    if (!nBytes)
+    {
+        return 0;
+    }
+
+    size_t endSize = processInput(reinterpret_cast<char *>(buffer), nBytes);
+
+    return endSize;
+}
+
+uint64_t ConsoleSlaveFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    // Send straight to the master.
+    m_pOther->inject(reinterpret_cast<char *>(buffer), size, bCanBlock);
+
+    return size;
+}
+
+size_t ConsoleSlaveFile::processInput(char *buf, size_t len)
+{
+    // Perform input processing.
+    char *pC = buf;
+    size_t realLen = len;
+    for (size_t i = 0; i < len; i++)
+    {
+        if (m_Flags & ConsoleManager::IStripToSevenBits)
+            pC[i] = static_cast<uint8_t>(pC[i]) & 0x7F;
+        if (m_Flags & ConsoleManager::LCookedMode)
+        {
+            if (pC[i] == m_ControlChars[VEOF])
+            {
+                // Zero-length read: EOF.
+                realLen = 0;
+                break;
+            }
+        }
+
+        if (pC[i] == '\n' && (m_Flags & ConsoleManager::IMapNLToCR))
+            pC[i] = '\r';
+        else if (pC[i] == '\r' && (m_Flags & ConsoleManager::IMapCRToNL))
+            pC[i] = '\n';
+        else if (pC[i] == '\r' && (m_Flags & ConsoleManager::IIgnoreCR))
+        {
+            MemoryCopy(buf+i, buf+i+1, len-i-1);
+            i--; // Need to process this byte again, its contents have changed.
+            realLen--;
+        }
+    }
+
+    return realLen;
+}

@@ -125,6 +125,9 @@ class ConsoleFile : public File
         unsigned short m_Rows;
         unsigned short m_Cols;
 
+        /// Output line discipline
+        static size_t outputLineDiscipline(char *buf, size_t len, size_t maxSz, size_t flags = 0);
+
     private:
 
         Buffer<char> m_Buffer;
@@ -181,9 +184,6 @@ class ConsoleMasterFile : public ConsoleFile
 
         /// Input line discipline
         void inputLineDiscipline(char *buf, size_t len);
-
-        /// Output line discipline
-        size_t outputLineDiscipline(char *buf, size_t len, size_t maxSz);
 
         /// Input line buffer.
         char m_LineBuffer[LINEBUFFER_MAXIMUM];
