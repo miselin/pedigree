@@ -139,7 +139,7 @@ int StringCompareN(const char *p1, const char *p2, size_t n)
     if (c)
       return c;
     else if (!--n)
-      return 0;
+      return *p1 - *p2;
 
     ++p1;
     ++p2;

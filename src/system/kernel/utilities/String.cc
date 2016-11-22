@@ -125,7 +125,7 @@ bool String::operator == (const char *s) const
     if (m_Length < StaticSize)
         buf = m_Static;
 
-    if ((!m_Length) && s == 0)
+    if ((!m_Length) && (s == 0))
         return true;
     else if (s == 0)
         // m_Length > 0 but other buffer is null.
@@ -134,7 +134,7 @@ bool String::operator == (const char *s) const
         // Quick check when we're zero-length.
         return false;
     else
-        return !StringCompareN(buf, s, m_Length);
+        return !StringCompareN(buf, s, m_Length + 1);
 }
 
 size_t String::nextCharacter(size_t c)

@@ -455,3 +455,14 @@ TEST(PedigreeString, EndsWithTooLong)
     EXPECT_FALSE(s.endswith("hello"));
     EXPECT_FALSE(s.endswith(String("hello")));
 }
+
+TEST(PedigreeString, Equality2)
+{
+    String s1("/dev/tty"), s2("/"), s3("/dev/tty"), s4("/");
+    EXPECT_FALSE(s1 == s2);
+    EXPECT_FALSE(s2 == s1);
+    EXPECT_TRUE(s1 == "/dev/tty");
+    EXPECT_FALSE(s2 == "/dev/tty");
+    EXPECT_TRUE(s1 == s3);
+    EXPECT_TRUE(s2 == s4);
+}
