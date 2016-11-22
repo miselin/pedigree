@@ -66,9 +66,10 @@ public:
     /** Writes to the file. */
     virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
 
-    /** Returns true if the File is actually a pipe. */
-    virtual bool isPipe() const
-    {return true;}
+    /** Pipes are anonymous (no name). */
+    virtual bool isPipe() const;
+    /** FIFOs are not anonymous (have a name). */
+    virtual bool isFifo() const;
 
     virtual void increaseRefCount(bool bIsWriter);
 

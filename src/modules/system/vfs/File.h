@@ -132,8 +132,8 @@ public:
     void setModifiedTime(Time::Timestamp t);
 
     /** Returns the name of the file. */
-    String getName();
-    void getName(String &s);
+    String getName() const;
+    void getName(String &s) const;
     // File names cannot be changed.
 
     /** Obtains the full path of the File. */
@@ -159,6 +159,12 @@ public:
 
     /** Returns true if the File is actually a pipe. */
     virtual bool isPipe() const
+    {
+        return false;
+    }
+
+    /** Returns true if the File is actually a fifo. */
+    virtual bool isFifo() const
     {
         return false;
     }

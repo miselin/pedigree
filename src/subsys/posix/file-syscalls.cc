@@ -181,6 +181,11 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
         F_NOTICE("    -> S_IFLNK");
         mode = S_IFLNK;
     }
+    else if (pFile->isFifo())
+    {
+        F_NOTICE("    -> S_FIFO");
+        mode = S_IFIFO;
+    }
     else
     {
         F_NOTICE("    -> S_IFREG");

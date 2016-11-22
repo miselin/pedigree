@@ -86,6 +86,16 @@ uint64_t Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
     return result;
 }
 
+bool Pipe::isPipe() const
+{
+    return getName().length() == 0;
+}
+
+bool Pipe::isFifo() const
+{
+    return getName().length() > 0;
+}
+
 void Pipe::increaseRefCount(bool bIsWriter)
 {
     if (bIsWriter)

@@ -409,12 +409,12 @@ void File::setModifiedTime(Time::Timestamp t)
     fileAttributeChanged();
 }
 
-String File::getName()
+String File::getName() const
 {
     return m_Name;
 }
 
-void File::getName(String &s)
+void File::getName(String &s) const
 {
     s = m_Name;
 }
