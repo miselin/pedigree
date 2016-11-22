@@ -116,7 +116,7 @@ size_t Scheduler::addProcess(Process *pProcess)
 {
   m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
   m_Processes.pushBack(pProcess);
-  size_t result = m_NextPid += 1;
+  size_t result = (m_NextPid += 1) - 1;  // little dance for Atomic
   m_SchedulerLock.release();
   return result;
 }
