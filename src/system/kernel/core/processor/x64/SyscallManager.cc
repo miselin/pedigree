@@ -85,7 +85,7 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
     ///       abstract way than this!!
     if (serviceNumber == linux)
     {
-      if (static_cast<int64_t>(result) < 0)
+      if (errno != 0)
       {
         syscallState.setSyscallReturnValue(-errno);
       }
