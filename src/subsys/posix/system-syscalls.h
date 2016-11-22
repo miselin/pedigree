@@ -35,6 +35,7 @@ struct timespec;
 
 uintptr_t posix_brk(uintptr_t theBreak);
 long posix_sbrk(int delta);
+long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls);
 int posix_fork(SyscallState &state);
 int posix_execve(const char *name, const char **argv, const char **env, SyscallState &state);
 int posix_waitpid(int pid, int *status, int options);

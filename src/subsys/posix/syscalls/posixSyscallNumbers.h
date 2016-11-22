@@ -220,5 +220,6 @@
 #define POSIX_FUTEX             212
 #define POSIX_UNAME             213
 #define POSIX_ARCH_PRCTL        214
+#define POSIX_CLONE             215
 
 #endif

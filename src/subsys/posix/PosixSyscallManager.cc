@@ -373,6 +373,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_uname(reinterpret_cast<struct utsname *>(p1));
         case POSIX_ARCH_PRCTL:
             return posix_arch_prctl(p1, p2);
+        case POSIX_CLONE:
+            return posix_clone(state, p1, reinterpret_cast<void *>(p2), reinterpret_cast<int *>(p3), reinterpret_cast<int *>(p4), p5);
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

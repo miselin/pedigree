@@ -64,6 +64,7 @@
 #include <sys/wait.h>
 #include <syslog.h>
 #include <sys/utsname.h>
+#include <sched.h>
 
 // arch_prctl
 #define ARCH_SET_FS 0x1002
@@ -166,11 +167,17 @@ uintptr_t posix_brk(uintptr_t theBreak)
     return reinterpret_cast<uintptr_t>(currentBreak);
 }
 
-int posix_fork(SyscallState &state)
+long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 {
-    SC_NOTICE("fork");
+    SC_NOTICE("clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", " << ctid << ", " << newtls << ")");
 
     Processor::setInterrupts(false);
+
+    // Basic warnings to start with.
+    if (flags & CLONE_CHILD_CLEARTID)
+    {
+        WARNING(" -> CLONE_CHILD_CLEARTID is not yet supported!");
+    }
 
     // Inhibit signals to the parent
     for(int sig = 0; sig < 32; sig++)
@@ -246,6 +253,16 @@ int posix_fork(SyscallState &state)
     for(int sig = 0; sig < 32; sig++)
         Processor::information().getCurrentThread()->inhibitEvent(sig, false);
 
+    // Set ctid in the new address space if we are required to.
+    if (flags & CLONE_CHILD_SETTID)
+    {
+        VirtualAddressSpace &curr = Processor::information().getVirtualAddressSpace();
+        VirtualAddressSpace *va = pProcess->getAddressSpace();
+        Processor::switchAddressSpace(*va);
+        *ctid = pProcess->getId();
+        Processor::switchAddressSpace(curr);
+    }
+
     // Create a new thread for the new process.
     Thread *pThread = new Thread(pProcess, state);
     pThread->detach();
@@ -260,6 +277,13 @@ int posix_fork(SyscallState &state)
 
     // Parent returns child ID.
     return pProcess->getId();
+}
+
+int posix_fork(SyscallState &state)
+{
+    SC_NOTICE("fork");
+
+    return posix_clone(state, 0, 0, 0, 0, 0);
 }
 
 int posix_execve(const char *name, const char **argv, const char **env, SyscallState &state)
