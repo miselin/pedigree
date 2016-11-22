@@ -312,6 +312,8 @@ static bool doChown(File *pFile, uid_t owner, gid_t group)
     return true;
 }
 
+#define NORMALISE_FS_PATHS 0
+
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 {
     // Rebase /dev onto the devfs. /dev/tty is special.
@@ -336,6 +338,13 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
             *onDevFs = true;
         return true;
     }
+    else if (!StringCompareN(name, "/proc/", StringLength("/proc/")))
+    {
+        nameToOpen = "proc»/";
+        nameToOpen += (name + StringLength("/proc/"));
+        return true;
+    }
+#if NORMALISE_FS_PATHS
     else if (!StringCompareN(name, "/bin/", StringLength("/bin/")))
     {
         nameToOpen = "/applications/";
@@ -360,6 +369,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         nameToOpen += (name + StringLength("/etc/"));
         return true;
     }
+#endif
     else if (!StringCompareN(name, "/tmp/", StringLength("/tmp/")))
     {
         nameToOpen = "scratch»/";
