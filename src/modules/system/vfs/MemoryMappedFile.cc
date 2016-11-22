@@ -1332,7 +1332,7 @@ void MemoryMapManager::unmapAll()
     unmapAllUnlocked();
 }
 
-bool MemoryMapManager::trap(uintptr_t address, bool bIsWrite)
+bool MemoryMapManager::trap(InterruptState &state, uintptr_t address, bool bIsWrite)
 {
     // Can't take an event while we're trapping, as the event would otherwise
     // be in a minefield (can't touch *any* trap pages in userspace).

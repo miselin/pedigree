@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -36,7 +35,7 @@ public:
         \param bIsWrite True if the trap was caused by a write, false if by a read.
         \return True if the trap was handled successfully (and the handler can
                 return), or false if another handler needs to be tried. */
-    virtual bool trap(uintptr_t address, bool bIsWrite) = 0;
+    virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite) = 0;
 };
 
 /** The x86 Page Fault Exception handler. */

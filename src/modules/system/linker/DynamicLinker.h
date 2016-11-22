@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -127,7 +126,7 @@ public:
     //
     // MemoryTrapHandler interface.
     //
-    virtual bool trap(uintptr_t address, bool bIsWrite);
+    virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite);
 
 private:
     /** Private constructor - does nothing. */

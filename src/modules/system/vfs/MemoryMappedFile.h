@@ -438,7 +438,7 @@ class MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler
         /**
          * Trap handler, called when a fault takes place.
          */
-        bool trap(uintptr_t address, bool bIsWrite);
+        virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite);
 
         /**
          * Trigger a compact in all address spaces.
