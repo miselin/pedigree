@@ -41,6 +41,19 @@
 
 typedef Tree<size_t,FileDescriptor*> FdMap;
 
+#define NCCS_COMPATIBLE 20
+
+struct termios_compatible
+{
+  tcflag_t c_iflag;
+  tcflag_t c_oflag;
+  tcflag_t c_cflag;
+  tcflag_t c_lflag;
+  cc_t c_cc[NCCS_COMPATIBLE];
+  speed_t __c_ispeed;
+  speed_t __c_ospeed;
+};
+
 class PosixTerminalEvent : public Event
 {
     public:
@@ -196,19 +209,22 @@ int posix_tcgetattr(int fd, struct termios *p)
     return -1;
   }
 
+  /// \todo we need to fall back to this (e.g. if we're in Linux mode)
+  struct termios_compatible *pc = reinterpret_cast<struct termios_compatible *>(p);
+
   size_t flags;
   ConsoleManager::instance().getAttributes(pFd->file, &flags);
 
-  p->c_iflag = ((flags&ConsoleManager::IMapNLToCR)?INLCR:0) | 
+  pc->c_iflag = ((flags&ConsoleManager::IMapNLToCR)?INLCR:0) |
                ((flags&ConsoleManager::IMapCRToNL)?ICRNL:0) |
                ((flags&ConsoleManager::IIgnoreCR)?IGNCR:0) |
                ((flags&ConsoleManager::IStripToSevenBits)?ISTRIP:0);
-  p->c_oflag = ((flags&ConsoleManager::OPostProcess)?OPOST:0) |
+  pc->c_oflag = ((flags&ConsoleManager::OPostProcess)?OPOST:0) |
                ((flags&ConsoleManager::OMapCRToNL)?OCRNL:0) |
                ((flags&ConsoleManager::OMapNLToCRNL)?ONLCR:0) |
                ((flags&ConsoleManager::ONLCausesCR)?ONLRET:0);
-  p->c_cflag = CREAD | CS8 | HUPCL | B38400;
-  p->c_lflag = ((flags&ConsoleManager::LEcho)?ECHO:0) |
+  pc->c_cflag = CREAD | CS8 | HUPCL | B38400;
+  pc->c_lflag = ((flags&ConsoleManager::LEcho)?ECHO:0) |
       ((flags&ConsoleManager::LEchoErase)?ECHOE:0) |
       ((flags&ConsoleManager::LEchoKill)?ECHOK:0) |
       ((flags&ConsoleManager::LEchoNewline)?ECHONL:0) |
@@ -220,10 +236,20 @@ int posix_tcgetattr(int fd, struct termios *p)
 
   // c_cc is of type cc_t, but we don't want to expose that type to ConsoleManager.
   // By doing this conversion, we can use whatever type we like in the kernel.
-  for(size_t i = 0; i < NCCS; ++i)
-      p->c_cc[i] = controlChars[i];
+  for(size_t i = 0; i < NCCS_COMPATIBLE; ++i)
+      pc->c_cc[i] = controlChars[i];
 
-  F_NOTICE("posix_tcgetattr returns {c_iflag=" << p->c_iflag << ", c_oflag=" << p->c_oflag << ", c_lflag=" << p->c_lflag << "} )");
+  // "line discipline", not relevant and only on the non-compat version
+  // pc->c_line = 0;
+
+  // ispeed/ospeed
+  pc->__c_ispeed = 115200;
+  pc->__c_ospeed = 115200;
+
+  F_NOTICE("posix_tcgetattr returns");
+  F_NOTICE(" -> {c_iflag=" << pc->c_iflag << ", c_oflag=" << pc->c_oflag << ", c_lflag=" << pc->c_lflag << "}");
+  F_NOTICE(" -> {c_cflag=" << pc->c_cflag << "}");
+  F_NOTICE(" -> {c_ispeed=" << pc->__c_ispeed << ", c_ospeed=" << pc->__c_ospeed << "}");
   return 0;
 }
 
@@ -236,7 +262,13 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios *p)
       return -1;
   }
 
-  F_NOTICE("posix_tcsetattr(" << fd << ", " << optional_actions << ", {c_iflag=" << p->c_iflag << ", c_oflag=" << p->c_oflag << ", c_lflag=" << p->c_lflag << "} )");
+  /// \todo we need to fall back to this (e.g. if we're in Linux mode)
+  struct termios_compatible *pc = reinterpret_cast<struct termios_compatible *>(p);
+
+  F_NOTICE("posix_tcsetattr(" << fd << ", " << optional_actions << ")");
+  F_NOTICE(" -> {c_iflag=" << pc->c_iflag << ", c_oflag=" << pc->c_oflag << ", c_lflag=" << pc->c_lflag << "}");
+  F_NOTICE(" -> {c_cflag=" << pc->c_cflag << "}");
+  F_NOTICE(" -> {c_ispeed=" << pc->__c_ispeed << ", c_ospeed=" << pc->__c_ospeed << "}");
 
   // Lookup this process.
   Process *pProcess = Processor::information().getCurrentThread()->getParent();
@@ -261,27 +293,27 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios *p)
   }
 
   size_t flags = 0;
-  if (p->c_iflag&INLCR)  flags |= ConsoleManager::IMapNLToCR;
-  if (p->c_iflag&ICRNL)  flags |= ConsoleManager::IMapCRToNL;
-  if (p->c_iflag&IGNCR)  flags |= ConsoleManager::IIgnoreCR;
-  if (p->c_iflag&ISTRIP) flags |= ConsoleManager::IStripToSevenBits;
-  if (p->c_oflag&OPOST)  flags |= ConsoleManager::OPostProcess;
-  if (p->c_oflag&OCRNL)  flags |= ConsoleManager::OMapCRToNL;
-  if (p->c_oflag&ONLCR)  flags |= ConsoleManager::OMapNLToCRNL;
-  if (p->c_oflag&ONLRET) flags |= ConsoleManager::ONLCausesCR;
-  if (p->c_lflag&ECHO)   flags |= ConsoleManager::LEcho;
-  if (p->c_lflag&ECHOE)  flags |= ConsoleManager::LEchoErase;
-  if (p->c_lflag&ECHOK)  flags |= ConsoleManager::LEchoKill;
-  if (p->c_lflag&ECHONL) flags |= ConsoleManager::LEchoNewline;
-  if (p->c_lflag&ICANON) flags |= ConsoleManager::LCookedMode;
-  if (p->c_lflag&ISIG)   flags |= ConsoleManager::LGenerateEvent;
+  if (pc->c_iflag&INLCR)  flags |= ConsoleManager::IMapNLToCR;
+  if (pc->c_iflag&ICRNL)  flags |= ConsoleManager::IMapCRToNL;
+  if (pc->c_iflag&IGNCR)  flags |= ConsoleManager::IIgnoreCR;
+  if (pc->c_iflag&ISTRIP) flags |= ConsoleManager::IStripToSevenBits;
+  if (pc->c_oflag&OPOST)  flags |= ConsoleManager::OPostProcess;
+  if (pc->c_oflag&OCRNL)  flags |= ConsoleManager::OMapCRToNL;
+  if (pc->c_oflag&ONLCR)  flags |= ConsoleManager::OMapNLToCRNL;
+  if (pc->c_oflag&ONLRET) flags |= ConsoleManager::ONLCausesCR;
+  if (pc->c_lflag&ECHO)   flags |= ConsoleManager::LEcho;
+  if (pc->c_lflag&ECHOE)  flags |= ConsoleManager::LEchoErase;
+  if (pc->c_lflag&ECHOK)  flags |= ConsoleManager::LEchoKill;
+  if (pc->c_lflag&ECHONL) flags |= ConsoleManager::LEchoNewline;
+  if (pc->c_lflag&ICANON) flags |= ConsoleManager::LCookedMode;
+  if (pc->c_lflag&ISIG)   flags |= ConsoleManager::LGenerateEvent;
   NOTICE("TCSETATTR: " << Hex << flags);
   /// \todo Sanity checks.
   ConsoleManager::instance().setAttributes(pFd->file, flags);
 
   char controlChars[MAX_CONTROL_CHAR] = {0};
-  for(size_t i = 0; i < NCCS; ++i)
-    controlChars[i] = p->c_cc[i];
+  for(size_t i = 0; i < NCCS_COMPATIBLE; ++i)
+    controlChars[i] = pc->c_cc[i];
   ConsoleManager::instance().setControlChars(pFd->file, controlChars);
 
   return 0;
@@ -614,5 +646,13 @@ unsigned int console_getptn(int fd)
     }
 
     ConsoleFile *pConsole = static_cast<ConsoleFile *>(pFd->file);
-    return pConsole->getConsoleNumber();
+    size_t result = pConsole->getConsoleNumber();
+    if (result == ~0U)
+    {
+        // special case, it's a Console attached to a physical terminal instead
+        // of a pseudoterminal
+        SYSCALL_ERROR(NotAConsole);
+        return ~0U;
+    }
+    return result;
 }
