@@ -48,10 +48,19 @@ static int init_stage2(void *param)
     return;
 #endif
 
+    String init_path("root»/applications/init");
+    if (!VFS::instance().find(init_path))
+    {
+        WARNING("Did not find " << init_path << ", trying for a Linux userspace...");
+        init_path = "root»/sbin/init";
+    }
+
     List<SharedPointer<String>> argv, env;
+    argv.pushBack(SharedPointer<String>::allocate(init_path));
+    argv.pushBack(SharedPointer<String>::allocate("1"));  // runlevel 1
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    if (!pProcess->getSubsystem()->invoke("root»/applications/init", argv, env))
+    if (!pProcess->getSubsystem()->invoke(init_path, argv, env))
     {
         error("failed to load init program");
     }
