@@ -1248,3 +1248,12 @@ int posix_arch_prctl(int code, unsigned long addr)
     return 0;
 }
 
+int posix_pause()
+{
+    SC_NOTICE("pause");
+
+    Processor::information().getScheduler().sleep();
+
+    SYSCALL_ERROR(Interrupted);
+    return -1;
+}

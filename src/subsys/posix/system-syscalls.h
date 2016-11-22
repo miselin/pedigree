@@ -85,5 +85,7 @@ int posix_uname(struct utsname *n);
 
 int posix_arch_prctl(int code, unsigned long addr);
 
+int posix_pause();
+
 #endif
 
