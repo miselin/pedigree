@@ -238,6 +238,31 @@ class ConsoleSlaveFile : public ConsoleFile
         size_t processInput(char *buf, size_t len);
 };
 
+class ConsolePhysicalFile : public ConsoleFile
+{
+    public:
+        ConsolePhysicalFile(File *pTerminal, String consoleName, Filesystem *pFs);
+        virtual ~ConsolePhysicalFile()
+        {}
+
+        virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+        virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+        virtual bool isMaster()
+        {
+            return false;
+        }
+
+        virtual char getLast()
+        {
+            /// \todo this is no good
+            return '\0';
+        }
+
+    private:
+        File *m_pTerminal;
+};
+
 /** This class provides a way for consoles (TTYs) to be created to interact with applications.
 
     registerConsole is called by a class that subclasses RequestQueue. getConsole returns a File that forwards

@@ -494,6 +494,23 @@ size_t ConsoleSlaveFile::processInput(char *buf, size_t len)
     return realLen;
 }
 
+ConsolePhysicalFile::ConsolePhysicalFile(File *pTerminal, String consoleName, Filesystem *pFs) :
+    ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal)
+{
+}
+
+uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    /// \todo input discipline
+    return m_pTerminal->read(location, size, buffer, bCanBlock);
+}
+
+uint64_t ConsolePhysicalFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    /// \todo output discipline
+    return m_pTerminal->write(location, size, buffer, bCanBlock);
+}
+
 void ConsoleManager::newConsole(char c, size_t i)
 {
     char a = 'a' + (i % 10);
