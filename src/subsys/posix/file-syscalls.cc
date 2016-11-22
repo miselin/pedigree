@@ -1651,6 +1651,11 @@ int posix_ioctl(int fd, int command, void *buf)
             {
                 return posix_tcgetattr(fd, reinterpret_cast<struct termios*>(buf));
             }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
         }
 
         case TCSETS:
@@ -1658,6 +1663,11 @@ int posix_ioctl(int fd, int command, void *buf)
             if (ConsoleManager::instance().isConsole(f->file))
             {
                 return posix_tcsetattr(fd, TCSANOW, reinterpret_cast<struct termios*>(buf));
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
             }
         }
 
@@ -1667,6 +1677,11 @@ int posix_ioctl(int fd, int command, void *buf)
             {
                 return posix_tcsetattr(fd, TCSADRAIN, reinterpret_cast<struct termios*>(buf));
             }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
         }
 
         case TCSETSF:
@@ -1675,6 +1690,11 @@ int posix_ioctl(int fd, int command, void *buf)
             {
                 return posix_tcsetattr(fd, TCSAFLUSH, reinterpret_cast<struct termios*>(buf));
             }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
         }
 
         case TIOCGWINSZ:
@@ -1682,6 +1702,11 @@ int posix_ioctl(int fd, int command, void *buf)
             if (ConsoleManager::instance().isConsole(f->file))
             {
                 return console_getwinsize(f->file, reinterpret_cast<struct winsize*>(buf));
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
             }
         }
 
@@ -1693,6 +1718,11 @@ int posix_ioctl(int fd, int command, void *buf)
                 F_NOTICE(" -> TIOCSWINSZ " << Dec << ws->ws_col << "x" << ws->ws_row << Hex);
                 return console_setwinsize(f->file, ws);
             }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
         }
 
         case TIOCSCTTY:
@@ -1701,6 +1731,11 @@ int posix_ioctl(int fd, int command, void *buf)
             {
                 F_NOTICE(" -> TIOCSCTTY");
                 return console_setctty(fd, reinterpret_cast<uintptr_t>(buf) == 1);
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
             }
         }
 
