@@ -67,6 +67,10 @@ class X64InterruptState
      *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
      *\return the value of the register */
     processor_register_t getRegister(size_t index) const;
+    /** Set a specific register
+     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
+     *\param[in] value the new value for the register*/
+    void setRegister(size_t index, uintptr_t value);
     /** Get the name of a specific register
      *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
      *\return the name of the register */
