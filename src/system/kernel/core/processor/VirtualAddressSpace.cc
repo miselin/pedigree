@@ -23,11 +23,31 @@
 #include <processor/Processor.h>
 #include <Log.h>
 
+physical_uintptr_t VirtualAddressSpace::m_ZeroPage = 0;
+
 void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
 {
-  void *Heap = m_HeapEnd;
   PhysicalMemoryManager &PMemoryManager = PhysicalMemoryManager::instance();
+  if (!m_ZeroPage)
+  {
+    m_ZeroPage = PMemoryManager.allocatePage();
+    NOTICE("heapend is " << m_HeapEnd);
+    NOTICE("creating zero page");
+    if (map(m_ZeroPage, m_HeapEnd, VirtualAddressSpace::Write) == false)
+    {
+      ERROR("Could not prepare zero page.");
+      return 0;
+    }
 
+    NOTICE("zeroing page " << m_ZeroPage << "!");
+    ByteSet(m_HeapEnd, 0, PhysicalMemoryManager::getPageSize());
+
+    unmap(m_HeapEnd);
+
+    PMemoryManager.pin(m_ZeroPage);
+  }
+
+  void *Heap = m_HeapEnd;
   void *newHeapEnd = adjust_pointer(m_HeapEnd, incr);
   
   m_HeapEnd = reinterpret_cast<void*> (reinterpret_cast<uintptr_t>(m_HeapEnd) & ~(PhysicalMemoryManager::getPageSize()-1));
@@ -90,32 +110,18 @@ void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
   {
       while (reinterpret_cast<uintptr_t>(newHeapEnd) > reinterpret_cast<uintptr_t>(m_HeapEnd))
       {
-          // Allocate a page
-          physical_uintptr_t page = PMemoryManager.allocatePage();
-
-          if (page == 0)
-          {
-              ERROR("Out of physical memory!");
-          
-              // Reset the heap pointer
-              m_HeapEnd = adjust_pointer(m_HeapEnd, - i * PhysicalMemoryManager::getPageSize());
-
-              // Free the pages that were already allocated
-              rollbackHeapExpansion(m_HeapEnd, i);
-              return 0;
-          }
-
-          // Map the page
-          if (map(page, m_HeapEnd, flags) == false)
+          // Map the zero page CoW - writes will trigger a page allocation.
+          // This is far more efficient than allocating every page immediately.
+          if (map(m_ZeroPage, m_HeapEnd, (flags & ~VirtualAddressSpace::Write) | VirtualAddressSpace::CopyOnWrite) == false)
           {
               // Map failed - probable double mapping. Go to the next page.
-              // Free the page
-              PMemoryManager.freePage(page);
+              WARNING("VirtualAddressSpace::expandHeap() failed for " << m_HeapEnd);
           }
           else
           {
-              // Empty the page.
-              ByteSet(m_HeapEnd, 0, PhysicalMemoryManager::getPageSize());
+              // One more reference to the zero page (the CoW operation, if it happens,
+              // will reduce the refcount - we need to make sure the page stays!).
+              PMemoryManager.pin(m_ZeroPage);
           }
 
           // Go to the next address

@@ -218,6 +218,8 @@ class VirtualAddressSpace
     void *m_Heap;
     /** Pointer to the current heap end */
     void *m_HeapEnd;
+    /** Physical address of a zero page, always page-aligned. */
+    static physical_uintptr_t m_ZeroPage;
 
     /** Abstracts a stack. */
     class Stack
