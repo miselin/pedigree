@@ -434,6 +434,9 @@ bool DevFs::initialise(Disk *pDisk)
         delete m_pTty;
     }
 
+    ConsolePhysicalFile *pTty0 = new ConsolePhysicalFile(m_pTty, String("tty0"), this);
+    m_pRoot->addEntry(pTty0->getName(), pTty0);
+
     return true;
 }
 
