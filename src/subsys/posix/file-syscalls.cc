@@ -55,8 +55,17 @@
 #include <sys/statvfs.h>
 #include <termios.h>
 #include <utime.h>
+#include <stddef.h>
 
 extern int posix_getpid();
+
+// For getdents() (getdents64 uses a compatible struct dirent).
+struct linux_dirent {
+    long d_ino;
+    off_t d_off;
+    unsigned short d_reclen;
+    char d_name[];
+};
 
 //
 // Syscalls pertaining to files.
@@ -312,7 +321,7 @@ static bool doChown(File *pFile, uid_t owner, gid_t group)
     return true;
 }
 
-#define NORMALISE_FS_PATHS 0
+#define NORMALISE_FS_PATHS 1
 
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 {
@@ -1295,20 +1304,8 @@ int posix_lstat(char *name, struct stat *st)
     return 0;
 }
 
-/// \todo rewrite into getdents, which means we need to be able to open dirs
-
-
-int posix_getdents(int fd, struct dirent *ents, int count)
+static int getdents_common(int fd, size_t (*set_dent)(File *, void *, size_t, size_t), void *buffer, int count)
 {
-    F_NOTICE("getdents(" << fd << ")");
-    count /= sizeof(struct dirent);  // count is in bytes
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), sizeof(struct dirent) * count, PosixSubsystem::SafeWrite))
-    {
-        F_NOTICE("getdents -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
     // Lookup this process.
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -1343,270 +1340,145 @@ int posix_getdents(int fd, struct dirent *ents, int count)
     // Navigate the directory tree.
     Directory *pDirectory = Directory::fromFile(pFd->file);
     size_t truePosition = pFd->offset;
-    for (int i = 0; truePosition < pDirectory->getNumChildren() && i < count; ++i, ++truePosition)
+    int offset = 0;
+    for (; truePosition < pDirectory->getNumChildren() && offset < count; ++truePosition)
     {
         File *pFile = pDirectory->getChild(truePosition);
         if (!pFile)
             break;
 
-        /// \todo we could actually condense the dirents with d_reclen and d_off
-        ents[i].d_reclen = sizeof(struct dirent);
-        ents[i].d_off = sizeof(struct dirent);
-
-        ents[i].d_ino = pFile->getInode();
-        if (!ents[i].d_ino)
+        F_NOTICE(" -> " << pFile->getName());
+        size_t reclen = set_dent(pFile, buffer, count - offset, truePosition + 1);
+        if (reclen == 0)
         {
-            ents[i].d_ino = ~0U;
+            // no more room
+            break;
         }
 
-        StringCopyN(ents[i].d_name, static_cast<const char *>(pFile->getName()), sizeof ents[i].d_name);
-
-        if (pFile->isSymlink() || pFile->isPipe())
-        {
-            ents[i].d_type = DT_LNK;
-        }
-        else if (pFile->isDirectory())
-        {
-            ents[i].d_type = DT_DIR;
-        }
-        else
-        {
-            /// \todo also need to consider character devices
-            ents[i].d_type = DT_REG;
-        }
+        buffer = adjust_pointer(buffer, reclen);
+        offset += reclen;
     }
 
     size_t totalCount = truePosition - pFd->offset;
     pFd->offset = truePosition;
 
-    return totalCount * sizeof(dirent);
-
-
-
-#if 0
-    // Buffer another 64 entries.
-    Directory *pDirectory = Directory::fromFile(pFd->file);
-    for (size_t i = 0; i < 64; ++i)
-    {
-        File *pFile = pDirectory->getChild(dir->totalpos + i);
-        if (!pFile)
-            break;
-
-        dir->ent[i].d_ino = pFile->getInode();
-
-        // Some applications consider a null inode to mean "bad file" which is
-        // a horrible assumption for them to make. Because the presence of a file
-        // is indicated by more effective means (ie, successful return from
-        // readdir) this just appeases the applications which aren't portably
-        // written.
-        if(dir->ent[i].d_ino == 0)
-            dir->ent[i].d_ino = 0x7fff; // Signed, don't want this to turn negative
-
-        // Copy filename.
-        StringCopyN(dir->ent[i].d_name, static_cast<const char *>(pFile->getName()), MAXNAMLEN);
-        if(pFile->isSymlink())
-            dir->ent[i].d_type = DT_LNK;
-        else
-            dir->ent[i].d_type = pFile->isDirectory() ? DT_DIR : DT_REG;
-    }
-#endif
-
-    return 0;
+    F_NOTICE(" -> " << offset);
+    return offset;
 }
 
-/*
-int posix_opendir(const char *dir, void *entp)
+static size_t getdents_helper(File *file, void *buffer, size_t avail, size_t next_pos)
 {
-    DIR *ent = reinterpret_cast<DIR *>(entp);
+    struct linux_dirent *entry = reinterpret_cast<struct linux_dirent *>(buffer);
+    char *char_buffer = reinterpret_cast<char *>(buffer);
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dir), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ent), sizeof(DIR), PosixSubsystem::SafeWrite)))
+    size_t filenameLength = file->getName().length();
+    // dirent struct, filename, null terminator, and d_type
+    size_t reclen = sizeof(struct linux_dirent) + filenameLength + 2;
+    // do we have room for this record?
+    if (avail < reclen)
     {
-        F_NOTICE("opendir -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
+        // need to call again with more space available
+        return 0;
     }
 
-    F_NOTICE("opendir(" << dir << ")");
+    entry->d_reclen = reclen;
+    entry->d_off = next_pos;  /// \todo not quite correct
 
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
+    entry->d_ino = file->getInode();
+    if (!entry->d_ino)
     {
-        ERROR("No subsystem for this process!");
-        return -1;
+        entry->d_ino = ~0U;
     }
 
-    String realPath;
-    normalisePath(realPath, dir);
+    StringCopy(entry->d_name, static_cast<const char *>(file->getName()));
+    char_buffer[reclen - 2] = 0;
 
-    File* file = VFS::instance().find(realPath, GET_CWD());
-    if (!file)
+    char d_type = DT_UNKNOWN;
+    if (file->isSymlink() || file->isPipe())
     {
-        // Error - not found.
-        F_NOTICE(" -> not found");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
+        d_type = DT_LNK;
     }
-    
-    file = traverseSymlink(file);
-
-    if(!file)
-        return -1;
-
-    if (!file->isDirectory())
+    else if (file->isDirectory())
     {
-        // Error - not a directory.
-        F_NOTICE(" -> not a directory");
-        SYSCALL_ERROR(NotADirectory);
-        return -1;
+        d_type = DT_DIR;
     }
-
-    // Need read permission to list the directory.
-    if (!VFS::checkAccess(file, true, false, false))
+    else
     {
-        // checkAccess does a SYSCALL_ERROR for us.
-        return -1;
+        /// \todo also need to consider character devices
+        d_type = DT_REG;
     }
+    char_buffer[reclen - 1] = d_type;
 
-    size_t fd = pSubsystem->getFd();
-    FileDescriptor *f = new FileDescriptor;
-    f->file = file;
-    f->offset = 0;
-    f->fd = fd;
-
-    // Fill out the DIR structure too.
-    Directory *pDirectory = Directory::fromFile(file);
-    ByteSet(ent, 0, sizeof(*ent));
-    ent->fd = fd;
-    ent->count = pDirectory->getNumChildren();
-
-    // Register the fd, we're about to buffer the directory and be done here
-    pSubsystem->addFileDescriptor(fd, f);
-
-    // Load the buffer now that we've set up for the buffer.
-    if (posix_readdir(ent) < 0)
-    {
-        // readdir does a SYSCALL_ERROR when it fails
-        F_NOTICE(" -> readdir failed...");
-        pSubsystem->freeFd(fd);
-        ByteSet(ent, 0xFF, sizeof(*ent));
-        return -1;
-    }
-
-    F_NOTICE(" -> " << fd);
-    return static_cast<int>(fd);
+    return reclen;
 }
 
-int posix_readdir(DIR *dirp)
+static size_t getdents64_helper(File *file, void *buffer, size_t avail, size_t next_pos)
 {
-    DIR *dir = reinterpret_cast<DIR *>(dirp);
+    struct dirent *entry = reinterpret_cast<struct dirent *>(buffer);
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dir), sizeof(DIR), PosixSubsystem::SafeWrite))
+    size_t filenameLength = file->getName().length();
+    size_t reclen = offsetof(struct dirent, d_name) + filenameLength + 1;  // needs null terminator
+    // do we have room for this record?
+    if (avail < reclen)
     {
-        F_NOTICE("readdir -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
+        // need to call again with more space available
+        return 0;
     }
 
-    F_NOTICE("readdir(" << dir->fd << ")");
+    entry->d_reclen = reclen;
+    entry->d_off = next_pos;
 
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
+    entry->d_ino = file->getInode();
+    if (!entry->d_ino)
     {
-        ERROR("No subsystem for this process!");
-        return -1;
+        entry->d_ino = ~0U;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(dir->fd);
-    if (!pFd || !pFd->file)
+    StringCopy(entry->d_name, static_cast<const char *>(file->getName()));
+    entry->d_name[filenameLength] = 0;
+
+    if (file->isSymlink() || file->isPipe())
     {
-        // Error - no such file descriptor.
-        F_NOTICE(" -> bad file");
-        SYSCALL_ERROR(BadFileDescriptor);
-        return -1;
+        entry->d_type = DT_LNK;
+    }
+    else if (file->isDirectory())
+    {
+        entry->d_type = DT_DIR;
+    }
+    else
+    {
+        /// \todo also need to consider character devices
+        entry->d_type = DT_REG;
     }
 
-    if(!pFd->file->isDirectory())
-    {
-        F_NOTICE(" -> not a directory");
-        SYSCALL_ERROR(NotADirectory);
-        return -1;
-    }
-
-    if (dir->totalpos % 64)
-    {
-        // Not on a multiple of 64 - possibly called directly rather than via
-        // libc (where the proper magic is done).
-        F_NOTICE(" -> wrong position");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    // Buffer another 64 entries.
-    Directory *pDirectory = Directory::fromFile(pFd->file);
-    for (size_t i = 0; i < 64; ++i)
-    {
-        File *pFile = pDirectory->getChild(dir->totalpos + i);
-        if (!pFile)
-            break;
-
-        dir->ent[i].d_ino = pFile->getInode();
-
-        // Some applications consider a null inode to mean "bad file" which is
-        // a horrible assumption for them to make. Because the presence of a file
-        // is indicated by more effective means (ie, successful return from
-        // readdir) this just appeases the applications which aren't portably
-        // written.
-        if(dir->ent[i].d_ino == 0)
-            dir->ent[i].d_ino = 0x7fff; // Signed, don't want this to turn negative
-
-        // Copy filename.
-        StringCopyN(dir->ent[i].d_name, static_cast<const char *>(pFile->getName()), MAXNAMLEN);
-        if(pFile->isSymlink())
-            dir->ent[i].d_type = DT_LNK;
-        else
-            dir->ent[i].d_type = pFile->isDirectory() ? DT_DIR : DT_REG;
-    }
-
-    return 0;
+    return reclen;
 }
 
-int posix_closedir(DIR *dir)
+int posix_getdents(int fd, struct linux_dirent *ents, int count)
 {
-    DIR *dir = reinterpret_cast<DIR *>(dirp);
-
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dir), sizeof(DIR), PosixSubsystem::SafeRead))
+    F_NOTICE("getdents(" << fd << ")");
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), count, PosixSubsystem::SafeWrite))
     {
-        F_NOTICE("closedir -> invalid address");
+        F_NOTICE("getdents -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    if (dir->fd < 0)
-    {
-        SYSCALL_ERROR(BadFileDescriptor);
-        return -1;
-    }
-
-    F_NOTICE("closedir(" << dir->fd << ")");
-
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
-    pSubsystem->freeFd(dir->fd);
-
-    return 0;
+    return getdents_common(fd, getdents_helper, ents, count);
 }
-*/
+
+int posix_getdents64(int fd, struct dirent *ents, int count)
+{
+    F_NOTICE("getdents64(" << fd << ")");
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), count, PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE("getdents64 -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    return getdents_common(fd, getdents64_helper, ents, count);
+}
 
 int posix_ioctl(int fd, int command, void *buf)
 {

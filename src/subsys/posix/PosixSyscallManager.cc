@@ -441,7 +441,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_READV:
             return posix_readv(static_cast<int>(p1), reinterpret_cast<const struct iovec *>(p2), p3);
         case POSIX_GETDENTS:
-            return posix_getdents(static_cast<int>(p1), reinterpret_cast<struct dirent *>(p2), static_cast<int>(p3));
+            return posix_getdents(static_cast<int>(p1), reinterpret_cast<struct linux_dirent *>(p2), static_cast<int>(p3));
         case POSIX_GETTID:
             return posix_gettid();
         case POSIX_BRK:
@@ -474,6 +474,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_clone(state, p1, reinterpret_cast<void *>(p2), reinterpret_cast<int *>(p3), reinterpret_cast<int *>(p4), p5);
         case POSIX_PAUSE:
             return posix_pause();
+        case POSIX_GETDENTS64:
+            return posix_getdents64(static_cast<int>(p1), reinterpret_cast<struct dirent *>(p2), static_cast<int>(p3));
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

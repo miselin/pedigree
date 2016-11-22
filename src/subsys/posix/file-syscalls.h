@@ -65,7 +65,8 @@ int posix_readdir(void *dirp);
 int posix_closedir(void *dirp);
 */
 
-int posix_getdents(int fd, struct dirent *ents, int count);
+int posix_getdents(int fd, struct linux_dirent *ents, int count);
+int posix_getdents64(int fd, struct dirent *ents, int count);
 
 int posix_ioctl(int fd, int operation, void *buf);
 

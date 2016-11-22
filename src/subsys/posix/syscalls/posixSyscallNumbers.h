@@ -222,5 +222,6 @@
 #define POSIX_ARCH_PRCTL        214
 #define POSIX_CLONE             215
 #define POSIX_PAUSE             216
+#define POSIX_GETDENTS64        217
 
 #endif
