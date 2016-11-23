@@ -61,7 +61,7 @@ int posix_pipe(int filedes[2])
   filedes[0] = readFd;
   filedes[1] = writeFd;
 
-  File* p = new Pipe(String("Anonymous pipe"), 0, 0, 0, 0, 0, 0, 0, true);
+  File* p = new Pipe(String(""), 0, 0, 0, 0, 0, 0, 0, true);
 
   // Create the file descriptor for both
   FileDescriptor* read = new FileDescriptor(p, 0, readFd, 0, O_RDONLY);
