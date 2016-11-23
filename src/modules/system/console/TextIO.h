@@ -23,6 +23,7 @@
 #include <processor/types.h>
 #include <utilities/Buffer.h>
 #include <process/Mutex.h>
+#include <machine/InputManager.h>
 
 #include <vfs/File.h>
 
@@ -130,6 +131,9 @@ public:
     virtual int select(bool bWriting = false, int timeout = 0);
 
     virtual void flipThread();
+
+    static void inputCallback(InputManager::InputNotification &in);
+    void handleInput(InputManager::InputNotification &in);
 
 private:
     static const ssize_t BACKBUFFER_COLS_WIDE = 132;

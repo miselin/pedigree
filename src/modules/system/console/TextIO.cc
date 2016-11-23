@@ -20,10 +20,17 @@
 #include <machine/Machine.h>
 #include <machine/Vga.h>
 #include <processor/Processor.h>
+#include <machine/InputManager.h>
 #include <LockGuard.h>
 #include <Log.h>
 
 #include "TextIO.h"
+
+/// \todo these come from somewhere - expose them properly
+#define ALT_KEY (1ULL << 60)
+#define SHIFT_KEY (1ULL << 61)
+#define CTRL_KEY (1ULL << 62)
+#define SPECIAL_KEY (1ULL << 63)
 
 static int startFlipThread(void *param);
 
@@ -45,12 +52,17 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
     setUidOnly(0);
     setGidOnly(0);
+
+    InputManager::instance().installCallback(InputManager::Key, inputCallback, this);
 }
 
 TextIO::~TextIO()
 {
     delete [] m_pBackbuffer;
     m_pBackbuffer = 0;
+
+    /// \todo removeCallback will remove too many as it doesn't also use meta...
+    InputManager::instance().removeCallback(inputCallback);
 }
 
 bool TextIO::initialise(bool bClear)
@@ -1675,4 +1687,125 @@ static int startFlipThread(void *param)
     TextIO *tio = reinterpret_cast<TextIO *>(param);
     tio->flipThread();
     return 0;
+}
+
+void TextIO::inputCallback(InputManager::InputNotification &in)
+{
+    if (!in.meta)
+    {
+        return;
+    }
+
+    TextIO *p = reinterpret_cast<TextIO *>(in.meta);
+    p->handleInput(in);
+}
+
+void TextIO::handleInput(InputManager::InputNotification &in)
+{
+    if (!m_OutBuffer.canWrite(false))
+    {
+        WARNING("TextIO: output buffer is full, dropping keypress!");
+        return;
+    }
+
+    uint64_t c = in.data.key.key;
+
+    int direction = -1;
+    if(c & SPECIAL_KEY)
+    {
+        uint32_t k = c & 0xFFFFFFFFULL;
+        char *str = reinterpret_cast<char *>(&k);
+
+        if(!StringCompareN(str, "left", 4))
+        {
+            direction = 0;  // left
+        }
+        else if(!StringCompareN(str, "righ", 4))
+        {
+            direction = 1;  // right
+        }
+        else if(!StringCompareN(str, "up", 2))
+        {
+            direction = 2;  // up
+        }
+        else if(!StringCompareN(str, "down", 4))
+        {
+            direction = 3;  // down
+        }
+    }
+    else if(c & CTRL_KEY)
+    {
+        // CTRL-key = unprintable (ie, CTRL-C, CTRL-U)
+        c &= 0x1F;
+    }
+
+    if(c == '\n')
+        c = '\r'; // Enter key (ie, return) - CRtoNL.
+
+    if(direction >= 0)
+    {
+        switch(direction)
+        {
+            case 0:
+                m_OutBuffer.write("\e[D", 3);
+                break;
+            case 1:
+                m_OutBuffer.write("\e[C", 3);
+                break;
+            case 2:
+                m_OutBuffer.write("\e[A", 3);
+                break;
+            case 3:
+                m_OutBuffer.write("\e[B", 3);
+                break;
+            default:
+                break;
+        }
+    }
+    else if(c & ALT_KEY)
+    {
+        // ALT escaped key
+        c &= 0x7F;
+        char buf[2] = {'\e', static_cast<char>(c & 0xFF)};
+        m_OutBuffer.write(buf, 2);
+    }
+    else if(c)
+    {
+        uint32_t utf32 = c & 0xFFFFFFFF;
+
+        // UTF32 -> UTF8
+        char buf[4];
+        size_t nbuf = 0;
+        if (utf32 <= 0x7F)
+        {
+            buf[0] = utf32&0x7F;
+            nbuf = 1;
+        }
+        else if (utf32 <= 0x7FF)
+        {
+            buf[0] = 0xC0 | ((utf32>>6) & 0x1F);
+            buf[1] = 0x80 | (utf32 & 0x3F);
+            nbuf = 2;
+        }
+        else if (utf32 <= 0xFFFF)
+        {
+            buf[0] = 0xE0 | ((utf32>>12) & 0x0F);
+            buf[1] = 0x80 | ((utf32>>6) & 0x3F);
+            buf[2] = 0x80 | (utf32 & 0x3F);
+            nbuf = 3;
+        }
+        else if (utf32 <= 0x10FFFF)
+        {
+            buf[0] = 0xE0 | ((utf32>>18) & 0x07);
+            buf[1] = 0x80 | ((utf32>>12) & 0x3F);
+            buf[2] = 0x80 | ((utf32>>6) & 0x3F);
+            buf[3] = 0x80 | (utf32 & 0x3F);
+            nbuf = 4;
+        }
+
+        // UTF8 conversion complete.
+        m_OutBuffer.write(buf, nbuf);
+    }
+
+    dataChanged();
 }

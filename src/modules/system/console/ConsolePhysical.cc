@@ -29,8 +29,6 @@ ConsolePhysicalFile::ConsolePhysicalFile(File *pTerminal, String consoleName, Fi
 
 uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    WARNING("ConsolePhysicalFile::read()");
-
     // read from terminal and perform line discipline as needed
     if (!m_ProcessedInput.canRead(false))
     {
