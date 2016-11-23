@@ -187,12 +187,9 @@ void ConsoleManager::getControlChars(File *file, void *p)
 
 int ConsoleManager::getWindowSize(File *file, unsigned short *rows, unsigned short *cols)
 {
-    NOTICE("A");
     if(!file)
         return -1;
-    NOTICE("B");
     ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
-    NOTICE("C");
     if(!pFile->isMaster())
     {
         if (pFile->m_pOther)
@@ -200,11 +197,9 @@ int ConsoleManager::getWindowSize(File *file, unsigned short *rows, unsigned sho
             pFile = pFile->m_pOther;
         }
     }
-    NOTICE("D [" << pFile << "]");
 
     *rows = pFile->m_Rows;
     *cols = pFile->m_Cols;
-    NOTICE("E");
     return 0;
 }
 
