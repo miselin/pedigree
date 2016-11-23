@@ -387,7 +387,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
     }
     else if (!StringCompareN(name, "/var/run/", StringLength("/var/run/")))
     {
-        nameToOpen = "runtime»/";
+        nameToOpen = "posix-runtime»/";
         nameToOpen += (name + StringLength("/var/run/"));
         return true;
     }

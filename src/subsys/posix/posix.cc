@@ -23,6 +23,7 @@
 #include <process/Process.h>
 #include <process/Scheduler.h>
 #include <vfs/VFS.h>
+#include <ramfs/RamFs.h>
 #include "PosixSyscallManager.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
@@ -33,9 +34,10 @@
 static PosixSyscallManager g_PosixSyscallManager;
 
 static UnixFilesystem *g_pUnixFilesystem = 0;
+static RamFs *g_pRunFilesystem = 0;
 
-DevFs *g_pDevFs;
-ProcFs *g_pProcFs;
+static DevFs *g_pDevFs = 0;
+static ProcFs *g_pProcFs = 0;
 
 static bool init()
 {
@@ -49,6 +51,10 @@ static bool init()
 
   g_pUnixFilesystem = new UnixFilesystem();
 
+  g_pRunFilesystem = new RamFs;
+  g_pRunFilesystem->initialise(0);
+  VFS::instance().addAlias(g_pRunFilesystem, String("posix-runtime"));
+
   VFS::instance().addAlias(g_pUnixFilesystem, g_pUnixFilesystem->getVolumeLabel());
   VFS::instance().addAlias(g_pDevFs, g_pDevFs->getVolumeLabel());
   VFS::instance().addAlias(g_pProcFs, g_pProcFs->getVolumeLabel());
@@ -61,6 +67,7 @@ static void destroy()
     VFS::instance().removeAllAliases(g_pProcFs);
     VFS::instance().removeAllAliases(g_pDevFs);
     VFS::instance().removeAllAliases(g_pUnixFilesystem);
+    VFS::instance().removeAllAliases(g_pRunFilesystem);
 }
 
 #ifdef ARM_COMMON
