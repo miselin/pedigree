@@ -26,6 +26,7 @@
 #include <process/SignalEvent.h>
 #include <process/Scheduler.h>
 #include <process/Uninterruptible.h>
+#include <syscallError.h>
 
 #include <utilities/RadixTree.h>
 #include <utilities/Tree.h>
@@ -45,6 +46,8 @@
 #include <vfs/MemoryMappedFile.h>
 
 #include "file-syscalls.h"
+
+#include <signal.h>
 
 #define O_RDONLY    0
 #define O_WRONLY    1
@@ -518,72 +521,72 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
         case PageFault:
             NOTICE("    (Page fault)");
             // Send SIGSEGV
-            sig = getSignalHandler(11);
+            sig = getSignalHandler(SIGSEGV);
             break;
         case InvalidOpcode:
             NOTICE("    (Invalid opcode)");
             // Send SIGILL
-            sig = getSignalHandler(4);
+            sig = getSignalHandler(SIGILL);
             break;
         case GeneralProtectionFault:
             NOTICE("    (General Fault)");
-            // Send SIGSEGV
-            sig = getSignalHandler(14);
+            // Send SIGBUS
+            sig = getSignalHandler(SIGBUS);
             break;
         case DivideByZero:
             NOTICE("    (Division by zero)");
             // Send SIGFPE
-            sig = getSignalHandler(8);
+            sig = getSignalHandler(SIGFPE);
             break;
         case FpuError:
             NOTICE("    (FPU error)");
             // Send SIGFPE
-            sig = getSignalHandler(8);
+            sig = getSignalHandler(SIGFPE);
             break;
         case SpecialFpuError:
             NOTICE("    (FPU error - special)");
             // Send SIGFPE
-            sig = getSignalHandler(8);
+            sig = getSignalHandler(SIGFPE);
             break;
         case TerminalInput:
             NOTICE("    (Attempt to read from terminal by non-foreground process)");
             // Send SIGTTIN
-            sig = getSignalHandler(21);
+            sig = getSignalHandler(SIGTTIN);
             break;
         case TerminalOutput:
             NOTICE("    (Output to terminal by non-foreground process)");
             // Send SIGTTOU
-            sig = getSignalHandler(22);
+            sig = getSignalHandler(SIGTTOU);
             break;
         case Continue:
             NOTICE("    (Continuing a stopped process)");
             // Send SIGCONT
-            sig = getSignalHandler(19);
+            sig = getSignalHandler(SIGCONT);
             break;
         case Stop:
             NOTICE("    (Stopping a process)");
             // Send SIGTSTP
-            sig = getSignalHandler(18);
+            sig = getSignalHandler(SIGTSTP);
             break;
         case Interrupt:
             NOTICE("    (Interrupting a process)");
             // Send SIGINT
-            sig = getSignalHandler(2);
+            sig = getSignalHandler(SIGINT);
             break;
         case Quit:
             NOTICE("    (Requesting quit)");
             // Send SIGTERM
-            sig = getSignalHandler(15);
+            sig = getSignalHandler(SIGTERM);
             break;
         case Child:
             NOTICE("    (Child status changed)");
             // Send SIGCHLD
-            sig = getSignalHandler(20);
+            sig = getSignalHandler(SIGCHLD);
             break;
         case Pipe:
             NOTICE("    (Pipe broken)");
             // Send SIGPIPE
-            sig = getSignalHandler(13);
+            sig = getSignalHandler(SIGPIPE);
             break;
         default:
             NOTICE("    (Unknown)");

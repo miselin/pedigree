@@ -57,7 +57,7 @@ static int doThreadKill(Thread *p, int sig);
 #define SIGNAL_HANDLER_EMPTY(name) \
     static void name(int s) \
     { \
-        NOTICE("EMPTY"); \
+        NOTICE("EMPTY [signal " << s << "]"); \
     }
 #define SIGNAL_HANDLER_EXITMSG(name, errcode, msg) \
     static void name(int) NORETURN; \
@@ -71,14 +71,14 @@ static int doThreadKill(Thread *p, int sig);
 #define SIGNAL_HANDLER_SUSPEND(name) \
     static void name(int s) \
     { \
-        NOTICE("SUSPEND"); \
+        NOTICE("SUSPEND [signal " << s << "]"); \
         Process *pParent = Processor::information().getCurrentThread()->getParent()->getParent(); \
         pParent->suspend(); \
     }
 #define SIGNAL_HANDLER_RESUME(name) \
     static void name(int s) \
     { \
-        NOTICE("RESUME"); \
+        NOTICE("RESUME [signal " << s << "]"); \
         Processor::information().getCurrentThread()->getParent()->resume(); \
     }
 
@@ -113,38 +113,38 @@ SIGNAL_HANDLER_EMPTY    (sigign);
 
 static _sig_func_ptr default_sig_handlers[32] =
 {
-    sigign, // null signal = 0
-    sighup, // SIGHUP = 1
-    sigint, // SIGINT = 2
-    sigquit, // SIGQUIT = 3
-    sigill, // SIGILL = 4
-    sigign, // no SIGTRAP = 5
-    sigabrt, // SIGABRT = 6
-    sigign, // no SIGEMT = 7
-    sigfpe, // SIGFPE = 8
-    sigkill, // SIGKILL = 9
-    sigbus, // SIGBUS = 10
-    sigsegv, // SIGSEGV = 11
-    sigign, // no SIGSYS = 12
-    sigpipe, // SIGPIPE = 13
-    sigalrm, // SIGALRM = 14
-    sigterm, // SIGTERM = 15
-    sigurg, // SIGURG = 16
-    sigstop, // SIGSTOP = 17
-    sigtstp, // SIGTSTP = 18
-    sigcont, // SIGCONT = 19
-    sigchld, // SIGCHLD = 20
-    sigttin, // SIGTTIN = 21
-    sigttou, // SIGTTOU = 22
-    sigign, // no SIGIO = 23
-    sigign, // no SIGXCPU = 24
-    sigign, // no SIGXFSZ = 25
-    sigign, // no SIGVTALRM = 26
-    sigign, // no SIGPROF = 27
-    sigign, // no SIGWINCH = 28
-    sigign, // no SIGLOST = 29
-    sigusr1, // SIGUSR1 = 30
-    sigusr2 // SIGUSR2 = 31
+    sigign,  // 0
+    sighup,  // SIGHUP
+    sigint,  // SIGINT
+    sigquit,  // SIGQUIT
+    sigill,  // SIGILL
+    sigign,  // SIGTRAP
+    sigabrt,  // SIGABRT
+    sigbus,  // SIGBUS
+    sigfpe,  // SIGFPE
+    sigkill,  // SIGKILL
+    sigusr1,  // SIGUSR1
+    sigsegv,  // SIGSEGV
+    sigusr2,  // SIGUSR2
+    sigpipe,  // SIGPIPE
+    sigalrm,  // SIGALRM
+    sigterm,  // SIGTERM
+    sigign,  // SIGSTKFLT
+    sigchld,  // SIGCHLD
+    sigcont,  // SIGCONT
+    sigstop,  // SIGSTOP
+    sigtstp,  // SIGTSTP
+    sigttin,  // SIGTTIN
+    sigttou,  // SIGTTOU
+    sigurg,  // SIGURG
+    sigign,  // SIGXCPU
+    sigign,  // SIGXFSZ
+    sigign,  // SIGVTALRM
+    sigign,  // SIGWINCH
+    sigign,  // SIGIO
+    sigign,  // SIGPOLL
+    sigign,  // SIGPWR
+    sigign,  // SIGSYS
 };
 
 int posix_sigaction(int sig, const struct sigaction *act, struct sigaction *oact)
