@@ -483,6 +483,30 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_getdents64(static_cast<int>(p1), reinterpret_cast<struct dirent *>(p2), static_cast<int>(p3));
         case POSIX_L_SYSLOG:
             return posix_linux_syslog(p1, reinterpret_cast<char *>(p2), p3);
+        case POSIX_FLOCK:
+            return posix_flock(p1, p2);
+        case POSIX_OPENAT:
+            return posix_openat(p1, reinterpret_cast<const char *>(p2), p3, p4);
+        case POSIX_MKDIRAT:
+            return posix_mkdirat(p1, reinterpret_cast<const char *>(p2), p3);
+        case POSIX_FCHOWNAT:
+            return posix_fchownat(p1, reinterpret_cast<const char *>(p2), p3, p4, p5);
+        case POSIX_FUTIMESAT:
+            return posix_futimesat(p1, reinterpret_cast<const char *>(p2), reinterpret_cast<struct timeval *>(p3));
+        case POSIX_UNLINKAT:
+            return posix_unlinkat(p1, reinterpret_cast<const char *>(p2), p3);
+        case POSIX_RENAMEAT:
+            return posix_renameat(p1, reinterpret_cast<const char *>(p2), p3, reinterpret_cast<const char *>(p4));
+        case POSIX_LINKAT:
+            return posix_linkat(p1, reinterpret_cast<const char *>(p2), p3, reinterpret_cast<const char *>(p4), p5);
+        case POSIX_SYMLINKAT:
+            return posix_symlinkat(reinterpret_cast<const char *>(p1), p2, reinterpret_cast<const char *>(p3));
+        case POSIX_READLINKAT:
+            return posix_readlinkat(p1, reinterpret_cast<const char *>(p2), reinterpret_cast<char *>(p3), p4);
+        case POSIX_FCHMODAT:
+            return posix_fchmodat(p1, reinterpret_cast<const char *>(p2), p3, p4);
+        case POSIX_FACCESSAT:
+            return posix_faccessat(p1, reinterpret_cast<const char *>(p2), p3, p4);
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

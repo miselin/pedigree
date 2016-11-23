@@ -443,215 +443,7 @@ int posix_close(int fd)
 
 int posix_open(const char *name, int flags, int mode)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("open -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("open(" << name << ", " << ((flags & O_RDWR) ? "O_RDWR" : "") << ((flags & O_RDONLY) ? "O_RDONLY" : "") << ((flags & O_WRONLY) ? "O_WRONLY" : "") << ")");
-    F_NOTICE("  -> actual flags " << flags);
-    F_NOTICE("  -> mode is " << Oct << mode);
-    
-    // One of these three must be specified.
-    if(!(CHECK_FLAG(flags, O_RDONLY) || CHECK_FLAG(flags, O_RDWR) || CHECK_FLAG(flags, O_WRONLY)))
-    {
-        F_NOTICE("One of O_RDONLY, O_WRONLY, or O_RDWR must be passed.");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    // verify the filename - don't try to open a dud file
-    if (name[0] == 0)
-    {
-        F_NOTICE("  -> File does not exist (null path).");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        F_NOTICE("  -> No subsystem for this process!");
-        return -1;
-    }
-
-    PosixProcess *pPosixProcess = getPosixProcess();
-    if (pPosixProcess)
-    {
-        mode &= ~pPosixProcess->getMask();
-    }
-
-    size_t fd = pSubsystem->getFd();
-
-    File* file = 0;
-
-    bool onDevFs = false;
-    String nameToOpen;
-    normalisePath(nameToOpen, name, &onDevFs);
-    if (nameToOpen == "/dev/tty")
-    {
-        file = pProcess->getCtty();
-        if(!file)
-        {
-            F_NOTICE("  -> returning -1, no controlling tty");
-            return -1;
-        }
-        else if(ConsoleManager::instance().isMasterConsole(file))
-        {
-            // If we happened to somehow open a master console, get its slave.
-            F_NOTICE("  -> controlling terminal was not a slave");
-            file = ConsoleManager::instance().getOther(file);
-        }
-    }
-
-    F_NOTICE("  -> actual filename to open is '" << nameToOpen << "'");
-
-    if (!file)
-    {
-        // Find file.
-        file = VFS::instance().find(nameToOpen, GET_CWD());
-    }
-
-    bool bCreated = false;
-    if (!file)
-    {
-        if ((flags & O_CREAT) && !onDevFs)
-        {
-            F_NOTICE("  {O_CREAT}");
-            bool worked = VFS::instance().createFile(nameToOpen, mode, GET_CWD());
-            if (!worked)
-            {
-                // createFile should set the error if it fails.
-                F_NOTICE("  -> File does not exist (createFile failed)");
-                pSubsystem->freeFd(fd);
-                return -1;
-            }
-
-            file = VFS::instance().find(nameToOpen, GET_CWD());
-            if (!file)
-            {
-                F_NOTICE("  -> File does not exist (O_CREAT failed)");
-                SYSCALL_ERROR(DoesNotExist);
-                pSubsystem->freeFd(fd);
-                return -1;
-            }
-
-            bCreated = true;
-        }
-        else
-        {
-            F_NOTICE("  -> Does not exist.");
-            // Error - not found.
-            SYSCALL_ERROR(DoesNotExist);
-            pSubsystem->freeFd(fd);
-            return -1;
-        }
-    }
-
-    if(!file)
-    {
-      F_NOTICE("  -> File does not exist.");
-      SYSCALL_ERROR(DoesNotExist);
-      pSubsystem->freeFd(fd);
-      return -1;
-    }
-
-    file = traverseSymlink(file);
-
-    if(!file)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        pSubsystem->freeFd(fd);
-        return -1;
-    }
-
-    if (file->isDirectory() && (flags & (O_WRONLY | O_RDWR)))
-    {
-        // Error - is directory.
-        F_NOTICE("  -> Is a directory, and O_WRONLY or O_RDWR was specified.");
-        SYSCALL_ERROR(IsADirectory);
-        pSubsystem->freeFd(fd);
-        return -1;
-    }
-
-    if ((flags & O_CREAT) && (flags & O_EXCL) && !bCreated)
-    {
-        // file exists with O_CREAT and O_EXCL
-        F_NOTICE("  -> File exists");
-        SYSCALL_ERROR(FileExists);
-        pSubsystem->freeFd(fd);
-        return -1;
-    }
-
-    // O_RDONLY is zero.
-    bool checkRead = (flags == O_RDONLY) || (flags & O_RDWR);
-
-    // Handle side effects.
-    File *newFile = file->open();
-
-    // Check for the desired permissions.
-    // Note: we are permitted to create a file that we cannot open for writing
-    // again. It will be open for the original mode requested if it was
-    // created.
-    if (!bCreated)
-    {
-        if (!VFS::checkAccess(file,
-            checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
-        {
-            // checkAccess does a SYSCALL_ERROR for us.
-            F_NOTICE("  -> file access denied.");
-            return -1;
-        }
-        // Check for the desired permissions.
-        if ((newFile != file) && (!VFS::checkAccess(newFile,
-            checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false)))
-        {
-            // checkAccess does a SYSCALL_ERROR for us.
-            F_NOTICE("  -> file access denied.");
-            return -1;
-        }
-    }
-
-    // ensure we tweak the correct file now
-    file = newFile;
-
-    // Check for console (as we have special handling needed here)
-    if (ConsoleManager::instance().isConsole(file))
-    {
-        // If a master console, attempt to lock.
-        if(ConsoleManager::instance().isMasterConsole(file))
-        {
-            // Lock the master, we now own it.
-            // Or, we don't - if someone else has it open for example.
-            if(!ConsoleManager::instance().lockConsole(file))
-            {
-                F_NOTICE("Couldn't lock pseudoterminal master");
-                SYSCALL_ERROR(DeviceBusy);
-                pSubsystem->freeFd(fd);
-                return -1;
-            }
-        }
-    }
-
-    // Permissions were OK.
-    if ((flags & O_TRUNC) && ((flags & O_CREAT) || (flags & O_WRONLY) || (flags & O_RDWR)))
-    {
-        F_NOTICE("  -> {O_TRUNC}");
-        // truncate the file
-        file->truncate();
-    }
-
-    FileDescriptor *f = new FileDescriptor(file, (flags & O_APPEND) ? file->getSize() : 0, fd, 0, flags);
-    if(f)
-        pSubsystem->addFileDescriptor(fd, f);
-
-    F_NOTICE("    -> " << fd);
-
-    return static_cast<int> (fd);
+    return posix_openat(AT_FDCWD, name, flags, mode);
 }
 
 int posix_read(int fd, char *ptr, int len)
@@ -886,80 +678,12 @@ off_t posix_lseek(int file, off_t ptr, int dir)
 
 int posix_link(char *target, char *link)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(target), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(link), PATH_MAX, PosixSubsystem::SafeRead)))
-    {
-        F_NOTICE("link -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("link(" << target << ", " << link << ")");
-
-    // Try and find the target.
-    String realTarget;
-    String realLink;
-    normalisePath(realTarget, target);
-    normalisePath(realLink, link);
-
-    File *pTarget = VFS::instance().find(realTarget, GET_CWD());
-    pTarget = traverseSymlink(pTarget);
-    if (!pTarget)
-    {
-        F_NOTICE(" -> target '" << realTarget << "' did not exist.");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    bool result = VFS::instance().createLink(realLink, pTarget, GET_CWD());
-
-    if (!result)
-    {
-        F_NOTICE(" -> failed to create link");
-        return -1;
-    }
-
-    F_NOTICE(" -> ok");
-    return 0;
+    return posix_linkat(AT_FDCWD, target, AT_FDCWD, link, AT_SYMLINK_FOLLOW);
 }
 
 int posix_readlink(const char* path, char* buf, unsigned int bufsize)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), bufsize, PosixSubsystem::SafeWrite)))
-    {
-        F_NOTICE("readlink -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("readlink(" << path << ", " << reinterpret_cast<uintptr_t>(buf) << ", " << bufsize << ")");
-
-    String realPath;
-    normalisePath(realPath, path);
-
-    File* f = VFS::instance().find(realPath, GET_CWD());
-    if (!f)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    if (!f->isSymlink())
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    if (buf == 0)
-        return -1;
-
-    HugeStaticString str;
-    HugeStaticString tmp;
-    str.clear();
-    tmp.clear();
-
-    return Symlink::fromFile(f)->followLink(buf, bufsize);
+    return posix_readlinkat(AT_FDCWD, path, buf, bufsize);
 }
 
 int posix_realpath(const char *path, char *buf, size_t bufsize)
@@ -1014,137 +738,17 @@ int posix_realpath(const char *path, char *buf, size_t bufsize)
 
 int posix_unlink(char *name)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("unlink -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("unlink(" << name << ")");
-
-    String realPath;
-    normalisePath(realPath, name);
-
-    File *pFile = VFS::instance().find(realPath, GET_CWD());
-    if (!pFile)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-    else if (pFile->isDirectory())
-    {
-        // We don't support unlink() on directories - use rmdir().
-        SYSCALL_ERROR(NotEnoughPermissions);
-        return -1;
-    }
-
-    // remove() checks permissions to ensure we can delete the file.
-    if (VFS::instance().remove(realPath, GET_CWD()))
-    {
-        return 0;
-    }
-    else
-    {
-        return -1;
-    }
+    return posix_unlinkat(AT_FDCWD, name, 0);
 }
 
 int posix_symlink(char *target, char *link)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(target), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(link), PATH_MAX, PosixSubsystem::SafeRead)))
-    {
-        F_NOTICE("symlink -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("symlink(" << target << ", " << link << ")");
-
-    bool worked = VFS::instance().createSymlink(String(link), String(target), GET_CWD());
-    if (worked)
-        return 0;
-    else
-        ERROR("Symlink failed for `" << link << "' -> `" << target << "'");
-    return -1;
+    return posix_symlinkat(target, AT_FDCWD, link);
 }
 
 int posix_rename(const char* source, const char* dst)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(source), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(dst), PATH_MAX, PosixSubsystem::SafeRead)))
-    {
-        F_NOTICE("rename -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("rename(" << source << ", " << dst << ")");
-
-    String realSource;
-    String realDestination;
-    normalisePath(realSource, source);
-    normalisePath(realDestination, dst);
-
-    File* src = VFS::instance().find(realSource, GET_CWD());
-    File* dest = VFS::instance().find(realDestination, GET_CWD());
-
-    if (!src)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    // traverse symlink
-    src = traverseSymlink(src);
-    if(!src)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    if (dest)
-    {
-        // traverse symlink
-        dest = traverseSymlink(dest);
-        if(!dest)
-        {
-            SYSCALL_ERROR(DoesNotExist);
-            return -1;
-        }
-
-        if (dest->isDirectory() && !src->isDirectory())
-        {
-            SYSCALL_ERROR(FileExists);
-            return -1;
-        }
-        else if (!dest->isDirectory() && src->isDirectory())
-        {
-            SYSCALL_ERROR(NotADirectory);
-            return -1;
-        }
-    }
-    else
-    {
-        VFS::instance().createFile(realDestination, 0777, GET_CWD());
-        dest = VFS::instance().find(realDestination, GET_CWD());
-        if (!dest)
-        {
-            // Failed to create the file?
-            return -1;
-        }
-    }
-
-    // Gay algorithm.
-    uint8_t* buf = new uint8_t[src->getSize()];
-    src->read(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
-    dest->truncate();
-    dest->write(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
-    VFS::instance().remove(realSource, GET_CWD());
-    delete [] buf;
-
-    return 0;
+    return posix_renameat(AT_FDCWD, source, AT_FDCWD, dst);
 }
 
 int posix_getcwd(char* buf, size_t maxlen)
@@ -1800,45 +1404,12 @@ int posix_dup2(int fd1, int fd2)
 
 int posix_mkdir(const char* name, int mode)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("mkdir -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("mkdir(" << name << ")");
-
-    String realPath;
-    normalisePath(realPath, name);
-
-    PosixProcess *pPosixProcess = getPosixProcess();
-    if (pPosixProcess)
-    {
-        mode &= ~pPosixProcess->getMask();
-    }
-
-    bool worked = VFS::instance().createDirectory(realPath, mode, GET_CWD());
-    return worked ? 0 : -1;
+    return posix_mkdirat(AT_FDCWD, name, mode);
 }
 
 int posix_rmdir(const char *path)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("rmdir -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("rmdir(" << path << ")");
-
-    String realPath;
-    normalisePath(realPath, path);
-
-    // remove() holds the main logic for this.
-    bool worked = VFS::instance().remove(realPath, GET_CWD());
-    return worked ? 0 : -1;
+    return posix_unlinkat(AT_FDCWD, path, AT_REMOVEDIR);
 }
 
 int posix_isatty(int fd)
@@ -2182,50 +1753,7 @@ int posix_munmap(void *addr, size_t len)
 
 int posix_access(const char *name, int amode)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("access -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("access(" << (name ? name : "n/a") << ", " << Dec << amode << Hex << ")");
-
-    if(!name)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    String realPath;
-    normalisePath(realPath, name);
-
-    // Grab the file
-    File *file = VFS::instance().find(realPath, GET_CWD());
-    file = traverseSymlink(file);
-    if (!file)
-    {
-        F_NOTICE("  -> '" << realPath << "' does not exist");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    // If we're only checking for existence, we're done here.
-    if (amode == F_OK)
-    {
-        F_NOTICE("  -> ok");
-        return 0;
-    }
-
-    if (!VFS::checkAccess(file, amode & R_OK, amode & W_OK, amode & X_OK))
-    {
-        // checkAccess does a SYSCALL_ERROR for us.
-        F_NOTICE("  -> not ok");
-        return -1;
-    }
-
-    F_NOTICE("  -> ok");
-    return 0;
+    return posix_faccessat(AT_FDCWD, name, amode, 0);
 }
 
 int posix_ftruncate(int a, off_t b)
@@ -2365,176 +1893,22 @@ int pedigree_get_mount(char* mount_buf, char* info_buf, size_t n)
 
 int posix_chmod(const char *path, mode_t mode)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("chmod -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("chmod(" << String(path) << ", " << Oct << mode << Hex << ")");
-    
-    if((mode == static_cast<mode_t>(-1)) || (mode > 0777))
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    bool onDevFs = false;
-    String realPath;
-    normalisePath(realPath, path, &onDevFs);
-
-    if(onDevFs)
-    {
-        // Silently ignore.
-        return 0;
-    }
-
-    File* file = VFS::instance().find(realPath, GET_CWD());
-    if (!file)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-    
-    // Read-only filesystem?
-    if(file->getFilesystem()->isReadOnly())
-    {
-        SYSCALL_ERROR(ReadOnlyFilesystem);
-        return -1;
-    }
-
-    // Symlink traversal
-    file = traverseSymlink(file);
-    if(!file)
-        return -1;
-
-    return doChmod(file, mode) ? 0 : -1;
+    return posix_fchmodat(AT_FDCWD, path, mode, 0);
 }
 
 int posix_chown(const char *path, uid_t owner, gid_t group)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead))
-    {
-        F_NOTICE("chown -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("chown(" << String(path) << ", " << owner << ", " << group << ")");
-
-    // Is there any need to change?
-    if((owner == group) && (owner == static_cast<uid_t>(-1)))
-        return 0;
-
-    bool onDevFs = false;
-    String realPath;
-    normalisePath(realPath, path, &onDevFs);
-
-    if(onDevFs)
-    {
-        // Silently ignore.
-        return 0;
-    }
-
-    File* file = VFS::instance().find(realPath, GET_CWD());
-    if (!file)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-    
-    // Read-only filesystem?
-    if(file->getFilesystem()->isReadOnly())
-    {
-        SYSCALL_ERROR(ReadOnlyFilesystem);
-        return -1;
-    }
-
-    // Symlink traversal
-    file = traverseSymlink(file);
-    if(!file)
-        return -1;
-
-    return doChown(file, owner, group) ? 0 : -1;
+    return posix_fchownat(AT_FDCWD, path, owner, group, 0);
 }
 
 int posix_fchmod(int fd, mode_t mode)
 {
-    F_NOTICE("fchmod(" << fd << ", " << Oct << mode << Hex << ")");
-
-    if((mode == static_cast<mode_t>(-1)) || (mode > 0777))
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-    
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
-    {
-        // Error - no such file descriptor.
-        SYSCALL_ERROR(BadFileDescriptor);
-        return -1;
-    }
-    
-    File *file = pFd->file;
-    
-    // Read-only filesystem?
-    if(file->getFilesystem()->isReadOnly())
-    {
-        SYSCALL_ERROR(ReadOnlyFilesystem);
-        return -1;
-    }
-
-    return doChmod(file, mode) ? 0 : -1;
-    
-    return 0;
+    return posix_fchmodat(fd, "", mode, AT_EMPTY_PATH);
 }
 
 int posix_fchown(int fd, uid_t owner, gid_t group)
 {
-    F_NOTICE("fchown(" << fd << ", " << owner << ", " << group << ")");
-
-    // Is there any need to change?
-    if((owner == group) && (owner == static_cast<uid_t>(-1)))
-        return 0;
-    
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
-    {
-        // Error - no such file descriptor.
-        SYSCALL_ERROR(BadFileDescriptor);
-        return -1;
-    }
-    
-    File *file = pFd->file;
-    
-    // Read-only filesystem?
-    if(file->getFilesystem()->isReadOnly())
-    {
-        SYSCALL_ERROR(ReadOnlyFilesystem);
-        return -1;
-    }
-
-    return doChown(file, owner, group) ? 0 : -1;
+    return posix_fchownat(fd, "", owner, group, AT_EMPTY_PATH);
 }
 
 int posix_fchdir(int fd)
@@ -2659,7 +2033,7 @@ int posix_utime(const char *path, const struct utimbuf *times)
         return -1;
     }
 
-    F_NOTICE("utimes(" << path << ")");
+    F_NOTICE("utime(" << path << ")");
 
     String realPath;
     normalisePath(realPath, path);
@@ -2702,7 +2076,442 @@ int posix_utime(const char *path, const struct utimbuf *times)
 
 int posix_utimes(const char *path, const struct timeval *times)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead) &&
+    return posix_futimesat(AT_FDCWD, path, times);
+}
+
+int posix_chroot(const char *path)
+{
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("chroot -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("chroot(" << path << ")");
+
+    String realPath;
+    normalisePath(realPath, path);
+
+    File* file = VFS::instance().find(realPath, GET_CWD());
+    if (!file)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    // Symlink traversal
+    file = traverseSymlink(file);
+    if(!file)
+        return -1;
+
+    // chroot must be a directory.
+    if (!file->isDirectory())
+    {
+        SYSCALL_ERROR(NotADirectory);
+        return -1;
+    }
+
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    pProcess->setRootFile(file);
+
+    return 0;
+}
+
+int posix_flock(int fd, int operation)
+{
+    F_NOTICE("flock(" << fd << ", " << operation << ")");
+    F_NOTICE(" -> flock is a no-op stub");
+    return 0;
+}
+
+static File *check_dirfd(int dirfd)
+{
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        F_NOTICE("  -> No subsystem for this process!");
+        return 0;
+    }
+
+    File *cwd = GET_CWD();
+    if (dirfd != AT_FDCWD)
+    {
+        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
+        if (!pFd)
+        {
+            F_NOTICE("  -> dirfd is a bad fd");
+            SYSCALL_ERROR(BadFileDescriptor);
+            return 0;
+        }
+
+        File *file = pFd->file;
+        if (!file->isDirectory())
+        {
+            F_NOTICE("  -> dirfd is not a directory");
+            SYSCALL_ERROR(NotADirectory);
+            return 0;
+        }
+
+        cwd = file;
+    }
+
+    return cwd;
+}
+
+int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
+{
+    F_NOTICE("openat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("open -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("openat(" << dirfd << ", " << pathname << ", " << flags << ", " << Oct << mode << ")");
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        F_NOTICE("  -> No subsystem for this process!");
+        return -1;
+    }
+    
+    // One of these three must be specified.
+    if(!(CHECK_FLAG(flags, O_RDONLY) || CHECK_FLAG(flags, O_RDWR) || CHECK_FLAG(flags, O_WRONLY)))
+    {
+        F_NOTICE("One of O_RDONLY, O_WRONLY, or O_RDWR must be passed.");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    // verify the filename - don't try to open a dud file
+    if (pathname[0] == 0)
+    {
+        F_NOTICE("  -> File does not exist (null path).");
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    PosixProcess *pPosixProcess = getPosixProcess();
+    if (pPosixProcess)
+    {
+        mode &= ~pPosixProcess->getMask();
+    }
+
+    size_t fd = pSubsystem->getFd();
+
+    File* file = 0;
+
+    bool onDevFs = false;
+    String nameToOpen;
+    normalisePath(nameToOpen, pathname, &onDevFs);
+    if (nameToOpen == "/dev/tty")
+    {
+        file = pProcess->getCtty();
+        if(!file)
+        {
+            F_NOTICE("  -> returning -1, no controlling tty");
+            return -1;
+        }
+        else if(ConsoleManager::instance().isMasterConsole(file))
+        {
+            // If we happened to somehow open a master console, get its slave.
+            F_NOTICE("  -> controlling terminal was not a slave");
+            file = ConsoleManager::instance().getOther(file);
+        }
+    }
+
+    F_NOTICE("  -> actual filename to open is '" << nameToOpen << "'");
+
+    if (!file)
+    {
+        // Find file.
+        file = VFS::instance().find(nameToOpen, cwd);
+    }
+
+    bool bCreated = false;
+    if (!file)
+    {
+        if ((flags & O_CREAT) && !onDevFs)
+        {
+            F_NOTICE("  {O_CREAT}");
+            bool worked = VFS::instance().createFile(nameToOpen, mode, cwd);
+            if (!worked)
+            {
+                // createFile should set the error if it fails.
+                F_NOTICE("  -> File does not exist (createFile failed)");
+                pSubsystem->freeFd(fd);
+                return -1;
+            }
+
+            file = VFS::instance().find(nameToOpen, cwd);
+            if (!file)
+            {
+                F_NOTICE("  -> File does not exist (O_CREAT failed)");
+                SYSCALL_ERROR(DoesNotExist);
+                pSubsystem->freeFd(fd);
+                return -1;
+            }
+
+            bCreated = true;
+        }
+        else
+        {
+            F_NOTICE("  -> Does not exist.");
+            // Error - not found.
+            SYSCALL_ERROR(DoesNotExist);
+            pSubsystem->freeFd(fd);
+            return -1;
+        }
+    }
+
+    if(!file)
+    {
+      F_NOTICE("  -> File does not exist.");
+      SYSCALL_ERROR(DoesNotExist);
+      pSubsystem->freeFd(fd);
+      return -1;
+    }
+
+    file = traverseSymlink(file);
+
+    if(!file)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        pSubsystem->freeFd(fd);
+        return -1;
+    }
+
+    if (file->isDirectory() && (flags & (O_WRONLY | O_RDWR)))
+    {
+        // Error - is directory.
+        F_NOTICE("  -> Is a directory, and O_WRONLY or O_RDWR was specified.");
+        SYSCALL_ERROR(IsADirectory);
+        pSubsystem->freeFd(fd);
+        return -1;
+    }
+
+    if ((flags & O_CREAT) && (flags & O_EXCL) && !bCreated)
+    {
+        // file exists with O_CREAT and O_EXCL
+        F_NOTICE("  -> File exists");
+        SYSCALL_ERROR(FileExists);
+        pSubsystem->freeFd(fd);
+        return -1;
+    }
+
+    // O_RDONLY is zero.
+    bool checkRead = (flags == O_RDONLY) || (flags & O_RDWR);
+
+    // Handle side effects.
+    File *newFile = file->open();
+
+    // Check for the desired permissions.
+    // Note: we are permitted to create a file that we cannot open for writing
+    // again. It will be open for the original mode requested if it was
+    // created.
+    if (!bCreated)
+    {
+        if (!VFS::checkAccess(file,
+            checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false))
+        {
+            // checkAccess does a SYSCALL_ERROR for us.
+            F_NOTICE("  -> file access denied.");
+            return -1;
+        }
+        // Check for the desired permissions.
+        if ((newFile != file) && (!VFS::checkAccess(newFile,
+            checkRead, flags & (O_WRONLY | O_RDWR | O_TRUNC), false)))
+        {
+            // checkAccess does a SYSCALL_ERROR for us.
+            F_NOTICE("  -> file access denied.");
+            return -1;
+        }
+    }
+
+    // ensure we tweak the correct file now
+    file = newFile;
+
+    // Check for console (as we have special handling needed here)
+    if (ConsoleManager::instance().isConsole(file))
+    {
+        // If a master console, attempt to lock.
+        if(ConsoleManager::instance().isMasterConsole(file))
+        {
+            // Lock the master, we now own it.
+            // Or, we don't - if someone else has it open for example.
+            if(!ConsoleManager::instance().lockConsole(file))
+            {
+                F_NOTICE("Couldn't lock pseudoterminal master");
+                SYSCALL_ERROR(DeviceBusy);
+                pSubsystem->freeFd(fd);
+                return -1;
+            }
+        }
+    }
+
+    // Permissions were OK.
+    if ((flags & O_TRUNC) && ((flags & O_CREAT) || (flags & O_WRONLY) || (flags & O_RDWR)))
+    {
+        F_NOTICE("  -> {O_TRUNC}");
+        // truncate the file
+        file->truncate();
+    }
+
+    FileDescriptor *f = new FileDescriptor(file, (flags & O_APPEND) ? file->getSize() : 0, fd, 0, flags);
+    if(f)
+        pSubsystem->addFileDescriptor(fd, f);
+
+    F_NOTICE("    -> " << fd);
+
+    return static_cast<int> (fd);
+}
+
+int posix_mkdirat(int dirfd, const char *pathname, mode_t mode)
+{
+    F_NOTICE("mkdirat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("mkdirat -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("mkdirat(" << dirfd << ", " << pathname << ", " << mode << ")");
+
+    String realPath;
+    normalisePath(realPath, pathname);
+
+    PosixProcess *pPosixProcess = getPosixProcess();
+    if (pPosixProcess)
+    {
+        mode &= ~pPosixProcess->getMask();
+    }
+
+    bool worked = VFS::instance().createDirectory(realPath, mode, cwd);
+    return worked ? 0 : -1;
+}
+
+int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags)
+{
+    F_NOTICE("fchownat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("chown -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("fchownat(" << dirfd << ", " << pathname << ", " << owner << ", " << group << ", " << flags << ")");
+
+    File *file = 0;
+
+    // Is there any need to change?
+    if((owner == group) && (owner == static_cast<uid_t>(-1)))
+        return 0;
+
+    bool onDevFs = false;
+    String realPath;
+    normalisePath(realPath, pathname, &onDevFs);
+
+    if(onDevFs)
+    {
+        // Silently ignore.
+        return 0;
+    }
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        F_NOTICE("  -> No subsystem for this process!");
+        return -1;
+    }
+
+    // AT_EMPTY_PATH only takes effect if the pathname is actually empty
+    if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
+    {
+        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
+        if (!pFd)
+        {
+            // Error - no such file descriptor.
+            SYSCALL_ERROR(BadFileDescriptor);
+            return -1;
+        }
+
+        file = pFd->file;
+    }
+    else
+    {
+        file = VFS::instance().find(realPath, cwd);
+        if (!file)
+        {
+            SYSCALL_ERROR(DoesNotExist);
+            return -1;
+        }
+    }
+        
+    // Read-only filesystem?
+    if(file->getFilesystem()->isReadOnly())
+    {
+        SYSCALL_ERROR(ReadOnlyFilesystem);
+        return -1;
+    }
+
+    // Symlink traversal
+    if ((flags & AT_SYMLINK_NOFOLLOW) == 0)
+    {
+        file = traverseSymlink(file);
+    }
+
+    if(!file)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    return doChown(file, owner, group) ? 0 : -1;
+}
+
+int posix_futimesat(int dirfd, const char *pathname, const struct timeval *times)
+{
+    F_NOTICE("futimesat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead) &&
         ((!times) || PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(times), sizeof(struct timeval) * 2, PosixSubsystem::SafeRead))))
     {
         F_NOTICE("utimes -> invalid address");
@@ -2710,12 +2519,12 @@ int posix_utimes(const char *path, const struct timeval *times)
         return -1;
     }
 
-    F_NOTICE("utimes(" << path << ")");
+    F_NOTICE("futimesat(" << dirfd << ", " << pathname << ", " << times << ")");
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathname);
 
-    File* file = VFS::instance().find(realPath, GET_CWD());
+    File* file = VFS::instance().find(realPath, cwd);
     if (!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -2757,41 +2566,449 @@ int posix_utimes(const char *path, const struct timeval *times)
     return 0;
 }
 
-int posix_chroot(const char *path)
+int posix_unlinkat(int dirfd, const char *pathname, int flags)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead))
+    F_NOTICE("unlinkat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
     {
-        F_NOTICE("chroot -> invalid address");
+        return -1;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("unlink -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("chroot(" << path << ")");
+    F_NOTICE("unlinkat(" << dirfd << ", " << pathname << ", " << flags << ")");
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathname);
 
-    File* file = VFS::instance().find(realPath, GET_CWD());
-    if (!file)
+    File *pFile = VFS::instance().find(realPath, cwd);
+    if (!pFile)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+    else if (pFile->isDirectory() && ((flags & AT_REMOVEDIR) == 0))
+    {
+        // unless AT_REMOVEDIR is specified, we won't rmdir
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+    }
+
+    // remove() checks permissions to ensure we can delete the file.
+    if (VFS::instance().remove(realPath, GET_CWD()))
+    {
+        return 0;
+    }
+    else
+    {
+        return -1;
+    }
+}
+
+int posix_renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath)
+{
+    F_NOTICE("renameat");
+
+    File *oldcwd = check_dirfd(olddirfd);
+    if (!oldcwd)
+    {
+        return -1;
+    }
+
+    File *newcwd = check_dirfd(newdirfd);
+    if (!newcwd)
+    {
+        return -1;
+    }
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oldpath), PATH_MAX, PosixSubsystem::SafeRead) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(newpath), PATH_MAX, PosixSubsystem::SafeRead)))
+    {
+        F_NOTICE("rename -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("renameat(" << olddirfd << ", " << oldpath << ", " << newdirfd << ", " << newpath << ")");
+
+    String realSource;
+    String realDestination;
+    normalisePath(realSource, oldpath);
+    normalisePath(realDestination, newpath);
+
+    File *src = VFS::instance().find(realSource, oldcwd);
+    File* dest = VFS::instance().find(realDestination, newcwd);
+
+    if (!src)
     {
         SYSCALL_ERROR(DoesNotExist);
         return -1;
     }
 
-    // Symlink traversal
-    file = traverseSymlink(file);
-    if(!file)
-        return -1;
-
-    // chroot must be a directory.
-    if (!file->isDirectory())
+    // traverse symlink
+    src = traverseSymlink(src);
+    if(!src)
     {
-        SYSCALL_ERROR(NotADirectory);
+        SYSCALL_ERROR(DoesNotExist);
         return -1;
     }
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    pProcess->setRootFile(file);
+    if (dest)
+    {
+        // traverse symlink
+        dest = traverseSymlink(dest);
+        if(!dest)
+        {
+            SYSCALL_ERROR(DoesNotExist);
+            return -1;
+        }
+
+        if (dest->isDirectory() && !src->isDirectory())
+        {
+            SYSCALL_ERROR(FileExists);
+            return -1;
+        }
+        else if (!dest->isDirectory() && src->isDirectory())
+        {
+            SYSCALL_ERROR(NotADirectory);
+            return -1;
+        }
+    }
+    else
+    {
+        VFS::instance().createFile(realDestination, 0777, newcwd);
+        dest = VFS::instance().find(realDestination, newcwd);
+        if (!dest)
+        {
+            // Failed to create the file?
+            return -1;
+        }
+    }
+
+    // Gay algorithm.
+    uint8_t* buf = new uint8_t[src->getSize()];
+    src->read(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
+    dest->truncate();
+    dest->write(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
+    VFS::instance().remove(realSource, oldcwd);
+    delete [] buf;
 
     return 0;
 }
+
+int posix_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags)
+{
+    F_NOTICE("linkat");
+
+    File *oldcwd = check_dirfd(olddirfd);
+    if (!oldcwd)
+    {
+        return -1;
+    }
+
+    File *newcwd = check_dirfd(newdirfd);
+    if (!newcwd)
+    {
+        return -1;
+    }
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oldpath), PATH_MAX, PosixSubsystem::SafeRead) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(newpath), PATH_MAX, PosixSubsystem::SafeRead)))
+    {
+        F_NOTICE("link -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("linkat(" << olddirfd << ", " << oldpath << ", " << newdirfd << ", " << newpath << ", " << flags << ")");
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
+    // Try and find the target.
+    String realTarget;
+    String realLink;
+    normalisePath(realTarget, oldpath);
+    normalisePath(realLink, newpath);
+
+    File *pTarget = 0;
+    if ((flags & AT_EMPTY_PATH) && ((oldpath == 0) || (*oldpath == 0)))
+    {
+        FileDescriptor *pFd = pSubsystem->getFileDescriptor(olddirfd);
+        if (!pFd)
+        {
+            // Error - no such file descriptor.
+            SYSCALL_ERROR(BadFileDescriptor);
+            return -1;
+        }
+
+        pTarget = pFd->file;
+    }
+    else
+    {
+        pTarget = VFS::instance().find(realTarget, oldcwd);
+    }
+
+    if (flags & AT_SYMLINK_FOLLOW)
+    {
+        pTarget = traverseSymlink(pTarget);
+    }
+
+    if (!pTarget)
+    {
+        F_NOTICE(" -> target '" << realTarget << "' did not exist.");
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    bool result = VFS::instance().createLink(realLink, pTarget, newcwd);
+
+    if (!result)
+    {
+        F_NOTICE(" -> failed to create link");
+        return -1;
+    }
+
+    F_NOTICE(" -> ok");
+    return 0;
+}
+
+int posix_symlinkat(const char *oldpath, int newdirfd, const char *newpath)
+{
+    F_NOTICE("symlinkat");
+
+    File *cwd = check_dirfd(newdirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oldpath), PATH_MAX, PosixSubsystem::SafeRead) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(newpath), PATH_MAX, PosixSubsystem::SafeRead)))
+    {
+        F_NOTICE("symlink -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("symlinkat(" << oldpath << ", " << newdirfd << ", " << newpath << ")");
+
+    bool worked = VFS::instance().createSymlink(String(newpath), String(oldpath), cwd);
+    if (worked)
+        return 0;
+    else
+        ERROR("Symlink failed for `" << newpath << "' -> `" << oldpath << "'");
+    return -1;
+}
+
+int posix_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz)
+{
+    F_NOTICE("readlinkat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), bufsiz, PosixSubsystem::SafeWrite)))
+    {
+        F_NOTICE("readlink -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("readlinkat(" << dirfd << ", " << pathname << ", " << buf << ", " << bufsiz << ")");
+
+    String realPath;
+    normalisePath(realPath, pathname);
+
+    File* f = VFS::instance().find(realPath, cwd);
+    if (!f)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    if (!f->isSymlink())
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    if (buf == 0)
+        return -1;
+
+    HugeStaticString str;
+    HugeStaticString tmp;
+    str.clear();
+    tmp.clear();
+
+    return Symlink::fromFile(f)->followLink(buf, bufsiz);
+}
+
+int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
+{
+    F_NOTICE("fchmodat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("chmod -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("fchmodat(" << dirfd << ", " << pathname << ", " << Oct << mode << Hex << ", " << flags << ")");
+    
+    if((mode == static_cast<mode_t>(-1)) || (mode > 0777))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    bool onDevFs = false;
+    String realPath;
+    normalisePath(realPath, pathname, &onDevFs);
+
+    if(onDevFs)
+    {
+        // Silently ignore.
+        return 0;
+    }
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        F_NOTICE("  -> No subsystem for this process!");
+        return -1;
+    }
+
+    // AT_EMPTY_PATH only takes effect if the pathname is actually empty
+    File *file = 0;
+    if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
+    {
+        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
+        if (!pFd)
+        {
+            // Error - no such file descriptor.
+            SYSCALL_ERROR(BadFileDescriptor);
+            return -1;
+        }
+
+        file = pFd->file;
+    }
+    else
+    {
+        file = VFS::instance().find(realPath, GET_CWD());
+        if (!file)
+        {
+            SYSCALL_ERROR(DoesNotExist);
+            return -1;
+        }
+    }
+    
+    // Read-only filesystem?
+    if(file->getFilesystem()->isReadOnly())
+    {
+        SYSCALL_ERROR(ReadOnlyFilesystem);
+        return -1;
+    }
+
+    // Symlink traversal
+    if ((flags & AT_SYMLINK_NOFOLLOW) == 0)
+    {
+        file = traverseSymlink(file);
+    }
+
+    if(!file)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    return doChmod(file, mode) ? 0 : -1;
+}
+
+int posix_faccessat(int dirfd, const char *pathname, int mode, int flags)
+{
+    F_NOTICE("faccessat");
+
+    File *cwd = check_dirfd(dirfd);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("access -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("faccessat(" << dirfd << ", " << pathname << ", " << mode << ", " << flags << ")");
+
+    if(!pathname)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    String realPath;
+    normalisePath(realPath, pathname);
+
+    // Grab the file
+    File *file = VFS::instance().find(realPath, cwd);
+
+    if ((flags & AT_SYMLINK_NOFOLLOW) == 0)
+    {
+        file = traverseSymlink(file);
+    }
+
+    if (!file)
+    {
+        F_NOTICE("  -> '" << realPath << "' does not exist");
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    // If we're only checking for existence, we're done here.
+    if (mode == F_OK)
+    {
+        F_NOTICE("  -> ok");
+        return 0;
+    }
+
+    if (!VFS::checkAccess(file, mode & R_OK, mode & W_OK, mode & X_OK))
+    {
+        // checkAccess does a SYSCALL_ERROR for us.
+        F_NOTICE("  -> not ok");
+        return -1;
+    }
+
+    F_NOTICE("  -> ok");
+    return 0;
+}
+

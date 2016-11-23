@@ -59,12 +59,6 @@ int posix_getcwd(char* buf, size_t maxlen);
 int posix_readlink(const char* path, char* buf, unsigned int bufsize);
 int posix_realpath(const char *path, char *buf, size_t bufsize);
 
-/*
-int posix_opendir(const char *dir, void *entp);
-int posix_readdir(void *dirp);
-int posix_closedir(void *dirp);
-*/
-
 int posix_getdents(int fd, struct linux_dirent *ents, int count);
 int posix_getdents64(int fd, struct dirent *ents, int count);
 
@@ -105,7 +99,20 @@ int posix_utime(const char *path, const struct utimbuf *times);
 int posix_utimes(const char *path, const struct timeval *times);
 
 int posix_chroot(const char *path);
+int posix_flock(int fd, int operation);
 
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs = 0);
+
+int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode);
+int posix_mkdirat(int dirfd, const char *pathname, mode_t mode);
+int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags);
+int posix_futimesat(int dirfd, const char *pathname, const struct timeval *times);
+int posix_unlinkat(int dirfd, const char *pathname, int flags);
+int posix_renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath);
+int posix_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags);
+int posix_symlinkat(const char *oldpath, int newdirfd, const char *newpath);
+int posix_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz);
+int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags);
+int posix_faccessat(int dirfd, const char *pathname, int mode, int flags);
 
 #endif

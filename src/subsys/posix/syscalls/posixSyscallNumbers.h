@@ -224,5 +224,18 @@
 #define POSIX_PAUSE             216
 #define POSIX_GETDENTS64        217
 #define POSIX_L_SYSLOG          218
+#define POSIX_FLOCK             219
+
+#define POSIX_OPENAT            220
+#define POSIX_MKDIRAT           221
+#define POSIX_FCHOWNAT          222
+#define POSIX_FUTIMESAT         223
+#define POSIX_UNLINKAT          224
+#define POSIX_RENAMEAT          225
+#define POSIX_LINKAT            226
+#define POSIX_SYMLINKAT         227
+#define POSIX_READLINKAT        228
+#define POSIX_FCHMODAT          229
+#define POSIX_FACCESSAT         230
 
 #endif

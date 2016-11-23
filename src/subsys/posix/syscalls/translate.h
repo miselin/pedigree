@@ -90,7 +90,7 @@ inline long posix_translate_syscall(long which)
         case SYS_uname: pedigree_translation = POSIX_UNAME; break;
         // ...
         case SYS_fcntl: pedigree_translation = POSIX_FCNTL; break;
-        // ...
+        case SYS_flock: pedigree_translation = POSIX_FLOCK; break;
         case SYS_fsync: pedigree_translation = POSIX_FSYNC; break;
         // ...
         case SYS_ftruncate: pedigree_translation = POSIX_FTRUNCATE; break;
@@ -147,13 +147,12 @@ inline long posix_translate_syscall(long which)
         // ...
         case SYS_utimes: pedigree_translation = POSIX_UTIMES; break;
         // ...
-        /*
         case SYS_openat: pedigree_translation = POSIX_OPENAT; break;
         case SYS_mkdirat: pedigree_translation = POSIX_MKDIRAT; break;
-        case SYS_mknodat: pedigree_translation = POSIX_MKNODAT; break;
+        // ...
         case SYS_fchownat: pedigree_translation = POSIX_FCHOWNAT; break;
         case SYS_futimesat: pedigree_translation = POSIX_FUTIMESAT; break;
-        case SYS_newfstatat: pedigree_translation = POSIX_NEWFSTATAT; break;
+        // ...
         case SYS_unlinkat: pedigree_translation = POSIX_UNLINKAT; break;
         case SYS_renameat: pedigree_translation = POSIX_RENAMEAT; break;
         case SYS_linkat: pedigree_translation = POSIX_LINKAT; break;
@@ -161,7 +160,6 @@ inline long posix_translate_syscall(long which)
         case SYS_readlinkat: pedigree_translation = POSIX_READLINKAT; break;
         case SYS_fchmodat: pedigree_translation = POSIX_FCHMODAT; break;
         case SYS_faccessat: pedigree_translation = POSIX_FACCESSAT; break;
-        */
 
         // Pedigree pass-through syscalls.
         case 0x8000: pedigree_translation = POSIX_TTYNAME;
