@@ -1569,10 +1569,52 @@ int posix_ioctl(int fd, int command, void *buf)
             }
         }
 
+        case TIOCGPGRP:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                pid_t pgrp = posix_tcgetpgrp(fd);
+                *reinterpret_cast<pid_t *>(buf) = pgrp;
+                return 0;
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
+        }
+
+        case TIOCSPGRP:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return posix_tcsetpgrp(fd, *reinterpret_cast<pid_t *>(buf));
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
+        }
+
+        case TCFLSH:
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                return console_flush(f->file, 0);
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
+        }
+
         case TIOCGWINSZ:
         {
             if (ConsoleManager::instance().isConsole(f->file))
             {
+                F_NOTICE(" -> TIOCGWINSZ");
                 return console_getwinsize(f->file, reinterpret_cast<struct winsize*>(buf));
             }
             else
