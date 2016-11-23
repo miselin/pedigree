@@ -88,12 +88,12 @@ uint64_t Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
 
 bool Pipe::isPipe() const
 {
-    return getName().length() == 0;
+    return getName().length() == 0 || m_bIsAnonymous;
 }
 
 bool Pipe::isFifo() const
 {
-    return getName().length() > 0;
+    return getName().length() > 0 && !m_bIsAnonymous;
 }
 
 void Pipe::increaseRefCount(bool bIsWriter)
@@ -163,7 +163,7 @@ void Pipe::decreaseRefCount(bool bIsWriter)
             if (m_bIsAnonymous)
             {
                 size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
-                NOTICE("Adding pipe [" << pid << "] " << reinterpret_cast<uintptr_t>(this) << " to ZombieQueue");
+                NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
                 ZombieQueue::instance().addObject(new ZombiePipe(this));
                 bDataChanged = false;
             }
