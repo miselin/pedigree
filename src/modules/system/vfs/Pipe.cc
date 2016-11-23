@@ -30,7 +30,7 @@ class ZombiePipe : public ZombieObject
         }
         virtual ~ZombiePipe()
         {
-            NOTICE("ZombiePipe: freeing " << reinterpret_cast<uintptr_t>(m_pPipe));
+            NOTICE("ZombiePipe: freeing " << m_pPipe);
             delete m_pPipe;
         }
     private:
@@ -54,6 +54,11 @@ Pipe::Pipe(const String &name, Time::Timestamp accessedTime, Time::Timestamp mod
 
 Pipe::~Pipe()
 {
+    // ensure anything else in the critical section can finish before we clean
+    // up fully
+    // this is useful for cases where ZombieQueue destroys us before we get a
+    // chance to actually return from decreaseRefCount (which accesses the lock)
+    m_Lock.acquire();
 }
 
 int Pipe::select(bool bWriting, int timeout)
