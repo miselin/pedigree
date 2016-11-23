@@ -305,7 +305,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_RENAME:
             return posix_rename(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2));
         case POSIX_GETCWD:
-            return reinterpret_cast<uintptr_t>(posix_getcwd(reinterpret_cast<char*>(p1), p2));
+            return posix_getcwd(reinterpret_cast<char*>(p1), p2);
         case POSIX_READLINK:
             return posix_readlink(reinterpret_cast<const char*>(p1), reinterpret_cast<char*>(p2), static_cast<unsigned int>(p3));
         case POSIX_LINK:

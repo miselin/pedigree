@@ -1147,13 +1147,13 @@ int posix_rename(const char* source, const char* dst)
     return 0;
 }
 
-char* posix_getcwd(char* buf, size_t maxlen)
+int posix_getcwd(char* buf, size_t maxlen)
 {
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), maxlen, PosixSubsystem::SafeWrite))
     {
         F_NOTICE("getcwd -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
-        return 0;
+        return -1;
     }
 
     F_NOTICE("getcwd(" << maxlen << ")");
@@ -1169,13 +1169,13 @@ char* posix_getcwd(char* buf, size_t maxlen)
     {
         // Too long.
         SYSCALL_ERROR(BadRange);
-        return 0;
+        return -1;
     }
     StringCopyN(buf, static_cast<const char*>(str), maxLength);
 
     F_NOTICE(" -> " << str);
 
-    return buf;
+    return maxLength + 1;  // include null terminator
 }
 
 int posix_stat(const char *name, struct stat *st)

@@ -55,7 +55,7 @@ int posix_symlink(char *target, char *link);
 int posix_writev(int fd, const struct iovec *iov, int iovcnt);
 int posix_readv(int fd, const struct iovec *iov, int iovcnt);
 
-char* posix_getcwd(char* buf, size_t maxlen);
+int posix_getcwd(char* buf, size_t maxlen);
 int posix_readlink(const char* path, char* buf, unsigned int bufsize);
 int posix_realpath(const char *path, char *buf, size_t bufsize);
 
