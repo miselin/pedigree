@@ -1115,6 +1115,7 @@ bool PosixSubsystem::parseShebang(File *pFile, File *&pOutFile, List<SharedPoint
     {
         // No, we cannot.
         NOTICE("target not found");
+        SYSCALL_ERROR(DoesNotExist);
         return false;
     }
 
@@ -1141,6 +1142,7 @@ static File *traverseForInvoke(File *pFile)
     if (!pFile)
     {
         ERROR("PosixSubsystem::invoke: symlink traversal failed");
+        SYSCALL_ERROR(DoesNotExist);
         return 0;
     }
 
@@ -1148,6 +1150,7 @@ static File *traverseForInvoke(File *pFile)
     if (pFile->isDirectory())
     {
         ERROR("PosixSubsystem::invoke: target is a directory");
+        SYSCALL_ERROR(IsADirectory);
         return 0;
     }
 
@@ -1165,6 +1168,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     // Ensure we only have one thread running (us).
     if (pProcess->getNumThreads() > 1)
     {
+        /// \todo actually we are supposed to kill them all here
         return false;
     }
 
@@ -1176,12 +1180,14 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     if (!originalFile)
     {
         ERROR("PosixSubsystem::invoke: could not find file '" << name << "'");
+        SYSCALL_ERROR(DoesNotExist);
         return false;
     }
 
     originalFile = traverseForInvoke(originalFile);
     if (!originalFile)
     {
+        // traverseForInvoke does a SYSCALL_ERROR for us
         return false;
     }
 
@@ -1239,6 +1245,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         if(!interpreterFile)
         {
             ERROR("PosixSubsystem::invoke: could not find interpreter '" << interpreter << "'");
+            SYSCALL_ERROR(ExecFormatError);
             return false;
         }
 
@@ -1250,6 +1257,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     else
     {
         ERROR("PosixSubsystem::invoke: target does not have a dynamic linker");
+        SYSCALL_ERROR(ExecFormatError);
         return false;
     }
 
@@ -1278,6 +1286,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     if (!pOriginal)
     {
         ERROR("PosixSubsystem::invoke: failed to map target");
+        SYSCALL_ERROR(OutOfMemory);
         return false;
     }
 
@@ -1286,6 +1295,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     {
         ERROR("PosixSubsystem::invoke: failed to map interpreter");
         MemoryMapManager::instance().unmap(pOriginal);
+        SYSCALL_ERROR(OutOfMemory);
         return false;
     }
 
@@ -1296,6 +1306,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     {
         /// \todo cleanup
         ERROR("PosixSubsystem::invoke: failed to load target");
+        SYSCALL_ERROR(ExecFormatError);
         return false;
     }
 
@@ -1306,6 +1317,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     {
         /// \todo cleanup
         ERROR("PosixSubsystem::invoke: failed to load interpreter");
+        SYSCALL_ERROR(ExecFormatError);
         return false;
     }
 
