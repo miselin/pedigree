@@ -237,5 +237,6 @@
 #define POSIX_READLINKAT        228
 #define POSIX_FCHMODAT          229
 #define POSIX_FACCESSAT         230
+#define POSIX_FSTATAT           231
 
 #endif

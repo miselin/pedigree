@@ -152,7 +152,7 @@ inline long posix_translate_syscall(long which)
         // ...
         case SYS_fchownat: pedigree_translation = POSIX_FCHOWNAT; break;
         case SYS_futimesat: pedigree_translation = POSIX_FUTIMESAT; break;
-        // ...
+        case SYS_newfstatat: pedigree_translation = POSIX_FSTATAT; break;
         case SYS_unlinkat: pedigree_translation = POSIX_UNLINKAT; break;
         case SYS_renameat: pedigree_translation = POSIX_RENAMEAT; break;
         case SYS_linkat: pedigree_translation = POSIX_LINKAT; break;

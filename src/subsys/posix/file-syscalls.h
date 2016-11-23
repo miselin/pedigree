@@ -107,6 +107,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 int posix_mkdirat(int dirfd, const char *pathname, mode_t mode);
 int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags);
 int posix_futimesat(int dirfd, const char *pathname, const struct timeval *times);
+int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags);
 int posix_unlinkat(int dirfd, const char *pathname, int flags);
 int posix_renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath);
 int posix_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags);

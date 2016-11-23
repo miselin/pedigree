@@ -784,128 +784,17 @@ int posix_getcwd(char* buf, size_t maxlen)
 
 int posix_stat(const char *name, struct stat *st)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(st), sizeof(struct stat), PosixSubsystem::SafeWrite)))
-    {
-        F_NOTICE("stat -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("stat(" << name << ")");
-
-    // verify the filename - don't try to open a dud file (otherwise we'll open the cwd)
-    if (name[0] == 0)
-    {
-        F_NOTICE("    -> Doesn't exist");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    if(!st)
-    {
-        F_NOTICE("    -> Invalid argument");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    String realPath;
-    normalisePath(realPath, name);
-
-    File* file = VFS::instance().find(realPath, GET_CWD());
-    if (!file)
-    {
-        F_NOTICE("    -> Not found by VFS");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    if (!doStat(name, file, st))
-    {
-        return -1;
-    }
-
-    F_NOTICE("    -> Success");
-    return 0;
+    return posix_fstatat(AT_FDCWD, name, st, 0);
 }
 
 int posix_fstat(int fd, struct stat *st)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(st), sizeof(struct stat), PosixSubsystem::SafeWrite))
-    {
-        F_NOTICE("fstat -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("fstat(" << Dec << fd << Hex << ")");
-    if(!st)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
-    {
-        ERROR("Error, no such FD!");
-        // Error - no such file descriptor.
-        return -1;
-    }
-
-    if (!doStat(0, pFd->file, st))
-    {
-        return -1;
-    }
-
-    F_NOTICE("    -> Success");
-    return 0;
+    return posix_fstatat(fd, 0, st, AT_EMPTY_PATH);
 }
 
 int posix_lstat(char *name, struct stat *st)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(st), sizeof(struct stat), PosixSubsystem::SafeWrite)))
-    {
-        F_NOTICE("lstat -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    F_NOTICE("lstat(" << name << ")");
-    if(!st)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    String realPath;
-    normalisePath(realPath, name);
-
-    File *file = VFS::instance().find(realPath, GET_CWD());
-    if (!file)
-    {
-        F_NOTICE("    -> Not found by VFS");
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
-    if (!doStat(name, file, st, false))
-    {
-        return -1;
-    }
-
-    F_NOTICE("    -> Success");
-    return 0;
+    return posix_fstatat(AT_FDCWD, name, st, AT_SYMLINK_NOFOLLOW);
 }
 
 static int getdents_common(int fd, size_t (*set_dent)(File *, void *, size_t, size_t), void *buffer, int count)
@@ -2125,7 +2014,7 @@ int posix_flock(int fd, int operation)
     return 0;
 }
 
-static File *check_dirfd(int dirfd)
+static File *check_dirfd(int dirfd, int flags = 0)
 {
     // Lookup this process.
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
@@ -2148,11 +2037,14 @@ static File *check_dirfd(int dirfd)
         }
 
         File *file = pFd->file;
-        if (!file->isDirectory())
+        if ((flags & AT_EMPTY_PATH) == 0)
         {
-            F_NOTICE("  -> dirfd is not a directory");
-            SYSCALL_ERROR(NotADirectory);
-            return 0;
+            if (!file->isDirectory())
+            {
+                F_NOTICE("  -> dirfd is not a directory");
+                SYSCALL_ERROR(NotADirectory);
+                return 0;
+            }
         }
 
         cwd = file;
@@ -2416,7 +2308,7 @@ int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, in
 {
     F_NOTICE("fchownat");
 
-    File *cwd = check_dirfd(dirfd);
+    File *cwd = check_dirfd(dirfd, flags);
     if (!cwd)
     {
         return -1;
@@ -2707,7 +2599,7 @@ int posix_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *ne
 {
     F_NOTICE("linkat");
 
-    File *oldcwd = check_dirfd(olddirfd);
+    File *oldcwd = check_dirfd(olddirfd, flags);
     if (!oldcwd)
     {
         return -1;
@@ -2865,7 +2757,7 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
 {
     F_NOTICE("fchmodat");
 
-    File *cwd = check_dirfd(dirfd);
+    File *cwd = check_dirfd(dirfd, flags);
     if (!cwd)
     {
         return -1;
@@ -3012,3 +2904,85 @@ int posix_faccessat(int dirfd, const char *pathname, int mode, int flags)
     return 0;
 }
 
+int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
+{
+    F_NOTICE("fstatat");
+
+    File *cwd = check_dirfd(dirfd, flags);
+    if (!cwd)
+    {
+        return -1;
+    }
+
+    /// \todo also check pathname
+    if(!((!pathname) || PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead) &&
+        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct stat), PosixSubsystem::SafeWrite)))
+    {
+        F_NOTICE("fstat -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("fstatat(" << dirfd << ", " << (pathname ? pathname : "(n/a)") << ", " << buf << ", " << flags << ")");
+
+    if(!buf)
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    // Lookup this process.
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
+    // AT_EMPTY_PATH only takes effect if the pathname is actually empty
+    File *file = 0;
+    if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
+    {
+        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
+        if (!pFd)
+        {
+            // Error - no such file descriptor.
+            SYSCALL_ERROR(BadFileDescriptor);
+            return -1;
+        }
+
+        file = pFd->file;
+    }
+    else
+    {
+        String realPath;
+        normalisePath(realPath, pathname);
+
+        file = VFS::instance().find(realPath, cwd);
+        if (!file)
+        {
+            SYSCALL_ERROR(DoesNotExist);
+            return -1;
+        }
+    }
+
+    if ((flags & AT_SYMLINK_NOFOLLOW) == 0)
+    {
+        file = traverseSymlink(file);
+    }
+
+    if (!file)
+    {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    if (!doStat(0, file, buf))
+    {
+        return -1;
+    }
+
+    F_NOTICE("    -> Success");
+    return 0;
+}
