@@ -167,6 +167,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
     uintptr_t base = 0;
     if (state.getSyscallService() == linux)
     {
+        // Switch ABI now that we've seen a Linux syscall come in.
+        Process *pProcess = Processor::information().getCurrentThread()->getParent();
+        PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+        pSubsystem->setAbi(PosixSubsystem::LinuxAbi);
+
         base = 6;  // use Linux syscall ABI
 
         // Translate the syscall.

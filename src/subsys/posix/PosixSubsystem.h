@@ -180,12 +180,19 @@ class PosixSubsystem : public Subsystem
         static const size_t SafeRead = 0x1;
         static const size_t SafeWrite = 0x2;
 
+        /** ABI mode. */
+        enum Abi
+        {
+            PosixAbi = 0,
+            LinuxAbi = 1,
+        };
+
         /** Default constructor */
         PosixSubsystem() :
             Subsystem(Posix), m_SignalHandlers(), m_SignalHandlersLock(),
             m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0), m_FreeCount(1),
             m_AltSigStack(), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-            m_NextThreadWaiter(0)
+            m_NextThreadWaiter(0), m_Abi(PosixAbi)
         {}
 
         /** Copy constructor */
@@ -196,7 +203,7 @@ class PosixSubsystem : public Subsystem
             Subsystem(type), m_SignalHandlers(), m_SignalHandlersLock(),
             m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0), m_FreeCount(1),
             m_AltSigStack(), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-            m_NextThreadWaiter(0)
+            m_NextThreadWaiter(0), m_Abi(PosixAbi)
         {}
 
         /** Default destructor */
@@ -523,6 +530,18 @@ class PosixSubsystem : public Subsystem
         virtual bool invoke(const char *name, List<SharedPointer<String>> &argv,
                             List<SharedPointer<String>> &env, SyscallState &state);
 
+        /** Retrieves the currently-active ABI for the subsystem. */
+        Abi getAbi() const
+        {
+            return m_Abi;
+        }
+
+        /** Switch the ABI of the subsystem to the specified choice. */
+        void setAbi(Abi which)
+        {
+            m_Abi = which;
+        }
+
     private:
         virtual void threadRemoved(Thread *pThread);
 
@@ -585,6 +604,12 @@ class PosixSubsystem : public Subsystem
          */
         Tree<void *, Semaphore *> m_ThreadWaiters;
         size_t m_NextThreadWaiter;
+
+        /**
+         * ABI for the subsystem
+         * This affects syscall parameters and the behaviors of some syscalls.
+         */
+        Abi m_Abi;
 };
 
 #endif

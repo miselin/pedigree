@@ -321,10 +321,12 @@ static bool doChown(File *pFile, uid_t owner, gid_t group)
     return true;
 }
 
-#define NORMALISE_FS_PATHS 1
-
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 {
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    bool fixFilesystemPaths = pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
+
     // Rebase /dev onto the devfs. /dev/tty is special.
     if (!StringCompare(name, "/dev/tty"))
     {
@@ -353,32 +355,30 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         nameToOpen += (name + StringLength("/proc/"));
         return true;
     }
-#if NORMALISE_FS_PATHS
-    else if (!StringCompareN(name, "/bin/", StringLength("/bin/")))
+    else if (fixFilesystemPaths && !StringCompareN(name, "/bin/", StringLength("/bin/")))
     {
         nameToOpen = "/applications/";
         nameToOpen += (name + StringLength("/bin/"));
         return true;
     }
-    else if (!StringCompareN(name, "/usr/bin/", StringLength("/usr/bin/")))
+    else if (fixFilesystemPaths && !StringCompareN(name, "/usr/bin/", StringLength("/usr/bin/")))
     {
         nameToOpen = "/applications/";
         nameToOpen += (name + StringLength("/usr/bin/"));
         return true;
     }
-    else if (!StringCompareN(name, "/lib/", StringLength("/lib/")))
+    else if (fixFilesystemPaths && !StringCompareN(name, "/lib/", StringLength("/lib/")))
     {
         nameToOpen = "/libraries/";
         nameToOpen += (name + StringLength("/lib/"));
         return true;
     }
-    else if (!StringCompareN(name, "/etc/", StringLength("/etc/")))
+    else if (fixFilesystemPaths && !StringCompareN(name, "/etc/", StringLength("/etc/")))
     {
         nameToOpen = "/config/";
         nameToOpen += (name + StringLength("/etc/"));
         return true;
     }
-#endif
     else if (!StringCompareN(name, "/tmp/", StringLength("/tmp/")))
     {
         nameToOpen = "scratch»/";
