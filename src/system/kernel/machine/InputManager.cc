@@ -268,7 +268,7 @@ void InputManager::installCallback(CallbackType filter, callback_t callback, voi
     m_Callbacks.pushBack(item);
 }
 
-void InputManager::removeCallback(callback_t callback, Thread *pThread)
+void InputManager::removeCallback(callback_t callback, void *meta, Thread *pThread)
 {
     LockGuard<Spinlock> guard(m_QueueLock);
     for(List<CallbackItem*>::Iterator it = m_Callbacks.begin();
@@ -281,7 +281,8 @@ void InputManager::removeCallback(callback_t callback, Thread *pThread)
 #ifdef THREADS
                 (pThread == (*it)->pThread) &&
 #endif
-                (callback == (*it)->func))
+                (callback == (*it)->func) &&
+                (meta == (*it)->meta))
             {
                 delete *it;
                 it = m_Callbacks.erase(it);

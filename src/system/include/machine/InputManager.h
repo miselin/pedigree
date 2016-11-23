@@ -115,7 +115,7 @@ class InputManager
         void installCallback(CallbackType filter, callback_t callback, void *meta = 0, Thread *pThread = 0, uintptr_t param = 0);
 
         /// Removes a callback
-        void removeCallback(callback_t callback, Thread *pThread = 0);
+        void removeCallback(callback_t callback, void *meta = 0, Thread *pThread = 0);
         
         /// Removes a callback by searching for a Thread pointer. This can be
         /// used to avoid useless and broken links to a Thread in the callback

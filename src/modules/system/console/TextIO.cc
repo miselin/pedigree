@@ -62,7 +62,7 @@ TextIO::~TextIO()
     m_pBackbuffer = 0;
 
     /// \todo removeCallback will remove too many as it doesn't also use meta...
-    InputManager::instance().removeCallback(inputCallback);
+    InputManager::instance().removeCallback(inputCallback, this);
 }
 
 bool TextIO::initialise(bool bClear)

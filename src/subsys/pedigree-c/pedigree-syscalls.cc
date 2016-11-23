@@ -257,6 +257,7 @@ void pedigree_input_remove_callback(void *p)
     // First parameter is now obsolete, gotta remove it some time...
     InputManager::instance().removeCallback(
         reinterpret_cast<InputManager::callback_t>(p),
+        0,
         Processor::information().getCurrentThread());
 }
 
