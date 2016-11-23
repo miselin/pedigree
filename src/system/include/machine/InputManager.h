@@ -49,6 +49,7 @@ class InputManager
         struct InputNotification
         {
             CallbackType type;
+            void *meta;
 
             union
             {
@@ -111,7 +112,7 @@ class InputManager
         void joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
 
         /// Installs a callback
-        void installCallback(CallbackType filter, callback_t callback, Thread *pThread = 0, uintptr_t param = 0);
+        void installCallback(CallbackType filter, callback_t callback, void *meta = 0, Thread *pThread = 0, uintptr_t param = 0);
 
         /// Removes a callback
         void removeCallback(callback_t callback, Thread *pThread = 0);
@@ -161,6 +162,9 @@ class InputManager
             
             /// Filter for this callback
             CallbackType filter;
+
+            /// Meta pointer for the InputNotifications we generate.
+            void *meta;
         };
 
         /// Input queue (for distribution to applications)

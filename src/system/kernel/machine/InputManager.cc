@@ -245,6 +245,7 @@ void InputManager::putNotification(InputNotification *note)
         if(*it)
         {
             callback_t func = (*it)->func;
+            note->meta = (*it)->meta;
             func(*note);
         }
     }
@@ -253,7 +254,7 @@ void InputManager::putNotification(InputNotification *note)
 #endif
 }
 
-void InputManager::installCallback(CallbackType filter, callback_t callback, Thread *pThread, uintptr_t param)
+void InputManager::installCallback(CallbackType filter, callback_t callback, void *meta, Thread *pThread, uintptr_t param)
 {
     LockGuard<Spinlock> guard(m_QueueLock);
     CallbackItem *item = new CallbackItem;
@@ -263,6 +264,7 @@ void InputManager::installCallback(CallbackType filter, callback_t callback, Thr
 #endif
     item->nParam = param;
     item->filter = filter;
+    item->meta = meta;
     m_Callbacks.pushBack(item);
 }
 
@@ -361,6 +363,7 @@ void InputManager::mainThread()
                     if(!pThread)
                     {
                         /// \todo Verify that the callback is in fact in the kernel
+                        pNote->meta = (*it)->meta;
                         func(*pNote);
                         continue;
                     }

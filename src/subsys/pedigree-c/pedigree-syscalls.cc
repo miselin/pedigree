@@ -247,6 +247,7 @@ void pedigree_input_install_callback(void *p, uint32_t type, uintptr_t param)
     InputManager::instance().installCallback(
         static_cast<InputManager::CallbackType>(type),
         reinterpret_cast<InputManager::callback_t>(p),
+        0,
         Processor::information().getCurrentThread(),
         param);
 }
