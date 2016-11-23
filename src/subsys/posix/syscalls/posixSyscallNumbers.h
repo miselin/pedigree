@@ -223,5 +223,6 @@
 #define POSIX_CLONE             215
 #define POSIX_PAUSE             216
 #define POSIX_GETDENTS64        217
+#define POSIX_L_SYSLOG          218
 
 #endif

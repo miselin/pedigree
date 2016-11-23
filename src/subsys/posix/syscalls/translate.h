@@ -117,7 +117,7 @@ inline long posix_translate_syscall(long which)
         case SYS_times: pedigree_translation = POSIX_TIMES; break;
         // ...
         case SYS_getuid: pedigree_translation = POSIX_GETUID; break;
-        case SYS_syslog: pedigree_translation = POSIX_SYSLOG; break;
+        case SYS_syslog: pedigree_translation = POSIX_L_SYSLOG; break;
         case SYS_getgid: pedigree_translation = POSIX_GETGID; break;
         case SYS_setuid: pedigree_translation = POSIX_SETUID; break;
         case SYS_setgid: pedigree_translation = POSIX_SETGID; break;

@@ -481,6 +481,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_pause();
         case POSIX_GETDENTS64:
             return posix_getdents64(static_cast<int>(p1), reinterpret_cast<struct dirent *>(p2), static_cast<int>(p3));
+        case POSIX_L_SYSLOG:
+            return posix_linux_syslog(p1, reinterpret_cast<char *>(p2), p3);
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

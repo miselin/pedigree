@@ -75,6 +75,7 @@ mode_t posix_umask(mode_t mask);
 int posix_getgrnam(const char *name, struct group *out);
 int posix_getgrgid(gid_t id, struct group *out);
 
+int posix_linux_syslog(int type, char *buf, int len);
 int posix_syslog(const char *msg, int prio);
 
 int pedigree_login(int uid, const char *password);

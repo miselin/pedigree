@@ -1097,6 +1097,13 @@ mode_t posix_umask(mode_t mask)
     return previous;
 }
 
+int posix_linux_syslog(int type, char *buf, int len)
+{
+    // no-op syscall
+    SC_NOTICE("syslog");
+    return 0;
+}
+
 int posix_syslog(const char *msg, int prio)
 {
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(msg), PATH_MAX, PosixSubsystem::SafeRead))
