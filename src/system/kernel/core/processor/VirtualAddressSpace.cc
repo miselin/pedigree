@@ -31,15 +31,12 @@ void *VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags)
   if (!m_ZeroPage)
   {
     m_ZeroPage = PMemoryManager.allocatePage();
-    NOTICE("heapend is " << m_HeapEnd);
-    NOTICE("creating zero page");
     if (map(m_ZeroPage, m_HeapEnd, VirtualAddressSpace::Write) == false)
     {
       ERROR("Could not prepare zero page.");
       return 0;
     }
 
-    NOTICE("zeroing page " << m_ZeroPage << "!");
     ByteSet(m_HeapEnd, 0, PhysicalMemoryManager::getPageSize());
 
     unmap(m_HeapEnd);
