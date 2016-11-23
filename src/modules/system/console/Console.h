@@ -74,17 +74,9 @@ class ConsoleFile : public File
          * this function to identify the character and perform the relevant
          * processing it needs to.
          */
-        virtual char getLast() = 0;
-
-        /**
-         * In order to ensure getLast is always the most recent character,
-         * the thread that wrote a special character to the input stream
-         * is put to sleep until the event handler calls this function.
-         */
-        virtual void eventComplete()
+        virtual char getLast()
         {
-            if(!isMaster())
-                m_pOther->eventComplete();
+            return m_Last;
         }
 
         Event *getEvent() const
@@ -108,13 +100,34 @@ class ConsoleFile : public File
             return m_ConsoleNumber;
         }
 
+        /**
+         * In order to ensure getLast is always the most recent character,
+         * the thread that wrote a special character to the input stream
+         * is put to sleep until the event handler calls this function.
+         */
+        virtual void eventComplete()
+        {
+            if(!isMaster())
+                m_pOther->eventComplete();
+            else
+                m_EventTrigger.release();
+        }
+
     protected:
 
         /// select - check and optionally for a particular state.
-        int select(bool bWriting, int timeout);
+        virtual int select(bool bWriting, int timeout);
 
         /// inject - inject bytes into the ring buffer
         void inject(char *buf, size_t len, bool canBlock);
+
+        /// Override to permit different injection semantics.
+        /// The default is to call m_pOther->inject.
+        virtual void performInject(char *buf, size_t len, bool canBlock);
+
+        /// Performs an event trigger.
+        /// The default is to call triggerEvent which uses m_pOther.
+        virtual void performEventTrigger(char cause);
 
         /// Other side of the console.
         ConsoleFile *m_pOther;
@@ -128,9 +141,26 @@ class ConsoleFile : public File
         /// Output line discipline
         static size_t outputLineDiscipline(char *buf, size_t len, size_t maxSz, size_t flags = 0);
 
-    private:
+        /// Input processing.
+        size_t processInput(char *buf, size_t len);
+
+        /// Input line discipline
+        void inputLineDiscipline(char *buf, size_t len, size_t flags = 0, const char *controlChars = 0);
+
+        /// Input line buffer.
+        char m_LineBuffer[LINEBUFFER_MAXIMUM];
+
+        /// Size of the input line buffer.
+        size_t m_LineBufferSize;
+
+        /// Location of the first newline in the line buffer. ~0 if none.
+        size_t m_LineBufferFirstNewline;
+
+        /// Character that triggered an event.
+        char m_Last;
 
         Buffer<char> m_Buffer;
+    private:
         size_t m_ConsoleNumber;
         String m_Name;
 
@@ -140,6 +170,15 @@ class ConsoleFile : public File
          * out what to do.
          */
         Event *m_pEvent;
+
+        /// Locked when we trigger an event, unlocked when eventComplete called.
+        Mutex m_EventTrigger;
+
+        /// Check if the given character requires an event.
+        bool checkForEvent(size_t flags, char check, const char *controlChars);
+
+        /// Triggers our event.
+        void triggerEvent(char cause);
 };
 
 class ConsoleMasterFile : public ConsoleFile
@@ -170,41 +209,7 @@ class ConsoleMasterFile : public ConsoleFile
             return true;
         }
 
-        virtual char getLast()
-        {
-            return m_Last;
-        }
-
-        virtual void eventComplete()
-        {
-            m_EventTrigger.release();
-        }
-
     private:
-
-        /// Input line discipline
-        void inputLineDiscipline(char *buf, size_t len);
-
-        /// Input line buffer.
-        char m_LineBuffer[LINEBUFFER_MAXIMUM];
-
-        /// Size of the input line buffer.
-        size_t m_LineBufferSize;
-
-        /// Location of the first newline in the line buffer. ~0 if none.
-        size_t m_LineBufferFirstNewline;
-
-        /// Character that triggered an event.
-        char m_Last;
-
-        /// Locked when we trigger an event, unlocked when eventComplete called.
-        Mutex m_EventTrigger;
-
-        /// Check if the given character requires an event.
-        bool checkForEvent(size_t flags, char check);
-
-        /// Triggers our event.
-        void triggerEvent(char cause);
 };
 
 class ConsoleSlaveFile : public ConsoleFile
@@ -231,11 +236,6 @@ class ConsoleSlaveFile : public ConsoleFile
         {
             return m_pOther->getLast();
         }
-
-    private:
-
-        /// Input processing.
-        size_t processInput(char *buf, size_t len);
 };
 
 class ConsolePhysicalFile : public ConsoleFile
@@ -259,8 +259,13 @@ class ConsolePhysicalFile : public ConsoleFile
             return '\0';
         }
 
+        virtual int select(bool bWriting, int timeout);
+
     private:
         File *m_pTerminal;
+        Buffer<char> m_ProcessedInput;
+
+        virtual void performInject(char *buf, size_t len, bool canBlock);
 };
 
 /** This class provides a way for consoles (TTYs) to be created to interact with applications.

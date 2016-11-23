@@ -50,37 +50,3 @@ uint64_t ConsoleSlaveFile::write(uint64_t location, uint64_t size, uintptr_t buf
 
     return size;
 }
-
-size_t ConsoleSlaveFile::processInput(char *buf, size_t len)
-{
-    // Perform input processing.
-    char *pC = buf;
-    size_t realLen = len;
-    for (size_t i = 0; i < len; i++)
-    {
-        if (m_Flags & ConsoleManager::IStripToSevenBits)
-            pC[i] = static_cast<uint8_t>(pC[i]) & 0x7F;
-        if (m_Flags & ConsoleManager::LCookedMode)
-        {
-            if (pC[i] == m_ControlChars[VEOF])
-            {
-                // Zero-length read: EOF.
-                realLen = 0;
-                break;
-            }
-        }
-
-        if (pC[i] == '\n' && (m_Flags & ConsoleManager::IMapNLToCR))
-            pC[i] = '\r';
-        else if (pC[i] == '\r' && (m_Flags & ConsoleManager::IMapCRToNL))
-            pC[i] = '\n';
-        else if (pC[i] == '\r' && (m_Flags & ConsoleManager::IIgnoreCR))
-        {
-            MemoryCopy(buf+i, buf+i+1, len-i-1);
-            i--; // Need to process this byte again, its contents have changed.
-            realLen--;
-        }
-    }
-
-    return realLen;
-}

@@ -187,14 +187,24 @@ void ConsoleManager::getControlChars(File *file, void *p)
 
 int ConsoleManager::getWindowSize(File *file, unsigned short *rows, unsigned short *cols)
 {
+    NOTICE("A");
     if(!file)
         return -1;
+    NOTICE("B");
     ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    NOTICE("C");
     if(!pFile->isMaster())
-        pFile = pFile->m_pOther;
+    {
+        if (pFile->m_pOther)
+        {
+            pFile = pFile->m_pOther;
+        }
+    }
+    NOTICE("D [" << pFile << "]");
 
     *rows = pFile->m_Rows;
     *cols = pFile->m_Cols;
+    NOTICE("E");
     return 0;
 }
 
@@ -203,7 +213,7 @@ int ConsoleManager::setWindowSize(File *file, unsigned short rows, unsigned shor
     if(!file)
         return false;
     ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
-    if(!pFile->isMaster())
+    if((!pFile->isMaster()) && pFile->m_pOther)
     {
         // Ignore. Slave cannot change window size.
         return 0;
@@ -230,6 +240,10 @@ File *ConsoleManager::getOther(File *file)
     if(!file)
         return 0;
     ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    if (!pFile->m_pOther)
+    {
+        return file;  // some consoles (e.g. physical) don't have others
+    }
     return pFile->m_pOther;
 }
 

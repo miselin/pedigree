@@ -20,15 +20,41 @@
 #include "Console.h"
 #include <vfs/VFS.h>
 
+#include "ConsoleDefines.h"
+
 ConsolePhysicalFile::ConsolePhysicalFile(File *pTerminal, String consoleName, Filesystem *pFs) :
-    ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal)
+    ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal), m_ProcessedInput(PTY_BUFFER_SIZE)
 {
 }
 
 uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    /// \todo input discipline
-    return m_pTerminal->read(location, size, buffer, bCanBlock);
+    WARNING("ConsolePhysicalFile::read()");
+
+    // read from terminal and perform line discipline as needed
+    if (!m_ProcessedInput.canRead(false))
+    {
+        char *temp = new char[size];
+        size_t nRead = m_pTerminal->read(location, size, reinterpret_cast<uintptr_t>(temp), bCanBlock);
+
+        if (nRead)
+        {
+            inputLineDiscipline(temp, nRead, m_Flags, m_ControlChars);
+        }
+        delete [] temp;
+    }
+
+    // handle any bytes that the input discipline created
+    while (m_Buffer.canRead(false))
+    {
+        char *buff = new char[512];
+        size_t nTransfer = m_Buffer.read(buff, 512);
+        write(0, nTransfer, reinterpret_cast<uintptr_t>(buff), true);
+        delete [] buff;
+    }
+
+    // and then return the processed content to the caller
+    return m_ProcessedInput.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
 }
 
 uint64_t ConsolePhysicalFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
@@ -44,4 +70,28 @@ uint64_t ConsolePhysicalFile::write(uint64_t location, uint64_t size, uintptr_t 
     m_pTerminal->write(location, disciplineSize, reinterpret_cast<uintptr_t>(outputBuffer), bCanBlock);
     delete [] outputBuffer;
     return size;
+}
+
+void ConsolePhysicalFile::performInject(char *buf, size_t len, bool canBlock)
+{
+    m_ProcessedInput.write(buf, len, canBlock);
+    dataChanged();
+}
+
+int ConsolePhysicalFile::select(bool bWriting, int timeout)
+{
+    // if we're writing, we only care about the attached terminal
+    if (bWriting)
+    {
+        return m_pTerminal->select(true, timeout);
+    }
+
+    // if we're reading, though, we might be able to return quickly
+    if (m_ProcessedInput.canRead(false))
+    {
+        return 1;
+    }
+
+    // or maybe not
+    return m_pTerminal->select(false, timeout);
 }
