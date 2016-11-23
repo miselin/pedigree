@@ -19,9 +19,11 @@
 
 #include "ProcFs.h"
 
+#include <BootstrapInfo.h>
 #include <processor/Processor.h>
 #include <time/Time.h>
 #include <LockGuard.h>
+#include <Version.h>
 
 /// \todo expose this via PhysicalMemoryManager interface
 extern size_t g_FreePages;
@@ -153,6 +155,18 @@ bool ProcFs::initialise(Disk *pDisk)
     /// \todo this is hard-coded and wrong.
     ConstantFile *mounts = new ConstantFile(String("mounts"), String("/dev/sda / ext2 rw 0 0\n"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(mounts->getName(), mounts);
+
+    // Kernel command line
+    String cmdline(g_pBootstrapInfo->getCommandLine());
+    cmdline += " single noswap";  // ensure we get into single user mode in Linux userspaces
+    ConstantFile *pCmdline = new ConstantFile(String("cmdline"), cmdline, getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pCmdline->getName(), pCmdline);
+
+    // /proc/version contains some extra version info (not same as uname)
+    String version;
+    version.Format("Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser, g_pBuildMachine, g_pBuildTime);
+    ConstantFile *pVersion = new ConstantFile(String("version"), version, getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pVersion->getName(), pVersion);
 
     return true;
 }
