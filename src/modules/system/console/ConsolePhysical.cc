@@ -36,9 +36,12 @@ uint64_t ConsolePhysicalFile::write(uint64_t location, uint64_t size, uintptr_t 
     // we allocate a buffer to allow for a input buffer exclusively filled with
     // NL characters to be converted to CRNL
     char *outputBuffer = new char[size * 2];
+    ByteSet(outputBuffer, 0, size * 2);
     StringCopyN(outputBuffer, reinterpret_cast<char *>(buffer), size);
-    size_t disciplineSize = outputLineDiscipline(reinterpret_cast<char *>(outputBuffer), size, size * 2, m_Flags);
-    uint64_t count = m_pTerminal->write(location, disciplineSize, reinterpret_cast<uintptr_t>(outputBuffer), bCanBlock);
+    size_t disciplineSize = outputLineDiscipline(outputBuffer, size, size * 2, m_Flags);
+    /// \todo handle small writes
+    /// \todo disciplineSize can be bigger than size due to edits, how do we manage this instead of lying?
+    m_pTerminal->write(location, disciplineSize, reinterpret_cast<uintptr_t>(outputBuffer), bCanBlock);
     delete [] outputBuffer;
-    return count;
+    return size;
 }
