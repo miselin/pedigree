@@ -1141,7 +1141,10 @@ void TextIO::write(const char *s, size_t len)
 
     // Assume we moved the cursor, and update where it is displayed
     // accordingly.
-    m_pVga->moveCursor(m_CursorX, m_CursorY);
+    if (isPrimary())
+    {
+        m_pVga->moveCursor(m_CursorX, m_CursorY);
+    }
 
     // This write is now complete.
     flip();
@@ -1827,7 +1830,13 @@ void TextIO::handleInput(InputManager::InputNotification &in)
 
 void TextIO::markPrimary()
 {
+    // Set ourselves as the primary and get straight to work loading our own
+    // terminal state (instead of the previous one's)
     m_bOwnsConsole = true;
+    if (m_pVga)
+    {
+        m_pVga->moveCursor(m_CursorX, m_CursorY);
+    }
     flip();
 }
 
