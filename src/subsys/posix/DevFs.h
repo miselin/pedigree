@@ -127,6 +127,23 @@ private:
     size_t m_nDepth;
 };
 
+class Tty0File : public File
+{
+    public:
+        Tty0File(String str, size_t inode, Filesystem *pParentFS, File *pParent, DevFs *devfs);
+        ~Tty0File();
+
+        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+        // override open() to correctly handle returning a master and creating
+        // the associated slave.
+        virtual File *open();
+
+    private:
+        DevFs *m_pDevFs;
+};
+
 /** This class provides slightly more flexibility for adding files to a directory. */
 class DevFsDirectory : public Directory
 {
@@ -174,6 +191,9 @@ public:
 
   void handleInput(InputManager::InputNotification &in);
 
+  TextIO *getCurrentTty() const;
+  File *getCurrentTtyFile() const;
+
 protected:
   virtual bool createFile(File* parent, String filename, uint32_t mask)
   {return false;}
@@ -196,6 +216,7 @@ private:
   size_t m_NextInode;
 
   TextIO *m_pTtys[7];
+  File *m_pTtyFiles[7];
   size_t m_CurrentTty;
 };
 

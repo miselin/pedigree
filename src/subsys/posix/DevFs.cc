@@ -360,6 +360,34 @@ int FramebufferFile::command(const int command, void *buffer)
     }
 }
 
+Tty0File::Tty0File(String str, size_t inode, Filesystem *pParentFS, File *pParent, DevFs *devfs) :
+    File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_pDevFs(devfs)
+{
+    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setUidOnly(0);
+    setGidOnly(0);
+}
+
+Tty0File::~Tty0File()
+{
+}
+
+uint64_t Tty0File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+uint64_t Tty0File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+File *Tty0File::open()
+{
+    // easy - just return the currently-active VT
+    return m_pDevFs->getCurrentTtyFile();
+}
+
 DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);
@@ -425,25 +453,37 @@ bool DevFs::initialise(Disk *pDisk)
         WARNING("POSIX: no /dev/tty - TextIO failed to initialise.");
         revertInode();
         delete m_pTty;
+        m_pTty = nullptr;
     }
 
-    // textui == tty0
-    ConsolePhysicalFile *pTty0 = new ConsolePhysicalFile(m_pTty, String("tty0"), this);
+    // tty0 == current console
+    Tty0File *pTty0 = new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
     m_pRoot->addEntry(pTty0->getName(), pTty0);
 
-    // create tty1-6
-    for (size_t i = 1; i < 7; ++i)
+    // create tty1 which is essentially just textui but with a S_IFCHR wrapper
+    if (m_pTty)
+    {
+        ConsolePhysicalFile *pTty1 = new ConsolePhysicalFile(m_pTty, String("tty1"), this);
+        m_pRoot->addEntry(pTty1->getName(), pTty1);
+
+        m_pTtys[0] = m_pTty;
+        m_pTtyFiles[0] = pTty1;
+    }
+
+    // create tty2-6 as non-overloaded TextIO instances
+    for (size_t i = 1; i < 6; ++i)
     {
         String ttyname;
-        ttyname.Format("tty%u", i);
+        ttyname.Format("tty%u", i + 1);
 
         TextIO *tio = new TextIO(ttyname, getNextInode(), this, m_pRoot);
         if (tio->initialise(true))
         {
             ConsolePhysicalFile *file = new ConsolePhysicalFile(tio, ttyname, this);
-            m_pRoot->addEntry(tio->getName(), tio);
+            m_pRoot->addEntry(tio->getName(), file);
 
             m_pTtys[i] = tio;
+            m_pTtyFiles[i] = file;
 
             // activate the terminal by performing an empty write, which will
             // ensure users switching to the terminal see a blank screen if
@@ -458,6 +498,7 @@ bool DevFs::initialise(Disk *pDisk)
             delete tio;
 
             m_pTtys[i] = nullptr;
+            m_pTtyFiles[i] = nullptr;
         }
     }
 
@@ -467,7 +508,6 @@ bool DevFs::initialise(Disk *pDisk)
     // add input handler for terminal switching
     InputManager::instance().installCallback(InputManager::Key, terminalSwitchHandler, this);
 
-    m_pTtys[0] = m_pTty;
     m_CurrentTty = 0;
 
     return true;
@@ -494,27 +534,27 @@ void DevFs::handleInput(InputManager::InputNotification &in)
         size_t newTty = 0;
         if (!StringCompareN(s, "f1", 2))
         {
-            newTty = 1;
+            newTty = 0;
         }
         else if (!StringCompareN(s, "f2", 2))
         {
-            newTty = 2;
+            newTty = 1;
         }
         else if (!StringCompareN(s, "f3", 2))
         {
-            newTty = 3;
+            newTty = 2;
         }
         else if (!StringCompareN(s, "f4", 2))
         {
-            newTty = 4;
+            newTty = 3;
         }
         else if (!StringCompareN(s, "f5", 2))
         {
-            newTty = 5;
+            newTty = 4;
         }
         else if (!StringCompareN(s, "f6", 2))
         {
-            newTty = 6;
+            newTty = 5;
         }
         else
         {
@@ -526,4 +566,14 @@ void DevFs::handleInput(InputManager::InputNotification &in)
         m_CurrentTty = newTty;
         m_pTtys[m_CurrentTty]->markPrimary();
     }
+}
+
+TextIO *DevFs::getCurrentTty() const
+{
+    return m_pTtys[m_CurrentTty];
+}
+
+File *DevFs::getCurrentTtyFile() const
+{
+    return m_pTtyFiles[m_CurrentTty];
 }
