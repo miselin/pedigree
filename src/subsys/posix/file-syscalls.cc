@@ -57,6 +57,9 @@
 #include <utime.h>
 #include <stddef.h>
 
+// Emits a lot of logs in normalisePath to help debug remaps.
+#define ENABLE_VERBOSE_NORMALISATION 0
+
 extern int posix_getpid();
 
 // For getdents() (getdents64 uses a compatible struct dirent).
@@ -321,6 +324,26 @@ static bool doChown(File *pFile, uid_t owner, gid_t group)
     return true;
 }
 
+// NON-special-case remappings.
+static struct Remapping
+{
+    // from must match either completely, or be followed by a "/"
+    const char *from;
+    const char *to;
+    bool all_abis;  // certain ABIs shouldn't normalise certain paths
+    bool on_devfs;  // certain callers care about the result being on devfs
+} g_Remappings[] = {
+    {"/dev", "dev»", true, true},
+    {"/proc", "proc»", true, false},
+    {"/bin", "/applications", false, false},
+    {"/usr/bin", "/applications", false, false},
+    {"/lib", "/libraries", false, false},
+    {"/etc", "/config", false, false},
+    {"/tmp", "scratch»", true, false},
+    {"/var/run", "posix-runtime»", true, false},
+    {nullptr, nullptr, false, false},
+};
+
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 {
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
@@ -328,6 +351,9 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
     bool fixFilesystemPaths = pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
 
     // Rebase /dev onto the devfs. /dev/tty is special.
+    // Note: in all these we may need to accept the raw directory but nothing
+    // more (e.g. /libfoo should not become /libraries, but /lib DOES become
+    // /libraries because it has no further characters)
     if (!StringCompare(name, "/dev/tty"))
     {
         // Get controlling console, unless we have none.
@@ -339,56 +365,6 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         }
 
         nameToOpen = name;
-        return true;
-    }
-    else if (!StringCompareN(name, "/dev/", StringLength("/dev/")))
-    {
-        nameToOpen = "dev»/";
-        nameToOpen += (name + StringLength("/dev/"));
-        if (onDevFs)
-            *onDevFs = true;
-        return true;
-    }
-    else if (!StringCompareN(name, "/proc/", StringLength("/proc/")))
-    {
-        nameToOpen = "proc»/";
-        nameToOpen += (name + StringLength("/proc/"));
-        return true;
-    }
-    else if (fixFilesystemPaths && !StringCompareN(name, "/bin/", StringLength("/bin/")))
-    {
-        nameToOpen = "/applications/";
-        nameToOpen += (name + StringLength("/bin/"));
-        return true;
-    }
-    else if (fixFilesystemPaths && !StringCompareN(name, "/usr/bin/", StringLength("/usr/bin/")))
-    {
-        nameToOpen = "/applications/";
-        nameToOpen += (name + StringLength("/usr/bin/"));
-        return true;
-    }
-    else if (fixFilesystemPaths && !StringCompareN(name, "/lib/", StringLength("/lib/")))
-    {
-        nameToOpen = "/libraries/";
-        nameToOpen += (name + StringLength("/lib/"));
-        return true;
-    }
-    else if (fixFilesystemPaths && !StringCompareN(name, "/etc/", StringLength("/etc/")))
-    {
-        nameToOpen = "/config/";
-        nameToOpen += (name + StringLength("/etc/"));
-        return true;
-    }
-    else if (!StringCompareN(name, "/tmp/", StringLength("/tmp/")))
-    {
-        nameToOpen = "scratch»/";
-        nameToOpen += (name + StringLength("/tmp/"));
-        return true;
-    }
-    else if (!StringCompareN(name, "/var/run/", StringLength("/var/run/")))
-    {
-        nameToOpen = "posix-runtime»/";
-        nameToOpen += (name + StringLength("/var/run/"));
         return true;
     }
     else if (!StringCompareN(name, "/@/", StringLength("/@/")))
@@ -404,8 +380,78 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
     }
     else
     {
-        nameToOpen = name;
-        return false;
+        // try the remappings
+        struct Remapping *remap = g_Remappings;
+#if ENABLE_VERBOSE_NORMALISATION
+        F_NOTICE("performing remap for '" << name << "'...");
+#endif
+        bool ok = false;
+        while(remap->from != nullptr)
+        {
+            if (!(fixFilesystemPaths || remap->all_abis))
+            {
+#if ENABLE_VERBOSE_NORMALISATION
+                F_NOTICE(" -> ignoring " << remap->from << " as it is not for the current ABI");
+#endif
+                ++remap;
+                continue;
+            }
+
+#if ENABLE_VERBOSE_NORMALISATION
+            F_NOTICE(" -> check against " << remap->from);
+#endif
+            if (!StringCompare(name, remap->from))
+            {
+#if ENABLE_VERBOSE_NORMALISATION
+                F_NOTICE(" -> direct remap to " << remap->to);
+#endif
+                nameToOpen = remap->to;
+                ok = true;
+                break;
+            }
+
+            // does not match directly, so we need to check for a partial match
+            if (!StringCompareN(name, remap->from, StringLength(remap->from)))
+            {
+#if ENABLE_VERBOSE_NORMALISATION
+                F_NOTICE(" -> possibly partial remap");
+#endif
+
+                // we have a partial match, but this only OK if the following
+                // character is '/' to avoid incorrectly rewriting paths
+                if (*(name + StringLength(remap->from)) == '/')
+                {
+                    // good
+                    nameToOpen = remap->to;
+                    nameToOpen += (name + StringLength(remap->from));
+#if ENABLE_VERBOSE_NORMALISATION
+                    F_NOTICE(" -> indirect remap to create path '" << nameToOpen << "'...");
+#endif
+                    ok = true;
+                    break;
+                }
+
+                // no good
+#if ENABLE_VERBOSE_NORMALISATION
+                NOTICE(" -> cannot use this remap as it is not actually matching a path segment");
+#endif
+            }
+
+            ++remap;
+        }
+
+        if (onDevFs && remap)
+        {
+            *onDevFs = remap->on_devfs;
+        }
+
+        if (!ok)
+        {
+            nameToOpen = name;
+            return false;
+        }
+
+        return true;
     }
 }
 
