@@ -145,7 +145,7 @@ class ConsoleFile : public File
         size_t processInput(char *buf, size_t len);
 
         /// Input line discipline
-        void inputLineDiscipline(char *buf, size_t len, size_t flags = 0, const char *controlChars = 0);
+        void inputLineDiscipline(char *buf, size_t len, size_t flags = ~0U, const char *controlChars = 0);
 
         /// Input line buffer.
         char m_LineBuffer[LINEBUFFER_MAXIMUM];

@@ -164,7 +164,7 @@ size_t ConsoleFile::processInput(char *buf, size_t len)
 void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const char *controlChars)
 {
     // Make sure we always have the latest flags from the slave.
-    if (flags == 0)
+    if (flags == ~0U)
     {
         flags = m_pOther->m_Flags;
     }
