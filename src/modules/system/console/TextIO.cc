@@ -61,7 +61,6 @@ TextIO::~TextIO()
     delete [] m_pBackbuffer;
     m_pBackbuffer = 0;
 
-    /// \todo removeCallback will remove too many as it doesn't also use meta...
     InputManager::instance().removeCallback(inputCallback, this);
 }
 
@@ -1731,6 +1730,11 @@ void TextIO::handleInput(InputManager::InputNotification &in)
         else if(!StringCompareN(str, "down", 4))
         {
             direction = 3;  // down
+        }
+        else
+        {
+            // unhandled special key, don't send to app
+            return;
         }
     }
     else if(c & CTRL_KEY)

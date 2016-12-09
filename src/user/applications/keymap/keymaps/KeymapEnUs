@@ -64,6 +64,19 @@ DEFINE diaeresis 5
 0x37    U+002E SHIFT U+003E ALTGR U+00BB # . > »
 0x38    U+002F SHIFT U+003F     # / ?
 
+0x3A    "f1  "                  # F1
+0x3B    "f2  "                  # F2
+0x3C    "f3  "                  # F3
+0x3D    "f4  "                  # F4
+0x3E    "f5  "                  # F5
+0x3F    "f6  "                  # F6
+0x40    "f7  "                  # F7
+0x41    "f8  "                  # F8
+0x42    "f9  "                  # F9
+0x43    "f10 "                  # F10
+0x44    "f11 "                  # F11
+0x45    "f12 "                  # F12
+
 0x49    "ins "                  # Insert
 0x4A    "home"                  # Home
 0x4B    "pgup"                  # PageUp

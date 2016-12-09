@@ -123,6 +123,11 @@ void handle_input(Input::InputNotification &note)
             {
                 realKey = Down;
             }
+            else
+            {
+                // unhandled special key
+                return;
+            }
         }
         else if(c & CTRL_KEY)
         {

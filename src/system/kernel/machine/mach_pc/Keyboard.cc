@@ -85,8 +85,6 @@ void X86Keyboard::initialise()
     irqManager.control(1, IrqManager::MitigationThreshold, 100);
 }
 
-
-
 bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
 {
     if(m_bDebugState)
