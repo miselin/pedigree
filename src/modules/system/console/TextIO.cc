@@ -44,7 +44,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
     m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'),
     m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false),
-    m_Lock(false)
+    m_Lock(false), m_bOwnsConsole(false)
 {
     m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
 
@@ -94,7 +94,10 @@ bool TextIO::initialise(bool bClear)
         {
             if(bClear)
             {
-                ByteSet(m_pFramebuffer, 0, m_pVga->getNumRows() * m_pVga->getNumCols() * sizeof(uint16_t));
+                if (isPrimary())
+                {
+                    ByteSet(m_pFramebuffer, 0, m_pVga->getNumRows() * m_pVga->getNumCols() * sizeof(uint16_t));
+                }
                 ByteSet(m_pBackbuffer, 0, BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell));
             }
 
@@ -1448,6 +1451,10 @@ void TextIO::flip(bool timer, bool hideState)
     if(!m_pVga)
         return;
 
+    // Avoid flipping if we do not own the VGA instance.
+    if (!isPrimary())
+        return;
+
     // Avoid flipping if we aren't active.
     if(!m_bActive)
         return;
@@ -1701,6 +1708,10 @@ void TextIO::inputCallback(InputManager::InputNotification &in)
 
 void TextIO::handleInput(InputManager::InputNotification &in)
 {
+    // Drop input if we are not the console owner.
+    if (!isPrimary())
+        return;
+
     if (!m_OutBuffer.canWrite(false))
     {
         WARNING("TextIO: output buffer is full, dropping keypress!");
@@ -1812,4 +1823,20 @@ void TextIO::handleInput(InputManager::InputNotification &in)
     }
 
     dataChanged();
+}
+
+void TextIO::markPrimary()
+{
+    m_bOwnsConsole = true;
+    flip();
+}
+
+void TextIO::unmarkPrimary()
+{
+    m_bOwnsConsole = false;
+}
+
+bool TextIO::isPrimary() const
+{
+    return m_bOwnsConsole;
 }

@@ -19,9 +19,12 @@
 
 #include "DevFs.h"
 
+#include <vfs/Pipe.h>
+
 #define MACHINE_FORWARD_DECL_ONLY
 #include <machine/Machine.h>
 #include <machine/Vga.h>
+#include <machine/InputManager.h>
 
 #include <console/Console.h>
 #include <utilities/assert.h>
@@ -32,6 +35,23 @@
 #include <utilities/utility.h>
 
 #include <sys/fb.h>
+
+/// \todo these come from somewhere - expose them properly
+#define ALT_KEY (1ULL << 60)
+#define SHIFT_KEY (1ULL << 61)
+#define CTRL_KEY (1ULL << 62)
+#define SPECIAL_KEY (1ULL << 63)
+
+static void terminalSwitchHandler(InputManager::InputNotification &in)
+{
+    if (!in.meta)
+    {
+        return;
+    }
+
+    DevFs *p = reinterpret_cast<DevFs *>(in.meta);
+    p->handleInput(in);
+}
 
 uint64_t RandomFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
@@ -342,6 +362,8 @@ int FramebufferFile::command(const int command, void *buffer)
 
 DevFs::~DevFs()
 {
+    InputManager::instance().removeCallback(terminalSwitchHandler, this);
+
     delete m_pTty;
     delete m_pRoot;
 }
@@ -376,36 +398,6 @@ bool DevFs::initialise(Disk *pDisk)
     PtmxFile *pPtmx = new PtmxFile(String("ptmx"), getNextInode(), this, m_pRoot, pPts);
     m_pRoot->addEntry(pPtmx->getName(), pPtmx);
 
-    // Create the /dev/pts directory for the terminals the ptmx file will
-    // create as side-effects of open().
-    //
-
-    // Create nodes for psuedoterminals.
-    /*
-    const char *ptyletters = "pqrstuvwxyzabcde";
-    for(size_t i = 0; i < 16; ++i)
-    {
-        for(const char *ptyc = ptyletters; *ptyc != 0; ++ptyc)
-        {
-            const char c = *ptyc;
-            char a = 'a' + (i % 10);
-            if(i <= 9)
-                a = '0' + i;
-            char master[] = {'p', 't', 'y', c, a, 0};
-            char slave[] = {'t', 't', 'y', c, a, 0};
-
-            String masterName(master), slaveName(slave);
-
-            File *pMaster = ConsoleManager::instance().getConsole(masterName);
-            File *pSlave = ConsoleManager::instance().getConsole(slaveName);
-            assert(pMaster && pSlave);
-
-            m_pRoot->addEntry(masterName, pMaster);
-            m_pRoot->addEntry(slaveName, pSlave);
-        }
-    }
-    */
-
     // Create /dev/urandom for the RNG.
     RandomFile *pRandom = new RandomFile(String("urandom"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pRandom->getName(), pRandom);
@@ -423,6 +415,7 @@ bool DevFs::initialise(Disk *pDisk)
 
     // Create /dev/textui for the text-only UI device.
     m_pTty = new TextIO(String("textui"), getNextInode(), this, m_pRoot);
+    m_pTty->markPrimary();
     if(m_pTty->initialise(false))
     {
         m_pRoot->addEntry(m_pTty->getName(), m_pTty);
@@ -434,8 +427,48 @@ bool DevFs::initialise(Disk *pDisk)
         delete m_pTty;
     }
 
+    // textui == tty0
     ConsolePhysicalFile *pTty0 = new ConsolePhysicalFile(m_pTty, String("tty0"), this);
     m_pRoot->addEntry(pTty0->getName(), pTty0);
+
+    // create tty1-6
+    for (size_t i = 1; i < 7; ++i)
+    {
+        String ttyname;
+        ttyname.Format("tty%u", i);
+
+        TextIO *tio = new TextIO(ttyname, getNextInode(), this, m_pRoot);
+        if (tio->initialise(true))
+        {
+            ConsolePhysicalFile *file = new ConsolePhysicalFile(tio, ttyname, this);
+            m_pRoot->addEntry(tio->getName(), tio);
+
+            m_pTtys[i] = tio;
+
+            // activate the terminal by performing an empty write, which will
+            // ensure users switching to the terminal see a blank screen if
+            // nothing has actually opened it - this is better than seeing the
+            // previous tty's output...
+            tio->write("", 0);
+        }
+        else
+        {
+            WARNING("POSIX: failed to create " << ttyname);
+            revertInode();
+            delete tio;
+
+            m_pTtys[i] = nullptr;
+        }
+    }
+
+    Pipe *initctl = new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+    m_pRoot->addEntry(initctl->getName(), initctl);
+
+    // add input handler for terminal switching
+    InputManager::instance().installCallback(InputManager::Key, terminalSwitchHandler, this);
+
+    m_pTtys[0] = m_pTty;
+    m_CurrentTty = 0;
 
     return true;
 }
@@ -448,4 +481,49 @@ size_t DevFs::getNextInode()
 void DevFs::revertInode()
 {
     --m_NextInode;
+}
+
+void DevFs::handleInput(InputManager::InputNotification &in)
+{
+    uint64_t c = in.data.key.key;
+    if(c & SPECIAL_KEY)
+    {
+        uint32_t k = c & 0xFFFFFFFFUL;
+        char *s = reinterpret_cast<char *>(&k);
+
+        size_t newTty = 0;
+        if (!StringCompareN(s, "f1", 2))
+        {
+            newTty = 1;
+        }
+        else if (!StringCompareN(s, "f2", 2))
+        {
+            newTty = 2;
+        }
+        else if (!StringCompareN(s, "f3", 2))
+        {
+            newTty = 3;
+        }
+        else if (!StringCompareN(s, "f4", 2))
+        {
+            newTty = 4;
+        }
+        else if (!StringCompareN(s, "f5", 2))
+        {
+            newTty = 5;
+        }
+        else if (!StringCompareN(s, "f6", 2))
+        {
+            newTty = 6;
+        }
+        else
+        {
+            return;
+        }
+
+        // switch primary accordingly
+        m_pTtys[m_CurrentTty]->unmarkPrimary();
+        m_CurrentTty = newTty;
+        m_pTtys[m_CurrentTty]->markPrimary();
+    }
 }

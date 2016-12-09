@@ -26,6 +26,7 @@
 #include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <utilities/ExtensibleBitmap.h>
+#include <machine/InputManager.h>
 
 #include <console/TextIO.h>
 
@@ -171,6 +172,8 @@ public:
   virtual size_t getNextInode();
   virtual void revertInode();
 
+  void handleInput(InputManager::InputNotification &in);
+
 protected:
   virtual bool createFile(File* parent, String filename, uint32_t mask)
   {return false;}
@@ -191,6 +194,9 @@ private:
   TextIO *m_pTty;
 
   size_t m_NextInode;
+
+  TextIO *m_pTtys[7];
+  size_t m_CurrentTty;
 };
 
 #endif

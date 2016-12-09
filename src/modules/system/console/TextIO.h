@@ -135,6 +135,23 @@ public:
     static void inputCallback(InputManager::InputNotification &in);
     void handleInput(InputManager::InputNotification &in);
 
+    /**
+     * Mark this console as the "primary", which means it will receive keyboard
+     * input and actively flip to the screen.
+     */
+    void markPrimary();
+
+    /**
+     * Unmark this console as the primary, ceasing its screen updates and
+     * ceasing its reception of keyboard input.
+     */
+    void unmarkPrimary();
+
+    /**
+     * Determine whether this console is primary or not.
+     */
+    bool isPrimary() const;
+
 private:
     static const ssize_t BACKBUFFER_COLS_WIDE = 132;
     static const ssize_t BACKBUFFER_COLS_NORMAL = 80;
@@ -244,6 +261,11 @@ private:
      * Running flip thread for things like the cursor blinking.
      */
     Thread *m_pFlipThread;
+
+    /**
+     * Does this terminal own the output to the Vga instance?
+     */
+    bool m_bOwnsConsole;
 };
 
 #endif
