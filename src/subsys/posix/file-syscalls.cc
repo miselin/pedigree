@@ -90,6 +90,46 @@ static PosixProcess *getPosixProcess()
     return pProcess;
 }
 
+File *findFileWithAbiFallbacks(String name, File *cwd)
+{
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    if (cwd == nullptr)
+    {
+        cwd = pProcess->getCwd();
+    }
+
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    bool mountAwareAbi = pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
+
+    File *target = VFS::instance().find(name, cwd);
+
+    if (mountAwareAbi)
+    {
+        // no fall back for mount-aware ABIs (e.g. Pedigree's ABI)
+        return target;
+    }
+
+    // for non-mount-aware ABIs, we need to fall back if the path is absolute
+    // this means we can be on dev»/ and still run things like /bin/ls because
+    // the lookup for dev»/bin/ls fails and falls back to root»/bin/ls
+    if (name[0] != '/')
+    {
+        return target;
+    }
+
+    if (!target)
+    {
+        // fall back to root filesystem
+        Filesystem *pRootFs = VFS::instance().lookupFilesystem(String("root"));
+        if (pRootFs)
+        {
+            target = VFS::instance().find(name, pRootFs->getRoot());
+        }
+    }
+
+    return target;
+}
+
 static File *traverseSymlink(File *file)
 {
     /// \todo detect inability to access at each intermediate step.
@@ -747,7 +787,7 @@ int posix_realpath(const char *path, char *buf, size_t bufsize)
     String realPath;
     normalisePath(realPath, path);
     F_NOTICE("  -> traversing " << realPath);
-    File* f = VFS::instance().find(realPath, GET_CWD());
+    File* f = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!f)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -1254,7 +1294,7 @@ int posix_chdir(const char *path)
     String realPath;
     normalisePath(realPath, path);
 
-    File *dir = VFS::instance().find(realPath, GET_CWD());
+    File *dir = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!dir)
     {
         F_NOTICE("Does not exist.");
@@ -1943,7 +1983,7 @@ int posix_statvfs(const char *path, struct statvfs *buf)
     String realPath;
     normalisePath(realPath, path);
 
-    File* file = VFS::instance().find(realPath, GET_CWD());
+    File* file = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -1973,7 +2013,7 @@ int posix_utime(const char *path, const struct utimbuf *times)
     String realPath;
     normalisePath(realPath, path);
 
-    File* file = VFS::instance().find(realPath, GET_CWD());
+    File* file = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -2028,7 +2068,7 @@ int posix_chroot(const char *path)
     String realPath;
     normalisePath(realPath, path);
 
-    File* file = VFS::instance().find(realPath, GET_CWD());
+    File* file = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -2177,7 +2217,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     if (!file)
     {
         // Find file.
-        file = VFS::instance().find(nameToOpen, cwd);
+        file = findFileWithAbiFallbacks(nameToOpen, cwd);
     }
 
     bool bCreated = false;
@@ -2195,7 +2235,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
                 return -1;
             }
 
-            file = VFS::instance().find(nameToOpen, cwd);
+            file = findFileWithAbiFallbacks(nameToOpen, cwd);
             if (!file)
             {
                 F_NOTICE("  -> File does not exist (O_CREAT failed)");
@@ -2409,7 +2449,7 @@ int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, in
     }
     else
     {
-        file = VFS::instance().find(realPath, cwd);
+        file = findFileWithAbiFallbacks(realPath, cwd);
         if (!file)
         {
             SYSCALL_ERROR(DoesNotExist);
@@ -2462,7 +2502,7 @@ int posix_futimesat(int dirfd, const char *pathname, const struct timeval *times
     String realPath;
     normalisePath(realPath, pathname);
 
-    File* file = VFS::instance().find(realPath, cwd);
+    File* file = findFileWithAbiFallbacks(realPath, cwd);
     if (!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -2526,7 +2566,7 @@ int posix_unlinkat(int dirfd, const char *pathname, int flags)
     String realPath;
     normalisePath(realPath, pathname);
 
-    File *pFile = VFS::instance().find(realPath, cwd);
+    File *pFile = findFileWithAbiFallbacks(realPath, cwd);
     if (!pFile)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -2581,8 +2621,8 @@ int posix_renameat(int olddirfd, const char *oldpath, int newdirfd, const char *
     normalisePath(realSource, oldpath);
     normalisePath(realDestination, newpath);
 
-    File *src = VFS::instance().find(realSource, oldcwd);
-    File* dest = VFS::instance().find(realDestination, newcwd);
+    File *src = findFileWithAbiFallbacks(realSource, oldcwd);
+    File* dest = findFileWithAbiFallbacks(realDestination, newcwd);
 
     if (!src)
     {
@@ -2622,7 +2662,7 @@ int posix_renameat(int olddirfd, const char *oldpath, int newdirfd, const char *
     else
     {
         VFS::instance().createFile(realDestination, 0777, newcwd);
-        dest = VFS::instance().find(realDestination, newcwd);
+        dest = findFileWithAbiFallbacks(realDestination, newcwd);
         if (!dest)
         {
             // Failed to create the file?
@@ -2697,7 +2737,7 @@ int posix_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *ne
     }
     else
     {
-        pTarget = VFS::instance().find(realTarget, oldcwd);
+        pTarget = findFileWithAbiFallbacks(realTarget, oldcwd);
     }
 
     if (flags & AT_SYMLINK_FOLLOW)
@@ -2775,7 +2815,7 @@ int posix_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz)
     String realPath;
     normalisePath(realPath, pathname);
 
-    File* f = VFS::instance().find(realPath, cwd);
+    File* f = findFileWithAbiFallbacks(realPath, cwd);
     if (!f)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -2859,7 +2899,7 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
     }
     else
     {
-        file = VFS::instance().find(realPath, GET_CWD());
+        file = findFileWithAbiFallbacks(realPath, GET_CWD());
         if (!file)
         {
             SYSCALL_ERROR(DoesNotExist);
@@ -2918,7 +2958,7 @@ int posix_faccessat(int dirfd, const char *pathname, int mode, int flags)
     normalisePath(realPath, pathname);
 
     // Grab the file
-    File *file = VFS::instance().find(realPath, cwd);
+    File *file = findFileWithAbiFallbacks(realPath, cwd);
 
     if ((flags & AT_SYMLINK_NOFOLLOW) == 0)
     {
@@ -3005,10 +3045,11 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
         String realPath;
         normalisePath(realPath, pathname);
 
-        file = VFS::instance().find(realPath, cwd);
+        file = findFileWithAbiFallbacks(realPath, cwd);
         if (!file)
         {
             SYSCALL_ERROR(DoesNotExist);
+            F_NOTICE(" -> unable to find '" << realPath << "' here");
             return -1;
         }
     }

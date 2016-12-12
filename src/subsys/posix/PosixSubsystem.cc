@@ -1036,28 +1036,6 @@ bool PosixSubsystem::loadElf(File *pFile, uintptr_t mappedAddress,
 #define STACK_PUSH_COPY(stack, value, length) stack = adjust_pointer(stack, -length); MemoryCopy(stack, value, length)
 #define STACK_PUSH_ZEROES(stack, length) stack = adjust_pointer(stack, -length); ByteSet(stack, 0, length)
 
-File *findFileWithFallback(String name)
-{
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-
-    // We try and open the file using the process' CWD but if that fails,
-    // we fall back to using the root filesystem's root directory. This is NOT
-    // technically "correct" and we might want to only do this for certain
-    // ABIs instead of universally.
-    File *target = VFS::instance().find(name, pProcess->getCwd());
-    if (!target)
-    {
-        // Try again on the root filesystem (assuming we've chdir'd)
-        Filesystem *pRootFs = VFS::instance().lookupFilesystem(String("root"));
-        if (pRootFs)
-        {
-            target = VFS::instance().find(name, pRootFs->getRoot());
-        }
-    }
-
-    return target;
-}
-
 bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv, List<SharedPointer<String>> &env)
 {
     return invoke(name, argv, env, 0);
@@ -1133,7 +1111,7 @@ bool PosixSubsystem::parseShebang(File *pFile, File *&pOutFile, List<SharedPoint
     }
 
     // Can we load the new program?
-    File *pNewTarget = findFileWithFallback(*newTarget);
+    File *pNewTarget = findFileWithAbiFallbacks(*newTarget);
     if (!pNewTarget)
     {
         // No, we cannot.
@@ -1199,7 +1177,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     String originalName(name);
 
     // Try and find the target file we want to invoke.
-    File *originalFile = findFileWithFallback(String(name));
+    File *originalFile = findFileWithAbiFallbacks(String(name));
     if (!originalFile)
     {
         ERROR("PosixSubsystem::invoke: could not find file '" << name << "'");
@@ -1263,7 +1241,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     if(pLinker->checkInterpreter(originalFile, interpreter))
     {
         // Ensure we can actually find the interpreter.
-        interpreterFile = findFileWithFallback(interpreter);
+        interpreterFile = findFileWithAbiFallbacks(interpreter);
         interpreterFile = traverseForInvoke(interpreterFile);
         if(!interpreterFile)
         {

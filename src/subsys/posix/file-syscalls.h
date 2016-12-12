@@ -103,6 +103,9 @@ int posix_flock(int fd, int operation);
 
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs = 0);
 
+/// Finds the given file with ABI-specific fallbacks.
+File *findFileWithAbiFallbacks(String name, File *cwd = nullptr);
+
 int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 int posix_mkdirat(int dirfd, const char *pathname, mode_t mode);
 int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags);
