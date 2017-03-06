@@ -102,3 +102,13 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
 
     m_bCachePopulated = true;
 }
+
+Directory *Directory::getReparsePoint() const
+{
+    return m_ReparseTarget;
+}
+
+void Directory::setReparsePoint(Directory *pTarget)
+{
+    m_ReparseTarget = pTarget;
+}

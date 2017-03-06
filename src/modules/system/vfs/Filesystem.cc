@@ -339,6 +339,14 @@ File *Filesystem::findNode(File *pNode, String path)
         return 0;
     }
 
+    // Is this a reparse point? If so we need to change where we perform the
+    // next lookup.
+    Directory *reparse = pDir->getReparsePoint();
+    if (reparse)
+    {
+        pDir = reparse;
+    }
+
     // Are we allowed to access files in this directory?
     if (!VFS::checkAccess(pNode, false, false, true))
     {

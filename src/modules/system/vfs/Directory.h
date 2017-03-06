@@ -80,6 +80,17 @@ public:
     /** Remove the given filename in the directory. */
     void remove(const String &s);
 
+    /**
+     * \brief Get the reparse point attached to this directory.
+     * Reparse points allow locations on the filesystem to redirect lookups to
+     * a separate directory. While the reparse point is active, the target
+     * directory is used for lookups instead of this one.
+     */
+    Directory *getReparsePoint() const;
+
+    /** Set/unset the reparse point for this directory. */
+    void setReparsePoint(Directory *pTarget);
+
 private:
     /** Directory contents cache. */
     RadixTree<File*> m_Cache;
@@ -95,6 +106,9 @@ private:
      * be loaded. Directories are lazy-loaded using this.
      */
     bool m_bCachePopulated;
+
+    /** Reparse target. */
+    Directory *m_ReparseTarget = nullptr;
 
 protected:
     /** Provides subclasses with direct access to the directory's listing. */
