@@ -30,29 +30,43 @@ ConsolePhysicalFile::ConsolePhysicalFile(File *pTerminal, String consoleName, Fi
 uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // read from terminal and perform line discipline as needed
-    if (!m_ProcessedInput.canRead(false))
+    // we loop because we need to perform line discipline even though a
+    // terminal might give us input a byte a time (e.g. cooked mode won't have
+    // real input to return until we've done line discipline for every
+    // character including the carriage return)
+    while (true)
     {
-        char *temp = new char[size];
-        size_t nRead = m_pTerminal->read(location, size, reinterpret_cast<uintptr_t>(temp), bCanBlock);
-
-        if (nRead)
+        if (!m_ProcessedInput.canRead(false))
         {
-            inputLineDiscipline(temp, nRead, m_Flags, m_ControlChars);
+            char *temp = new char[size];
+            size_t nRead = m_pTerminal->read(location, size, reinterpret_cast<uintptr_t>(temp), bCanBlock);
+
+            if (nRead)
+            {
+                inputLineDiscipline(temp, nRead, m_Flags, m_ControlChars);
+            }
+            delete [] temp;
         }
-        delete [] temp;
-    }
 
-    // handle any bytes that the input discipline created
-    while (m_Buffer.canRead(false))
-    {
-        char *buff = new char[512];
-        size_t nTransfer = m_Buffer.read(buff, 512);
-        write(0, nTransfer, reinterpret_cast<uintptr_t>(buff), true);
-        delete [] buff;
-    }
+        // handle any bytes that the input discipline created
+        while (m_Buffer.canRead(false))
+        {
+            char *buff = new char[512];
+            size_t nTransfer = m_Buffer.read(buff, 512);
+            write(0, nTransfer, reinterpret_cast<uintptr_t>(buff), true);
+            delete [] buff;
+        }
 
-    // and then return the processed content to the caller
-    return m_ProcessedInput.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+        // and then return the processed content to the caller when ready
+        if (m_ProcessedInput.canRead(false))
+        {
+            return m_ProcessedInput.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+        }
+        else if (!bCanBlock)
+        {
+            return 0;
+        }
+    }
 }
 
 uint64_t ConsolePhysicalFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
