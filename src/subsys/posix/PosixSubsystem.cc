@@ -1163,6 +1163,8 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
 
+    NOTICE("PosixSubsystem::invoke(" << name << ") [pid=" << pProcess->getId() << "]");
+
     // Grab the thread we're going to return into - need to tweak it.
     Thread *pThread = pProcess->getThread(0);
 
@@ -1343,10 +1345,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     VirtualAddressSpace::Stack *stack = Processor::information().getVirtualAddressSpace().allocateStack();
     uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
 
-    NOTICE("got a stack at " << Hex << loaderStack);
-
-    NOTICE("pushing env");
-
     char **envs = new char*[env.count()];
     size_t envc = 0;
     for (auto it : env)
@@ -1356,20 +1354,15 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         envs[envc++] = reinterpret_cast<char *>(loaderStack);
     }
 
-    NOTICE("pushing argv");
-
     // Push argv/env.
     char **argvs = new char*[argv.count()];
     size_t argc = 0;
     for (auto it : argv)
     {
-        NOTICE("push " << *it << " [length=" << it->length() << "]");
         STACK_PUSH(loaderStack, 0);
         STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
         argvs[argc++] = reinterpret_cast<char *>(loaderStack);
     }
-
-    NOTICE("pushing extra aux vector stuff");
 
     /// \todo platform assumption here.
     STACK_PUSH_COPY(loaderStack, "x86_64", 7);
@@ -1379,12 +1372,9 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     STACK_PUSH_ZEROES(loaderStack, 16);
     void *random = loaderStack;
 
-    NOTICE("aligning stack");
-
     // Align to 16 bytes.
     STACK_PUSH_ZEROES(loaderStack, 16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15));
 
-    NOTICE("aux vector");
     // Build the aux vector now.
     STACK_PUSH2(loaderStack, 0, 0);  // AT_NULL
     STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(platform), 15);  // AT_PLATFORM
@@ -1404,10 +1394,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     STACK_PUSH2(loaderStack, originalHeader->phentsize, 4);  // AT_PHENT
     STACK_PUSH2(loaderStack, originalLoadedAddress + originalHeader->phoff, 3);  // AT_PHDR
 
-    NOTICE("Entry: " << Hex << interpreterEntryPoint << "/" << originalEntryPoint);
-    NOTICE(" -> adjusted: " << Hex << interpreterLoadedAddress + interpreterEntryPoint << "/" << originalLoadedAddress + originalEntryPoint);
-
-    NOTICE("env pointers");
     // env
     STACK_PUSH(loaderStack, 0);  // env[N]
     for (ssize_t i = envc - 1; i >= 0; --i)
@@ -1415,16 +1401,13 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i]));
     }
 
-    NOTICE("argv pointers");
     // argv
     STACK_PUSH(loaderStack, 0);  // argv[N]
     for (ssize_t i = argc - 1; i >= 0; --i)
     {
-        NOTICE("push ptr to " << argvs[i] << " [" << Hex << reinterpret_cast<uintptr_t>(argvs[i]) << "]");
         STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(argvs[i]));
     }
 
-    NOTICE("argc == " << argc);
     // argc
     STACK_PUSH(loaderStack, argc);
 
@@ -1433,8 +1416,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     MemoryMapManager::instance().unmap(pOriginal);
     pInterpreter = pOriginal = 0;
 
-    NOTICE("sigret/pthreads");
-
     // Initialise the sigret and pthreads shizzle if not already done for this
     // process (the calls detect).
     pedigree_init_sigret();
@@ -1442,8 +1423,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
 
     Processor::setInterrupts(true);
     pProcess->recordTime(true);
-
-    NOTICE("jump");
 
     if (!state)
     {
@@ -1458,7 +1437,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     else
     {
         // This is a replace and requires a jump to userspace.
-        NOTICE("trash schedulerstate");
         SchedulerState s;
         ByteSet(&s, 0, sizeof(s));
         pThread->state() = s;
@@ -1470,7 +1448,6 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
         }
 
         // Jump to the new process.
-        NOTICE("-> userspace");
         Processor::jumpUser(0, interpreterEntryPoint + interpreterLoadedAddress,
                             reinterpret_cast<uintptr_t>(loaderStack));
     }
