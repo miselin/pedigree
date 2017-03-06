@@ -57,8 +57,6 @@ static int init_stage2(void *param)
 
     List<SharedPointer<String>> argv, env;
     argv.pushBack(SharedPointer<String>::allocate(init_path));
-    argv.pushBack(SharedPointer<String>::allocate("-b"));  // emergency mode
-    argv.pushBack(SharedPointer<String>::allocate("1"));  // runlevel 1
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     if (!pProcess->getSubsystem()->invoke(init_path, argv, env))
