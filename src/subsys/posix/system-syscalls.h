@@ -88,5 +88,7 @@ int posix_arch_prctl(int code, unsigned long addr);
 
 int posix_pause();
 
+int posix_setgroups(size_t size, const gid_t *list);
+
 #endif
 

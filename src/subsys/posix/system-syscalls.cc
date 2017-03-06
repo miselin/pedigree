@@ -1263,3 +1263,9 @@ int posix_pause()
     SYSCALL_ERROR(Interrupted);
     return -1;
 }
+
+int posix_setgroups(size_t size, const gid_t *list)
+{
+    SC_NOTICE("setgroups(" << size << ")");
+    return 0;
+}

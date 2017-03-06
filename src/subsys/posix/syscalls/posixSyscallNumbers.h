@@ -238,5 +238,6 @@
 #define POSIX_FCHMODAT          229
 #define POSIX_FACCESSAT         230
 #define POSIX_FSTATAT           231
+#define POSIX_SETGROUPS         232
 
 #endif
