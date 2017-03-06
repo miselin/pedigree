@@ -89,7 +89,7 @@ static void BM_CxxStringFormat(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStringStartswith(benchmark::State &state)
+static void BM_CxxStringStartswithBestCase(benchmark::State &state)
 {
     String s("hello, world!");
 
@@ -99,11 +99,37 @@ static void BM_CxxStringStartswith(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(s.length());
 }
+
+static void BM_CxxStringStartswithWorstCase(benchmark::State &state)
+{
+    char buf[state.range(0)];
+    memset(buf, 'a', state.range(0));
+
+    String s(buf, state.range(0));
+
+    while (state.KeepRunning())
+    {
+        // not in string
+        benchmark::DoNotOptimize(s.startswith("goodbye"));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(s.length());
+}
+
+#include <iostream>
 
 static void BM_CxxStringEndswith(benchmark::State &state)
 {
-    String s("hello, world!");
+    String tail("hello, world!");
+
+    char buf[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    strncpy(buf + (state.range(0) - tail.length()), static_cast<const char *>(tail), tail.length());
+
+    String s(buf, state.range(0));
 
     while (state.KeepRunning())
     {
@@ -111,50 +137,107 @@ static void BM_CxxStringEndswith(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(s.length());
 }
 
 static void BM_CxxStringStrip(benchmark::State &state)
 {
-    char buf[4096];
-    memset(buf, ' ', 4096);
-    buf[2048] = 'a';
-    buf[4095] = 0;
+    char buf[state.range(0)];
+    memset(buf, ' ', state.range(0));
+    buf[state.range(0) / 2] = 'a';
+    buf[state.range(0) - 1] = 0;
 
+    String s;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        String s(buf);
-        state.ResumeTiming();
-
+        s.assign(buf, state.range(0));
         s.strip();
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+    // cater for the string assignment which is also O(N)
+    state.SetComplexityN(state.range(0) * 2);
+}
+
+static void BM_CxxStringLStrip(benchmark::State &state)
+{
+    char buf[state.range(0)];
+    memset(buf, ' ', state.range(0));
+    buf[state.range(0) - 2] = 'a';
+    buf[state.range(0) - 1] = 0;
+
+    String s;
+    while (state.KeepRunning())
+    {
+        s.assign(buf, state.range(0));
+        s.lstrip();
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    // cater for the string assignment which is also O(N)
+    state.SetComplexityN(state.range(0) * 2);
+}
+
+static void BM_CxxStringRStrip(benchmark::State &state)
+{
+    char buf[state.range(0)];
+    memset(buf, ' ', state.range(0));
+    buf[0] = 'a';
+    buf[state.range(0) - 1] = 0;
+
+    String s;
+    while (state.KeepRunning())
+    {
+        s.assign(buf, state.range(0));
+        s.rstrip();
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    // cater for the string assignment which is also O(N)
+    state.SetComplexityN(state.range(0) * 2);
 }
 
 static void BM_CxxStringSplit(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
-    buf[state.range_x()] = 0;
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0)] = 0;
 
+    String s;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        String s(buf);
-        state.ResumeTiming();
-
-        benchmark::DoNotOptimize(s.split(state.range_x() / 2));
+        s.assign(buf, state.range(0));
+        benchmark::DoNotOptimize(s.split(state.range(0) / 2));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+    // cater for the string assignment which is also O(N)
+    state.SetComplexityN(state.range(0) * 2);
+}
+
+static void BM_CxxStringSplitRef(benchmark::State &state)
+{
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0)] = 0;
+
+    String s, target;
+    while (state.KeepRunning())
+    {
+        s.assign(buf, state.range(0));
+        s.split(state.range(0) / 2, target);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    // cater for the string assignment which is also O(N)
+    state.SetComplexityN(state.range(0) * 2);
 }
 
 static void BM_CxxStringTokenize(benchmark::State &state)
 {
-    char buf[4096];
-    memset(buf, 0, 4096);
-    for (size_t i = 0; i < 4095; ++i)
+    char buf[state.range(0)];
+    memset(buf, 0, state.range(0));
+    for (size_t i = 0; i < state.range(0) - 1; ++i)
     {
         if (i % 2)
         {
@@ -166,16 +249,43 @@ static void BM_CxxStringTokenize(benchmark::State &state)
         }
     }
 
+    String s;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        String s(buf);
-        state.ResumeTiming();
-
+        s.assign(buf, state.range(0));
         benchmark::DoNotOptimize(s.tokenise(' '));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringTokenizeRef(benchmark::State &state)
+{
+    char buf[state.range(0)];
+    memset(buf, 0, state.range(0));
+    for (size_t i = 0; i < state.range(0) - 1; ++i)
+    {
+        if (i % 2)
+        {
+            buf[i] = ' ';
+        }
+        else
+        {
+            buf[i] = 'a';
+        }
+    }
+
+    String s;
+    List<SharedPointer<String>> tokens;
+    while (state.KeepRunning())
+    {
+        s.assign(buf, state.range(0));
+        s.tokenise(' ', tokens);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
 }
 
 BENCHMARK(BM_CxxStringCreation);
@@ -183,8 +293,13 @@ BENCHMARK(BM_CxxStringCopyToStatic);
 BENCHMARK(BM_CxxStringCopyToDynamic);
 BENCHMARK(BM_CxxStringCopyLength);
 BENCHMARK(BM_CxxStringFormat);
-BENCHMARK(BM_CxxStringStartswith);
-BENCHMARK(BM_CxxStringEndswith);
-BENCHMARK(BM_CxxStringStrip);
-BENCHMARK(BM_CxxStringSplit)->Range(8, 8<<8);
-BENCHMARK(BM_CxxStringTokenize);
+BENCHMARK(BM_CxxStringStartswithBestCase);
+BENCHMARK(BM_CxxStringStartswithWorstCase)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringEndswith)->Range(16, 4096)->Complexity();
+BENCHMARK(BM_CxxStringStrip)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringLStrip)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringRStrip)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringSplit)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringSplitRef)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringTokenize)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringTokenizeRef)->Range(8, 4096)->Complexity();
