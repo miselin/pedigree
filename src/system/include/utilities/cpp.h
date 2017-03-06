@@ -257,9 +257,9 @@ struct remove_reference<T &>
 
 /** Move an object (doesn't trigger copy-construction). */
 template <class T>
-typename remove_reference<T>::type &&move(T &&a)
+inline typename remove_reference<T>::type &&move(T &&a)
 {
-    return a;
+    return (typename remove_reference<T>::type &&) a;
 }
 
 }  // namespace pedigree_std
