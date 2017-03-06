@@ -343,6 +343,18 @@ void Thread::forceToStartupProcessor()
 
 void Thread::setStatus(Thread::Status s)
 {
+  if (m_Status == Thread::Zombie)
+  {
+    if (s != Thread::Zombie)
+    {
+      WARNING("Error condition in Thread::setStatus, more info below...");
+      WARNING("Parent process ID: " << m_pParent->getId());
+      FATAL("Thread::setStatus called with non-zombie status, when the thread is a zombie!");
+    }
+
+    return;
+  }
+
   m_Status = s;
 
   if(s == Thread::Zombie)
