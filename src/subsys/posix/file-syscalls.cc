@@ -218,7 +218,8 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     }
 
     int mode = 0;
-    if (ConsoleManager::instance().isConsole(pFile) || (name && !StringCompare(name, "/dev/null")))
+    /// \todo files really should be able to expose their "type"...
+    if (ConsoleManager::instance().isConsole(pFile) || (name && !StringCompare(name, "/dev/null")) || (pFile && pFile->getName() == "null"))
     {
         F_NOTICE("    -> S_IFCHR");
         mode = S_IFCHR;
