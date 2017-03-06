@@ -39,6 +39,7 @@ class String
         explicit String(const char *s);
         String(const char *s, size_t length);
         String(const String &x);
+        String(String &&x);
         ~String();
 
         String &operator = (const String &x);
@@ -97,6 +98,7 @@ class String
         void split(size_t offset, String &back);
 
         List<SharedPointer<String>> tokenise(char token);
+        void tokenise(char token, List<SharedPointer<String>> &output);
 
         /** Converts a UTF-32 character to its UTF-8 representation.
          *\param[in] utf32 Input UTF-32 character.
@@ -118,16 +120,18 @@ class String
         /** Does this string end with the given string? */
         bool endswith(const char c) const;
         bool endswith(const String &s) const;
-        bool endswith(const char *s) const;
+        bool endswith(const char *s, size_t len = 0) const;
 
         /** Does this string start with the given string? */
         bool startswith(const char c) const;
         bool startswith(const String &s) const;
-        bool startswith(const char *s) const;
+        bool startswith(const char *s, size_t len = 0) const;
 
     private:
         /** Internal doer for reserve() */
         void reserve(size_t size, bool zero);
+        /** Extract the correct string buffer for this string. */
+        char *extract() const;
         /** Size of static string storage (over this threshold, the heap is used) */
         static const size_t StaticSize = 64;
         /** Pointer to the zero-terminated ASCII string */

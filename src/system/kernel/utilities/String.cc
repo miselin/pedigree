@@ -43,6 +43,23 @@ String::String(const String &x)
     assign(x);
 }
 
+String::String(String &&x)
+{
+    // take ownership of the object
+    m_Data = pedigree_std::move(x.m_Data);
+    m_Length = pedigree_std::move(x.m_Length);
+    m_Size = pedigree_std::move(x.m_Size);
+    if (m_Size == StaticSize)
+    {
+        MemoryCopy(m_Static, x.m_Static, m_Length + 1);
+    }
+
+    // free other string but don't destroy the heap pointer if we had one
+    // as it is now owned by this new instance
+    x.m_Data = 0;
+    x.free();
+}
+
 String::~String()
 {
     free();
@@ -121,9 +138,7 @@ bool String::operator == (const String &s) const
 
 bool String::operator == (const char *s) const
 {
-    const char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
+    const char *buf = extract();
 
     if ((!m_Length) && (s == 0))
         return true;
@@ -275,9 +290,7 @@ void String::split(size_t offset, String &back)
         return;
     }
 
-    char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
+    char *buf = extract();
 
     back.assign(&buf[offset]);
     m_Length = offset;
@@ -305,13 +318,12 @@ void String::strip()
 
 void String::lstrip()
 {
-    char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
+    char *buf = extract();
     
     if(!iswhitespace(buf[0]))
         return;
 
+    // finish up the byte tail
     size_t n = 0;
     while(n < m_Length && iswhitespace(buf[n]))
         n++;
@@ -333,9 +345,7 @@ void String::lstrip()
 
 void String::rstrip()
 {
-    char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
+    char *buf = extract();
 
     if(!iswhitespace(buf[m_Length - 1]))
         return;
@@ -363,8 +373,16 @@ void String::rstrip()
 List<SharedPointer<String>> String::tokenise(char token)
 {
     List<tokenise_t> list;
-    const char *orig_buffer = static_cast<const char *>(*this);
+    tokenise(token, list);
+    return list;
+}
+
+void String::tokenise(char token, List<SharedPointer<String>> &output)
+{
+    const char *orig_buffer = extract();
     const char *buffer = orig_buffer;
+
+    output.clear();
 
     const char *pos = nullptr;
     while (*buffer)
@@ -383,7 +401,7 @@ List<SharedPointer<String>> String::tokenise(char token)
 
         tokenise_t pStr = tokenise_t(new String(buffer, pos - buffer));
         if (pStr->length())
-            list.pushBack(pStr);
+            output.pushBack(pStr);
 
         buffer = pos + 1;
     }
@@ -392,17 +410,13 @@ List<SharedPointer<String>> String::tokenise(char token)
     {
         tokenise_t pStr = tokenise_t(new String(buffer, m_Length - (buffer - orig_buffer)));
         if (pStr->length())
-            list.pushBack(pStr);
+            output.pushBack(pStr);
     }
-
-    return list;
 }
 
 void String::lchomp()
 {
-    char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
+    char *buf = extract();
 
     StringCopy(buf, &buf[1]);
     --m_Length;
@@ -419,9 +433,7 @@ void String::lchomp()
 
 void String::chomp()
 {
-    char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
+    char *buf = extract();
 
     m_Length --;
     buf[m_Length] = '\0';
@@ -460,10 +472,7 @@ bool String::endswith(const char c) const
         return false;
     }
 
-    const char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
-
+    const char *buf = extract();
     return buf[m_Length - 1] == c;
 }
 
@@ -473,26 +482,25 @@ bool String::endswith(const String &s) const
     if(m_Length == s.length())
         return *this == s;
 
-    // Suffix exceeds our length.
-    if(m_Length < s.length())
-        return false;
-
-    const char *mybuf = m_Data;
-    if(m_Length < StaticSize)
-        mybuf = m_Static;
-    mybuf += m_Length - s.length();
-
-    const char *otherbuf = s.m_Data;
-    if(s.length() < StaticSize)
-        otherbuf = s.m_Static;
-
-    // Do the check.
-    return !MemoryCompare(mybuf, otherbuf, s.length());
+    const char *otherbuf = s.extract();
+    return endswith(otherbuf, s.length());
 }
 
-bool String::endswith(const char *s) const
+bool String::endswith(const char *s, size_t len) const
 {
-    return endswith(String(s));
+    if (!len)
+    {
+        len = StringLength(s);
+    }
+
+    // Suffix exceeds our length.
+    if(m_Length < len)
+        return false;
+
+    const char *mybuf = extract();
+    mybuf += m_Length - len;
+
+    return !MemoryCompare(mybuf, s, len);
 }
 
 bool String::startswith(const char c) const
@@ -502,10 +510,7 @@ bool String::startswith(const char c) const
         return false;
     }
 
-    const char *buf = m_Data;
-    if (m_Length < StaticSize)
-        buf = m_Static;
-
+    const char *buf = extract();
     return buf[0] == c;
 }
 
@@ -515,28 +520,42 @@ bool String::startswith(const String &s) const
     if(m_Length == s.length())
         return *this == s;
 
-    // Prefix exceeds our length.
-    if(m_Length < s.length())
-        return false;
-
-    const char *mybuf = m_Data;
-    if(m_Length < StaticSize)
-        mybuf = m_Static;
-
-    const char *otherbuf = s.m_Data;
-    if(s.length() < StaticSize)
-        otherbuf = s.m_Static;
-
-    // Do the check.
-    return !MemoryCompare(mybuf, otherbuf, s.length());
+    const char *otherbuf = s.extract();
+    return startswith(otherbuf, s.length());
 }
 
-bool String::startswith(const char *s) const
+bool String::startswith(const char *s, size_t len) const
 {
-    return startswith(String(s));
+    if (!len)
+    {
+        len = StringLength(s);
+    }
+
+    // Prefix exceeds our length.
+    if(m_Length < len)
+        return false;
+
+    const char *mybuf = extract();
+
+    // Do the check.
+    return !MemoryCompare(mybuf, s, len);
 }
 
 bool String::iswhitespace(const char c) const
 {
     return (c <= ' ' || c == '\x7f');
+}
+
+char *String::extract() const
+{
+    if(m_Length < StaticSize)
+    {
+        // const_cast because we don't have a side effect but need to return
+        // a pointer to our object regardless
+        return const_cast<char *>(m_Static);
+    }
+    else
+    {
+        return m_Data;
+    }
 }
