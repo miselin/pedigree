@@ -615,7 +615,7 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
 }
 
 
-void PerProcessorScheduler::killCurrentThread()
+void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
 {
     Thread *pThread = Processor::information().getCurrentThread();
 
@@ -634,6 +634,14 @@ void PerProcessorScheduler::killCurrentThread()
     if (!g_LocksCommand.checkSchedule())
     {
         FATAL("Lock checker disallowed this reschedule.");
+    }
+    if (pLock)
+    {
+        g_LocksCommand.lockReleased(pLock);
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
 #endif
 
@@ -663,7 +671,9 @@ void PerProcessorScheduler::killCurrentThread()
 
     pNextThread->getLock().exit();
 
-    deleteThreadThenRestoreState(pThread, pNextThread->state());
+    // Pass in the lock atom we were given if possible, as the caller wants an
+    // atomic release (i.e. once the thread is no longer able to be scheduled).
+    deleteThreadThenRestoreState(pThread, pNextThread->state(), pLock ? &pLock->m_Atom.m_Atom : 0);
 }
 
 void PerProcessorScheduler::deleteThread(Thread *pThread)
