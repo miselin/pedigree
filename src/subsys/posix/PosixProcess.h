@@ -94,8 +94,9 @@ class PosixProcess : public Process
         {}
 
         /** Copy constructor. */
-        PosixProcess(Process *pParent) :
-            Process(pParent), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
+        PosixProcess(Process *pParent, bool bCopyOnWrite = true) :
+            Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
+            m_GroupMembership(NoGroup), m_Mask(0)
         {
             if(pParent->getType() == Posix)
             {
