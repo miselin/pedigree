@@ -22,10 +22,10 @@
 
 // Logs to the kernel log with the current PID.
 #define POSIX_VERBOSE_LOG(f, x) do { \
-        auto tid = Processor::information().getCurrentThread()->getId(); \
-        auto level = Processor::information().getCurrentThread()->getStateLevel(); \
-        auto pid = Processor::information().getCurrentThread()->getParent()->getId(); \
-        NOTICE("[" << f << ":\t" << Dec << pid << ":" << tid << "." << level << Hex << "]\t" << x); \
+        auto ____tid = Processor::information().getCurrentThread()->getId(); \
+        auto ____level = Processor::information().getCurrentThread()->getStateLevel(); \
+        auto ____pid = Processor::information().getCurrentThread()->getParent()->getId(); \
+        NOTICE("[" << f << ":\t" << Dec << ____pid << ":" << ____tid << "." << ____level << Hex << "]\t" << x); \
     } while(0)
 
 // POSIX_LOG_FACILITIES is an integer for which each bit indicates a particular
