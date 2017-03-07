@@ -95,7 +95,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
     virtual bool memIsInHeap(void *pMem);
     virtual void *getEndOfHeap();
 
-    virtual VirtualAddressSpace *clone();
+    virtual VirtualAddressSpace *clone(bool copyOnWrite=true);
     virtual void revertToKernelAddressSpace();
 
     //

@@ -22,6 +22,7 @@
 
 #ifdef THREADS
 
+#include <compiler.h>
 #include <processor/types.h>
 #include <processor/state.h>
 #include <machine/TimerHandler.h>
@@ -80,7 +81,7 @@ public:
 
     /** Destroys the currently running thread.
         \note This calls Thread::~Thread itself! */
-    void killCurrentThread();
+    void killCurrentThread(Spinlock *pLock=0) NORETURN;
 
     /** Puts a thread to sleep.
         \param pLock Optional, will release this lock when the thread is successfully 
@@ -111,7 +112,7 @@ private:
         switches.
 
         \note Implemented in core/processor/ARCH/asm*/
-    static void deleteThreadThenRestoreState(Thread *pThread, SchedulerState &newState);
+    static void deleteThreadThenRestoreState(Thread *pThread, SchedulerState &newState, volatile uintptr_t *pLock=0);
 
     static void deleteThread(Thread *pThread);
 
