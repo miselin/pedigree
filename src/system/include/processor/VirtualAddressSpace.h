@@ -143,8 +143,12 @@ class VirtualAddressSpace
     static VirtualAddressSpace *create();
 
     /** Clone this VirtualAddressSpace. That means that we copy-on-write-map the application
-     *  image. */
-    virtual VirtualAddressSpace *clone() =0;
+     *  image.
+     * \param[in] copyOnWrite whether the new address space copies pages on write, or shares
+                  them with the parent address space.
+     * \return pointer to the new VirtualAddressSpace
+     */
+    virtual VirtualAddressSpace *clone(bool copyOnWrite=true) =0;
 
     /** Undo a clone() - this happens when an application is Exec()'d - we destroy all mappings
         not in the kernel address space so the space is 'clean'.*/

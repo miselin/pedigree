@@ -27,8 +27,8 @@ global _ZN9Processor10jumpKernelEPVmmmmmmm
 ; void Processor::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                          uintptr_t, uintptr_t, uintptr_t, uintptr_t)
 global _ZN9Processor8jumpUserEPVmmmmmmm
-; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&)
-global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerState
+; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, Spinlock*)
+global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm
 
 ; void Thread::threadExited()
 extern _ZN6Thread12threadExitedEv
@@ -245,12 +245,19 @@ _ZN9Processor8jumpUserEPVmmmmmmm:
     db 0x48
     sysret
 
-_ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerState:
+_ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm:
     ; Load the state pointer
     mov rcx, rsi
     
     ; Load the Thread* pointer
     mov rsi, rdi
+
+    ; Do we have a lock to release?
+    cmp rdx, 0
+    jz .no_lock
+    ; Release the lock.
+    mov qword [rdx], 1
+.no_lock:
     
     ; Load new stack and call deleteThread from it - RSI already set from above
     mov rsp, [rcx + 80]

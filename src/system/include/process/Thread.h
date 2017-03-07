@@ -392,7 +392,7 @@ public:
      * \note This is meant to be called only by the thread trampoline - this is the only reason it
      *       is public. It should NOT be called by anyone else!
      */
-    static void threadExited();
+    static void threadExited() NORETURN;
 
     /** Gets whether this thread is interruptible or not. */
     bool isInterruptible();

@@ -90,6 +90,9 @@ Process::Process(Process *pParent, bool bCopyOnWrite) :
 
 Process::~Process()
 {
+  // Block until we are the only one touching this Process object.
+  LockGuard<Spinlock> guard(m_Lock);
+
   // Guards things like removeThread.
   m_State = Terminating;
 
@@ -136,7 +139,9 @@ Process::~Process()
   if (isSelf)
   {
       // Killed current process, so kill off the thread too.
-      Processor::information().getScheduler().killCurrentThread();
+      // NOTE: this DOES NOT RETURN. Anything critical to process shutdown must
+      // be completed by this point.
+      Processor::information().getScheduler().killCurrentThread(&m_Lock);
   }
 }
 
@@ -191,8 +196,7 @@ Thread *Process::getThread(size_t n)
 
 void Process::kill()
 {
-  /// \todo Grab the scheduler lock!
-  Processor::setInterrupts(false);
+  m_Lock.acquire();
 
   if(m_pParent)
 	  NOTICE("Kill: " << m_Id << " (parent: " << m_pParent->getId() << ")");
@@ -220,13 +224,18 @@ void Process::kill()
 
   m_State = Terminated;
 
+  // While we're still slightly scheduleable, notify waiting processes.
+  // Until we successfully reschedule out of this process and into the next,
+  // m_Lock will be held and will block anything trying to reap this process.
+  notifyWaiters();
+
   // Add to the zombie queue if the process is an orphan.
   if (!m_pParent)
   {
       NOTICE("Process::kill() - process is an orphan, adding to ZombieQueue.");
       
       ZombieQueue::instance().addObject(new ZombieProcess(this));
-      Processor::information().getScheduler().killCurrentThread();
+      Processor::information().getScheduler().killCurrentThread(&m_Lock);
       
       // Should never get here.
       FATAL("Process: should never get here");
@@ -234,7 +243,7 @@ void Process::kill()
 
   // We'll get reaped elsewhere
   NOTICE("Process::kill() - not adding to ZombieQueue, process has a parent.");
-  Processor::information().getScheduler().schedule(Thread::Zombie);
+  Processor::information().getScheduler().schedule(Thread::Zombie, nullptr, &m_Lock);
 
   FATAL("Should never get here");
 }
