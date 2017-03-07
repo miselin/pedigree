@@ -92,7 +92,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     virtual bool memIsInHeap(void *pMem);
     virtual void *getEndOfHeap();
 
-    virtual VirtualAddressSpace *clone();
+    virtual VirtualAddressSpace *clone(bool copyOnWrite=true);
     virtual void revertToKernelAddressSpace();
 
     /** The destructor cleans up the address space */

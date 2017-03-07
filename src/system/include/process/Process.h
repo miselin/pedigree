@@ -86,8 +86,11 @@ public:
     /** Constructor for creating a new Process. Creates a new Process as
      * a UNIX fork() would, from the given parent process. This constructor
      * does not create any threads.
-     * \param pParent The parent process. */
-    Process(Process *pParent);
+     * \param pParent The parent process.
+     * \param bCopyOnWrite Whether to mark the address space copy-on-write (default)
+                           or to share it read/write with the new child.
+     */
+    Process(Process *pParent, bool bCopyOnWrite=true);
 
     /** Destructor. */
     virtual ~Process();
@@ -377,6 +380,15 @@ public:
     }
 
     /**
+     * Get whether this process has a shared address space with its parent.
+     * Copy-on-write (i.e. not shared) is the default for processes.
+     */
+    bool hasSharedAddressSpace() const
+    {
+        return m_bSharedAddressSpace;
+    }
+
+    /**
      * Get the init process (first userspace process, parent of all
      * userspace processes).
      */
@@ -505,6 +517,9 @@ private:
 
     /** Root directory for this process. NULL == system-wide default. */
     File *m_pRootFile;
+
+    /** Is our address space shared with the parent? */
+    bool m_bSharedAddressSpace;
 
     /** Init process (terminated processes' children will reparent to this). */
     static Process *m_pInitProcess;

@@ -44,7 +44,7 @@ Process::Process() :
   m_pSubsystem(0), m_Waiters(), m_bUnreportedSuspend(false), m_bUnreportedResume(false),
   m_State(Active), m_BeforeSuspendState(Thread::Ready), m_Lock(false),
   m_Metadata(), m_LastKernelEntry(0), m_LastUserspaceEntry(0), m_pRootFile(0),
-  m_DeadThreads(0)
+  m_bSharedAddressSpace(false), m_DeadThreads(0)
 {
   resetCounts();
   m_Metadata.startTime = Time::getTimeNanoseconds();
@@ -61,7 +61,7 @@ Process::Process() :
   }
 }
 
-Process::Process(Process *pParent) :
+Process::Process(Process *pParent, bool bCopyOnWrite) :
   m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(pParent), m_pAddressSpace(0),
   m_ExitStatus(0), m_Cwd(pParent->m_Cwd), m_Ctty(pParent->m_Ctty),
   m_SpaceAllocator(pParent->m_SpaceAllocator), m_DynamicSpaceAllocator(pParent->m_DynamicSpaceAllocator),
@@ -70,15 +70,22 @@ Process::Process(Process *pParent) :
   m_pSubsystem(0), m_Waiters(), m_bUnreportedSuspend(false), m_bUnreportedResume(false),
   m_State(pParent->getState()), m_BeforeSuspendState(Thread::Ready), m_Lock(false),
   m_Metadata(pParent->m_Metadata), m_LastKernelEntry(0), m_LastUserspaceEntry(0),
-  m_pRootFile(pParent->m_pRootFile), m_DeadThreads(0)
+  m_pRootFile(pParent->m_pRootFile), m_bSharedAddressSpace(!bCopyOnWrite), m_DeadThreads(0)
 {
-   m_pAddressSpace = pParent->m_pAddressSpace->clone();
+   m_pAddressSpace = pParent->m_pAddressSpace->clone(bCopyOnWrite);
 
   m_Id = Scheduler::instance().addProcess(this);
  
   // Set a temporary description.
   str = m_pParent->str;
-  str += "<F>"; // F for forked.
+  if (m_bSharedAddressSpace)
+  {
+    str += "<C>";  // C for cloned (i.e. shared address space)
+  }
+  else
+  {
+    str += "<F>"; // F for forked.
+  }
 }
 
 Process::~Process()

@@ -307,7 +307,7 @@ void X64VirtualAddressSpace::unmap(void *virtualAddress)
   maybeFreeTables(virtualAddress);
 }
 
-VirtualAddressSpace *X64VirtualAddressSpace::clone()
+VirtualAddressSpace *X64VirtualAddressSpace::clone(bool copyOnWrite)
 {
     /// \todo figure out how to handle page tracking here
 
@@ -379,9 +379,11 @@ VirtualAddressSpace *X64VirtualAddressSpace::clone()
                     // Map the new page in to the new address space for copy-on-write.
                     // This implies read-only (so we #PF for copy on write).
                     bool bWasCopyOnWrite = (flags & PAGE_COPY_ON_WRITE);
-                    if(flags & PAGE_WRITE)
+                    if(copyOnWrite && (flags & PAGE_WRITE))
+                    {
                       flags |= PAGE_COPY_ON_WRITE;
-                    flags &= ~PAGE_WRITE;
+                      flags &= ~PAGE_WRITE;
+                    }
                     pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true));
 
                     // We need to modify the entry in *this* address space as well to
