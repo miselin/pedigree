@@ -474,25 +474,32 @@ void PosixSubsystem::exit(int code)
 
 bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
 {
+    if(!pThread)
+        pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
+    if (pProcess->getType() != Process::Posix)
+    {
+        ERROR("PosixSubsystem::kill called with a non-POSIX process!");
+        return false;
+    }
+    PosixSubsystem *pSubsystem = static_cast<PosixSubsystem *>(pProcess->getSubsystem());
+
     // Send SIGKILL. getSignalHandler handles all that locking shiz for us.
     SignalHandler *sig = 0;
     switch (killReason)
     {
         case Interrupted:
-            sig = getSignalHandler(2);
+            sig = pSubsystem->getSignalHandler(2);
             break;
 
         case Terminated:
-            sig = getSignalHandler(15);
+            sig = pSubsystem->getSignalHandler(15);
             break;
 
         default:
-            sig = getSignalHandler(9);
+            sig = pSubsystem->getSignalHandler(9);
             break;
     }
-
-    if(!pThread)
-        pThread = Processor::information().getCurrentThread();
 
     if(sig && sig->pEvent)
     {
@@ -512,7 +519,15 @@ bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
 
 void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
 {
-    NOTICE("PosixSubsystem::threadException");
+    NOTICE("PosixSubsystem::threadException -> " << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
+
+    Process *pProcess = pThread->getParent();
+    if (pProcess->getType() != Process::Posix)
+    {
+        ERROR("PosixSubsystem::threadException called with a non-POSIX process!");
+        return;
+    }
+    PosixSubsystem *pSubsystem = static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     // What was the exception?
     SignalHandler *sig = 0;
@@ -521,72 +536,72 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
         case PageFault:
             NOTICE("    (Page fault)");
             // Send SIGSEGV
-            sig = getSignalHandler(SIGSEGV);
+            sig = pSubsystem->getSignalHandler(SIGSEGV);
             break;
         case InvalidOpcode:
             NOTICE("    (Invalid opcode)");
             // Send SIGILL
-            sig = getSignalHandler(SIGILL);
+            sig = pSubsystem->getSignalHandler(SIGILL);
             break;
         case GeneralProtectionFault:
             NOTICE("    (General Fault)");
             // Send SIGBUS
-            sig = getSignalHandler(SIGBUS);
+            sig = pSubsystem->getSignalHandler(SIGBUS);
             break;
         case DivideByZero:
             NOTICE("    (Division by zero)");
             // Send SIGFPE
-            sig = getSignalHandler(SIGFPE);
+            sig = pSubsystem->getSignalHandler(SIGFPE);
             break;
         case FpuError:
             NOTICE("    (FPU error)");
             // Send SIGFPE
-            sig = getSignalHandler(SIGFPE);
+            sig = pSubsystem->getSignalHandler(SIGFPE);
             break;
         case SpecialFpuError:
             NOTICE("    (FPU error - special)");
             // Send SIGFPE
-            sig = getSignalHandler(SIGFPE);
+            sig = pSubsystem->getSignalHandler(SIGFPE);
             break;
         case TerminalInput:
             NOTICE("    (Attempt to read from terminal by non-foreground process)");
             // Send SIGTTIN
-            sig = getSignalHandler(SIGTTIN);
+            sig = pSubsystem->getSignalHandler(SIGTTIN);
             break;
         case TerminalOutput:
             NOTICE("    (Output to terminal by non-foreground process)");
             // Send SIGTTOU
-            sig = getSignalHandler(SIGTTOU);
+            sig = pSubsystem->getSignalHandler(SIGTTOU);
             break;
         case Continue:
             NOTICE("    (Continuing a stopped process)");
             // Send SIGCONT
-            sig = getSignalHandler(SIGCONT);
+            sig = pSubsystem->getSignalHandler(SIGCONT);
             break;
         case Stop:
             NOTICE("    (Stopping a process)");
             // Send SIGTSTP
-            sig = getSignalHandler(SIGTSTP);
+            sig = pSubsystem->getSignalHandler(SIGTSTP);
             break;
         case Interrupt:
             NOTICE("    (Interrupting a process)");
             // Send SIGINT
-            sig = getSignalHandler(SIGINT);
+            sig = pSubsystem->getSignalHandler(SIGINT);
             break;
         case Quit:
             NOTICE("    (Requesting quit)");
             // Send SIGTERM
-            sig = getSignalHandler(SIGTERM);
+            sig = pSubsystem->getSignalHandler(SIGTERM);
             break;
         case Child:
             NOTICE("    (Child status changed)");
             // Send SIGCHLD
-            sig = getSignalHandler(SIGCHLD);
+            sig = pSubsystem->getSignalHandler(SIGCHLD);
             break;
         case Pipe:
             NOTICE("    (Pipe broken)");
             // Send SIGPIPE
-            sig = getSignalHandler(SIGPIPE);
+            sig = pSubsystem->getSignalHandler(SIGPIPE);
             break;
         default:
             NOTICE("    (Unknown)");
