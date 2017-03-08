@@ -291,7 +291,8 @@
 
 /* Enable assembly routines */
 #ifdef X86_COMMON
-#define SDL_ASSEMBLY_ROUTINES 1
+/// \todo: re-enable assembly routines (issue with movq intrinsic args)
+#define SDL_ASSEMBLY_ROUTINES 0
 #define SDL_HERMES_BLITTERS 1
 #else
 #undef SDL_ASSEMBLY_ROUTINES
