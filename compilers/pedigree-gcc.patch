@@ -153,7 +153,7 @@ index 00000000000..2db4e8c9f1b
 +#define TARGET_OS_CPP_BUILTINS()                \
 +    do {                                        \
 +        builtin_define_std ("__pedigree__");    \
-+        builtin_define_std ("pedigree");        \
++        builtin_define_std ("__PEDIGREE__");    \
 +        builtin_define_std ("unix");            \
 +        builtin_assert ("system=pedigree");     \
 +        builtin_assert ("system=unix");         \
