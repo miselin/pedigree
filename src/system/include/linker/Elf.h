@@ -20,7 +20,7 @@
 #ifndef KERNEL_LINKER_ELF_H
 #define KERNEL_LINKER_ELF_H
 
-#ifndef __PEDIGREE__
+#ifdef IN_PEDIGREE_KERNEL
 #include <compiler.h>
 #include <processor/types.h>
 #include <utilities/List.h>
