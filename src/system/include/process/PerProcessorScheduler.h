@@ -112,7 +112,7 @@ private:
         switches.
 
         \note Implemented in core/processor/ARCH/asm*/
-    static void deleteThreadThenRestoreState(Thread *pThread, SchedulerState &newState, volatile uintptr_t *pLock=0);
+    static void deleteThreadThenRestoreState(Thread *pThread, SchedulerState &newState, volatile uintptr_t *pLock=0) NORETURN;
 
     static void deleteThread(Thread *pThread);
 
