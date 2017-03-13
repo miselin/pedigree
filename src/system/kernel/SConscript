@@ -39,6 +39,11 @@ if env['instrumentation']:
         'CPPDEFINES': ['INSTRUMENTATION'],
     })
 
+# Special define for code that is compiled for user and kernel space.
+env_clone.MergeFlags({
+    'CPPDEFINES': ['IN_PEDIGREE_KERNEL'],
+})
+
 # Base set of kernel files, common to all architectures.
 files = [
     'Log.cc',

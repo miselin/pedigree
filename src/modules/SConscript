@@ -329,6 +329,11 @@ def buildModule(env, path, outputBase, targetAlias):
         'TARGET_CXXFLAGS': custom_cxxflags.get(module, []),
     })
 
+    # Special define for code that is compiled for user and kernel space.
+    module_env.MergeFlags({
+        'CPPDEFINES': ['IN_PEDIGREE_KERNEL'],
+    })
+
     buildutils.misc.removeFromAllFlags(module_env, set(remove_flags.get(module, [])))
 
     output = os.path.join(outputBase, module + '.o')

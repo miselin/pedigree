@@ -50,6 +50,7 @@ def buildModule(env, stripped_target, target, sources):
     module_env.MergeFlags({
         'LIBS': ['module', 'gcc'],
         'LIBPATH': [libmodule_dir],
+        'CPPDEFINES': ['IN_PEDIGREE_KERNEL'],  # modules are in-kernel
     })
 
     module_env.Depends(target, libmodule_path)
