@@ -224,11 +224,6 @@ void Process::kill()
 
   m_State = Terminated;
 
-  // While we're still slightly scheduleable, notify waiting processes.
-  // Until we successfully reschedule out of this process and into the next,
-  // m_Lock will be held and will block anything trying to reap this process.
-  notifyWaiters();
-
   // Add to the zombie queue if the process is an orphan.
   if (!m_pParent)
   {
