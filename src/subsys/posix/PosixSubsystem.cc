@@ -187,11 +187,7 @@ PosixSubsystem::~PosixSubsystem()
 {
     assert(--m_FreeCount == 0);
 
-    // Ensure that no descriptor operations are taking place (and then, will take place)
-    while(!m_FdLock.acquire());
-
-    // Modifying signal handlers, ensure that they are not in use
-    while(!m_SignalHandlersLock.acquire());
+    acquire();
 
     // Destroy all signal handlers
     for(sigHandlerTree::Iterator it = m_SignalHandlers.begin(); it != m_SignalHandlers.end(); it++)
@@ -208,10 +204,9 @@ PosixSubsystem::~PosixSubsystem()
     // And now that the signals are destroyed, remove them from the Tree
     m_SignalHandlers.clear();
 
-    m_SignalHandlersLock.release();
+    release();
 
     // For sanity's sake, destroy any remaining descriptors
-    m_FdLock.release();
     freeMultipleFds();
 
     // Remove any POSIX threads that might still be lying around
@@ -301,6 +296,42 @@ PosixSubsystem::~PosixSubsystem()
 
     // Give back the memory map lock now - we're interruptible again.
     MemoryMapManager::instance().releaseLock();
+}
+
+void PosixSubsystem::acquire()
+{
+    Thread *me = Processor::information().getCurrentThread();
+
+    m_Lock.acquire();
+    if (m_bAcquired && m_pAcquiredThread == me)
+    {
+        m_Lock.release();
+        return;  // already acquired
+    }
+    m_Lock.release();
+
+    // Ensure that no descriptor operations are taking place (and then, will take place)
+    while(!m_FdLock.acquire());
+
+    // Modifying signal handlers, ensure that they are not in use
+    while(!m_SignalHandlersLock.acquire());
+
+    // Safe to do without spinlock as we hold the other locks now.
+    m_pAcquiredThread = me;
+    m_bAcquired = true;
+}
+
+void PosixSubsystem::release()
+{
+    // Opposite order to acquire()
+    m_Lock.acquire();
+    m_bAcquired = false;
+    m_pAcquiredThread = nullptr;
+
+    m_SignalHandlersLock.release();
+    m_FdLock.release();
+
+    m_Lock.release();
 }
 
 bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
@@ -1376,6 +1407,7 @@ bool PosixSubsystem::invoke(const char *name, List<SharedPointer<String>> &argv,
     {
         STACK_PUSH(loaderStack, 0);
         STACK_PUSH_COPY(loaderStack, static_cast<const char *>(*it), it->length());
+        NOTICE("argv[" << argc << "]: " << *it);
         argvs[argc++] = reinterpret_cast<char *>(loaderStack);
     }
 

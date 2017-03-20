@@ -192,7 +192,7 @@ class PosixSubsystem : public Subsystem
             Subsystem(Posix), m_SignalHandlers(), m_SignalHandlersLock(),
             m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0), m_FreeCount(1),
             m_AltSigStack(), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-            m_NextThreadWaiter(0), m_Abi(PosixAbi)
+            m_NextThreadWaiter(0), m_Abi(PosixAbi), m_bAcquired(false), m_pAcquiredThread(nullptr)
         {}
 
         /** Copy constructor */
@@ -203,11 +203,17 @@ class PosixSubsystem : public Subsystem
             Subsystem(type), m_SignalHandlers(), m_SignalHandlersLock(),
             m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0), m_FreeCount(1),
             m_AltSigStack(), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-            m_NextThreadWaiter(0), m_Abi(PosixAbi)
+            m_NextThreadWaiter(0), m_Abi(PosixAbi), m_bAcquired(false), m_pAcquiredThread(nullptr)
         {}
 
         /** Default destructor */
         virtual ~PosixSubsystem();
+
+        /* Acquire mutual exclusion on the PosixSubsystem. */
+        virtual void acquire();
+
+        /** Release mutual exclusion acquired via acquire(). */
+        virtual void release();
 
         /**
          * Check whether a given region of memory is safe for the given
@@ -610,6 +616,21 @@ class PosixSubsystem : public Subsystem
          * This affects syscall parameters and the behaviors of some syscalls.
          */
         Abi m_Abi;
+
+        /**
+         * Are we acquired?
+         */
+        bool m_bAcquired;
+
+        /**
+         * Which thread acquired?
+         */
+        Thread *m_pAcquiredThread;
+
+        /**
+         * Safety spinlock for mutual exclusion in acquire().
+         */
+        Spinlock m_Lock;
 };
 
 #endif
