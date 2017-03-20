@@ -182,6 +182,94 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     {
         WARNING(" -> CLONE_CHILD_CLEARTID is not yet supported!");
     }
+    if (flags & CLONE_PARENT)
+    {
+        WARNING(" -> CLONE_PARENT is not yet supported!");
+    }
+    if (flags & CLONE_VFORK)
+    {
+        // Halts parent until child ruins execve() or exit(), just like vfork.
+        // We should support this properly.
+        WARNING(" -> CLONE_VFORK is not yet supported!");
+    }
+
+#if 0
+    if (flags & CLONE_VM) NOTICE("\t\t-> CLONE_VM");
+    if (flags & CLONE_FS) NOTICE("\t\t-> CLONE_FS");
+    if (flags & CLONE_FILES) NOTICE("\t\t-> CLONE_FILES");
+    if (flags & CLONE_SIGHAND) NOTICE("\t\t-> CLONE_SIGHAND");
+    if (flags & CLONE_PTRACE) NOTICE("\t\t-> CLONE_PTRACE");
+    if (flags & CLONE_VFORK) NOTICE("\t\t-> CLONE_VFORK");
+    if (flags & CLONE_PARENT) NOTICE("\t\t-> CLONE_PARENT");
+    if (flags & CLONE_THREAD) NOTICE("\t\t-> CLONE_THREAD");
+    if (flags & CLONE_NEWNS) NOTICE("\t\t-> CLONE_NEWNS");
+    if (flags & CLONE_SYSVSEM) NOTICE("\t\t-> CLONE_SYSVSEM");
+    if (flags & CLONE_SETTLS) NOTICE("\t\t-> CLONE_SETTLS");
+    if (flags & CLONE_PARENT_SETTID) NOTICE("\t\t-> CLONE_PARENT_SETTID");
+    if (flags & CLONE_CHILD_CLEARTID) NOTICE("\t\t-> CLONE_CHILD_CLEARTID");
+    if (flags & CLONE_DETACHED) NOTICE("\t\t-> CLONE_DETACHED");
+    if (flags & CLONE_UNTRACED) NOTICE("\t\t-> CLONE_UNTRACED");
+    if (flags & CLONE_CHILD_SETTID) NOTICE("\t\t-> CLONE_CHILD_SETTID");
+    if (flags & CLONE_NEWUTS) NOTICE("\t\t-> CLONE_NEWUTS");
+    if (flags & CLONE_NEWIPC) NOTICE("\t\t-> CLONE_NEWIPC");
+    if (flags & CLONE_NEWUSER) NOTICE("\t\t-> CLONE_NEWUSER");
+    if (flags & CLONE_NEWPID) NOTICE("\t\t-> CLONE_NEWPID");
+    if (flags & CLONE_NEWNET) NOTICE("\t\t-> CLONE_NEWNET");
+    if (flags & CLONE_IO) NOTICE("\t\t-> CLONE_IO");
+#endif
+
+    if ((flags & CLONE_VM) == CLONE_VM)
+    {
+        // clone vm doesn't actually copy the address space, it shares it
+
+        // Must clone state as we make modifications for the new thread here.
+        SyscallState clonedState = state;
+
+        // New child's stack. Must be valid as we're sharing the address space.
+        if (!child_stack)
+        {
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+
+        // Set up stack for new thread.
+        clonedState.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
+
+        // Child returns 0 -- parent returns the new thread ID.
+        clonedState.setSyscallReturnValue(0);
+
+        // pretty much just a thread
+        Process *pParentProcess = Processor::information().getCurrentThread()->getParent();
+
+        // Create a new thread for the new process. Make sure it's
+        // delayed-start so we can ensure the new thread ID gets written to the
+        // right places in memory.
+        Thread *pThread = new Thread(pParentProcess, clonedState, true);
+        pThread->setTlsBase(newtls);
+        pThread->detach();
+
+        // Update the child ID before letting the child run
+        if (flags & CLONE_CHILD_SETTID)
+        {
+            *ctid = pThread->getId();
+        }
+        if (flags & CLONE_PARENT_SETTID)
+        {
+            *ptid = pThread->getId();
+        }
+
+        pThread->setStatus(Thread::Ready);  // good to go now.
+
+        // Parent gets the new thread ID.
+        return pThread->getId();
+    }
+
+    // No child stack means CoW the existing one, but if one is specified we
+    // should use it instead!
+    if (child_stack)
+    {
+        state.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
+    }
 
     // Inhibit signals to the parent
     for(int sig = 0; sig < 32; sig++)
