@@ -390,8 +390,13 @@ VirtualAddressSpace *X64VirtualAddressSpace::clone(bool copyOnWrite)
                     // also have the read-only and copy-on-write flag set, as otherwise
                     // writes in the parent process will cause the child process to see
                     // those changes immediately.
-                    PAGE_SET_FLAGS(ptEntry, flags);
-                    Processor::invalidate(virtualAddress);
+                    // Note: changes only needed if we're setting copy-on-write
+                    // as otherwise the flags are unchanged in the parent space.
+                    if(copyOnWrite)
+                    {
+                      PAGE_SET_FLAGS(ptEntry, flags);
+                      Processor::invalidate(virtualAddress);
+                    }
 
                     // Pin the page twice - once for each side of the clone.
                     // But only pin for the parent if the parent page is not already
