@@ -22,6 +22,16 @@
 #include <process/Thread.h>
 #include <processor/Processor.h>
 
+void Subsystem::acquire()
+{
+    // no-op
+}
+
+void Subsystem::release()
+{
+    // no-op
+}
+
 void Subsystem::threadException(Thread *pThread, ExceptionType eType)
 {
     ERROR("Subsystem::threadException - not overridden");
