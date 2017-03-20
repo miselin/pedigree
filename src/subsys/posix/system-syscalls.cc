@@ -144,12 +144,14 @@ uintptr_t posix_brk(uintptr_t theBreak)
     void *currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
     if (newBreak < currentBreak)
     {
+        SC_NOTICE(" -> " << currentBreak);
         return reinterpret_cast<uintptr_t >(currentBreak);
     }
 
     intptr_t difference = pointer_diff(currentBreak, newBreak);
     if (!difference)
     {
+        SC_NOTICE(" -> " << currentBreak);
         return reinterpret_cast<uintptr_t >(currentBreak);
     }
 
@@ -158,12 +160,14 @@ uintptr_t posix_brk(uintptr_t theBreak)
     if (!result)
     {
         SYSCALL_ERROR(OutOfMemory);
+        SC_NOTICE(" -> ENOMEM");
         return -1;
     }
 
     // Return new end of heap.
     currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
 
+    SC_NOTICE(" -> " << currentBreak);
     return reinterpret_cast<uintptr_t>(currentBreak);
 }
 
