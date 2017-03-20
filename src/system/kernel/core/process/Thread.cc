@@ -36,7 +36,7 @@
 #include <processor/ProcessorInformation.h>
 
 Thread::Thread(Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
-               void *pStack, bool semiUser, bool bDontPickCore) :
+               void *pStack, bool semiUser, bool bDontPickCore, bool delayedStart) :
     m_nStateLevel(0), m_pParent(pParent), m_Status(Ready), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(0), m_Priority(DEFAULT_PRIORITY),
@@ -88,6 +88,11 @@ Thread::Thread(Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
   // us while we're starting.
   m_Lock.acquire();
 
+  if (delayedStart)
+  {
+    m_Status = Sleeping;
+  }
+
   // Add to the scheduler
   if(!bDontPickCore)
   {
@@ -122,7 +127,7 @@ Thread::Thread(Process *pParent) :
   Scheduler::instance().addThread(this, *m_pScheduler);
 }
 
-Thread::Thread(Process *pParent, SyscallState &state) :
+Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart) :
     m_nStateLevel(0), m_pParent(pParent), m_Status(Ready), m_ExitCode(0), /* m_pKernelStack(0), */ m_pAllocatedStack(0), m_Id(0),
     m_Errno(0), m_bInterrupted(false), m_Lock(), m_ConcurrencyLock(), m_EventQueue(), m_DebugState(None), m_DebugStateAddress(0),
     m_UnwindState(Continue), m_pScheduler(0), m_Priority(DEFAULT_PRIORITY),
@@ -154,6 +159,11 @@ Thread::Thread(Process *pParent, SyscallState &state) :
   }
 
   m_Lock.acquire();
+
+  if (delayedStart)
+  {
+    m_Status = Sleeping;
+  }
 
   // Now we are ready to go into the scheduler.
   ProcessorThreadAllocator::instance().addThread(this, state);
@@ -383,7 +393,10 @@ void Thread::setStatus(Thread::Status s)
     }
   }
 
-  m_pScheduler->threadStatusChanged(this);
+  if (m_pScheduler)
+  {
+    m_pScheduler->threadStatusChanged(this);
+  }
 }
 
 SchedulerState &Thread::state()
