@@ -1200,9 +1200,65 @@ mode_t posix_umask(mode_t mask)
 
 int posix_linux_syslog(int type, char *buf, int len)
 {
-    // no-op syscall
-    SC_NOTICE("syslog");
-    return 0;
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), len, PosixSubsystem::SafeRead))
+    {
+        SC_NOTICE("linux_syslog -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    SC_NOTICE("linux_syslog");
+
+    if (len > 512) len = 512;
+
+    switch (type)
+    {
+        case 0:
+            SC_NOTICE(" -> close log");
+            return 0;
+
+        case 1:
+            SC_NOTICE(" -> open log");
+            return 0;
+
+        case 2:
+            /// \todo expose kernel log via this interface
+            // NOTE: blocking call...
+            SC_NOTICE(" -> read log");
+            Processor::information().getScheduler().sleep(nullptr);
+            return 0;
+
+        case 3:
+            /// \todo expose kernel log via this interface
+            SC_NOTICE(" -> read up to last 4k");
+            return 0;
+
+        case 4:
+            /// \todo expose kernel log via this interface
+            SC_NOTICE(" -> read and clear last 4k");
+            return 0;
+
+        case 5:
+            SC_NOTICE(" -> clear");
+            return 0;
+
+        case 6:
+            SC_NOTICE(" -> disable write to console");
+            return 0;
+
+        case 7:
+            SC_NOTICE(" -> enable write to console");
+            return 0;
+
+        case 8:
+            SC_NOTICE(" -> set console write level");
+            return 0;
+
+        default:
+            SC_NOTICE(" -> unknown!");
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+    }
 }
 
 int posix_syslog(const char *msg, int prio)
