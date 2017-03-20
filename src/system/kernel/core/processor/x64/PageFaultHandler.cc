@@ -140,6 +140,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
   sCode.append(Processor::id());
   sCode.append(" PID=");
   sCode.append(Processor::information().getCurrentThread()->getParent()->getId());
+  sCode.append(" TID=");
+  sCode.append(Processor::information().getCurrentThread()->getId());
   sCode.append(" ");
 
   if(!(code & PFE_PAGE_PRESENT)) sCode.append("NOT ");
