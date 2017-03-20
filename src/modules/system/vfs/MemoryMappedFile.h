@@ -500,7 +500,7 @@ class MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler
         Tree<VirtualAddressSpace*, MmObjectList*> m_MmObjectLists;
 
         /** Lock for the cache. */
-        Mutex m_Lock;
+        Spinlock m_Lock;
 };
 
 /** @} */
