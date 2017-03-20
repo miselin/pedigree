@@ -102,6 +102,20 @@ class Subsystem
         virtual ~Subsystem()
         {}
 
+        /** \brief Acquire full mutual exclusion for all Subsystem resources.
+         *
+         * It is sometimes necessary to perform an operation that would require
+         * the entire Subsystem to be owned by a specific thread. For example,
+         * Subsystem termination often requires all other threads to exit the
+         * Subsystem's critical sections before it can complete.
+         *
+         * This call allows that thread to acquire that mutual exclusion.
+         */
+        virtual void acquire();
+
+        /** Release mutual exclusion acquired via acquire(). */
+        virtual void release();
+
         /** Need to exit this process. */
         virtual void exit(int code) = 0;
 
