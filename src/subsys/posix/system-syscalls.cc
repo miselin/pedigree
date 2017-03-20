@@ -471,7 +471,7 @@ class WaitCleanup
         Process *m_pTerminated;
 };
 
-int posix_waitpid(int pid, int *status, int options)
+int posix_waitpid(const int pid, int *status, int options)
 {
     if(status && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(status), sizeof(int), PosixSubsystem::SafeWrite))
     {
@@ -480,7 +480,7 @@ int posix_waitpid(int pid, int *status, int options)
         return -1;
     }
 
-    SC_NOTICE("waitpid(" << pid << ", " << options << ")");
+    SC_NOTICE("waitpid(" << pid << " [" << Dec << pid << Hex << "], " << options << ")");
 
     // Find the set of processes to check.
     List<Process *> processList;
@@ -567,7 +567,7 @@ int posix_waitpid(int pid, int *status, int options)
             ++it)
         {
             Process *pProcess = *it;
-            pid = pProcess->getId();
+            int this_pid = pProcess->getId();
 
             // Zombie?
             if (pProcess->getState() == Process::Terminated)
@@ -576,13 +576,13 @@ int posix_waitpid(int pid, int *status, int options)
                     *status = pProcess->getExitStatus();
 
                 // Delete the process; it's been reaped good and proper.
-                SC_NOTICE("waitpid: " << pid << " reaped [" << pProcess->getExitStatus() << "]");
+                SC_NOTICE("waitpid: " << this_pid << " reaped [" << pProcess->getExitStatus() << "]");
                 cleanup.terminated(pProcess);
                 if (pProcess->waiterCount() < 1)
                     delete pProcess;
                 else
                     pProcess->reap();
-                return pid;
+                return this_pid;
             }
             // Suspended (and WUNTRACED)?
             else if((options & 2) && pProcess->hasSuspended())
@@ -590,8 +590,8 @@ int posix_waitpid(int pid, int *status, int options)
                 if(status)
                     *status = pProcess->getExitStatus();
 
-                SC_NOTICE("waitpid: " << pid << " suspended.");
-                return pid;
+                SC_NOTICE("waitpid: " << this_pid << " suspended.");
+                return this_pid;
             }
             // Continued (and WCONTINUED)?
             else if((options & 4) && pProcess->hasResumed())
@@ -599,8 +599,8 @@ int posix_waitpid(int pid, int *status, int options)
                 if(status)
                     *status = pProcess->getExitStatus();
 
-                SC_NOTICE("waitpid: " << pid << " resumed.");
-                return pid;
+                SC_NOTICE("waitpid: " << this_pid << " resumed.");
+                return this_pid;
             }
         }
 
