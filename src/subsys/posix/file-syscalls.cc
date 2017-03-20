@@ -1631,6 +1631,7 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 
 int posix_msync(void *p, size_t len, int flags) {
     F_NOTICE("msync");
+    F_NOTICE("  -> addr=" << p << ", len=" << len << ", flags=" << Hex << flags);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     size_t pageSz = PhysicalMemoryManager::getPageSize();
@@ -1670,6 +1671,7 @@ int posix_msync(void *p, size_t len, int flags) {
 int posix_mprotect(void *p, size_t len, int prot)
 {
     F_NOTICE("mprotect");
+    F_NOTICE("  -> addr=" << p << ", len=" << len << ", prot=" << Hex << prot);
 
     uintptr_t addr = reinterpret_cast<uintptr_t>(p);
     size_t pageSz = PhysicalMemoryManager::getPageSize();
