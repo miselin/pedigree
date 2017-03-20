@@ -220,7 +220,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_WAITPID:
             return posix_waitpid(p1, reinterpret_cast<int*> (p2), p3);
         case POSIX_EXIT:
-            posix_exit(p1);
+            // If not Linux mode, we exit the entire process. If Linux, just
+            // the current thread (as glibc uses exit_group for "all process").
+            posix_exit(p1, state.getSyscallService() != linux);
+        case POSIX_EXIT_GROUP:
+            posix_exit(p1, true);
         case POSIX_TCGETATTR:
             return posix_tcgetattr(p1, reinterpret_cast<struct termios*>(p2));
         case POSIX_TCSETATTR:

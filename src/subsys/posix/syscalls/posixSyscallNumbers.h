@@ -239,5 +239,6 @@
 #define POSIX_FACCESSAT         230
 #define POSIX_FSTATAT           231
 #define POSIX_SETGROUPS         232
+#define POSIX_EXIT_GROUP        233
 
 #endif
