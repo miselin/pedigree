@@ -102,9 +102,12 @@ public:
      * \param pStack (Optional) A (user mode) stack to give the thread - applicable for user mode threads
      *               only.
      * \param semiUser (Optional) Whether to start the thread as if it was a user mode thread, but begin
-                     in kernel mode (to do setup and jump to usermode manually). */
+                     in kernel mode (to do setup and jump to usermode manually).
+     * \param delayedStart (Optional) Start the thread in a halted state.
+     */
     Thread(Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
-           void *pStack=0, bool semiUser = false, bool bDontPickCore = false);
+           void *pStack=0, bool semiUser = false, bool bDontPickCore = false,
+           bool delayedStart = false);
 
     /** Alternative constructor - this should be used only by initialiseMultitasking() to
      * define the first kernel thread. */
@@ -112,7 +115,7 @@ public:
 
     /** Constructor for when forking a process. Assumes pParent has already been set up with a clone
      * of the current address space and sets up the new thread to return to the caller in that address space. */
-    Thread(Process *pParent, SyscallState &state);
+    Thread(Process *pParent, SyscallState &state, bool delayedStart = false);
 
     /** Destroys the Thread.
      *

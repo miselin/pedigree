@@ -86,6 +86,16 @@ int PerProcessorScheduler::processorAddThread(void *instance)
         {
             FATAL("instance " << instance << " does not match current scheduler in processorAddThread!");
         }
+
+        // Only add thread if it's in a valid status for adding. Otherwise we
+        // need to spin. Yes - this is NOT efficient. Threads with delayed start
+        // should not do much between creation and starting.
+        if (!(pData->pThread->getStatus() == Thread::Running || pData->pThread->getStatus() == Thread::Ready))
+        {
+            pInstance->m_NewThreadData.pushBack(p);
+            pInstance->schedule();  // yield
+            continue;
+        }
         
         pData->pThread->setCpuId(Processor::id());
         pData->pThread->m_Lock.acquire();
@@ -402,10 +412,9 @@ void PerProcessorScheduler::eventHandlerReturned()
 
 void PerProcessorScheduler::addThread(Thread *pThread, Thread::ThreadStartFunc pStartFunction, void *pParam, bool bUsermode, void *pStack)
 {
-    if(this != &Processor::information().getScheduler())
+    // Handle wrong CPU, and handle thread not yet ready to schedule.
+    if(this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Sleeping)
     {
-        pThread->m_Lock.release();
-
         newThreadData *pData = new newThreadData;
         pData->pThread = pThread;
         pData->pStartFunction = pStartFunction;
@@ -413,13 +422,14 @@ void PerProcessorScheduler::addThread(Thread *pThread, Thread::ThreadStartFunc p
         pData->bUsermode = bUsermode;
         pData->pStack = pStack;
         pData->useSyscallState = false;
-        
+
         m_NewThreadDataLock.acquire();
         m_NewThreadData.pushBack(pData);
         m_NewThreadDataLock.release();
 
         m_NewThreadDataCondition.signal();
-        
+
+        pThread->m_Lock.release();
         return;
     }
 
@@ -520,21 +530,22 @@ void PerProcessorScheduler::addThread(Thread *pThread, Thread::ThreadStartFunc p
 
 void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
 {
-    if(this != &Processor::information().getScheduler())
+    // Handle wrong CPU, and handle thread not yet ready to schedule.
+    if(this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Sleeping)
     {
-        pThread->m_Lock.release();
 
         newThreadData *pData = new newThreadData;
         pData->pThread = pThread;
         pData->useSyscallState = true;
         pData->state = state;
 
+        pThread->m_Lock.release();
+
         m_NewThreadDataLock.acquire();
         m_NewThreadData.pushBack(pData);
         m_NewThreadDataLock.release();
 
         m_NewThreadDataCondition.signal();
-
         return;
     }
 
