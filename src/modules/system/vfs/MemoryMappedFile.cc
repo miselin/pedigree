@@ -845,7 +845,7 @@ MemoryMappedObject *MemoryMapManager::mapFile(File *pFile, uintptr_t &address, s
 
     {
         // This operation must appear atomic.
-        LockGuard<Mutex> guard(m_Lock);
+        LockGuard<Spinlock> guard(m_Lock);
 
         MmObjectList *pMmObjectList = m_MmObjectLists.lookup(&va);
         if (!pMmObjectList)
@@ -887,7 +887,7 @@ MemoryMappedObject *MemoryMapManager::mapAnon(uintptr_t &address, size_t length,
 
     {
         // This operation must appear atomic.
-        LockGuard<Mutex> guard(m_Lock);
+        LockGuard<Spinlock> guard(m_Lock);
 
         MmObjectList *pMmObjectList = m_MmObjectLists.lookup(&va);
         if (!pMmObjectList)
@@ -905,7 +905,7 @@ MemoryMappedObject *MemoryMapManager::mapAnon(uintptr_t &address, size_t length,
 
 void MemoryMapManager::clone(Process *pProcess)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     VirtualAddressSpace *pOtherVa = pProcess->getAddressSpace();
@@ -1225,7 +1225,7 @@ bool MemoryMapManager::contains(uintptr_t base, size_t length)
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     MmObjectList *pMmObjectList = m_MmObjectLists.lookup(&va);
     if (!pMmObjectList)
@@ -1303,7 +1303,7 @@ void MemoryMapManager::invalidate(uintptr_t base, size_t length)
 
 void MemoryMapManager::unmap(MemoryMappedObject* pObj)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
@@ -1327,7 +1327,7 @@ void MemoryMapManager::unmap(MemoryMappedObject* pObj)
 
 void MemoryMapManager::unmapAll()
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     unmapAllUnlocked();
 }
@@ -1462,7 +1462,7 @@ bool MemoryMapManager::compact()
 
 void MemoryMapManager::unmapAllUnlocked()
 {
-    if (m_Lock.getValue())
+    if (!m_Lock.acquired())
     {
         FATAL("MemoryMapManager::unmapAllUnlocked must be called with the lock taken.");
     }
