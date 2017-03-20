@@ -90,6 +90,15 @@ Process::Process(Process *pParent, bool bCopyOnWrite) :
 
 Process::~Process()
 {
+  // Make sure we have full mutual exclusion on the Subsystem before we lock
+  // here. This ensures we have full access to the subsystem and avoids a case
+  // where we lock here but the subsystem destruction needs to reschedule to
+  // acquire the subsystem locks.
+  if (m_pSubsystem)
+  {
+    m_pSubsystem->acquire();
+  }
+
   // Block until we are the only one touching this Process object.
   LockGuard<Spinlock> guard(m_Lock);
 
