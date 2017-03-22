@@ -559,3 +559,37 @@ char *String::extract() const
         return m_Data;
     }
 }
+
+ssize_t String::find(const char c) const
+{
+    if (!m_Length)
+        return -1;
+
+    char *buf = extract();
+    for (ssize_t i = 0; i < m_Length; ++i)
+    {
+        if (buf[i] == c)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+ssize_t String::rfind(const char c) const
+{
+    if (!m_Length)
+        return -1;
+
+    char *buf = extract();
+    for (ssize_t i = m_Length - 1, n = 0; i >= 0; --i, ++n)
+    {
+        if (buf[i] == c)
+        {
+            return n;
+        }
+    }
+
+    return -1;
+}
