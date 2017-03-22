@@ -715,9 +715,10 @@ void PerProcessorScheduler::sleep(Spinlock *pLock)
 
         checkEventState(0);
 
-        // Reacquire lock ready for sleep.
-        if (pLock)
-            pLock->acquire();
+        // We handled some events, so abort the sleep. The caller should now go
+        // ahead and retry the previous operation it tried before it slept and
+        // perhaps try and sleep again.
+        return;
     }
 
     // Now we can happily sleep.
