@@ -239,6 +239,11 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
         F_NOTICE("    -> S_FIFO");
         mode = S_IFIFO;
     }
+    else if (pFile->isSocket())
+    {
+        F_NOTICE("    -> S_SOCK");
+        mode = S_IFSOCK;
+    }
     else
     {
         F_NOTICE("    -> S_IFREG");
