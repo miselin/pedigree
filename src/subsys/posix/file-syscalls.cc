@@ -1886,12 +1886,12 @@ int posix_chown(const char *path, uid_t owner, gid_t group)
 
 int posix_fchmod(int fd, mode_t mode)
 {
-    return posix_fchmodat(fd, "", mode, AT_EMPTY_PATH);
+    return posix_fchmodat(fd, nullptr, mode, AT_EMPTY_PATH);
 }
 
 int posix_fchown(int fd, uid_t owner, gid_t group)
 {
-    return posix_fchownat(fd, "", owner, group, AT_EMPTY_PATH);
+    return posix_fchownat(fd, nullptr, owner, group, AT_EMPTY_PATH);
 }
 
 int posix_fchdir(int fd)
@@ -2408,7 +2408,21 @@ int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, in
         return -1;
     }
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    if (!pathname)
+    {
+        if (flags & AT_EMPTY_PATH)
+        {
+            // no pathname provided but it's an empty path chownat
+            pathname = "";
+        }
+        else
+        {
+            // no pathname provided!
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+    }
+    else if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
     {
         F_NOTICE("chown -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -2857,7 +2871,21 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
         return -1;
     }
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    if (!pathname)
+    {
+        if (flags & AT_EMPTY_PATH)
+        {
+            // no pathname provided but it's an empty path chmodat
+            pathname = "";
+        }
+        else
+        {
+            // no pathname provided!
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+    }
+    else if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
     {
         F_NOTICE("chmod -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
