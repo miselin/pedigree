@@ -276,6 +276,7 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     st->st_gid   = pFile->getGid();
     st->st_rdev  = 0;
     st->st_size  = static_cast<int>(pFile->getSize());
+    F_NOTICE("    -> " << st->st_size);
     st->st_atime = pFile->getAccessedTime();
     st->st_mtime = pFile->getModifiedTime();
     st->st_ctime = pFile->getCreationTime();
@@ -3109,3 +3110,27 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     F_NOTICE("    -> Success");
     return 0;
 }
+
+/** Do-er for getting extended attributes. If filepath is null, fd is used. */
+ssize_t doGetXattr(const char *filepath, int fd, const char *name, void *value, size_t size, bool follow_links)
+{
+    /// \todo implement?
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+}
+
+ssize_t posix_getxattr(const char *path, const char *name, void *value, size_t size)
+{
+    return doGetXattr(path, -1, name, value, size, true);
+}
+
+ssize_t posix_lgetxattr(const char *path, const char *name, void *value, size_t size)
+{
+    return doGetXattr(path, -1, name, value, size, false);
+}
+
+ssize_t posix_fgetxattr(int fd, const char *name, void *value, size_t size)
+{
+    return doGetXattr(nullptr, fd, name, value, size, true);
+}
+
