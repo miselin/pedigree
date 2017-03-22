@@ -112,6 +112,11 @@ class UnixSocket : public File
 
         virtual int select(bool bWriting = false, int timeout = 0);
 
+        virtual bool isSocket() const
+        {
+            return true;
+        }
+
     private:
         struct buf {
             char *pBuffer;

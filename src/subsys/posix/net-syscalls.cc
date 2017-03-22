@@ -33,6 +33,7 @@
 
 #include <Subsystem.h>
 #include <PosixSubsystem.h>
+#include <UnixFilesystem.h>
 
 #include "file-syscalls.h"
 #include "net-syscalls.h"
@@ -84,12 +85,6 @@ int posix_socket(int domain, int type, int protocol)
     */
     else if (domain == AF_UNIX)
     {
-        if (type != SOCK_DGRAM)
-        {
-            SYSCALL_ERROR(InvalidArgument);
-            valid = false;
-        }
-
         file = 0;
     }
     else
@@ -144,18 +139,30 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
             if(address->sa_family != AF_UNIX)
             {
                 // EAFNOSUPPORT
+                N_NOTICE(" -> address family unsupported");
                 return -1;
             }
 
             // Valid state. But no socket, so do the magic here.
             struct sockaddr_un *un = reinterpret_cast<struct sockaddr_un *>(address);
-            String pathname(un->sun_path);
+            String pathname;
+            normalisePath(pathname, un->sun_path);
 
-            /// \todo Handle things that aren't actually UNIX sockets...
+            N_NOTICE(" -> unix connect: '" << pathname << "'");
+
             f->file = VFS::instance().find(pathname);
             if(!f->file)
             {
                 SYSCALL_ERROR(DoesNotExist);
+                N_NOTICE(" -> unix socket '" << pathname << "' doesn't exist");
+                return -1;
+            }
+
+            if (!f->file->isSocket())
+            {
+                /// \todo wrong error
+                SYSCALL_ERROR(DoesNotExist);
+                N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
                 return -1;
             }
 
@@ -369,11 +376,14 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
             }
 
             const struct sockaddr_un *un = reinterpret_cast<const struct sockaddr_un *>(address);
+            String pathname;
+            normalisePath(pathname, un->sun_path);
 
-            pFile = VFS::instance().find(String(un->sun_path));
+            pFile = VFS::instance().find(pathname);
             if(!pFile)
             {
                 SYSCALL_ERROR(DoesNotExist);
+                N_NOTICE(" -> sendto path '" << pathname << "' does not exist");
                 return -1;
             }
         }
@@ -384,7 +394,10 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         }
 
         /// \todo sanity check pFile?
-        return pFile->write(reinterpret_cast<uintptr_t>(static_cast<const char *>(f->so_localPath)), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
+        String s(reinterpret_cast<const char *>(buff), bufflen);
+        N_NOTICE(" -> send '" << s << "'");
+        ssize_t result = pFile->write(reinterpret_cast<uintptr_t>(static_cast<const char *>(f->so_localPath)), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
+        N_NOTICE(" -> " << result);
     }
 
     Socket *s = static_cast<Socket *>(f->file);
@@ -546,6 +559,7 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
             *addrlen = sizeof(struct sockaddr_un);
         }
 
+        N_NOTICE(" -> " << r);
         return r;
     }
 
@@ -629,25 +643,67 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
             // Valid state. But no socket, so do the magic here.
             const struct sockaddr_un *un = reinterpret_cast<const struct sockaddr_un *>(address);
-            String pathname(un->sun_path);
 
-            bool bResult = VFS::instance().createFile(pathname, 0777);
-            if(!bResult)
+            String adjusted_pathname;
+            normalisePath(adjusted_pathname, un->sun_path);
+
+            N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
+
+            File *cwd = Processor::information().getCurrentThread()->getParent()->getCwd();
+            if (adjusted_pathname.endswith('/'))
             {
-                // errno = ?
+                // uh, that's a directory
+                SYSCALL_ERROR(IsADirectory);
                 return -1;
             }
+
+            File *parentDirectory = cwd;
+
+            String basename = adjusted_pathname;
+
+            ssize_t final_slash = adjusted_pathname.rfind('/');
+            if (final_slash >= 0)
+            {
+                // Reorder rfind result to be from beginning of string.
+                const char *path_cstr = static_cast<const char *>(adjusted_pathname);
+                final_slash = adjusted_pathname.length() - final_slash;
+                String dirname(path_cstr, final_slash);
+                basename = String(path_cstr + final_slash);
+
+                N_NOTICE(" -> dirname=" << dirname);
+
+                parentDirectory = VFS::instance().find(dirname);
+                if (!parentDirectory)
+                {
+                    N_NOTICE(" -> parent directory '" << dirname << "' doesn't exist");
+                    SYSCALL_ERROR(DoesNotExist);
+                    return -1;
+                }
+            }
+
+            if (!parentDirectory->isDirectory())
+            {
+                SYSCALL_ERROR(NotADirectory);
+                return -1;
+            }
+
+            Directory *pDir = Directory::fromFile(parentDirectory);
+
+            UnixSocket *socket = new UnixSocket(basename, parentDirectory->getFilesystem(), parentDirectory);
+            if (!pDir->addEphemeralFile(socket))
+            {
+                /// \todo errno?
+                delete socket;
+                return false;
+            }
+
+            N_NOTICE(" -> basename=" << basename);
+
+            // HERE: set UnixSocket mode (dgram, stream) for correct operation
 
             // bind() then connect().
-            f->so_local = f->file = VFS::instance().find(pathname);
-            if(!f->file)
-            {
-                // Which error do we use here?
-                SYSCALL_ERROR(DoesNotExist);
-                return -1;
-            }
-
-            f->so_localPath = pathname;
+            f->so_local = f->file = socket;
+            f->so_localPath = adjusted_pathname;
 
             return 0;
         }
