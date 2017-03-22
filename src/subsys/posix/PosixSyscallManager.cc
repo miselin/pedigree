@@ -515,6 +515,18 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_fstatat(p1, reinterpret_cast<const char *>(p2), reinterpret_cast<struct stat *>(p3), p4);
         case POSIX_SETGROUPS:
             return posix_setgroups(p1, reinterpret_cast<const gid_t *>(p2));
+        case POSIX_GETRLIMIT:
+            return posix_getrlimit(p1, reinterpret_cast<struct rlimit *>(p2));
+        case POSIX_GETPRIORITY:
+            return posix_getpriority(p1, p2);
+        case POSIX_SETPRIORITY:
+            return posix_setpriority(p1, p2, p3);
+        case POSIX_GETXATTR:
+            return posix_getxattr(reinterpret_cast<const char *>(p1), reinterpret_cast<const char *>(p2), reinterpret_cast<void *>(p3), p4);
+        case POSIX_LGETXATTR:
+            return posix_lgetxattr(reinterpret_cast<const char *>(p1), reinterpret_cast<const char *>(p2), reinterpret_cast<void *>(p3), p4);
+        case POSIX_FGETXATTR:
+            return posix_fgetxattr(p1, reinterpret_cast<const char *>(p2), reinterpret_cast<void *>(p3), p4);
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

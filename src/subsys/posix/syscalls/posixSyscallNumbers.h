@@ -240,5 +240,11 @@
 #define POSIX_FSTATAT           231
 #define POSIX_SETGROUPS         232
 #define POSIX_EXIT_GROUP        233
+#define POSIX_GETRLIMIT         234
+#define POSIX_GETPRIORITY       235
+#define POSIX_SETPRIORITY       236
+#define POSIX_GETXATTR          237
+#define POSIX_LGETXATTR         238
+#define POSIX_FGETXATTR         239
 
 #endif
