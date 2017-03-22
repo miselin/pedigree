@@ -91,6 +91,15 @@ public:
     /** Set/unset the reparse point for this directory. */
     void setReparsePoint(Directory *pTarget);
 
+    /**
+     * \brief Add an ephemeral file to the directory
+     *
+     * This is used to store files that need to be visible in the VFS but are
+     * not backed by a "real" file on disk. For example, a socket might need to
+     * be present with a filesystem path but should not be written to disk.
+     */
+    bool addEphemeralFile(File *pFile);
+
 private:
     /** Directory contents cache. */
     RadixTree<File*> m_Cache;

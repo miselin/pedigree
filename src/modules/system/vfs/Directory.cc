@@ -112,3 +112,25 @@ void Directory::setReparsePoint(Directory *pTarget)
 {
     m_ReparseTarget = pTarget;
 }
+
+bool Directory::addEphemeralFile(File *pFile)
+{
+    if (!m_bCachePopulated)
+    {
+        cacheDirectoryContents();
+        m_bCachePopulated = true;
+    }
+
+    String name = pFile->getName();
+    if (m_Cache.lookup(name) != 0)
+    {
+        // already exists!
+        return false;
+    }
+
+    /// \todo removal will still want to hit the Filesystem here! not good!
+    m_Cache.insert(name, pFile);
+    m_LinearCache.pushBack(pFile);
+
+    return true;
+}
