@@ -89,6 +89,9 @@ int posix_arch_prctl(int code, unsigned long addr);
 int posix_pause();
 
 int posix_setgroups(size_t size, const gid_t *list);
+int posix_getrlimit(int resource, struct rlimit *rlim);
+int posix_getpriority(int which, int who);
+int posix_setpriority(int which, int who, int prio);
 
 #endif
 

@@ -1078,6 +1078,7 @@ int posix_setpgid(int pid_, int pgid)
     if(pgid < 0)
     {
         SYSCALL_ERROR(InvalidArgument);
+        SC_NOTICE(" -> EINVAL");
         return -1;
     }
 
@@ -1109,12 +1110,14 @@ int posix_setpgid(int pid_, int pgid)
     {
         /// \todo We actually have no way of finding children of a process sanely.
         SYSCALL_ERROR(PermissionDenied);
+        SC_NOTICE(" -> EPERM");
         return 0;
     }
 
     if(pGroup && (pGroup->processGroupId == pgid))
     {
         // Already a member.
+        SC_NOTICE(" -> OK, already a member!");
         return 0;
     }
 
@@ -1122,6 +1125,7 @@ int posix_setpgid(int pid_, int pgid)
     {
         // Already a session leader.
         SYSCALL_ERROR(PermissionDenied);
+        SC_NOTICE(" -> EPERM (already leader)");
         return 0;
     }
 
@@ -1142,6 +1146,7 @@ int posix_setpgid(int pid_, int pgid)
                 // Join this group.
                 pProcess->setProcessGroup(pGroupCheck);
                 pProcess->setGroupMembership(PosixProcess::Member);
+                SC_NOTICE(" -> OK, joined!");
                 return 0;
             }
         }
@@ -1157,6 +1162,7 @@ int posix_setpgid(int pid_, int pgid)
     pProcess->setProcessGroup(pNewGroup);
     pProcess->setGroupMembership(PosixProcess::Leader);
 
+    SC_NOTICE(" -> OK, created!");
     return 0;
 }
 
@@ -1425,5 +1431,80 @@ int posix_pause()
 int posix_setgroups(size_t size, const gid_t *list)
 {
     SC_NOTICE("setgroups(" << size << ")");
+    return 0;
+}
+
+int posix_getrlimit(int resource, struct rlimit *rlim)
+{
+    /// \todo check access on rlim
+    SC_NOTICE("getrlimit(" << Dec << resource << ")");
+
+    switch (resource)
+    {
+        case RLIMIT_CPU:
+            break;
+        case RLIMIT_FSIZE:
+            rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+            break;
+        case RLIMIT_DATA:
+            rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+            break;
+        case RLIMIT_STACK:
+            rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+            break;
+        case RLIMIT_CORE:
+            rlim->rlim_cur = 0;
+            rlim->rlim_max = RLIM_INFINITY;
+            break;
+        case RLIMIT_RSS:
+            rlim->rlim_cur = rlim->rlim_max = 1ULL << 48ULL;
+            break;
+        case RLIMIT_NPROC:
+            rlim->rlim_cur = rlim->rlim_max = 0xFFFFFFFFFFFFFFFFULL;
+            break;
+        case RLIMIT_NOFILE:
+            rlim->rlim_cur = rlim->rlim_max = 0xFFFFFFFFFFFFFFFFULL;
+            break;
+        case RLIMIT_MEMLOCK:
+            rlim->rlim_cur = rlim->rlim_max = 1ULL << 24ULL;
+            break;
+        case RLIMIT_AS:
+            rlim->rlim_cur = rlim->rlim_max = 1ULL << 48ULL;
+            break;
+        case RLIMIT_LOCKS:
+            rlim->rlim_cur = rlim->rlim_max = 1024;
+            break;
+        case RLIMIT_SIGPENDING:
+            rlim->rlim_cur = rlim->rlim_max = 16;
+            break;
+        case RLIMIT_MSGQUEUE:
+            rlim->rlim_cur = rlim->rlim_max = 0x100000;
+            break;
+        case RLIMIT_NICE:
+            rlim->rlim_cur = rlim->rlim_max = 1;
+            break;
+        case RLIMIT_RTPRIO:
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        default:
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+    }
+
+    return 0;
+}
+
+int posix_getpriority(int which, int who)
+{
+    /// \todo better expose priorities
+    SC_NOTICE("getpriority(" << which << ", " << Dec << who << ")");
+    SYSCALL_ERROR(NoError);  // clear errno if not already
+    return 0;
+}
+
+int posix_setpriority(int which, int who, int prio)
+{
+    /// \todo could do more with this
+    SC_NOTICE("setpriority(" << which << ", " << Dec << who << ", " << prio << ")");
     return 0;
 }
