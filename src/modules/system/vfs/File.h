@@ -169,6 +169,12 @@ public:
         return false;
     }
 
+    /** Returns true if the File is actually a socket. */
+    virtual bool isSocket() const
+    {
+        return false;
+    }
+
     uintptr_t getInode()
     {return m_Inode;}
     virtual void setInode(uintptr_t inode)
