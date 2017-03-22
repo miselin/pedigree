@@ -127,6 +127,10 @@ class String
         bool startswith(const String &s) const;
         bool startswith(const char *s, size_t len = 0) const;
 
+        /** Searches */
+        ssize_t find(const char c) const;
+        ssize_t rfind(const char c) const;
+
     private:
         /** Internal doer for reserve() */
         void reserve(size_t size, bool zero);

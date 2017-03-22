@@ -466,3 +466,14 @@ TEST(PedigreeString, Equality2)
     EXPECT_TRUE(s1 == s3);
     EXPECT_TRUE(s2 == s4);
 }
+
+TEST(PedigreeString, Find)
+{
+    String s("hello world");
+    EXPECT_EQ(s.find('h'), 0);
+    EXPECT_EQ(s.find('w'), 6);
+    EXPECT_EQ(s.rfind('w'), 4);
+    EXPECT_EQ(s.rfind('d'), 0);
+    EXPECT_EQ(s.find('!'), -1);
+    EXPECT_EQ(s.rfind('!'), -1);
+}
