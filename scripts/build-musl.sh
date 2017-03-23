@@ -46,5 +46,11 @@ CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer" \
     --syslibdir="$TARGETDIR/lib" --enable-shared \
     >>musl.log 2>&1 || die
 
+# This is a very ugly hack that fixes a "Nonrepresentable section on output"
+# error with GCC 6.3.0 + Binutils 2.28. It's almost certainly caused by the
+# Pedigree custom target, somehow.
+# TODO: fix this properly.
+sed -i.bak 's/-Wl,--gc-sections//g' config.mak
+
 make >>musl.log 2>&1
 make install >>musl.log 2>&1
