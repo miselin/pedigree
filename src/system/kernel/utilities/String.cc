@@ -565,8 +565,13 @@ ssize_t String::find(const char c) const
     if (!m_Length)
         return -1;
 
+    /// \todo this problem only exists because we use return -1 as a status
+    ///       indicator. That could be changed, and we could avoid a
+    ///       signed/unsigned conversion here!
+    ssize_t signedLength = m_Length;
+
     char *buf = extract();
-    for (ssize_t i = 0; i < m_Length; ++i)
+    for (ssize_t i = 0; i < signedLength; ++i)
     {
         if (buf[i] == c)
         {
