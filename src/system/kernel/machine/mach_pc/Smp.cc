@@ -70,7 +70,7 @@ void Smp::initialise()
 
   if (m_pConfigTable->signature != 0x504D4350 ||
       checksum(m_pConfigTable) != true ||
-      m_pConfigTable->revision != m_pConfigTable->revision)
+      m_pConfigTable->revision != m_pFloatingPointer->revision)
   {
     ERROR("smp: configuration table invalid");
     return;
