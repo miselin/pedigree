@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -158,7 +157,7 @@ class HidReport
                 // Make sure the usage vector won't get deleted
                 s.pUsages = 0;
 
-                return *const_cast<LocalState*>(this);
+                return *this;
             }
         };
 
