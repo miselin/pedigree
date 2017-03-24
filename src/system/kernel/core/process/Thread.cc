@@ -505,12 +505,6 @@ void Thread::sendEvent(Event *pEvent)
         return;
     }
 
-    if (pEvent->isDeletable())
-    {
-        FATAL("Thread: sending a deletable Event to a Thread is dangerous and not permitted");
-        return;
-    }
-
     // Only need the lock to adjust the queue of events.
     m_Lock.acquire();
     m_EventQueue.pushBack(pEvent);
