@@ -18,6 +18,8 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
+from __future__ import print_function
+
 import commands
 import getpass
 import os
@@ -376,21 +378,39 @@ if env['build_images']:
 if env['build_configdb'] and not env['build_modules']:
     raise SCons.Errors.UserError('build_configdb requires build_modules=1.')
 
+
+def check_for(env, var, name, bins=None, required=False):
+    # Already cached?
+    if env.get(var):
+        return
+
+    print('Checking for %s... ' % (name,), end='')
+    if bins is None:
+        bins = name
+    env[var] = env.Detect(bins)
+    if not env[var]:
+        print('not found!')
+        if required:
+            raise SCons.Errors.UserError('%s is required, but was not found.' % (name,))
+    else:
+        print('found!')
+
+
 # Look for things we care about for the build.
-env['QEMU_IMG'] = env.Detect('qemu-img')
-env['LOSETUP'] = env.Detect('losetup')
-env['MKE2FS'] = env.Detect('mke2fs')
-env['DEBUGFS'] = env.Detect('debugfs')
-env['CCACHE'] = env.Detect('ccache')
-env['DISTCC'] = env.Detect('distcc')
-env['PYFLAKES'] = env.Detect('pyflakes')
-env['MTOOLS_MMD'] = env.Detect('mmd')
-env['MTOOLS_MCOPY'] = env.Detect('mcopy')
-env['MTOOLS_MDEL'] = env.Detect('mdel')
-env['MKISOFS'] = env.Detect(['mkisofs', 'genisoimage', 'xorriso'])
-env['SQLITE'] = env.Detect('sqlite3')
-env['MKIMAGE'] = env.Detect('mkimage')
-env['GIT'] = env.Detect('git')
+check_for(env, 'QEMU_IMG', 'qemu-img')
+check_for(env, 'LOSETUP', 'losetup')
+check_for(env, 'MKE2FS', 'mke2fs')
+check_for(env, 'DEBUGFS', 'debugfs')
+check_for(env, 'CCACHE', 'ccache')
+check_for(env, 'DISTCC', 'distcc')
+check_for(env, 'PYFLAKES', 'pyflakes')
+check_for(env, 'MTOOLS_MMD', 'mmd')
+check_for(env, 'MTOOLS_MCOPY', 'mcopy')
+check_for(env, 'MTOOLS_MDEL', 'mdel')
+check_for(env, 'MKISOFS', 'mkisofs', ['mkisofs', 'genisoimage', 'xorriso'])
+check_for(env, 'SQLITE', 'sqlite3')
+check_for(env, 'MKIMAGE', 'mkimage')
+check_for(env, 'GIT', 'git')
 
 # If we're on OSX, make sure we're using a sane tar.
 if sys.platform == 'darwin':
@@ -405,8 +425,9 @@ if sys.platform == 'darwin':
                 # TODO(miselin): 'tar' might actually be GNU tar, if $PATH is
                 # set to put GNU tools first... we should verify before telling
                 # the user we're falling back to BSD tar.
-                print 'Falling back to BSD tar, please be aware that this is an unsupported configuration.'
-                print 'Please consider installing GNU tar.'
+                print('Falling back to BSD tar, please be aware that this is '
+                      'an unsupported configuration.')
+                print('Please consider installing GNU tar.')
                 env['TAR'] = 'tar'
 
 # Look for things we absolutely must have.
@@ -419,20 +440,20 @@ if not all([env[x] is not None for x in required_tools]):
 
 # Confirm whether we're making an ISO or not.
 if env['MKISOFS'] is None:
-    print 'No program to generate ISOs, not generating an ISO.'
+    print('No program to generate ISOs, not generating an ISO.')
     env['iso'] = False
 
 # Can we even build an image?
 if env['build_images'] and not any([env[x] is not None for x in ['LOSETUP', 'MKE2FS', 'MTOOLS_MMD']]):
     msg = 'Cannot create a disk image by any means.'
     if env['distdir']:
-        print msg
+        print(msg)
     else:
         raise SCons.Errors.UserError(msg)
 
 # Enforce pre-commit hook.
 if not os.path.exists('.git/hooks/pre-commit'):
-    print "Enforcing pre-commit script."
+    print( "Enforcing pre-commit script.")
     os.symlink('../../scripts/pre-commit.sh', '.git/hooks/pre-commit')
 
 # Reset object file suffixes.
@@ -791,9 +812,9 @@ def create_version_cc(target, source, env):
     # builders to do stuff quickly and easily.
     info = "Version.cc [rev: %s, with: %s@%s]" % (env['PEDIGREE_REVISION'], env['PEDIGREE_USER'], env['PEDIGREE_MACHINE'])
     if env['verbose']:
-        print "      Creating %s" % (info,)
+        print("      Creating %s" % (info,))
     else:
-        print '      Creating \033[32m%s\033[0m' % (info,)
+        print('      Creating \033[32m%s\033[0m' % (info,))
 
     def replacer(s):
         for keyname, value in sub_dict.iteritems():
@@ -1098,6 +1119,8 @@ subarch_dump = env.get('SUBARCH_DIR', '')
 if subarch_dump:
     subarch_dump = ' (+%s)' % subarch_dump
 
-print
-print "**** This Pedigree build (r%s, %s%s + %s, by %s) begins at %s ****" % (env['PEDIGREE_REVISION'], env['ARCH_DIR'], subarch_dump, env['MACH_TARGET'], env['PEDIGREE_USER'], datetime.today())
-print
+print()
+print("**** This Pedigree build (r%s, %s%s + %s, by %s) begins at %s ****" %
+        (env['PEDIGREE_REVISION'], env['ARCH_DIR'], subarch_dump,
+            env['MACH_TARGET'], env['PEDIGREE_USER'], datetime.today()))
+print()
