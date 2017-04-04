@@ -47,6 +47,15 @@ TEST(PedigreeSharedPointer, CopyOwnership)
     EXPECT_TRUE(p2);
 }
 
+TEST(PedigreeSharedPointer, MoveOwnership)
+{
+    // Should not provide a hit when run under Valgrind, either.
+    SharedPointer<int> p(new int);
+    SharedPointer<int> p2 = pedigree_std::move(p);
+    EXPECT_FALSE(p);
+    EXPECT_TRUE(p2);
+}
+
 TEST(PedigreeSharedPointer, Reset)
 {
     SharedPointer<int> p(new int);

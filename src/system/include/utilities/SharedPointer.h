@@ -21,6 +21,7 @@
 #define SHAREDPOINTER_H
 
 #include <processor/types.h>
+#include <utilities/cpp.h>
 
 /**
  * Provides a reference-counted pointer that can be freely shared, and is
@@ -39,6 +40,13 @@ public:
      * Instantiate, owning the given memory region.
      */
     SharedPointer(T *ptr);
+
+    /**
+     * Move into the given SharedPointer object (no refcount increase).
+     * When moving out of a SharedPointer, the previous instance becomes
+     * invalid and must be re-initialized.
+     */
+    SharedPointer(SharedPointer &&other);
 
     /**
      * Destruction, which automatically frees the pointer if no owners remain.
@@ -139,6 +147,14 @@ template <class T>
 SharedPointer<T>::SharedPointer(T *ptr) : m_Control(0)
 {
     reset(ptr);
+}
+
+template <class T>
+SharedPointer<T>::SharedPointer(SharedPointer &&other)
+{
+    m_Control = pedigree_std::move(other.m_Control);
+
+    other.m_Control = nullptr;
 }
 
 template <class T>
