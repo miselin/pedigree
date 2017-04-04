@@ -78,8 +78,13 @@ bool Filesystem::createFile(String path, uint32_t mask, File *pStartNode)
         return false;
     }
 
+    // May need to create on a different filesytem (if the traversal crossed
+    // over to a different fs)
+    Filesystem *pFs = pParent->getFilesystem();
+
     // Now make the file.
-    return createFile(pParent, filename, mask);
+    NOTICE("createFile: " << filename);
+    return pFs->createFile(pParent, filename, mask);
 }
 
 bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
@@ -109,8 +114,12 @@ bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
         return false;
     }
 
+    // May need to create on a different filesytem (if the traversal crossed
+    // over to a different fs)
+    Filesystem *pFs = pParent->getFilesystem();
+
     // Now make the directory.
-    createDirectory(pParent, filename, mask);
+    pFs->createDirectory(pParent, filename, mask);
 
     return true;
 }
@@ -142,8 +151,12 @@ bool Filesystem::createSymlink(String path, String value, File *pStartNode)
         return false;
     }
 
+    // May need to create on a different filesytem (if the traversal crossed
+    // over to a different fs)
+    Filesystem *pFs = pParent->getFilesystem();
+
     // Now make the symlink.
-    createSymlink(pParent, filename, value);
+    pFs->createSymlink(pParent, filename, value);
 
     return true;
 }
@@ -182,8 +195,12 @@ bool Filesystem::createLink(String path, File *target, File *pStartNode)
         return false;
     }
 
+    // May need to create on a different filesytem (if the traversal crossed
+    // over to a different fs)
+    Filesystem *pFs = pParent->getFilesystem();
+
     // Now make the symlink.
-    createLink(pParent, filename, target);
+    pFs->createLink(pParent, filename, target);
 
     return true;
 }
@@ -223,6 +240,10 @@ bool Filesystem::remove(String path, File *pStartNode)
         return false;
     }
 
+    // May need to create on a different filesytem (if the traversal crossed
+    // over to a different fs)
+    Filesystem *pFs = pParent->getFilesystem();
+
     if (pFile->isDirectory())
     {
         Directory *removalDir = Directory::fromFile(pFile);
@@ -247,12 +268,12 @@ bool Filesystem::remove(String path, File *pStartNode)
 
             for (auto it : removalDir->getCache())
             {
-                remove(removalDir, it);
+                pFs->remove(removalDir, it);
             }
         }
     }
 
-    bool bRemoved = remove(pParent, pFile);
+    bool bRemoved = pFs->remove(pParent, pFile);
     if (bRemoved)
         pDParent->remove(filename);
     return bRemoved;
@@ -344,6 +365,7 @@ File *Filesystem::findNode(File *pNode, String path)
     Directory *reparse = pDir->getReparsePoint();
     if (reparse)
     {
+        WARNING("VFS: found reparse point at '" << pDir->getName() << "', following it");
         pDir = reparse;
     }
 
@@ -396,10 +418,11 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     }
 
     // Now, if there were no slashes, the parent node is pStartNode.
+    File *parentNode = nullptr;
     if (lastSlash == -1)
     {
         filename = path;
-        return pStartNode;
+        parentNode = pStartNode;
     }
     else
     {
@@ -407,8 +430,23 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
         path.split(lastSlash + 1, filename);
         // Remove the trailing '/' from path;
         path.chomp();
-        return findNode(pStartNode, path);
+        parentNode = findNode(pStartNode, path);
     }
+
+    // Handle immediate parent node being a reparse point.
+    if (parentNode)
+    {
+        if (parentNode->isDirectory())
+        {
+            File *reparseNode = Directory::fromFile(parentNode)->getReparsePoint();
+            if (reparseNode)
+            {
+                parentNode = reparseNode;
+            }
+        }
+    }
+
+    return parentNode;
 }
 
 bool Filesystem::createLink(File* parent, String filename, File *target)

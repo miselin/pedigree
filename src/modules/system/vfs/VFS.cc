@@ -106,7 +106,7 @@ bool VFS::mount(Disk *pDisk, String &alias)
     return false;
 }
 
-void VFS::addAlias(Filesystem *pFs, String alias)
+void VFS::addAlias(Filesystem *pFs, const String &alias)
 {
     if(!pFs)
         return;
@@ -120,7 +120,7 @@ void VFS::addAlias(Filesystem *pFs, String alias)
     m_Mounts.lookup(pFs)->pushBack(new String(alias));
 }
 
-void VFS::addAlias(String oldAlias, String newAlias)
+void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
     Filesystem *pFs = m_Aliases.lookup(oldAlias);
     if(pFs)
@@ -134,7 +134,7 @@ void VFS::addAlias(String oldAlias, String newAlias)
     }
 }
 
-String VFS::getUniqueAlias(String alias)
+String VFS::getUniqueAlias(const String &alias)
 {
     if(!aliasExists(alias))
         return alias;
@@ -148,19 +148,19 @@ String VFS::getUniqueAlias(String alias)
         tmpAlias += static_cast<const char*>(alias);
         tmpAlias.append(index);
 
-        String s = String(static_cast<const char*>(tmpAlias));
+        String s(static_cast<const char*>(tmpAlias));
         if(!aliasExists(s))
             return s;
         index--;
     }
 }
 
-bool VFS::aliasExists(String alias)
+bool VFS::aliasExists(const String &alias)
 {
     return (m_Aliases.lookup(alias) != 0);
 }
 
-void VFS::removeAlias(String alias)
+void VFS::removeAlias(const String &alias)
 {
     /// \todo Remove from m_Mounts
     m_Aliases.remove(alias);
@@ -202,12 +202,12 @@ void VFS::removeAllAliases(Filesystem *pFs)
     delete pFs;
 }
 
-Filesystem *VFS::lookupFilesystem(String alias)
+Filesystem *VFS::lookupFilesystem(const String &alias)
 {
     return m_Aliases.lookup(alias);
 }
 
-File *VFS::find(String path, File *pStartNode)
+File *VFS::find(const String &path, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -230,12 +230,13 @@ File *VFS::find(String path, File *pStartNode)
     }
     else
     {
-        String newPath = path.split(i+2);
-        path.chomp();
-        path.chomp();
+        String tail(path);
+        String newPath = tail.split(i+2);
+        tail.chomp();
+        tail.chomp();
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(path);
+        Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return 0;
         
@@ -258,7 +259,7 @@ void VFS::addMountCallback(MountCallback callback)
 }
 
 
-bool VFS::createFile(String path, uint32_t mask, File *pStartNode)
+bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -281,19 +282,20 @@ bool VFS::createFile(String path, uint32_t mask, File *pStartNode)
     }
     else
     {
-        String newPath = path.split(i+2);
-        path.chomp();
-        path.chomp();
+        String tail(path);
+        String newPath = tail.split(i+2);
+        tail.chomp();
+        tail.chomp();
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(path);
+        Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return false;
         return pFs->createFile(newPath, mask, 0);
     }
 }
 
-bool VFS::createDirectory(String path, uint32_t mask, File *pStartNode)
+bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -317,19 +319,20 @@ bool VFS::createDirectory(String path, uint32_t mask, File *pStartNode)
     else
     {
         // i+2 as the delimiter character (») is two bytes long.
-        String newPath = path.split(i+2);
-        path.chomp();
-        path.chomp();
+        String tail(path);
+        String newPath = tail.split(i+2);
+        tail.chomp();
+        tail.chomp();
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(path);
+        Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return false;
         return pFs->createDirectory(newPath, mask, 0);
     }
 }
 
-bool VFS::createSymlink(String path, String value, File *pStartNode)
+bool VFS::createSymlink(const String &path, const String &value, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -352,19 +355,20 @@ bool VFS::createSymlink(String path, String value, File *pStartNode)
     }
     else
     {
-        String newPath = path.split(i+2);
-        path.chomp();
-        path.chomp();
+        String tail(path);
+        String newPath = tail.split(i+2);
+        tail.chomp();
+        tail.chomp();
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(path);
+        Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return false;
         return pFs->createSymlink(newPath, value, 0);
     }
 }
 
-bool VFS::createLink(String path, File *target, File *pStartNode)
+bool VFS::createLink(const String &path, File *target, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -387,19 +391,20 @@ bool VFS::createLink(String path, File *target, File *pStartNode)
     }
     else
     {
-        String newPath = path.split(i+2);
-        path.chomp();
-        path.chomp();
+        String tail(path);
+        String newPath = tail.split(i+2);
+        tail.chomp();
+        tail.chomp();
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(path);
+        Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return false;
         return pFs->createLink(newPath, target, 0);
     }
 }
 
-bool VFS::remove(String path, File *pStartNode)
+bool VFS::remove(const String &path, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -422,12 +427,13 @@ bool VFS::remove(String path, File *pStartNode)
     }
     else
     {
-        String newPath = path.split(i+2);
-        path.chomp();
-        path.chomp();
+        String tail(path);
+        String newPath = tail.split(i+2);
+        tail.chomp();
+        tail.chomp();
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(path);
+        Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return false;
         return pFs->remove(newPath, 0);
@@ -436,6 +442,7 @@ bool VFS::remove(String path, File *pStartNode)
 
 bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 {
+    return true;
 #ifdef VFS_STANDALONE
     // We don't check permissions on standalone builds of the VFS.
     return true;
