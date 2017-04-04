@@ -287,14 +287,15 @@ const char *StringReverseFind(const char *str, int target)
   // so rather than finding the length and then traversing in reverse, we just
   // traverse the string once. This gives a small performance boost.
   const char *s;
+  const char *result = NULL;
   char ch;
   while (1)
   {
 #define UNROLL(n) \
     s = str + n; \
     ch = *s; \
-    if (!ch) return NULL; \
-    if (ch == target) return s;
+    if (!ch) return result; \
+    if (ch == target) result = s;
 
     UNROLL(0);
     UNROLL(1);
