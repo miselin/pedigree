@@ -43,6 +43,7 @@ namespace Error
     DeviceBusy           =16,  // EBUSY
     FileExists           =17,  // EEXIST
     CrossDeviceLink      =18,  // EXDEV
+    DeviceDoesNotExist   =19,  // ENODEV
     NotADirectory        =20,  // ENOTDIR
     IsADirectory         =21,  // EISDIR
     InvalidArgument      =22,  // EINVAL

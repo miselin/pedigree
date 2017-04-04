@@ -130,7 +130,7 @@ inline long posix_translate_syscall(long which)
         case SYS_setsid: pedigree_translation = POSIX_SETSID; break;
         case SYS_setreuid: pedigree_translation = POSIX_SETREUID; break;
         case SYS_setregid: pedigree_translation = POSIX_SETREGID; break;
-        // ...
+        case SYS_getgroups: pedigree_translation = POSIX_GETGROUPS; break;
         case SYS_setgroups: pedigree_translation = POSIX_SETGROUPS; break;
         case SYS_setresuid: pedigree_translation = POSIX_SETREUID; break;  /// \todo implement me
         case SYS_setresgid: pedigree_translation = POSIX_SETREGID; break;  /// \todo implement me
@@ -147,6 +147,8 @@ inline long posix_translate_syscall(long which)
         case SYS_arch_prctl: pedigree_translation = POSIX_ARCH_PRCTL; break;
         // ...
         case SYS_chroot: pedigree_translation = POSIX_CHROOT; break;
+        // ...
+        case SYS_mount: pedigree_translation = POSIX_MOUNT; break;
         // ...
         case SYS_sethostname: pedigree_translation = POSIX_SETHOSTNAME; break;
         // ...

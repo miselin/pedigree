@@ -40,6 +40,8 @@ class MeminfoFile : public File
         uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
         uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
 
+        virtual size_t getSize();
+
         static int run(void *p);
 
         void updateThread();
@@ -51,6 +53,18 @@ class MeminfoFile : public File
         Mutex m_Lock;
 };
 
+class MountFile : public File
+{
+    public:
+        MountFile(size_t inode, Filesystem *pParentFS, File *pParent);
+        ~MountFile();
+
+        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+        virtual size_t getSize();
+};
+
 class ConstantFile : public File
 {
     public:
@@ -59,6 +73,8 @@ class ConstantFile : public File
 
         uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
         uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+        virtual size_t getSize();
 
     private:
         String m_Contents;

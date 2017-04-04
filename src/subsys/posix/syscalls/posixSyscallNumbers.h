@@ -255,5 +255,7 @@
 #define POSIX_CREAT             246
 #define POSIX_SET_ROBUST_LIST   247
 #define POSIX_GET_ROBUST_LIST   248
+#define POSIX_GETGROUPS         249
+#define POSIX_MOUNT             250
 
 #endif

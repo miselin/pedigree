@@ -546,6 +546,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_set_robust_list(reinterpret_cast<struct robust_list_head *>(p1), p2);
         case POSIX_GET_ROBUST_LIST:
             return posix_get_robust_list(p1, reinterpret_cast<struct robust_list_head **>(p2), reinterpret_cast<size_t *>(p3));
+        case POSIX_GETGROUPS:
+            return posix_getgroups(p1, reinterpret_cast<gid_t *>(p2));
+        case POSIX_MOUNT:
+            return posix_mount(reinterpret_cast<const char *>(p1), reinterpret_cast<const char *>(p2), reinterpret_cast<const char *>(p3), p4, reinterpret_cast<const void *>(p5));
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);
