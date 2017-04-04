@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -40,3 +39,12 @@ ProcessGroup::~ProcessGroup()
     Members.clear();
 }
 
+const PosixProcess::RobustListData &PosixProcess::getRobustList() const
+{
+    return m_RobustListData;
+}
+
+void PosixProcess::setRobustList(const RobustListData &data)
+{
+    m_RobustListData = data;
+}

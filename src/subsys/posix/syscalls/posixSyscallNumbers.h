@@ -246,5 +246,14 @@
 #define POSIX_GETXATTR          237
 #define POSIX_LGETXATTR         238
 #define POSIX_FGETXATTR         239
+#define POSIX_MKNOD             240
+#define POSIX_SETREUID          241
+#define POSIX_SETREGID          242
+#define POSIX_STATFS            243
+#define POSIX_FSTATFS           244
+#define POSIX_SETHOSTNAME       245
+#define POSIX_CREAT             246
+#define POSIX_SET_ROBUST_LIST   247
+#define POSIX_GET_ROBUST_LIST   248
 
 #endif

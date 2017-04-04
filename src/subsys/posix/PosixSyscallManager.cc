@@ -40,6 +40,7 @@
 #include "syscalls/translate.h"
 
 #include <time.h>
+#include <fcntl.h>
 
 #include <debugger/Backtrace.h>
 
@@ -527,6 +528,24 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_lgetxattr(reinterpret_cast<const char *>(p1), reinterpret_cast<const char *>(p2), reinterpret_cast<void *>(p3), p4);
         case POSIX_FGETXATTR:
             return posix_fgetxattr(p1, reinterpret_cast<const char *>(p2), reinterpret_cast<void *>(p3), p4);
+        case POSIX_MKNOD:
+            return posix_mknod(reinterpret_cast<const char *>(p1), p2, p3);
+        case POSIX_SETREUID:
+            return posix_setreuid(p1, p2);
+        case POSIX_SETREGID:
+            return posix_setregid(p1, p2);
+        case POSIX_STATFS:
+            return posix_statfs(reinterpret_cast<const char *>(p1), reinterpret_cast<struct statfs *>(buf));
+        case POSIX_FSTATFS:
+            return posix_fstatfs(p1, reinterpret_cast<struct statfs *>(buf));
+        case POSIX_SETHOSTNAME:
+            return posix_sethostname(reinterpret_cast<const char *>(p1), p2);
+        case POSIX_CREAT:
+            return posix_open(reinterpret_cast<const char *>(p1), O_WRONLY | O_CREAT | O_TRUNC, p2);
+        case POSIX_SET_ROBUST_LIST:
+            return posix_set_robust_list(reinterpret_cast<struct robust_list_head *>(p1), p2);
+        case POSIX_GET_ROBUST_LIST:
+            return posix_get_robust_list(p1, reinterpret_cast<struct robust_list_head **>(p2), reinterpret_cast<size_t *>(p3));
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

@@ -93,5 +93,11 @@ int posix_getrlimit(int resource, struct rlimit *rlim);
 int posix_getpriority(int which, int who);
 int posix_setpriority(int which, int who, int prio);
 
+int posix_setreuid(uid_t ruid, uid_t euid);
+int posix_setregid(gid_t rgid, gid_t egid);
+
+int posix_get_robust_list(int pid, struct robust_list_head **head_ptr, size_t *len_ptr);
+int posix_set_robust_list(struct robust_list_head *head, size_t len);
+
 #endif
 

@@ -47,4 +47,6 @@ int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_l
 
 int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t *optlen);
 
+int posix_sethostname(const char *name, size_t len);
+
 #endif

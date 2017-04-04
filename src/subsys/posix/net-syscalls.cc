@@ -659,16 +659,17 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
             File *parentDirectory = cwd;
 
-            String basename = adjusted_pathname;
+            const char *pDirname = DirectoryName(static_cast<const char *>(adjusted_pathname));
+            const char *pBasename = BaseName(static_cast<const char *>(adjusted_pathname));
 
-            ssize_t final_slash = adjusted_pathname.rfind('/');
-            if (final_slash >= 0)
+            String basename(pBasename);
+            delete [] pBasename;
+
+            if (pDirname)
             {
                 // Reorder rfind result to be from beginning of string.
-                const char *path_cstr = static_cast<const char *>(adjusted_pathname);
-                final_slash = adjusted_pathname.length() - final_slash;
-                String dirname(path_cstr, final_slash);
-                basename = String(path_cstr + final_slash);
+                String dirname(pDirname);
+                delete [] pDirname;
 
                 N_NOTICE(" -> dirname=" << dirname);
 
@@ -1035,6 +1036,24 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t
     }
 
     N_NOTICE(" -> 0");
+    return 0;
+}
+
+int posix_sethostname(const char *name, size_t len)
+{
+    N_NOTICE("sethostname");
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), len, PosixSubsystem::SafeRead)))
+    {
+        N_NOTICE(" -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    N_NOTICE("sethostname(" << String(name, len) << ")");
+
+    /// \todo integrate this
+
     return 0;
 }
 

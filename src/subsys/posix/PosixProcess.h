@@ -89,6 +89,13 @@ class PosixProcess : public Process
             NoGroup
         };
 
+        /** Information about a robust list. */
+        struct RobustListData
+        {
+            void *head;
+            size_t head_len;
+        };
+
         PosixProcess() :
             Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
         {}
@@ -186,6 +193,10 @@ class PosixProcess : public Process
             return m_Mask;
         }
 
+        const RobustListData &getRobustList() const;
+
+        void setRobustList(const RobustListData &data);
+
     private:
         PosixProcess(const PosixProcess&);
         PosixProcess& operator=(const PosixProcess&);
@@ -194,6 +205,7 @@ class PosixProcess : public Process
         ProcessGroup *m_pProcessGroup;
         Membership m_GroupMembership;
         uint32_t m_Mask;
+        RobustListData m_RobustListData;
 };
 
 #endif
