@@ -61,14 +61,14 @@ public:
     /** Adds an alias to an existing filesystem.
      *\param pFs The filesystem to add an alias for.
      *\param pAlias The alias to add. */
-    void addAlias(Filesystem *pFs, String alias);
-    void addAlias(String oldAlias, String newAlias);
+    void addAlias(Filesystem *pFs, const String &alias);
+    void addAlias(const String &oldAlias, const String &newAlias);
 
     /** Gets a unique alias for a filesystem. */
-    String getUniqueAlias(String alias);
+    String getUniqueAlias(const String &alias);
 
     /** Does a given alias exist? */
-    bool aliasExists(String alias);
+    bool aliasExists(const String &alias);
 
     /** Obtains a list of all filesystem aliases */
     inline RadixTree<Filesystem*> &getAliases()
@@ -85,7 +85,7 @@ public:
     /** Removes an alias from a filesystem. If no aliases remain for that filesystem,
      *  the filesystem is destroyed.
      *\param pAlias The alias to remove. */
-    void removeAlias(String alias);
+    void removeAlias(const String &alias);
 
     /** Removes all aliases from a filesystem - the filesystem is destroyed.
      *\param pFs The filesystem to destroy. */
@@ -94,25 +94,25 @@ public:
     /** Looks up the Filesystem from a given alias.
      *\param pAlias The alias to search for.
      *\return The filesystem aliased by pAlias or 0 if none found. */
-    Filesystem *lookupFilesystem(String alias);
+    Filesystem *lookupFilesystem(const String &alias);
 
     /** Attempts to obtain a File for a specific path. */
-    File *find(String path, File *pStartNode=0);
+    File *find(const String &path, File *pStartNode=0);
 
     /** Attempts to create a file. */
-    bool createFile(String path, uint32_t mask, File *pStartNode=0);
+    bool createFile(const String &path, uint32_t mask, File *pStartNode=0);
 
     /** Attempts to create a directory. */
-    bool createDirectory(String path, uint32_t mask, File *pStartNode=0);
+    bool createDirectory(const String &path, uint32_t mask, File *pStartNode=0);
 
     /** Attempts to create a symlink. */
-    bool createSymlink(String path, String value, File *pStartNode=0);
+    bool createSymlink(const String &path, const String &value, File *pStartNode=0);
 
     /** Attempts to create a hard link. */
-    bool createLink(String path, File *target, File *pStartNode=0);
+    bool createLink(const String &path, File *target, File *pStartNode=0);
 
     /** Attempts to remove a file/directory/symlink. WILL FAIL IF DIRECTORY NOT EMPTY */
-    bool remove(String path, File *pStartNode=0);
+    bool remove(const String &path, File *pStartNode=0);
 
     /** Adds a filesystem probe callback - this is called when a device is mounted. */
     void addProbeCallback(Filesystem::ProbeCallback callback);
