@@ -20,6 +20,50 @@
 #include <utilities/utility.h>
 #include <processor/PhysicalMemoryManager.h>
 
+#include <stdio.h>
+
+const char *DirectoryName(const char *path)
+{
+    const char *last_slash = StringReverseFind(path, '/');
+    if (last_slash == nullptr)
+    {
+        return nullptr;
+    }
+
+    size_t dirlength = last_slash - path;
+
+    char *new_str = new char[dirlength + 1];
+    StringCopyN(new_str, path, dirlength);
+    new_str[dirlength] = 0;
+
+    return new_str;
+}
+
+const char *BaseName(const char *path)
+{
+    size_t len = StringLength(path);
+
+    const char *last_slash = StringReverseFind(path, '/');
+    if (last_slash == nullptr)
+    {
+        return path;
+    }
+
+    if (!last_slash[1])
+    {
+        // Trailing slash, no basename
+        return nullptr;
+    }
+
+    size_t baselength = len - (last_slash - path);
+
+    char *new_str = new char[baselength];
+    StringCopy(new_str, last_slash + 1);
+    new_str[baselength] = 0;
+
+    return new_str;
+}
+
 uint8_t checksum(const uint8_t *pMemory, size_t sMemory)
 {
     uint8_t sum = 0;

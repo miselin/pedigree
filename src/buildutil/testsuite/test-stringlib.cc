@@ -190,3 +190,18 @@ TEST(PedigreeStringLibrary, IsDigit)
         EXPECT_TRUE(isdigit('0' + i));
     }
 }
+
+TEST(PedigreeStringLibrary, StringFind)
+{
+    EXPECT_STREQ(StringFind("abc", 'a'), "abc");
+    EXPECT_STREQ(StringFind("abc", 'c'), "c");
+    EXPECT_EQ(StringFind("abc", 'd'), nullptr);
+}
+
+TEST(PedigreeStringLibrary, StringReverseFind)
+{
+    EXPECT_STREQ(StringReverseFind("abc", 'a'), "abc");
+    EXPECT_STREQ(StringReverseFind("abc", 'c'), "c");
+    EXPECT_STREQ(StringReverseFind("ccc", 'c'), "c");  // proper reverse find
+    EXPECT_EQ(StringReverseFind("abc", 'd'), nullptr);
+}
