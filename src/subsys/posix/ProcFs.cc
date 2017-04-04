@@ -25,6 +25,8 @@
 #include <LockGuard.h>
 #include <Version.h>
 
+#include "file-syscalls.h"
+
 /// \todo expose this via PhysicalMemoryManager interface
 extern size_t g_FreePages;
 extern size_t g_AllocedPages;
@@ -45,6 +47,12 @@ MeminfoFile::~MeminfoFile()
 {
     m_bRunning = false;
     m_pUpdateThread->join();
+}
+
+size_t MeminfoFile::getSize()
+{
+    LockGuard<Mutex> guard(m_Lock);
+    return m_Contents.length();
 }
 
 int MeminfoFile::run(void *p)
@@ -94,6 +102,50 @@ uint64_t MeminfoFile::write(uint64_t location, uint64_t size, uintptr_t buffer, 
     return 0;
 }
 
+MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent) :
+    File(String("mounts"), 0, 0, 0, inode, pParentFS, 0, pParent)
+{
+    setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
+    setUidOnly(0);
+    setGidOnly(0);
+}
+
+MountFile::~MountFile() = default;
+
+uint64_t MountFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    String mounts;
+    generate_mtab(mounts);
+
+    if (location >= mounts.length())
+    {
+        // "EOF"
+        return 0;
+    }
+
+    if ((location + size) >= mounts.length())
+    {
+        size = mounts.length() - location;
+    }
+
+    char *destination = reinterpret_cast<char *>(buffer);
+    StringCopyN(destination, static_cast<const char *>(mounts) + location, size);
+
+    return size;
+}
+
+uint64_t MountFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+size_t MountFile::getSize()
+{
+    String mounts;
+    generate_mtab(mounts);
+    return mounts.length();
+}
+
 ConstantFile::ConstantFile(String name, String value, size_t inode, Filesystem *pParentFS, File *pParent) :
     File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents(value)
 {
@@ -129,6 +181,11 @@ uint64_t ConstantFile::write(uint64_t location, uint64_t size, uintptr_t buffer,
     return 0;
 }
 
+size_t ConstantFile::getSize()
+{
+    return m_Contents.length();
+}
+
 ProcFs::~ProcFs()
 {
     delete m_pRoot;
@@ -152,9 +209,12 @@ bool ProcFs::initialise(Disk *pDisk)
     MeminfoFile *meminfo = new MeminfoFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(meminfo->getName(), meminfo);
 
-    /// \todo this is hard-coded and wrong.
-    ConstantFile *mounts = new ConstantFile(String("mounts"), String("/dev/sda / ext2 rw 0 0\n"), getNextInode(), this, m_pRoot);
+    /// \todo also probably need /etc/mtab...
+    MountFile *mounts = new MountFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(mounts->getName(), mounts);
+
+    ConstantFile *pFilesystems = new ConstantFile(String("filesystems"), String("\text2\nnodev\tproc\nnodev\ttmpfs\n"), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
     // Kernel command line
     String cmdline(g_pBootstrapInfo->getCommandLine());

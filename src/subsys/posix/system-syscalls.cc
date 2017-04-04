@@ -1433,6 +1433,40 @@ int posix_pause()
 int posix_setgroups(size_t size, const gid_t *list)
 {
     SC_NOTICE("setgroups(" << size << ")");
+
+    /// \todo check permissions
+
+    /// \todo support this (currently a stub)
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t), PosixSubsystem::SafeRead))
+    {
+        SC_NOTICE(" -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    return 0;
+}
+
+int posix_getgroups(int size, gid_t *list)
+{
+    SC_NOTICE("getgroups(" << size << ")");
+
+    /// \todo support this (currently a stub)
+
+    if (!size)
+    {
+        // Only return number of groups.
+        return 0;
+    }
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t), PosixSubsystem::SafeWrite))
+    {
+        SC_NOTICE("execve -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
     return 0;
 }
 

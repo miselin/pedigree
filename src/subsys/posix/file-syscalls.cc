@@ -38,6 +38,7 @@
 #include <utilities/utility.h>
 #include <users/UserManager.h>
 #include <utilities/PointerGuard.h>
+#include <ramfs/RamFs.h>
 
 #include <Subsystem.h>
 #include <PosixSubsystem.h>
@@ -380,18 +381,19 @@ static struct Remapping
     // from must match either completely, or be followed by a "/"
     const char *from;
     const char *to;
+    const char *fsname;  // certain remaps are to be reported as custom FS's to some ABIs
     bool all_abis;  // certain ABIs shouldn't normalise certain paths
     bool on_devfs;  // certain callers care about the result being on devfs
 } g_Remappings[] = {
-    {"/dev", "dev»", true, true},
-    {"/proc", "proc»", true, false},
-    {"/bin", "/applications", false, false},
-    {"/usr/bin", "/applications", false, false},
-    {"/lib", "/libraries", false, false},
-    {"/etc", "/config", false, false},
-    {"/tmp", "scratch»", true, false},
-    {"/var/run", "posix-runtime»", true, false},
-    {nullptr, nullptr, false, false},
+    {"/dev", "dev»", nullptr, true, true},
+    {"/proc", "proc»", "proc", true, false},
+    {"/bin", "/applications", nullptr, false, false},
+    {"/usr/bin", "/applications", nullptr, false, false},
+    {"/lib", "/libraries", nullptr, false, false},
+    {"/etc", "/config", nullptr, false, false},
+    {"/tmp", "scratch»", "tmpfs", true, false},
+    {"/var/run", "posix-runtime»", "tmpfs", true, false},
+    {nullptr, nullptr, nullptr, false, false},
 };
 
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
@@ -3292,4 +3294,113 @@ int posix_fstatfs(int fd, struct statfs *buf)
     }
 
     return do_statfs(pFd->file, buf);
+}
+
+int posix_mount(const char *src, const char *tgt, const char *fs, size_t flags, const void *data)
+{
+    F_NOTICE("mount");
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(src), PATH_MAX, PosixSubsystem::SafeRead) &&
+         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tgt), PATH_MAX, PosixSubsystem::SafeRead) &&
+         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(fs), PATH_MAX, PosixSubsystem::SafeRead)))
+    {
+        F_NOTICE(" -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    String source(src);
+    String target(tgt);
+    String fstype(fs);
+
+    F_NOTICE("mount(" << source << ", " << target << ", " << fstype << ", " << Hex << flags << ", " << data << ")");
+
+    // Is the target a valid directory?
+    String targetNormalised;
+    normalisePath(targetNormalised, tgt);
+    File *targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
+    if (!targetFile)
+    {
+        F_NOTICE(" -> target does not exist");
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    if (!targetFile->isDirectory())
+    {
+        F_NOTICE(" -> target not a directory");
+        SYSCALL_ERROR(NotADirectory);
+        return -1;
+    }
+
+    Directory *targetDir = Directory::fromFile(targetFile);
+
+    // Check for special filesystems.
+    if (fstype == "proc")
+    {
+        F_NOTICE(" -> adding another procfs mount");
+
+        Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
+        if (!pFs)
+        {
+            SYSCALL_ERROR(DeviceDoesNotExist);
+            return -1;
+        }
+
+        if (targetFile == pFs->getRoot() || targetDir->getReparsePoint() == pFs->getRoot())
+        {
+            // Already mounted here?
+            return 0;
+        }
+
+        // Add reparse point.
+        targetDir->setReparsePoint(Directory::fromFile(pFs->getRoot()));
+        return 0;
+    }
+    else if (fstype == "tmpfs")
+    {
+        F_NOTICE(" -> creating new tmpfs");
+
+        RamFs *pRamFs = new RamFs;
+        pRamFs->initialise(0);
+
+        targetDir->setReparsePoint(Directory::fromFile(pRamFs->getRoot()));
+        return 0;
+    }
+
+    SYSCALL_ERROR(PermissionDenied);
+    return -1;
+}
+
+void generate_mtab(String &result)
+{
+    result = "";
+
+    struct Remapping *remap = g_Remappings;
+    while (remap->from != nullptr)
+    {
+        if (remap->fsname)
+        {
+            String line;
+            line.Format("%s %s %s rw 0 0\n", remap->to, remap->from, remap->fsname);
+
+            result += line;
+        }
+
+        ++remap;
+    }
+
+    // Add root filesystem.
+    Filesystem *pRootFs = VFS::instance().lookupFilesystem(String("root"));
+    if (pRootFs)
+    {
+        /// \todo fix disk path to use rawfs
+        /// \todo fix filesystem identification string
+        String line;
+        line.Format("/dev/sda1 / ext2 rw 0 0\n");
+
+        result += line;
+    }
+
+    F_NOTICE("generated mtab:\n" << result);
 }

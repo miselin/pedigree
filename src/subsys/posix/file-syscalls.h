@@ -128,4 +128,8 @@ int posix_mknod(const char *pathname, mode_t mode, dev_t dev);
 int posix_statfs(const char *path, struct statfs *buf);
 int posix_fstatfs(int fd, struct statfs *buf);
 
+int posix_mount(const char *, const char *, const char *, size_t, const void *);
+
+void generate_mtab(String &result);
+
 #endif
