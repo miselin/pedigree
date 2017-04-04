@@ -26,6 +26,7 @@
 #include <process/Process.h>
 #include <utilities/Tree.h>
 #include <vfs/File.h>
+#include <vfs/Pipe.h>
 #include <vfs/LockedFile.h>
 #include <vfs/MemoryMappedFile.h>
 #include <vfs/Symlink.h>
@@ -36,6 +37,7 @@
 #include <network-stack/Tcp.h>
 #include <utilities/utility.h>
 #include <users/UserManager.h>
+#include <utilities/PointerGuard.h>
 
 #include <Subsystem.h>
 #include <PosixSubsystem.h>
@@ -53,6 +55,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/statfs.h>
 #include <termios.h>
 #include <utime.h>
 #include <stddef.h>
@@ -3134,3 +3137,159 @@ ssize_t posix_fgetxattr(int fd, const char *name, void *value, size_t size)
     return doGetXattr(nullptr, fd, name, value, size, true);
 }
 
+int posix_mknod(const char *pathname, mode_t mode, dev_t dev)
+{
+    F_NOTICE("mknod");
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pathname), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE(" -> invalid address for pathname");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("mknod(" << pathname << ", " << mode << ", " << dev << ")");
+
+    File *targetFile = findFileWithAbiFallbacks(String(pathname), GET_CWD());
+    if (targetFile)
+    {
+        F_NOTICE(" -> already exists");
+        SYSCALL_ERROR(FileExists);
+        return -1;
+    }
+
+    // Open parent directory if we can.
+    const char *parentDirectory = DirectoryName(pathname);
+    const char *baseName = BaseName(pathname);
+    if (!baseName)
+    {
+        F_NOTICE(" -> no filename provided");
+        SYSCALL_ERROR(DoesNotExist);
+        delete [] parentDirectory;
+        return -1;
+    }
+
+    PointerGuard<const char> guard1(parentDirectory, true);
+    PointerGuard<const char> guard2(baseName, true);
+
+    // support mknod("foo") as well as mknod("/path/to/foo")
+    File *parentFile = GET_CWD();
+    if (parentDirectory)
+    {
+        String parentPath;
+        normalisePath(parentPath, parentDirectory, nullptr);
+        NOTICE("finding parent directory " << parentDirectory << "...");
+        NOTICE(" -> " << parentPath << "...");
+        parentFile = findFileWithAbiFallbacks(parentPath, GET_CWD());
+
+        parentFile = traverseSymlink(parentFile);
+        if (!parentFile)
+        {
+            // traverseSymlink sets error for us
+            F_NOTICE(" -> symlink traversal failed");
+            return -1;
+        }
+    }
+    else
+    {
+        NOTICE("NO parent directory was found for path " << pathname);
+    }
+
+    if (!parentFile->isDirectory())
+    {
+        SYSCALL_ERROR(NotADirectory);
+        F_NOTICE(" -> target parent is not a directory");
+        return -1;
+    }
+
+    Directory *parentDir = Directory::fromFile(parentFile);
+
+    if ((mode & S_IFIFO) == S_IFIFO)
+    {
+        // Need to create a FIFO (i.e. named pipe).
+        Pipe *pipe = new Pipe(String(baseName), 0, 0, 0, 0, parentDir->getFilesystem(), 0, parentDir);
+        parentDir->addEphemeralFile(pipe);
+
+        F_NOTICE(" -> fifo/pipe '" << baseName << "' created!");
+        F_NOTICE(" -> full path is " << pipe->getFullPath(true));
+    }
+    else
+    {
+        SYSCALL_ERROR(Unimplemented);
+        F_NOTICE(" -> unimplemented mode requested");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int do_statfs(File *file, struct statfs *buf)
+{
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct statfs), PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE(" -> invalid address for buf [" << buf << "]");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    if (!file)
+    {
+        F_NOTICE(" -> file does not exist");
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+    }
+
+    Filesystem *pFs = file->getFilesystem();
+
+    /// \todo none of this is really correct...
+    ByteSet(buf, 0, sizeof(*buf));
+    buf->f_type = 0xEF53;  // EXT2_SUPER_MAGIC
+    buf->f_bsize = pFs->getDisk()->getBlockSize();
+    buf->f_blocks = pFs->getDisk()->getSize() / pFs->getDisk()->getBlockSize();
+    buf->f_bfree = buf->f_blocks;
+    buf->f_bavail = buf->f_blocks;
+    buf->f_files = 1234;
+    buf->f_ffree = 5678;
+    buf->f_namelen = PATH_MAX;
+    buf->f_frsize = 0;
+    return 0;
+}
+
+int posix_statfs(const char *path, struct statfs *buf)
+{
+    F_NOTICE("statfs");
+
+    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(path), PATH_MAX, PosixSubsystem::SafeRead))
+    {
+        F_NOTICE(" -> invalid address for path");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    F_NOTICE("statfs(" << path << ")");
+    File *file = findFileWithAbiFallbacks(String(path), GET_CWD());
+
+    return do_statfs(file, buf);
+}
+
+int posix_fstatfs(int fd, struct statfs *buf)
+{
+    F_NOTICE("fstatfs(" << fd << ")");
+
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for this process!");
+        return -1;
+    }
+
+    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
+    if (!pFd)
+    {
+        // Error - no such file descriptor.
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+    }
+
+    return do_statfs(pFd->file, buf);
+}

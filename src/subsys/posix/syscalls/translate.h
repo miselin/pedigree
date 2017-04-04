@@ -101,7 +101,7 @@ inline long posix_translate_syscall(long which)
         case SYS_rename: pedigree_translation = POSIX_RENAME; break;
         case SYS_mkdir: pedigree_translation = POSIX_MKDIR; break;
         case SYS_rmdir: pedigree_translation = POSIX_RMDIR; break;
-        // ...
+        case SYS_creat: pedigree_translation = POSIX_CREAT; break;
         case SYS_link: pedigree_translation = POSIX_LINK; break;
         case SYS_unlink: pedigree_translation = POSIX_UNLINK; break;
         case SYS_symlink: pedigree_translation = POSIX_SYMLINK; break;
@@ -128,10 +128,18 @@ inline long posix_translate_syscall(long which)
         case SYS_getppid: pedigree_translation = POSIX_GETPPID; break;
         case SYS_getpgrp: pedigree_translation = POSIX_GETPGRP; break;
         case SYS_setsid: pedigree_translation = POSIX_SETSID; break;
+        case SYS_setreuid: pedigree_translation = POSIX_SETREUID; break;
+        case SYS_setregid: pedigree_translation = POSIX_SETREGID; break;
         // ...
         case SYS_setgroups: pedigree_translation = POSIX_SETGROUPS; break;
+        case SYS_setresuid: pedigree_translation = POSIX_SETREUID; break;  /// \todo implement me
+        case SYS_setresgid: pedigree_translation = POSIX_SETREGID; break;  /// \todo implement me
         // ...
         case SYS_utime: pedigree_translation = POSIX_UTIME; break;
+        case SYS_mknod: pedigree_translation = POSIX_MKNOD; break;
+        // ...
+        case SYS_statfs: pedigree_translation = POSIX_STATFS; break;
+        case SYS_fstatfs: pedigree_translation = POSIX_FSTATFS; break;
         // ...
         case SYS_getpriority: pedigree_translation = POSIX_GETPRIORITY; break;
         case SYS_setpriority: pedigree_translation = POSIX_SETPRIORITY; break;
@@ -139,6 +147,8 @@ inline long posix_translate_syscall(long which)
         case SYS_arch_prctl: pedigree_translation = POSIX_ARCH_PRCTL; break;
         // ...
         case SYS_chroot: pedigree_translation = POSIX_CHROOT; break;
+        // ...
+        case SYS_sethostname: pedigree_translation = POSIX_SETHOSTNAME; break;
         // ...
         case SYS_gettid: pedigree_translation = POSIX_GETTID; break;
         // ...
@@ -173,6 +183,9 @@ inline long posix_translate_syscall(long which)
         case SYS_readlinkat: pedigree_translation = POSIX_READLINKAT; break;
         case SYS_fchmodat: pedigree_translation = POSIX_FCHMODAT; break;
         case SYS_faccessat: pedigree_translation = POSIX_FACCESSAT; break;
+        // ...
+        case SYS_set_robust_list: pedigree_translation = POSIX_SET_ROBUST_LIST; break;
+        case SYS_get_robust_list: pedigree_translation = POSIX_GET_ROBUST_LIST; break;
 
         // Pedigree pass-through syscalls.
         case 0x8000: pedigree_translation = POSIX_TTYNAME;

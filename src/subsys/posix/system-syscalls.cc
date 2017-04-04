@@ -919,7 +919,8 @@ int posix_setuid(uid_t uid)
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    
+
+    /// \todo Make sure we are actually allowed to do this!
     Processor::information().getCurrentThread()->getParent()->setUser(user);
     Processor::information().getCurrentThread()->getParent()->setEffectiveUser(user);
     
@@ -937,7 +938,8 @@ int posix_setgid(gid_t gid)
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    
+
+    /// \todo Make sure we are actually allowed to do this!
     Processor::information().getCurrentThread()->getParent()->setGroup(group);
     Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(group);
     
@@ -1506,5 +1508,95 @@ int posix_setpriority(int which, int who, int prio)
 {
     /// \todo could do more with this
     SC_NOTICE("setpriority(" << which << ", " << Dec << who << ", " << prio << ")");
+    return 0;
+}
+
+int posix_setreuid(uid_t ruid, uid_t euid)
+{
+    SC_NOTICE("setreuid(" << ruid << ", " << euid << ")");
+
+    /// \todo Make sure we are actually allowed to do this! (EPERM)
+
+    if (ruid != static_cast<uid_t>(-1))
+    {
+        User *realUser = UserManager::instance().getUser(ruid);
+        if (realUser)
+        {
+            Processor::information().getCurrentThread()->getParent()->setUser(realUser);
+        }
+    }
+
+    if (euid != static_cast<uid_t>(-1))
+    {
+        User *effectiveUser = UserManager::instance().getUser(ruid);
+        if (effectiveUser)
+        {
+            Processor::information().getCurrentThread()->getParent()->setEffectiveUser(effectiveUser);
+        }
+    }
+
+    return 0;
+}
+
+int posix_setregid(gid_t rgid, gid_t egid)
+{
+    SC_NOTICE("setregid(" << rgid << ", " << egid << ")");
+
+    /// \todo Make sure we are actually allowed to do this! (EPERM)
+
+    if (rgid != static_cast<gid_t>(-1))
+    {
+        Group *realGroup = UserManager::instance().getGroup(rgid);
+        if (realGroup)
+        {
+            Processor::information().getCurrentThread()->getParent()->setGroup(realGroup);
+        }
+    }
+
+    if (egid != static_cast<gid_t>(-1))
+    {
+        Group *effectiveGroup = UserManager::instance().getGroup(egid);
+        if (effectiveGroup)
+        {
+            Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(effectiveGroup);
+        }
+    }
+
+    return 0;
+}
+
+int posix_get_robust_list(int pid, struct robust_list_head **head_ptr, size_t *len_ptr)
+{
+    SC_NOTICE("get_robust_list");
+
+    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(head_ptr), sizeof(void *), PosixSubsystem::SafeWrite) &&
+         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(len_ptr), sizeof(size_t), PosixSubsystem::SafeWrite)))
+    {
+        SC_NOTICE(" -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    PosixProcess *pProcess = static_cast<PosixProcess *>(Processor::information().getCurrentThread()->getParent());
+
+    auto data = pProcess->getRobustList();
+    *head_ptr = reinterpret_cast<struct robust_list_head *>(data.head);
+    *len_ptr = data.head_len;
+
+    return 0;
+}
+
+int posix_set_robust_list(struct robust_list_head *head, size_t len)
+{
+    SC_NOTICE("set_robust_list");
+
+    PosixProcess *pProcess = static_cast<PosixProcess *>(Processor::information().getCurrentThread()->getParent());
+
+    PosixProcess::RobustListData data;
+    data.head = head;
+    data.head_len = len;
+
+    pProcess->setRobustList(data);
+
     return 0;
 }

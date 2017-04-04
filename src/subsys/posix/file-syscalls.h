@@ -123,5 +123,9 @@ ssize_t posix_getxattr(const char *path, const char *name, void *value, size_t s
 ssize_t posix_lgetxattr(const char *path, const char *name, void *value, size_t size);
 ssize_t posix_fgetxattr(int fd, const char *name, void *value, size_t size);
 
+int posix_mknod(const char *pathname, mode_t mode, dev_t dev);
+
+int posix_statfs(const char *path, struct statfs *buf);
+int posix_fstatfs(int fd, struct statfs *buf);
 
 #endif
