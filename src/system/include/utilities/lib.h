@@ -63,6 +63,10 @@ void *ForwardMemoryCopy(void *s1, const void *s2, size_t n);
 void *MemoryCopy(void *s1, const void *s2, size_t n);
 int MemoryCompare(const void *p1, const void *p2, size_t len) PURE;
 
+// Misc utilities for paths etc
+const char *DirectoryName(const char *path) PURE;
+const char *BaseName(const char *path) PURE;
+
 // Built-in PRNG.
 void random_seed(uint64_t seed);
 uint64_t random_next(void);

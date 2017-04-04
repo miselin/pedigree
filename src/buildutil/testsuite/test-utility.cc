@@ -23,6 +23,22 @@
 
 #include <utilities/utility.h>
 
+TEST(PedigreeUtility, DirectoryName)
+{
+    EXPECT_STREQ(DirectoryName("/a/b/c"), "/a/b");
+    EXPECT_STREQ(DirectoryName("/a/b/"), "/a/b");
+    EXPECT_STREQ(DirectoryName("/a/b"), "/a");
+    EXPECT_EQ(DirectoryName("c"), nullptr);
+}
+
+TEST(PedigreeUtility, BaseName)
+{
+    EXPECT_STREQ(BaseName("/a/b/c"), "c");
+    EXPECT_STREQ(BaseName("/a/b/"), nullptr);
+    EXPECT_STREQ(BaseName("/a/b"), "b");
+    EXPECT_EQ(BaseName("c"), "c");
+}
+
 TEST(PedigreeUtility, Fletcher16)
 {
     auto *buf = new uint8_t[4096];
