@@ -146,6 +146,59 @@ size_t MountFile::getSize()
     return mounts.length();
 }
 
+UptimeFile::UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent) :
+    File(String("uptime"), 0, 0, 0, inode, pParentFS, 0, pParent)
+{
+    setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
+    setUidOnly(0);
+    setGidOnly(0);
+}
+
+UptimeFile::~UptimeFile() = default;
+
+uint64_t UptimeFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    String f = generateString();
+
+    if (location >= f.length())
+    {
+        // "EOF"
+        return 0;
+    }
+
+    if ((location + size) >= f.length())
+    {
+        size = f.length() - location;
+    }
+
+    char *destination = reinterpret_cast<char *>(buffer);
+    StringCopyN(destination, static_cast<const char *>(f) + location, size);
+
+    return size;
+}
+
+uint64_t UptimeFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+size_t UptimeFile::getSize()
+{
+    String f = generateString();
+    return f.length();
+}
+
+String UptimeFile::generateString()
+{
+    Timer *pTimer = Machine::instance().getTimer();
+    uint64_t uptime = pTimer->getTickCount();
+
+    String f;
+    f.Format("%d.0 0.0", uptime);
+
+    return f;
+}
+
 ConstantFile::ConstantFile(String name, String value, size_t inode, Filesystem *pParentFS, File *pParent) :
     File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents(value)
 {
@@ -206,12 +259,21 @@ bool ProcFs::initialise(Disk *pDisk)
     // other than the ability to list and access files.
     m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
 
+    // dot entry
+    /// \todo need to know parent (if any) so we can add dotdot too
+    Directory *dot = new ProcFsDirectory(String("."), 0, 0, 0, m_pRoot->getInode(), this, 0, 0);
+    dot->setPermissions(m_pRoot->getPermissions());
+    m_pRoot->addEntry(dot->getName(), dot);
+
     MeminfoFile *meminfo = new MeminfoFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(meminfo->getName(), meminfo);
 
     /// \todo also probably need /etc/mtab...
     MountFile *mounts = new MountFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(mounts->getName(), mounts);
+
+    UptimeFile *uptime = new UptimeFile(getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(uptime->getName(), uptime);
 
     ConstantFile *pFilesystems = new ConstantFile(String("filesystems"), String("\text2\nnodev\tproc\nnodev\ttmpfs\n"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);

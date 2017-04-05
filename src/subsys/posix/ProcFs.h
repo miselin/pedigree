@@ -20,6 +20,9 @@
 #ifndef PROCFS_H
 #define PROCFS_H
 
+#include <machine/Machine.h>
+#include <machine/Timer.h>
+
 #include <Log.h>
 
 #include <vfs/Filesystem.h>
@@ -63,6 +66,21 @@ class MountFile : public File
         uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
 
         virtual size_t getSize();
+};
+
+class UptimeFile : public File
+{
+    public:
+        UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent);
+        ~UptimeFile();
+
+        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+        virtual size_t getSize();
+
+    private:
+        String generateString();
 };
 
 class ConstantFile : public File
