@@ -169,6 +169,29 @@ uint64_t ZeroFile::write(uint64_t location, uint64_t size, uintptr_t buffer, boo
     return size;
 }
 
+uint64_t RtcFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+uint64_t RtcFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+bool RtcFile::supports(const int command)
+{
+    // read/set time
+    return true;
+    // return static_cast<size_t>(command) == 0x80247009UL || static_cast<size_t>(command) == 0x4024700aUL;
+}
+
+int RtcFile::command(const int command, void *buffer)
+{
+    NOTICE("RtcFile: command " << Hex << command << " with buffer " << buffer);
+    return 0;
+}
+
 FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
     File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_pGraphicsParameters(0), m_bTextMode(false), m_nDepth(0)
 {
@@ -504,6 +527,9 @@ bool DevFs::initialise(Disk *pDisk)
 
     Pipe *initctl = new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
     m_pRoot->addEntry(initctl->getName(), initctl);
+
+    RtcFile *rtc = new RtcFile(getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(rtc->getName(), rtc);
 
     // add input handler for terminal switching
     InputManager::instance().installCallback(InputManager::Key, terminalSwitchHandler, this);
