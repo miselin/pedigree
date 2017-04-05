@@ -3367,6 +3367,12 @@ int posix_mount(const char *src, const char *tgt, const char *fs, size_t flags, 
         targetDir->setReparsePoint(Directory::fromFile(pRamFs->getRoot()));
         return 0;
     }
+    else
+    {
+        F_NOTICE(" -> unsupported fstype");
+        SYSCALL_ERROR(DeviceDoesNotExist);
+        return -1;
+    }
 
     SYSCALL_ERROR(PermissionDenied);
     return -1;
