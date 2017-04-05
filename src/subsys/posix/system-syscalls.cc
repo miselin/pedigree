@@ -177,6 +177,9 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
 
     Processor::setInterrupts(false);
 
+    // Must clone state as we make modifications for the new thread here.
+    SyscallState clonedState = state;
+
     // Basic warnings to start with.
     if (flags & CLONE_CHILD_CLEARTID)
     {
@@ -222,9 +225,6 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     {
         // clone vm doesn't actually copy the address space, it shares it
 
-        // Must clone state as we make modifications for the new thread here.
-        SyscallState clonedState = state;
-
         // New child's stack. Must be valid as we're sharing the address space.
         if (!child_stack)
         {
@@ -261,6 +261,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
         pThread->setStatus(Thread::Ready);  // good to go now.
 
         // Parent gets the new thread ID.
+        SC_NOTICE(" -> " << pThread->getId() << " [new thread]");
         return pThread->getId();
     }
 
@@ -268,7 +269,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     // should use it instead!
     if (child_stack)
     {
-        state.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
+        clonedState.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
     }
 
     // Inhibit signals to the parent
@@ -281,6 +282,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     if (!pProcess)
     {
         SYSCALL_ERROR(OutOfMemory);
+        SC_NOTICE(" -> ENOMEM");
         return -1;
     }
 
@@ -301,6 +303,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
         // Allow signals again, something went wrong
         for(int sig = 0; sig < 32; sig++)
             Processor::information().getCurrentThread()->inhibitEvent(sig, false);
+        SC_NOTICE(" -> ENOMEM");
         return -1;
     }
     pProcess->setSubsystem(pSubsystem);
@@ -339,7 +342,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     pSubsystem->copyDescriptors(pParentSubsystem);
 
     // Child returns 0.
-    state.setSyscallReturnValue(0);
+    clonedState.setSyscallReturnValue(0);
 
     // Allow signals to the parent again
     for(int sig = 0; sig < 32; sig++)
@@ -356,7 +359,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     }
 
     // Create a new thread for the new process.
-    Thread *pThread = new Thread(pProcess, state);
+    Thread *pThread = new Thread(pProcess, clonedState);
     pThread->detach();
 
     // Fix up the main thread in the child.
@@ -368,6 +371,7 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
         pThread, pSubsystem);
 
     // Parent returns child ID.
+    SC_NOTICE(" -> " << pProcess->getId() << " [new process]");
     return pProcess->getId();
 }
 
@@ -1542,6 +1546,16 @@ int posix_getrlimit(int resource, struct rlimit *rlim)
             SYSCALL_ERROR(InvalidArgument);
             return -1;
     }
+
+    return 0;
+}
+
+int posix_setrlimit(int resource, const struct rlimit *rlim)
+{
+    /// \todo check access on rlim
+    SC_NOTICE("setrlimit(" << Dec << resource << ")");
+
+    /// \todo write setrlimit
 
     return 0;
 }
