@@ -105,6 +105,26 @@ class PtmxFile : public File
         DevFsDirectory *m_pPtsDirectory;
 };
 
+class RtcFile : public File
+{
+public:
+    RtcFile(size_t inode, Filesystem *pParentFS, File *pParentNode) :
+        File(String("rtc"), 0, 0, 0, inode, pParentFS, 0, pParentNode)
+    {
+        setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
+        setUidOnly(0);
+        setGidOnly(0);
+    }
+    ~RtcFile()
+    {}
+
+    virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+
+    virtual bool supports(const int command);
+    virtual int command(const int command, void *buffer);
+};
+
 class FramebufferFile : public File
 {
 public:
