@@ -24,8 +24,12 @@
 #include <time/Time.h>
 #include <LockGuard.h>
 #include <Version.h>
+#include <users/User.h>
+#include <users/Group.h>
 
 #include "file-syscalls.h"
+
+#include "PosixProcess.h"
 
 /// \todo expose this via PhysicalMemoryManager interface
 extern size_t g_FreePages;
@@ -301,4 +305,48 @@ size_t ProcFs::getNextInode()
 void ProcFs::revertInode()
 {
     --m_NextInode;
+}
+
+void ProcFs::addProcess(PosixProcess *proc)
+{
+    NOTICE("procfs: adding process " << proc->getId());
+
+    size_t pid = proc->getId();
+
+    String s;
+    s.Format("%d", pid);
+
+    auto procDir = new ProcFsDirectory(s, 0, 0, 0, getNextInode(), this, 0, 0);
+    procDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+
+    /// \todo is this correct? or should it be effective user/group?
+    if (proc->getUser())
+    {
+        procDir->setUid(proc->getUser()->getId());
+    }
+    if (proc->getGroup())
+    {
+        procDir->setGid(proc->getGroup()->getId());
+    }
+
+    m_pProcessDirectories.insert(pid, procDir);
+    m_pRoot->addEntry(procDir->getName(), procDir);
+
+    /// \todo add some info to the directory...
+}
+
+void ProcFs::removeProcess(PosixProcess *proc)
+{
+    NOTICE("procfs: removing process " << proc->getId());
+
+    size_t pid = proc->getId();
+
+    String s;
+    s.Format("%d", pid);
+
+    /// \todo should also remove all the files/directories in the directory
+    /// \bug leaks all files/directories in the directory
+
+    m_pRoot->remove(s);
+    m_pProcessDirectories.remove(pid);
 }

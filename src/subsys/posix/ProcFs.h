@@ -33,6 +33,7 @@
 class ProcFs;
 class ProcFsDirectory;
 class Thread;
+class PosixProcess;
 
 class MeminfoFile : public File
 {
@@ -143,6 +144,9 @@ public:
   virtual size_t getNextInode();
   virtual void revertInode();
 
+  void addProcess(PosixProcess *proc);
+  void removeProcess(PosixProcess *proc);
+
 protected:
   virtual bool createFile(File* parent, String filename, uint32_t mask)
   {return false;}
@@ -159,6 +163,8 @@ private:
   ProcFs &operator = (const ProcFs &);
 
   ProcFsDirectory *m_pRoot;
+
+  Tree<size_t, ProcFsDirectory *> m_pProcessDirectories;
 
   size_t m_NextInode;
 };

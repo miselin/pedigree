@@ -96,108 +96,34 @@ class PosixProcess : public Process
             size_t head_len;
         };
 
-        PosixProcess() :
-            Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
-        {}
+        PosixProcess();
 
         /** Copy constructor. */
-        PosixProcess(Process *pParent, bool bCopyOnWrite = true) :
-            Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
-            m_GroupMembership(NoGroup), m_Mask(0)
-        {
-            if(pParent->getType() == Posix)
-            {
-                PosixProcess *pPosixParent = static_cast<PosixProcess *>(pParent);
-                m_pSession = pPosixParent->m_pSession;
-                setProcessGroup(pPosixParent->getProcessGroup());
-                if(m_pProcessGroup)
-                {
-                    setGroupMembership(Member);
-                }
+        PosixProcess(Process *pParent, bool bCopyOnWrite = true);
+        virtual ~PosixProcess();
 
-                // Child inherits parent's mask.
-                m_Mask = pPosixParent->getMask();
-            }
-        }
+        void setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup = true);
+        ProcessGroup *getProcessGroup() const;
 
-        virtual ~PosixProcess()
-        {
-        }
+        void setGroupMembership(Membership type);
+        Membership getGroupMembership() const;
 
-        void setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup = true)
-        {
-            // Remove ourselves from our existing group.
-            if(m_pProcessGroup && bRemoveFromGroup)
-            {
-                for(List<PosixProcess*>::Iterator it = m_pProcessGroup->Members.begin();
-                    it != m_pProcessGroup->Members.end();
-                    )
-                {
-                    if((*it) == this)
-                    {
-                        it = m_pProcessGroup->Members.erase(it);
-                    }
-                    else
-                        ++it;
-                }
-            }
+        PosixSession *getSession() const;
+        void setSession(PosixSession *p);
 
-            // Now join the real group.
-            m_pProcessGroup = newGroup;
-            if(m_pProcessGroup)
-            {
-                m_pProcessGroup->Members.pushBack(this);
-                NOTICE(">>>>>> Adding self to the members list, new size = " << m_pProcessGroup->Members.count() << ".");
+        virtual ProcessType getType();
 
-                ProcessGroupManager::instance().setGroupId(m_pProcessGroup->processGroupId);
-            }
-        }
-
-        ProcessGroup *getProcessGroup()
-        {
-            return m_pProcessGroup;
-        }
-
-        void setGroupMembership(Membership type)
-        {
-            m_GroupMembership = type;
-        }
-
-        Membership getGroupMembership()
-        {
-            return m_GroupMembership;
-        }
-
-        PosixSession *getSession()
-        {
-            return m_pSession;
-        }
-
-        void setSession(PosixSession *p)
-        {
-            m_pSession = p;
-        }
-
-        virtual ProcessType getType()
-        {
-            return Posix;
-        }
-
-        void setMask(uint32_t mask)
-        {
-            m_Mask = mask;
-        }
-
-        uint32_t getMask()
-        {
-            return m_Mask;
-        }
+        void setMask(uint32_t mask);
+        uint32_t getMask() const;
 
         const RobustListData &getRobustList() const;
-
         void setRobustList(const RobustListData &data);
 
     private:
+        // Register with other systems e.g. procfs
+        void registerProcess();
+        void unregisterProcess();
+
         PosixProcess(const PosixProcess&);
         PosixProcess& operator=(const PosixProcess&);
 
