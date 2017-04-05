@@ -18,6 +18,9 @@
  */
 
 #include "PosixProcess.h"
+#include "ProcFs.h"
+
+#include <vfs/VFS.h>
 
 ProcessGroup::~ProcessGroup()
 {
@@ -39,6 +42,108 @@ ProcessGroup::~ProcessGroup()
     Members.clear();
 }
 
+PosixProcess::PosixProcess() :
+    Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
+{
+    registerProcess();
+}
+
+/** Copy constructor. */
+PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite) :
+    Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
+    m_GroupMembership(NoGroup), m_Mask(0)
+{
+    if(pParent->getType() == Posix)
+    {
+        PosixProcess *pPosixParent = static_cast<PosixProcess *>(pParent);
+        m_pSession = pPosixParent->m_pSession;
+        setProcessGroup(pPosixParent->getProcessGroup());
+        if(m_pProcessGroup)
+        {
+            setGroupMembership(Member);
+        }
+
+        // Child inherits parent's mask.
+        m_Mask = pPosixParent->getMask();
+    }
+
+    registerProcess();
+}
+
+PosixProcess::~PosixProcess()
+{
+    unregisterProcess();
+}
+
+void PosixProcess::setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup)
+{
+    // Remove ourselves from our existing group.
+    if(m_pProcessGroup && bRemoveFromGroup)
+    {
+        for(List<PosixProcess*>::Iterator it = m_pProcessGroup->Members.begin();
+            it != m_pProcessGroup->Members.end();
+            )
+        {
+            if((*it) == this)
+            {
+                it = m_pProcessGroup->Members.erase(it);
+            }
+            else
+                ++it;
+        }
+    }
+
+    // Now join the real group.
+    m_pProcessGroup = newGroup;
+    if(m_pProcessGroup)
+    {
+        m_pProcessGroup->Members.pushBack(this);
+        NOTICE(">>>>>> Adding self to the members list, new size = " << m_pProcessGroup->Members.count() << ".");
+
+        ProcessGroupManager::instance().setGroupId(m_pProcessGroup->processGroupId);
+    }
+}
+
+ProcessGroup *PosixProcess::getProcessGroup() const
+{
+    return m_pProcessGroup;
+}
+
+void PosixProcess::setGroupMembership(Membership type)
+{
+    m_GroupMembership = type;
+}
+
+PosixProcess::Membership PosixProcess::getGroupMembership() const
+{
+    return m_GroupMembership;
+}
+
+PosixSession *PosixProcess::getSession() const
+{
+    return m_pSession;
+}
+
+void PosixProcess::setSession(PosixSession *p)
+{
+    m_pSession = p;
+}
+
+Process::ProcessType PosixProcess::getType()
+{
+    return Posix;
+}
+
+void PosixProcess::setMask(uint32_t mask)
+{
+    m_Mask = mask;
+}
+
+uint32_t PosixProcess::getMask() const
+{
+    return m_Mask;
+}
+
 const PosixProcess::RobustListData &PosixProcess::getRobustList() const
 {
     return m_RobustListData;
@@ -47,4 +152,28 @@ const PosixProcess::RobustListData &PosixProcess::getRobustList() const
 void PosixProcess::setRobustList(const RobustListData &data)
 {
     m_RobustListData = data;
+}
+
+void PosixProcess::registerProcess()
+{
+    Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
+    if (!pFs)
+    {
+        return;
+    }
+
+    ProcFs *pProcFs = static_cast<ProcFs *>(pFs);
+    pProcFs->addProcess(this);
+}
+
+void PosixProcess::unregisterProcess()
+{
+    Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
+    if (!pFs)
+    {
+        return;
+    }
+
+    ProcFs *pProcFs = static_cast<ProcFs *>(pFs);
+    pProcFs->removeProcess(this);
 }
