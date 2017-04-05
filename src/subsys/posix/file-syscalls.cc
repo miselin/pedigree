@@ -287,6 +287,14 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     st->st_blksize = static_cast<int>(pFile->getBlockSize());
     st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
 
+    // Special fixups
+    if ((name && !StringCompare(name, "/dev/null")) || (pFile->getName() == "null"))
+    {
+        NOTICE("/dev/null, fixing st_rdev");
+        // major/minor device numbers
+        st->st_rdev = 0x0103;
+    }
+
     return true;
 }
 
