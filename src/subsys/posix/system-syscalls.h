@@ -93,6 +93,7 @@ int posix_setgroups(size_t size, const gid_t *list);
 int posix_getgroups(int size, gid_t *list);
 
 int posix_getrlimit(int resource, struct rlimit *rlim);
+int posix_setrlimit(int resource, const struct rlimit *rlim);
 int posix_getpriority(int which, int who);
 int posix_setpriority(int which, int who, int prio);
 

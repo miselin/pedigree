@@ -535,9 +535,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_SETREGID:
             return posix_setregid(p1, p2);
         case POSIX_STATFS:
-            return posix_statfs(reinterpret_cast<const char *>(p1), reinterpret_cast<struct statfs *>(buf));
+            return posix_statfs(reinterpret_cast<const char *>(p1), reinterpret_cast<struct statfs *>(p2));
         case POSIX_FSTATFS:
-            return posix_fstatfs(p1, reinterpret_cast<struct statfs *>(buf));
+            return posix_fstatfs(p1, reinterpret_cast<struct statfs *>(p2));
         case POSIX_SETHOSTNAME:
             return posix_sethostname(reinterpret_cast<const char *>(p1), p2);
         case POSIX_CREAT:
@@ -552,6 +552,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_mount(reinterpret_cast<const char *>(p1), reinterpret_cast<const char *>(p2), reinterpret_cast<const char *>(p3), p4, reinterpret_cast<const void *>(p5));
         case POSIX_SETTIMEOFDAY:
             return posix_settimeofday(reinterpret_cast<const struct timeval *>(p1), reinterpret_cast<const struct timezone *>(p2));
+        case POSIX_SETRLIMIT:
+            return posix_setrlimit(p1, reinterpret_cast<const struct rlimit *>(p2));
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);
