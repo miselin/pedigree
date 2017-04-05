@@ -550,6 +550,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_getgroups(p1, reinterpret_cast<gid_t *>(p2));
         case POSIX_MOUNT:
             return posix_mount(reinterpret_cast<const char *>(p1), reinterpret_cast<const char *>(p2), reinterpret_cast<const char *>(p3), p4, reinterpret_cast<const void *>(p5));
+        case POSIX_SETTIMEOFDAY:
+            return posix_settimeofday(reinterpret_cast<const struct timeval *>(p1), reinterpret_cast<const struct timezone *>(p2));
 
         default:
             ERROR ("PosixSyscallManager: invalid syscall received: " << Dec << syscallNumber << Hex);

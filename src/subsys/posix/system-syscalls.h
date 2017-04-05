@@ -44,6 +44,7 @@ int posix_getpid();
 int posix_getppid();
 
 int posix_gettimeofday(timeval *tv, struct timezone *tz);
+int posix_settimeofday(const timeval *tv, const struct timezone *tz);
 clock_t posix_times(struct tms *tm);
 int posix_getrusage(int who, struct rusage *r);
 

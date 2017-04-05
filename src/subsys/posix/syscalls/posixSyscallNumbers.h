@@ -257,5 +257,6 @@
 #define POSIX_GET_ROBUST_LIST   248
 #define POSIX_GETGROUPS         249
 #define POSIX_MOUNT             250
+#define POSIX_SETTIMEOFDAY      251
 
 #endif
