@@ -267,6 +267,7 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     if (permissions & FILE_OR) mode |= S_IROTH;
     if (permissions & FILE_OW) mode |= S_IWOTH;
     if (permissions & FILE_OX) mode |= S_IXOTH;
+    if (permissions & FILE_STICKY) mode |= S_ISVTX;
     F_NOTICE("    -> " << Oct << mode);
 
     /// \todo expose number of links and number of blocks from Files
@@ -306,6 +307,7 @@ static bool doChmod(File *pFile, mode_t mode)
     size_t uid = pCurrentUser->getId();
     if (!(uid == pFile->getUid() || uid == 0))
     {
+        F_NOTICE(" -> EPERM");
         // Not allowed - EPERM.
         // User must own the file or be superuser.
         SYSCALL_ERROR(NotEnoughPermissions);
@@ -323,6 +325,7 @@ static bool doChmod(File *pFile, mode_t mode)
     if (mode & S_IROTH) permissions |= FILE_OR;
     if (mode & S_IWOTH) permissions |= FILE_OW;
     if (mode & S_IXOTH) permissions |= FILE_OX;
+    if (mode & S_ISVTX) permissions |= FILE_STICKY;
     pFile->setPermissions(permissions);
 
     return true;
@@ -2908,8 +2911,9 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
 
     F_NOTICE("fchmodat(" << dirfd << ", " << pathname << ", " << Oct << mode << Hex << ", " << flags << ")");
     
-    if((mode == static_cast<mode_t>(-1)) || (mode > 0777))
+    if(mode == static_cast<mode_t>(-1))
     {
+        F_NOTICE(" -> invalid mode");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }

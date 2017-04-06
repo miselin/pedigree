@@ -52,6 +52,10 @@
 #define FILE_OX 0400
 #define FILE_OMASK 0700
 #define FILE_OBITS 6
+// Ancillary file bits.
+#define FILE_STICKY 01000
+#define FILE_AMASK 07000
+#define FILE_ABITS 9
 
 #define FILE_BAD_BLOCK static_cast<uintptr_t>(-1)
 
