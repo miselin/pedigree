@@ -737,7 +737,7 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
 int posix_listen(int sock, int backlog)
 {
-    N_NOTICE("posix_listen");
+    N_NOTICE("posix_listen(" << sock << ", " << backlog << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -751,6 +751,12 @@ int posix_listen(int sock, int backlog)
     if(!(f && f->file))
     {
         SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+    }
+    if (!f->file->isSocket())
+    {
+        /// \todo should be ENOTSOCK
+        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
     if(f->so_type != SOCK_STREAM)
