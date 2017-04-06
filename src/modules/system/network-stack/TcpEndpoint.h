@@ -46,86 +46,35 @@ class TcpEndpoint : public ConnectionBasedEndpoint
   public:
 
     /** Constructors and destructors */
-    TcpEndpoint() :
-      ConnectionBasedEndpoint(), m_Card(0), m_ConnId(0), m_RemoteHost(),
-      nBytesRemoved(0), m_Listening(false), m_IncomingConnections(),
-      m_IncomingConnectionCount(0), m_bConnected(false), m_IncomingConnectionLock(),
-      m_DataStream(), m_ShadowDataStream()
-    {
-      m_bConnection = true;
-    }
-    TcpEndpoint(uint16_t local, uint16_t remote) :
-      ConnectionBasedEndpoint(local, remote), m_Card(0), m_ConnId(0),
-      m_RemoteHost(), nBytesRemoved(0), m_Listening(false), m_IncomingConnections(),
-      m_IncomingConnectionCount(0), m_bConnected(false), m_IncomingConnectionLock(),
-      m_DataStream(), m_ShadowDataStream()
-    {
-      m_bConnection = true;
-    }
-    TcpEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
-      ConnectionBasedEndpoint(remoteIp, local, remote), m_Card(0),
-      m_ConnId(0), m_RemoteHost(), nBytesRemoved(0), m_Listening(false),
-      m_IncomingConnections(), m_IncomingConnectionCount(0), m_bConnected(false),
-      m_IncomingConnectionLock(), m_DataStream(), m_ShadowDataStream()
-    {
-      m_bConnection = true;
-    }
-    TcpEndpoint(size_t connId, IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
-      ConnectionBasedEndpoint(remoteIp, local, remote), m_Card(0),
-      m_ConnId(connId), m_RemoteHost(), nBytesRemoved(0), m_Listening(false),
-      m_IncomingConnections(), m_IncomingConnectionCount(0), m_bConnected(false),
-      m_IncomingConnectionLock(), m_DataStream(), m_ShadowDataStream()
-    {
-      m_bConnection = true;
-    }
-    virtual ~TcpEndpoint() {}
+    TcpEndpoint();
+    TcpEndpoint(uint16_t local, uint16_t remote);
+    TcpEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
+    TcpEndpoint(size_t connId, IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
+    virtual ~TcpEndpoint();
 
     /** Application interface */
-    virtual int state();
+    virtual ConnectionBasedEndpoint::EndpointState state() const;
     virtual int send(size_t nBytes, uintptr_t buffer);
     virtual int recv(uintptr_t buffer, size_t maxSize, bool bBlock = false, bool bPeek = false);
     virtual bool dataReady(bool block = false, uint32_t tmout = 30);
 
-    virtual bool connect(Endpoint::RemoteEndpoint remoteHost, bool bBlock = true);
+    virtual bool connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock = true);
     virtual void close();
 
     virtual Endpoint* accept();
-    virtual void listen();
+    virtual bool listen();
 
-    virtual void setRemoteHost(Endpoint::RemoteEndpoint host)
-    {
-      m_RemoteHost = host;
-    }
+    virtual void setRemoteHost(const Endpoint::RemoteEndpoint &host);
 
-    virtual inline uint32_t getConnId()
-    {
-      return m_ConnId;
-    }
+    virtual uint32_t getConnId() const;
 
     /** TcpManager functionality - called to deposit data into our local buffer */
     virtual size_t depositTcpPayload(size_t nBytes, uintptr_t payload, uint32_t sequenceNumber, bool push);
 
     /** Setters */
-    void setCard(Network* pCard)
-    {
-      m_Card = pCard;
-    }
+    void setCard(Network* pCard);
 
-    void addIncomingConnection(TcpEndpoint* conn)
-    {
-      if(conn)
-      {
-        {
-          LockGuard<Mutex> guard(m_IncomingConnectionLock);
-          m_IncomingConnections.pushBack(static_cast<Endpoint*>(conn));
-        }
-        m_IncomingConnectionCount.release();
-
-        // Wake up listeners that might be waiting for an incoming connection.
-        /// \todo This is a hack - fix stateChanged to be aware of more states.
-        stateChanged(Tcp::ESTABLISHED);
-      }
-    }
+    void addIncomingConnection(TcpEndpoint* conn);
 
     /** Shuts down halves of the connection */
     virtual bool shutdown(ShutdownType what);
@@ -136,20 +85,7 @@ class TcpEndpoint : public ConnectionBasedEndpoint
   private:
 
     /** Copy constructors */
-    TcpEndpoint(const TcpEndpoint& s) :
-      ConnectionBasedEndpoint(), m_Card(0), m_ConnId(0), m_RemoteHost(), nBytesRemoved(0),
-      m_Listening(false), m_IncomingConnections(), m_IncomingConnectionCount(0),
-      m_bConnected(false), m_DataStream(), m_ShadowDataStream()
-    {
-      // shouldn't be called
-      ERROR("Tcp: TcpEndpoint copy constructor has been called.");
-    }
-    TcpEndpoint& operator = (const TcpEndpoint& s)
-    {
-      // shouldn't be called
-      ERROR("Tcp: TcpEndpoint copy constructor has been called.");
-      return *this;
-    }
+    NOT_COPYABLE_OR_ASSIGNABLE(TcpEndpoint);
 
     /** The network device to use */
     Network* m_Card;

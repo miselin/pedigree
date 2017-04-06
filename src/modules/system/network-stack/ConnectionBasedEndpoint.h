@@ -20,6 +20,8 @@
 #ifndef _CONNECTION_BASED_ENDPOINT_H
 #define _CONNECTION_BASED_ENDPOINT_H
 
+#include <compiler.h>
+
 #include "Endpoint.h"
 
 /**
@@ -28,59 +30,47 @@
  */
 class ConnectionBasedEndpoint : public Endpoint
 {
-private:
-    ConnectionBasedEndpoint(const ConnectionBasedEndpoint &e);
-    const ConnectionBasedEndpoint& operator = (const ConnectionBasedEndpoint& e);
 public:
-    ConnectionBasedEndpoint() :
-            Endpoint()
-    {}
-    ConnectionBasedEndpoint(uint16_t local, uint16_t remote) :
-            Endpoint(local, remote)
-    {}
-    ConnectionBasedEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
-            Endpoint(remoteIp, local, remote)
-    {}
-    virtual ~ConnectionBasedEndpoint() {}
+    ConnectionBasedEndpoint();
+    ConnectionBasedEndpoint(uint16_t local, uint16_t remote);
+    ConnectionBasedEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
+    virtual ~ConnectionBasedEndpoint();
 
-    EndpointType getType()
+    enum EndpointState
     {
-        return ConnectionBased;
-    }
+        LISTENING,
+        CONNECTING,
+        TRANSFER,
+        CLOSING,
+        CLOSED,
+        UNKNOWN,
+    };
+
+    virtual EndpointType getType() const;
 
     /** Grabs an integer representation of the connection state */
-    virtual int state()
-    {
-        return 0xff;
-    }
+    virtual EndpointState state() const;
+
+    /** Are we in a connected state? */
+    virtual bool isConnected() const;
 
     /** Connects to the given remote host */
-    virtual bool connect(Endpoint::RemoteEndpoint remoteHost, bool bBlock = true)
-    {
-        return false;
-    }
+    virtual bool connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock = true);
 
     /** Closes the connection */
-    virtual void close()
-    {
-    }
+    virtual void close();
 
     /**
      * Puts the connection into the listening state, waiting for incoming
      * connections.
      */
-    virtual void listen()
-    {
-    }
+    virtual bool listen();
 
     /**
      * Blocks until an incoming connection is available, then accepts it
      * and returns an Endpoint for that connection.
      */
-    virtual Endpoint* accept()
-    {
-        return 0;
-    }
+    virtual Endpoint* accept();
 
     /**
      * Sends nBytes of buffer
@@ -88,10 +78,7 @@ public:
      * \param buffer the buffer to send
      * \returns -1 on failure, the number of bytes sent otherwise
      */
-    virtual int send(size_t nBytes, uintptr_t buffer)
-    {
-        return -1;
-    }
+    virtual int send(size_t nBytes, uintptr_t buffer);
 
     /**
      * Receives from the network into the given buffer
@@ -101,25 +88,20 @@ public:
      * \param bPeek whether or not to keep messages in the data buffer
      * \returns -1 on failure, the number of bytes received otherwise
      */
-    virtual int recv(uintptr_t buffer, size_t maxSize, bool block, bool bPeek)
-    {
-        return -1;
-    }
+    virtual int recv(uintptr_t buffer, size_t maxSize, bool block, bool bPeek);
 
     /** Retrieves the connection ID for this connection. */
-    virtual inline uint32_t getConnId()
-    {
-        return 0;
-    }
+    virtual uint32_t getConnId() const;
 
     /**
      * Because TCP works with RemoteEndpoints a lot, it's easier to set our
      * internal state using this kind of function rather than several calls
      * to the setXyz functions.
      */
-    virtual void setRemoteHost(RemoteEndpoint host)
-    {
-    }
+    virtual void setRemoteHost(const RemoteEndpoint &host);
+
+private:
+    NOT_COPYABLE_OR_ASSIGNABLE(ConnectionBasedEndpoint);
 };
 
 #endif

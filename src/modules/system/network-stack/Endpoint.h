@@ -69,57 +69,24 @@ public:
     };
 
     /** Constructors and destructors */
-    Endpoint() :
-            m_Sockets(), m_LocalPort(0), m_RemotePort(0), m_LocalIp(), m_RemoteIp(),
-            m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
-    {}
-    Endpoint(uint16_t local, uint16_t remote) :
-            m_Sockets(), m_LocalPort(local), m_RemotePort(remote), m_LocalIp(), m_RemoteIp(),
-            m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
-    {}
-    Endpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
-            m_Sockets(), m_LocalPort(local), m_RemotePort(remote), m_LocalIp(), m_RemoteIp(remoteIp),
-            m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
-    {}
-    virtual ~Endpoint() {}
+    Endpoint();
+    Endpoint(uint16_t local, uint16_t remote);
+    Endpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
+    virtual ~Endpoint();
 
     /** Endpoint type (implemented by the concrete child classes) */
-    virtual EndpointType getType() = 0;
+    virtual EndpointType getType() const = 0;
 
     /** Access to internal information */
-    virtual uint16_t getLocalPort()
-    {
-        return m_LocalPort;
-    }
-    virtual uint16_t getRemotePort()
-    {
-        return m_RemotePort;
-    }
-    virtual IpAddress getLocalIp()
-    {
-        return m_LocalIp;
-    }
-    virtual IpAddress getRemoteIp()
-    {
-        return m_RemoteIp;
-    }
+    virtual uint16_t getLocalPort() const;
+    virtual uint16_t getRemotePort() const;
+    virtual const IpAddress &getLocalIp() const;
+    virtual const IpAddress &getRemoteIp() const;
 
-    virtual void setLocalPort(uint16_t port)
-    {
-        m_LocalPort = port;
-    }
-    virtual void setRemotePort(uint16_t port)
-    {
-        m_RemotePort = port;
-    }
-    virtual void setLocalIp(IpAddress local)
-    {
-        m_LocalIp = local;
-    }
-    virtual void setRemoteIp(IpAddress remote)
-    {
-        m_RemoteIp = remote;
-    }
+    virtual void setLocalPort(uint16_t port);
+    virtual void setRemotePort(uint16_t port);
+    virtual void setLocalIp(const IpAddress &local);
+    virtual void setRemoteIp(const IpAddress &remote);
 
     /**
      * Special address type, like stationInfo but with information about
@@ -128,7 +95,7 @@ public:
     struct RemoteEndpoint
     {
         RemoteEndpoint() :
-                ip(), remotePort(0)
+            ip(), remotePort(0)
         {}
 
         /// IpAddress will handle IPv6 and IPv4
@@ -139,16 +106,10 @@ public:
     };
 
     /** Is data ready to receive? */
-    virtual bool dataReady(bool block = false, uint32_t timeout = 30)
-    {
-        return false;
-    }
+    virtual bool dataReady(bool block = false, uint32_t timeout = 30);
 
     /** <Protocol>Manager functionality */
-    virtual size_t depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost)
-    {
-        return 0;
-    }
+    virtual size_t depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost);
 
     /** All endpoint types must provide a shutdown() method that shuts part of the socket */
     virtual bool shutdown(ShutdownType what) = 0;
@@ -157,63 +118,30 @@ public:
      * This would allow an Endpoint to switch cards to utilise the best route
      * for a return packet. I'm not sure if it's used or not.
      */
-    virtual void setCard(Network* pCard)
-    {
-    }
+    virtual void setCard(Network* pCard);
 
     /** Protocol management */
-    ProtocolManager *getManager()
-    {
-        return m_Manager;
-    }
+    ProtocolManager *getManager() const;
 
-    void setManager(ProtocolManager *man)
-    {
-        m_Manager = man;
-    }
+    void setManager(ProtocolManager *man);
 
     /** Connection type */
-    inline bool isConnectionless()
-    {
-        return !m_bConnection;
-    }
+    bool isConnectionless() const;
     
     /** Adds a socket to the internal list */
-    void AddSocket(Socket *s)
-    {
-        m_Sockets.pushBack(s);
-    }
+    void AddSocket(Socket *s);
 
     /** Removes a socket from the internal list */
-    void RemoveSocket(Socket *s)
-    {
-        for(List<Socket*>::Iterator it = m_Sockets.begin(); it != m_Sockets.end(); ++it)
-        {
-            if(*it == s)
-            {
-                m_Sockets.erase(it);
-                return;
-            }
-        }
-    }
+    void RemoveSocket(Socket *s);
 
     /** Retrieves the most recent error for the endpoint, if any. */
-    Error::PosixError getError() const
-    {
-        return m_Error;
-    }
+    Error::PosixError getError() const;
 
     /** Resets the error status of the endpoint. */
-    void resetError()
-    {
-        m_Error = Error::NoError;
-    }
+    void resetError();
 
     /** Report an error. */
-    void reportError(Error::PosixError e)
-    {
-        m_Error = e;
-    }
+    void reportError(Error::PosixError e);
 
 protected:
 

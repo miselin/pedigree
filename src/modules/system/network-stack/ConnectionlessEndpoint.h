@@ -43,7 +43,7 @@ public:
     {}
     virtual ~ConnectionlessEndpoint() {}
 
-    EndpointType getType()
+    virtual EndpointType getType() const
     {
         return Connectionless;
     }

@@ -187,17 +187,19 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
     if(p->getType() == Endpoint::ConnectionBased)
     {
         ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-        int endpointState = ce->state();
-        if (endpointState < Tcp::CLOSED)
+        auto endpointState = ce->state();
+
+        // Check for some bad states.
+        if (endpointState != ConnectionBasedEndpoint::CLOSED)
         {
-            if (endpointState < Tcp::ESTABLISHED)
+            if (endpointState == ConnectionBasedEndpoint::CONNECTING)
             {
                 // EALREADY - connection attempt in progress
                 SYSCALL_ERROR(Already);
                 N_NOTICE(" -> connection attempt in progress already");
                 return -1;
             }
-            else
+            else if (ce->isConnected())
             {
                 // EISCONN - already connected
                 SYSCALL_ERROR(IsConnected);
@@ -767,18 +769,11 @@ int posix_listen(int sock, int backlog)
     }
 
     ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-
-    if(s->getProtocol() == NETMAN_TYPE_TCP)
+    if (!ce->listen())
     {
-        if((ce->state() != Tcp::CLOSED) && (ce->state() != Tcp::UNKNOWN))
-        {
-            ERROR("State was " << ce->state() << ".");
-            SYSCALL_ERROR(InvalidArgument);
-            return -1;
-        }
+        N_NOTICE(" -> listen failed");
+        return -1;
     }
-
-    ce->listen();
 
     return 0;
 }
