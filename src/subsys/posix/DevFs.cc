@@ -450,7 +450,11 @@ bool DevFs::initialise(Disk *pDisk)
     m_pRoot->addEntry(pPtmx->getName(), pPtmx);
 
     // Create /dev/urandom for the RNG.
-    RandomFile *pRandom = new RandomFile(String("urandom"), getNextInode(), this, m_pRoot);
+    RandomFile *pUrandom = new RandomFile(String("urandom"), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pUrandom->getName(), pUrandom);
+
+    // Create /dev/random - note, won't block waiting for more entropy!
+    RandomFile *pRandom = new RandomFile(String("random"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pRandom->getName(), pRandom);
 
     // Create /dev/fb for the framebuffer device.
@@ -482,6 +486,10 @@ bool DevFs::initialise(Disk *pDisk)
     // tty0 == current console
     Tty0File *pTty0 = new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
     m_pRoot->addEntry(pTty0->getName(), pTty0);
+
+    // console == current console
+    Tty0File *pConsole = new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
+    m_pRoot->addEntry(pConsole->getName(), pConsole);
 
     // create tty1 which is essentially just textui but with a S_IFCHR wrapper
     if (m_pTty)
