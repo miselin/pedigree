@@ -24,9 +24,66 @@
 #include <process/Scheduler.h>
 #include <utilities/TimeoutGuard.h>
 
-int TcpEndpoint::state()
+TcpEndpoint::TcpEndpoint() :
+  ConnectionBasedEndpoint(), m_Card(0), m_ConnId(0), m_RemoteHost(),
+  nBytesRemoved(0), m_Listening(false), m_IncomingConnections(),
+  m_IncomingConnectionCount(0), m_bConnected(false), m_IncomingConnectionLock(),
+  m_DataStream(), m_ShadowDataStream()
 {
-    return static_cast<int>(TcpManager::instance().getState(m_ConnId));
+  m_bConnection = true;
+}
+TcpEndpoint::TcpEndpoint(uint16_t local, uint16_t remote) :
+  ConnectionBasedEndpoint(local, remote), m_Card(0), m_ConnId(0),
+  m_RemoteHost(), nBytesRemoved(0), m_Listening(false), m_IncomingConnections(),
+  m_IncomingConnectionCount(0), m_bConnected(false), m_IncomingConnectionLock(),
+  m_DataStream(), m_ShadowDataStream()
+{
+  m_bConnection = true;
+}
+TcpEndpoint::TcpEndpoint(IpAddress remoteIp, uint16_t local, uint16_t remote) :
+  ConnectionBasedEndpoint(remoteIp, local, remote), m_Card(0),
+  m_ConnId(0), m_RemoteHost(), nBytesRemoved(0), m_Listening(false),
+  m_IncomingConnections(), m_IncomingConnectionCount(0), m_bConnected(false),
+  m_IncomingConnectionLock(), m_DataStream(), m_ShadowDataStream()
+{
+  m_bConnection = true;
+}
+TcpEndpoint::TcpEndpoint(size_t connId, IpAddress remoteIp, uint16_t local, uint16_t remote) :
+  ConnectionBasedEndpoint(remoteIp, local, remote), m_Card(0),
+  m_ConnId(connId), m_RemoteHost(), nBytesRemoved(0), m_Listening(false),
+  m_IncomingConnections(), m_IncomingConnectionCount(0), m_bConnected(false),
+  m_IncomingConnectionLock(), m_DataStream(), m_ShadowDataStream()
+{
+  m_bConnection = true;
+}
+
+TcpEndpoint::~TcpEndpoint() = default;
+
+ConnectionBasedEndpoint::EndpointState TcpEndpoint::state() const
+{
+    auto state = TcpManager::instance().getState(m_ConnId);
+    switch (state)
+    {
+        case Tcp::LISTEN:
+            return ConnectionBasedEndpoint::LISTENING;
+        case Tcp::SYN_SENT:
+        case Tcp::SYN_RECEIVED:
+            return ConnectionBasedEndpoint::CONNECTING;
+        case Tcp::ESTABLISHED:
+            return ConnectionBasedEndpoint::TRANSFER;
+        case Tcp::FIN_WAIT_1:
+        case Tcp::FIN_WAIT_2:
+        case Tcp::CLOSE_WAIT:
+        case Tcp::CLOSING:
+            return ConnectionBasedEndpoint::CLOSING;
+        case Tcp::LAST_ACK:
+        case Tcp::TIME_WAIT:
+            return ConnectionBasedEndpoint::CLOSED;
+        case Tcp::IGNORED:
+        case Tcp::UNKNOWN:
+        default:
+            return ConnectionBasedEndpoint::UNKNOWN;
+    }
 }
 
 Endpoint* TcpEndpoint::accept()
@@ -50,15 +107,26 @@ Endpoint* TcpEndpoint::accept()
     return e;
 }
 
-void TcpEndpoint::listen()
+bool TcpEndpoint::listen()
 {
+    // Is the state OK for this?
+    if (m_bConnected)
+    {
+        // Connection exists, can't listen.
+        /// \todo bubble up an error
+        return false;
+    }
+
     /// \todo Interface-specific connections
     m_IncomingConnections.clear();
     m_ConnId = TcpManager::instance().Listen(this, getLocalPort());
     m_Listening = true;
+
+    /// \todo Listen() could fail?
+    return true;
 }
 
-bool TcpEndpoint::connect(Endpoint::RemoteEndpoint remoteHost, bool bBlock)
+bool TcpEndpoint::connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock)
 {
     setRemoteHost(remoteHost);
     setRemotePort(remoteHost.remotePort);
@@ -134,6 +202,16 @@ int TcpEndpoint::recv(uintptr_t buffer, size_t maxSize, bool bBlock, bool bPeek)
         return -1;
     }
 };
+
+void TcpEndpoint::setRemoteHost(const Endpoint::RemoteEndpoint &host)
+{
+  m_RemoteHost = host;
+}
+
+uint32_t TcpEndpoint::getConnId() const
+{
+  return m_ConnId;
+}
 
 size_t TcpEndpoint::depositTcpPayload(size_t nBytes, uintptr_t payload, uint32_t sequenceNumber, bool push)
 {
@@ -236,6 +314,27 @@ bool TcpEndpoint::dataReady(bool block, uint32_t tmout)
         return (m_DataStream.getDataSize() != 0);
     }
 };
+
+void TcpEndpoint::setCard(Network* pCard)
+{
+  m_Card = pCard;
+}
+
+void TcpEndpoint::addIncomingConnection(TcpEndpoint* conn)
+{
+  if(conn)
+  {
+    {
+      LockGuard<Mutex> guard(m_IncomingConnectionLock);
+      m_IncomingConnections.pushBack(static_cast<Endpoint*>(conn));
+    }
+    m_IncomingConnectionCount.release();
+
+    // Wake up listeners that might be waiting for an incoming connection.
+    /// \todo This is a hack - fix stateChanged to be aware of more states.
+    stateChanged(Tcp::ESTABLISHED);
+  }
+}
 
 bool TcpEndpoint::shutdown(ShutdownType what)
 {
