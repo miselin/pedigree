@@ -167,7 +167,7 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
   Thread *pThread = Processor::information().getCurrentThread();
   Process *pProcess = pThread->getParent();
   Subsystem *pSubsystem = pProcess->getSubsystem();
-  if(0 && pSubsystem && !interruptState.kernelMode())
+  if(pSubsystem && !interruptState.kernelMode())
   {
       if(UNLIKELY(nIntNumber == 0))
       {
