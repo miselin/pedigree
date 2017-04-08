@@ -34,6 +34,7 @@
 
 #include "file-syscalls.h"
 #include "console-syscalls.h"
+#include "logging.h"
 
 #include <limits.h>
 #include <sys/ioctl.h>
@@ -145,11 +146,20 @@ static void terminalEventHandler(uintptr_t serializeBuffer)
     // Identify what happened.
     Subsystem::ExceptionType what = Subsystem::Other;
     if(which == specialChars[VINTR])
+    {
+        F_NOTICE(" -> terminal event: interrupt");
         what = Subsystem::Interrupt;
+    }
     else if(which == specialChars[VQUIT])
+    {
+        F_NOTICE(" -> terminal event: quit");
         what = Subsystem::Quit;
+    }
     else if(which == specialChars[VSUSP])
+    {
+        F_NOTICE(" -> terminal event: suspend");
         what = Subsystem::Stop;
+    }
 
     // Send to each process.
     if(what != Subsystem::Other)
@@ -180,7 +190,7 @@ int posix_tcgetattr(int fd, struct termios *p)
 {
   if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(p), sizeof(struct termios), PosixSubsystem::SafeWrite))
   {
-      NOTICE("tcgetattr -> invalid address");
+      F_NOTICE("tcgetattr -> invalid address");
       SYSCALL_ERROR(InvalidArgument);
       return -1;
   }
@@ -200,12 +210,16 @@ int posix_tcgetattr(int fd, struct termios *p)
   if (!pFd)
   {
     // Error - no such file descriptor.
+    SYSCALL_ERROR(BadFileDescriptor);
+    F_NOTICE(" -> EBADF");
     return -1;
   }
 
   if (!ConsoleManager::instance().isConsole(pFd->file))
   {
     // Error - not a TTY.
+    SYSCALL_ERROR(NotAConsole);
+    F_NOTICE(" -> ENOTTY");
     return -1;
   }
 
@@ -283,12 +297,16 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios *p)
   if (!pFd)
   {
     // Error - no such file descriptor.
+    SYSCALL_ERROR(BadFileDescriptor);
+    F_NOTICE(" -> EBADF");
     return -1;
   }
 
   if (!ConsoleManager::instance().isConsole(pFd->file))
   {
     // Error - not a TTY.
+    SYSCALL_ERROR(NotAConsole);
+    F_NOTICE(" -> ENOTTY");
     return -1;
   }
 
@@ -473,6 +491,28 @@ static void setConsoleGroup(Process *pProcess, ProcessGroup *pGroup)
     pConsole->setEvent(pEvent);
 }
 
+int console_setctty(File *file, bool steal)
+{
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+
+    /// \todo Check we are session leader.
+    /// \todo If we are root and steal == 1, we can steal a ctty from another
+    ///       session group.
+
+    // All is well.
+    pProcess->setCtty(file);
+
+    PosixProcess *pPosixProcess = static_cast<PosixProcess *>(pProcess);
+    ProcessGroup *pProcessGroup = pPosixProcess->getProcessGroup();
+    if(pProcessGroup)
+    {
+      // Move the terminal into the same process group as this process.
+      setConsoleGroup(pProcess, pProcessGroup);
+    }
+
+    return 0;
+}
+
 int console_setctty(int fd, bool steal)
 {
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
@@ -504,27 +544,12 @@ int console_setctty(int fd, bool steal)
         return -1;
     }
 
-    /// \todo Check we are session leader.
-    /// \todo If we are root and steal == 1, we can steal a ctty from another
-    ///       session group.
-
-    // All is well.
-    pProcess->setCtty(pFd->file);
-
-    PosixProcess *pPosixProcess = static_cast<PosixProcess *>(pProcess);
-    ProcessGroup *pProcessGroup = pPosixProcess->getProcessGroup();
-    if(pProcessGroup)
-    {
-      // Move the terminal into the same process group as this process.
-      setConsoleGroup(pProcess, pProcessGroup);
-    }
-
-    return 0;
+    return console_setctty(pFd->file, steal);
 }
 
 int posix_tcsetpgrp(int fd, pid_t pgid_id)
 {
-  NOTICE("tcsetpgrp (" << fd << ", " << pgid_id << ")");
+    F_NOTICE("tcsetpgrp(" << fd << ", " << pgid_id << ")");
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if(!pSubsystem)
@@ -538,12 +563,14 @@ int posix_tcsetpgrp(int fd, pid_t pgid_id)
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
+        F_NOTICE(" -> EBADF");
         return -1;
     }
 
     if ((!pProcess->getCtty()) || (pProcess->getCtty() != pFd->file) || (!ConsoleManager::instance().isConsole(pFd->file)))
     {
         SYSCALL_ERROR(NotAConsole);
+        F_NOTICE(" -> ENOTTY");
         return -1;
     }
 
@@ -570,16 +597,20 @@ int posix_tcsetpgrp(int fd, pid_t pgid_id)
     if(!pGroup)
     {
         SYSCALL_ERROR(PermissionDenied);
+        F_NOTICE(" -> EPERM");
         return -1;
     }
 
     setConsoleGroup(pProcess, pGroup);
 
+    F_NOTICE(" -> ok");
     return 0;
 }
 
 pid_t posix_tcgetpgrp(int fd)
 {
+    F_NOTICE("tcgetpgrp(" << fd << ")");
+
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if(!pSubsystem)
@@ -617,12 +648,14 @@ pid_t posix_tcgetpgrp(int fd)
       result = ProcessGroupManager::instance().allocateGroupId();
     }
 
-    NOTICE("tcgetpgrp -> " << result);
+    F_NOTICE("tcgetpgrp -> " << result);
     return result;
 }
 
 unsigned int console_getptn(int fd)
 {
+    F_NOTICE("console_getptn(" << fd << ")");
+
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
     if(!pSubsystem)
@@ -636,12 +669,14 @@ unsigned int console_getptn(int fd)
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
+        F_NOTICE(" -> EBADF");
         return ~0U;
     }
 
     if (!ConsoleManager::instance().isConsole(pFd->file))
     {
         SYSCALL_ERROR(NotAConsole);
+        F_NOTICE(" -> not a console!");
         return ~0U;
     }
 
@@ -652,7 +687,9 @@ unsigned int console_getptn(int fd)
         // special case, it's a Console attached to a physical terminal instead
         // of a pseudoterminal
         SYSCALL_ERROR(NotAConsole);
+        F_NOTICE(" -> unknown console number!");
         return ~0U;
     }
+    F_NOTICE(" -> " << result);
     return result;
 }
