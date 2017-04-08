@@ -206,6 +206,8 @@ int TcpEndpoint::recv(uintptr_t buffer, size_t maxSize, bool bBlock, bool bPeek)
 void TcpEndpoint::setRemoteHost(const Endpoint::RemoteEndpoint &host)
 {
   m_RemoteHost = host;
+  setRemoteIp(host.ip);
+  setRemotePort(host.remotePort);
 }
 
 uint32_t TcpEndpoint::getConnId() const

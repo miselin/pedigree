@@ -95,14 +95,26 @@ public:
     struct RemoteEndpoint
     {
         RemoteEndpoint() :
-            ip(), remotePort(0)
+            type(INET), ip(), remotePort(0), localPath()
         {}
+
+        /// Remote endpoint type.
+        enum RemoteType
+        {
+            // INET -> IP addresses
+            INET,
+            // LOCAL -> paths on local filesystems
+            LOCAL,
+        } type;
 
         /// IpAddress will handle IPv6 and IPv4
         IpAddress ip;
 
         /// Remote host's port
         uint16_t remotePort;
+
+        /// Local path
+        String localPath;
     };
 
     /** Is data ready to receive? */
