@@ -74,6 +74,8 @@ struct linux_dirent {
     char d_name[];
 };
 
+extern DevFs *g_pDevFs;
+
 //
 // Syscalls pertaining to files.
 //
@@ -270,6 +272,8 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     if (permissions & FILE_STICKY) mode |= S_ISVTX;
     F_NOTICE("    -> " << Oct << mode);
 
+    Filesystem *pFs = pFile->getFilesystem();
+
     /// \todo expose number of links and number of blocks from Files
     st->st_dev   = static_cast<short>(reinterpret_cast<uintptr_t>(pFile->getFilesystem()));
     F_NOTICE("    -> " << st->st_dev);
@@ -289,11 +293,20 @@ static bool doStat(const char *name, File *pFile, struct stat *st, bool traverse
     st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
 
     // Special fixups
-    if ((name && !StringCompare(name, "/dev/null")) || (pFile->getName() == "null"))
+    if (pFs == g_pDevFs)
     {
-        NOTICE("/dev/null, fixing st_rdev");
-        // major/minor device numbers
-        st->st_rdev = 0x0103;
+        if ((name && !StringCompare(name, "/dev/null")) || (pFile->getName() == "null"))
+        {
+            NOTICE("/dev/null, fixing st_rdev");
+            // major/minor device numbers
+            st->st_rdev = 0x0103;
+        }
+        else if (ConsoleManager::instance().isConsole(pFile))
+        {
+            /// \todo assumption here
+            ConsoleFile *pConsole = static_cast<ConsoleFile *>(pFile);
+            st->st_rdev = 0x8800 | pConsole->getConsoleNumber();
+        }
     }
 
     return true;
@@ -600,6 +613,7 @@ int posix_read(int fd, char *ptr, int len)
         if(!pFd->file->select(false, 0))
         {
             SYSCALL_ERROR(NoMoreProcesses);
+            F_NOTICE(" -> async and nothing available to read");
             return -1;
         }
     }
@@ -616,6 +630,11 @@ int posix_read(int fd, char *ptr, int len)
             return -1;
         }
         pFd->offset += nRead;
+    }
+
+    if(ptr && len)
+    {
+        F_NOTICE(" -> read: '" << String(ptr, len) << "'");
     }
 
     F_NOTICE("    -> " << Dec << nRead << Hex);
@@ -1119,6 +1138,21 @@ int posix_ioctl(int fd, int command, void *buf)
 
     switch (command)
     {
+        case 0x4B33:  // KDGKBTYPE
+        {
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                // US 101
+                *reinterpret_cast<int *>(buf) = 0x02;
+                return 0;
+            }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
+        }
+
         case TCGETS:
         {
             if (ConsoleManager::instance().isConsole(f->file))
@@ -1262,12 +1296,14 @@ int posix_ioctl(int fd, int command, void *buf)
             unsigned int result = console_getptn(fd);
             if (result < ~0U)
             {
+                F_NOTICE(" -> ok, returning " << result);
                 *out = result;
                 return 0;
             }
             else
             {
                 // console_getptn will set the syscall error
+                F_NOTICE(" -> failed!");
                 return -1;
             }
             break;
@@ -1296,6 +1332,23 @@ int posix_ioctl(int fd, int command, void *buf)
 
             return 0;
         }
+
+        /// \todo move this into ConsoleFile or something
+        // VT_OPENQRY
+        case 0x5600:
+        {
+            F_NOTICE(" -> VT_OPENQRY (stubbed)");
+
+            int *ibuf = reinterpret_cast<int *>(buf);
+            *ibuf = 2;  // tty2 is free (maybe)
+
+            return 0;
+        }
+
+        // VT_GETSTATE
+        case 0x5603:
+            F_NOTICE(" -> VT_GETSTATE (stubbed)");
+            return 0;
     }
 
     F_NOTICE("  -> invalid combination of fd " << fd << " and ioctl " << Hex << command);
@@ -2364,6 +2417,15 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
                 return -1;
             }
         }
+        else
+        {
+            // Slave - set as controlling unless noctty is set.
+            if ((flags & O_NOCTTY) == 0)
+            {
+                F_NOTICE(" -> setting opened terminal to be controlling");
+                console_setctty(file, false);
+            }
+        }
     }
 
     // Permissions were OK.
@@ -3254,17 +3316,50 @@ static int do_statfs(File *file, struct statfs *buf)
 
     Filesystem *pFs = file->getFilesystem();
 
-    /// \todo none of this is really correct...
-    ByteSet(buf, 0, sizeof(*buf));
-    buf->f_type = 0xEF53;  // EXT2_SUPER_MAGIC
-    buf->f_bsize = pFs->getDisk()->getBlockSize();
-    buf->f_blocks = pFs->getDisk()->getSize() / pFs->getDisk()->getBlockSize();
-    buf->f_bfree = buf->f_blocks;
-    buf->f_bavail = buf->f_blocks;
-    buf->f_files = 1234;
-    buf->f_ffree = 5678;
-    buf->f_namelen = PATH_MAX;
-    buf->f_frsize = 0;
+    /// \todo this is all terrible
+    bool bFilled = false;
+    if (pFs == g_pDevFs)
+    {
+        F_NOTICE(" -> file '" << file->getName() << "' is on devfs");
+
+        // Special handling for devfs
+        if (file->getName() == "pts")
+        {
+            F_NOTICE(" -> filling statfs struct with /dev/pts data");
+            ByteSet(buf, 0, sizeof(*buf));
+            buf->f_type = 0x1CD1;  // DEVPTS_SUPER_MAGIC
+            buf->f_bsize = 4096;
+            buf->f_namelen = PATH_MAX;
+            buf->f_frsize = 4096;
+            bFilled = true;
+        }
+    }
+
+    if (!bFilled)
+    {
+        /// \todo none of this is really correct...
+        F_NOTICE(" -> filling statfs struct with ext2 data");
+        ByteSet(buf, 0, sizeof(*buf));
+        buf->f_type = 0xEF53;  // EXT2_SUPER_MAGIC
+        if (pFs->getDisk())
+        {
+            buf->f_bsize = pFs->getDisk()->getBlockSize();
+            buf->f_blocks = pFs->getDisk()->getSize() / pFs->getDisk()->getBlockSize();
+        }
+        else
+        {
+            buf->f_bsize = 4096;
+            buf->f_blocks = 0x100000;  // incorrect...
+        }
+        buf->f_bfree = buf->f_blocks;
+        buf->f_bavail = buf->f_blocks;
+        buf->f_files = 1234;
+        buf->f_ffree = 5678;
+        buf->f_namelen = PATH_MAX;
+        buf->f_frsize = 0;
+    }
+
+    F_NOTICE(" -> ok");
     return 0;
 }
 
@@ -3280,7 +3375,10 @@ int posix_statfs(const char *path, struct statfs *buf)
     }
 
     F_NOTICE("statfs(" << path << ")");
-    File *file = findFileWithAbiFallbacks(String(path), GET_CWD());
+    String normalisedPath;
+    normalisePath(normalisedPath, path);
+    F_NOTICE(" -> actually performing statfs on " << normalisedPath);
+    File *file = findFileWithAbiFallbacks(normalisedPath, GET_CWD());
 
     return do_statfs(file, buf);
 }
