@@ -99,12 +99,6 @@ Process::~Process()
     m_pSubsystem->acquire();
   }
 
-  // Block until we are the only one touching this Process object.
-  LockGuard<Spinlock> guard(m_Lock);
-
-  // Guards things like removeThread.
-  m_State = Terminating;
-
   bool isSelf = Processor::information().getCurrentThread()->getParent() == this;
 
   for(Vector<Thread*>::Iterator it = m_Threads.begin();
@@ -119,10 +113,27 @@ Process::~Process()
       // Child thread is not current thread - terminate the child properly.
       pThread->setStatus(Thread::Zombie);
       pThread->shutdown();
-      if (pThread->detached())
+    }
+  }
+
+  // Block until we are the only one touching this Process object.
+  LockGuard<Spinlock> guard(m_Lock);
+
+  // Guards things like removeThread.
+  m_State = Terminating;
+
+  // Now that all threads are shut down and marked as zombies, and we have
+  // taken the main process Spinlock, we can clean up the detached threads.
+  for(Vector<Thread*>::Iterator it = m_Threads.begin();
+      it != m_Threads.end();
+      ++it)
+  {
+    Thread *t = (*it);
+    if (t != Processor::information().getCurrentThread())
+    {
+      if (t->detached())
       {
-        // Destroy the thread - it was detached.
-        delete pThread;
+        delete t;
       }
     }
   }
