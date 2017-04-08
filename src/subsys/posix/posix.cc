@@ -36,7 +36,7 @@ static PosixSyscallManager g_PosixSyscallManager;
 static UnixFilesystem *g_pUnixFilesystem = 0;
 static RamFs *g_pRunFilesystem = 0;
 
-static DevFs *g_pDevFs = 0;
+DevFs *g_pDevFs = 0;
 static ProcFs *g_pProcFs = 0;
 
 static bool init()
