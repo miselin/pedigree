@@ -36,6 +36,7 @@ int console_flush(File *file, void *what);
 int console_ptsname(int fd, char *buf);
 int console_ttyname(int fd, char *buf);
 
+int console_setctty(File *file, bool steal);
 int console_setctty(int fd, bool steal);
 int console_notty(int fd);
 
