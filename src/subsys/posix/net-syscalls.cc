@@ -114,6 +114,8 @@ int posix_socket(int domain, int type, int protocol)
 
 int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
 {
+    N_NOTICE("connect");
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen, PosixSubsystem::SafeRead))
     {
         N_NOTICE("connect -> invalid address");
@@ -184,6 +186,8 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
     }
 
     Endpoint* p = s->getEndpoint();
+
+    // Sanity check connection-based endpoints for EALREADY, EISCONN.
     if(p->getType() == Endpoint::ConnectionBased)
     {
         ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
@@ -211,62 +215,65 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
 
     bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
 
-    Endpoint::RemoteEndpoint remoteHost;
-
-    /// \bug Assuming _in here...
-    struct sockaddr_in* address_in = reinterpret_cast<struct sockaddr_in*>(address);
-    IpAddress dest(address_in->sin_addr.s_addr);
-    Network *iface = RoutingTable::instance().DetermineRoute(&dest);
-    if(!iface || !iface->isConnected())
-    {
-        // Can't use this interface...
-        N_NOTICE(" -> interface not connected");
-        return false;
-    }
-    StationInfo iface_info = iface->getStationInfo();
-
-    /// \todo Other protocols
     bool success = false;
-    if (s->getProtocol() == NETMAN_TYPE_TCP)
+    if (f->so_domain == AF_INET)
     {
-        ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
+        Endpoint::RemoteEndpoint remoteHost;
 
         struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
-        remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
-        remoteHost.ip.setIp(sin->sin_addr.s_addr);
-
-        success = ce->connect(remoteHost, blocking);
-
-        if (!blocking)
+        IpAddress dest(sin->sin_addr.s_addr);
+        Network *iface = RoutingTable::instance().DetermineRoute(&dest);
+        if(!iface || !iface->isConnected())
         {
-            SYSCALL_ERROR(InProgress);
-            N_NOTICE(" -> connection now in progress");
-            return -1;
+            // Can't use this interface...
+            N_NOTICE(" -> interface not connected");
+            return false;
         }
-    }
-    else if (s->getProtocol() == NETMAN_TYPE_UDP)
-    {
-        // connect on a UDP socket sets a remote address and port for send/recv
-        // to send to multiple addresses and receive from multiple clients
-        // sendto and recvfrom must be used
+        StationInfo iface_info = iface->getStationInfo();
 
-        ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
-
-        struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
         remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
         remoteHost.ip.setIp(sin->sin_addr.s_addr);
 
-        // If no bind has been done, allocate a port and bind.
-        ce->setLocalIp(iface_info.ipv4);
-        if(!ce->getLocalPort())
-            ce->setLocalPort(0);
-        ce->setRemotePort(remoteHost.remotePort);
-        ce->setRemoteIp(remoteHost.ip);
-        success = true;
-    }
-    else if (s->getProtocol() == NETMAN_TYPE_RAW)
-    {
-        success = true;
+        N_NOTICE(" -> connecting to " << dest.toString() << ":" << Dec << remoteHost.remotePort);
+
+        if(p->getType() == Endpoint::ConnectionBased)
+        {
+            ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
+
+            success = ce->connect(remoteHost, blocking);
+
+            if (!blocking)
+            {
+                SYSCALL_ERROR(InProgress);
+                N_NOTICE(" -> connection now in progress");
+                return -1;
+            }
+            else
+            {
+                N_NOTICE(" -> was a blocking connect");
+            }
+        }
+        else if (p->getType() == Endpoint::Connectionless)
+        {
+            // connect on a UDP socket sets a remote address and port for send/recv
+            // to send to multiple addresses and receive from multiple clients
+            // sendto and recvfrom must be used
+
+            ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
+
+            // If no bind has been done, allocate a port and bind.
+            ce->setLocalIp(iface_info.ipv4);
+            if(!ce->getLocalPort())
+                ce->setLocalPort(0);
+            ce->setRemotePort(remoteHost.remotePort);
+            ce->setRemoteIp(remoteHost.ip);
+            success = true;
+        }
+        else
+        {
+            // ?
+            success = true;
+        }
     }
 
     N_NOTICE(" -> success=" << success);
@@ -275,6 +282,8 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
 
 ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
 {
+    N_NOTICE("posix_send");
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeRead))
     {
         N_NOTICE("send -> invalid address");
@@ -282,7 +291,7 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
         return -1;
     }
 
-    N_NOTICE("posix_send");
+    N_NOTICE("posix_send(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -335,6 +344,8 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
 
 ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t addrlen)
 {
+    N_NOTICE("posix_sendto");
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeRead))
     {
         N_NOTICE("sendto -> invalid address for transmission buffer");
@@ -459,6 +470,8 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
 
 ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
 {
+    N_NOTICE("posix_recv");
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeWrite))
     {
         N_NOTICE("recv -> invalid address");
@@ -466,7 +479,7 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
         return -1;
     }
 
-    N_NOTICE("posix_recv");
+    N_NOTICE("posix_recv(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -513,6 +526,8 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
 
 ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen)
 {
+    N_NOTICE("recvfrom");
+
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeWrite) &&
         ((!address) || PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t), PosixSubsystem::SafeWrite))))
     {
@@ -615,6 +630,8 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
 
 int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 {
+    N_NOTICE("posix_bind");
+
     if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen, PosixSubsystem::SafeRead))
     {
         N_NOTICE("bind -> invalid address");
@@ -622,7 +639,7 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
         return -1;
     }
 
-    N_NOTICE("posix_bind");
+    N_NOTICE("posix_bind(" << sock << ", " << address << ", " << addrlen << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -765,6 +782,13 @@ int posix_listen(int sock, int backlog)
         return -1;
     }
 
+    if (f->so_domain == AF_UNIX)
+    {
+        SYSCALL_ERROR(OperationNotSupported);
+        N_NOTICE(" -> listen not supported for unix sockets yet");
+        return -1;
+    }
+
     Socket *s = static_cast<Socket *>(f->file);
 
     Endpoint* p = s->getEndpoint();
@@ -786,6 +810,8 @@ int posix_listen(int sock, int backlog)
 
 int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
 {
+    N_NOTICE("posix_accept");
+
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
@@ -794,7 +820,7 @@ int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
         return -1;
     }
 
-    N_NOTICE("posix_accept");
+    N_NOTICE("posix_accept(" << sock << ", " << address << ", " << addrlen << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -842,7 +868,7 @@ int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
 
 int posix_shutdown(int socket, int how)
 {
-    N_NOTICE("posix_shutdown");
+    N_NOTICE("posix_shutdown(" << socket << ", " << how << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -882,6 +908,8 @@ int posix_shutdown(int socket, int how)
 
 int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_len)
 {
+    N_NOTICE("posix_getpeername");
+
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
@@ -890,7 +918,7 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
         return -1;
     }
 
-    N_NOTICE("posix_getpeername");
+    N_NOTICE("posix_getpeername(" << socket << ", " << address << ", " << address_len << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -904,6 +932,7 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
     if (!f || !f->file)
     {
         SYSCALL_ERROR(BadFileDescriptor);
+        N_NOTICE(" -> bad descriptor");
         return -1;
     }
     Socket *s = static_cast<Socket *>(f->file);
@@ -918,19 +947,25 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
         sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
         sin->sin_addr.s_addr = p->getRemoteIp().getIp();
         *address_len = sizeof(struct sockaddr_in);
+
+        N_NOTICE(" -> remote peer is " << p->getRemoteIp().toString() << ":" << Dec << p->getRemotePort());
     }
     else
     {
         /// \todo NotConnected more correct?
         SYSCALL_ERROR(OperationNotSupported);
+        N_NOTICE(" -> unsupported protocol");
         return -1;
     }
 
+    N_NOTICE(" -> OK");
     return 0;
 }
 
 int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_len)
 {
+    N_NOTICE("posix_getsockname");
+
     if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
     {
@@ -939,7 +974,7 @@ int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_l
         return -1;
     }
 
-    N_NOTICE("posix_getsockname");
+    N_NOTICE("posix_getsockname(" << socket << ", " << address << ", " << address_len << ")");
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
