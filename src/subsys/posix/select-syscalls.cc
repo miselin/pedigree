@@ -238,6 +238,8 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
 
         if (readfds && FD_ISSET(i, readfds))
         {
+            F_NOTICE(" -> check readable fd=" << i);
+
             // Has the file already got data in it?
             /// \todo Specify read/write/error to select and monitor.
             if (pFile->select(false, 0))
@@ -273,6 +275,8 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
         }
         if (writefds && FD_ISSET(i, writefds))
         {
+            F_NOTICE(" -> check writable fd=" << i);
+
             // Has the file already got data in it?
             /// \todo Specify read/write/error to select and monitor.
             if (pFile->select(true, 0))
@@ -308,6 +312,8 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
         }
         if (errorfds && FD_ISSET(i, errorfds))
         {
+            F_NOTICE(" -> check error fd=" << i);
+
             FD_CLR(i, errorfds);
         }
         /*
