@@ -1051,7 +1051,8 @@ int posix_setsid()
         }
         else
         {
-            SC_NOTICE("setsid() called while a member of another group");
+            SC_NOTICE("setsid() called while a member of another group [" << pProcess->getProcessGroup()->processGroupId << "]");
+
         }
     }
 
@@ -1197,9 +1198,15 @@ int posix_getpgrp()
 
     int result = 0;
     if(pGroup)
-        result = pProcess->getProcessGroup()->processGroupId;
+    {
+        SC_NOTICE(" -> using existing group id");
+        result = pGroup->processGroupId;
+    }
     else
+    {
+        SC_NOTICE(" -> using pid only");
         result = pProcess->getId(); // Fallback if no ProcessGroup pointer yet
+    }
 
     SC_NOTICE(" -> " << result);
     return result;
@@ -1516,10 +1523,10 @@ int posix_getrlimit(int resource, struct rlimit *rlim)
             rlim->rlim_cur = rlim->rlim_max = 1ULL << 48ULL;
             break;
         case RLIMIT_NPROC:
-            rlim->rlim_cur = rlim->rlim_max = 0xFFFFFFFFFFFFFFFFULL;
+            rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
             break;
         case RLIMIT_NOFILE:
-            rlim->rlim_cur = rlim->rlim_max = 0xFFFFFFFFFFFFFFFFULL;
+            rlim->rlim_cur = rlim->rlim_max = 16384;
             break;
         case RLIMIT_MEMLOCK:
             rlim->rlim_cur = rlim->rlim_max = 1ULL << 24ULL;
@@ -1541,12 +1548,16 @@ int posix_getrlimit(int resource, struct rlimit *rlim)
             break;
         case RLIMIT_RTPRIO:
             SYSCALL_ERROR(InvalidArgument);
+            SC_NOTICE(" -> RTPRIO not supported");
             return -1;
         default:
             SYSCALL_ERROR(InvalidArgument);
+            SC_NOTICE(" -> unknown resource!");
             return -1;
     }
 
+    SC_NOTICE(" -> cur = " << rlim->rlim_cur);
+    SC_NOTICE(" -> max = " << rlim->rlim_max);
     return 0;
 }
 
