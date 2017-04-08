@@ -71,8 +71,8 @@ static int doThreadKill(Thread *p, int sig);
 #define SIGNAL_HANDLER_SUSPEND(name) \
     static void name(int s) \
     { \
-        NOTICE("SUSPEND [signal " << s << "]"); \
-        Process *pParent = Processor::information().getCurrentThread()->getParent()->getParent(); \
+        Process *pParent = Processor::information().getCurrentThread()->getParent(); \
+        NOTICE("SUSPEND [pid=" << pParent->getId() << ", signal " << s << "]"); \
         pParent->suspend(); \
     }
 #define SIGNAL_HANDLER_RESUME(name) \
@@ -395,8 +395,15 @@ int posix_kill(int pid, int sig)
                 // Any process in the same process group as the caller.
                 if (!(pGroup && pThisGroup))
                     continue;
-                if(pGroup->processGroupId != pThisGroup->processGroupId)
+                if (pGroup->processGroupId != pThisGroup->processGroupId)
                     continue;
+
+                if (pGroup != pThisGroup)
+                {
+                    SC_NOTICE(" -> same group IDs but different groups??");
+                }
+
+                SC_NOTICE(" -> killing process " << pProcess->getId() << " in group [" << pGroup->processGroupId << "]");
             }
             else if (pid == -1)
             {
@@ -414,6 +421,11 @@ int posix_kill(int pid, int sig)
             continue;
         else if (pProcess->getType() != Process::Posix)
             continue;
+        else if (pid <= 0)
+        {
+            // process group option failed to fully succeed, don't kill
+            continue;
+        }
 
         // Okay, the process is good.
         processList.pushBack(pProcess);
@@ -434,9 +446,15 @@ int posix_kill(int pid, int sig)
     {
         PosixProcess *member = static_cast<PosixProcess *>(*it);
         if(member != pThisProcess)
+        {
+            SC_NOTICE(" -> not killing current process, killing " << member->getId());
             doProcessKill(member, sig);
+        }
         else
+        {
+            SC_NOTICE(" -> killing current process (" << pThisProcess->getId() << ")");
             bKillingSelf = true;
+        }
     }
 
     // Yield to allow the events to be propagated across the process(es)
@@ -444,6 +462,7 @@ int posix_kill(int pid, int sig)
 
     if(bKillingSelf)
     {
+        SC_NOTICE("performing kill of " << pThisProcess->getId() << "...");
         doProcessKill(pThisProcess, sig);
 
         // If it was us, try to handle the signal *now*, or else we're going to end up who-knows-where on return.
