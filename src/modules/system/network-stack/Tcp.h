@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,6 +19,8 @@
 
 #ifndef MACHINE_TCP_H
 #define MACHINE_TCP_H
+
+#ifdef DISABLE_TCP
 
 #include <utilities/String.h>
 #include <utilities/Vector.h>
@@ -168,5 +169,7 @@ public:
     }
   }
 };
+
+#endif
 
 #endif

@@ -67,6 +67,15 @@ int MemoryCompare(const void *p1, const void *p2, size_t len) PURE;
 const char *DirectoryName(const char *path) PURE;
 const char *BaseName(const char *path) PURE;
 
+// Character checks.
+#ifndef UTILITY_LINUX
+int isspace(int c) PURE;
+int isupper(int c) PURE;
+int islower(int c) PURE;
+int isdigit(int c) PURE;
+int isalpha(int c) PURE;
+#endif
+
 // Built-in PRNG.
 void random_seed(uint64_t seed);
 uint64_t random_next(void);

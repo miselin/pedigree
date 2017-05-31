@@ -29,6 +29,7 @@ class Mutex
         ~Mutex();
 
         bool acquire();
+        bool tryAcquire();
         void release();
 
         void *getPrivate() const

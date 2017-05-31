@@ -36,6 +36,7 @@ env['OBJSUFFIX'] = '.build.o'
 
 subdirs = [
     'ext2img',
+    'netwrap',
 ]
 
 if env['instrumentation']:
@@ -72,6 +73,7 @@ libutility_sources = [
     os.path.join('utilities', 'UnlikelyLock.cc'),
     os.path.join('utilities', 'RequestQueue.cc'),
     os.path.join('utilities', 'BloomFilter.cc'),
+    os.path.join('utilities', 'sha1', 'sha1.cc'),
     os.path.join('utilities', 'smhasher', 'MurmurHash3.cpp'),
     os.path.join('core', 'lib', 'demangle.cc'),
     os.path.join('core', 'lib', 'string.c'),
@@ -87,6 +89,7 @@ libutility_sources = [
 defines = [
     'HOSTED', 'UTILITY_LINUX', 'TARGET_IS_LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
     'PEDIGREE_BENCHMARK', 'STANDALONE_MUTEXES', 'STANDALONE_CACHE',
+    'STANDALONE_MEMPOOL', 'DEVICE_IGNORE_ADDRESSES',
 ]
 
 utility_env = env.Clone()
@@ -102,7 +105,7 @@ utility_env.MergeFlags({
 })
 
 utility_env.Library(os.path.join(env['BUILDDIR'], 'utility'),
-    ['shim.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources])
+    ['shim.cc', 'pocketknife.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources])
 
 # Build a version of libutility that has the necessary coverage pieces, such
 # that we can get code coverage analysis where actual .cc files hold the code
@@ -112,6 +115,13 @@ utility_env['CPPDEFINES'] += ['UTILITY_LINUX_COVERAGE']
 utility_env.Library(os.path.join(env['BUILDDIR'], 'utility_coverage'),
     ['shim.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources],
     CCFLAGS=utility_env['COVERAGE_CCFLAGS'])
+
+# base kernel sources that we care about.
+kernel_sources = [
+    os.path.join('machine', 'Device.cc'),
+    os.path.join('machine', 'DeviceHashTree.cc'),
+]
+utility_env.Library(os.path.join(env['BUILDDIR'], 'kernel'), [KERNEL_DIR.File(f) for f in kernel_sources])
 
 for subdir in subdirs:
     SConscript(os.path.join(subdir, 'SConscript'), exports=['env'])

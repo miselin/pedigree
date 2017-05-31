@@ -32,6 +32,7 @@
 #include <process/Mutex.h>
 #include <process/ConditionVariable.h>
 #include <utilities/Cache.h>
+#include <utilities/MemoryPool.h>
 
 void *g_pBootstrapInfo = 0;
 
@@ -196,6 +197,12 @@ bool Mutex::acquire()
     return pthread_mutex_lock(mutex) == 0;
 }
 
+bool Mutex::tryAcquire()
+{
+    pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
+    return pthread_mutex_trylock(mutex) == 0;
+}
+
 void Mutex::release()
 {
     pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
@@ -226,3 +233,50 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
     }
 }
 #endif
+
+MemoryPool::MemoryPool() :
+    m_BufferSize(4096), m_BufferCount(0), m_bInitialised(false),
+    m_AllocBitmap()
+{
+}
+
+MemoryPool::MemoryPool(const char *poolName) : MemoryPool()
+{
+}
+
+MemoryPool::~MemoryPool()
+{
+}
+
+bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
+{
+    m_BufferSize = bufferSize;
+    m_bInitialised = true;
+    return true;
+}
+
+uintptr_t MemoryPool::allocate()
+{
+    return reinterpret_cast<uintptr_t>(malloc(m_BufferSize));
+}
+
+uintptr_t MemoryPool::allocateNow()
+{
+    return allocate();
+}
+
+void MemoryPool::free(uintptr_t buffer)
+{
+    ::free(reinterpret_cast<void *>(buffer));
+}
+
+bool MemoryPool::trim()
+{
+    return true;
+}
+
+void syscallError(int e)
+{
+    errno = e;
+}
+

@@ -223,6 +223,10 @@ size_t TcpEndpoint::depositTcpPayload(size_t nBytes, uintptr_t payload, uint32_t
         return 0;
     }
 
+    /// \todo this is wrong but we also don't correctly handle non-PSH packets
+    /// which should eventually be bubbled up to the application
+    push = true;
+
     // If there's data to add to the shadow stream, add it now. Then, if the PUSH flag
     // is set, copy the shadow stream into the main stream. By allowing a zero-byte
     // deposit, data that did not have the PSH flag can be pushed to the application

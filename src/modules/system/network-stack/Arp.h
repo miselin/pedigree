@@ -105,13 +105,16 @@ private:
   {
     public:
       ArpRequest() :
-        destIp(), mac(), waitSem(0), success(false)
+        destIp(), mac(), mutex(false), cond(), complete(false), success(false)
       {}
 
       IpAddress destIp;
       MacAddress mac;
-      Semaphore waitSem;
 
+      ConditionVariable cond;
+      Mutex mutex;
+
+      bool complete;
       bool success;
   };
 

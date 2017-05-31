@@ -17,47 +17,5 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/ZombieQueue.h>
-
-#include <process/Process.h>
-
-ZombieQueue ZombieQueue::m_Instance;
-
-ZombieQueue::ZombieQueue() : RequestQueue()
-{
-}
-
-ZombieQueue::~ZombieQueue()
-{
-    destroy();
-}
-
-ZombieQueue &ZombieQueue::instance()
-{
-    return m_Instance;
-}
-
-void ZombieQueue::addObject(ZombieObject *pObject)
-{
-    addAsyncRequest(1, reinterpret_cast<uint64_t>(pObject));
-}
-
-uint64_t ZombieQueue::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                     uint64_t p6, uint64_t p7, uint64_t p8)
-{
-    if(!p1)
-        return 0;
-    
-    delete reinterpret_cast<ZombieObject*>(p1);
-    
-    return 0;
-}
-
-ZombieProcess::ZombieProcess(Process *pProcess) : m_pProcess(pProcess)
-{
-}
-
-ZombieProcess::~ZombieProcess()
-{
-    delete m_pProcess;
-}
+int initialize_config();
+void destroy_config();

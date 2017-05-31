@@ -22,12 +22,6 @@
 #include <utilities/utility.h>
 #include <processor/types.h>
 
-int isspace(int c);
-int isupper(int c);
-int islower(int c);
-int isdigit(int c);
-int isalpha(int c);
-
 size_t strlen(const char *s);
 char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size_t len);
