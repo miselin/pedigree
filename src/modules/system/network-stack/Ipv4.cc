@@ -335,7 +335,7 @@ void Ipv4::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
                     if(data && fragment_offset < fullLength)
                     {
                         MemoryCopy(buff + (copyOffset + fragment_offset), data, f->length);
-                        delete data;
+                        delete [] data;
                     }
                     delete f;
                 }
