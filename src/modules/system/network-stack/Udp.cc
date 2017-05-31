@@ -171,10 +171,18 @@ void Udp::receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
     uintptr_t payload = reinterpret_cast<uintptr_t>(header) + sizeof(udpHeader);
     size_t payloadSize = BIG_TO_HOST16(header->len) - sizeof(udpHeader);
 
+    size_t header_len = BIG_TO_HOST16(header->len);
+    if (header_len > nBytes || payloadSize > nBytes)
+    {
+        WARNING("UDP packet with invalid length(s), ignoring!");
+        pCard->badPacket();
+        return;
+    }
+
     // Check the checksum, if it's not zero
     if(header->checksum != 0)
     {
-        uint16_t checksum = pIp->ipChecksum(from, to, IP_UDP, reinterpret_cast<uintptr_t>(header), BIG_TO_HOST16(header->len));
+        uint16_t checksum = pIp->ipChecksum(from, to, IP_UDP, reinterpret_cast<uintptr_t>(header), header_len);
         if(checksum)
         {
             WARNING("UDP Checksum failed on incoming packet [" << header->checksum << ", and " << checksum << " should be zero]!");
