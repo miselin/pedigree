@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -67,7 +66,10 @@ uint16_t Network::calculateChecksum(uintptr_t buffer, size_t nBytes)
 
   // odd bytes
   if(nBytes > 0)
-    sum += (*data++) & 0xFF;
+  {
+    uint8_t *data8 = reinterpret_cast<uint8_t *>(data);
+    sum += *data8;
+  }
 
   // fold to 16 bits
   while( sum >> 16 )
