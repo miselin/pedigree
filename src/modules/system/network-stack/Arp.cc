@@ -121,10 +121,21 @@ uint64_t Arp::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
 
   // Send the request
   req->success = false;
+  req->complete = false;
   send(req->destIp, pCard);
 
   // Wait for the reply
-  req->waitSem.acquire(1, 15);
+  req->mutex.acquire();
+  while (true)
+  {
+    if (req->complete)
+    {
+      break;
+    }
+
+    // TODO: this doesn't time out!
+    while (!req->cond.wait(req->mutex));
+  }
   return req->success ? 1 : 0;
 }
 
@@ -224,8 +235,11 @@ void Arp::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offs
         if(p->destIp.getIp() == header->ipSrc)
         {
           p->mac = header->hwSrc;
-          p->waitSem.release();
+          p->mutex.acquire();
+          p->complete = true;
           p->success = true;
+          p->mutex.release();
+          p->cond.signal();
           m_ArpRequests.erase(it);
           break;
         }

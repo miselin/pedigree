@@ -17,47 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/ZombieQueue.h>
+#include <config/sqlite3/sqlite3.h>
 
-#include <process/Process.h>
+#include <iostream>
 
-ZombieQueue ZombieQueue::m_Instance;
+sqlite3 *g_pSqlite = 0;
 
-ZombieQueue::ZombieQueue() : RequestQueue()
+int initialize_config()
 {
-}
-
-ZombieQueue::~ZombieQueue()
-{
-    destroy();
-}
-
-ZombieQueue &ZombieQueue::instance()
-{
-    return m_Instance;
-}
-
-void ZombieQueue::addObject(ZombieObject *pObject)
-{
-    addAsyncRequest(1, reinterpret_cast<uint64_t>(pObject));
-}
-
-uint64_t ZombieQueue::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                     uint64_t p6, uint64_t p7, uint64_t p8)
-{
-    if(!p1)
-        return 0;
-    
-    delete reinterpret_cast<ZombieObject*>(p1);
+    sqlite3_initialize();
+    int e = sqlite3_open("pedigree.sqlite", &g_pSqlite);
+    if (e)
+    {
+        std::cerr << "sqlite3 startup failed [" << e << "]: " << sqlite3_errmsg(g_pSqlite) << std::endl;
+        return -1;
+    }
     
     return 0;
 }
 
-ZombieProcess::ZombieProcess(Process *pProcess) : m_pProcess(pProcess)
+void destroy_config()
 {
-}
-
-ZombieProcess::~ZombieProcess()
-{
-    delete m_pProcess;
+    sqlite3_close(g_pSqlite);
+    sqlite3_shutdown();
 }

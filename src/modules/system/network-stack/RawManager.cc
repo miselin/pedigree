@@ -164,12 +164,17 @@ bool RawEndpoint::dataReady(bool block, uint32_t tmout)
     if(block)
     {
         if(tmout)
-            m_DataQueueSize.acquire(1, tmout);
+        {
+            // Semaphore acquire already returns false if timeout triggers.
+            return m_DataQueueSize.acquire(1, tmout);
+        }
         else
-            m_DataQueueSize.acquire();
-
-        if(Processor::information().getCurrentThread()->wasInterrupted())
-            return false;
+        {
+            while(!m_DataQueueSize.acquire())
+            {
+              // Interrupted, go back to blocking.
+            }
+        }
     }
     return true;
 }

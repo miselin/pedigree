@@ -101,8 +101,10 @@ class MemoryPool
         /// Number of buffers we have available.
         size_t m_BufferCount;
 
+#ifndef STANDALONE_MEMPOOL
         /// MemoryRegion describing the actual pool of memory
         MemoryRegion m_Pool;
+#endif
         
         /// Has this instance been initialised yet?
         bool m_bInitialised;
@@ -110,8 +112,10 @@ class MemoryPool
         /// Allocation bitmap
         ExtensibleBitmap m_AllocBitmap;
 
+#ifndef STANDALONE_MEMPOOL
         /// Memory pressure handler for this pool.
         MemoryPoolPressureHandler m_PressureHandler;
+#endif
 
         /// Allocation doer
         uintptr_t allocateDoer(bool canBlock);

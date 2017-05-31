@@ -71,6 +71,7 @@ void Socket::decreaseRefCount(bool bIsWriter)
             }
             m_Endpoint->getManager()->returnEndpoint(m_Endpoint);
         }
+
         ZombieQueue::instance().addObject(new ZombieSocket(this));
     }
 }
@@ -110,6 +111,7 @@ int Socket::select(bool bWriting, int timeout)
                     (state == ConnectionBasedEndpoint::CLOSED))
                     return 1;
 
+                /// \todo respect timeout
                 if (timeout)
                 {
                     Scheduler::instance().yield();
@@ -155,14 +157,18 @@ File* NetManager::newEndpoint(int type, int protocol)
         IpAddress a;
         p = UdpManager::instance().getEndpoint(a, 0, 0);
     }
+#ifndef DISABLE_TCP
     else if (type == NETMAN_TYPE_TCP)
     {
         p = TcpManager::instance().getEndpoint();
     }
+#endif
+#ifndef DISABLE_RAWNET
     else if (type == NETMAN_TYPE_RAW)
     {
         p = RawManager::instance().getEndpoint(protocol);
     }
+#endif
     else
     {
         ERROR("NetManager::getEndpoint called with unknown protocol");

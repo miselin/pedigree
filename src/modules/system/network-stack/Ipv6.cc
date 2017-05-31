@@ -289,8 +289,10 @@ void Ipv6::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
         switch(nextHeader)
         {
             case IP_TCP:
+#ifndef DISABLE_TCP
                 // NOTICE("IPv6: TCP");
                 Tcp::instance().receive(src, dest, packetAddress + sizeof(ip6Header), payloadSize, this, pCard);
+#endif
                 break;
             case IP_UDP:
                 // NOTICE("IPv6: UDP");

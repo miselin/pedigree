@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,33 +24,21 @@
 #include <utilities/RequestQueue.h>
 #include <Log.h>
 
-#include <process/Process.h>
+class Process;
 
 /// Wrapper object for ZombieQueue so it can delete any type of object with
 /// the correct destructors called in MI situations.
 class ZombieObject
 {
-    public:
-        ZombieObject()
-        {
-        }
-        /// When inheriting this class, you delete your object here.
-        virtual ~ZombieObject()
-        {
-        }
 };
 
 /// Special wrapper object for Process
 class ZombieProcess : public ZombieObject
 {
     public:
-        ZombieProcess(Process *pProcess) : m_pProcess(pProcess)
-        {
-        }
-        virtual ~ZombieProcess()
-        {
-            delete m_pProcess;
-        }
+        ZombieProcess(Process *pProcess);
+        virtual ~ZombieProcess();
+
     private:
         Process *m_pProcess;
 };
@@ -66,10 +53,7 @@ class ZombieQueue : public RequestQueue
         ZombieQueue();
         virtual ~ZombieQueue();
 
-        static ZombieQueue &instance()
-        {
-            return m_Instance;
-        }
+        static ZombieQueue &instance();
 
         void addObject(ZombieObject *pObject);
 

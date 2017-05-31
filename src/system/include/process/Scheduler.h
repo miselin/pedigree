@@ -20,18 +20,13 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-#ifdef THREADS
-
-#include <process/PerProcessorScheduler.h>
 #include <processor/types.h>
-#include <processor/state.h>
-#include <machine/TimerHandler.h>
-#include <process/Mutex.h>
-#include <process/Process.h>
 #include <Atomic.h>
 
 class Thread;
+class Process;
 class Processor;
+class PerProcessorScheduler;
 
 /** \brief This class manages how processes and threads are scheduled across processors.
  * 
@@ -45,8 +40,12 @@ class Scheduler
 {
 public:
     /** Get the instance of the scheduler */
-    inline static Scheduler &instance() {return m_Instance;}
+    static Scheduler &instance()
+    {
+        return m_Instance;
+    }
 
+#ifdef THREADS
     /** Initialises the scheduler. */
     bool initialise(Process *pKernelProcess);
 
@@ -67,6 +66,7 @@ public:
     /** Removes a process.
      *  \note This is purely for enumeration purposes. */
     void removeProcess(Process *pProcess);
+#endif  // THREADS
   
     /** Causes a manual reschedule. */
     void yield();
@@ -74,6 +74,7 @@ public:
     /** Returns the number of processes currently in operation. */
     size_t getNumProcesses();
   
+#ifdef THREADS
     /** Returns the n'th process currently in operation. */
     Process *getProcess(size_t n);
 
@@ -88,24 +89,15 @@ public:
     {
         return m_pBspScheduler;
     }
+#endif  // THREADS
 
 private:
-    /** Default constructor
-     *  \note Private - singleton class. */
-    Scheduler();
-    /** Copy-constructor
-     *  \note Not implemented - singleton class. */
-    Scheduler(const Scheduler &);
-    /** Destructor
-     *  \note Private - singleton class. */
-    ~Scheduler();
-    /** Assignment operator
-     *  \note Not implemented - singleton class */
-    Scheduler &operator = (const Scheduler &);
+    WITHOUT_IMPLICIT_CONSTRUCTORS(Scheduler);
   
     /** The Scheduler instance. */
     static Scheduler m_Instance;
   
+#ifdef THREADS
     /** All the processes currently in operation, for enumeration purposes. */
     List<Process*, 0> m_Processes;
 
@@ -132,8 +124,7 @@ private:
 
     /** Main scheduler lock for modifying internal structures. */
     Spinlock m_SchedulerLock;
+#endif  // THREADS
 };
 
-#endif
-
-#endif
+#endif  // SCHEDULER_H

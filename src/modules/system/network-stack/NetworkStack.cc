@@ -18,17 +18,23 @@
  */
 
 #include "NetworkStack.h"
-#include "Ethernet.h"
-#include "Ipv6.h"
-#include "TcpManager.h"
+
 #include <Module.h>
 #include <Log.h>
 #include <processor/Processor.h>
 
+#include "Ethernet.h"
+#include "Ipv6.h"
+#ifndef DISABLE_TCP
+#include "TcpManager.h"
+#endif
+
 NetworkStack *NetworkStack::stack = 0;
 
 static NetworkStack *g_NetworkStack = 0;
+#ifndef DISABLE_TCP
 static TcpManager *g_TcpManager = 0;
+#endif
 
 NetworkStack::NetworkStack() :
   RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
@@ -151,30 +157,40 @@ void NetworkStack::deRegisterDevice(Network *pDevice)
   }
 }
 
+#ifndef NO_NETWORK_SERVICES
 extern Ipv6Service *g_pIpv6Service;
 extern ServiceFeatures *g_pIpv6Features;
+#endif
 
 static bool entry()
 {
     g_NetworkStack = new NetworkStack();
+#ifndef DISABLE_TCP
     g_TcpManager = new TcpManager();
+#endif
 
+#ifndef NO_NETWORK_SERVICES
     // Install the IPv6 Service
     g_pIpv6Service = new Ipv6Service;
     g_pIpv6Features = new ServiceFeatures;
     g_pIpv6Features->add(ServiceFeatures::touch);
     ServiceManager::instance().addService(String("ipv6"), g_pIpv6Service, g_pIpv6Features);
+#endif
 
     return true;
 }
 
 static void exit()
 {
+#ifndef NO_NETWORK_SERVICES
     ServiceManager::instance().removeService(String("ipv6"));
     delete g_pIpv6Features;
     delete g_pIpv6Service;
+#endif
 
+#ifndef DISABLE_TCP
     delete g_TcpManager;
+#endif
     delete g_NetworkStack;
 }
 

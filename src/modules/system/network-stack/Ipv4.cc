@@ -28,7 +28,9 @@
 // Child protocols of IPv4
 #include "Icmp.h"
 #include "Udp.h"
+#ifndef DISABLE_TCP
 #include "Tcp.h"
+#endif
 
 #include "NetManager.h"
 #include "RawManager.h"
@@ -375,7 +377,9 @@ void Ipv4::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
       case IP_ICMP:
         // NOTICE("IP: ICMP packet");
 
+#ifndef DISABLE_RAWNET
         RawManager::instance().receive(packetAddress, nBytes - offset, &remoteHost, IPPROTO_ICMP, pCard);
+#endif
 
         // icmp needs the ip header as well
         Icmp::instance().receive(from, to, dataAddress, payloadSize, this, pCard);
@@ -384,19 +388,27 @@ void Ipv4::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
       case IP_UDP:
         // NOTICE("IPv4: UDP packet");
 
+#ifndef DISABLE_RAWNET
         RawManager::instance().receive(packetAddress, nBytes - offset, &remoteHost, IPPROTO_UDP, pCard);
+#endif
 
         // udp needs the ip header as well
         Udp::instance().receive(from, to, dataAddress, payloadSize, this, pCard);
         break;
 
       case IP_TCP:
+#ifdef DISABLE_TCP
+        pCard->badPacket();
+#else
         // NOTICE("IPv4: TCP packet");
 
+#ifndef DISABLE_RAWNET
         RawManager::instance().receive(packetAddress, nBytes - offset, &remoteHost, IPPROTO_TCP, pCard);
+#endif
 
         // tcp needs the ip header as well
         Tcp::instance().receive(from, to, dataAddress, payloadSize, this, pCard);
+#endif
         break;
 
       default:

@@ -25,7 +25,6 @@ Import(['env'])
 EXT2_DIR = env.Dir('../../modules/system/ext2')
 VFS_DIR = env.Dir('../../modules/system/vfs')
 PART_DIR = env.Dir('../../modules/drivers/common/partition')
-KERNEL_DIR = env.Dir('../../system/kernel')
 
 ext2img_bin = os.path.join(env['BUILDDIR'], 'ext2img')
 
@@ -46,7 +45,7 @@ defines = [
 	'STANDALONE_MUTEXES',
 ]
 
-libs = ['ext2', 'vfs', 'part', 'utility', 'kern']
+libs = ['ext2', 'vfs', 'part', 'utility', 'kernel']
 
 if env['HAVE_OPENSSL_SHA']:
     defines.append('HAVE_OPENSSL')
@@ -84,18 +83,11 @@ partition_sources = [
     'msdos.cc',
 ]
 
-# base kernel sources that we care about.
-kernel_sources = [
-    os.path.join('machine', 'Device.cc'),
-]
-
 # Build components from Pedigree to merge into a working VFS layer that uses
 # an ext2 filesystem.
 build_env.Library('vfs', [VFS_DIR.File(f) for f in vfs_sources])
 build_env.Library('ext2', [EXT2_DIR.File(f) for f in ext2_sources])
 build_env.Library('part', [PART_DIR.File(f) for f in partition_sources])
-build_env.Library('kern', [KERNEL_DIR.File(f) for f in kernel_sources])
-
 
 build_env.Program(ext2img_bin, ['main.cc', 'DiskImage.cc', 'stubs.cc'],
     LIBS=libs)

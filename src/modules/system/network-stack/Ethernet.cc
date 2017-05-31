@@ -55,8 +55,10 @@ void Ethernet::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t
   // grab the header
   ethernetHeader* ethHeader = reinterpret_cast<ethernetHeader*>(packet + offset);
 
+#ifndef DISABLE_RAWNET
   // dump this packet into the RAW sockets
   RawManager::instance().receive(packet, nBytes, 0, -1, pCard);
+#endif
 
   // what type is the packet?
   switch(BIG_TO_HOST16(ethHeader->type))
@@ -87,7 +89,7 @@ void Ethernet::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t
       break;
 
     default:
-      NOTICE("Unknown ethernet packet - type is " << BIG_TO_HOST16(ethHeader->type) << "!");
+      NOTICE("Unknown ethernet packet - type is " << Hex << BIG_TO_HOST16(ethHeader->type) << "!");
       pCard->badPacket();
       break;
   }

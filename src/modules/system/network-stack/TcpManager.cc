@@ -168,9 +168,7 @@ size_t TcpManager::Connect(Endpoint::RemoteEndpoint remoteHost, uint16_t localPo
     return connId; // connection in progress - assume it works
 
   bool timedOut = false;
-  stateBlock->waitState.acquire(1, 15);
-  if(Processor::information().getCurrentThread()->wasInterrupted())
-    timedOut = true;
+  timedOut = !stateBlock->waitState.acquire(1, 15);
 
   if((stateBlock->currentState != Tcp::ESTABLISHED) || timedOut)
   {

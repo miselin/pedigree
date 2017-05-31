@@ -20,6 +20,8 @@
 #ifndef MACHINE_RAWMANAGER_H
 #define MACHINE_RAWMANAGER_H
 
+#ifndef DISABLE_RAWNET
+
 #include <utilities/String.h>
 #include <utilities/Tree.h>
 #include <utilities/List.h>
@@ -151,5 +153,7 @@ private:
   /** Currently known endpoints (all actually RawEndpoints - each one is passed incoming packets). */
   List<Endpoint*> m_Endpoints;
 };
+
+#endif
 
 #endif
