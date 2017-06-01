@@ -138,11 +138,11 @@ class PhysicalMemoryManager
 
     /** Copy the memory region list
      *\param[in,out] MemoryRegions container for the copy of the memory regions
-    */
+     */
     void allocateMemoryRegionList(Vector<MemoryRegionInfo *> &MemoryRegions);
     /** Free the memory region list created with allocateMemoryRegionList.
      *\param[in,out] MemoryRegions container of the copy of the memory regions
-    */
+     */
     void freeMemoryRegionList(Vector<MemoryRegionInfo *> &MemoryRegions);
 
     /** Specifies the number of pages that remain free on the system. */

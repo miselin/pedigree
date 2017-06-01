@@ -51,10 +51,10 @@ class SymbolTable
      *  how do we determine the best response? */
     enum Policy
     {
-        LocalFirst,        ///< Default policy - searches for local definitions of a
-                           ///symbol first.
+        LocalFirst,  ///< Default policy - searches for local definitions of a
+                     /// symbol first.
         NotOriginatingElf  ///< Does not search the ELF given as pElf. This is
-                           ///used during lookups for
+                           /// used during lookups for
                            ///  R_COPY relocations, where one symbol must be
                            ///  linked to another.
     };

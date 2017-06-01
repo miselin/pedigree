@@ -69,7 +69,7 @@ class HostedInterruptManager : public ::InterruptManager
      *\param[in] interruptNumber the interrupt number
      *\param[in] interruptHandler address of the assembler interrupt handler
      *stub \note This function is defined in kernel/processor/ARCH/interrupt.cc
-    */
+     */
     void setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler)
         INITIALISATION_ONLY;
     /** Sets the IST field for a given interrupt gate

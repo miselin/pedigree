@@ -78,7 +78,7 @@ class X86InterruptManager : public ::InterruptManager, public ::SyscallManager
      *\param[in] nInterruptNumber the interrupt number
      *\param[in] interruptHandler address of the assembler interrupt handler
      *stub \param[in] bUserspace is the userspace allowed to call this callgate?
-    */
+     */
     void setInterruptGate(
         size_t nInterruptNumber, uintptr_t interruptHandler,
         bool bUserspace) INITIALISATION_ONLY;

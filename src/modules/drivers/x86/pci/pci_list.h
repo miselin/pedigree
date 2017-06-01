@@ -3090,7 +3090,7 @@ static PCI_DEVTABLE PciDevTable[] = {
      "HDAUDIO Soft Data fax Modem with SmartPC / Conexant High Definition "
      "SmartAudio HD2"},
     //#	{ 0x14F1, 0x50452, "1179FF31", "Conextant High Definition Audio-Venice
-    //5045" } ,
+    // 5045" } ,
     {0x14F1, 0x5051, "4.0.1.6", "Audio"},
     {0x14F1, 0x5051, "unknow", "Realtek High Definition audio"},
     {0x14F1, 0x5051, "nForce 630M", "Conexant HD-Audio SmartAudio 221"},

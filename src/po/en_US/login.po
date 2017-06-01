@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: login 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2016-10-17 11:26-0700\n"
+"POT-Creation-Date: 2017-06-01 15:37-0700\n"
 "PO-Revision-Date: 2016-05-29 23:55+1000\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -11,22 +11,22 @@ msgstr ""
 "Content-Type: text/plain; charset=ASCII\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ../../src/user/applications/login/login.c:130
+#: ../../src/user/applications/login/login.c:137
 #, c-format
 msgid "Welcome to Pedigree\n"
 msgstr "Welcome to Pedigree\n"
 
-#: ../../src/user/applications/login/login.c:136
+#: ../../src/user/applications/login/login.c:143
 #, c-format
 msgid "Pedigree Login"
 msgstr "Pedigree Login"
 
-#: ../../src/user/applications/login/login.c:152
+#: ../../src/user/applications/login/login.c:158
 #, c-format
 msgid "Username: "
 msgstr "Username: "
 
-#: ../../src/user/applications/login/login.c:176
+#: ../../src/user/applications/login/login.c:184
 #, c-format
 msgid ""
 "\n"
@@ -35,17 +35,17 @@ msgstr ""
 "\n"
 "Unknown user: '%s'\n"
 
-#: ../../src/user/applications/login/login.c:181
+#: ../../src/user/applications/login/login.c:189
 #, c-format
 msgid "Password: "
 msgstr "Password: "
 
-#: ../../src/user/applications/login/login.c:184
+#: ../../src/user/applications/login/login.c:192
 #, c-format
 msgid "(forced)\n"
 msgstr "(forced)\n"
 
-#: ../../src/user/applications/login/login.c:224
+#: ../../src/user/applications/login/login.c:236
 #, c-format
 msgid "Password incorrect.\n"
 msgstr "Password incorrect.\n"

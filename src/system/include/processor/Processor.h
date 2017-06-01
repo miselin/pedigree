@@ -102,7 +102,7 @@ class Processor
     /** Is the processor-specific interface initialised?
      *\return 0, if nothing has been initialised, 1, if initialise1() has been
      *executed successfully, 2, if initialise2() has been executed successfully
-    */
+     */
     inline static size_t isInitialised()
     {
         return m_Initialised;

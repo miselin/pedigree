@@ -262,12 +262,12 @@ class Log
 
         /** Adds an entry to the log.
          *\param[in] str the null-terminated ASCII string that should be added
-        */
+         */
         LogEntry &operator<<(const char *);
         LogEntry &operator<<(const String &);
         /** Adds an entry to the log
          *\param[in] str the null-terminated ASCII string that should be added
-        */
+         */
         inline LogEntry &operator<<(char *append_str)
         {
             return (*this) << (reinterpret_cast<const char *>(append_str));

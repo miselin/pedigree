@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: live 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2016-07-04 13:36+1000\n"
+"POT-Creation-Date: 2017-06-01 15:37-0700\n"
 "PO-Revision-Date: 2016-07-04 13:36+1000\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: ../../src/user/applications/live/live.cc:153
-#: ../../src/user/applications/live/live.cc:169
+#: ../../src/user/applications/live/live.cc:170
 msgid "OK"
 msgstr "OK"
 
@@ -28,15 +28,20 @@ msgstr "Auswahl der Tastaturbelegung"
 
 #: ../../src/user/applications/live/live.cc:158
 msgid "Please select your preferred keyboard layout from the list below."
-msgstr "Wählen Sie bitte aus der folgenden Liste Ihre bevorzugte Tastaturbelegung aus."
+msgstr ""
+"Wählen Sie bitte aus der folgenden Liste Ihre bevorzugte Tastaturbelegung "
+"aus."
 
-#: ../../src/user/applications/live/live.cc:172
+#: ../../src/user/applications/live/live.cc:173
 msgid "Ready to Go"
 msgstr "Jetzt kann es losgehen"
 
-#: ../../src/user/applications/live/live.cc:173
+#: ../../src/user/applications/live/live.cc:174
 msgid ""
 "Configuration is complete.\n"
 "\n"
 "Pedigree is ready for you."
-msgstr "Die Konfiguration ist abgeschlossen.\n\nPedigree ist jetzt bereit für Sie."
+msgstr ""
+"Die Konfiguration ist abgeschlossen.\n"
+"\n"
+"Pedigree ist jetzt bereit für Sie."

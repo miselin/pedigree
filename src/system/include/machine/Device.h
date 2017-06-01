@@ -47,24 +47,24 @@ class Device
      * class during runtime without RTTI. */
     enum Type
     {
-        Generic,        ///< The device type is not covered by any other value.
-        Root,           ///< The device is the root of the device tree.
-        Disk,           ///< A disk device - a block device in UNIX terms.
-        Bus,            ///< A node that performs address space translation and I/O
-                        ///multiplexing.
-        Display,        ///< A display device. This can either be a dumb framebuffer
-                        ///or something more complex.
-        Network,        ///< A communication device.
-        Sound,          ///< A device that can play sounds.
-        Console,        ///< A keyboard-like human interface device.
-        Mouse,          ///< A mouse-like human interface device (includes trackpads and
-                        ///styluses)
+        Generic,  ///< The device type is not covered by any other value.
+        Root,     ///< The device is the root of the device tree.
+        Disk,     ///< A disk device - a block device in UNIX terms.
+        Bus,      ///< A node that performs address space translation and I/O
+                  /// multiplexing.
+        Display,  ///< A display device. This can either be a dumb framebuffer
+                  /// or something more complex.
+        Network,  ///< A communication device.
+        Sound,    ///< A device that can play sounds.
+        Console,  ///< A keyboard-like human interface device.
+        Mouse,  ///< A mouse-like human interface device (includes trackpads and
+                /// styluses)
         Controller,     ///< A device which exposes other devices but requires a
-                        ///driver, and does no address space translation.
+                        /// driver, and does no address space translation.
         UsbController,  ///< Same as Controller, but exposes USB devices.
         UsbGeneric,     ///< Same as Generic, but for USB devices.
-        UsbContainer,   ///< Wraps a UsbDevice (which does not inherit Device) in
-                        ///a Device so it can be in the tree.
+        UsbContainer,  ///< Wraps a UsbDevice (which does not inherit Device) in
+                       /// a Device so it can be in the tree.
     };
     /** Each device may have one or more disjoint regions of address space. This
        can be in I/O space or memory space. */

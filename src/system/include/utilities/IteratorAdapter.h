@@ -76,7 +76,7 @@ class IteratorAdapter
     /** Comparison operator
      *\param[in] x reference object
      *\return true, if the iterators point to the same object, false otherwise
-    */
+     */
     inline bool operator==(const IteratorAdapter &x) const
     {
         if (m_Iterator != x.m_Iterator)

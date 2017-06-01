@@ -99,7 +99,7 @@
 /** Add a offset (in bytes) to the pointer and return the result
  *\brief Adjust a pointer
  *\return new pointer pointing to 'pointer + offset' (NOT pointer arithmetic!)
-*/
+ */
 template <typename T>
 inline T *adjust_pointer(T *pointer, ssize_t offset)
 {

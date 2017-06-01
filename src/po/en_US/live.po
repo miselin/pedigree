@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: live 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2016-10-17 11:26-0700\n"
+"POT-Creation-Date: 2017-06-01 15:37-0700\n"
 "PO-Revision-Date: 2016-05-29 23:34+1000\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -13,7 +13,7 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: ../../src/user/applications/live/live.cc:153
-#: ../../src/user/applications/live/live.cc:169
+#: ../../src/user/applications/live/live.cc:170
 msgid "OK"
 msgstr "OK"
 
@@ -25,11 +25,11 @@ msgstr "Keyboard Layout Selection"
 msgid "Please select your preferred keyboard layout from the list below."
 msgstr "Please select your preferred keyboard layout from the list below."
 
-#: ../../src/user/applications/live/live.cc:172
+#: ../../src/user/applications/live/live.cc:173
 msgid "Ready to Go"
 msgstr "Ready to Go"
 
-#: ../../src/user/applications/live/live.cc:173
+#: ../../src/user/applications/live/live.cc:174
 msgid ""
 "Configuration is complete.\n"
 "\n"

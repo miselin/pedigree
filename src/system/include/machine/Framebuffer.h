@@ -183,7 +183,8 @@ class Framebuffer
                     m_pParent->draw(
                         &buf, x, y, m_XPos + x, m_YPos + y, w, h, false);
                     // m_pParent->draw(reinterpret_cast<void*>(m_FramebufferBase),
-                    // x, y, m_XPos + x, m_YPos + y, w, h, m_PixelFormat, false);
+                    // x, y, m_XPos + x, m_YPos + y, w, h, m_PixelFormat,
+                    // false);
                 }
                 else
                 {

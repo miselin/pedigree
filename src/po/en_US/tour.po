@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tour 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2016-07-04 13:36+1000\n"
+"POT-Creation-Date: 2017-06-01 15:37-0700\n"
 "PO-Revision-Date: 2016-07-04 13:36+1000\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -24,75 +24,99 @@ msgstr "OK"
 msgid "Welcome to Pedigree!"
 msgstr "Willkommen bei Pedigree!"
 
-#: ../../src/user/applications/tour/main.cc:45
+#: ../../src/user/applications/tour/main.cc:46
 msgid ""
 "This tour is designed to help you understand how Pedigree differs from other "
 "UNIX-like systems. It's interactive, so you can practice along the way."
-msgstr "Diese Tour wird Ihnen dabei helfen, die Unterschiede zwischen Pedigree und anderen UNIX-ähnlichen Systemen zu verstehen. Da die Tour interaktiv konzipiert ist, können Sie beim Durchgehen der Punkte direkt üben."
+msgstr ""
+"Diese Tour wird Ihnen dabei helfen, die Unterschiede zwischen Pedigree und "
+"anderen UNIX-ähnlichen Systemen zu verstehen. Da die Tour interaktiv "
+"konzipiert ist, können Sie beim Durchgehen der Punkte direkt üben."
 
-#: ../../src/user/applications/tour/main.cc:52
-#: ../../src/user/applications/tour/main.cc:59
-#: ../../src/user/applications/tour/main.cc:68
-#: ../../src/user/applications/tour/main.cc:77
-#: ../../src/user/applications/tour/main.cc:85
-#: ../../src/user/applications/tour/main.cc:94
-#: ../../src/user/applications/tour/main.cc:106
-#: ../../src/user/applications/tour/main.cc:127
-#: ../../src/user/applications/tour/main.cc:141
-#: ../../src/user/applications/tour/main.cc:151
-#: ../../src/user/applications/tour/main.cc:160
-#: ../../src/user/applications/tour/main.cc:168
-#: ../../src/user/applications/tour/main.cc:176
-#: ../../src/user/applications/tour/main.cc:185
+#: ../../src/user/applications/tour/main.cc:54
+#: ../../src/user/applications/tour/main.cc:60
+#: ../../src/user/applications/tour/main.cc:70
+#: ../../src/user/applications/tour/main.cc:79
+#: ../../src/user/applications/tour/main.cc:88
+#: ../../src/user/applications/tour/main.cc:98
+#: ../../src/user/applications/tour/main.cc:112
+#: ../../src/user/applications/tour/main.cc:134
+#: ../../src/user/applications/tour/main.cc:150
+#: ../../src/user/applications/tour/main.cc:163
+#: ../../src/user/applications/tour/main.cc:174
+#: ../../src/user/applications/tour/main.cc:184
+#: ../../src/user/applications/tour/main.cc:194
+#: ../../src/user/applications/tour/main.cc:205
 msgid "Pedigree Tour"
 msgstr "Pedigree-Tour"
 
-#: ../../src/user/applications/tour/main.cc:53
+#: ../../src/user/applications/tour/main.cc:55
 msgid "Let's run the `ls' command for you:"
 msgstr "Lassen Sie uns den „Is“-Befehl zusammen ausführen:"
 
-#: ../../src/user/applications/tour/main.cc:60
+#: ../../src/user/applications/tour/main.cc:61
 msgid ""
 "As you can see, the typical /bin, /lib, /var (and so on) are not present. "
 "Instead, you find /applications, /libraries, /system, /config, and so on. "
 "This is designed to be intuitive but it can cause problems with some "
 "software."
-msgstr "Wie Sie sehen sind die typischen /bin, /lib, /var (und so weiter) nicht vorhanden. Stattdessen finden Sie /applications, /libraries, /system, /config usw. Dies wurde so angelegt, weil wir glauben, dass dies intuitiver anwendbar ist. Es kann allerdings im Zusammenspiel mit manchen Software-Anwendungen zu Problemen führen."
+msgstr ""
+"Wie Sie sehen sind die typischen /bin, /lib, /var (und so weiter) nicht "
+"vorhanden. Stattdessen finden Sie /applications, /libraries, /system, /"
+"config usw. Dies wurde so angelegt, weil wir glauben, dass dies intuitiver "
+"anwendbar ist. Es kann allerdings im Zusammenspiel mit manchen Software-"
+"Anwendungen zu Problemen führen."
 
-#: ../../src/user/applications/tour/main.cc:69
+#: ../../src/user/applications/tour/main.cc:71
 msgid ""
 "After the tour completes, you can navigate around the filesystem to to get a "
 "closer look at what each directory contains."
-msgstr "Nach Beendigung der Tour können Sie das Dateisystem durchgehen, um sich genauer anzusehen, was in den jeweiligen Verzeichnissen enthalten ist."
+msgstr ""
+"Nach Beendigung der Tour können Sie das Dateisystem durchgehen, um sich "
+"genauer anzusehen, was in den jeweiligen Verzeichnissen enthalten ist."
 
-#: ../../src/user/applications/tour/main.cc:78
+#: ../../src/user/applications/tour/main.cc:80
 msgid ""
 "Another significant difference in Pedigree is the path structure. In "
 "Pedigree, paths follow the format [mount]»/path/to/file."
-msgstr "Ein weiterer erheblicher Unterschied bei Pedigree ist die Pfadstruktur. Bei Pedigree haben Pfade das Format [mount]»/path/to/file."
+msgstr ""
+"Ein weiterer erheblicher Unterschied bei Pedigree ist die Pfadstruktur. Bei "
+"Pedigree haben Pfade das Format [mount]»/path/to/file."
 
-#: ../../src/user/applications/tour/main.cc:86
+#: ../../src/user/applications/tour/main.cc:90
 msgid ""
 "We've switched directory to root»/ if you were elsewhere. The root mount "
 "always exists; Pedigree will not start without it. Your applications and "
 "configuration exist under root»/."
-msgstr "Wir haben das Verzeichnis auf root»/ geändert, falls Sie sich woanders befunden haben. Das Mount des Stammverzeichnisses besteht immer; Pedigree wird aber nicht in diesem gestartet. Ihre Anwendungen und Konfigurationen befinden sich unter root»/."
+msgstr ""
+"Wir haben das Verzeichnis auf root»/ geändert, falls Sie sich woanders "
+"befunden haben. Das Mount des Stammverzeichnisses besteht immer; Pedigree "
+"wird aber nicht in diesem gestartet. Ihre Anwendungen und Konfigurationen "
+"befinden sich unter root»/."
 
-#: ../../src/user/applications/tour/main.cc:95
+#: ../../src/user/applications/tour/main.cc:100
 msgid ""
 "Paths that begin with a '/' will always operate in your current mount. "
 "Because the current working directory is root»/, we can simply run `/"
 "applications/ls' to run `root»/applications/ls'."
-msgstr "Pfade, die mit „/“ beginnen, werden stets in Ihrem aktuellen Mount angewendet. Da das aktuelle Arbeitsverzeichnis root»/ ist, können wir einfach „/applications/ls“ ausführen, um „root»/applications/ls“ auszuführen."
+msgstr ""
+"Pfade, die mit „/“ beginnen, werden stets in Ihrem aktuellen Mount "
+"angewendet. Da das aktuelle Arbeitsverzeichnis root»/ ist, können wir "
+"einfach „/applications/ls“ ausführen, um „root»/applications/ls“ auszuführen."
 
-#: ../../src/user/applications/tour/main.cc:107
+#: ../../src/user/applications/tour/main.cc:114
 msgid ""
 "Before we dig into what other mounts may exist, it's important to know how "
 "to type these paths. You can type the '»' character in Pedigree by using "
 "'RIGHTALT-.' - try it now. If you want to finish the tour, just type 'quit'."
-msgstr "Bevor wir uns ansehen, welche anderen Mounts noch vorhanden sind, ist es wichtig zu wissen, wie diese Pfade richtig eingetippt werden. Sie können das Symbol „»“ in Pedigree eingeben, indem Sie die „RECHTE ALT“-Taste und „-.“ eingeben. Versuchen Sie es einmal. Falls Sie Ihre Tour beenden möchten, geben Sie einfach „quit“ ein."
+msgstr ""
+"Bevor wir uns ansehen, welche anderen Mounts noch vorhanden sind, ist es "
+"wichtig zu wissen, wie diese Pfade richtig eingetippt werden. Sie können das "
+"Symbol „»“ in Pedigree eingeben, indem Sie die „RECHTE ALT“-Taste und „-.“ "
+"eingeben. Versuchen Sie es einmal. Falls Sie Ihre Tour beenden möchten, "
+"geben Sie einfach „quit“ ein."
 
-#: ../../src/user/applications/tour/main.cc:128
+#: ../../src/user/applications/tour/main.cc:136
 msgid ""
 "Now that you know how to type the paths, here are a selection of standard "
 "Pedigree mounts.\n"
@@ -103,49 +127,85 @@ msgid ""
 "* runtime» is an in-memory filesystem for runfiles (like /run).\n"
 "    Files here can only be modified by their owning process.\n"
 "* unix» provides a location for named UNIX sockets."
-msgstr "Nachdem Sie gelernt haben, wie Sie Pfade eingeben können, zeigen wir Ihnen jetzt eine Auswahl von Standard-Pedigree-Mounts.\n\n* dev» ermöglicht Zugriff auf Geräte (ala /dev).\n* raw» ermöglicht Zugriff auf Rohdatenträger und Partitionen.\n* scratch» ist ein vollständiges In-Memory-Dateisystem.\n* runtime» ist ein In-Memory-Dateisystem für Runfiles (like /run).\n Dateien an dieser Stelle können nur durch den Besitzerprozess geändert werden.\n* unix» bietet einen Speicherort für benannte UNIX-Sockets."
+msgstr ""
+"Nachdem Sie gelernt haben, wie Sie Pfade eingeben können, zeigen wir Ihnen "
+"jetzt eine Auswahl von Standard-Pedigree-Mounts.\n"
+"\n"
+"* dev» ermöglicht Zugriff auf Geräte (ala /dev).\n"
+"* raw» ermöglicht Zugriff auf Rohdatenträger und Partitionen.\n"
+"* scratch» ist ein vollständiges In-Memory-Dateisystem.\n"
+"* runtime» ist ein In-Memory-Dateisystem für Runfiles (like /run).\n"
+" Dateien an dieser Stelle können nur durch den Besitzerprozess geändert "
+"werden.\n"
+"* unix» bietet einen Speicherort für benannte UNIX-Sockets."
 
-#: ../../src/user/applications/tour/main.cc:142
+#: ../../src/user/applications/tour/main.cc:152
 msgid ""
 "Note that there is a significant caveat with respect to the $PATH variable "
 "with this scheme. If your $PATH does not contain absolute paths, you may "
 "find that switching working directory to a different mount point can cause "
 "you to be unable to run any commands."
-msgstr "Beachten Sie, dass es in Bezug auf die Variable $PATH bei diesem Schema eine erhebliche Einschränkung gibt. Enthält Ihr $PATH keine absoluten Pfade, kann es passieren, dass der Wechsel des Arbeitsverzeichnisses auf einen anderen Mount-Punkt dazu führen kann, dass Sie keine Befehle mehr ausführen können."
+msgstr ""
+"Beachten Sie, dass es in Bezug auf die Variable $PATH bei diesem Schema eine "
+"erhebliche Einschränkung gibt. Enthält Ihr $PATH keine absoluten Pfade, kann "
+"es passieren, dass der Wechsel des Arbeitsverzeichnisses auf einen anderen "
+"Mount-Punkt dazu führen kann, dass Sie keine Befehle mehr ausführen können."
 
-#: ../../src/user/applications/tour/main.cc:152
+#: ../../src/user/applications/tour/main.cc:164
 msgid ""
 "This image has been configured such that the default PATH does this "
 "correctly. There may still be weirdness, and if you notice things are not "
 "quite working correctly, you can always run `cd root»/` to return to the "
 "root mount."
-msgstr "Dieses Bild wurde so konfiguriert, dass der Standard-PFAD dies richtig tut. Es kann trotzdem zu Verwirrung kommen. Sollten Ihnen Dinge auffallen, die nicht so ganz richtig funktionieren, können Sie immer „cd root»/“ ausführen, um auf das Stamm-Mount zurückzukehren."
+msgstr ""
+"Dieses Bild wurde so konfiguriert, dass der Standard-PFAD dies richtig tut. "
+"Es kann trotzdem zu Verwirrung kommen. Sollten Ihnen Dinge auffallen, die "
+"nicht so ganz richtig funktionieren, können Sie immer „cd root»/“ ausführen, "
+"um auf das Stamm-Mount zurückzukehren."
 
-#: ../../src/user/applications/tour/main.cc:161
+#: ../../src/user/applications/tour/main.cc:176
 msgid ""
 "If something goes wrong, you may find yourself in the Pedigree kernel "
 "debugger. This can also be accessed on-demand by pressing F12 at any time."
-msgstr "Wenn etwas schief geht, wird in vielen Fällen ein Pedigree-Kernel-Debugger geöffnet. Diesen können Sie bei Bedarf auch jederzeit durch Drücken der Funktionstaste F12 öffnen."
+msgstr ""
+"Wenn etwas schief geht, wird in vielen Fällen ein Pedigree-Kernel-Debugger "
+"geöffnet. Diesen können Sie bei Bedarf auch jederzeit durch Drücken der "
+"Funktionstaste F12 öffnen."
 
-#: ../../src/user/applications/tour/main.cc:169
+#: ../../src/user/applications/tour/main.cc:185
 msgid ""
 "In the debugger, you can read the kernel log, view backtraces, and do "
 "various other inspections to identify what went wrong or inspect kernel "
 "state."
-msgstr "In diesem Debugger können Sie das Kernel-Protokoll auslesen, Backtraces einsehen und verschiedene andere Überprüfungen durchführen, um herauszufinden, was schief gelaufen ist oder den Zustand des Kernel zu prüfen."
+msgstr ""
+"In diesem Debugger können Sie das Kernel-Protokoll auslesen, Backtraces "
+"einsehen und verschiedene andere Überprüfungen durchführen, um "
+"herauszufinden, was schief gelaufen ist oder den Zustand des Kernel zu "
+"prüfen."
 
-#: ../../src/user/applications/tour/main.cc:177
+#: ../../src/user/applications/tour/main.cc:195
 msgid ""
 "You can use the `help` command to see what is available in the debugger. If "
 "you run into an issue that triggers the debugger, please try and add a "
 "serial port log if you report it to us. Thanks!"
-msgstr "Mithilfe des „help“-Befehls können Sie sich die verfügbaren Optionen im Debugger anzeigen lassen. Sollten Sie auf ein Problem stoßen, durch welches der Debugger ausgelöst wird, wäre uns sehr geholfen, wenn Sie ein Protokoll der seriellen Schnittstelle beifügen könnten, wenn Sie das Problem an uns melden. Vielen Dank!"
+msgstr ""
+"Mithilfe des „help“-Befehls können Sie sich die verfügbaren Optionen im "
+"Debugger anzeigen lassen. Sollten Sie auf ein Problem stoßen, durch welches "
+"der Debugger ausgelöst wird, wäre uns sehr geholfen, wenn Sie ein Protokoll "
+"der seriellen Schnittstelle beifügen könnten, wenn Sie das Problem an uns "
+"melden. Vielen Dank!"
 
-#: ../../src/user/applications/tour/main.cc:186
+#: ../../src/user/applications/tour/main.cc:206
 msgid ""
 "The tour is now complete, and  you are now better-equipped to handle "
 "Pedigree! Join us in #pedigree on Freenode IRC, and raise any issues you "
 "find at https://pedigree-project.org.\n"
 "\n"
 "Thank you for trying out Pedigree!"
-msgstr "Die Tour ist hiermit abgeschlossen. Jetzt sollten Sie besser vorbereitet sein, um mit Pedigree zu arbeiten! Verwenden Sie #pedigree auf Freenode IRC, um uns zu folgen, und stellen Sie Fragen zu auftretenden Problemen unter https://pedigree-project.org.\n\nVielen Dank, dass Sie Pedigree ausprobieren!"
+msgstr ""
+"Die Tour ist hiermit abgeschlossen. Jetzt sollten Sie besser vorbereitet "
+"sein, um mit Pedigree zu arbeiten! Verwenden Sie #pedigree auf Freenode IRC, "
+"um uns zu folgen, und stellen Sie Fragen zu auftretenden Problemen unter "
+"https://pedigree-project.org.\n"
+"\n"
+"Vielen Dank, dass Sie Pedigree ausprobieren!"

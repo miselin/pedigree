@@ -54,7 +54,7 @@ class HostedSyscallManager : public ::SyscallManager
     private:
     /** Called when a syscall was called
      *\param[in] syscallState reference to the usermode state before the syscall
-    */
+     */
     static void syscall(SyscallState &syscallState);
 
     /** The constructor */
