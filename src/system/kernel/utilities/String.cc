@@ -20,25 +20,27 @@
 #include <utilities/utility.h>
 #include <utilities/String.h>
 
+#include <Log.h>
+
 String::String()
-    : m_Data(0), m_Length(0), m_Size(StaticSize), m_Static()
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
 {
 }
 
 String::String(const char *s)
-    : m_Data(0), m_Length(0), m_Size(StaticSize), m_Static()
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
 {
     assign(s);
 }
 
 String::String(const char *s, size_t length)
-    : m_Data(0), m_Length(0), m_Size(StaticSize), m_Static()
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
 {
     assign(s, length);
 }
 
 String::String(const String &x)
-    : m_Data(0), m_Length(0), m_Size(StaticSize), m_Static()
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
 {
     assign(x);
 }
@@ -47,8 +49,10 @@ String::String(String &&x)
 {
     // take ownership of the object
     m_Data = pedigree_std::move(x.m_Data);
+    m_ConstData = pedigree_std::move(x.m_ConstData);
     m_Length = pedigree_std::move(x.m_Length);
     m_Size = pedigree_std::move(x.m_Size);
+    m_HeapData = pedigree_std::move(x.m_HeapData);
     if (m_Size == StaticSize)
     {
         MemoryCopy(m_Static, x.m_Static, m_Length + 1);
@@ -79,6 +83,12 @@ String &String::operator = (const char *s)
 
 String &String::operator += (const String &x)
 {
+    // Switch from const to dynamic string.
+    if (!m_HeapData)
+    {
+        assign(m_ConstData, m_Length);
+    }
+
     size_t newLength = x.length() + m_Length;
 
     char *dst = m_Static;
@@ -104,6 +114,12 @@ String &String::operator += (const String &x)
 
 String &String::operator += (const char *s)
 {
+    // Switch from const to dynamic string.
+    if (!m_HeapData)
+    {
+        assign(m_ConstData, m_Length);
+    }
+
     size_t slen = StringLength(s);
     size_t newLength = slen + m_Length;
     if (newLength < StaticSize)
@@ -129,11 +145,12 @@ bool String::operator == (const String &s) const
 {
     if (m_Length != s.m_Length)
         return false;
-    else if(m_Length < StaticSize)
-        return !StringCompareN(m_Static, s.m_Static, m_Length);
+
+    const char *buf = extract();
+    const char *other_buf = s.extract();
 
     // Neither of these can be null because of the above conditions.
-    return !StringCompareN(m_Data, s.m_Data, m_Length);
+    return !StringCompareN(buf, other_buf, m_Length);
 }
 
 bool String::operator == (const char *s) const
@@ -170,7 +187,10 @@ void String::assign(const String &x)
     if (m_Length < StaticSize)
     {
         MemoryCopy(m_Static, x.m_Static, m_Length + 1);
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
         m_Size = StaticSize;
     }
@@ -182,7 +202,15 @@ void String::assign(const String &x)
         MemoryCopy(m_Data, x.m_Data, m_Length + 1);
     }
 
+    m_HeapData = true;
+    // m_ConstData = nullptr;
+
 #ifdef ADDITIONAL_CHECKS
+    if (*this != x)
+    {
+        ERROR("mismatch: '" << *this << "' != '" << x << "'");
+        ERROR("const data was " << m_ConstData);
+    }
     assert(*this == x);
 #endif
 }
@@ -205,14 +233,20 @@ void String::assign(const char *s, size_t len)
     if (!m_Length)
     {
         ByteSet(m_Static, 0, StaticSize);
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
         m_Size = StaticSize;
     }
     else if (m_Length < StaticSize)
     {
         StringCopyN(m_Static, s, copyLength);
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
         m_Size = StaticSize;
         m_Static[copyLength] = '\0';
@@ -224,9 +258,14 @@ void String::assign(const char *s, size_t len)
         m_Data[copyLength] = '\0';
     }
 
+    m_HeapData = true;
+    m_ConstData = nullptr;
+
 #ifdef ADDITIONAL_CHECKS
     if (!len)
+    {
         assert(*this == s);
+    }
 #endif
 }
 
@@ -244,7 +283,10 @@ void String::reserve(size_t size, bool zero)
         {
             m_Size = StaticSize;
             MemoryCopy(m_Static, m_Data, size);
-            delete [] m_Data;
+            if (m_HeapData)
+            {
+                delete [] m_Data;
+            }
             m_Data = 0;
         }
 
@@ -257,7 +299,10 @@ void String::reserve(size_t size, bool zero)
         if (tmp)
         {
             MemoryCopy(m_Data, tmp, m_Size > size ? size : m_Size);
-            delete [] tmp;
+            if (m_HeapData)
+            {
+                delete [] tmp;
+            }
         }
         else if (zero)
         {
@@ -268,7 +313,10 @@ void String::reserve(size_t size, bool zero)
 }
 void String::free()
 {
-    delete [] m_Data;
+    if (m_HeapData)
+    {
+        delete [] m_Data;
+    }
     ByteSet(m_Static, 0, StaticSize);
     m_Data = 0;
     m_Length = 0;
@@ -301,8 +349,10 @@ void String::split(size_t offset, String &back)
     {
         MemoryCopy(m_Static, buf, m_Length);
         buf = m_Static;
-
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
         m_Size = StaticSize;
     }
@@ -338,7 +388,10 @@ void String::lstrip()
     {
         MemoryCopy(m_Static, m_Data, m_Length + 1);
         m_Size = StaticSize;
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
     }
 }
@@ -365,7 +418,10 @@ void String::rstrip()
     {
         MemoryCopy(m_Static, m_Data, m_Length + 1);
         m_Size = StaticSize;
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
     }
 }
@@ -426,7 +482,10 @@ void String::lchomp()
     {
         MemoryCopy(m_Static, m_Data, m_Length + 1);
         m_Size = StaticSize;
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
     }
 }
@@ -443,7 +502,10 @@ void String::chomp()
     {
         MemoryCopy(m_Static, m_Data, m_Length + 1);
         m_Size = StaticSize;
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
     }
 }
@@ -460,7 +522,10 @@ void String::Format(const char *fmt, ...)
     {
         MemoryCopy(m_Static, m_Data, m_Length + 1);
         m_Size = StaticSize;
-        delete [] m_Data;
+        if (m_HeapData)
+        {
+            delete [] m_Data;
+        }
         m_Data = 0;
     }
 }
@@ -548,6 +613,11 @@ bool String::iswhitespace(const char c) const
 
 char *String::extract() const
 {
+    if (!m_HeapData)
+    {
+        return const_cast<char *>(m_ConstData);
+    }
+
     if(m_Length < StaticSize)
     {
         // const_cast because we don't have a side effect but need to return
