@@ -1,6 +1,6 @@
 sudo: false
 language: cpp
-compiler: clang
+compiler: gcc
 matrix:
   include:
   - os: linux
@@ -15,7 +15,7 @@ matrix:
   #   env: OS=osx EASY_BUILD=x64
   exclude:
     - os: linux
-    - compiler: clang
+    - compiler: gcc
 script:
   - ./easy_build_$EASY_BUILD.sh nosudo $OS
   - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
