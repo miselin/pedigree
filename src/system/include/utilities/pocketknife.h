@@ -26,6 +26,26 @@
 namespace pocketknife
 {
 
+/**
+ * Run the given function concurrently with the given parameter.
+ *
+ * The thread that is created by this function is detached and cannot be
+ * joined. Use this to run a small function asynchronously if you don't care
+ * about its return value or stopping it later.
+ */
 void runConcurrently(int (*func)(void*), void *param);
+
+/**
+ * Run the given function concurrently with the given parameter.
+ *
+ * The handle returned can be used to join the thread and retrieve its return
+ * value.
+ */
+void *runConcurrentlyAttached(int (*func)(void*), void *param);
+
+/**
+ * Join the given handle returned from runConcurrentlyAttached.
+ */
+int attachTo(void *handle);
 
 }

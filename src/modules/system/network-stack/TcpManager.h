@@ -106,7 +106,7 @@ public:
   uint16_t allocatePort();
 
 private:
-  static int sequenceIncrementer(void *param) NORETURN;
+  static int sequenceIncrementer(void *param);
 
   static TcpManager *manager;
 
@@ -144,6 +144,12 @@ private:
 
   /** Count of milliseconds, used for timer handler. */
   uint64_t m_Nanoseconds;
+
+  /** Handle to our manager thread. */
+  void *m_ThreadHandle;
+
+  // Is the manager still alive?
+  bool m_bAlive;
 };
 
 #endif
