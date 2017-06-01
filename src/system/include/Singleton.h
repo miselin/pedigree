@@ -23,14 +23,14 @@
 template <class T>
 class Singleton
 {
-    public:
+  public:
     static T &instance()
     {
         static T m_Instance;
         return m_Instance;
     }
 
-    protected:
+  protected:
     Singleton()
     {
     }
@@ -38,7 +38,7 @@ class Singleton
     {
     }
 
-    private:
+  private:
     Singleton(const Singleton &);
     Singleton &operator=(const Singleton &);
 };

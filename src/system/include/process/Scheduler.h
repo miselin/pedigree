@@ -42,7 +42,7 @@ class PerProcessorScheduler;
  */
 class Scheduler
 {
-    public:
+  public:
     /** Get the instance of the scheduler */
     static Scheduler &instance()
     {
@@ -95,7 +95,7 @@ class Scheduler
     }
 #endif  // THREADS
 
-    private:
+  private:
     Scheduler();
     NOT_COPYABLE_OR_ASSIGNABLE(Scheduler);
 

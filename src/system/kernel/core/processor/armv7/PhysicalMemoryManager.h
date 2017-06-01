@@ -32,7 +32,7 @@
  *\brief Implementation of the PhysicalMemoryManager for common arm */
 class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
 {
-    public:
+  public:
     /** Get the ArmV7PhysicalMemoryManager instance
      *\return instance of the ArmV7PhysicalMemoryManager */
     inline static ArmV7PhysicalMemoryManager &instance()
@@ -53,13 +53,13 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
 
     void initialise(const BootstrapStruct_t &info);
 
-    protected:
+  protected:
     /** The constructor */
     ArmV7PhysicalMemoryManager();
     /** The destructor */
     virtual ~ArmV7PhysicalMemoryManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     ArmV7PhysicalMemoryManager(const ArmV7PhysicalMemoryManager &);
@@ -80,7 +80,7 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
      *constraint). */
     class PageStack
     {
-        public:
+      public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
         /** Allocate a page with certain constraints
@@ -95,7 +95,7 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
         {
         }
 
-        private:
+      private:
         /** The copy-constructor
          *\note Not implemented */
         PageStack(const PageStack &);

@@ -33,7 +33,7 @@ class IpBase;
  */
 class Icmpv6
 {
-    public:
+  public:
     Icmpv6();
     virtual ~Icmpv6();
 
@@ -53,7 +53,7 @@ class Icmpv6
         IpAddress dest, IpAddress from, uint8_t type, uint8_t code,
         uintptr_t payload, size_t nBytes, Network *pCard = 0);
 
-    private:
+  private:
     static Icmpv6 icmpInstance;
 
     struct icmpv6Header

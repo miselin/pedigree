@@ -30,7 +30,7 @@
 /** x86 StackFrame */
 class X86StackFrame : public StackFrameBase
 {
-    public:
+  public:
 #if defined(DEBUGGER)
     /** Creates a stack frame based on the given processor state and also the
      * given symbol name (mangled). */
@@ -49,7 +49,7 @@ class X86StackFrame : public StackFrameBase
         ProcessorState &state, uintptr_t returnAddress, unsigned int nParams,
         ...);
 
-    private:
+  private:
 #if defined(DEBUGGER)
     /** Returns the n'th 32-bit parameter in the stack frame. */
     virtual uintptr_t getParameter(size_t n);

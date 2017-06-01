@@ -38,7 +38,7 @@ class Elf;
  *        optimised solely for the first two operations. */
 class SymbolTable
 {
-    public:
+  public:
     /** Binding types, to define how symbols interact. */
     enum Binding
     {
@@ -96,14 +96,14 @@ class SymbolTable
         String name, Elf *pElf, Policy policy = LocalFirst,
         Binding *pBinding = 0);
 
-    private:
+  private:
     /** Copy constructor.
         \note NOT implemented. */
     SymbolTable &operator=(const SymbolTable &);
 
     class Symbol
     {
-        public:
+      public:
         Symbol() : m_pParent(0), m_Binding(Global), m_Value(0)
         {
         }
@@ -125,7 +125,7 @@ class SymbolTable
             return m_Value;
         }
 
-        private:
+      private:
         Elf *m_pParent;
         Binding m_Binding;
         uintptr_t m_Value;

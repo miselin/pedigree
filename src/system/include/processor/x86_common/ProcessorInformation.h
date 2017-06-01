@@ -40,7 +40,7 @@ class X86CommonProcessorInformation
     friend class Processor;
     friend class Multiprocessor;
 
-    public:
+  public:
 #if defined(X86)
     typedef X86TaskStateSegment TaskStateSegment;
 #else
@@ -115,7 +115,7 @@ class X86CommonProcessorInformation
         return m_Scheduler;
     }
 
-    protected:
+  protected:
     /** Construct a X86CommonProcessor object
      *\param[in] processorId Identifier of the processor */
     inline X86CommonProcessorInformation(
@@ -137,7 +137,7 @@ class X86CommonProcessorInformation
         m_LocalApicId = apicId;
     }
 
-    private:
+  private:
     /** Default constructor
      *\note NOT implemented */
     X86CommonProcessorInformation();

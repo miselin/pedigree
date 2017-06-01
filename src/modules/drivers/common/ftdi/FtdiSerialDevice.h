@@ -26,7 +26,7 @@
 
 class FtdiSerialDevice : public UsbDevice, public Serial
 {
-    public:
+  public:
     FtdiSerialDevice(UsbDevice *dev);
     virtual ~FtdiSerialDevice();
 
@@ -47,7 +47,7 @@ class FtdiSerialDevice : public UsbDevice, public Serial
         str = "USB FTDI Serial Device";
     }
 
-    private:
+  private:
     Endpoint *m_pInEndpoint;
     Endpoint *m_pOutEndpoint;
 };

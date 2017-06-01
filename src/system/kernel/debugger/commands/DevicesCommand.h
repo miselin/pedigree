@@ -35,7 +35,7 @@
  */
 class DevicesCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */
@@ -66,10 +66,10 @@ class DevicesCommand : public DebuggerCommand
         return NormalStaticString("devices");
     }
 
-    private:
+  private:
     class DeviceTree : public Scrollable
     {
-        public:
+      public:
         DeviceTree();
         ~DeviceTree()
         {
@@ -84,14 +84,14 @@ class DevicesCommand : public DebuggerCommand
         Device *getDevForIndex(size_t index);
         size_t m_Line;
 
-        private:
+      private:
         void probeDev(Device *pDev);
         Vector<Device *> m_LinearTree;
     };
 
     class DeviceInfo : public Scrollable
     {
-        public:
+      public:
         DeviceInfo();
         ~DeviceInfo()
         {
@@ -109,7 +109,7 @@ class DevicesCommand : public DebuggerCommand
             DebuggerIO::Colour &bgColour);
         size_t getLineCount();
 
-        private:
+      private:
         Device *m_pDev;
         DeviceInfo(const DeviceInfo &);
         void operator=(const DeviceInfo &);

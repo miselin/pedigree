@@ -25,7 +25,7 @@
 
 class KernelCoreSyscallManager : public SyscallHandler
 {
-    public:
+  public:
     /** Get the syscall manager instance.
      *\return instance of the syscall manager */
     static KernelCoreSyscallManager &instance()
@@ -64,13 +64,13 @@ class KernelCoreSyscallManager : public SyscallHandler
     /** Register a syscall with a callback. */
     uintptr_t registerSyscall(Function_t function, SyscallCallback func);
 
-    protected:
+  protected:
     /** The constructor */
     inline KernelCoreSyscallManager();
     /** The destructor */
     inline virtual ~KernelCoreSyscallManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     KernelCoreSyscallManager(const KernelCoreSyscallManager &);

@@ -41,7 +41,7 @@ extern class ServiceFeatures *g_pIpv6Features;
 /** Ipv6Service: provides an interface to IPv6 throughout the system. */
 class Ipv6Service : public Service
 {
-    public:
+  public:
     Ipv6Service()
     {
     }
@@ -62,7 +62,7 @@ class Ipv6Service : public Service
  */
 class Ipv6 : public IpBase
 {
-    public:
+  public:
     Ipv6();
     virtual ~Ipv6();
 
@@ -98,7 +98,7 @@ class Ipv6 : public IpBase
         uint8_t destAddress[16];
     } __attribute__((packed));
 
-    private:
+  private:
     static Ipv6 ipInstance;
 
     // Psuedo-header for checksum when being sent over IPv6

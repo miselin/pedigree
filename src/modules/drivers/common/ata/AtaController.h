@@ -35,7 +35,7 @@
 /** Base class for an ATA controller. */
 class AtaController : public ScsiController, public IrqHandler
 {
-    public:
+  public:
     AtaController(Controller *pDev, int nController = 0)
         : ScsiController(pDev), m_nController(nController)
     {
@@ -63,11 +63,11 @@ class AtaController : public ScsiController, public IrqHandler
     IoBase *m_pCommandRegs;
     IoBase *m_pControlRegs;
 
-    private:
+  private:
     AtaController(const AtaController &);
     void operator=(const AtaController &);
 
-    protected:
+  protected:
     int m_nController;
 
     virtual size_t getNumUnits()

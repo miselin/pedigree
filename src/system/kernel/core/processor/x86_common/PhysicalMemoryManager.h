@@ -40,7 +40,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     friend class CacheManager;
     friend class Cache;
 
-    public:
+  public:
     /** Get the X86CommonPhysicalMemoryManager instance
      *\return instance of the X86CommonPhysicalMemoryManager */
     inline static X86CommonPhysicalMemoryManager &instance()
@@ -86,13 +86,13 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** Specifies the number of pages that remain free on the system. */
     virtual size_t freePageCount() const;
 
-    protected:
+  protected:
     /** The constructor */
     X86CommonPhysicalMemoryManager() INITIALISATION_ONLY;
     /** The destructor */
     virtual ~X86CommonPhysicalMemoryManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     X86CommonPhysicalMemoryManager(const X86CommonPhysicalMemoryManager &);
@@ -113,7 +113,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
      *constraint). */
     class PageStack
     {
-        public:
+      public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
         /** Allocate a page with certain constraints
@@ -133,7 +133,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
             return m_FreePages;
         }
 
-        private:
+      private:
         /** The copy-constructor
          *\note Not implemented */
         PageStack(const PageStack &);
@@ -189,7 +189,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** Utility to wrap a physical address and hash it. */
     class PageHashable
     {
-        public:
+      public:
         PageHashable()
         {
             m_Hash = m_Page = 0;
@@ -211,7 +211,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
             return p.m_Page == m_Page;
         }
 
-        private:
+      private:
         size_t m_Hash;
         physical_uintptr_t m_Page;
     };

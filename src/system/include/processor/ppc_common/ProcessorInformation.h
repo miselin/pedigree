@@ -32,7 +32,7 @@ class PPCCommonProcessorInformation
 {
     friend class Processor;
 
-    public:
+  public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
     inline VirtualAddressSpace &getVirtualAddressSpace() const
@@ -57,7 +57,7 @@ class PPCCommonProcessorInformation
         m_pCurrentThread = pThread;
     }
 
-    protected:
+  protected:
     /** Construct a PPCCommonProcessorInformation object
      *\param[in] processorId Identifier of the processor */
     inline PPCCommonProcessorInformation(ProcessorId processorId)
@@ -71,7 +71,7 @@ class PPCCommonProcessorInformation
     {
     }
 
-    private:
+  private:
     /** Default constructor
      *\note NOT implemented */
     PPCCommonProcessorInformation();

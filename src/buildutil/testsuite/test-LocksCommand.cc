@@ -35,7 +35,7 @@ static Spinlock *LOCK_D = 0;
 
 class PedigreeLocksCommand : public ::testing::Test
 {
-    public:
+  public:
     PedigreeLocksCommand() : TestLocksCommand()
     {
         LOCK_A = new Spinlock();

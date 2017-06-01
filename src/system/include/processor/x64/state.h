@@ -34,7 +34,7 @@ class X64InterruptState
     friend class X64InterruptManager;
     friend class PageFaultHandler;
 
-    public:
+  public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -103,7 +103,7 @@ class X64InterruptState
     static X64InterruptState *
     construct(class X64ProcessorState &state, bool userMode);
 
-    private:
+  private:
     /** The default constructor
      *\note NOT implemented */
     X64InterruptState();
@@ -169,7 +169,7 @@ class X64SyscallState
     friend class X64ProcessorState;
     friend class X64SyscallManager;
 
-    public:
+  public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -226,7 +226,7 @@ class X64SyscallState
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
-    public:
+  public:
     /** The R15 general purpose register */
     uint64_t m_R15;
     /** The R14 general purpose register */
@@ -244,13 +244,13 @@ class X64SyscallState
     /** The base-pointer */
     uint64_t m_Rbp;
 
-    public:
+  public:
     /** The RSI general purpose register */
     uint64_t m_Rsi;
     /** The RDI general purpose register */
     uint64_t m_Rdi;
 
-    private:
+  private:
     /** The RDX general purpose register */
     uint64_t m_Rdx;
     /** The RBX general purpose register */
@@ -268,7 +268,7 @@ class X64SyscallState
 /** x64 ProcessorState */
 class X64ProcessorState
 {
-    public:
+  public:
     /** Default constructor initializes everything with 0 */
     inline X64ProcessorState();
     /** Copy-constructor */
@@ -354,7 +354,7 @@ class X64ProcessorState
 /** x64 SchedulerState */
 class X64SchedulerState
 {
-    public:
+  public:
     uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
     uint64_t rbx;
     uint64_t rbp;

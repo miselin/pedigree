@@ -37,7 +37,7 @@ class PosixProcess;
 
 class MeminfoFile : public File
 {
-    public:
+  public:
     MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~MeminfoFile();
 
@@ -54,7 +54,7 @@ class MeminfoFile : public File
 
     void updateThread();
 
-    private:
+  private:
     Thread *m_pUpdateThread;
     bool m_bRunning;
     String m_Contents;
@@ -63,7 +63,7 @@ class MeminfoFile : public File
 
 class MountFile : public File
 {
-    public:
+  public:
     MountFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~MountFile();
 
@@ -79,7 +79,7 @@ class MountFile : public File
 
 class UptimeFile : public File
 {
-    public:
+  public:
     UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~UptimeFile();
 
@@ -92,13 +92,13 @@ class UptimeFile : public File
 
     virtual size_t getSize();
 
-    private:
+  private:
     String generateString();
 };
 
 class ConstantFile : public File
 {
-    public:
+  public:
     ConstantFile(
         String name, String value, size_t inode, Filesystem *pParentFS,
         File *pParent);
@@ -113,7 +113,7 @@ class ConstantFile : public File
 
     virtual size_t getSize();
 
-    private:
+  private:
     String m_Contents;
 };
 
@@ -121,7 +121,7 @@ class ConstantFile : public File
  * directory. */
 class ProcFsDirectory : public Directory
 {
-    public:
+  public:
     ProcFsDirectory(
         String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
         Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
@@ -145,7 +145,7 @@ class ProcFsDirectory : public Directory
 /** This class provides /dev */
 class ProcFs : public Filesystem
 {
-    public:
+  public:
     ProcFs() : m_pRoot(0)
     {
     }
@@ -169,7 +169,7 @@ class ProcFs : public Filesystem
     void addProcess(PosixProcess *proc);
     void removeProcess(PosixProcess *proc);
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask)
     {
         return false;
@@ -187,7 +187,7 @@ class ProcFs : public Filesystem
         return false;
     }
 
-    private:
+  private:
     ProcFs(const ProcFs &);
     ProcFs &operator=(const ProcFs &);
 

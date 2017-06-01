@@ -27,7 +27,7 @@
 
 class ScsiDisk : public Disk
 {
-    private:
+  private:
     enum ScsiPeripheralType
     {
         BlockDevice = 0x00,
@@ -43,7 +43,7 @@ class ScsiDisk : public Disk
         NoDevice = 0x1F,
     };
 
-    public:
+  public:
     struct Sense
     {
         uint8_t ResponseCode;
@@ -130,7 +130,7 @@ class ScsiDisk : public Disk
     virtual void pin(uint64_t location);
     virtual void unpin(uint64_t location);
 
-    protected:
+  protected:
     Cache &getCache()
     {
         return m_Cache;
@@ -141,7 +141,7 @@ class ScsiDisk : public Disk
         return m_Inquiry;
     }
 
-    private:
+  private:
     bool unitReady();
 
     bool readSense(Sense *s);

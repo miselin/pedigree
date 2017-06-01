@@ -54,7 +54,7 @@ enum Protocol
 /** File subclass for sockets */
 class Socket : public File
 {
-    private:
+  private:
     /** Copy constructors are hidden - (mostly) unimplemented (or invalid)! */
     Socket(const File &file);
     File &operator=(const File &);
@@ -77,7 +77,7 @@ class Socket : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-    public:
+  public:
     Socket(int proto, Endpoint *p, Filesystem *pFs)
         : File(String("socket"), 0, 0, 0, 0, pFs, 0, 0), m_Endpoint(p),
           m_Protocol(proto)
@@ -109,7 +109,7 @@ class Socket : public File
         dataChanged();
     }
 
-    private:
+  private:
     Endpoint *m_Endpoint;
     int m_Protocol;
 };
@@ -117,7 +117,7 @@ class Socket : public File
 /** Provides an interface to Endpoints for applications */
 class NetManager : public Filesystem
 {
-    public:
+  public:
     NetManager() : m_Endpoints()
     {
         m_Endpoints.clear();
@@ -170,7 +170,7 @@ class NetManager : public Filesystem
         return String("netman");
     }
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask)
     {
         return false;
@@ -188,7 +188,7 @@ class NetManager : public Filesystem
         return false;
     }
 
-    private:
+  private:
     Vector<Endpoint *> m_Endpoints;
     static NetManager m_Instance;
 };

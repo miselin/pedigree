@@ -64,7 +64,7 @@ class Thread
     // To set uninterruptible state.
     friend class Uninterruptible;
 
-    public:
+  public:
     /** The state that a thread can possibly have. */
     enum Status
     {
@@ -415,7 +415,7 @@ class Thread
     /** Gets whether this thread is interruptible or not. */
     bool isInterruptible();
 
-    protected:
+  protected:
     /** Sets the scheduler for the Thread. */
     void setScheduler(class PerProcessorScheduler *pScheduler)
     {
@@ -425,7 +425,7 @@ class Thread
     /** Sets or unsets the interruptible state of the Thread. */
     void setInterruptible(bool state);
 
-    private:
+  private:
     /** Copy-constructor */
     Thread(const Thread &);
     /** Assignment operator */

@@ -34,7 +34,7 @@
  */
 class X86Keyboard : public Keyboard, private IrqHandler
 {
-    public:
+  public:
     X86Keyboard(uint32_t portBase);
     virtual ~X86Keyboard();
 
@@ -53,7 +53,7 @@ class X86Keyboard : public Keyboard, private IrqHandler
     /// IrqHandler interface
     virtual bool irq(irq_id_t number, InterruptState &state);
 
-    private:
+  private:
     /// Converts a scancode into an ASCII character (for use in debug state)
     char scancodeToAscii(uint8_t scancode);
 

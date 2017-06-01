@@ -34,7 +34,7 @@ class X86InterruptState
     friend class X86InterruptManager;
     friend class PageFaultHandler;
 
-    public:
+  public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -166,7 +166,7 @@ typedef X86InterruptState X86SyscallState;
 /** x86 ProcessorState */
 class X86ProcessorState
 {
-    public:
+  public:
     /** Default constructor initializes everything with 0 */
     inline X86ProcessorState();
     /** Copy-constructor */
@@ -232,7 +232,7 @@ class X86ProcessorState
 /** x86 SchedulerState */
 class __attribute__((aligned(16))) X86SchedulerState
 {
-    public:
+  public:
     uint32_t edi;
     uint32_t esi;
     uint32_t ebx;

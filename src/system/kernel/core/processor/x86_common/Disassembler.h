@@ -29,7 +29,7 @@
  */
 class X86Disassembler : public DisassemblerBase
 {
-    public:
+  public:
     X86Disassembler();
     ~X86Disassembler();
 
@@ -57,7 +57,7 @@ class X86Disassembler : public DisassemblerBase
      */
     void disassemble(LargeStaticString &text);
 
-    private:
+  private:
     /**
      * Current disassembling location in memory.
      */

@@ -47,7 +47,7 @@
 
 class SHA1
 {
-    public:
+  public:
     SHA1();
     virtual ~SHA1();
 
@@ -73,7 +73,7 @@ class SHA1
     SHA1 &operator<<(const char message_element);
     SHA1 &operator<<(const unsigned char message_element);
 
-    private:
+  private:
     /*
      *  Process the next 512 bits of the message
      */

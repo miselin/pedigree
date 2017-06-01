@@ -46,7 +46,7 @@ class ConsoleFile : public File
     friend class ConsoleSlaveFile;
     friend class ConsoleManager;
 
-    public:
+  public:
     ConsoleFile(size_t consoleNumber, String consoleName, Filesystem *pFs);
     virtual ~ConsoleFile()
     {
@@ -115,7 +115,7 @@ class ConsoleFile : public File
             m_EventTrigger.release();
     }
 
-    protected:
+  protected:
     /// select - check and optionally for a particular state.
     virtual int select(bool bWriting, int timeout);
 
@@ -165,7 +165,7 @@ class ConsoleFile : public File
 
     Buffer<char> m_Buffer;
 
-    private:
+  private:
     size_t m_ConsoleNumber;
     String m_Name;
 
@@ -188,7 +188,7 @@ class ConsoleFile : public File
 
 class ConsoleMasterFile : public ConsoleFile
 {
-    public:
+  public:
     ConsoleMasterFile(
         size_t consoleNumber, String consoleName, Filesystem *pFs);
     virtual ~ConsoleMasterFile()
@@ -220,12 +220,12 @@ class ConsoleMasterFile : public ConsoleFile
         return true;
     }
 
-    private:
+  private:
 };
 
 class ConsoleSlaveFile : public ConsoleFile
 {
-    public:
+  public:
     ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem *pFs);
     virtual ~ConsoleSlaveFile()
     {
@@ -256,7 +256,7 @@ class ConsoleSlaveFile : public ConsoleFile
 
 class ConsolePhysicalFile : public ConsoleFile
 {
-    public:
+  public:
     ConsolePhysicalFile(File *pTerminal, String consoleName, Filesystem *pFs);
     virtual ~ConsolePhysicalFile()
     {
@@ -282,7 +282,7 @@ class ConsolePhysicalFile : public ConsoleFile
 
     virtual int select(bool bWriting, int timeout);
 
-    private:
+  private:
     File *m_pTerminal;
     Buffer<char> m_ProcessedInput;
 
@@ -302,7 +302,7 @@ class ConsolePhysicalFile : public ConsoleFile
 */
 class ConsoleManager : public Filesystem
 {
-    public:
+  public:
     enum IAttribute
     {
         IMapCRToNL = 1,
@@ -382,7 +382,7 @@ class ConsoleManager : public Filesystem
         return String("consolemanager");
     }
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask)
     {
         return false;
@@ -400,7 +400,7 @@ class ConsoleManager : public Filesystem
         return false;
     }
 
-    private:
+  private:
     Vector<ConsoleFile *> m_Consoles;
     static ConsoleManager m_Instance;
     Spinlock m_Lock;

@@ -27,7 +27,7 @@
     parses the initial file "root:/config/users". */
 class UserManager
 {
-    public:
+  public:
     /** Get the singleton instance. */
     static UserManager &instance()
     {
@@ -47,7 +47,7 @@ class UserManager
     /** Look up a group by name. */
     Group *getGroup(String name);
 
-    private:
+  private:
     /** Singleton class - default constructor hidden. */
     UserManager();
     ~UserManager();

@@ -29,7 +29,7 @@
 /** mips64 StackFrame */
 class MIPS64StackFrame : public StackFrameBase
 {
-    public:
+  public:
     /** Creates a stack frame based on the given processor state and also the
      * given symbol name (mangled). */
     inline MIPS64StackFrame(
@@ -42,7 +42,7 @@ class MIPS64StackFrame : public StackFrameBase
     {
     }
 
-    private:
+  private:
     /** Returns the n'th 64-bit parameter in the stack frame. */
     virtual uintptr_t getParameter(size_t n);
 };

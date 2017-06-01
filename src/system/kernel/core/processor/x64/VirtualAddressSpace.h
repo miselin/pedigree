@@ -89,7 +89,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
     /** VirtualAddressSpace::create needs access to the constructor */
     friend VirtualAddressSpace *VirtualAddressSpace::create();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -220,7 +220,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
                KERNEL_VIRTUAL_MODULE_SIZE;
     }
 
-    private:
+  private:
     /** The default constructor */
     X64VirtualAddressSpace();
     /** The constructor for already present paging structures

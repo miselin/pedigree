@@ -34,7 +34,7 @@ class HostedInterruptState
     friend class HostedInterruptManager;
     friend class PageFaultHandler;
 
-    public:
+  public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -99,7 +99,7 @@ class HostedInterruptState
     static HostedInterruptState *
     construct(class HostedProcessorState &state, bool userMode);
 
-    private:
+  private:
     /** The default constructor */
     HostedInterruptState();
     /** The copy-constructor
@@ -137,7 +137,7 @@ class HostedSyscallState
     friend class HostedProcessorState;
     friend class HostedSyscallManager;
 
-    public:
+  public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -194,7 +194,7 @@ class HostedSyscallState
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
-    public:
+  public:
     uint64_t service;
     uint64_t number;
     uint64_t p1, p2, p3, p4, p5;
@@ -208,7 +208,7 @@ class HostedSyscallState
 /** x64 ProcessorState */
 class HostedProcessorState
 {
-    public:
+  public:
     /** Default constructor initializes everything with 0 */
     inline HostedProcessorState();
     /** Copy-constructor */
@@ -259,7 +259,7 @@ class HostedProcessorState
 /** x64 SchedulerState */
 class HostedSchedulerState
 {
-    public:
+  public:
     uint64_t state[128];
 };
 

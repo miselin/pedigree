@@ -46,7 +46,7 @@ class TcpEndpoint : public ConnectionBasedEndpoint
     friend class StateBlock;
     friend class TcpManager;
 
-    public:
+  public:
     /** Constructors and destructors */
     TcpEndpoint();
     TcpEndpoint(uint16_t local, uint16_t remote);
@@ -92,7 +92,7 @@ class TcpEndpoint : public ConnectionBasedEndpoint
      */
     void stateChanged(Tcp::TcpState newState);
 
-    private:
+  private:
     /** Copy constructors */
     NOT_COPYABLE_OR_ASSIGNABLE(TcpEndpoint);
 
@@ -123,7 +123,7 @@ class TcpEndpoint : public ConnectionBasedEndpoint
     /** Adding an incoming connection must be an atomic operation. */
     Mutex m_IncomingConnectionLock;
 
-    protected:
+  protected:
     /** The incoming data stream */
     TcpBuffer m_DataStream;
 

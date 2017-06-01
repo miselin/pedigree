@@ -27,7 +27,7 @@
 
 class ThreadToCoreAllocationAlgorithm
 {
-    public:
+  public:
     ThreadToCoreAllocationAlgorithm()
     {
     }

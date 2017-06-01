@@ -26,7 +26,7 @@
 
 class UsbHubDevice : public UsbDevice, public UsbHub
 {
-    public:
+  public:
     UsbHubDevice(UsbDevice *dev);
     virtual ~UsbHubDevice();
 
@@ -50,7 +50,7 @@ class UsbHubDevice : public UsbDevice, public UsbHub
 
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
-    private:
+  private:
     enum HubFeatureSelectors
     {
         HubLocalPower = 0,

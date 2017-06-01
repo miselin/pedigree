@@ -42,7 +42,7 @@ const int scratch = 7;
  */
 class X86Serial : public Serial
 {
-    public:
+  public:
     X86Serial();
     virtual void setBase(uintptr_t nBaseAddr);
     virtual ~X86Serial();
@@ -51,7 +51,7 @@ class X86Serial : public Serial
     virtual char readNonBlock();
     virtual void write(char c);
 
-    private:
+  private:
     bool isConnected();
     IoPort m_Port;
 };

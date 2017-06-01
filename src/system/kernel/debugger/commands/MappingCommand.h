@@ -31,7 +31,7 @@
  */
 class MappingCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - zeroes stuff.
      */

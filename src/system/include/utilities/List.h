@@ -66,7 +66,7 @@ class List
     /** The data structure of the list's nodes */
     typedef _ListNode_t<T> node_t;
 
-    public:
+  public:
     /** Type of the bidirectional iterator */
     typedef ::Iterator<T, node_t> Iterator;
     /** Type of the constant bidirectional iterator */
@@ -167,7 +167,7 @@ class List
      *\param[in] x the reference List */
     void assign(const List &x);
 
-    private:
+  private:
     /** The number of Nodes/Elements in the List */
     size_t m_Count;
     /** Pointer to the first Node in the List */

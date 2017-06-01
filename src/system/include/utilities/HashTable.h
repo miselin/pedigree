@@ -43,7 +43,7 @@
 template <class K, class V>
 class HashTable
 {
-    public:
+  public:
     /**
      * To determine how many buckets you need, simply identify the
      * upper bound of the output of your hash function.
@@ -297,7 +297,7 @@ class HashTable
         }
     }
 
-    private:
+  private:
     struct bucket
     {
         bucket() : key(), value(0), next(0), set(false)

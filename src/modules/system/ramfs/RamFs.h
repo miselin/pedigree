@@ -35,7 +35,7 @@ class Disk;
 
 class RamFile : public File
 {
-    public:
+  public:
     RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
 
     virtual ~RamFile();
@@ -48,14 +48,14 @@ class RamFile : public File
 
     bool canWrite();
 
-    protected:
+  protected:
     virtual uintptr_t readBlock(uint64_t location);
 
     virtual void pinBlock(uint64_t location);
 
     virtual void unpinBlock(uint64_t location);
 
-    private:
+  private:
     Cache m_FileBlocks;
 
     size_t m_nOwnerPid;
@@ -64,11 +64,11 @@ class RamFile : public File
 /** Defines a directory in the RamFS */
 class RamDir : public Directory
 {
-    private:
+  private:
     RamDir(const RamDir &);
     RamDir &operator=(const RamDir &);
 
-    public:
+  public:
     RamDir(String name, size_t inode, class Filesystem *pFs, File *pParent);
     virtual ~RamDir();
 
@@ -84,7 +84,7 @@ class RamDir : public Directory
 /** Defines a filesystem that is completely in RAM. */
 class RamFs : public Filesystem
 {
-    public:
+  public:
     RamFs();
     virtual ~RamFs();
 
@@ -109,7 +109,7 @@ class RamFs : public Filesystem
         return String("ramfs");
     }
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask);
     virtual bool createDirectory(File *parent, String filename, uint32_t mask);
     virtual bool createSymlink(File *parent, String filename, String value);

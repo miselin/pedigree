@@ -31,7 +31,7 @@ class MIPSCommonProcessorInformation
 {
     friend class Processor;
 
-    public:
+  public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
     inline VirtualAddressSpace &getVirtualAddressSpace() const
@@ -45,7 +45,7 @@ class MIPSCommonProcessorInformation
         m_VirtualAddressSpace = &virtualAddressSpace;
     }
 
-    protected:
+  protected:
     /** Construct a MIPSCommonProcessorInformation object
      *\param[in] processorId Identifier of the processor */
     inline MIPSCommonProcessorInformation(ProcessorId processorId)
@@ -58,7 +58,7 @@ class MIPSCommonProcessorInformation
     {
     }
 
-    private:
+  private:
     /** Default constructor
      *\note NOT implemented */
     MIPSCommonProcessorInformation();

@@ -32,7 +32,7 @@ namespace Time
  */
 class Stopwatch
 {
-    public:
+  public:
     Stopwatch(bool startRunning = false);
     virtual ~Stopwatch();
 
@@ -48,7 +48,7 @@ class Stopwatch
     /// Read the stopwatch value in nanoseconds.
     Timestamp value();
 
-    private:
+  private:
     /// Current value.
     Timestamp m_Value;
 

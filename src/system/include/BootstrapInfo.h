@@ -54,7 +54,7 @@ class BootstrapStruct_t
 #ifdef HOSTED
     friend int ::main(int argc, char *argv[]);
 #endif
-    public:
+  public:
     BootstrapStruct_t();
 
     bool isInitrdLoaded() const;
@@ -100,7 +100,7 @@ class BootstrapStruct_t
         return reinterpret_cast<const Module *>(getModuleBase());
     }
 
-    private:
+  private:
     // If we are passed via grub, this information will be completely different
     // to via the bootstrapper.
     uint32_t flags;

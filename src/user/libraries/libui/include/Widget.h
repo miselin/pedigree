@@ -62,7 +62,7 @@ typedef bool (*widgetCallback_t)(WidgetMessages, size_t, const void *);
 /// widgets to use.
 class Widget
 {
-    public:
+  public:
     Widget();
     virtual ~Widget();
 
@@ -162,7 +162,7 @@ class Widget
      */
     static void checkForEvents(bool bAsync = false);
 
-    private:
+  private:
     /**
      * Waits for a message of the given type, queuing other messages along
      * the way.

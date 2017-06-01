@@ -96,7 +96,7 @@ extern bool appleProbeDisk(Disk *pDisk);
 
 class StreamingStderrLogger : public Log::LogCallback
 {
-    public:
+  public:
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
     void callback(const char *str)

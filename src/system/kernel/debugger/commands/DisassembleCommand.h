@@ -29,7 +29,7 @@ class DebuggerIO;
 
 class DisassembleCommand : public DebuggerCommand
 {
-    public:
+  public:
     DisassembleCommand();
     ~DisassembleCommand();
 

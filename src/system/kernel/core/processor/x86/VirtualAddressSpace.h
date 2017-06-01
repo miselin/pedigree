@@ -68,7 +68,7 @@ class X86VirtualAddressSpace : public VirtualAddressSpace
     /** VirtualAddressSpace::create needs access to the constructor */
     friend VirtualAddressSpace *VirtualAddressSpace::create();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -149,7 +149,7 @@ class X86VirtualAddressSpace : public VirtualAddressSpace
                KERNEL_VIRTUAL_HEAP_SIZE;
     }
 
-    protected:
+  protected:
     /** The constructor for already present paging structures
      *\param[in] Heap virtual address of the beginning of the heap
      *\param[in] PhysicalPageDirectory physical address of the page directory
@@ -173,7 +173,7 @@ class X86VirtualAddressSpace : public VirtualAddressSpace
     void doUnmap(void *virtualAddress);
     void *doAllocateStack(size_t sSize);
 
-    private:
+  private:
     /** The default constructor */
     X86VirtualAddressSpace();
 
@@ -245,7 +245,7 @@ class X86KernelVirtualAddressSpace : public X86VirtualAddressSpace
      */
     friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -259,7 +259,7 @@ class X86KernelVirtualAddressSpace : public X86VirtualAddressSpace
     virtual void unmap(void *virtualAddress);
     virtual void *allocateStack();
 
-    private:
+  private:
     /** The constructor */
     X86KernelVirtualAddressSpace();
     /** The destructor */

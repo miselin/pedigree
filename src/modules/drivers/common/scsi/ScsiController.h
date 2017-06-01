@@ -31,7 +31,7 @@
 /** Generic class for Scsi Controllers */
 class ScsiController : public Controller, public RequestQueue
 {
-    public:
+  public:
     ScsiController(Controller *pDev);
     ScsiController();
 
@@ -47,7 +47,7 @@ class ScsiController : public Controller, public RequestQueue
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);
 
-    protected:
+  protected:
     virtual size_t getNumUnits() = 0;
 
     void searchDisks();

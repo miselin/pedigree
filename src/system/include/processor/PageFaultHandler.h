@@ -27,7 +27,7 @@
 
 class MemoryTrapHandler
 {
-    public:
+  public:
     virtual ~MemoryTrapHandler()
     {
     }
@@ -44,7 +44,7 @@ class MemoryTrapHandler
 /** The x86 Page Fault Exception handler. */
 class PageFaultHandler : private InterruptHandler
 {
-    public:
+  public:
     /** Get the PageFaultHandler instance
      *  \return the PageFaultHandler instance.  */
     inline static PageFaultHandler &instance()
@@ -67,7 +67,7 @@ class PageFaultHandler : private InterruptHandler
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
-    private:
+  private:
     /** The default constructor.  */
     PageFaultHandler() INITIALISATION_ONLY;
 

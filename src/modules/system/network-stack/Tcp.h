@@ -35,7 +35,7 @@
  */
 class Tcp
 {
-    private:
+  private:
     static Tcp tcpInstance;
 
     struct tcpOption
@@ -55,7 +55,7 @@ class Tcp
         uint8_t zero2;
     } __attribute__((packed));
 
-    public:
+  public:
     Tcp();
     virtual ~Tcp();
 

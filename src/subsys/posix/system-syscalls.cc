@@ -465,7 +465,7 @@ int posix_execve(
  */
 class WaitCleanup
 {
-    public:
+  public:
     WaitCleanup(List<Process *> *cleanupList, Semaphore *lock)
         : m_List(cleanupList), m_Lock(lock), m_pTerminated(0)
     {
@@ -494,7 +494,7 @@ class WaitCleanup
         }
     }
 
-    private:
+  private:
     List<Process *> *m_List;
     Semaphore *m_Lock;
     Process *m_pTerminated;

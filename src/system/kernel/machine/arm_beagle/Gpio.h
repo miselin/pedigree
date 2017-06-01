@@ -29,7 +29,7 @@
 /** GPIO implementation for the BeagleBoard */
 class Gpio
 {
-    public:
+  public:
     Gpio()
         : m_Gpio1("GPIO1"), m_Gpio2("GPIO2"), m_Gpio3("GPIO3"),
           m_Gpio4("GPIO4"), m_Gpio5("GPIO5"), m_Gpio6("GPIO6")
@@ -137,7 +137,7 @@ class Gpio
 
     void enableoutput(int pin);
 
-    private:
+  private:
     /// Initialises a specific GPIO to a given set of defaults
     void initspecific(int n, volatile uint32_t *gpio);
 

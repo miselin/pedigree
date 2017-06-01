@@ -31,7 +31,7 @@
  */
 class InputManager
 {
-    public:
+  public:
     /// The type for a given callback (enum values can't be used for bitwise
     /// operations, so we define these as constants).
     const static int Key = 1;
@@ -138,7 +138,7 @@ class InputManager
         return m_bActive;
     }
 
-    private:
+  private:
     /// Static instance
     static InputManager m_Instance;
 

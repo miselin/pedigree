@@ -31,7 +31,7 @@
  */
 class MemoryInspector : public DebuggerCommand, public Scrollable
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */
@@ -72,7 +72,7 @@ class MemoryInspector : public DebuggerCommand, public Scrollable
         DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-    private:
+  private:
     void resetStatusLine(DebuggerIO *pScreen);
     void doGoto(DebuggerIO *pScreen, InterruptState &state);
     void doSearch(bool bForward, DebuggerIO *pScreen, InterruptState &state);

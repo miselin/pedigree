@@ -39,7 +39,7 @@ class Ehci : public UsbHub,
 #endif
              public RequestQueue
 {
-    public:
+  public:
     Ehci(Device *pDev);
     virtual ~Ehci();
 
@@ -166,12 +166,12 @@ class Ehci : public UsbHub,
 
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
-    protected:
+  protected:
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
-    private:
+  private:
     enum EhciConstants
     {
         EHCI_CAPLENGTH = 0x00,   // Capability Registers Length

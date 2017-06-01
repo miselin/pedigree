@@ -30,7 +30,7 @@
  */
 class DumpCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - does nothing.
      */

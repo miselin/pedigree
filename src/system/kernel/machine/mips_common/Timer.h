@@ -30,7 +30,7 @@
 /** The programmable interval timer implements the SchedulerTimer interface */
 class CountCompareTimer : public SchedulerTimer, private InterruptHandler
 {
-    public:
+  public:
     /** Get the CountCompareTimer class instance */
     inline static CountCompareTimer &instance()
     {
@@ -48,7 +48,7 @@ class CountCompareTimer : public SchedulerTimer, private InterruptHandler
     /** Uninitialises the class */
     void uninitialise();
 
-    protected:
+  protected:
     /** The default constructor */
     CountCompareTimer() INITIALISATION_ONLY;
     /** The destructor */
@@ -56,7 +56,7 @@ class CountCompareTimer : public SchedulerTimer, private InterruptHandler
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     CountCompareTimer(const CountCompareTimer &);

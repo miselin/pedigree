@@ -40,7 +40,7 @@
  */
 class RawEndpoint : public ConnectionlessEndpoint
 {
-    public:
+  public:
     /** What type is this Raw Endpoint? */
     enum Type
     {
@@ -105,7 +105,7 @@ class RawEndpoint : public ConnectionlessEndpoint
         return true;
     }
 
-    private:
+  private:
     struct DataBlock
     {
         DataBlock() : size(0), ptr(0), remoteHost()
@@ -132,7 +132,7 @@ class RawEndpoint : public ConnectionlessEndpoint
  */
 class RawManager : public ProtocolManager
 {
-    public:
+  public:
     RawManager() : m_Endpoints()
     {
     }
@@ -158,7 +158,7 @@ class RawManager : public ProtocolManager
         uintptr_t payload, size_t payloadSize,
         Endpoint::RemoteEndpoint *remoteHost, int proto, Network *pCard);
 
-    private:
+  private:
     static RawManager manager;
 
     /** Currently known endpoints (all actually RawEndpoints - each one is

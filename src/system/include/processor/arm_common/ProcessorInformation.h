@@ -33,7 +33,7 @@ class ArmCommonProcessorInformation
 {
     friend class Processor;
     // friend class Multiprocessor;
-    public:
+  public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
     inline VirtualAddressSpace &getVirtualAddressSpace() const
@@ -68,7 +68,7 @@ class ArmCommonProcessorInformation
     }
 #endif
 
-    protected:
+  protected:
     /** Construct a ArmCommonProcessor object
      *\param[in] processorId Identifier of the processor */
     inline ArmCommonProcessorInformation(
@@ -86,7 +86,7 @@ class ArmCommonProcessorInformation
     {
     }
 
-    private:
+  private:
     /** Default constructor
      *\note NOT implemented */
     ArmCommonProcessorInformation();

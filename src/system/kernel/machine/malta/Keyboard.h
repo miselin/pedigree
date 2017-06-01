@@ -24,7 +24,7 @@
 
 class MaltaKeyboard : public Keyboard
 {
-    public:
+  public:
     MaltaKeyboard();
     virtual ~MaltaKeyboard();
 

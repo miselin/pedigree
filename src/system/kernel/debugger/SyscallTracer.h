@@ -21,7 +21,7 @@
 
 class SyscallTracer
 {
-    public:
+  public:
     /**
      * Creates a new SyscallTracer object.
      */

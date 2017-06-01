@@ -31,7 +31,7 @@
 /** Timer for the time-keeping */
 class Timer
 {
-    public:
+  public:
     /** Get the current year
      *\return the current year */
     virtual size_t getYear() = 0;
@@ -99,7 +99,7 @@ class Timer
     {
     }
 
-    protected:
+  protected:
     /** The default constructor */
     inline Timer()
     {
@@ -109,7 +109,7 @@ class Timer
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     Timer(const Timer &);

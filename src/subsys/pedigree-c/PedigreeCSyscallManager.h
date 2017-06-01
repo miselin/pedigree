@@ -25,7 +25,7 @@
 
 class PedigreeCSyscallManager : public SyscallHandler
 {
-    public:
+  public:
     void initialise();
 
     /** Calls a syscall. */
@@ -41,7 +41,7 @@ class PedigreeCSyscallManager : public SyscallHandler
     /** The destructor */
     virtual ~PedigreeCSyscallManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     PedigreeCSyscallManager(const PedigreeCSyscallManager &);

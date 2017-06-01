@@ -29,7 +29,7 @@
 /** x64 StackFrame */
 class X64StackFrame : public StackFrameBase
 {
-    public:
+  public:
     /** Creates a stack frame based on the given processor state and also the
      * given symbol name (mangled). */
     inline X64StackFrame(
@@ -47,7 +47,7 @@ class X64StackFrame : public StackFrameBase
         ProcessorState &state, uintptr_t returnAddress, unsigned int nParams,
         ...);
 
-    private:
+  private:
     /** Returns the n'th 64-bit parameter in the stack frame. */
     virtual uintptr_t getParameter(size_t n);
 };

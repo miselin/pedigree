@@ -77,7 +77,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     /** VirtualAddressSpace::create needs access to the constructor */
     friend VirtualAddressSpace *VirtualAddressSpace::create();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -184,7 +184,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
                KERNEL_VIRTUAL_MODULE_SIZE;
     }
 
-    private:
+  private:
     /** The default constructor */
     HostedVirtualAddressSpace();
     /** The constructor for already present paging structures

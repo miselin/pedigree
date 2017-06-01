@@ -27,7 +27,7 @@
  */
 class Au1500Vga : public Vga
 {
-    public:
+  public:
     Au1500Vga();
     virtual ~Au1500Vga();
 

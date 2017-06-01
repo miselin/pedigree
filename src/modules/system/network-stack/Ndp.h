@@ -33,7 +33,7 @@
 
 class Ndp
 {
-    public:
+  public:
     Ndp();
     virtual ~Ndp();
 
@@ -58,7 +58,7 @@ class Ndp
     /// Adds a given IP->LinkLayer association to the cache.
     void addEntry(IpAddress addr, MacAddress mac);
 
-    private:
+  private:
     static Ndp ndpInstance;
 
     RadixTree<MacAddress *> m_LookupCache;

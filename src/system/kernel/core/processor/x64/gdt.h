@@ -29,7 +29,7 @@
 /** The GDT manager on x64 processors */
 class X64GdtManager
 {
-    public:
+  public:
     /** Get the gdt manager instance
      *\return instance of the gdt manager */
     inline static X64GdtManager &instance()
@@ -46,7 +46,7 @@ class X64GdtManager
      *\todo and some smp/acpi function */
     static void initialiseProcessor() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** The constructor */
     X64GdtManager() INITIALISATION_ONLY;
     /** Copy constructor

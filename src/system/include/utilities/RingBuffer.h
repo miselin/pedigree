@@ -52,7 +52,7 @@ enum WaitType
 template <class T>
 class RingBuffer
 {
-    public:
+  public:
     RingBuffer();  // Not implemented, use RingBuffer(size_t)
 
     /// Constructor - pass in the desired size of the ring buffer.
@@ -243,7 +243,7 @@ class RingBuffer
         m_Lock.release();
     }
 
-    private:
+  private:
     /// Trigger event for threads waiting on us.
     void notifyMonitors()
     {

@@ -34,7 +34,7 @@
     an address space. */
 class DynamicLinker
 {
-    public:
+  public:
     /** Creates a new DynamicLinker object. */
     DynamicLinker();
 
@@ -89,7 +89,7 @@ class DynamicLinker
     /** Manually resolves a given symbol name. */
     uintptr_t resolve(String name);
 
-    private:
+  private:
     /** Operator= is unused and is therefore private. */
     DynamicLinker &operator=(const DynamicLinker &);
 
@@ -126,7 +126,7 @@ class DynamicLinker
     be loaded. */
 class DLTrapHandler : public MemoryTrapHandler
 {
-    public:
+  public:
     /** Retrieve the singleton DLTrapHandler instance. */
     static DLTrapHandler &instance()
     {
@@ -138,7 +138,7 @@ class DLTrapHandler : public MemoryTrapHandler
     //
     virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite);
 
-    private:
+  private:
     /** Private constructor - does nothing. */
     DLTrapHandler();
     /** Private destructor - does nothing, not expected to be called. */

@@ -254,7 +254,7 @@ struct function_traits<R(Args...)>
 template <class F>
 class Callable
 {
-    public:
+  public:
     Callable(const F &x) : func(x)
     {
     }
@@ -265,7 +265,7 @@ class Callable
         return func(args...);
     }
 
-    private:
+  private:
     const F &func;
 };
 

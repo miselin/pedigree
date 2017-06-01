@@ -24,7 +24,7 @@
 
 class ArmVersatileKeyboard : public Keyboard
 {
-    public:
+  public:
     ArmVersatileKeyboard();
     virtual ~ArmVersatileKeyboard();
 

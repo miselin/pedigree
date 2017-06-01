@@ -24,7 +24,7 @@
 
 class SyscallTracerCommand : public DebuggerCommand, public Scrollable
 {
-    public:
+  public:
     /**
      * Creates a new SyscallTracer object.
      */

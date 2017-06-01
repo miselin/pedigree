@@ -26,7 +26,7 @@
 ///       is completely stubbed.
 class ArmBeagleKeyboard : public Keyboard
 {
-    public:
+  public:
     ArmBeagleKeyboard();
     virtual ~ArmBeagleKeyboard();
 

@@ -34,7 +34,7 @@
 /** Implementation of the ACPI 1.0+ Specification */
 class Acpi
 {
-    public:
+  public:
     /** Get the instance of the Acpi class */
     inline static Acpi &instance()
     {
@@ -73,7 +73,7 @@ class Acpi
 #endif
 #endif
 
-    private:
+  private:
     /** The constructor does nothing */
     Acpi() INITIALISATION_ONLY;
     /** Copy-constructor

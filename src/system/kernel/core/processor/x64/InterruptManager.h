@@ -33,7 +33,7 @@ class X64InterruptManager : public ::InterruptManager
 {
     friend class Processor;
 
-    public:
+  public:
     /** Get the X64InterruptManager class instance
      *\return instance of the X64InterruptManager class */
     inline static X64InterruptManager &instance()
@@ -56,7 +56,7 @@ class X64InterruptManager : public ::InterruptManager
      *      Multiprocessor::applicationProcessorStartup() */
     static void initialiseProcessor() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
      *the interrupt */

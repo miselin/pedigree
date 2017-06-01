@@ -27,7 +27,7 @@
 /// Implements the UART interface on the BeagleBoard
 class ArmBeagleSerial : public Serial, public InterruptHandler
 {
-    public:
+  public:
     ArmBeagleSerial();
     virtual ~ArmBeagleSerial();
 
@@ -38,7 +38,7 @@ class ArmBeagleSerial : public Serial, public InterruptHandler
 
     virtual void interrupt(size_t nInterruptNumber, InterruptState &state);
 
-    private:
+  private:
     /// Perform a software reset of this UART
     void softReset();
 

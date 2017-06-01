@@ -27,7 +27,7 @@
 
 class PartitionService : public Service
 {
-    public:
+  public:
     PartitionService()
     {
     }

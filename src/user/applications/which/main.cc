@@ -65,7 +65,7 @@ enum tty_opts
 
 struct CommandLineOptions
 {
-    public:
+  public:
     CommandLineOptions()
         : all(0), readAliases(0), readFunctions(0), showDot(0), skipDot(0),
           showTilde(0), skipTilde(0){};

@@ -35,7 +35,7 @@ class Backtrace
     friend class LocksCommand;
     friend class SlamAllocator;
 
-    public:
+  public:
     /**
      * Creates a new Backtrace object.
      */
@@ -66,7 +66,7 @@ class Backtrace
     void prettyPrint(
         HugeStaticString &buf, size_t nFrames = 0, size_t nFromFrame = 0);
 
-    private:
+  private:
     /**
      * Performs a DWARF backtrace.
      */
@@ -76,12 +76,12 @@ class Backtrace
      * Performs a "normal" backtrace, based on following a linked list of frame
      * pointers.
      */
-    public:
+  public:
     void performBpBacktrace(uintptr_t base, uintptr_t instruction);
 #ifdef ARM_COMMON
     void performArmBacktrace(uintptr_t base, uintptr_t instruction);
 #endif
-    private:
+  private:
     /**
      * The return addresses.
      */

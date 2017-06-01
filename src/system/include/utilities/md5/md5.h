@@ -87,7 +87,7 @@ typedef void *POINTER;
  */
 class MD5
 {
-    private:
+  private:
     /**
      *  @brief 	Basic transformation. Transforms state based on block.
      *  @param	state	state to transform
@@ -143,7 +143,7 @@ class MD5
     /** input buffer */
     unsigned char buffer[64];
 
-    public:
+  public:
     /**
      *  @brief 	Initialization begins an operation,
      *  		writing a new context

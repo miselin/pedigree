@@ -26,7 +26,7 @@
 
 class TunWrapper : public Network
 {
-    public:
+  public:
     TunWrapper();
     TunWrapper(Network *pDev);
     virtual ~TunWrapper();
@@ -50,7 +50,7 @@ class TunWrapper : public Network
     /** Runs the wrapper's main loop with the given descriptor. */
     void run(int fd);
 
-    protected:
+  protected:
     static int packetPusherThread(void *param);
     void packetPusher();
 

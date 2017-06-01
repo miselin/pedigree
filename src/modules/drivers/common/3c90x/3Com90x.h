@@ -35,7 +35,7 @@
 /** Device driver for the Nic3C90x class of network device */
 class Nic3C90x : public Network, public IrqHandler
 {
-    public:
+  public:
     Nic3C90x(Network *pDev);
     ~Nic3C90x();
 
@@ -55,7 +55,7 @@ class Nic3C90x : public Network, public IrqHandler
 
     IoBase *m_pBase;
 
-    private:
+  private:
     int issueCommand(int cmd, int param);
 
     int setWindow(int window);

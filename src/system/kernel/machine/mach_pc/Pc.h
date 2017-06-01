@@ -37,7 +37,7 @@
  */
 class Pc : public Machine
 {
-    public:
+  public:
     inline static Pc &instance()
     {
         return m_Instance;
@@ -75,7 +75,7 @@ class Pc : public Machine
     virtual void stopAllOtherProcessors();
 #endif
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

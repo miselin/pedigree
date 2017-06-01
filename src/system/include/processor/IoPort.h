@@ -33,7 +33,7 @@
  *\brief I/O port range */
 class IoPort : public IoBase
 {
-    public:
+  public:
     /** The default constructor does nothing */
     inline IoPort(const char *name) : m_IoPort(0), m_Size(0), m_Name(name)
     {
@@ -75,7 +75,7 @@ class IoPort : public IoBase
      *\return true, if successfull, false otherwise */
     bool allocate(io_port_t ioPort, size_t size);
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     IoPort(const IoPort &);

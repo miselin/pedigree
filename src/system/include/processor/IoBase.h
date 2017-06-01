@@ -29,7 +29,7 @@
  *\brief Abstrace base class for hardware I/O capabilities */
 class IoBase
 {
-    public:
+  public:
     /** The destructor does nothing */
     inline virtual ~IoBase()
     {
@@ -125,13 +125,13 @@ class IoBase
      *and usable */
     virtual operator bool() const = 0;
 
-    protected:
+  protected:
     /** The default constructor does nothing */
     inline IoBase()
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     IoBase(const IoBase &);

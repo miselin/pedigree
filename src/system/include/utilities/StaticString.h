@@ -31,7 +31,7 @@
 template <unsigned int N>
 class StaticString
 {
-    public:
+  public:
     /**
      * Default constructor.
      */
@@ -416,7 +416,7 @@ class StaticString
         return m_Length;
     }
 
-    private:
+  private:
     /**
      * Our actual static data.
      */

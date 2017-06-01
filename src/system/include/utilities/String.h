@@ -37,7 +37,7 @@
  *\todo provide documentation */
 class String
 {
-    public:
+  public:
     /** The default constructor does nothing */
     String();
     explicit String(const char *s);
@@ -141,7 +141,7 @@ class String
     ssize_t find(const char c) const;
     ssize_t rfind(const char c) const;
 
-    private:
+  private:
     /** Internal doer for reserve() */
     void reserve(size_t size, bool zero);
     /** Extract the correct string buffer for this string. */

@@ -38,7 +38,7 @@ class Ohci : public UsbHub,
 #endif
              public RequestQueue
 {
-    private:
+  private:
     /// Enumeration of lists that can be stopped or started.
     enum Lists
     {
@@ -48,7 +48,7 @@ class Ohci : public UsbHub,
         BulkList = 0x20
     };
 
-    public:
+  public:
     Ohci(Device *pDev);
     virtual ~Ohci();
 
@@ -177,12 +177,12 @@ class Ohci : public UsbHub,
 
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
-    protected:
+  protected:
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
-    private:
+  private:
     /// Stops the controller from processing the given list.
     void stop(Lists list);
 

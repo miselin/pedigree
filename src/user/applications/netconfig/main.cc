@@ -43,7 +43,7 @@ namespace Pedigree
 /** An IPv4/IPv6 address */
 class IpAddress
 {
-    public:
+  public:
     /** The type of an IP address */
     enum IpType
     {
@@ -164,7 +164,7 @@ class IpAddress
         return "";
     }
 
-    private:
+  private:
     IpType m_Type;
 
     uint32_t m_Ipv4;     // the IPv4 address
@@ -175,7 +175,7 @@ class IpAddress
 
 class NetworkDevice
 {
-    public:
+  public:
     NetworkDevice() : name(""), ipv4(), subnet(), gateway(), dns(){};
     virtual ~NetworkDevice(){};
 
@@ -188,7 +188,7 @@ class NetworkDevice
 
 class Network
 {
-    public:
+  public:
     Network() : m_Devices()
     {
         struct NetworkDevice dev;
@@ -230,7 +230,7 @@ class Network
         return m_Devices;
     }
 
-    private:
+  private:
     static Network m_Instance;
 
     vector<NetworkDevice> m_Devices;

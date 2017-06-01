@@ -42,7 +42,7 @@
  */
 class Au1500Serial : public Serial
 {
-    public:
+  public:
     Au1500Serial();
     virtual ~Au1500Serial();
 

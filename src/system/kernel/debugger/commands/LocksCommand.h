@@ -47,7 +47,7 @@ class LocksCommand : public DebuggerCommand, public Scrollable
 {
     friend class Spinlock;
 
-    public:
+  public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -115,10 +115,10 @@ class LocksCommand : public DebuggerCommand, public Scrollable
         DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-    protected:
+  protected:
     void clearFatal();
 
-    private:
+  private:
     enum State
     {
         /// The lock is about to be attempted.

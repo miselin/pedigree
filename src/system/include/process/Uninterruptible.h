@@ -34,11 +34,11 @@
  */
 class Uninterruptible
 {
-    public:
+  public:
     Uninterruptible();
     ~Uninterruptible();
 
-    private:
+  private:
     NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
 };
 

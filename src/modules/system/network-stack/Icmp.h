@@ -37,7 +37,7 @@ class IpBase;
  */
 class Icmp
 {
-    public:
+  public:
     Icmp();
     virtual ~Icmp();
 
@@ -57,7 +57,7 @@ class Icmp
         IpAddress dest, uint8_t type, uint8_t code, uint16_t id, uint16_t seq,
         size_t nBytes, uintptr_t payload, Network *pCard = 0);
 
-    private:
+  private:
     static Icmp icmpInstance;
 
     struct icmpHeader

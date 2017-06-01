@@ -35,11 +35,11 @@ class ZombieObject
 /// Special wrapper object for Process
 class ZombieProcess : public ZombieObject
 {
-    public:
+  public:
     ZombieProcess(Process *pProcess);
     virtual ~ZombieProcess();
 
-    private:
+  private:
     Process *m_pProcess;
 };
 
@@ -49,7 +49,7 @@ class ZombieProcess : public ZombieObject
  */
 class ZombieQueue : public RequestQueue
 {
-    public:
+  public:
     ZombieQueue();
     virtual ~ZombieQueue();
 
@@ -57,7 +57,7 @@ class ZombieQueue : public RequestQueue
 
     void addObject(ZombieObject *pObject);
 
-    private:
+  private:
     virtual uint64_t executeRequest(
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);

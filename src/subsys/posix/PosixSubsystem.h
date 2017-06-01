@@ -72,7 +72,7 @@ extern RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
  */
 class ProcessGroupManager
 {
-    public:
+  public:
     ProcessGroupManager() : m_GroupIds()
     {
         m_GroupIds.set(0);
@@ -116,7 +116,7 @@ class ProcessGroupManager
         m_GroupIds.clear(gid);
     }
 
-    private:
+  private:
     static ProcessGroupManager m_Instance;
     /**
      * Bitmap of available group IDs.
@@ -129,7 +129,7 @@ class ProcessGroupManager
  */
 class FileDescriptor
 {
-    public:
+  public:
     /// Default constructor
     FileDescriptor();
 
@@ -181,7 +181,7 @@ class FileDescriptor
 /** Defines the compatibility layer for the POSIX Subsystem */
 class PosixSubsystem : public Subsystem
 {
-    public:
+  public:
     /** Sanitise flags. */
     static const size_t SafeRegion = 0x0;  // Region check is always done.
     static const size_t SafeRead = 0x1;
@@ -385,7 +385,7 @@ class PosixSubsystem : public Subsystem
      */
     class PosixSyncObject
     {
-        public:
+      public:
         PosixSyncObject() : pObject(0), isMutex(false)
         {
         }
@@ -396,7 +396,7 @@ class PosixSubsystem : public Subsystem
         void *pObject;
         bool isMutex;
 
-        private:
+      private:
         PosixSyncObject(const PosixSyncObject &);
         const PosixSyncObject &operator=(const PosixSyncObject &);
     };
@@ -444,7 +444,7 @@ class PosixSubsystem : public Subsystem
     /** POSIX Thread information */
     class PosixThread
     {
-        public:
+      public:
         PosixThread()
             : pThread(0), isRunning(true), returnValue(0), canReclaim(false),
               isDetached(false), m_ThreadData(), m_ThreadKeys(), lastDataKey(0),
@@ -501,7 +501,7 @@ class PosixSubsystem : public Subsystem
         /// Next data key available
         size_t nextDataKey;
 
-        private:
+      private:
         PosixThread(const PosixThread &);
         const PosixThread &operator=(const PosixThread &);
     };
@@ -578,7 +578,7 @@ class PosixSubsystem : public Subsystem
         m_Abi = which;
     }
 
-    private:
+  private:
     virtual void threadRemoved(Thread *pThread);
 
     /** Load an ELF's PT_LOAD sections into the address space. */

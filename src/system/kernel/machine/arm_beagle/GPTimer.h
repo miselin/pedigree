@@ -31,7 +31,7 @@
  */
 class SyncTimer
 {
-    public:
+  public:
     SyncTimer() : m_MmioBase("SyncTimer")
     {
     }
@@ -43,7 +43,7 @@ class SyncTimer
 
     uint32_t getTickCount();
 
-    private:
+  private:
     MemoryRegion m_MmioBase;
 };
 
@@ -53,7 +53,7 @@ class SyncTimer
  */
 class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
 {
-    public:
+  public:
     /** The default constructor */
     inline GPTimer()
         : m_MmioBase("GPTimer"), m_bIrqInstalled(false), m_Irq(0), m_Handlers(),
@@ -146,7 +146,7 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
      *        or zero if bRetZero is true. */
     virtual size_t removeAlarm(class Event *pEvent, bool bRetZero);
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     GPTimer(const Timer &);
@@ -174,7 +174,7 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
     /** Alarm structure. */
     class Alarm
     {
-        public:
+      public:
         Alarm(class Event *pEvent, size_t time, class Thread *pThread)
             : m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
         {
@@ -183,7 +183,7 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
         size_t m_Time;
         class Thread *m_pThread;
 
-        private:
+      private:
         Alarm(const Alarm &);
         Alarm &operator=(const Alarm &);
     };

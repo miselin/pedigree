@@ -29,7 +29,7 @@
 
 class DwarfUnwinder
 {
-    public:
+  public:
     /**
      * Creates a DwarfUnwinder object defined by frame definitions at nData,
      * which has a maximum size of nLength.
@@ -69,7 +69,7 @@ class DwarfUnwinder
      */
     static int32_t decodeSleb128(uint8_t *pBase, uint32_t &nOffset);
 
-    private:
+  private:
     /**
      * Address of our frame data.
      */

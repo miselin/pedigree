@@ -38,7 +38,7 @@ class DevFsDirectory;
 
 class RandomFile : public File
 {
-    public:
+  public:
     RandomFile(String str, size_t inode, Filesystem *pParentFS, File *pParent)
         : File(str, 0, 0, 0, inode, pParentFS, 0, pParent)
     {
@@ -61,7 +61,7 @@ class RandomFile : public File
 
 class NullFile : public File
 {
-    public:
+  public:
     NullFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
         : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode)
     {
@@ -84,7 +84,7 @@ class NullFile : public File
 
 class ZeroFile : public File
 {
-    public:
+  public:
     ZeroFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
         : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode)
     {
@@ -107,7 +107,7 @@ class ZeroFile : public File
 
 class PtmxFile : public File
 {
-    public:
+  public:
     PtmxFile(
         String str, size_t inode, Filesystem *pParentFS, File *pParent,
         DevFsDirectory *m_pPtsDirectory);
@@ -124,14 +124,14 @@ class PtmxFile : public File
     // the associated slave.
     virtual File *open();
 
-    private:
+  private:
     ExtensibleBitmap m_Terminals;
     DevFsDirectory *m_pPtsDirectory;
 };
 
 class RtcFile : public File
 {
-    public:
+  public:
     RtcFile(size_t inode, Filesystem *pParentFS, File *pParentNode)
         : File(String("rtc"), 0, 0, 0, inode, pParentFS, 0, pParentNode)
     {
@@ -156,7 +156,7 @@ class RtcFile : public File
 
 class FramebufferFile : public File
 {
-    public:
+  public:
     FramebufferFile(
         String str, size_t inode, Filesystem *pParentFS, File *pParentNode);
     ~FramebufferFile();
@@ -170,7 +170,7 @@ class FramebufferFile : public File
 
     /// \todo pinBlock/unpinBlock should pin/unpin physical pages!
 
-    private:
+  private:
     GraphicsService::GraphicsParameters *m_pGraphicsParameters;
 
     bool m_bTextMode;
@@ -179,7 +179,7 @@ class FramebufferFile : public File
 
 class Tty0File : public File
 {
-    public:
+  public:
     Tty0File(
         String str, size_t inode, Filesystem *pParentFS, File *pParent,
         DevFs *devfs);
@@ -196,7 +196,7 @@ class Tty0File : public File
     // the associated slave.
     virtual File *open();
 
-    private:
+  private:
     DevFs *m_pDevFs;
 };
 
@@ -204,7 +204,7 @@ class Tty0File : public File
  * directory. */
 class DevFsDirectory : public Directory
 {
-    public:
+  public:
     DevFsDirectory(
         String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
         Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
@@ -228,7 +228,7 @@ class DevFsDirectory : public Directory
 /** This class provides /dev */
 class DevFs : public Filesystem
 {
-    public:
+  public:
     DevFs() : m_pRoot(0), m_pTty(0)
     {
     }
@@ -254,7 +254,7 @@ class DevFs : public Filesystem
     TextIO *getCurrentTty() const;
     File *getCurrentTtyFile() const;
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask)
     {
         return false;
@@ -272,7 +272,7 @@ class DevFs : public Filesystem
         return false;
     }
 
-    private:
+  private:
     DevFs(const DevFs &);
     DevFs &operator=(const DevFs &);
 

@@ -46,7 +46,7 @@ enum Ib700TimeEntries
 
 class Ib700Watchdog : public Device, public TimerHandler
 {
-    public:
+  public:
     Ib700Watchdog(Device *pDev) : Device(pDev)
     {
         setSpecificType(String("watchdog-timer"));
@@ -98,7 +98,7 @@ class Ib700Watchdog : public Device, public TimerHandler
         m_pBase->write16(Seconds10, 2);
     }
 
-    private:
+  private:
     IoBase *m_pBase;
 };
 

@@ -35,7 +35,7 @@
  */
 class AllocationCommand : public DebuggerCommand, public Scrollable
 {
-    public:
+  public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -91,7 +91,7 @@ class AllocationCommand : public DebuggerCommand, public Scrollable
         DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-    private:
+  private:
     struct Allocation
     {
         physical_uintptr_t page;

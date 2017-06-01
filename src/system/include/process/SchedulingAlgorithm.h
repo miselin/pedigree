@@ -31,7 +31,7 @@ class Processor;
  */
 class SchedulingAlgorithm
 {
-    public:
+  public:
     /** Destructor */
     virtual ~SchedulingAlgorithm()
     {

@@ -30,12 +30,12 @@
 /** A File is a file, a directory or a symlink. */
 class FatDirectory : public Directory
 {
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     FatDirectory(const FatDirectory &file);
     FatDirectory &operator=(const FatDirectory &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     FatDirectory(
         String name, uintptr_t cluster, class FatFilesystem *pFs, File *pParent,
@@ -97,7 +97,7 @@ class FatDirectory : public Directory
         return s;
     }
 
-    private:
+  private:
     uint32_t m_DirClus;
     uint32_t m_DirOffset;
 

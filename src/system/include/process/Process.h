@@ -54,7 +54,7 @@ class Process
 {
     friend class Thread;
 
-    public:
+  public:
     /** Subsystems may inherit Process to provide custom functionality. However,
      * they need to know whether a Process pointer is subsystem-specific. This
      * enumeration is designed to allow functions using Process objects in
@@ -397,7 +397,7 @@ class Process
     /** Set the init process. */
     static void setInit(Process *pProcess);
 
-    private:
+  private:
     Process(const Process &);
     Process &operator=(const Process &);
 
@@ -525,7 +525,7 @@ class Process
     /** Init process (terminated processes' children will reparent to this). */
     static Process *m_pInitProcess;
 
-    public:
+  public:
     Semaphore m_DeadThreads;
 };
 

@@ -76,7 +76,7 @@ struct ScreenMode
 
 class DirtyRectangle
 {
-    public:
+  public:
     DirtyRectangle();
     ~DirtyRectangle();
 
@@ -115,7 +115,7 @@ class DirtyRectangle
         m_X2 = 0;
     }
 
-    private:
+  private:
     size_t m_X, m_Y, m_X2, m_Y2;
 };
 

@@ -32,7 +32,7 @@
  *components */
 class InterruptManager
 {
-    public:
+  public:
     /** Get the interrupt manager instance
      *\return instance of the interrupt manager */
     static InterruptManager &instance();
@@ -58,13 +58,13 @@ class InterruptManager
     virtual size_t getDebugInterruptNumber() PURE = 0;
 #endif
 
-    protected:
+  protected:
     /** The constructor */
     inline InterruptManager();
     /** The destructor */
     inline virtual ~InterruptManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     InterruptManager(const InterruptManager &);

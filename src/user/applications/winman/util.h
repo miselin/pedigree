@@ -32,7 +32,7 @@
  */
 class SharedBuffer
 {
-    public:
+  public:
     SharedBuffer(size_t size);
     SharedBuffer(size_t size, void *handle);
 

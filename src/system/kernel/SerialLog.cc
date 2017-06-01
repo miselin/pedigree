@@ -22,7 +22,7 @@
 
 class SerialLogger : public Log::LogCallback
 {
-    public:
+  public:
     void callback(const char *str)
     {
         if (!Machine::instance().isInitialised())

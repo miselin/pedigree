@@ -30,7 +30,7 @@
  */
 class QuitCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */

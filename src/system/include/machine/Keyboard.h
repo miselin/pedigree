@@ -27,7 +27,7 @@
  */
 class Keyboard
 {
-    public:
+  public:
     enum KeyFlags
     {
         Special = 1ULL << 63,

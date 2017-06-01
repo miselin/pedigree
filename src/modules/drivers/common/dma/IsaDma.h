@@ -33,7 +33,7 @@
  */
 class IsaDma
 {
-    public:
+  public:
     IsaDma()
     {
     }
@@ -47,7 +47,7 @@ class IsaDma
     virtual bool initTransfer(
         uint8_t channel, uint8_t mode, size_t length, uintptr_t addr) = 0;
 
-    private:
+  private:
 };
 
 #endif

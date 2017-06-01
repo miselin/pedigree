@@ -29,7 +29,7 @@
  */
 class MemoryBackend : public ConfigurationBackend
 {
-    public:
+  public:
     MemoryBackend(String configStore);
     virtual ~MemoryBackend();
 
@@ -48,7 +48,7 @@ class MemoryBackend : public ConfigurationBackend
 
     String getTypeName();
 
-    private:
+  private:
     // A Table
     struct Table
     {

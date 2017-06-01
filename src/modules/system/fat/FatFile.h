@@ -30,12 +30,12 @@
 /** A File is a file, a directory or a symlink. */
 class FatFile : public File
 {
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     FatFile(const File &file);
     File &operator=(const File &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     FatFile(
         String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
@@ -73,7 +73,7 @@ class FatFile : public File
     virtual void pinBlock(uint64_t location);
     virtual void unpinBlock(uint64_t location);
 
-    private:
+  private:
     uint32_t m_DirClus;
     uint32_t m_DirOffset;
 

@@ -32,7 +32,7 @@
 class ARM926EInterruptManager : public ::InterruptManager,
                                 public ::SyscallManager
 {
-    public:
+  public:
     /** Get the ARM926EInterruptManager class instance
      *\return instance of the ARM926EInterruptManager class */
     inline static ARM926EInterruptManager &instance()
@@ -64,7 +64,7 @@ class ARM926EInterruptManager : public ::InterruptManager,
      *\todo and some smp/acpi function */
     static void initialiseProcessor();
 
-    private:
+  private:
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
      *the interrupt */

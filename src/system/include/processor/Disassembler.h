@@ -31,7 +31,7 @@
  */
 class DisassemblerBase
 {
-    public:
+  public:
     /**
      * Destructor does nothing.
      */
@@ -63,7 +63,7 @@ class DisassemblerBase
      */
     virtual void disassemble(LargeStaticString &text) = 0;
 
-    protected:
+  protected:
     DisassemblerBase()
     {
     }

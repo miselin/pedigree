@@ -33,7 +33,7 @@ class UsbDevice
 {
     friend class UsbDeviceContainer;
 
-    public:
+  public:
     struct Setup
     {
         inline Setup(
@@ -252,7 +252,7 @@ class UsbDevice
         return 0;
     }
 
-    protected:
+  protected:
     // Sync transfer methods
     ssize_t doSync(
         Endpoint *pEndpoint, UsbPid pid, uintptr_t pBuffer, size_t nBytes,
@@ -319,14 +319,14 @@ class UsbDevice
     /// Our current container.
     UsbDeviceContainer *m_pContainer;
 
-    private:
+  private:
     UsbDevice(const UsbDevice &d);
     const UsbDevice &operator=(const UsbDevice &d);
 };
 
 class UsbDeviceContainer : public Device
 {
-    public:
+  public:
     UsbDeviceContainer(UsbDevice *pDev) : Device(), m_pUsbDevice(pDev)
     {
         pDev->m_pContainer = this;
@@ -366,7 +366,7 @@ class UsbDeviceContainer : public Device
         str = "Generic USB Device";
     }
 
-    private:
+  private:
     UsbDevice *m_pUsbDevice;
 };
 

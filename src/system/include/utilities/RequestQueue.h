@@ -36,7 +36,7 @@ class RequestQueue
 {
     friend class Thread;
 
-    public:
+  public:
     /** Creates a new RequestQueue. */
     RequestQueue();
     virtual ~RequestQueue();
@@ -89,7 +89,7 @@ class RequestQueue
      */
     void resume();
 
-    protected:
+  protected:
     /** Callback - classes are expected to inherit and override this function.
        It's called when a request needs to be executed (by the worker thread).
      */
@@ -103,7 +103,7 @@ class RequestQueue
     /** Request structure */
     class Request
     {
-        public:
+      public:
         Request()
             : p1(0), p2(0), p3(0), p4(0), p5(0), p6(0), p7(0), p8(0), ret(0),
 #ifdef THREADS
@@ -129,7 +129,7 @@ class RequestQueue
         RequestQueue *owner;
         size_t priority;
 
-        private:
+      private:
         Request(const Request &);
         void operator=(const Request &);
     };

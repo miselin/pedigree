@@ -28,7 +28,7 @@
  */
 class MaltaVga : public Vga
 {
-    public:
+  public:
     MaltaVga();
     virtual ~MaltaVga();
 

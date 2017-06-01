@@ -40,7 +40,7 @@
  */
 class MaltaSerial : public Serial
 {
-    public:
+  public:
     /**
      * Default constructor, does nothing.
      */
@@ -67,7 +67,7 @@ class MaltaSerial : public Serial
     virtual char read();
     virtual char readNonBlock();
 
-    private:
+  private:
     MaltaSerial(const MaltaSerial &);
     MaltaSerial &operator=(const MaltaSerial &);
 

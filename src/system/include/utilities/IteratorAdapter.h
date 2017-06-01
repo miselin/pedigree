@@ -31,7 +31,7 @@
 template <typename T, class Iterator>
 class IteratorAdapter
 {
-    public:
+  public:
     /** Default constructor */
     inline IteratorAdapter() : m_Iterator()
     {
@@ -122,7 +122,7 @@ class IteratorAdapter
         return m_Iterator;
     }
 
-    private:
+  private:
     /** The adapted iterator */
     Iterator m_Iterator;
 };

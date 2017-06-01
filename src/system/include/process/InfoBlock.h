@@ -47,7 +47,7 @@ struct InfoBlock
 
 class InfoBlockManager : public TimerHandler
 {
-    public:
+  public:
     InfoBlockManager();
     virtual ~InfoBlockManager();
 
@@ -59,7 +59,7 @@ class InfoBlockManager : public TimerHandler
 
     void setPid(size_t value);
 
-    private:
+  private:
     static InfoBlockManager m_Instance;
 
     bool m_bInitialised;

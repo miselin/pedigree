@@ -32,7 +32,7 @@
 class MIPS32InterruptManager : public ::InterruptManager,
                                public ::SyscallManager
 {
-    public:
+  public:
     /** Get the MIPS32InterruptManager class instance
      *\return instance of the MIPS32InterruptManager class */
     inline static MIPS32InterruptManager &instance()
@@ -64,7 +64,7 @@ class MIPS32InterruptManager : public ::InterruptManager,
      *\todo and some smp/acpi function */
     static void initialiseProcessor();
 
-    private:
+  private:
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
      *the interrupt */

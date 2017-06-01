@@ -28,7 +28,7 @@
  */
 class Partition : public Disk
 {
-    public:
+  public:
     Partition(String type, uint64_t start, uint64_t length);
     virtual ~Partition();
 
@@ -119,7 +119,7 @@ class Partition : public Disk
         return m_Type;
     }
 
-    private:
+  private:
     String m_Type;
     uint64_t m_Start;
     uint64_t m_Length;

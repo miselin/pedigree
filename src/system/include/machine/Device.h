@@ -40,7 +40,7 @@
  */
 class Device
 {
-    public:
+  public:
     typedef Device *(*Callback)(Device *);
 
     /** Every device has a type. This can be used to downcast to a more specific
@@ -70,7 +70,7 @@ class Device
        can be in I/O space or memory space. */
     class Address
     {
-        public:
+      public:
         /** Constructor, takes arguments and assigns them blindly to member
          * variables, then creates the IoPort or MemoryMappedIO instance.  */
         Address(String n, uintptr_t a, size_t s, bool io, size_t pad = 1);
@@ -96,7 +96,7 @@ class Device
          * boundaries. */
         size_t m_Padding;
 
-        private:
+      private:
         Address(const Address &);
         Address &operator=(const Address &);
 
@@ -308,7 +308,7 @@ class Device
         m_OfHandle = h;
     }
 #endif
-    private:
+  private:
     /** Actual do-er for foreach (does not take lock). */
     static void foreachInternal(Callback callback, Device *root);
     template <class F, class... Args>
@@ -333,7 +333,7 @@ class Device
      * Device(Device*). */
     void removeIoMappings();
 
-    protected:
+  protected:
     NOT_COPYABLE_OR_ASSIGNABLE(Device);
 
     /**

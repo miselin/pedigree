@@ -36,7 +36,7 @@ class PhysicalMemoryManager
     friend class CacheManager;
     friend class Cache;
 
-    public:
+  public:
     /** MemoryRegion can access our unmapRegion function. */
     friend class MemoryRegion;
 
@@ -148,7 +148,7 @@ class PhysicalMemoryManager
     /** Specifies the number of pages that remain free on the system. */
     virtual size_t freePageCount() const;
 
-    protected:
+  protected:
     /** The constructor */
     PhysicalMemoryManager();
     /** The destructor */
@@ -157,7 +157,7 @@ class PhysicalMemoryManager
     /** List of memory-regions */
     Vector<MemoryRegion *> m_MemoryRegions;
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     PhysicalMemoryManager(const PhysicalMemoryManager &);

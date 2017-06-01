@@ -31,7 +31,7 @@
 template <typename T>
 class RangeList
 {
-    public:
+  public:
     /** Default constructor does nothing */
     inline RangeList() : m_List(), m_bReverse(false), m_bPreferUsed(false)
     {
@@ -59,7 +59,7 @@ class RangeList
     /** Structure of one range */
     class Range
     {
-        public:
+      public:
         /** Construct a Range */
         inline Range(T Address, T Length) : address(Address), length(Length)
         {
@@ -100,7 +100,7 @@ class RangeList
     /** Sweep the RangeList and re-merge items. */
     void sweep();
 
-    private:
+  private:
     /** List of ranges */
     List<Range *> m_List;
 

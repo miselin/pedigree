@@ -33,11 +33,11 @@ enum UsbPnPConstants
 
 class UsbPnP
 {
-    private:
+  private:
     /// Callback function type
     typedef UsbDevice *(*callback_t)(UsbDevice *);
 
-    public:
+  public:
     UsbPnP() : m_Callbacks()
     {
     }
@@ -63,7 +63,7 @@ class UsbPnP
     /// Tries to find a suitable driver for the given USB device
     bool probeDevice(Device *pDeviceBase);
 
-    private:
+  private:
     /// Static instance
     static UsbPnP m_Instance;
 

@@ -95,7 +95,7 @@ typedef struct
  */
 class BusMasterIde
 {
-    public:
+  public:
     BusMasterIde();
     virtual ~BusMasterIde();
 
@@ -194,7 +194,7 @@ class BusMasterIde
         return m_bActive;
     }
 
-    private:
+  private:
     /** Internal I/O base */
     IoBase *m_pBase;
 

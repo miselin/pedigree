@@ -28,11 +28,11 @@
  */
 class ConnectionlessEndpoint : public Endpoint
 {
-    private:
+  private:
     ConnectionlessEndpoint(const ConnectionlessEndpoint &e);
     const ConnectionlessEndpoint &operator=(const ConnectionlessEndpoint &e);
 
-    public:
+  public:
     ConnectionlessEndpoint() : Endpoint()
     {
     }

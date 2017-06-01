@@ -36,7 +36,7 @@
  */
 class FatSymlink : public Symlink
 {
-    public:
+  public:
     FatSymlink(
         String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
         Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
@@ -77,7 +77,7 @@ class FatSymlink : public Symlink
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-    private:
+  private:
     uint32_t m_DirClus;
     uint32_t m_DirOffset;
 };

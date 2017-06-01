@@ -28,7 +28,7 @@
 
 class Scrollable
 {
-    public:
+  public:
     inline Scrollable()
         : m_x(0), m_y(0), m_width(0), m_height(0), m_line(0), m_ScrollUp('j'),
           m_ScrollDown('k')
@@ -68,7 +68,7 @@ class Scrollable
     {
     }
 
-    protected:
+  protected:
     size_t m_x;
     size_t m_y;
     size_t m_width;

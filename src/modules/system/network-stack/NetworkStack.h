@@ -34,7 +34,7 @@
  */
 class NetworkStack : public RequestQueue
 {
-    public:
+  public:
     NetworkStack();
     virtual ~NetworkStack();
 
@@ -78,7 +78,7 @@ class NetworkStack : public RequestQueue
         return m_MemPool;
     }
 
-    private:
+  private:
     static NetworkStack *stack;
 
     struct Packet

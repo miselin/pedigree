@@ -106,11 +106,11 @@ class MemoryMappedObject
 {
     friend class MemoryMapManager;
 
-    private:
+  private:
     /** Default constructor, don't use. */
     MemoryMappedObject();
 
-    public:
+  public:
     /** Permissions to assign to a mapping when it is created. */
     typedef int Permissions;
 
@@ -232,7 +232,7 @@ class MemoryMappedObject
         return m_Length;
     }
 
-    protected:
+  protected:
     /**
      * Is this a Copy-on-Write mapping?
      *
@@ -280,7 +280,7 @@ class MemoryMappedObject
  */
 class AnonymousMemoryMap : public MemoryMappedObject
 {
-    public:
+  public:
     AnonymousMemoryMap(uintptr_t address, size_t length, Permissions perms);
 
     virtual ~AnonymousMemoryMap()
@@ -297,7 +297,7 @@ class AnonymousMemoryMap : public MemoryMappedObject
 
     virtual bool trap(uintptr_t address, bool bWrite);
 
-    private:
+  private:
     static physical_uintptr_t m_Zero;
 
     /** List of existing virtual addresses we've mapped in. */
@@ -314,7 +314,7 @@ class AnonymousMemoryMap : public MemoryMappedObject
  */
 class MemoryMappedFile : public MemoryMappedObject
 {
-    public:
+  public:
     MemoryMappedFile(
         uintptr_t address, size_t length, size_t offset, File *backing,
         bool bCopyOnWrite, Permissions perms);
@@ -353,7 +353,7 @@ class MemoryMappedFile : public MemoryMappedObject
      */
     virtual bool compact();
 
-    private:
+  private:
     /** Backing file. */
     File *m_pBacking;
 
@@ -372,7 +372,7 @@ class MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler
 {
     friend class PosixSubsystem;
 
-    public:
+  public:
     /** Singleton instance */
     static MemoryMapManager &instance()
     {
@@ -466,7 +466,7 @@ class MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler
         return String("Unmap safe pages from memory mapped files.");
     }
 
-    protected:
+  protected:
     /**
      * Removes all mappings from the address space, unlocked.
      *
@@ -490,7 +490,7 @@ class MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler
      */
     void releaseLock();
 
-    private:
+  private:
     /** Default and only constructor. Registers with PageFaultHandler. */
     MemoryMapManager();
     ~MemoryMapManager();

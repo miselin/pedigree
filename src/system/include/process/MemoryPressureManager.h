@@ -32,7 +32,7 @@
  */
 class MemoryPressureHandler
 {
-    public:
+  public:
     MemoryPressureHandler()
     {
     }
@@ -59,7 +59,7 @@ class MemoryPressureHandler
  */
 class MemoryPressureManager
 {
-    public:
+  public:
     MemoryPressureManager() : m_Handlers()
     {
     }
@@ -111,7 +111,7 @@ class MemoryPressureManager
      */
     void removeHandler(MemoryPressureHandler *pHandler);
 
-    private:
+  private:
     static MemoryPressureManager m_Instance;
 
     List<MemoryPressureHandler *> m_Handlers[MAX_MEMPRESSURE_PRIORITY];

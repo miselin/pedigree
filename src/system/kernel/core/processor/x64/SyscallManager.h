@@ -32,7 +32,7 @@ class X64SyscallManager : public ::SyscallManager
 {
     friend class Processor;
 
-    public:
+  public:
     /** Get the X64SyscallManager class instance
      *\return instance of the X64SyscallManager class */
     inline static X64SyscallManager &instance()
@@ -53,7 +53,7 @@ class X64SyscallManager : public ::SyscallManager
         Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2,
         uintptr_t p3, uintptr_t p4, uintptr_t p5);
 
-    private:
+  private:
     /** Called when a syscall was called
      *\param[in] syscallState reference to the usermode state before the syscall
      */

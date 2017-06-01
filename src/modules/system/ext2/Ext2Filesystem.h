@@ -37,7 +37,7 @@ class Ext2Filesystem : public Filesystem
     friend class Ext2Directory;
     friend class Ext2Symlink;
 
-    public:
+  public:
     Ext2Filesystem();
 
     virtual ~Ext2Filesystem();
@@ -50,14 +50,14 @@ class Ext2Filesystem : public Filesystem
     virtual File *getRoot();
     virtual String getVolumeLabel();
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask);
     virtual bool createDirectory(File *parent, String filename, uint32_t mask);
     virtual bool createSymlink(File *parent, String filename, String value);
     virtual bool createLink(File *parent, String filename, File *target);
     virtual bool remove(File *parent, File *file);
 
-    private:
+  private:
     virtual bool createNode(
         File *parent, String filename, uint32_t mask, String value, size_t type,
         uint32_t inodeOverride = 0);

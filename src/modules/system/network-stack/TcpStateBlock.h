@@ -45,7 +45,7 @@ int stateBlockFree(void *p);
 // keep track of important information relating to the connection state.
 class StateBlock
 {
-    private:
+  private:
     struct Segment
     {
         uint32_t seg_seq;  // Segment sequence number
@@ -59,7 +59,7 @@ class StateBlock
         size_t nBytes;
     };
 
-    public:
+  public:
     StateBlock();
     virtual ~StateBlock();
 
@@ -160,7 +160,7 @@ class StateBlock
     // timeout wait semaphore (in case)
     bool useWaitSem;
 
-    private:
+  private:
     static int performCleanupTrampoline(void *param);
 
     void performCleanup();

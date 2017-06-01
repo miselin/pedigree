@@ -30,7 +30,7 @@
 /** The PPC's programmable interrupt controller as IrqManager */
 class Heathrow : public IrqManager, private InterruptHandler
 {
-    public:
+  public:
     /** Get the Pic class instance
      *\return the Pic class instance */
     inline static Heathrow &instance()
@@ -51,7 +51,7 @@ class Heathrow : public IrqManager, private InterruptHandler
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** The default constructor */
     Heathrow() INITIALISATION_ONLY;
     /** The destructor */

@@ -30,7 +30,7 @@ NetManager NetManager::m_Instance;
 
 class ZombieSocket : public ZombieObject
 {
-    public:
+  public:
     ZombieSocket(Socket *pSocket) : m_pSocket(pSocket)
     {
     }
@@ -39,7 +39,7 @@ class ZombieSocket : public ZombieObject
         delete m_pSocket;
     }
 
-    private:
+  private:
     Socket *m_pSocket;
 };
 

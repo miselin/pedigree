@@ -33,7 +33,7 @@
  */
 class LockManager
 {
-    public:
+  public:
     /** Constructor */
     LockManager();
     /** Destructor */
@@ -45,7 +45,7 @@ class LockManager
     /** Called by Semaphore on successful release. */
     void released(Semaphore &sem);
 
-    private:
+  private:
     /** The stack of acquired semaphores. */
     Vector<Semaphore *> m_Stack;
 };

@@ -24,7 +24,7 @@
 
 class Mutex
 {
-    public:
+  public:
     Mutex(bool bLocked = false);
     ~Mutex();
 
@@ -37,7 +37,7 @@ class Mutex
         return m_Private;
     }
 
-    private:
+  private:
     void *m_Private;
 };
 
@@ -52,7 +52,7 @@ class Mutex
  */
 class Mutex : public Semaphore
 {
-    public:
+  public:
     /** Constructor */
     Mutex(bool bLocked = false);
     /** Destructor */

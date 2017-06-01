@@ -36,7 +36,7 @@ namespace Ipc
 {
 class IpcMessage
 {
-    public:
+  public:
     IpcMessage();
 
     /**
@@ -78,7 +78,7 @@ class IpcMessage
         m_pMemRegion = src.m_pMemRegion;
     }
 
-    private:
+  private:
     size_t nPages;
 
     /// Virtual address of a message when m_pMemRegion is invalid.
@@ -95,7 +95,7 @@ class IpcMessage
 /// of IPC-related code in ring3 APIs).
 class IpcEndpoint
 {
-    public:
+  public:
     IpcEndpoint(String name)
         : m_Name(name), m_Queue(), m_QueueSize(0), m_QueueLock(false)
     {
@@ -117,7 +117,7 @@ class IpcEndpoint
         return m_Name;
     }
 
-    private:
+  private:
     /// A queued message ready for retrieval.
     struct QueuedMessage
     {

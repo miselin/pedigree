@@ -43,7 +43,7 @@
  */
 class VFS
 {
-    public:
+  public:
     /** Callback type, called when a disk is mounted or unmounted. */
     typedef void (*MountCallback)();
 
@@ -137,14 +137,14 @@ class VFS
         return "»";
     }
 
-    private:
+  private:
     /** The static instance object. */
     static VFS m_Instance;
 
     /** A static File object representing an invalid file */
     static File *m_EmptyFile;
 
-    private:
+  private:
     RadixTree<Filesystem *> m_Aliases;
     Tree<Filesystem *, List<String *> *> m_Mounts;
 

@@ -29,7 +29,7 @@
 /** ARMV7 Interrupt State */
 class ARMV7InterruptState
 {
-    public:
+  public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -91,10 +91,10 @@ class ARMV7InterruptState
     inline uintptr_t getSyscallParameter(size_t n) const;
     inline void setSyscallReturnValue(uintptr_t val);
 
-    private:
+  private:
     /** The default constructor
      *\note NOT implemented */
-    public:
+  public:
     ARMV7InterruptState();
 
     /** The copy-constructor
@@ -135,7 +135,7 @@ typedef ARMV7InterruptState ARMV7ProcessorState;
 
 class __attribute__((aligned(8))) ARMV7SchedulerState
 {
-    public:
+  public:
     uint32_t r4;
     uint32_t r5;
     uint32_t r6;

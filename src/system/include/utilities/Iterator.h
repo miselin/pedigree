@@ -60,7 +60,7 @@ class Iterator
         const Iterator<_originalT, _Struct, _FunctionPrev, _FunctionNext, _T2>
             &x2);
 
-    public:
+  public:
     /** Type of the constant bidirectional iterator */
     typedef Iterator<originalT, Struct, FunctionPrev, FunctionNext, T const>
         Const;
@@ -152,7 +152,7 @@ class Iterator
         return m_Node;
     }
 
-    protected:
+  protected:
     /** Pointer to the instance of the data structure or 0 */
     Struct *m_Node;
     /** Default value. */
@@ -198,7 +198,7 @@ class TreeIterator
         const TreeIterator<
             _originalT, _Struct, _FunctionPrev, _FunctionNext, _K2, _T2> &x2);
 
-    public:
+  public:
     /** Type of the constant bidirectional iterator */
     typedef TreeIterator<
         originalT, Struct, FunctionPrev, FunctionNext, K, T const>
@@ -300,7 +300,7 @@ class TreeIterator
         return 0;
     }
 
-    protected:
+  protected:
     /** Pointer to the instance of the data structure or 0 */
     Struct *m_Node;
 };

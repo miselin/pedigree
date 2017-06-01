@@ -25,12 +25,12 @@
 
 class RawFsDir : public Directory
 {
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     RawFsDir(const RawFsDir &file);
     RawFsDir &operator=(const RawFsDir &);
 
-    public:
+  public:
     /** Constructor, should only be called by RawFs. */
     RawFsDir(String name, class RawFs *pFs, File *pParent);
     ~RawFsDir()

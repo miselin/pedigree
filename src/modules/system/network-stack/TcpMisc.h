@@ -35,7 +35,7 @@
 /** A TCP "Buffer" (also known as a stream) */
 class TcpBuffer
 {
-    public:
+  public:
     TcpBuffer()
         : m_BufferSize(0), m_DataSize(0)
 #ifdef THREADS
@@ -74,7 +74,7 @@ class TcpBuffer
         return m_BufferSize - m_DataSize;
     }
 
-    private:
+  private:
     /** Current buffer size */
     size_t m_BufferSize;
 

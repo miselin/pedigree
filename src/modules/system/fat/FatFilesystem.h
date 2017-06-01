@@ -40,7 +40,7 @@ class FatFilesystem : public Filesystem
     friend class FatFile;
     friend class FatDirectory;
 
-    public:
+  public:
     FatFilesystem();
 
     virtual ~FatFilesystem();
@@ -64,7 +64,7 @@ class FatFilesystem : public Filesystem
     virtual void cacheDirectoryContents(File *pFile);
     virtual void extend(File *pFile, size_t size);
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask);
     virtual bool createDirectory(File *parent, String filename, uint32_t mask);
     virtual bool createSymlink(File *parent, String filename, String value);

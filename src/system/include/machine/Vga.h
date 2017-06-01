@@ -27,7 +27,7 @@
  */
 class Vga
 {
-    public:
+  public:
     enum VgaControl
     {
         LineGraphics = 2,

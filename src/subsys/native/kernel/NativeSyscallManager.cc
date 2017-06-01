@@ -176,7 +176,7 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
 
 class Foo : public NativeBase
 {
-    public:
+  public:
     virtual ReturnState
     syscall(uint64_t subid, void *params, size_t params_size)
     {

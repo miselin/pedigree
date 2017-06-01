@@ -36,7 +36,7 @@
  */
 class Framebuffer
 {
-    public:
+  public:
     Framebuffer();
     virtual ~Framebuffer();
 
@@ -77,7 +77,7 @@ class Framebuffer
         return m_Height;
     }
 
-    private:
+  private:
     void *m_pFramebuffer;
     size_t m_FramebufferSize;
 

@@ -49,7 +49,7 @@
  */
 class PPCVga : public Vga
 {
-    public:
+  public:
     PPCVga();
     virtual ~PPCVga();
 
@@ -162,7 +162,7 @@ class PPCVga : public Vga
         return const_cast<uint16_t *>(m_pTextBuffer);
     }
 
-    private:
+  private:
     PPCVga(const PPCVga &);
     PPCVga &operator=(const PPCVga &);
 

@@ -72,7 +72,7 @@
  */
 class DwarfCfiAutomaton
 {
-    public:
+  public:
     /**
      * Constructor - Creates the initial starting state with all registers
      * 'undefined'.
@@ -106,7 +106,7 @@ class DwarfCfiAutomaton
     DwarfState *
     execute(uintptr_t nCodeLocation, size_t nCodeLen, uintptr_t nBreakAt);
 
-    private:
+  private:
     /**
      * Execute one instruction from the location given by nLocation,
      * incrementing it to the next.

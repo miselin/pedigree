@@ -25,7 +25,7 @@
 
 class UsbUlpi
 {
-    public:
+  public:
     UsbUlpi()
         : m_MemRegionUHH("USB-UHH_CONFIG"), m_MemRegionTLL("USB-TLL"),
           m_MemRegionPCtl("USB-PCTL")
@@ -42,7 +42,7 @@ class UsbUlpi
 
     void initialise();
 
-    private:
+  private:
     static UsbUlpi m_Instance;
 
     enum UlpiRegisters

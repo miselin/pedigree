@@ -36,7 +36,7 @@ class Pipe : public File
     friend class Filesystem;
     friend class ZombiePipe;
 
-    public:
+  public:
     /** Eases the pain of casting, and performs a sanity check. */
     static Pipe *fromFile(File *pF)
     {
@@ -51,10 +51,10 @@ class Pipe : public File
     /** Copy constructors are hidden - unused! */
     Pipe(const Pipe &file);
 
-    private:
+  private:
     Pipe &operator=(const Pipe &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     Pipe(
         const String &name, Time::Timestamp accessedTime,
@@ -87,7 +87,7 @@ class Pipe : public File
         (and also when all readers have hung up so we can die). */
     virtual void decreaseRefCount(bool bIsWriter);
 
-    protected:
+  protected:
     /** If we're an anonymous pipe, we should delete ourselves when all
      * readers/writers have hung up. */
     bool m_bIsAnonymous;

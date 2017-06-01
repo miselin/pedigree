@@ -29,7 +29,7 @@ class DebuggerIO;
 
 class Backtracer : public DebuggerCommand
 {
-    public:
+  public:
     Backtracer();
     ~Backtracer();
 

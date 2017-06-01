@@ -46,7 +46,7 @@
 
 class LinuxVsyscallTrapHandler : public MemoryTrapHandler
 {
-    public:
+  public:
     /// Emulates a Linux vsyscall.
     virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite)
     {

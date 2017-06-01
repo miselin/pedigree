@@ -31,7 +31,7 @@
  */
 class ArmBeagle : public Machine
 {
-    public:
+  public:
     inline static Machine &instance()
     {
         return m_Instance;
@@ -51,7 +51,7 @@ class ArmBeagle : public Machine
 
     virtual void initialiseDeviceTree();
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

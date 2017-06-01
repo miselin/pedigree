@@ -141,7 +141,7 @@
  */
 class DwarfState
 {
-    public:
+  public:
     enum RegisterState
     {
         SameValue = 0,

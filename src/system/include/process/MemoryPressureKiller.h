@@ -22,7 +22,7 @@
 /** Handles killing processes if memory pressure is encountered. */
 class MemoryPressureProcessKiller : public MemoryPressureHandler
 {
-    public:
+  public:
     virtual const String getMemoryPressureDescription()
     {
         return String("Process killer, killing high-memory processes.");

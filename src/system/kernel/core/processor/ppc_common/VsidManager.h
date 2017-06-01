@@ -40,7 +40,7 @@
  */
 class VsidManager
 {
-    public:
+  public:
     /** VSID typedef */
     typedef uint32_t Vsid;
 
@@ -53,7 +53,7 @@ class VsidManager
      */
     void returnVsid(Vsid vsid);
 
-    private:
+  private:
     VsidManager(const VsidManager &);
     VsidManager &operator=(const VsidManager &);
 

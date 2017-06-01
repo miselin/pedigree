@@ -34,7 +34,7 @@ class Device;
  */
 class DeviceHashTree
 {
-    public:
+  public:
     DeviceHashTree();
     virtual ~DeviceHashTree();
 
@@ -69,7 +69,7 @@ class DeviceHashTree
     /** Grabs the hash for a given device */
     size_t getHash(Device *p);
 
-    private:
+  private:
     static DeviceHashTree m_Instance;
 
     bool m_bInitialised;

@@ -43,7 +43,7 @@
  */
 class AsidManager
 {
-    public:
+  public:
     /** ASID typedef */
     typedef uint8_t Asid;
 
@@ -60,7 +60,7 @@ class AsidManager
      */
     void bulldoze(Asid asid);
 
-    private:
+  private:
     /** Default constructor */
     AsidManager();
     /** Destructor - not implemented. */

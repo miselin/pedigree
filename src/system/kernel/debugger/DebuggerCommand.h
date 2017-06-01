@@ -35,7 +35,7 @@ class DebuggerIO;
  */
 class DebuggerCommand
 {
-    public:
+  public:
     DebuggerCommand()
     {
     }

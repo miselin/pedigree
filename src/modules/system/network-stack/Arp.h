@@ -41,7 +41,7 @@
  */
 class Arp : public RequestQueue
 {
-    public:
+  public:
     Arp();
     virtual ~Arp();
 
@@ -68,7 +68,7 @@ class Arp : public RequestQueue
     void insertToCache(IpAddress ip, MacAddress mac);
     void removeFromCache(IpAddress ip);
 
-    private:
+  private:
     /** ARP request doer */
     virtual uint64_t executeRequest(
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
@@ -107,7 +107,7 @@ class Arp : public RequestQueue
     // an ARP request we've sent
     class ArpRequest  // : public TimerHandler
     {
-        public:
+      public:
         ArpRequest()
             : destIp(), mac(), cond(), mutex(false), complete(false),
               success(false)

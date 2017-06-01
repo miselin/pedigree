@@ -58,7 +58,7 @@
  */
 class X86Vga : public Vga
 {
-    public:
+  public:
     X86Vga(uint32_t nRegisterBase, uint32_t nFramebufferBase);
     virtual ~X86Vga();
 
@@ -159,7 +159,7 @@ class X86Vga : public Vga
             return reinterpret_cast<uint16_t *>(m_pFramebuffer);
     }
 
-    private:
+  private:
     X86Vga(const X86Vga &);
     X86Vga &operator=(const X86Vga &);
 

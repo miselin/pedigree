@@ -37,7 +37,7 @@
  */
 class ServiceManager
 {
-    public:
+  public:
     ServiceManager();
     virtual ~ServiceManager();
 
@@ -61,13 +61,13 @@ class ServiceManager
     /** Gets the Service object for a service */
     Service *getService(String serviceName);
 
-    private:
+  private:
     static ServiceManager m_Instance;
 
     /** Internal representation of a Service */
     class InternalService
     {
-        public:
+      public:
         /// The Service itself
         Service *pService;
 

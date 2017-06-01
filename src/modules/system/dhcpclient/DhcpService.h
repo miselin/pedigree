@@ -26,7 +26,7 @@
 
 class DhcpService : public Service
 {
-    public:
+  public:
     DhcpService()
     {
     }

@@ -32,7 +32,7 @@
 /** The interrupt handler on mips32 processors */
 class ARMV7InterruptManager : public ::InterruptManager, public ::SyscallManager
 {
-    public:
+  public:
     /** Get the ARMV7InterruptManager class instance
      *\return instance of the ARMV7InterruptManager class */
     inline static ARMV7InterruptManager &instance()
@@ -69,7 +69,7 @@ class ARMV7InterruptManager : public ::InterruptManager, public ::SyscallManager
      *the interrupt */
     static void interrupt(InterruptState &interruptState);
 
-    private:
+  private:
     /** The constructor */
     ARMV7InterruptManager();
     /** Copy constructor

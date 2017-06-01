@@ -34,7 +34,7 @@
  */
 class TraceCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */
@@ -76,10 +76,10 @@ class TraceCommand : public DebuggerCommand
         return m_nExec;
     }
 
-    private:
+  private:
     class Disassembly : public Scrollable
     {
-        public:
+      public:
         Disassembly(InterruptState &state);
         ~Disassembly()
         {
@@ -92,7 +92,7 @@ class TraceCommand : public DebuggerCommand
             DebuggerIO::Colour &bgColour);
         size_t getLineCount();
 
-        private:
+      private:
         size_t m_nInstructions;
         uintptr_t m_nFirstInstruction;
         uintptr_t m_nIp;
@@ -109,7 +109,7 @@ class TraceCommand : public DebuggerCommand
 
     class Registers : public Scrollable
     {
-        public:
+      public:
         Registers(InterruptState &state);
         ~Registers()
         {
@@ -122,13 +122,13 @@ class TraceCommand : public DebuggerCommand
             DebuggerIO::Colour &bgColour);
         size_t getLineCount();
 
-        private:
+      private:
         InterruptState &m_State;
     };
 
     class Stacktrace : public Scrollable
     {
-        public:
+      public:
         Stacktrace(InterruptState &state);
         ~Stacktrace()
         {
@@ -141,7 +141,7 @@ class TraceCommand : public DebuggerCommand
             DebuggerIO::Colour &bgColour);
         size_t getLineCount();
 
-        private:
+      private:
         Backtrace m_Bt;
     };
 

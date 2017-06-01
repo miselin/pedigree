@@ -33,7 +33,7 @@
  *\brief Memory mapped I/O range */
 class MemoryMappedIo : public IoBase, public MemoryRegion
 {
-    public:
+  public:
     /** The default constructor */
     inline MemoryMappedIo(
         const char *pName, uintptr_t offset = 0, uintptr_t padding = 1)
@@ -63,7 +63,7 @@ class MemoryMappedIo : public IoBase, public MemoryRegion
     // MemoryRegion Interface
     //
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     MemoryMappedIo(const MemoryMappedIo &);

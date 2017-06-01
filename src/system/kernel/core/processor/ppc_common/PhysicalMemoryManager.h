@@ -41,7 +41,7 @@
  *\brief Implementation of the PhysicalMemoryManager for common ppc */
 class PpcCommonPhysicalMemoryManager : public PhysicalMemoryManager
 {
-    public:
+  public:
     /** Get the PpcCommonPhysicalMemoryManager instance
      *\return instance of the PpcCommonPhysicalMemoryManager */
     inline static PpcCommonPhysicalMemoryManager &instance()
@@ -62,13 +62,13 @@ class PpcCommonPhysicalMemoryManager : public PhysicalMemoryManager
 
     void unmapRegion(MemoryRegion *pRegion);
 
-    protected:
+  protected:
     /** The constructor */
     PpcCommonPhysicalMemoryManager();
     /** The destructor */
     virtual ~PpcCommonPhysicalMemoryManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     PpcCommonPhysicalMemoryManager(const PpcCommonPhysicalMemoryManager &);
@@ -80,7 +80,7 @@ class PpcCommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** The stack of available pages. */
     class PageStack
     {
-        public:
+      public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
         /** Allocate a page with certain constraints
@@ -94,7 +94,7 @@ class PpcCommonPhysicalMemoryManager : public PhysicalMemoryManager
         {
         }
 
-        private:
+      private:
         /** The copy-constructor
          *\note Not implemented */
         PageStack(const PageStack &);

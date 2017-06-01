@@ -41,7 +41,7 @@
  *\todo Initialise the Local APIC Timer */
 class LocalApic : public SchedulerTimer, private InterruptHandler
 {
-    public:
+  public:
     /** The default constructor */
     inline LocalApic()
         : m_IoSpace("Local APIC"), m_Handlers(), m_BusFrequency(0)
@@ -107,7 +107,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
 
     void ack();
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     LocalApic(const LocalApic &);

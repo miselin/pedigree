@@ -41,7 +41,7 @@ static Tui *g_Tui = nullptr;
 
 class GfxConTuiRedrawer : public TuiRedrawer
 {
-    public:
+  public:
     GfxConTuiRedrawer(Framebuffer *pFramebuffer)
     {
         m_pFramebuffer = pFramebuffer;
@@ -52,7 +52,7 @@ class GfxConTuiRedrawer : public TuiRedrawer
         m_pFramebuffer->flush(x, y, w, h);
     }
 
-    private:
+  private:
     Framebuffer *m_pFramebuffer;
 };
 

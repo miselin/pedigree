@@ -44,7 +44,7 @@
  */
 class AtaDisk : public ScsiDisk
 {
-    private:
+  private:
     enum AtaDiskType
     {
         Block = 0x00,
@@ -61,7 +61,7 @@ class AtaDisk : public ScsiDisk
         NotPacket = 0xFF,
     };
 
-    public:
+  public:
     AtaDisk(
         class AtaController *pDev, bool isMaster, IoBase *commandRegs,
         IoBase *controlRegs, BusMasterIde *busMaster = 0);
@@ -103,7 +103,7 @@ class AtaDisk : public ScsiDisk
         size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
         uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
 
-    private:
+  private:
     /** Sets the drive up for reading from address 'n' in LBA28 mode. */
     void setupLBA28(uint64_t n, uint32_t nSectors);
     /** Sets the drive up for reading from address 'n' in LBA48 mode. */

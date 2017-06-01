@@ -63,7 +63,7 @@ typedef unsigned int size_t;
  */
 class Elf32
 {
-    public:
+  public:
     /**
      * Default constructor - loads no data.
      * \param name An identifier for this ELF file. This is copied into the

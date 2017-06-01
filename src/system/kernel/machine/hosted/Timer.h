@@ -37,7 +37,7 @@ namespace __pedigree_hosted
 
 class HostedTimer : public Timer, private IrqHandler
 {
-    public:
+  public:
     inline static HostedTimer &instance()
     {
         return m_Instance;
@@ -71,7 +71,7 @@ class HostedTimer : public Timer, private IrqHandler
     /** Uninitialises the class */
     void uninitialise();
 
-    protected:
+  protected:
     /** The default constructor */
     HostedTimer() INITIALISATION_ONLY;
     /** The destructor */
@@ -79,7 +79,7 @@ class HostedTimer : public Timer, private IrqHandler
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     HostedTimer(const HostedTimer &);
@@ -124,7 +124,7 @@ class HostedTimer : public Timer, private IrqHandler
     /** Alarm structure. */
     class Alarm
     {
-        public:
+      public:
         Alarm(class Event *pEvent, size_t time, class Thread *pThread)
             : m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
         {
@@ -133,7 +133,7 @@ class HostedTimer : public Timer, private IrqHandler
         size_t m_Time;
         class Thread *m_pThread;
 
-        private:
+      private:
         Alarm(const Alarm &);
         Alarm &operator=(const Alarm &);
     };

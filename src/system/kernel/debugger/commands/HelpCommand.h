@@ -30,7 +30,7 @@
  */
 class HelpCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - does nothing.
      */

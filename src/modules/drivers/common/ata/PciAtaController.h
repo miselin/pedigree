@@ -38,7 +38,7 @@
 /** Class for a PCI-based IDE controller. */
 class PciAtaController : public AtaController
 {
-    public:
+  public:
     PciAtaController(Controller *pDev, int nController = 0);
     virtual ~PciAtaController();
 
@@ -65,7 +65,7 @@ class PciAtaController : public AtaController
     IoBase *m_pCommandRegs;
     IoBase *m_pControlRegs;
 
-    private:
+  private:
     PciAtaController(const PciAtaController &);
     void operator=(const PciAtaController &);
 
@@ -86,7 +86,7 @@ class PciAtaController : public AtaController
     void diskHelper(
         bool master, IoBase *cmd, IoBase *ctl, BusMasterIde *dma, size_t irq);
 
-    protected:
+  protected:
     int m_nController;
 };
 

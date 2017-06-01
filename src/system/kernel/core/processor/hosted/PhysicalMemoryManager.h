@@ -41,7 +41,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     /** For getBackingFile() */
     friend class HostedVirtualAddressSpace;
 
-    public:
+  public:
     /** Get the HostedPhysicalMemoryManager instance
      *\return instance of the HostedPhysicalMemoryManager */
     inline static HostedPhysicalMemoryManager &instance()
@@ -74,13 +74,13 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     }
 #endif
 
-    protected:
+  protected:
     /** The constructor */
     HostedPhysicalMemoryManager() INITIALISATION_ONLY;
     /** The destructor */
     virtual ~HostedPhysicalMemoryManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     HostedPhysicalMemoryManager(const HostedPhysicalMemoryManager &);
@@ -105,7 +105,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
      *constraint). */
     class PageStack
     {
-        public:
+      public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
         /** Allocate a page with certain constraints
@@ -125,7 +125,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
             return m_FreePages;
         }
 
-        private:
+      private:
         /** The copy-constructor
          *\note Not implemented */
         PageStack(const PageStack &);
@@ -164,7 +164,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     /** Utility to wrap a physical address and hash it. */
     class PageHashable
     {
-        public:
+      public:
         PageHashable()
         {
             m_Hash = m_Page = 0;
@@ -186,7 +186,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
             return p.m_Page == m_Page;
         }
 
-        private:
+      private:
         size_t m_Hash;
         physical_uintptr_t m_Page;
     };

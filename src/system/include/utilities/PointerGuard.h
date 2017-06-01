@@ -29,7 +29,7 @@
 template <class T>
 class PointerGuard
 {
-    public:
+  public:
     PointerGuard(T *p = 0, bool bArray = false)
         : m_Pointer(p), m_Wrapper(0), m_Array(bArray)
     {
@@ -81,7 +81,7 @@ class PointerGuard
         m_Wrapper = 0;
     }
 
-    private:
+  private:
     T *m_Pointer;
     T **m_Wrapper;
     bool m_Array;

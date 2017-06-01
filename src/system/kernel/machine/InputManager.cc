@@ -30,7 +30,7 @@
 
 class InputEvent : public Event
 {
-    public:
+  public:
     InputEvent(
         InputManager::InputNotification *pNote, uintptr_t param,
         uintptr_t handlerAddress)
@@ -103,7 +103,7 @@ class InputEvent : public Event
             states[i] = m_Notification.data.pointy.buttons[i];
     }
 
-    private:
+  private:
     InputManager::InputNotification m_Notification;
 
     uintptr_t m_nParam;

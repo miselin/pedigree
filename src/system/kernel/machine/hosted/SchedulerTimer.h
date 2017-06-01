@@ -36,7 +36,7 @@ namespace __pedigree_hosted
 
 class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
 {
-    public:
+  public:
     /** Get the HostedSchedulerTimer class instance */
     inline static HostedSchedulerTimer &instance()
     {
@@ -54,7 +54,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     /** Uninitialises the class */
     void uninitialise();
 
-    protected:
+  protected:
     /** The default constructor */
     HostedSchedulerTimer() INITIALISATION_ONLY;
     /** The destructor */
@@ -62,7 +62,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     HostedSchedulerTimer(const HostedSchedulerTimer &);

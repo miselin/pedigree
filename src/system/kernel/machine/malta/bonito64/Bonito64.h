@@ -30,7 +30,7 @@
  */
 class Bonito64 : public Machine
 {
-    public:
+  public:
     inline static Bonito64 &instance()
     {
         return m_Instance;
@@ -46,7 +46,7 @@ class Bonito64 : public Machine
     virtual Timer *getTimer();
     virtual Keyboard *getKeyboard();
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

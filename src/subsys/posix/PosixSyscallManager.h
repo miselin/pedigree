@@ -26,7 +26,7 @@
 
 class PosixSyscallManager : public SyscallHandler
 {
-    public:
+  public:
     void initialise();
 
     /** Calls a syscall. */
@@ -42,7 +42,7 @@ class PosixSyscallManager : public SyscallHandler
     /** The destructor */
     virtual ~PosixSyscallManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     PosixSyscallManager(const PosixSyscallManager &);

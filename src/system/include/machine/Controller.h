@@ -27,7 +27,7 @@
  */
 class Controller : public Device
 {
-    public:
+  public:
     Controller()
     {
     }

@@ -24,7 +24,7 @@
 
 class ZombiePipe : public ZombieObject
 {
-    public:
+  public:
     ZombiePipe(Pipe *pPipe) : m_pPipe(pPipe)
     {
     }
@@ -34,7 +34,7 @@ class ZombiePipe : public ZombieObject
         delete m_pPipe;
     }
 
-    private:
+  private:
     Pipe *m_pPipe;
 };
 

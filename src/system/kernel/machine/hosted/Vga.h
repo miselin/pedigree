@@ -27,7 +27,7 @@
  */
 class HostedVga : public Vga
 {
-    public:
+  public:
     HostedVga();
     virtual ~HostedVga();
 
@@ -125,7 +125,7 @@ class HostedVga : public Vga
         return m_pBackbuffer;
     }
 
-    private:
+  private:
     HostedVga(const HostedVga &);
     HostedVga &operator=(const HostedVga &);
 

@@ -29,10 +29,10 @@
 /** Timer for scheduling */
 class SchedulerTimer
 {
-    public:
+  public:
     virtual bool registerHandler(TimerHandler *handler) = 0;
 
-    protected:
+  protected:
     /** The default constructor */
     inline SchedulerTimer()
     {
@@ -42,7 +42,7 @@ class SchedulerTimer
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     SchedulerTimer(const SchedulerTimer &);

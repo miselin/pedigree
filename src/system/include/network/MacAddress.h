@@ -29,7 +29,7 @@
 /** A MAC address */
 class MacAddress
 {
-    public:
+  public:
     MacAddress();
     MacAddress(const MacAddress &other);
 
@@ -62,7 +62,7 @@ class MacAddress
 
     String toString();
 
-    private:
+  private:
     uint16_t m_Mac[3];
     bool m_Valid;
 };

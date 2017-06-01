@@ -29,12 +29,12 @@ class Ext2Node
 {
     friend class Ext2Filesystem;
 
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     Ext2Node(const Ext2Node &file);
     Ext2Node &operator=(const Ext2Node &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     Ext2Node(uintptr_t inode_num, Inode *pInode, class Ext2Filesystem *pFs);
     /** Destructor */
@@ -72,7 +72,7 @@ class Ext2Node
 
     void sync(size_t offset, bool async);
 
-    protected:
+  protected:
     /**
      * Ensures the inode is at least 'size' big.
      * Set onlyBlocks to true to not change the actual data size, which can be

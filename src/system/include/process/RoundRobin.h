@@ -26,7 +26,7 @@
 
 class RoundRobin : public SchedulingAlgorithm
 {
-    public:
+  public:
     /** Constructor. */
     RoundRobin();
 
@@ -41,7 +41,7 @@ class RoundRobin : public SchedulingAlgorithm
 
     virtual void threadStatusChanged(Thread *pThread);
 
-    private:
+  private:
     static bool isReady(Thread *pThread);
 
     typedef List<Thread *> ThreadList;

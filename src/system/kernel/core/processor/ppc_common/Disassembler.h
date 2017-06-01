@@ -28,7 +28,7 @@
  */
 class PPCDisassembler : public DisassemblerBase
 {
-    public:
+  public:
     PPCDisassembler();
     ~PPCDisassembler();
 
@@ -56,7 +56,7 @@ class PPCDisassembler : public DisassemblerBase
      */
     void disassemble(LargeStaticString &text);
 
-    public:
+  public:
     /**
      * Current disassembling location in memory.
      */

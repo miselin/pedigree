@@ -27,7 +27,7 @@ namespace PedigreeIpc
 /// A standard IPC message that is less than 4 KB in size.
 class StandardIpcMessage
 {
-    public:
+  public:
     StandardIpcMessage();
     virtual ~StandardIpcMessage();
 
@@ -41,7 +41,7 @@ class StandardIpcMessage
         return static_cast<void *>(m_vAddr);
     }
 
-    protected:
+  protected:
     void *m_vAddr;
 };
 
@@ -49,7 +49,7 @@ class StandardIpcMessage
 /// rather than an IPC message, to be precise.
 class SharedIpcMessage : public StandardIpcMessage
 {
-    public:
+  public:
     SharedIpcMessage(size_t nBytes, void *existingHandle);
     virtual ~SharedIpcMessage();
 
@@ -65,7 +65,7 @@ class SharedIpcMessage : public StandardIpcMessage
         return m_nBytes;
     }
 
-    private:
+  private:
     size_t m_nBytes;
     void *m_pHandle;
 };

@@ -22,7 +22,7 @@
 
 class Bonito64Interface
 {
-    public:
+  public:
     Bonito64Interface()
     {
     }
@@ -39,7 +39,7 @@ class Bonito64Interface
     virtual Vga *getVga(size_t n) = 0;
     virtual void initialise() = 0;
 
-    private:
+  private:
     Bonito64Interface(const Bonito64Interface &source);
     void operator=(const Bonito64Interface &source);
 };

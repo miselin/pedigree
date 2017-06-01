@@ -26,7 +26,7 @@ namespace PedigreeGraphics
 {
 class Rect
 {
-    public:
+  public:
     Rect() : x(0), y(0), w(0), h(0){};
     Rect(size_t x, size_t y, size_t width, size_t height)
         : x(x), y(y), w(width), h(height){};
@@ -61,7 +61,7 @@ class Rect
         return h;
     }
 
-    private:
+  private:
     size_t x, y;
     size_t w, h;
 };
@@ -153,7 +153,7 @@ struct GraphicsProvider
  *  default if the main operational methods are not overridden. */
 class Framebuffer
 {
-    public:
+  public:
     Framebuffer();
     virtual ~Framebuffer();
 
@@ -268,7 +268,7 @@ class Framebuffer
         return m_Provider;
     }
 
-    private:
+  private:
     GraphicsProvider m_Provider;
 
     bool m_bProviderValid;

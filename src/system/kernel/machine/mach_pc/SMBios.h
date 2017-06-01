@@ -27,7 +27,7 @@
 
 class SMBios
 {
-    public:
+  public:
     /** The default constructor does nothing */
     SMBios() INITIALISATION_ONLY;
     /** The destructor does nothing */
@@ -36,7 +36,7 @@ class SMBios
     /** Find and parse the SMBios tables */
     void initialise() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** Copy-constructor
      *\note NOT implemented */
     SMBios(const SMBios &);

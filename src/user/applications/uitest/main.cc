@@ -27,7 +27,7 @@ using namespace PedigreeGraphics;
 
 class TestWidget : public Widget
 {
-    public:
+  public:
     TestWidget(uint32_t rgb) : Widget(), m_Rgb(rgb){};
     virtual ~TestWidget()
     {
@@ -50,7 +50,7 @@ class TestWidget : public Widget
         return true;
     }
 
-    private:
+  private:
     uint32_t m_Rgb;
 };
 

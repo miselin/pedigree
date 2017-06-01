@@ -28,7 +28,7 @@
 
 class Png
 {
-    public:
+  public:
     Png(const char *filename);
     ~Png();
 
@@ -44,7 +44,7 @@ class Png
         return m_nHeight;
     }
 
-    private:
+  private:
     Png(const Png &);
     Png &operator=(const Png &);
 

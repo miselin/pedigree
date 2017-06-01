@@ -33,7 +33,7 @@
 /** The interrupt manager on hosted systems */
 class HostedInterruptManager : public ::InterruptManager
 {
-    public:
+  public:
     /** Get the HostedInterruptManager class instance
      *\return instance of the HostedInterruptManager class */
     inline static HostedInterruptManager &instance()
@@ -59,7 +59,7 @@ class HostedInterruptManager : public ::InterruptManager
     /** Signal handling shim for InterruptState protected access. */
     void signalShim(int which, void *siginfo, void *meta);
 
-    private:
+  private:
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
      *the interrupt */

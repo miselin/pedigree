@@ -23,7 +23,7 @@
 /** RAII handler to figure out memory usage delta from start to end of scope. */
 class MemoryCount
 {
-    public:
+  public:
     MemoryCount(const char *context)
     {
         m_StartPages = PhysicalMemoryManager::instance().freePageCount();
@@ -43,7 +43,7 @@ class MemoryCount
                                              << Hex << "K");
     }
 
-    private:
+  private:
     size_t m_StartPages;
     size_t m_EndPages;
     const char *m_Context;

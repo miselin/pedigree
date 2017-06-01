@@ -29,7 +29,7 @@
 template <class T>
 class UniquePointer
 {
-    public:
+  public:
     UniquePointer(T *p) : m_Pointer(p)
     {
     }
@@ -62,7 +62,7 @@ class UniquePointer
         return m_Pointer;
     }
 
-    private:
+  private:
     T *m_Pointer;
 };
 

@@ -34,7 +34,7 @@
  */
 class ArmVersatileSerial : public Serial
 {
-    public:
+  public:
     ArmVersatileSerial();
     virtual ~ArmVersatileSerial();
 

@@ -27,7 +27,7 @@
  */
 class Arm926EDisassembler : public DisassemblerBase
 {
-    public:
+  public:
     Arm926EDisassembler();
     ~Arm926EDisassembler();
 
@@ -55,7 +55,7 @@ class Arm926EDisassembler : public DisassemblerBase
      */
     void disassemble(LargeStaticString &text);
 
-    private:
+  private:
     /**
      * Current disassembling location in memory.
      */

@@ -30,7 +30,7 @@ class PosixProcess;
 
 class PosixSession
 {
-    public:
+  public:
     PosixSession() : Leader(0)
     {
     }
@@ -45,7 +45,7 @@ class PosixSession
 
 class ProcessGroup
 {
-    public:
+  public:
     ProcessGroup() : processGroupId(0), Leader(0), Members()
     {
         Members.clear();
@@ -65,14 +65,14 @@ class ProcessGroup
      */
     List<PosixProcess *> Members;
 
-    private:
+  private:
     ProcessGroup(const ProcessGroup &);
     ProcessGroup &operator=(ProcessGroup &);
 };
 
 class PosixProcess : public Process
 {
-    public:
+  public:
     /** Defines what status this Process has within its group */
     enum Membership
     {
@@ -118,7 +118,7 @@ class PosixProcess : public Process
     const RobustListData &getRobustList() const;
     void setRobustList(const RobustListData &data);
 
-    private:
+  private:
     // Register with other systems e.g. procfs
     void registerProcess();
     void unregisterProcess();

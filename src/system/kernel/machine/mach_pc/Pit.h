@@ -31,7 +31,7 @@
 /** The programmable interval timer implements the SchedulerTimer interface */
 class Pit : public SchedulerTimer, private IrqHandler
 {
-    public:
+  public:
     /** Get the Pit class instance */
     inline static Pit &instance()
     {
@@ -49,7 +49,7 @@ class Pit : public SchedulerTimer, private IrqHandler
     /** Uninitialises the class */
     void uninitialise();
 
-    protected:
+  protected:
     /** The default constructor */
     Pit() INITIALISATION_ONLY;
     /** The destructor */
@@ -57,7 +57,7 @@ class Pit : public SchedulerTimer, private IrqHandler
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     Pit(const Pit &);

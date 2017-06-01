@@ -44,7 +44,7 @@ class DebuggerCommand;
  */
 class LocalIO : public DebuggerIO
 {
-    public:
+  public:
     /**
      * Default constructor and destructor.
      */
@@ -124,7 +124,7 @@ class LocalIO : public DebuggerIO
     {
     }
 
-    protected:
+  protected:
     /**
      * Scrolls the CLI screen down a line, if needed.
      */
@@ -177,7 +177,7 @@ class LocalIO : public DebuggerIO
      */
     Keyboard *m_pKeyboard;
 
-    private:
+  private:
     LocalIO(const LocalIO &);
     LocalIO &operator=(const LocalIO &);
 };

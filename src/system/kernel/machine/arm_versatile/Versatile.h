@@ -30,7 +30,7 @@
  */
 class ArmVersatile : public Machine
 {
-    public:
+  public:
     inline static Machine &instance()
     {
         return m_Instance;
@@ -49,7 +49,7 @@ class ArmVersatile : public Machine
 
     virtual void initialiseDeviceTree(){};
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

@@ -46,7 +46,7 @@ class DebuggerCommand;
  */
 class DebuggerIO
 {
-    public:
+  public:
     /**
      * Enumeration of all possible foreground and background colours.
      */
@@ -160,7 +160,7 @@ class DebuggerIO
      */
     virtual char getChar() = 0;
 
-    protected:
+  protected:
     virtual void putChar(
         char c, DebuggerIO::Colour foreColour,
         DebuggerIO::Colour backColour) = 0;

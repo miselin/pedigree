@@ -31,7 +31,7 @@ class Symlink : public File
 {
     friend class Filesystem;
 
-    public:
+  public:
     /** Eases the pain of casting, and performs a sanity check. */
     static Symlink *fromFile(File *pF)
     {
@@ -46,10 +46,10 @@ class Symlink : public File
     /** Copy constructors are hidden - unused! */
     Symlink(const Symlink &file);
 
-    private:
+  private:
     Symlink &operator=(const Symlink &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     Symlink(
         const String &name, Time::Timestamp accessedTime,
@@ -71,7 +71,7 @@ class Symlink : public File
     /** Reads the contents of the file as a symbolic link and follows. */
     File *followLink();
 
-    protected:
+  protected:
     File *m_pCachedSymlink;
 
     String m_sTarget;

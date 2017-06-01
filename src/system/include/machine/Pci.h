@@ -26,7 +26,7 @@
 /** Architecture-independent interface to a PCI bus */
 class PciBus
 {
-    public:
+  public:
     PciBus();
     virtual ~PciBus();
 
@@ -77,7 +77,7 @@ class PciBus
         uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
         uint32_t data);
 
-    private:
+  private:
     static PciBus m_Instance;
 };
 

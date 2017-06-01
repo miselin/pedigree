@@ -39,7 +39,7 @@ class Atomic<T, true>
 {
     friend class PerProcessorScheduler;
 
-    public:
+  public:
     /** The constructor
      *\param[in] value initial value */
     inline Atomic(T value = T()) : m_Atom(value)
@@ -147,7 +147,7 @@ class Atomic<T, true>
         return m_Atom;
     }
 
-    private:
+  private:
     /** The atomic value */
     volatile T m_Atom;
 };
@@ -156,7 +156,7 @@ class Atomic<T, true>
 template <>
 class Atomic<bool, true> : public Atomic<size_t>
 {
-    public:
+  public:
     /** The constructor
      *\param[in] value initial value */
     inline Atomic(bool value = false) : Atomic<size_t>((value) ? 1 : 0)

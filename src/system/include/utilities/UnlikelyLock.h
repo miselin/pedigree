@@ -43,7 +43,7 @@
 */
 class UnlikelyLock
 {
-    public:
+  public:
     UnlikelyLock();
     ~UnlikelyLock();
 
@@ -61,7 +61,7 @@ class UnlikelyLock
     /** Releases the lock. */
     void release();
 
-    private:
+  private:
     Mutex m_Lock;
     ConditionVariable m_Condition;
 

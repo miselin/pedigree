@@ -32,7 +32,7 @@
 /** The interrupt/syscall manager on x86 processors */
 class X86InterruptManager : public ::InterruptManager, public ::SyscallManager
 {
-    public:
+  public:
     /** Get the X86InterruptManager class instance
      *\return instance of the X86InterruptManager class */
     inline static X86InterruptManager &instance()
@@ -68,7 +68,7 @@ class X86InterruptManager : public ::InterruptManager, public ::SyscallManager
      *      Multiprocessor::applicationProcessorStartup() */
     static void initialiseProcessor() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
      *the interrupt */

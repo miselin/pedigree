@@ -29,7 +29,7 @@ class DebuggerIO;
 
 class CpuInfoCommand : public DebuggerCommand
 {
-    public:
+  public:
     CpuInfoCommand();
     ~CpuInfoCommand();
 

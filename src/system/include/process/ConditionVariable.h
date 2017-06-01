@@ -32,7 +32,7 @@ class Thread;
  */
 class ConditionVariable
 {
-    public:
+  public:
     ConditionVariable();
     ~ConditionVariable();
 
@@ -47,7 +47,7 @@ class ConditionVariable
     /** Wake up all threads currently waiting. */
     void broadcast();
 
-    private:
+  private:
     /// Lock around m_Waiters.
     Spinlock m_Lock;
 

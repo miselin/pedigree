@@ -30,7 +30,7 @@
 template <class T>
 class SharedPointer
 {
-    public:
+  public:
     /**
      * Default instantiation, without an associated pointer object.
      */
@@ -121,7 +121,7 @@ class SharedPointer
     bool operator>(const SharedPointer &p) const;
     bool operator>=(const SharedPointer &p) const;
 
-    private:
+  private:
     /**
      * Internal do-er to release a reference to the held object.
      */

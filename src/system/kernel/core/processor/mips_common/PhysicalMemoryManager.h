@@ -33,7 +33,7 @@
  *\brief Implementation of the PhysicalMemoryManager for common mips */
 class MipsCommonPhysicalMemoryManager : public PhysicalMemoryManager
 {
-    public:
+  public:
     /** Get the MipsCommonPhysicalMemoryManager instance
      *\return instance of the MipsCommonPhysicalMemoryManager */
     inline static MipsCommonPhysicalMemoryManager &instance()
@@ -50,13 +50,13 @@ class MipsCommonPhysicalMemoryManager : public PhysicalMemoryManager
         MemoryRegion &Region, size_t cPages, size_t pageConstraints,
         size_t Flags, physical_uintptr_t start = -1);
 
-    protected:
+  protected:
     /** The constructor */
     MipsCommonPhysicalMemoryManager();
     /** The destructor */
     virtual ~MipsCommonPhysicalMemoryManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     MipsCommonPhysicalMemoryManager(const MipsCommonPhysicalMemoryManager &);

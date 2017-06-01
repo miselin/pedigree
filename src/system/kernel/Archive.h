@@ -29,7 +29,7 @@
  */
 class Archive
 {
-    public:
+  public:
     /** Constructor; takes the physical address of a Tar archive. */
     Archive(uint8_t *pPhys, size_t sSize);
     /** Destructor; returns the physical memory used during construction to the
@@ -51,7 +51,7 @@ class Archive
      *  \param n The file to retrieve. */
     uintptr_t *getFile(size_t n);
 
-    private:
+  private:
     struct File
     {
         char name[100];  // Filename.

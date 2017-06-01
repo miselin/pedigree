@@ -27,7 +27,7 @@
 
 class Ps2Mouse : public Device, public IrqHandler
 {
-    public:
+  public:
     Ps2Mouse(Device *pDev);
     virtual ~Ps2Mouse();
 
@@ -40,7 +40,7 @@ class Ps2Mouse : public Device, public IrqHandler
 
     virtual bool irq(irq_id_t number, InterruptState &state);
 
-    private:
+  private:
     IoBase *m_pBase;
 
     enum WaitType

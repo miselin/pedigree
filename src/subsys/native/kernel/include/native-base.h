@@ -93,7 +93,7 @@
  */
 class NativeBase
 {
-    public:
+  public:
     NativeBase()
     {
     }

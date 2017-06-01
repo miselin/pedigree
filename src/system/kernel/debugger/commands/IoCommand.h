@@ -30,7 +30,7 @@
  */
 class IoCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */

@@ -54,7 +54,7 @@ class PPC32VirtualAddressSpace : public VirtualAddressSpace
     friend class Processor;
     friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -74,22 +74,22 @@ class PPC32VirtualAddressSpace : public VirtualAddressSpace
     virtual VirtualAddressSpace *clone();
     virtual void revertToKernelAddressSpace();
 
-    protected:
+  protected:
     /** The destructor does nothing */
     virtual ~PPC32VirtualAddressSpace();
 
-    private:
+  private:
     /** The type of a shadow page table - x86 style */
     struct ShadowPageTable
     {
         uint32_t entries[1024];
     };
 
-    public:
+  public:
     /** The constructor for already present paging structures */
     PPC32VirtualAddressSpace();
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     PPC32VirtualAddressSpace(const PPC32VirtualAddressSpace &);
@@ -110,7 +110,7 @@ class PPC32VirtualAddressSpace : public VirtualAddressSpace
     /** The x86-style shadow page directory */
     ShadowPageTable *m_pPageDirectory[1024];
 
-    public:
+  public:
     /** The VSIDs - Virtual segment identifiers */
     VsidManager::Vsid m_Vsid;
 };

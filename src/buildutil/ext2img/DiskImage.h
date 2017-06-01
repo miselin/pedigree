@@ -33,7 +33,7 @@
 /** Loads a disk image as a usable disk device. */
 class DiskImage : public Disk
 {
-    public:
+  public:
     DiskImage(const char *path);
     virtual ~DiskImage();
 
@@ -63,7 +63,7 @@ class DiskImage : public Disk
 
     virtual void unpin(uint64_t location);
 
-    private:
+  private:
     void *bufferForLocation(uint64_t location);
 
     const char *m_pFileName;

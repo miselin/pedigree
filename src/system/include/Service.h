@@ -37,7 +37,7 @@
  */
 class Service
 {
-    public:
+  public:
     Service()
     {
     }

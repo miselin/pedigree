@@ -30,7 +30,7 @@
 /** Defines a UDP-based callback for Log entries. */
 class UdpLogger : public Log::LogCallback
 {
-    public:
+  public:
     UdpLogger() : m_pEndpoint(0), m_LoggingServer()
     {
     }
@@ -40,7 +40,7 @@ class UdpLogger : public Log::LogCallback
 
     void callback(const char *str);
 
-    private:
+  private:
     ConnectionlessEndpoint *m_pEndpoint;
 
     Endpoint::RemoteEndpoint m_LoggingServer;

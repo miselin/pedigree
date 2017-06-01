@@ -117,7 +117,7 @@ enum NvCard
 
 class Dma
 {
-    public:
+  public:
     Dma(IoBase *pRegs, IoBase *pFb, NvCard card, NvType type,
         uintptr_t ramSize);
     ~Dma();
@@ -127,7 +127,7 @@ class Dma
         uint16_t h, uint16_t w);
     void fillRectangle(uint16_t x, uint16_t y, uint16_t h, uint16_t w);
 
-    private:
+  private:
     Dma(const Dma &);
     Dma &operator=(const Dma &);
 

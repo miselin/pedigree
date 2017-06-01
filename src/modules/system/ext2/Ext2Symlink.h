@@ -29,12 +29,12 @@
 /** A File is a file, a directory or a symlink. */
 class Ext2Symlink : public Symlink, public Ext2Node
 {
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     Ext2Symlink(const Ext2Symlink &file);
     Ext2Symlink &operator=(const Ext2Symlink &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     Ext2Symlink(
         const String &name, uintptr_t inode_num, Inode *inode,

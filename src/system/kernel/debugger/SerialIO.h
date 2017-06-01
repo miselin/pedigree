@@ -33,7 +33,7 @@ class DebuggerCommand;
  */
 class SerialIO : public DebuggerIO
 {
-    public:
+  public:
     /**
      * Default constructor and destructor.
      */
@@ -110,7 +110,7 @@ class SerialIO : public DebuggerIO
     void initialise();
     void destroy();
 
-    protected:
+  protected:
     /**
      * Scrolls the CLI screen down a line, if needed.
      */
@@ -165,7 +165,7 @@ class SerialIO : public DebuggerIO
 
     bool m_bCli;
 
-    private:
+  private:
     SerialIO(const SerialIO &);
     SerialIO &operator=(const SerialIO &);
 };

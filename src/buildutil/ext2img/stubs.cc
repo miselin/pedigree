@@ -21,7 +21,7 @@
 
 class StubbedPhysicalMemoryManager : public PhysicalMemoryManager
 {
-    public:
+  public:
     virtual physical_uintptr_t allocatePage();
     virtual void freePage(physical_uintptr_t page);
     virtual void pin(physical_uintptr_t page);
@@ -29,7 +29,7 @@ class StubbedPhysicalMemoryManager : public PhysicalMemoryManager
         MemoryRegion &Region, size_t cPages, size_t pageConstraints,
         size_t Flags, physical_uintptr_t start = -1);
 
-    private:
+  private:
     virtual void freePageUnlocked(physical_uintptr_t page);
     void unmapRegion(MemoryRegion *pRegion);
 };

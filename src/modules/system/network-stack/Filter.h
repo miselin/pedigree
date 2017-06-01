@@ -25,7 +25,7 @@
  * the system. */
 class NetworkFilter
 {
-    public:
+  public:
     /// Default constructor, boring.
     NetworkFilter();
 
@@ -64,7 +64,7 @@ class NetworkFilter
     /** Removes a callback for a specific level. */
     void removeCallback(size_t level, size_t id);
 
-    private:
+  private:
     static NetworkFilter m_Instance;
 
     /// Level -> Callback list mapping

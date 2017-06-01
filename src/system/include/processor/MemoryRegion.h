@@ -43,7 +43,7 @@ class MemoryRegion
     /** As does HostedPhysicalMemoryManager. */
     friend class HostedPhysicalMemoryManager;
 
-    public:
+  public:
     /** The default constructor does nothing  */
     inline MemoryRegion(const char *pName)
         : m_VirtualAddress(0), m_PhysicalAddress(0), m_Size(0), m_pName(pName),
@@ -126,7 +126,7 @@ class MemoryRegion
         return m_bForced;
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented */
     MemoryRegion(const MemoryRegion &);

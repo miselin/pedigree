@@ -29,7 +29,7 @@
 /** MIPS32 Interrupt State */
 class MIPS32InterruptState
 {
-    public:
+  public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -95,10 +95,10 @@ class MIPS32InterruptState
      *\return True if the exception occurred in a branch delay slot. */
     inline bool branchDelay() const;
 
-    private:
+  private:
     /** The default constructor
      *\note NOT implemented */
-    public:
+  public:
     MIPS32InterruptState();
 
     /** The copy-constructor

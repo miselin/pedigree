@@ -26,7 +26,7 @@
  */
 class Prcm
 {
-    public:
+  public:
     Prcm();
     virtual ~Prcm();
 
@@ -139,7 +139,7 @@ class Prcm
      * programmer. */
     void SelectClockPLL(size_t n, size_t value);
 
-    private:
+  private:
     static Prcm m_Instance;
 
     MemoryRegion m_Base;

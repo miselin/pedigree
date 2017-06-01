@@ -35,7 +35,7 @@
 template <class K, class E>
 class Tree
 {
-    private:
+  private:
     /** Tree node. */
     struct Node
     {
@@ -47,13 +47,13 @@ class Tree
         size_t height;
     };
 
-    public:
+  public:
     /// \todo This will actually mean for each Tree you can only use one
     /// iterator at a time, which may
     ///       not be effective depending on how this is used.
     class IteratorNode
     {
-        public:
+      public:
         IteratorNode() : value(0), pNode(0), pPreviousNode(0)
         {
         }
@@ -90,7 +90,7 @@ class Tree
 
         Node *value;
 
-        private:
+      private:
         Node *pNode;
         Node *pPreviousNode;
 
@@ -388,7 +388,7 @@ class Tree
         return 0;
     }
 
-    private:
+  private:
     void rotateLeft(Node *n)
     {
         // See Cormen,Lieserson,Rivest&Stein  pp-> 278 for pseudocode.

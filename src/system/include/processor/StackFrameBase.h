@@ -31,7 +31,7 @@
 /** Base class for all processor-specific StackFrame classes */
 class StackFrameBase
 {
-    public:
+  public:
 #if defined(DEBUGGER)
     /** Returns a pretty printed string containing the function name and each
      * parameter with its value (hopefully). */
@@ -60,7 +60,7 @@ class StackFrameBase
         ProcessorState &state, uintptr_t returnAddress, unsigned int nParams,
         ...);
 #if defined(DEBUGGER)
-    protected:
+  protected:
     /** The symbol */
     symbol_t m_Symbol;
     /** The processor state */
@@ -68,7 +68,7 @@ class StackFrameBase
     /** The base pointer for this frame. */
     uintptr_t m_BasePointer;
 
-    private:
+  private:
     /** Returns the n'th 32/64-bit parameter in the stack frame. */
     virtual uintptr_t getParameter(size_t n) = 0;
 

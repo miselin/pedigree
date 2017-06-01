@@ -29,7 +29,7 @@
 
 class NativeSyscallManager : public SyscallHandler
 {
-    public:
+  public:
     void initialise();
 
     /** Calls a syscall. */
@@ -45,7 +45,7 @@ class NativeSyscallManager : public SyscallHandler
     /** The destructor */
     virtual ~NativeSyscallManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     NativeSyscallManager(const NativeSyscallManager &);

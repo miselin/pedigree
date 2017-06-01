@@ -24,7 +24,7 @@
 
 class SignalEvent : public Event
 {
-    public:
+  public:
     SignalEvent(
         uintptr_t handlerAddress, size_t signalNum,
         size_t specificNestingLevel = ~0UL);
@@ -37,7 +37,7 @@ class SignalEvent : public Event
         return m_SignalNumber;
     }
 
-    private:
+  private:
     /** This keeps track of the actual signal this SignalEvent is linked to */
     size_t m_SignalNumber;
 };

@@ -32,7 +32,7 @@
  */
 class Mac : public Machine
 {
-    public:
+  public:
     inline static Machine &instance()
     {
         return m_Instance;
@@ -50,7 +50,7 @@ class Mac : public Machine
 
     virtual void initialiseDeviceTree();
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

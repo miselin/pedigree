@@ -35,7 +35,7 @@ class Iso9660Filesystem : public Filesystem
     friend class Iso9660File;
     friend class Iso9660Directory;
 
-    public:
+  public:
     Iso9660Filesystem();
 
     virtual ~Iso9660Filesystem();
@@ -49,7 +49,7 @@ class Iso9660Filesystem : public Filesystem
     virtual File *getRoot();
     virtual String getVolumeLabel();
 
-    protected:
+  protected:
     uintptr_t readBlock(File *pFile, uint64_t location);
     size_t getBlockSize()
     {

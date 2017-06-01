@@ -30,7 +30,7 @@
 /** This class handles IRQ (un)registration */
 class IrqManager
 {
-    public:
+  public:
     /** Control codes for the control function */
     enum ControlCode
     {
@@ -70,7 +70,7 @@ class IrqManager
         return true;
     }
 
-    protected:
+  protected:
     /** The default constructor */
     inline IrqManager()
     {
@@ -80,7 +80,7 @@ class IrqManager
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     IrqManager(const IrqManager &);

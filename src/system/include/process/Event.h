@@ -39,7 +39,7 @@
    unserialized. */
 class Event
 {
-    public:
+  public:
     /** Constructs an Event object.
         \param handlerAddress The address of the handling function.
         \param isDeletable Can the object be deleted after map()? This is used
@@ -114,7 +114,7 @@ class Event
     Event(const Event &other);
     Event &operator=(const Event &other);
 
-    protected:
+  protected:
     /** Handler address. */
     uintptr_t m_HandlerAddress;
 

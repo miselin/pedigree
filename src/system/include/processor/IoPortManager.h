@@ -38,7 +38,7 @@ class IoPortManager
 {
     friend class Processor;
 
-    public:
+  public:
     /** Get the instance of the I/O manager */
     inline static IoPortManager &instance()
     {
@@ -90,7 +90,7 @@ class IoPortManager
      *\param[in] size number of successive I/O ports - 1 */
     void initialise(io_port_t ioPortBase, size_t size) INITIALISATION_ONLY;
 
-    private:
+  private:
     /** The default constructor */
     IoPortManager() INITIALISATION_ONLY;
     /** The destructor */

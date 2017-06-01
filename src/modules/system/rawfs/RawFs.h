@@ -32,7 +32,7 @@
     (raw device access). */
 class RawFs : public Filesystem
 {
-    public:
+  public:
     RawFs();
     virtual ~RawFs();
 
@@ -77,7 +77,7 @@ class RawFs : public Filesystem
         return;
     }
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask)
     {
         return false;
@@ -95,7 +95,7 @@ class RawFs : public Filesystem
         return false;
     }
 
-    private:
+  private:
     RawFs(const RawFs &);
     RawFs &operator=(const RawFs &);
 

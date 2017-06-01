@@ -34,7 +34,7 @@ class Vector
     static_assert(
         sizeof(T) <= 16, "Vector<T> should not be used with large objects");
 
-    public:
+  public:
     /** Random-access iterator for the Vector */
     typedef T *Iterator;
     /** Contant random-access iterator for the Vector */
@@ -119,7 +119,7 @@ class Vector
      *\param[in] copy Should we copy the old contents over? */
     void reserve(size_t size, bool copy);
 
-    private:
+  private:
     /** Internal reserve() function.
      *\param[in] size the number of elements to reserve space for
      *\param[in] copy Should we copy the old contents over?

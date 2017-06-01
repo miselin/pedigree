@@ -36,7 +36,7 @@
  */
 class UnixFilesystem : public Filesystem
 {
-    public:
+  public:
     UnixFilesystem();
     virtual ~UnixFilesystem();
 
@@ -89,7 +89,7 @@ class UnixFilesystem : public Filesystem
     {
     }
 
-    protected:
+  protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask);
     virtual bool createDirectory(File *parent, String filename, uint32_t mask);
     virtual bool createSymlink(File *parent, String filename, String value)
@@ -98,7 +98,7 @@ class UnixFilesystem : public Filesystem
     }
     virtual bool remove(File *parent, File *file);
 
-    private:
+  private:
     File *m_pRoot;
 };
 
@@ -107,7 +107,7 @@ class UnixFilesystem : public Filesystem
  */
 class UnixSocket : public File
 {
-    public:
+  public:
     UnixSocket(String name, Filesystem *pFs, File *pParent);
     virtual ~UnixSocket();
 
@@ -125,7 +125,7 @@ class UnixSocket : public File
         return true;
     }
 
-    private:
+  private:
     struct buf
     {
         char *pBuffer;
@@ -142,7 +142,7 @@ class UnixSocket : public File
  */
 class UnixDirectory : public Directory
 {
-    public:
+  public:
     UnixDirectory(String name, Filesystem *pFs, File *pParent);
     virtual ~UnixDirectory();
 
@@ -151,7 +151,7 @@ class UnixDirectory : public Directory
 
     virtual void cacheDirectoryContents();
 
-    private:
+  private:
     Mutex m_Lock;
 };
 

@@ -29,7 +29,7 @@
 /** Event class for passing to File::monitor. */
 class PollEvent : public Event
 {
-    public:
+  public:
     /** The constructor takes a semaphore that it should signal when it fires,
         and an fd_set with an index to set. */
     PollEvent();
@@ -54,7 +54,7 @@ class PollEvent : public Event
         return EventNumbers::PollEvent;
     }
 
-    private:
+  private:
     Semaphore *m_pSemaphore;
     struct pollfd *m_pFd;
     int m_nREvent;

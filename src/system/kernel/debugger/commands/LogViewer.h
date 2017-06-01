@@ -31,7 +31,7 @@
  */
 class LogViewer : public DebuggerCommand, public Scrollable
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */

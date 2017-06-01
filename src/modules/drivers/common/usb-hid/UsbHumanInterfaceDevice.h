@@ -26,7 +26,7 @@
 
 class UsbHumanInterfaceDevice : public UsbDevice
 {
-    public:
+  public:
     UsbHumanInterfaceDevice(UsbDevice *dev);
     virtual ~UsbHumanInterfaceDevice();
 
@@ -37,7 +37,7 @@ class UsbHumanInterfaceDevice : public UsbDevice
         str = "USB Human Interface Device";
     }
 
-    private:
+  private:
     struct HidDescriptor
     {
         inline HidDescriptor(UnknownDescriptor *pDes)

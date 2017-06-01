@@ -65,16 +65,16 @@ class File
 {
     friend class Filesystem;
 
-    public:
+  public:
     /** Constructor, creates an invalid file. */
     File();
 
     /** Copy constructors are hidden - unused! */
-    private:
+  private:
     File(const File &file);
     File &operator=(const File &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     File(
         const String &name, Time::Timestamp accessedTime,
@@ -328,7 +328,7 @@ class File
      */
     virtual File *open();
 
-    protected:
+  protected:
     /** Internal function to retrieve an aligned 512byte section of the file. */
     virtual uintptr_t readBlock(uint64_t location)
     {
@@ -469,7 +469,7 @@ class File
     List<MonitorTarget *> m_MonitorTargets;
 #endif
 
-    private:
+  private:
     /** Retrieve a page from our cache. */
     uintptr_t getCachedPage(size_t block);
 

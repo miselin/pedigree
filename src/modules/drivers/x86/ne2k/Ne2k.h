@@ -37,7 +37,7 @@
 /** Device driver for the NE2K class of network device */
 class Ne2k : public Network, public IrqHandler
 {
-    public:
+  public:
     Ne2k(Network *pDev);
     virtual ~Ne2k();
 
@@ -59,7 +59,7 @@ class Ne2k : public Network, public IrqHandler
 
     bool isConnected();
 
-    private:
+  private:
     void recv();
 
     static int trampoline(void *p) NORETURN;

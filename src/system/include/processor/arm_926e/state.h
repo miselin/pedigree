@@ -29,7 +29,7 @@
 /** ARM926E Interrupt State */
 class ARM926EInterruptState
 {
-    public:
+  public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -88,10 +88,10 @@ class ARM926EInterruptState
      *\return the syscall function number */
     inline size_t getSyscallNumber() const;
 
-    private:
+  private:
     /** The default constructor
      *\note NOT implemented */
-    public:
+  public:
     ARM926EInterruptState();
 
     /** The copy-constructor
@@ -132,7 +132,7 @@ typedef ARM926EInterruptState ARM926EProcessorState;
 
 class __attribute__((aligned(16))) ARM926ESchedulerState
 {
-    public:
+  public:
     uint32_t edi;
     uint32_t esi;
     uint32_t ebx;

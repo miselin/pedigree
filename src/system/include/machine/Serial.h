@@ -27,7 +27,7 @@
  */
 class Serial
 {
-    public:
+  public:
     virtual ~Serial()
     {
     }

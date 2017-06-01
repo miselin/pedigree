@@ -33,7 +33,7 @@
 /** Device driver for the loopback network device */
 class Loopback : public Network
 {
-    public:
+  public:
     Loopback();
     Loopback(Network *pDev);
     ~Loopback();
@@ -54,7 +54,7 @@ class Loopback : public Network
 
     virtual StationInfo getStationInfo();
 
-    private:
+  private:
     static Loopback m_Instance;
 
     Loopback(const Loopback &);

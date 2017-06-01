@@ -29,7 +29,7 @@
 template <class T1, class T2>
 class Pair
 {
-    public:
+  public:
     Pair() : m_First(), m_Second()
     {
     }
@@ -49,7 +49,7 @@ class Pair
         return m_Second;
     }
 
-    private:
+  private:
     T1 m_First;
     T2 m_Second;
 };

@@ -43,7 +43,7 @@ class Subsystem
 {
     friend class Process;
 
-    public:
+  public:
     /** Defines the different types of subsystems */
     enum SubsystemType
     {
@@ -155,7 +155,7 @@ class Subsystem
         const char *name, List<SharedPointer<String>> &argv,
         List<SharedPointer<String>> &env, SyscallState &state) = 0;
 
-    protected:
+  protected:
     /** Notifies the subsystem that the given thread has been removed. */
     virtual void threadRemoved(Thread *pThread)
     {
@@ -165,7 +165,7 @@ class Subsystem
 
     Process *m_pProcess;
 
-    private:
+  private:
     const Subsystem &operator=(const Subsystem &);
 };
 

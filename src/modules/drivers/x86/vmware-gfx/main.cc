@@ -65,7 +65,7 @@ class VmwareGraphics : public Display
 {
     friend class VmwareFramebuffer;
 
-    public:
+  public:
     VmwareGraphics(Device *pDev)
         : Display(pDev), m_pIo(0), m_Framebuffer(0), m_CommandRegion(0),
           m_pFramebufferRawAddress(0)
@@ -433,7 +433,7 @@ class VmwareGraphics : public Display
 
     class VmwareFramebuffer : public Framebuffer
     {
-        public:
+      public:
         VmwareFramebuffer() : Framebuffer()
         {
         }
@@ -473,11 +473,11 @@ class VmwareGraphics : public Display
             //    swCopy(srcx, srcy, destx, desty, w, h);
         }
 
-        private:
+      private:
         VmwareGraphics *m_pDisplay;
     };
 
-    private:
+  private:
     IoBase *m_pIo;
 
     /// \todo Lock these

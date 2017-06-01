@@ -35,7 +35,7 @@
 
 class Dm9601 : public UsbDevice, public Network
 {
-    public:
+  public:
     Dm9601(UsbDevice *pDev);
 
     virtual ~Dm9601();
@@ -53,7 +53,7 @@ class Dm9601 : public UsbDevice, public Network
 
     virtual StationInfo getStationInfo();
 
-    private:
+  private:
     static int recvTrampoline(void *p) NORETURN;
 
     static int trampoline(void *p) NORETURN;

@@ -69,7 +69,7 @@ struct ConfigValue
  */
 class ConfigurationManager
 {
-    public:
+  public:
     ConfigurationManager();
     virtual ~ConfigurationManager();
 
@@ -99,7 +99,7 @@ class ConfigurationManager
 
     bool backendExists(String configStore);
 
-    private:
+  private:
     static ConfigurationManager m_Instance;
 
     RadixTree<ConfigurationBackend *> m_Backends;

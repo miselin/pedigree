@@ -29,7 +29,7 @@
  */
 class ServiceFeatures
 {
-    public:
+  public:
     enum Type
     {
         /** Write: send data to the Service. Open to interpretation (OTI) */
@@ -72,7 +72,7 @@ class ServiceFeatures
             m_OpEnum &= ~static_cast<uint32_t>(s);
     }
 
-    private:
+  private:
     uint32_t m_OpEnum;
 };
 

@@ -55,7 +55,7 @@
 /** The PPC's programmable interrupt controller as IrqManager */
 class OpenPic : public IrqManager, private InterruptHandler
 {
-    public:
+  public:
     /** Get the Pic class instance
      *\return the Pic class instance */
     inline static OpenPic &instance()
@@ -76,7 +76,7 @@ class OpenPic : public IrqManager, private InterruptHandler
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** The default constructor */
     OpenPic() INITIALISATION_ONLY;
     /** The destructor */

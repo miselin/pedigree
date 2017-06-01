@@ -29,7 +29,7 @@
  */
 class HostedSerial : public Serial
 {
-    public:
+  public:
     HostedSerial();
     virtual void setBase(uintptr_t nBaseAddr);
     virtual ~HostedSerial();
@@ -38,7 +38,7 @@ class HostedSerial : public Serial
     virtual char readNonBlock();
     virtual void write(char c);
 
-    private:
+  private:
     bool isConnected();
 
     int m_File;

@@ -44,7 +44,7 @@
  */
 class FileDisk : public Disk
 {
-    public:
+  public:
     enum AccessType
     {
         /** Read from file into RAM, changes persist in
@@ -84,7 +84,7 @@ class FileDisk : public Disk
         return true;
     }
 
-    private:
+  private:
     FileDisk(const FileDisk &);
     FileDisk &operator=(const FileDisk &);
 

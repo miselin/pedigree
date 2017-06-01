@@ -27,7 +27,7 @@
  */
 class ArmVersatileVga : public Vga
 {
-    public:
+  public:
     ArmVersatileVga();
     virtual ~ArmVersatileVga();
 

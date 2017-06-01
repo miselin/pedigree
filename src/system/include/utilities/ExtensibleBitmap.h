@@ -30,7 +30,7 @@
  */
 class ExtensibleBitmap
 {
-    public:
+  public:
     /** Creates a new, empty bitmap. */
     ExtensibleBitmap();
     /** Creates a new bitmap identical to that given. */
@@ -75,7 +75,7 @@ class ExtensibleBitmap
         return m_nLastClearBit;
     }
 
-    private:
+  private:
     /** Performance hint - one statically allocated word. Means we can index
         data from 0..{31,63} without dynamically allocating anything. */
     uintptr_t m_StaticMap;

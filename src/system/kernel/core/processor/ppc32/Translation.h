@@ -29,7 +29,7 @@
  */
 class Translations
 {
-    public:
+  public:
     struct Translation
     {
         uint32_t virt;
@@ -60,7 +60,7 @@ class Translations
      * start..end. */
     void removeRange(uintptr_t start, uintptr_t end);
 
-    private:
+  private:
     /** The main translations array */
     Translation m_pTranslations[NUM_TRANSLATIONS];
 

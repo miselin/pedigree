@@ -39,7 +39,7 @@ class Spinlock;
 
 class PerProcessorScheduler : public TimerHandler
 {
-    public:
+  public:
     /** Default constructor - Creates an empty scheduler with a new idle thread.
      */
     PerProcessorScheduler();
@@ -103,7 +103,7 @@ class PerProcessorScheduler : public TimerHandler
 
     void setIdle(Thread *pThread);
 
-    private:
+  private:
     /** Copy-constructor
      *  \note Not implemented - singleton class. */
     PerProcessorScheduler(const PerProcessorScheduler &);

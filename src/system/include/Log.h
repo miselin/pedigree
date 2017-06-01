@@ -176,13 +176,13 @@ extern void installSerialLogger();
  *example). */
 class Log
 {
-    public:
+  public:
     struct LogEntry;
 
     /** Output callback function type. Inherit and implement callback to use. */
     class LogCallback
     {
-        public:
+      public:
         virtual void callback(const char *) = 0;
         virtual ~LogCallback();
     };
@@ -322,7 +322,7 @@ class Log
         return m_StaticLog[m_StaticEntries - 1];
     }
 
-    private:
+  private:
     /** Default constructor - does nothing. */
     Log();
     /** Default destructor - does nothing */

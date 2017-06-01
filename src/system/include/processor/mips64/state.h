@@ -29,7 +29,7 @@
 /** MIPS64 Interrupt State */
 class MIPS64InterruptState
 {
-    public:
+  public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -78,7 +78,7 @@ class MIPS64InterruptState
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
 
-    private:
+  private:
     /** The default constructor
      *\note NOT implemented */
     MIPS64InterruptState();
@@ -95,7 +95,7 @@ class MIPS64InterruptState
 
 class MIPS64SyscallState
 {
-    public:
+  public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -144,7 +144,7 @@ class MIPS64SyscallState
      *\return the syscall function number */
     inline size_t getSyscallNumber() const;
 
-    private:
+  private:
 } PACKED;
 
 /** @} */

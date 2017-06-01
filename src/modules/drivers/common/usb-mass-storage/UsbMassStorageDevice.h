@@ -27,7 +27,7 @@
 
 class UsbMassStorageDevice : public ScsiController, public UsbDevice
 {
-    public:
+  public:
     UsbMassStorageDevice(UsbDevice *dev);
     virtual ~UsbMassStorageDevice();
 
@@ -52,7 +52,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice
         return this;
     }
 
-    private:
+  private:
     bool massStorageReset();
 
     enum MassStorageRequests
@@ -93,7 +93,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice
     Endpoint *m_pInEndpoint;
     Endpoint *m_pOutEndpoint;
 
-    protected:
+  protected:
     virtual size_t getNumUnits()
     {
         return m_nUnits;

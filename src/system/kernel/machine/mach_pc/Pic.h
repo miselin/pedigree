@@ -31,7 +31,7 @@
 /** The x86/x64 programmable interrupt controller as IrqManager */
 class Pic : public IrqManager, private InterruptHandler
 {
-    public:
+  public:
     /** Get the Pic class instance
      *\return the Pic class instance */
     inline static Pic &instance()
@@ -60,7 +60,7 @@ class Pic : public IrqManager, private InterruptHandler
     /** Controls specific elements of a given IRQ */
     virtual bool control(uint8_t irq, ControlCode code, size_t argument);
 
-    private:
+  private:
     /** The default constructor */
     Pic() INITIALISATION_ONLY;
     /** The destructor */

@@ -27,7 +27,7 @@ namespace Config
 {
 class Result
 {
-    public:
+  public:
     Result(size_t nResultIdx) : m_nResultIdx(nResultIdx)
     {
     }
@@ -60,7 +60,7 @@ class Result
     /// Returns the value in the column called 'col', in boolean form
     bool getBool(size_t row, const char *col);
 
-    private:
+  private:
     Result(const Result &);
     Result &operator=(const Result &);
 

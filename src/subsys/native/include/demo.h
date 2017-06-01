@@ -27,7 +27,7 @@
 /** Object is merely the base class for all native subsystem objects. */
 class Demo : public Object
 {
-    public:
+  public:
     Demo();
     virtual ~Demo();
 

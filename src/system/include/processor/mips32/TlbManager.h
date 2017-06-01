@@ -27,7 +27,7 @@
 /** A class for manipulating and refilling the translation lookaside buffer. */
 class MIPS32TlbManager : public InterruptHandler
 {
-    public:
+  public:
     /** Retrieves the singleton instance of this Tlb manager. */
     static MIPS32TlbManager &instance();
 
@@ -71,7 +71,7 @@ class MIPS32TlbManager : public InterruptHandler
     //
     void interrupt(size_t interruptNumber, InterruptState &state);
 
-    private:
+  private:
     /** Default constructor. */
     MIPS32TlbManager();
     /** Destructor. */

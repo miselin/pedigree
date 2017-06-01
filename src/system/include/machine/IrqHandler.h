@@ -30,7 +30,7 @@
  * be derived from this class */
 class IrqHandler
 {
-    public:
+  public:
     /** Called when the handler is registered with the irq manager and the irq
      *occurred \note If this function returns false you have to call
      *IrqManager::acknowledgeIrq() when you removed the interrupt reason.
@@ -39,7 +39,7 @@ class IrqHandler
      *otherwise */
     virtual bool irq(irq_id_t number, InterruptState &state) = 0;
 
-    protected:
+  protected:
     /** Virtual destructor */
     inline virtual ~IrqHandler()
     {

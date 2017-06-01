@@ -32,7 +32,7 @@
 /** The decrementer timer implements the SchedulerTimer interface */
 class Decrementer : public SchedulerTimer, private InterruptHandler
 {
-    public:
+  public:
     //
     // SchedulerTimer interface
     //
@@ -51,7 +51,7 @@ class Decrementer : public SchedulerTimer, private InterruptHandler
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     Decrementer(const Decrementer &);

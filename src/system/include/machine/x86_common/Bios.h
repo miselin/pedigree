@@ -26,7 +26,7 @@
    wrapper around X86Emu, taken from the XFree86 source. */
 class Bios
 {
-    public:
+  public:
     /** Returns the singleton BIOS instance. */
     static Bios &instance()
     {
@@ -70,7 +70,7 @@ class Bios
     /** Gets the ES register. */
     int getEs();
 
-    private:
+  private:
     /** Private constructor - Singleton class. */
     Bios();
     ~Bios();

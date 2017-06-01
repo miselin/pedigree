@@ -32,7 +32,7 @@
  * IrqManager */
 class Apic : public IrqManager
 {
-    public:
+  public:
     /** The default constructor */
     inline Apic()
     {
@@ -55,7 +55,7 @@ class Apic : public IrqManager
 
     bool initialise() INITIALISATION_ONLY;
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     Apic(const Apic &);

@@ -30,7 +30,7 @@
  * be derived from this class */
 class TimerHandler
 {
-    public:
+  public:
     /** Called when the handler is registered with the Timer/SchedulerTimer
      *class and a timer event occured \param[in] delta time elapsed since the
      *last event, in nanoseconds \param[in,out] state the state of the processor
@@ -38,7 +38,7 @@ class TimerHandler
      */
     virtual void timer(uint64_t delta, InterruptState &state) = 0;
 
-    protected:
+  protected:
     /** Virtual destructor */
     inline virtual ~TimerHandler()
     {

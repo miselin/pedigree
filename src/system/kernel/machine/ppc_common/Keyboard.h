@@ -26,7 +26,7 @@
 
 class PPCKeyboard : public Keyboard
 {
-    public:
+  public:
     PPCKeyboard();
     virtual ~PPCKeyboard();
 
@@ -103,7 +103,7 @@ class PPCKeyboard : public Keyboard
         return false;
     }
 
-    private:
+  private:
     PPCKeyboard(const PPCKeyboard &);
     PPCKeyboard &operator=(const PPCKeyboard &);
 

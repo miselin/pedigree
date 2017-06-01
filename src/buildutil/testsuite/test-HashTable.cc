@@ -26,7 +26,7 @@
 template <int hashModulo = 0>
 class HashableIntegerBase
 {
-    public:
+  public:
     HashableIntegerBase() : x_(-1)
     {
     }
@@ -61,13 +61,13 @@ class HashableIntegerBase
         return x_ != other.x_;
     }
 
-    private:
+  private:
     int x_;
 };
 
 class CollidingHashableInteger : public HashableIntegerBase<0>
 {
-    public:
+  public:
     CollidingHashableInteger() : HashableIntegerBase()
     {
     }
@@ -84,7 +84,7 @@ class CollidingHashableInteger : public HashableIntegerBase<0>
 
 class HashableInteger : public HashableIntegerBase<0>
 {
-    public:
+  public:
     HashableInteger() : HashableIntegerBase()
     {
     }
@@ -96,7 +96,7 @@ class HashableInteger : public HashableIntegerBase<0>
 
 class ModuloTenHashableInteger : public HashableIntegerBase<10>
 {
-    public:
+  public:
     ModuloTenHashableInteger() : HashableIntegerBase()
     {
     }

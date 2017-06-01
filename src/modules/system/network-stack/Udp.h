@@ -33,7 +33,7 @@
  */
 class Udp
 {
-    private:
+  private:
     static Udp udpInstance;
 
     struct udpHeader
@@ -44,7 +44,7 @@ class Udp
         uint16_t checksum;
     } __attribute__((packed));
 
-    public:
+  public:
     Udp();
     virtual ~Udp();
 

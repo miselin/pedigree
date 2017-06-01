@@ -34,13 +34,13 @@ class Iso9660File : public File
 {
     friend class Iso9660Directory;
 
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     Iso9660File(const Iso9660File &);
     Iso9660File &operator=(const File &);
     Iso9660File &operator=(const Iso9660File &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     Iso9660File(
         String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
@@ -62,7 +62,7 @@ class Iso9660File : public File
         return m_Dir;
     }
 
-    protected:
+  protected:
     virtual uintptr_t readBlock(uint64_t location);
 
     virtual size_t getBlockSize() const
@@ -70,7 +70,7 @@ class Iso9660File : public File
         return 2048;
     }
 
-    private:
+  private:
     // Filesystem object
     Iso9660Filesystem *m_pFs;
 

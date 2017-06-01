@@ -43,7 +43,7 @@
           skip destructors for stack-local objects. Use it wisely. */
 class TimeoutGuard
 {
-    public:
+  public:
     /** Creates a new TimeoutGuard, with the given timeout, in seconds. */
     TimeoutGuard(size_t timeoutSecs);
 
@@ -64,7 +64,7 @@ class TimeoutGuard
     /** Internal event class. */
     class TimeoutGuardEvent : public Event
     {
-        public:
+      public:
         TimeoutGuardEvent() : Event(0, false), m_pTarget(0)
         {
         }
@@ -82,12 +82,12 @@ class TimeoutGuard
         /** The TimeoutGuard to cancel. */
         TimeoutGuard *m_pTarget;
 
-        private:
+      private:
         TimeoutGuardEvent(const TimeoutGuardEvent &);
         TimeoutGuardEvent &operator=(const TimeoutGuardEvent &);
     };
 
-    private:
+  private:
     TimeoutGuard(const TimeoutGuard &);
     TimeoutGuard &operator=(const TimeoutGuard &);
 

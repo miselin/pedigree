@@ -30,7 +30,7 @@
  */
 class LookupCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - does nothing.
      */

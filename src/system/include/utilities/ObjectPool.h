@@ -40,7 +40,7 @@
 template <class T, size_t poolSize = 16>
 class ObjectPool
 {
-    public:
+  public:
     ObjectPool()
         : m_Pool()
 #ifdef THREADS
@@ -107,7 +107,7 @@ class ObjectPool
         }
     }
 
-    private:
+  private:
     Vector<T *> m_Pool;
 #ifdef THREADS
     Spinlock m_Spinlock;

@@ -32,10 +32,10 @@ extern sqlite3 *g_pSqlite;
  */
 class Config
 {
-    public:
+  public:
     class Result
     {
-        public:
+      public:
         Result(char **ppResult, size_t rows, size_t cols, char *error, int ret);
         ~Result();
 
@@ -78,7 +78,7 @@ class Config
         /** Returns the value in the column called 'str', in boolean form. */
         bool getBool(size_t row, const char *str);
 
-        private:
+      private:
         Result(const Result &);
         Result &operator=(const Result &);
 
@@ -102,7 +102,7 @@ class Config
         \return A Result* object, which should be deleted after use, or 0. */
     Result *query(const char *sql);
 
-    private:
+  private:
     static Config m_Instance;
 };
 

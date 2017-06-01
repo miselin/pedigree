@@ -31,7 +31,7 @@ class Directory : public File
 {
     friend class Filesystem;
 
-    public:
+  public:
     /** Eases the pain of casting, and performs a sanity check. */
     static Directory *fromFile(File *pF)
     {
@@ -44,11 +44,11 @@ class Directory : public File
     Directory();
 
     /** Copy constructors are hidden - unused! */
-    private:
+  private:
     Directory(const Directory &file);
     Directory &operator=(const Directory &);
 
-    public:
+  public:
     /** Constructor, should be called only by a Filesystem. */
     Directory(
         const String &name, Time::Timestamp accessedTime,
@@ -104,7 +104,7 @@ class Directory : public File
      */
     bool addEphemeralFile(File *pFile);
 
-    private:
+  private:
     /** Directory contents cache. */
     RadixTree<File *> m_Cache;
 
@@ -123,7 +123,7 @@ class Directory : public File
     /** Reparse target. */
     Directory *m_ReparseTarget = nullptr;
 
-    protected:
+  protected:
     /** Provides subclasses with direct access to the directory's listing. */
     virtual const RadixTree<File *> &getCache()
     {

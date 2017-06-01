@@ -33,7 +33,7 @@
  */
 class HostedMachine : public Machine
 {
-    public:
+  public:
     inline static HostedMachine &instance()
     {
         return m_Instance;
@@ -54,7 +54,7 @@ class HostedMachine : public Machine
     virtual void setKeyboard(Keyboard *kb);
     virtual void stopAllOtherProcessors();
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

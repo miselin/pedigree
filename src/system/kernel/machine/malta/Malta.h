@@ -30,7 +30,7 @@
  */
 class Malta : public Machine
 {
-    public:
+  public:
     inline static Machine &instance()
     {
         return m_Instance;
@@ -46,7 +46,7 @@ class Malta : public Machine
     virtual Timer *getTimer();
     virtual Keyboard *getKeyboard();
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

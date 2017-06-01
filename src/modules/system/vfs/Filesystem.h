@@ -36,7 +36,7 @@ class Filesystem
     /** VFS can access nAliases */
     friend class VFS;
 
-    public:
+  public:
     //
     // Public interface
     //
@@ -109,7 +109,7 @@ class Filesystem
         return true;
     }
 
-    protected:
+  protected:
     /** createFile calls this after it has parsed the string path. */
     virtual bool createFile(File *parent, String filename, uint32_t mask) = 0;
     /** createDirectory calls this after it has parsed the string path. */
@@ -126,7 +126,7 @@ class Filesystem
     /** Disk device(if any). */
     Disk *m_pDisk;
 
-    private:
+  private:
     /** Get the true root of the filesystem, considering potential jails. */
     File *getTrueRoot();
 

@@ -34,7 +34,7 @@
  * semaphore) */
 class NetworkBlockTimeout : public TimerHandler
 {
-    public:
+  public:
     NetworkBlockTimeout();
 
     void setTimeout(uint32_t seconds);
@@ -48,7 +48,7 @@ class NetworkBlockTimeout : public TimerHandler
 
     virtual void timer(uint64_t delta, InterruptState &state);
 
-    private:
+  private:
     uint64_t m_Nanoseconds;
     uint64_t m_Seconds;
     uint32_t m_Timeout;

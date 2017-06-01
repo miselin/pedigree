@@ -29,7 +29,7 @@
  */
 class KeymapManager
 {
-    public:
+  public:
     /// Default constructor
     KeymapManager();
 
@@ -68,7 +68,7 @@ class KeymapManager
     uint8_t
     convertPc102ScancodeToHidKeycode(uint8_t scancode, EscapeState &escape);
 
-    private:
+  private:
     enum IndexModifiers
     {
         IndexCtrl = 1,

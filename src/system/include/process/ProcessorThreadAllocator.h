@@ -29,7 +29,7 @@
 
 class ProcessorThreadAllocator
 {
-    public:
+  public:
     ProcessorThreadAllocator();
     virtual ~ProcessorThreadAllocator();
 
@@ -60,7 +60,7 @@ class ProcessorThreadAllocator
         m_pAlgorithm = pAlgorithm;
     }
 
-    private:
+  private:
     ThreadToCoreAllocationAlgorithm *m_pAlgorithm;
 
     static ProcessorThreadAllocator m_Instance;

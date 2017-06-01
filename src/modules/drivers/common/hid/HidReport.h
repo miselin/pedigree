@@ -26,7 +26,7 @@
 
 class HidReport
 {
-    public:
+  public:
     HidReport();
     virtual ~HidReport();
 
@@ -36,7 +36,7 @@ class HidReport
     /// Feeds the input interpreter with a new input buffer
     void feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize);
 
-    private:
+  private:
     /// The HID item types
     enum ItemType
     {

@@ -40,7 +40,7 @@
  */
 class PPCSerial : public Serial
 {
-    public:
+  public:
     /**
      * Default constructor, does nothing.
      */
@@ -67,7 +67,7 @@ class PPCSerial : public Serial
     virtual char read();
     virtual char readNonBlock();
 
-    private:
+  private:
     PPCSerial(const PPCSerial &);
     PPCSerial &operator=(const PPCSerial &);
 

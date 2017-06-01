@@ -25,7 +25,7 @@
 /// \note useless, no text framebuffer device available.
 class ArmBeagleVga : public Vga
 {
-    public:
+  public:
     ArmBeagleVga();
     virtual ~ArmBeagleVga();
 

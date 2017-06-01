@@ -28,7 +28,7 @@
 template <class T>
 class BloomFilter
 {
-    public:
+  public:
     BloomFilter(size_t length, size_t hashcount)
         : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
     {
@@ -84,7 +84,7 @@ class BloomFilter
         }
     }
 
-    private:
+  private:
     ExtensibleBitmap m_Bitmap;
     size_t m_nLength;
     size_t m_nHashCount;

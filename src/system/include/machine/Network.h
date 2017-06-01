@@ -35,7 +35,7 @@ extern BootIO bootIO;
 /** Station information - basically information about this station, per NIC */
 class StationInfo
 {
-    public:
+  public:
     // Broadcast address defaults to 255.255.255.255, as we may need to
     // broadcast without a known IPv4 address (and therefore no known network
     // or broadcast address).
@@ -89,7 +89,7 @@ class StationInfo
  */
 class Network : public Device
 {
-    public:
+  public:
     Network() : m_StationInfo()
     {
         m_SpecificType = "Generic Network Device";
@@ -176,7 +176,7 @@ class Network : public Device
         m_StationInfo.nBad++;
     }
 
-    protected:
+  protected:
     StationInfo m_StationInfo;
 };
 

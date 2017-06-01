@@ -29,7 +29,7 @@
 
 class Multiprocessor
 {
-    public:
+  public:
     /** Information about one processor. This information is provided by the
      *  SMP or the ACPI tables. */
     struct ProcessorInformation
@@ -66,7 +66,7 @@ class Multiprocessor
     /** Initialise the GDT on the other processors */
     static void initialise2() INITIALISATION_ONLY;
 
-    private:
+  private:
     static void applicationProcessorStartup() NORETURN;
 
     static Spinlock m_ProcessorLock1 INITIALISATION_ONLY_DATA;

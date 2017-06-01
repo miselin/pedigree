@@ -54,7 +54,7 @@ class Machine
 {
     friend void system_reset();
 
-    public:
+  public:
     static Machine &instance();
 
     /**
@@ -130,7 +130,7 @@ class Machine
     virtual void stopAllOtherProcessors() = 0;
 #endif
 
-    protected:
+  protected:
     inline Machine() : m_bInitialised(false)
     {
     }
@@ -138,7 +138,7 @@ class Machine
 
     bool m_bInitialised;
 
-    private:
+  private:
     Machine(const Machine &);
     Machine &operator=(const Machine &);
 };

@@ -27,7 +27,7 @@ class Spinlock
     friend class PerProcessorScheduler;
     friend class LocksCommand;
 
-    public:
+  public:
     Spinlock(bool bLocked = false, bool bAvoidTracking = false);
 
     /**
@@ -51,7 +51,7 @@ class Spinlock
 
     static const bool allow_recursion = true;
 
-    private:
+  private:
     /** Unwind the spinlock because a thread is releasing it. */
     void unwind();
 

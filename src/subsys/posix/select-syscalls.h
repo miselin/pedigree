@@ -27,7 +27,7 @@
 /** Event class for passing to File::monitor. */
 class SelectEvent : public Event
 {
-    public:
+  public:
     /** The constructor takes a semaphore that it should signal when it fires,
         and an fd_set with an index to set. */
     SelectEvent();
@@ -52,7 +52,7 @@ class SelectEvent : public Event
         return EventNumbers::SelectEvent;
     }
 
-    private:
+  private:
     Semaphore *m_pSemaphore;
     fd_set *m_pFdSet;
     size_t m_FdIdx;

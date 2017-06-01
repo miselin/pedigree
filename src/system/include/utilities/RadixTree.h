@@ -40,11 +40,11 @@
 template <class T>
 class RadixTree
 {
-    private:
+  private:
     /** Tree node. */
     class Node
     {
-        public:
+      public:
         typedef Vector<Node *> childlist_t;
         enum MatchType
         {
@@ -147,7 +147,7 @@ class RadixTree
         /** Link back to the node's RadixTree instance. */
         RadixTree *m_pParentTree;
 
-        private:
+      private:
         Node(const Node &);
         Node &operator=(const Node &);
 
@@ -159,7 +159,7 @@ class RadixTree
         Node *getNextSibling() const;
     };
 
-    public:
+  public:
     /** Type of the bidirectional iterator */
     typedef ::Iterator<T, Node> Iterator;
     /** Type of the constant bidirectional iterator */
@@ -239,7 +239,7 @@ class RadixTree
     /** Dump the RadixTree in dot format. */
     void dump(void (*emit_line)(const char *s)) const;
 
-    private:
+  private:
     /** Internal function to create a copy of a subtree. */
     Node *cloneNode(Node *node, Node *parent);
     /** Obtain a new Node with the same case-sensitive flag. */

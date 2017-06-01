@@ -33,7 +33,7 @@ typedef class PPC32InterruptState PPC32ProcessorState;
 /** PPC32 Interrupt State */
 class PPC32InterruptState
 {
-    public:
+  public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -99,10 +99,10 @@ class PPC32InterruptState
     static PPC32InterruptState *
     construct(PPC32ProcessorState &state, bool userMode);
 
-    private:
+  private:
     /** The default constructor
      *\note NOT implemented */
-    public:
+  public:
     PPC32InterruptState();
 
     /** The copy-constructor

@@ -196,7 +196,7 @@ static void centerStringAt(const char *str, size_t midX, size_t midY)
 
 class StreamingScreenLogger : public Log::LogCallback
 {
-    public:
+  public:
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
     void callback(const char *str)

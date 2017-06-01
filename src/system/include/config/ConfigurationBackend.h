@@ -32,7 +32,7 @@
  */
 class ConfigurationBackend
 {
-    public:
+  public:
     ConfigurationBackend(String configStore);
     virtual ~ConfigurationBackend();
 
@@ -54,7 +54,7 @@ class ConfigurationBackend
 
     virtual String getTypeName() = 0;
 
-    protected:
+  protected:
     String m_ConfigStore;
 };
 

@@ -28,7 +28,7 @@
 template <class T>
 class LockGuard
 {
-    public:
+  public:
     inline LockGuard(T &Lock, bool Condition = true)
         : m_Lock(Lock), m_bCondition(Condition)
     {
@@ -41,7 +41,7 @@ class LockGuard
             m_Lock.release();
     }
 
-    private:
+  private:
     LockGuard() = delete;
     NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
 
@@ -52,7 +52,7 @@ class LockGuard
 template <class T>
 class RecursingLockGuard
 {
-    public:
+  public:
     inline RecursingLockGuard(T &Lock, bool Condition = true)
         : m_Lock(Lock), m_bCondition(Condition)
     {
@@ -66,7 +66,7 @@ class RecursingLockGuard
             m_Lock.release();
     }
 
-    private:
+  private:
     RecursingLockGuard() = delete;
     NOT_COPYABLE_OR_ASSIGNABLE(RecursingLockGuard);
 

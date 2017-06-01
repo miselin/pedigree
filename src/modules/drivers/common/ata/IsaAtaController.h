@@ -37,7 +37,7 @@ class IsaAtaController
     : public AtaController /* public Controller, public RequestQueue, public
                               IrqHandler */
 {
-    public:
+  public:
     IsaAtaController(Controller *pDev, int nController = 0);
     virtual ~IsaAtaController();
 
@@ -61,7 +61,7 @@ class IsaAtaController
     // IRQ handler callback.
     virtual bool irq(irq_id_t number, InterruptState &state);
 
-    private:
+  private:
     IsaAtaController(const IsaAtaController &);
     void operator=(const IsaAtaController &);
 };

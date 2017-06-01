@@ -29,7 +29,7 @@ class Group;
 /** Defines the properties of a User on the system. */
 class User
 {
-    public:
+  public:
     /** Constructor
         \param uid The user's system-wide unique ID.
         \param name The user's username.
@@ -91,7 +91,7 @@ class User
         return m_Shell;
     }
 
-    private:
+  private:
     /** It doesn't make sense for a User to have a default or copy constructor.
      */
     User();

@@ -25,7 +25,7 @@
 
 class I2C
 {
-    public:
+  public:
     I2C() : m_MmioBase("I2C")
     {
     }
@@ -46,7 +46,7 @@ class I2C
     bool write(uint8_t addr, uint8_t reg, uint8_t data);
     uint8_t read(uint8_t addr, uint8_t reg);
 
-    private:
+  private:
     static I2C m_Instance[3];
 
     MemoryRegion m_MmioBase;

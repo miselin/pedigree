@@ -52,7 +52,7 @@ class Cache;
 /** Provides a clean abstraction to a set of data caches. */
 class CacheManager : public TimerHandler, public RequestQueue
 {
-    public:
+  public:
     CacheManager();
     virtual ~CacheManager();
 
@@ -77,7 +77,7 @@ class CacheManager : public TimerHandler, public RequestQueue
     void trimThread();
 #endif
 
-    private:
+  private:
     /**
      * RequestQueue doer - children give us new jobs, and we call out to
      * them when they hit the front of the queue.
@@ -111,7 +111,7 @@ class CacheManager : public TimerHandler, public RequestQueue
 /** Provides an abstraction of a data cache. */
 class Cache
 {
-    private:
+  private:
     struct CachePage
     {
         /// Key for this page.
@@ -157,7 +157,7 @@ class Cache
         bool checkZeroChecksum() const;
     };
 
-    public:
+  public:
     /**
      * Callback type: for functions called by the write-back timer handler.
      *
@@ -294,7 +294,7 @@ class Cache
      */
     void markNoLongerEditing(uintptr_t key, size_t length = 0);
 
-    private:
+  private:
     /** mapping doer */
     bool map(uintptr_t virt) const;
 
@@ -353,7 +353,7 @@ class Cache
         UnlikelyLock *cacheLock;
     };
 
-    public:
+  public:
     /**
      * Cache timer handler.
      *
@@ -370,7 +370,7 @@ class Cache
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);
 
-    private:
+  private:
     /** Key-item pairs. */
     Tree<uintptr_t, CachePage *> m_Pages;
 
@@ -420,11 +420,11 @@ class Cache
  */
 class CachePageGuard
 {
-    public:
+  public:
     CachePageGuard(Cache &cache, uintptr_t location);
     virtual ~CachePageGuard();
 
-    private:
+  private:
     Cache &m_Cache;
     uintptr_t m_Location;
 };

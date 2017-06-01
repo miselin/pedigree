@@ -51,7 +51,7 @@ static jmp_buf g_jb;
 
 class StreamingStderrLogger : public Log::LogCallback
 {
-    public:
+  public:
     void callback(const char *str)
     {
         std::cerr << str;

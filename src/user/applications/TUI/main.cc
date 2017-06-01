@@ -40,7 +40,7 @@
 
 class PedigreeTerminalEmulator : public Widget
 {
-    public:
+  public:
     PedigreeTerminalEmulator() : Widget(), m_nWidth(0), m_nHeight(0){};
 
     virtual ~PedigreeTerminalEmulator(){};
@@ -67,7 +67,7 @@ class PedigreeTerminalEmulator : public Widget
         return m_nHeight;
     }
 
-    private:
+  private:
     size_t m_nWidth;
     size_t m_nHeight;
 };

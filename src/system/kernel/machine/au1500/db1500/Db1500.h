@@ -26,7 +26,7 @@
 
 class Db1500 : public Machine
 {
-    public:
+  public:
     inline static Db1500 &instande()
     {
         return m_Instance;
@@ -41,7 +41,7 @@ class Db1500 : public Machine
     virtual SchedulerTimer *getSchedulerTimer();
     virtual Timer *getTimer();
 
-    private:
+  private:
     /**
      * Default constructor, does nothing.
      */

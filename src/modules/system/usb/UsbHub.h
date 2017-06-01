@@ -29,7 +29,7 @@
 
 class UsbHub : public Device
 {
-    public:
+  public:
     inline UsbHub()
     {
         m_UsedAddresses.set(0);
@@ -101,7 +101,7 @@ class UsbHub : public Device
             m_IgnoredPorts.clear(nPort);
     }
 
-    private:
+  private:
     /// Structure used synchronous transactions
     struct SyncParam
     {
@@ -122,7 +122,7 @@ class UsbHub : public Device
     /// \note valid only for root hubs
     ExtensibleBitmap m_UsedAddresses;
 
-    protected:
+  protected:
     /// Bitmap of ports to ignore connection changes on
     ExtensibleBitmap m_IgnoredPorts;
 };

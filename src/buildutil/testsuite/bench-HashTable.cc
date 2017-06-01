@@ -29,7 +29,7 @@
 
 class HashedInteger
 {
-    public:
+  public:
     HashedInteger() : n_(-1)
     {
     }
@@ -53,13 +53,13 @@ class HashedInteger
         return n_ != other.n_;
     }
 
-    private:
+  private:
     int64_t n_;
 };
 
 class CollidingHashedInteger
 {
-    public:
+  public:
     CollidingHashedInteger() : modulus_(0xFFFFFFFFU), n_(-1)
     {
     }
@@ -83,7 +83,7 @@ class CollidingHashedInteger
         return n_ != other.n_;
     }
 
-    private:
+  private:
     int64_t n_;
     int64_t modulus_;
 };

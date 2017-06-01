@@ -35,7 +35,7 @@
  */
 class HashedPageTable
 {
-    public:
+  public:
     HashedPageTable();
     ~HashedPageTable();
 
@@ -66,7 +66,7 @@ class HashedPageTable
      * mapping, the return value is undefined. */
     uint32_t getMapping(uint32_t effectiveAddress, uint32_t vsid);
 
-    private:
+  private:
     HashedPageTable(const HashedPageTable &);
     HashedPageTable &operator=(const HashedPageTable &);
 

@@ -52,7 +52,7 @@
  */
 class Ipv4 : public IpBase
 {
-    public:
+  public:
     Ipv4();
     virtual ~Ipv4();
 
@@ -116,7 +116,7 @@ class Ipv4 : public IpBase
         return m_IpId++;
     }
 
-    private:
+  private:
     static Ipv4 ipInstance;
 
     /// IPv4 psuedo-header for upper-layer checksums.
@@ -153,7 +153,7 @@ class Ipv4 : public IpBase
     /// Identifies an IPv4 packet by linking the ID and IP together
     class Ipv4Identifier
     {
-        public:
+      public:
         Ipv4Identifier() : m_Id(0), m_Ip(IpAddress::IPv4)
         {
         }
@@ -187,7 +187,7 @@ class Ipv4 : public IpBase
             return ((m_Id == a.m_Id) && (m_Ip == a.m_Ip));
         }
 
-        private:
+      private:
         /// ID for all ipv4 packets in this identification block
         uint16_t m_Id;
 

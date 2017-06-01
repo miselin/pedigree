@@ -35,7 +35,7 @@
  */
 class SlamCommand : public DebuggerCommand, public Scrollable
 {
-    public:
+  public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -85,7 +85,7 @@ class SlamCommand : public DebuggerCommand, public Scrollable
         DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-    private:
+  private:
     struct SlamAllocation
     {
         uintptr_t bt[NUM_SLAM_BT_FRAMES];

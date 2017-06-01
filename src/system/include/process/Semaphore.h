@@ -32,7 +32,7 @@
  */
 class Semaphore
 {
-    public:
+  public:
     /** Constructor
      * \param nInitialValue The initial value of the semaphore.
      * \param canInterrupt If false, acquire() retries after interrupt rather
@@ -60,7 +60,7 @@ class Semaphore
     /** Gets the current value of the semaphore */
     ssize_t getValue();
 
-    private:
+  private:
     /** Private copy constructor
         \note NOT implemented. */
     Semaphore(const Semaphore &);
@@ -75,7 +75,7 @@ class Semaphore
         (sets wasInterrupted and sets the thread status to Ready). */
     class SemaphoreEvent : public Event
     {
-        public:
+      public:
         SemaphoreEvent();
         virtual ~SemaphoreEvent()
         {

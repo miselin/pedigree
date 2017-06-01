@@ -178,14 +178,14 @@ class Elf
     // ELF loading, which is an improvement on load()'s copies.
     friend class PosixSubsystem;
 
-    protected:
+  protected:
     // Forward declaration of ELF symbol type for lookupSymbol template.
     struct ElfSymbol_t;
 #ifdef BITS_64
     struct Elf32Symbol_t;
 #endif
 
-    public:
+  public:
     /** Default constructor - loads no data. */
     Elf();
 
@@ -320,7 +320,7 @@ class Elf
     uintptr_t debugFrameTable();
     uintptr_t debugFrameTableLength();
 
-    protected:
+  protected:
 #endif
     struct ElfHeader_t
     {
@@ -452,7 +452,7 @@ typedef ElfSymbol_t Elf32Symbol_t;
     } PACKED;
 
 #ifndef _NO_ELF_CLASS
-    private:
+  private:
     template <typename T>
     static T *elfCopy(uint8_t *, ElfProgramHeader_t *, size_t, T *, size_t);
 
@@ -485,7 +485,7 @@ typedef ElfSymbol_t Elf32Symbol_t;
         uintptr_t loadBase = 0,
         SymbolTable::Policy policy = SymbolTable::LocalFirst);
 
-    protected:
+  protected:
     ElfSymbol_t *m_pSymbolTable;
     size_t m_nSymbolTableSize;
     char *m_pStringTable;
@@ -518,7 +518,7 @@ typedef ElfSymbol_t Elf32Symbol_t;
     uintptr_t m_FiniFunc;
     String m_sInterpreter;
 
-    private:
+  private:
     /** The assignment operator
      *\note currently not implemented */
     Elf &operator=(const Elf &);

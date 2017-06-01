@@ -30,7 +30,7 @@
  */
 class PanicCommand : public DebuggerCommand
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */

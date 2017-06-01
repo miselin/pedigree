@@ -31,7 +31,7 @@
 
 class VbeDisplay : public Display
 {
-    public:
+  public:
     /** VBE versions, in order. */
     enum VbeVersion
     {
@@ -81,7 +81,7 @@ class VbeDisplay : public Display
         m_pLogicalFramebuffer = p;
     }
 
-    private:
+  private:
     /** Copy constructor is private. */
     VbeDisplay(const VbeDisplay &);
     VbeDisplay &operator=(const VbeDisplay &);
@@ -124,7 +124,7 @@ class VbeDisplay : public Display
 
         bool valid;
 
-        private:
+      private:
         Buffer(const Buffer &);
         const Buffer &operator=(const Buffer &);
     };

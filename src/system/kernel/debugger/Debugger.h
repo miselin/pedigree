@@ -41,7 +41,7 @@
  */
 class Debugger : public InterruptHandler
 {
-    public:
+  public:
     /**
      * Get the instance of the Debugger
      */
@@ -68,7 +68,7 @@ class Debugger : public InterruptHandler
 
     InterruptState *m_pTempState;
 
-    private:
+  private:
     /**
      * Default constructor - does nothing.
      */

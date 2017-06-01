@@ -100,7 +100,7 @@ class MIPS32VirtualAddressSpace : public VirtualAddressSpace
     friend class Processor;
     friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -121,11 +121,11 @@ class MIPS32VirtualAddressSpace : public VirtualAddressSpace
      * address of the chunkIdx'th 4KB chunk of the page table. */
     uintptr_t getPageTableChunk(uintptr_t chunkIdx);
 
-    protected:
+  protected:
     /** The destructor does nothing */
     virtual ~MIPS32VirtualAddressSpace();
 
-    private:
+  private:
     /** The constructor for already present paging structures */
     MIPS32VirtualAddressSpace();
     /** The copy-constructor

@@ -498,7 +498,7 @@ extern "C" void writeHex(int uart, unsigned int n)
 /** GPIO implementation for the BeagleBoard */
 class BeagleGpio
 {
-    public:
+  public:
     BeagleGpio()
         : m_gpio1(0), m_gpio2(0), m_gpio3(0), m_gpio4(0), m_gpio5(0), m_gpio6(0)
     {
@@ -610,7 +610,7 @@ class BeagleGpio
             gpio[0xD] ^= (1 << base);
     }
 
-    private:
+  private:
     /// Initialises a specific GPIO to a given set of defaults
     void initspecific(int n, volatile unsigned int *gpio)
     {

@@ -43,7 +43,7 @@
 
 class Xterm
 {
-    public:
+  public:
     Xterm(
         PedigreeGraphics::Framebuffer *pFramebuffer, size_t nWidth,
         size_t nHeight, size_t offsetLeft, size_t offsetTop, class Terminal *pT,
@@ -111,15 +111,15 @@ class Xterm
         m_pBoldFont = pBoldFont;
     }
 
-    private:
+  private:
     class Window
     {
         friend class Xterm;
 
-        private:
+      private:
         class TermChar
         {
-            public:
+          public:
             bool operator==(const TermChar &other) const
             {
                 return (
@@ -137,7 +137,7 @@ class Xterm
             uint32_t utf32;
         };
 
-        public:
+      public:
         Window(
             size_t nRows, size_t nCols, PedigreeGraphics::Framebuffer *pFb,
             size_t nMaxScrollback, size_t offsetLeft, size_t offsetTop,
@@ -265,7 +265,7 @@ class Xterm
 
         void lineRender(uint32_t utf32, DirtyRectangle &rect);
 
-        private:
+      private:
         Window(const Window &);
         Window &operator=(const Window &);
 

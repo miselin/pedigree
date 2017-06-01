@@ -34,7 +34,7 @@ static void delayTimerFired(uint8_t *pBuffer)
 
 class DelayTimerEvent : public Event
 {
-    public:
+  public:
     DelayTimerEvent()
         : Event(reinterpret_cast<uintptr_t>(&delayTimerFired), false)
     {

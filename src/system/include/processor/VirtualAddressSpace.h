@@ -35,7 +35,7 @@
  *unmap */
 class VirtualAddressSpace
 {
-    public:
+  public:
     /** Debugger can access our private members for statistics reporting. */
     friend class Debugger;
 
@@ -241,7 +241,7 @@ class VirtualAddressSpace
     /** Abstracts a stack. */
     class Stack
     {
-        public:
+      public:
         Stack(void *top, size_t size) : m_Top(top), m_Size(size)
         {
         }
@@ -261,18 +261,18 @@ class VirtualAddressSpace
             return m_Top;
         }
 
-        private:
+      private:
         void *m_Top;
         size_t m_Size;
     };
 
-    protected:
+  protected:
     /** The constructor does nothing */
     inline VirtualAddressSpace(void *Heap) : m_Heap(Heap), m_HeapEnd(Heap)
     {
     }
 
-    private:
+  private:
     /** The default constructor */
     VirtualAddressSpace();
     /** The copy-constructor

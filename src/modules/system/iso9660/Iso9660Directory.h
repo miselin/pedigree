@@ -36,11 +36,11 @@ class Iso9660Directory : public Directory
 {
     friend class Iso9660File;
 
-    private:
+  private:
     Iso9660Directory(const Iso9660Directory &);
     Iso9660Directory &operator=(const Iso9660Directory &);
 
-    public:
+  public:
     Iso9660Directory(
         String name, size_t inode, class Iso9660Filesystem *pFs, File *pParent,
         Iso9660DirRecord &dirRec, Time::Timestamp accessedTime = 0,
@@ -178,7 +178,7 @@ class Iso9660Directory : public Directory
         return m_Dir;
     }
 
-    private:
+  private:
     // Filesystem object
     Iso9660Filesystem *m_pFs;
 

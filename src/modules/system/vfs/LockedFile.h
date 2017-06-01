@@ -33,7 +33,7 @@
  */
 class LockedFile
 {
-    public:
+  public:
     /** Standard wrapper constructor */
     LockedFile(File *pFile);
 
@@ -59,7 +59,7 @@ class LockedFile
     /** Who's locking the file? */
     size_t getLocker();
 
-    private:
+  private:
     /** Default constructor, not to be used */
     LockedFile();
 

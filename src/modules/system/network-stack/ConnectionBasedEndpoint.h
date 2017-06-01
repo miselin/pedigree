@@ -30,7 +30,7 @@
  */
 class ConnectionBasedEndpoint : public Endpoint
 {
-    public:
+  public:
     ConnectionBasedEndpoint();
     ConnectionBasedEndpoint(uint16_t local, uint16_t remote);
     ConnectionBasedEndpoint(
@@ -102,7 +102,7 @@ class ConnectionBasedEndpoint : public Endpoint
      */
     virtual void setRemoteHost(const RemoteEndpoint &host);
 
-    private:
+  private:
     NOT_COPYABLE_OR_ASSIGNABLE(ConnectionBasedEndpoint);
 };
 

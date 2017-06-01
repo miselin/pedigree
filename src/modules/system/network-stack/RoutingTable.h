@@ -57,7 +57,7 @@
 /** Routing table implementation */
 class RoutingTable
 {
-    public:
+  public:
     enum Type
     {
         DestIp = 0,
@@ -117,7 +117,7 @@ class RoutingTable
     /** Grabs the default route for IPv6 */
     Network *DefaultRouteV6();
 
-    private:
+  private:
     static RoutingTable m_Instance;
 
     bool m_bHasRoutes;

@@ -27,7 +27,7 @@
  */
 class Bus : public Device
 {
-    public:
+  public:
     Bus(const char *pName) : m_pName(pName)
     {
     }
@@ -50,7 +50,7 @@ class Bus : public Device
         str = m_pName;
     }
 
-    private:
+  private:
     Bus(const Bus &);
     void operator=(const Bus &);
 

@@ -77,7 +77,7 @@ class Processor
 #ifdef THREADS
     friend class Scheduler;
 #endif
-    public:
+  public:
     /** Initialises the processor specific interface. After this function call
      *the whole processor-specific interface is initialised. Note though, that
      *only the bootstrap processor is started. Multiprocessor/-core facilities
@@ -365,7 +365,7 @@ class Processor
     /** How far has the processor-specific interface been initialised */
     static size_t m_Initialised;
 
-    private:
+  private:
 #if defined(HOSTED)
     /** Implementation of breakpoint(), reset(), haltUntilInterrupt() */
     static void _breakpoint();
@@ -436,11 +436,11 @@ size_t Processor::getCount()
  */
 class EnsureInterrupts
 {
-    public:
+  public:
     EnsureInterrupts(bool desired);
     virtual ~EnsureInterrupts();
 
-    private:
+  private:
     bool m_bPrevious;
 };
 

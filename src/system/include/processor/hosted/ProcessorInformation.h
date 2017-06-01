@@ -35,7 +35,7 @@ class HostedProcessorInformation
     friend class Processor;
     friend class Multiprocessor;
 
-    public:
+  public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
     inline VirtualAddressSpace &getVirtualAddressSpace() const
@@ -70,7 +70,7 @@ class HostedProcessorInformation
     }
 #endif
 
-    protected:
+  protected:
     /** Construct a HostedProcessorInformation object
      *\param[in] processorId Identifier of the processor */
     inline HostedProcessorInformation(
@@ -88,7 +88,7 @@ class HostedProcessorInformation
     {
     }
 
-    private:
+  private:
     /** Default constructor
      *\note NOT implemented */
     HostedProcessorInformation();

@@ -27,7 +27,7 @@
  */
 class Disk : public Device
 {
-    public:
+  public:
     enum SubType
     {
         ATA = 0,

@@ -43,7 +43,7 @@
  */
 class UdpEndpoint : public ConnectionlessEndpoint
 {
-    public:
+  public:
     /** Constructors and destructors */
     UdpEndpoint()
         : ConnectionlessEndpoint(), m_DataQueue(), m_Lock(false), m_Condition(),
@@ -107,7 +107,7 @@ class UdpEndpoint : public ConnectionlessEndpoint
 
     virtual void setLocalPort(uint16_t port);
 
-    private:
+  private:
     struct DataBlock
     {
         DataBlock()
@@ -147,7 +147,7 @@ class UdpManager : public ProtocolManager
 {
     friend class UdpEndpoint;
 
-    public:
+  public:
     UdpManager() : m_Endpoints(), m_UdpMutex(false), m_PortsAvailable()
     {
         // Never allocate port 0.
@@ -175,7 +175,7 @@ class UdpManager : public ProtocolManager
         IpAddress from, IpAddress to, uint16_t sourcePort, uint16_t destPort,
         uintptr_t payload, size_t payloadSize, Network *pCard);
 
-    private:
+  private:
     static UdpManager manager;
 
     /** Currently known endpoints (all actually UdpEndpoints). */
@@ -187,7 +187,7 @@ class UdpManager : public ProtocolManager
     /** Ports. */
     ExtensibleBitmap m_PortsAvailable;
 
-    protected:
+  protected:
     uint16_t allocatePort();
 
     void bindEndpoint(Endpoint *p, size_t localPort);

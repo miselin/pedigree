@@ -43,7 +43,7 @@ class Event;
 template <class T, bool allowShortOperation = false>
 class Buffer
 {
-    public:
+  public:
     Buffer(size_t bufferSize);
     virtual ~Buffer();
 
@@ -123,7 +123,7 @@ class Buffer
      */
     void cullMonitorTargets(Thread *pThread);
 
-    private:
+  private:
     WITHOUT_IMPLICIT_CONSTRUCTORS(Buffer);
 
     /**

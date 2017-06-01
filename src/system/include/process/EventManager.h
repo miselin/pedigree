@@ -22,7 +22,7 @@
 
 class EventManager
 {
-    public:
+  public:
     void dispatch(Event *pEvent, Thread *pThread);
 
     void

@@ -74,7 +74,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
     friend VirtualAddressSpace *VirtualAddressSpace::create();
     friend class ArmV7KernelVirtualAddressSpace;
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -191,7 +191,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
                KERNEL_VIRTUAL_MODULE_SIZE;
     }
 
-    protected:
+  protected:
     /** The destructor does nothing */
     virtual ~ArmV7VirtualAddressSpace();
 
@@ -218,7 +218,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
     void doUnmap(void *virtualAddress);
     void *doAllocateStack(size_t sSize);
 
-    private:
+  private:
     /** The constructor for already present paging structures
      *\param[in] Heap virtual address of the beginning of the heap
      *\param[in] PhysicalPageDirectory physical address of the page directory
@@ -382,7 +382,7 @@ class ArmV7KernelVirtualAddressSpace : public ArmV7VirtualAddressSpace
      */
     friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -397,7 +397,7 @@ class ArmV7KernelVirtualAddressSpace : public ArmV7VirtualAddressSpace
 
     virtual bool initialiseKernelAddressSpace();
 
-    private:
+  private:
     /** The constructor */
     ArmV7KernelVirtualAddressSpace();
     /** The destructor */

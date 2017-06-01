@@ -42,7 +42,7 @@
  */
 class Display : public Device
 {
-    public:
+  public:
     /** Describes a single RGBA 32-bit pixel. */
     struct rgb_t
     {

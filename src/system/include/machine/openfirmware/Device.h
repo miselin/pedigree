@@ -33,7 +33,7 @@ class OFDevice
     /** OpenFirmware can access our m_Handle variable. */
     friend class OpenFirmware;
 
-    public:
+  public:
     OFDevice(OFHandle handle);
     virtual ~OFDevice();
 
@@ -50,7 +50,7 @@ class OFDevice
         const char *method, size_t nArgs, OFParam p1 = 0, OFParam p2 = 0,
         OFParam p3 = 0, OFParam p4 = 0, OFParam p5 = 0, OFParam p6 = 0);
 
-    protected:
+  protected:
     OFDevice(const OFDevice &);
     OFDevice &operator=(const OFDevice &);
     OFHandle m_Handle;

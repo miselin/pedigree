@@ -43,7 +43,7 @@ class Vga;
  */
 class TextIO : public File
 {
-    private:
+  private:
     static const int COLOUR_BRIGHT_ADDEND = 8;
 
     enum VgaColour
@@ -104,7 +104,7 @@ class TextIO : public File
         CharacterSetG1 = 0x2000000,
     };
 
-    public:
+  public:
     TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent);
     virtual ~TextIO();
 
@@ -156,7 +156,7 @@ class TextIO : public File
      */
     bool isPrimary() const;
 
-    private:
+  private:
     static const ssize_t BACKBUFFER_COLS_WIDE = 132;
     static const ssize_t BACKBUFFER_COLS_NORMAL = 80;
     static const ssize_t BACKBUFFER_ROWS = 25;

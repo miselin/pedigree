@@ -28,7 +28,7 @@
  */
 class MipsDisassembler : public DisassemblerBase
 {
-    public:
+  public:
     MipsDisassembler();
     ~MipsDisassembler();
 
@@ -56,7 +56,7 @@ class MipsDisassembler : public DisassemblerBase
      */
     void disassemble(LargeStaticString &text);
 
-    private:
+  private:
     /**
      * Current disassembling location in memory.
      */

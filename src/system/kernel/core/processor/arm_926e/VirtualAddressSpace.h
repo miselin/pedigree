@@ -36,7 +36,7 @@ class Arm926EVirtualAddressSpace : public VirtualAddressSpace
     friend class Processor;
     friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
 
-    public:
+  public:
     //
     // VirtualAddressSpace Interface
     //
@@ -80,11 +80,11 @@ class Arm926EVirtualAddressSpace : public VirtualAddressSpace
        'clean'.*/
     virtual void revertToKernelAddressSpace(){};
 
-    protected:
+  protected:
     /** The destructor does nothing */
     virtual ~Arm926EVirtualAddressSpace();
 
-    private:
+  private:
     /** \todo I don't think all this belongs here. Put here to get the
               structures then read up on how PPC does it. */
 

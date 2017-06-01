@@ -36,7 +36,7 @@
  */
 class Ethernet
 {
-    public:
+  public:
     Ethernet();
     virtual ~Ethernet();
 
@@ -69,7 +69,7 @@ class Ethernet
         return sizeof(ethernetHeader);
     }
 
-    private:
+  private:
     static Ethernet ethernetInstance;
 
     struct ethernetHeader

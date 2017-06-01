@@ -93,7 +93,7 @@ extern "C" void vbeModeChangedCallback(char *pId, char *pModeId)
 
 class VbeFramebuffer : public Framebuffer
 {
-    public:
+  public:
     VbeFramebuffer()
         : Framebuffer(), m_pDisplay(0), m_pBackbuffer(0), m_nBackbufferBytes(0),
           m_pFramebufferRegion(0), m_Mode()
@@ -195,7 +195,7 @@ class VbeFramebuffer : public Framebuffer
         }
     }
 
-    private:
+  private:
     Display *m_pDisplay;
     char *m_pBackbuffer;
     size_t m_nBackbufferBytes;

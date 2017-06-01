@@ -29,7 +29,7 @@
 /** An IPv4/IPv6 address */
 class IpAddress
 {
-    public:
+  public:
     /** The type of an IP address */
     enum IpType
     {
@@ -213,7 +213,7 @@ class IpAddress
         m_Ipv6Prefix = prefix;
     }
 
-    private:
+  private:
     IpType m_Type;
 
     uint32_t m_Ipv4;     // the IPv4 address

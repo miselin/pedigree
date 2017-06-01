@@ -23,7 +23,7 @@
 /** NDP for IPv6 */
 class NeighbourDiscovery
 {
-    public:
+  public:
     NeighbourDiscovery()
     {
     }
@@ -36,7 +36,7 @@ class NeighbourDiscovery
         return m_Instance;
     }
 
-    private:
+  private:
     static NeighbourDiscovery m_Instance;
 };
 

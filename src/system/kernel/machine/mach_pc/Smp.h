@@ -35,7 +35,7 @@
  *  Specification */
 class Smp
 {
-    public:
+  public:
     /** Get the instance of the Smp class */
     inline static Smp &instance()
     {
@@ -74,7 +74,7 @@ class Smp
 #endif
 #endif
 
-    private:
+  private:
     /** The constructor does nothing */
     Smp() INITIALISATION_ONLY;
     /** Copy-constructor

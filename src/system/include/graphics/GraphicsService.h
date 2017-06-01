@@ -28,7 +28,7 @@
 
 class GraphicsService : public Service
 {
-    public:
+  public:
     GraphicsService() : m_Providers(), m_pCurrentProvider(0)
     {
     }
@@ -74,7 +74,7 @@ class GraphicsService : public Service
     /** serve: Interface through which clients interact with the Service */
     bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
 
-    private:
+  private:
     struct ProviderPair
     {
         GraphicsProvider *bestBase;

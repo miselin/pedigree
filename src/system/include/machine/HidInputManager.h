@@ -31,7 +31,7 @@
  */
 class HidInputManager : public TimerHandler
 {
-    public:
+  public:
     /// Default constructor
     HidInputManager();
 
@@ -57,7 +57,7 @@ class HidInputManager : public TimerHandler
     /// when a key is held in the down state.
     void timer(uint64_t delta, InterruptState &state);
 
-    private:
+  private:
     /// Static instance
     static HidInputManager m_Instance;
 

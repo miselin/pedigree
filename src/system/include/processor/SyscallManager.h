@@ -31,7 +31,7 @@
  * syscalls */
 class SyscallManager
 {
-    public:
+  public:
     /** Get the syscall manager instance
      *\return instance of the syscall manager */
     static SyscallManager &instance();
@@ -47,13 +47,13 @@ class SyscallManager
         uintptr_t p2 = 0, uintptr_t p3 = 0, uintptr_t p4 = 0,
         uintptr_t p5 = 0) = 0;
 
-    protected:
+  protected:
     /** The constructor */
     inline SyscallManager();
     /** The destructor */
     inline virtual ~SyscallManager();
 
-    private:
+  private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     SyscallManager(const SyscallManager &);

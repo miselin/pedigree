@@ -39,7 +39,7 @@ class MemoryPool;
  */
 class MemoryPoolPressureHandler : public MemoryPressureHandler
 {
-    public:
+  public:
     MemoryPoolPressureHandler(MemoryPool *pool);
     virtual ~MemoryPoolPressureHandler();
 
@@ -47,7 +47,7 @@ class MemoryPoolPressureHandler : public MemoryPressureHandler
 
     virtual bool compact();
 
-    private:
+  private:
     MemoryPool *m_Pool;
 };
 
@@ -57,7 +57,7 @@ class MemoryPoolPressureHandler : public MemoryPressureHandler
  * regularly allocated, such as networking code. */
 class MemoryPool
 {
-    public:
+  public:
     MemoryPool();
     MemoryPool(const char *poolName);
     virtual ~MemoryPool();
@@ -89,7 +89,7 @@ class MemoryPool
     /// Trims the pool, freeing pages that are not otherwise in use.
     bool trim();
 
-    private:
+  private:
 #ifdef THREADS
     ConditionVariable m_Condition;
     Mutex m_Lock;

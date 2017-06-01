@@ -34,7 +34,7 @@
  */
 class ThreadsCommand : public DebuggerCommand, public Scrollable
 {
-    public:
+  public:
     /**
      * Default constructor - zero's stuff.
      */
@@ -82,7 +82,7 @@ class ThreadsCommand : public DebuggerCommand, public Scrollable
         DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-    private:
+  private:
     bool swapThread(InterruptState &state, DebuggerIO *pScreen);
     size_t m_SelectedLine;
     size_t m_nLines;

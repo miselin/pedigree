@@ -65,7 +65,7 @@ class SharedBuffer;
  */
 class DirtyRectangle
 {
-    public:
+  public:
     DirtyRectangle();
     ~DirtyRectangle();
 
@@ -104,7 +104,7 @@ class DirtyRectangle
         m_X2 = 0;
     }
 
-    private:
+  private:
     size_t m_X, m_Y, m_X2, m_Y2;
 };
 
@@ -118,7 +118,7 @@ class Window;
  */
 class WObject
 {
-    public:
+  public:
     enum Type
     {
         Container,
@@ -168,7 +168,7 @@ class WObject
     {
     }
 
-    protected:
+  protected:
     void setDimensions(PedigreeGraphics::Rect &rt)
     {
         m_Dimensions = rt;
@@ -184,7 +184,7 @@ class WObject
     {
     }
 
-    private:
+  private:
     PedigreeGraphics::Rect m_Dimensions;
 };
 
@@ -194,7 +194,7 @@ class WObject
  */
 class Window : public WObject
 {
-    public:
+  public:
     Window(
         uint64_t handle, int sock, struct sockaddr *sa, size_t sa_len,
         ::Container *pParent);
@@ -275,7 +275,7 @@ class Window : public WObject
         return m_bPendingDecoration || isClientDirty();
     }
 
-    private:
+  private:
     bool isClientDirty() const
     {
         return !(
@@ -313,10 +313,10 @@ class Window : public WObject
  */
 class Container : public WObject
 {
-    protected:
+  protected:
     typedef std::vector<WObject *> WObjectList_t;
 
-    public:
+  public:
     enum Layout
     {
         SideBySide,  // Subwindows are tiled side-by-side
@@ -551,14 +551,14 @@ class Container : public WObject
     /// Refresh context on every reposition.
     virtual void yesrefresh();
 
-    protected:
+  protected:
     std::vector<WObject *> m_Children;
 
     Container() : Container(0)
     {
     }
 
-    private:
+  private:
     WObject *m_pParent;
 
     Layout m_Layout;
@@ -571,7 +571,7 @@ class Container : public WObject
  */
 class RootContainer : public Container
 {
-    public:
+  public:
     RootContainer(size_t w, size_t h) : Container()
     {
         reposition(0, 0, w, h);

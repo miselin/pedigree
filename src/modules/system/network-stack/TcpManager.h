@@ -48,7 +48,7 @@
  */
 class TcpManager : public ProtocolManager
 {
-    public:
+  public:
     TcpManager();
     virtual ~TcpManager();
 
@@ -114,7 +114,7 @@ class TcpManager : public ProtocolManager
     /** Allocates a unique local port for a connection with a server */
     uint16_t allocatePort();
 
-    private:
+  private:
     static int sequenceIncrementer(void *param);
 
     static TcpManager *manager;

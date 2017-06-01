@@ -32,7 +32,7 @@
  */
 class ProtocolManager
 {
-    public:
+  public:
     ProtocolManager()
     {
     }

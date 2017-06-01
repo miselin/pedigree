@@ -29,7 +29,7 @@
 /** Hosted StackFrame */
 class HostedStackFrame : public StackFrameBase
 {
-    public:
+  public:
     /** Creates a stack frame based on the given processor state and also the
      * given symbol name (mangled). */
     inline HostedStackFrame(
@@ -47,7 +47,7 @@ class HostedStackFrame : public StackFrameBase
         ProcessorState &state, uintptr_t returnAddress, unsigned int nParams,
         ...);
 
-    private:
+  private:
     /** Returns the n'th parameter in the stack frame. */
     virtual uintptr_t getParameter(size_t n);
 };

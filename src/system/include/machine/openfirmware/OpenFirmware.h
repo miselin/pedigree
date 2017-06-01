@@ -28,7 +28,7 @@
  */
 class OpenFirmware
 {
-    private:
+  private:
     /** Argument structure for PROM call. */
     struct PromArgs
     {
@@ -38,7 +38,7 @@ class OpenFirmware
         void *args[10];
     };
 
-    public:
+  public:
     typedef int (*OFInterface)(PromArgs *);
 
     /** Retrieves the singleton instance of the OpenFirmware class. */
@@ -65,7 +65,7 @@ class OpenFirmware
         OFParam p3 = 0, OFParam p4 = 0, OFParam p5 = 0, OFParam p6 = 0,
         OFParam p7 = 0, OFParam p8 = 0);
 
-    private:
+  private:
     /** Default constructor is private. */
     OpenFirmware();
     ~OpenFirmware();

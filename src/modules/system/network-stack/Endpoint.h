@@ -40,11 +40,11 @@ class ProtocolManager;
  */
 class Endpoint
 {
-    private:
+  private:
     Endpoint(const Endpoint &e);
     const Endpoint &operator=(const Endpoint &e);
 
-    public:
+  public:
     /** Type of this endpoint */
     enum EndpointType
     {
@@ -157,11 +157,11 @@ class Endpoint
     /** Report an error. */
     void reportError(Error::PosixError e);
 
-    protected:
+  protected:
     /** List of sockets linked to this Endpoint */
     List<Socket *> m_Sockets;
 
-    private:
+  private:
     /** Our local port (sourcePort in the UDP header) */
     uint16_t m_LocalPort;
 
@@ -180,7 +180,7 @@ class Endpoint
     /** Error status of the endpoint. */
     Error::PosixError m_Error;
 
-    protected:
+  protected:
     /** Connection-based?
      * Because the initialisation for any recv/send action on either type
      * of Endpoint (connected or connectionless) is the same across protocols

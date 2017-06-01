@@ -56,7 +56,7 @@ struct termios_compatible
 
 class PosixTerminalEvent : public Event
 {
-    public:
+  public:
     PosixTerminalEvent() : Event(0, false), pGroup(0), pConsole(0)
     {
     }
@@ -121,7 +121,7 @@ class PosixTerminalEvent : public Event
         return false;
     }
 
-    private:
+  private:
     ProcessGroup *pGroup;
     ConsoleFile *pConsole;
 };

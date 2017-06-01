@@ -42,7 +42,7 @@
 
 class Module
 {
-    public:
+  public:
     Module()
         : elf(), name(0), entry(0), exit(0), depends(0), depends_opt(0),
           buffer(0), buflen(0)
@@ -59,7 +59,7 @@ class Module
     uintptr_t loadBase;
     size_t loadSize;
 
-    protected:
+  protected:
     Module(const Module &);
     Module &operator=(const Module &);
 };
@@ -68,7 +68,7 @@ class KernelElf : public Elf
 {
     friend void system_reset();
 
-    public:
+  public:
     /** Get the class instance
      *\return reference to the class instance */
     inline static KernelElf &instance()
@@ -127,7 +127,7 @@ class KernelElf : public Elf
     /** Waits for all modules to complete (whether successfully or not). */
     void waitForModulesToLoad();
 
-    private:
+  private:
     /** Default constructor does nothing */
     KernelElf() INITIALISATION_ONLY;
     /** Copy-constructor

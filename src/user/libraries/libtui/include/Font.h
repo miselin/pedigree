@@ -32,7 +32,7 @@
 
 class Font
 {
-    public:
+  public:
     Font(
         cairo_t *pCairo, size_t requestedSize, const char *pFilename,
         bool bCache, size_t nWidth);
@@ -65,7 +65,7 @@ class Font
 
     void updateCairo(cairo_t *pCairo);
 
-    private:
+  private:
     Font(const Font &);
     Font &operator=(const Font &);
 

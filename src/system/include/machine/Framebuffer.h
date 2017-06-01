@@ -34,7 +34,7 @@ class Display;
  *  default if the main operational methods are not overridden. */
 class Framebuffer
 {
-    public:
+  public:
     Framebuffer() : m_pParent(0), m_FramebufferBase(0), m_bActive(true)
     {
         m_Palette = new uint32_t[256];
@@ -364,13 +364,13 @@ class Framebuffer
         m_FramebufferBase = p;
     }
 
-    private:
+  private:
     /** Sets an individual pixel on the framebuffer. Not inheritable. */
     void swSetPixel(
         size_t x, size_t y, uint32_t colour,
         Graphics::PixelFormat format = Graphics::Bits32_Argb);
 
-    protected:
+  protected:
     // Base address of this framebuffer, set by whatever code inherits this
     // class, ideally in the constructor.
     uintptr_t m_FramebufferBase;

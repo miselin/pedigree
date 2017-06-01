@@ -25,7 +25,7 @@
 
 class ScsiCommand
 {
-    public:
+  public:
     inline ScsiCommand()
     {
     }
@@ -40,7 +40,7 @@ namespace ScsiCommands
 {
 class Inquiry : public ScsiCommand
 {
-    public:
+  public:
     inline Inquiry(
         uint16_t len = 0, bool enableVitalData = false, uint8_t pageCode = 0,
         uint8_t ctl = 0)
@@ -72,7 +72,7 @@ class Inquiry : public ScsiCommand
 
 class UnitReady : public ScsiCommand
 {
-    public:
+  public:
     inline UnitReady(uint8_t ctl = 0)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -96,7 +96,7 @@ class UnitReady : public ScsiCommand
 
 class ReadSense : public ScsiCommand
 {
-    public:
+  public:
     inline ReadSense(uint8_t desc, uint8_t len, uint8_t ctl = 0)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -124,7 +124,7 @@ class ReadSense : public ScsiCommand
 
 class StartStop : public ScsiCommand
 {
-    public:
+  public:
     inline StartStop(
         bool imm, uint8_t newpower, bool eject_load, bool start,
         uint8_t ctl = 0)
@@ -155,7 +155,7 @@ class StartStop : public ScsiCommand
 
 class SendDiagnostic : public ScsiCommand
 {
-    public:
+  public:
     inline SendDiagnostic(
         bool selfTest, uint8_t selfTestCode = 0, uintptr_t params = 0,
         size_t paramLen = 0, bool deviceOffline = false,
@@ -195,7 +195,7 @@ class SendDiagnostic : public ScsiCommand
 
 class ReadTocCommand : public ScsiCommand
 {
-    public:
+  public:
     inline ReadTocCommand(uint16_t nativeBlockSize, uint8_t ctl = 0)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -234,7 +234,7 @@ class ReadTocCommand : public ScsiCommand
 
 class ReadCapacity10 : public ScsiCommand
 {
-    public:
+  public:
     inline ReadCapacity10(uint8_t ctl = 0)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -261,7 +261,7 @@ class ReadCapacity10 : public ScsiCommand
 
 class Read10 : public ScsiCommand
 {
-    public:
+  public:
     inline Read10(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -293,7 +293,7 @@ class Read10 : public ScsiCommand
 
 class Read12 : public ScsiCommand
 {
-    public:
+  public:
     inline Read12(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -325,7 +325,7 @@ class Read12 : public ScsiCommand
 
 class Read16 : public ScsiCommand
 {
-    public:
+  public:
     inline Read16(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -357,7 +357,7 @@ class Read16 : public ScsiCommand
 
 class Write10 : public ScsiCommand
 {
-    public:
+  public:
     inline Write10(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -390,7 +390,7 @@ class Write10 : public ScsiCommand
 
 class Write12 : public ScsiCommand
 {
-    public:
+  public:
     inline Write12(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -423,7 +423,7 @@ class Write12 : public ScsiCommand
 
 class Write16 : public ScsiCommand
 {
-    public:
+  public:
     inline Write16(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -456,7 +456,7 @@ class Write16 : public ScsiCommand
 
 class Synchronise10 : public ScsiCommand
 {
-    public:
+  public:
     inline Synchronise10(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));
@@ -488,7 +488,7 @@ class Synchronise10 : public ScsiCommand
 
 class Synchronise16 : public ScsiCommand
 {
-    public:
+  public:
     inline Synchronise16(uint32_t nLba, uint32_t nSectors)
     {
         ByteSet(&command, 0, sizeof(command));

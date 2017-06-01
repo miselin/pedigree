@@ -29,7 +29,7 @@ class User;
 /** Defines the properties of a Group on the system.  */
 class Group
 {
-    public:
+  public:
     /** Constructor.
         \param gid System-wide unique group ID.
         \param name Group name. */
@@ -56,7 +56,7 @@ class Group
         return m_Name;
     }
 
-    private:
+  private:
     /** It doesn't make sense for a Group to have public default or copy
      * constructors. */
     Group();

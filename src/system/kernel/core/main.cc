@@ -167,7 +167,7 @@ BootstrapStruct_t *g_pBootstrapInfo;
 /** Handles doing recovery on SLAM if memory pressure is encountered. */
 class SlamRecovery : public MemoryPressureHandler
 {
-    public:
+  public:
     virtual const String getMemoryPressureDescription()
     {
         return String("SLAM recovery; freeing unused slabs.");

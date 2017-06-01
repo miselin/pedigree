@@ -25,7 +25,7 @@
 
 class HostedKeyboard : public Keyboard
 {
-    public:
+  public:
     HostedKeyboard();
     virtual ~HostedKeyboard();
 
@@ -40,7 +40,7 @@ class HostedKeyboard : public Keyboard
     virtual char getLedState();
     virtual void setLedState(char state);
 
-    private:
+  private:
     /// True if we're in debug state
     bool m_bDebugState;
 

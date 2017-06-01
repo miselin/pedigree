@@ -31,7 +31,7 @@ extern class BootIO bootIO;
  */
 class BootIO
 {
-    public:
+  public:
     /**
      * Enumeration of all possible foreground and background colours.
      */
@@ -70,7 +70,7 @@ class BootIO
      * \param backColour The background colour */
     void write(HugeStaticString &str, Colour foreColour, Colour backColour);
 
-    private:
+  private:
     void putCharVga(const char c, Colour foreColour, Colour backColour);
     void startColour(Serial *pSerial, Colour foreColour, Colour backColour);
     void endColour(Serial *pSerial);

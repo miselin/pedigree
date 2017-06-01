@@ -109,7 +109,7 @@ enum PageAddressRegister
  */
 class X86IsaDma : public IsaDma
 {
-    public:
+  public:
     enum TransferModes
     {
         SelfTest = 0,
@@ -142,7 +142,7 @@ class X86IsaDma : public IsaDma
     virtual bool
     initTransfer(uint8_t channel, uint8_t mode, size_t length, uintptr_t addr);
 
-    private:
+  private:
     void resetFlipFlop(uint8_t chan);
 
     void resetHard(uint8_t chan);

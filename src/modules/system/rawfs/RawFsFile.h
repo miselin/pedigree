@@ -26,12 +26,12 @@
 
 class RawFsFile : public File
 {
-    private:
+  private:
     /** Copy constructors are hidden - unused! */
     RawFsFile(const RawFsFile &file);
     RawFsFile &operator=(const RawFsFile &);
 
-    public:
+  public:
     /** Constructor, should only be called by RawFs. */
     RawFsFile(String name, class RawFs *pFs, File *pParent, Disk *pDisk);
     ~RawFsFile()
@@ -46,7 +46,7 @@ class RawFsFile : public File
     {
     }
 
-    private:
+  private:
     Disk *m_pDisk;
 };
 

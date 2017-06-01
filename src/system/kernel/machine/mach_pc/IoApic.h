@@ -31,7 +31,7 @@
 /** The x86/x64 I/O APIC */
 class IoApic
 {
-    public:
+  public:
     /** The default constructor */
     inline IoApic() : m_IoSpace("I/O APIC")
     {
@@ -41,7 +41,7 @@ class IoApic
     {
     }
 
-    private:
+  private:
     /** The copy-constructor
      *\note NOT implemented */
     IoApic(const IoApic &);

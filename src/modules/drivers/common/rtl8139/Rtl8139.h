@@ -37,7 +37,7 @@
 /** Device driver for the RTL8139 class of network device */
 class Rtl8139 : public Network, public IrqHandler
 {
-    public:
+  public:
     Rtl8139(Network *pDev);
     ~Rtl8139();
 
@@ -59,7 +59,7 @@ class Rtl8139 : public Network, public IrqHandler
 
     IoBase *m_pBase;
 
-    private:
+  private:
     void recv();
 
     void reset();

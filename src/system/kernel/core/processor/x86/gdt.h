@@ -29,7 +29,7 @@
 /** The GDT manager on x86 processors */
 class X86GdtManager
 {
-    public:
+  public:
     /** Get the gdt manager instance
      *\return instance of the gdt manager */
     inline static X86GdtManager &instance()
@@ -49,7 +49,7 @@ class X86GdtManager
     /** Sets up the TLS base for the current CPU to point to the given base. */
     void setTlsBase(uintptr_t base);
 
-    private:
+  private:
     /** The constructor */
     X86GdtManager() INITIALISATION_ONLY;
     /** Copy constructor

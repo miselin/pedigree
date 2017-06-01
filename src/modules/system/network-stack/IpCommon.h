@@ -42,7 +42,7 @@ class Network;
 /// Base class for IPv4/IPv6, for generic checksums
 class IpBase
 {
-    public:
+  public:
     IpBase()
     {
     }

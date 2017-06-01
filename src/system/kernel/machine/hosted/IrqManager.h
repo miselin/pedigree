@@ -30,7 +30,7 @@
 
 class HostedIrqManager : public IrqManager, private InterruptHandler
 {
-    public:
+  public:
     /** Get the HostedIrqManager class instance
      *\return the HostedIrqManager class instance */
     inline static HostedIrqManager &instance()
@@ -63,7 +63,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     {
     }
 
-    private:
+  private:
     /** The default constructor */
     HostedIrqManager() INITIALISATION_ONLY;
     /** The destructor */

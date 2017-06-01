@@ -30,7 +30,7 @@
 /** mips32 StackFrame */
 class ARMV7StackFrame : public StackFrameBase
 {
-    public:
+  public:
     /** Creates a stack frame based on the given processor state and also the
      * given symbol name (mangled). */
     inline ARMV7StackFrame(
@@ -56,7 +56,7 @@ class ARMV7StackFrame : public StackFrameBase
         ProcessorState &state, uintptr_t returnAddress, unsigned int nParams,
         ...);
 
-    private:
+  private:
     /** Returns the n'th 64-bit parameter in the stack frame. */
     virtual uintptr_t getParameter(size_t n);
 };

@@ -24,7 +24,7 @@
 
 class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm
 {
-    public:
+  public:
     RoundRobinCoreAllocator() : m_ProcMap(), m_pNext(0)
     {
     }
@@ -66,7 +66,7 @@ class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm
         return pReturn;
     }
 
-    private:
+  private:
     Tree<PerProcessorScheduler *, PerProcessorScheduler *> m_ProcMap;
 
     PerProcessorScheduler *m_pNext;

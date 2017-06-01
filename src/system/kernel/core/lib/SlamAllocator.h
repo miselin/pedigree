@@ -115,7 +115,7 @@ class SlamAllocator;
 class SlamCache
 {
     // struct Node must be public so that sizeof(SlamCache::Node) is available.
-    public:
+  public:
     /** The structure inside a free object (list node) */
     struct Node
     {
@@ -160,7 +160,7 @@ class SlamCache
     void check();
 #endif
 
-    private:
+  private:
     SlamCache(const SlamCache &);
     const SlamCache &operator=(const SlamCache &);
 
@@ -211,7 +211,7 @@ class SlamCache
 
 class SlamAllocator
 {
-    public:
+  public:
     SlamAllocator();
     virtual ~SlamAllocator();
 
@@ -271,7 +271,7 @@ class SlamAllocator
     }
 #endif
 
-    private:
+  private:
     SlamAllocator(const SlamAllocator &);
     const SlamAllocator &operator=(const SlamAllocator &);
 
@@ -281,7 +281,7 @@ class SlamAllocator
 
     SlamCache m_Caches[32];
 
-    public:
+  public:
     /// Prepended to all allocated data. Basically just information to make
     /// freeing slightly less performance-intensive...
     struct AllocHeader
@@ -311,7 +311,7 @@ class SlamAllocator
 #endif
     } __attribute__((aligned(16)));
 
-    private:
+  private:
     bool m_bInitialised;
 
 #if CRIPPLINGLY_VIGILANT

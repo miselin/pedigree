@@ -30,11 +30,11 @@ class Process;
  */
 class TimeTracker
 {
-    public:
+  public:
     TimeTracker(Process *pProcess, bool fromUserspace);
     virtual ~TimeTracker();
 
-    private:
+  private:
     Process *m_pProcess;
     bool m_bFromUserspace;
 };

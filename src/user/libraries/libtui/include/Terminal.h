@@ -37,7 +37,7 @@
     UTF-32 conversion and input queueing. */
 class Terminal
 {
-    public:
+  public:
     friend class Xterm;
     Terminal(
         char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft,
@@ -163,7 +163,7 @@ class Terminal
         m_pXterm->setFonts(pNormalFont, pBoldFont);
     }
 
-    private:
+  private:
     Terminal(const Terminal &);
     Terminal &operator=(const Terminal &);
 

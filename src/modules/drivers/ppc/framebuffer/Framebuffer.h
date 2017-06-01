@@ -28,7 +28,7 @@
  *  to provide access to it as a device tree node. */
 class Framebuffer : public Display
 {
-    public:
+  public:
     Framebuffer();
 
     virtual ~Framebuffer();
@@ -43,7 +43,7 @@ class Framebuffer : public Display
 
     virtual bool setScreenMode(Display::ScreenMode sm);
 
-    private:
+  private:
     /** Copy constructor is private. */
 
     /** Current mode. */
