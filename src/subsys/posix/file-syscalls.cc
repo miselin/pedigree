@@ -2272,10 +2272,13 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     File* file = 0;
 
     bool onDevFs = false;
+    bool openingCtty = false;
     String nameToOpen;
     normalisePath(nameToOpen, pathname, &onDevFs);
     if (nameToOpen == "/dev/tty")
     {
+        openingCtty = true;
+
         file = pProcess->getCtty();
         if(!file)
         {
@@ -2420,9 +2423,9 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
         else
         {
             // Slave - set as controlling unless noctty is set.
-            if ((flags & O_NOCTTY) == 0)
+            if ((flags & O_NOCTTY) == 0 && !openingCtty)
             {
-                F_NOTICE(" -> setting opened terminal to be controlling");
+                F_NOTICE("  -> setting opened terminal '" << file->getName() << "' to be controlling");
                 console_setctty(file, false);
             }
         }
