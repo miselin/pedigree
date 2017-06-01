@@ -46,63 +46,16 @@
 /**
  * The Pedigree network stack - TCP Protocol Manager
  */
-class TcpManager : public ProtocolManager, public TimerHandler
+class TcpManager : public ProtocolManager
 {
 public:
-  TcpManager() :
-    m_NextTcpSequence(1), m_NextConnId(1), m_StateBlocks(), m_ListeningStateBlocks(),
-    m_CurrentConnections(), m_Endpoints(), m_ListenPorts(), m_EphemeralPorts(),
-    m_TcpMutex(false), m_SequenceMutex(false), m_Nanoseconds(0)
-  {
-    manager = this;
-
-    // Ports 32768 -> 65535 are ephemeral ports for client->server connections.
-    for(size_t n = 0; n < BASE_EPHEMERAL_PORT; ++n)
-    {
-      m_EphemeralPorts.set(n);
-    }
-
-    Timer *t = Machine::instance().getTimer();
-    if(t)
-    {
-      t->registerHandler(this);
-    }
-  }
-  virtual ~TcpManager()
-  {
-    Timer *t = Machine::instance().getTimer();
-    if(t)
-    {
-      NOTICE("TcpManager destructor, removing handler");
-      t->unregisterHandler(this);
-    }
-
-    manager = 0;
-  }
+  TcpManager();
+  virtual ~TcpManager();
 
   /** For access to the manager without declaring an instance of it */
   static TcpManager& instance()
   {
     return *manager;
-  }
-
-  /** Every half a second, increments sequence number by 64,000. */
-  virtual void timer(uint64_t delta, InterruptState &state)
-  {
-    m_Nanoseconds += delta;
-    if(UNLIKELY(m_Nanoseconds > 200000000ULL))
-    {
-      // 200 ms tick - check for segments that we need to ack.
-    }
-
-    if(UNLIKELY(m_Nanoseconds > 500000000ULL))
-    {
-      // 500 ms tick - increment sequence number and reset tick counter.
-      m_Nanoseconds = 0;
-
-      LockGuard<Mutex> guard(m_SequenceMutex);
-      m_NextTcpSequence += 64000;
-    }
   }
 
   /** Connects to a remote host (blocks until connected) */
@@ -135,103 +88,25 @@ public:
   void removeConn(size_t connId);
 
   /** Grabs the current state of a given connection */
-  Tcp::TcpState getState(size_t connId)
-  {
-    LockGuard<Mutex> guard(m_TcpMutex);
-
-    StateBlockHandle* handle;
-    if((handle = m_CurrentConnections.lookup(connId)) == 0)
-    {
-      WARNING("getState couldn't find a connection for ID " << connId);
-      return Tcp::UNKNOWN;
-    }
-
-    StateBlock* stateBlock;
-    if((stateBlock = m_ListeningStateBlocks.lookup(*handle)) == 0)
-    {
-      if((stateBlock = m_StateBlocks.lookup(*handle)) == 0)
-      {
-        WARNING("getState couldn't find a state block for ID " << connId);
-        return Tcp::UNKNOWN;
-      }
-    }
-
-    return stateBlock->currentState;
-  }
+  Tcp::TcpState getState(size_t connId);
 
   /** Gets the next sequence number to use */
-  uint32_t getNextSequenceNumber()
-  {
-    LockGuard<Mutex> guard(m_SequenceMutex);
-
-    /// \todo This needs to be randomised to avoid sequence attacks
-    size_t retSeq = m_NextTcpSequence;
-    m_NextTcpSequence += 64000;
-    return retSeq;
-  }
+  uint32_t getNextSequenceNumber();
 
   /** Gets a unique connection ID */
-  size_t getConnId()
-  {
-    /// \todo Need recursive mutexes!
-
-    size_t ret = m_NextConnId;
-    while(m_CurrentConnections.lookup(ret) != 0) // ensure it's unique
-      ret++;
-    m_NextConnId = ret + 1;
-    return ret;
-  }
+  size_t getConnId();
 
   /** Grabs the number of packets that have been queued for a given connection */
-  uint32_t getNumQueuedPackets(size_t connId)
-  {
-    LockGuard<Mutex> guard(m_TcpMutex);
-
-    StateBlockHandle* handle;
-    if((handle = m_CurrentConnections.lookup(connId)) == 0)
-      return 0;
-
-    StateBlock* stateBlock;
-    if((stateBlock = m_StateBlocks.lookup(*handle)) == 0)
-      return 0;
-
-    return stateBlock->numEndpointPackets;
-  }
+  uint32_t getNumQueuedPackets(size_t connId);
 
   /** Reduces the number of queued packets by the specified amount */
-  void removeQueuedPackets(size_t connId, uint32_t n = 1)
-  {
-    LockGuard<Mutex> guard(m_TcpMutex);
-
-    StateBlockHandle* handle;
-    if((handle = m_CurrentConnections.lookup(connId)) == 0)
-      return;
-
-    StateBlock* stateBlock;
-    if((stateBlock = m_StateBlocks.lookup(*handle)) == 0)
-      return;
-
-    stateBlock->numEndpointPackets -= n;
-  }
+  void removeQueuedPackets(size_t connId, uint32_t n = 1);
 
   /** Allocates a unique local port for a connection with a server */
-  uint16_t allocatePort()
-  {
-    LockGuard<Mutex> guard(m_TcpMutex);
-
-    /// \todo Handle cleaning up these ports when connections terminate!!!
-    size_t bit = m_EphemeralPorts.getFirstClear();
-    if(bit > 0xFFFF)
-    {
-      WARNING("No ports available!");
-      return 0;
-    }
-    m_EphemeralPorts.set(bit);
-
-    return bit;
-  }
+  uint16_t allocatePort();
 
 private:
+  static int sequenceIncrementer(void *param);
 
   static TcpManager *manager;
 

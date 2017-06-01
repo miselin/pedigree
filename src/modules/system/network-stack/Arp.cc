@@ -136,6 +136,7 @@ uint64_t Arp::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
     // TODO: this doesn't time out!
     while (!req->cond.wait(req->mutex));
   }
+  req->mutex.release();
   return req->success ? 1 : 0;
 }
 

@@ -20,7 +20,7 @@
 #ifndef MACHINE_TCP_H
 #define MACHINE_TCP_H
 
-#ifdef DISABLE_TCP
+#ifndef DISABLE_TCP
 
 #include <utilities/String.h>
 #include <utilities/Vector.h>

@@ -21,8 +21,46 @@
 #include "RoutingTable.h"
 #include <Log.h>
 #include <processor/Processor.h>
+#include <utilities/pocketknife.h>
 
 TcpManager *TcpManager::manager = 0;
+
+int TcpManager::sequenceIncrementer(void *param)
+{
+  /// \todo figure out when to terminate this thread
+  TcpManager *m = reinterpret_cast<TcpManager *>(param);
+  while (true)
+  {
+    {
+      LockGuard<Mutex> guard(m->m_SequenceMutex);
+      m->m_NextTcpSequence += 64000;
+    }
+    Time::delay(500 * Time::Multiplier::MILLISECOND);
+  }
+  return 0;
+}
+
+TcpManager::TcpManager() :
+  m_NextTcpSequence(1), m_NextConnId(1), m_StateBlocks(), m_ListeningStateBlocks(),
+  m_CurrentConnections(), m_Endpoints(), m_ListenPorts(), m_EphemeralPorts(),
+  m_TcpMutex(false), m_SequenceMutex(false), m_Nanoseconds(0)
+{
+  manager = this;
+
+  // Ports 32768 -> 65535 are ephemeral ports for client->server connections.
+  for(size_t n = 0; n < BASE_EPHEMERAL_PORT; ++n)
+  {
+    m_EphemeralPorts.set(n);
+  }
+
+  pocketknife::runConcurrently(sequenceIncrementer, this);
+}
+
+TcpManager::~TcpManager()
+{
+  /// \todo figure out how to remove the sequence incrementer now
+  manager = 0;
+}
 
 size_t TcpManager::Listen(Endpoint* e, uint16_t port, Network* pCard)
 {
@@ -168,7 +206,19 @@ size_t TcpManager::Connect(Endpoint::RemoteEndpoint remoteHost, uint16_t localPo
     return connId; // connection in progress - assume it works
 
   bool timedOut = false;
-  timedOut = !stateBlock->waitState.acquire(1, 15);
+  stateBlock->lock.acquire();
+  while (true)
+  {
+    if (stateBlock->currentState != Tcp::ESTABLISHED)
+    {
+      if (!stateBlock->cond.wait(stateBlock->lock, 15 * Time::Multiplier::SECOND))
+      {
+        timedOut = true;
+        break;
+      }
+    }
+  }
+  stateBlock->lock.release();
 
   if((stateBlock->currentState != Tcp::ESTABLISHED) || timedOut)
   {
@@ -348,7 +398,7 @@ void TcpManager::removeConn(size_t connId)
   m_CurrentConnections.remove(connId);
 
   // destroy the state block (and its internals)
-  stateBlock->waitState.release();
+  stateBlock->cond.broadcast();
   delete stateBlock;
 
   // stateBlock->endpoint is what applications are using right now, so
@@ -397,4 +447,95 @@ Endpoint* TcpManager::getEndpoint(uint16_t localPort, Network* pCard)
     e = static_cast<Endpoint*>(tmp);
 
     return e;
+}
+
+Tcp::TcpState TcpManager::getState(size_t connId)
+{
+  LockGuard<Mutex> guard(m_TcpMutex);
+
+  StateBlockHandle* handle;
+  if((handle = m_CurrentConnections.lookup(connId)) == 0)
+  {
+    WARNING("getState couldn't find a connection for ID " << connId);
+    return Tcp::UNKNOWN;
+  }
+
+  StateBlock* stateBlock;
+  if((stateBlock = m_ListeningStateBlocks.lookup(*handle)) == 0)
+  {
+    if((stateBlock = m_StateBlocks.lookup(*handle)) == 0)
+    {
+      WARNING("getState couldn't find a state block for ID " << connId);
+      return Tcp::UNKNOWN;
+    }
+  }
+
+  return stateBlock->currentState;
+}
+
+uint32_t TcpManager::getNextSequenceNumber()
+{
+  LockGuard<Mutex> guard(m_SequenceMutex);
+
+  /// \todo This needs to be randomised to avoid sequence attacks
+  size_t retSeq = m_NextTcpSequence;
+  m_NextTcpSequence += 64000;
+  return retSeq;
+}
+
+size_t TcpManager::getConnId()
+{
+  /// \todo Need recursive mutexes!
+
+  size_t ret = m_NextConnId;
+  while(m_CurrentConnections.lookup(ret) != 0) // ensure it's unique
+    ret++;
+  m_NextConnId = ret + 1;
+  return ret;
+}
+
+uint32_t TcpManager::getNumQueuedPackets(size_t connId)
+{
+  LockGuard<Mutex> guard(m_TcpMutex);
+
+  StateBlockHandle* handle;
+  if((handle = m_CurrentConnections.lookup(connId)) == 0)
+    return 0;
+
+  StateBlock* stateBlock;
+  if((stateBlock = m_StateBlocks.lookup(*handle)) == 0)
+    return 0;
+
+  return stateBlock->numEndpointPackets;
+}
+
+void TcpManager::removeQueuedPackets(size_t connId, uint32_t n)
+{
+  LockGuard<Mutex> guard(m_TcpMutex);
+
+  StateBlockHandle* handle;
+  if((handle = m_CurrentConnections.lookup(connId)) == 0)
+    return;
+
+  StateBlock* stateBlock;
+  if((stateBlock = m_StateBlocks.lookup(*handle)) == 0)
+    return;
+
+  stateBlock->numEndpointPackets -= n;
+}
+
+uint16_t TcpManager::allocatePort()
+{
+  LockGuard<Mutex> guard(m_TcpMutex);
+
+  /// \todo Handle cleaning up these ports when connections terminate!!!
+  size_t bit = m_EphemeralPorts.getFirstClear();
+  if(bit > 0xFFFF)
+  {
+    WARNING("No ports available!");
+    return 0;
+  }
+  m_EphemeralPorts.set(bit);
+
+  return bit;
 }
