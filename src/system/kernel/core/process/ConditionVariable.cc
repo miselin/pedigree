@@ -50,7 +50,7 @@ bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
     void *alarmHandle = nullptr;
     if (timeout > 0)
     {
-        alarmHandle = addAlarm(timeout);
+        alarmHandle = Time::addAlarm(timeout);
     }
 
     // Safe now to release the mutex as we're about to sleep.
@@ -70,12 +70,12 @@ bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
         else if (me->wasInterrupted())
         {
             // Timeout
-            removeAlarm(alarmHandle);
+            Time::removeAlarm(alarmHandle);
             return false;
         }
         else if (me->getUnwindState() != Thread::Continue)
         {
-            removeAlarm(alarmHandle);
+            Time::removeAlarm(alarmHandle);
             return false;
         }
 

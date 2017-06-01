@@ -53,10 +53,6 @@ Scheduler::Scheduler() :
 {
 }
 
-Scheduler::~Scheduler()
-{
-}
-
 bool Scheduler::initialise(Process *pKernelProcess)
 {
   RoundRobinCoreAllocator *pRoundRobin = new RoundRobinCoreAllocator();

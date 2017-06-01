@@ -591,9 +591,17 @@ void Cache::sync(uintptr_t key, bool async)
     promotePage(pPage);
 
     if(async)
+    {
         CacheManager::instance().addAsyncRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::WriteBack, key, location);
+    }
     else
-        CacheManager::instance().addRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::WriteBack, key, location);
+    {
+        uint64_t result = CacheManager::instance().addRequest(1, reinterpret_cast<uint64_t>(this), CacheConstants::WriteBack, key, location);
+        if (result != 2)
+        {
+            WARNING("Cache: writeback failed in sync");
+        }
+    }
 }
 
 void Cache::triggerChecksum(uintptr_t key)
@@ -705,7 +713,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
     if (static_cast<CacheConstants::CallbackCause>(p2) == CacheConstants::PleaseEvict)
     {
         evict(p3, false, true, true);
-        return 0;
+        return 1;
     }
 
     // Pin page while we do our writeback
@@ -722,7 +730,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
     // Unpin page, writeback complete
     release(p3);
 
-    return 0;
+    return 2;
 }
 
 size_t Cache::lruEvict(bool force)

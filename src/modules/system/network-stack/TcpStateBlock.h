@@ -62,7 +62,7 @@ class StateBlock
 
   public:
     StateBlock();
-    ~StateBlock();
+    virtual ~StateBlock();
 
     Tcp::TcpState currentState;
 

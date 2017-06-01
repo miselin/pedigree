@@ -37,7 +37,6 @@ int TcpManager::sequenceIncrementer(void *param)
     }
     Time::delay(500 * Time::Multiplier::MILLISECOND);
   }
-  return 0;
 }
 
 TcpManager::TcpManager() :

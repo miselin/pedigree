@@ -84,6 +84,7 @@ libutility_sources = [
     os.path.join('time', 'Conversion.cc'),
     os.path.join('time', 'Concurrent.cc'),  # Portable, unlike Delay.cc
     os.path.join('network', 'IpAddress.cc'),
+    os.path.join('network', 'MacAddress.cc'),
     'Atomic.cc',
     'Log.cc',
 ]
@@ -114,7 +115,7 @@ utility_env.Library(os.path.join(env['BUILDDIR'], 'utility'),
 utility_env['OBJSUFFIX'] = '.build.coverage.o'
 utility_env['CPPDEFINES'] += ['UTILITY_LINUX_COVERAGE']
 utility_env.Library(os.path.join(env['BUILDDIR'], 'utility_coverage'),
-    ['shim.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources],
+    ['shim.cc', 'pocketknife.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources],
     CCFLAGS=utility_env['COVERAGE_CCFLAGS'])
 
 # base kernel sources that we care about.

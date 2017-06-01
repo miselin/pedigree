@@ -207,9 +207,9 @@ int RequestQueue::doAsync(void *p)
   // Just return if the request is a duplicate, as our caller doesn't care and
   // we're otherwise just using up another thread stack and burning time for
   // no real reason.
-  pReq->owner->addRequest(pReq->priority, ReturnImmediately,
-                          pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5,
-                          pReq->p6, pReq->p7, pReq->p8);
+  uint64_t result = pReq->owner->addRequest(pReq->priority, ReturnImmediately,
+                                            pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5,
+                                            pReq->p6, pReq->p7, pReq->p8);
 
   --(pReq->owner->m_nAsyncRequests);
 

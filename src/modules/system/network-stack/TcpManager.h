@@ -106,7 +106,7 @@ public:
   uint16_t allocatePort();
 
 private:
-  static int sequenceIncrementer(void *param);
+  static int sequenceIncrementer(void *param) NORETURN;
 
   static TcpManager *manager;
 

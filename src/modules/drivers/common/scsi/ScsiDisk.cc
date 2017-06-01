@@ -272,7 +272,13 @@ uintptr_t ScsiDisk::read(uint64_t location)
     size_t loc = (location + offs) & ~(getBlockSize() - 1);
 
     ScsiController *pParent = static_cast<ScsiController*> (m_pParent);
-    pParent->addRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t> (this), loc);
+    uint64_t numRead = pParent->addRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t> (this), loc);
+    if (numRead < getBlockSize())
+    {
+        // Failed to read for some reason, expose the failure to our caller.
+        WARNING("ScsiDisk::read - short read!");
+        return 0;
+    }
 #if READAHEAD_ENABLED
     // Read the next block.
     for (size_t i = 0; i < 2; ++i)
@@ -497,7 +503,7 @@ uint64_t ScsiDisk::doRead(uint64_t location)
         ERROR("SCSI: reading failed?");
     }
 
-    return 0;
+    return getBlockSize();
 }
 
 uint64_t ScsiDisk::doWrite(uint64_t location)
@@ -573,7 +579,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location)
         ERROR("SCSI: writing failed?");
     }
 
-    return 0;
+    return getBlockSize();
 }
 
 uint64_t ScsiDisk::doSync(uint64_t location)
@@ -622,7 +628,7 @@ uint64_t ScsiDisk::doSync(uint64_t location)
         }
     }
 
-    return 0;
+    return getBlockSize();
 }
 
 void ScsiDisk::pin(uint64_t location)

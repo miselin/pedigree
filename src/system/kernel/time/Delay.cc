@@ -22,6 +22,7 @@
 #include <machine/Timer.h>
 #include <process/Event.h>
 #include <process/eventNumbers.h>
+#include <process/Thread.h>
 #include <processor/Processor.h>
 
 namespace Time
@@ -60,6 +61,7 @@ public:
 
 bool delay(Timestamp nanoseconds)
 {
+    Thread *pThread = Processor::information().getCurrentThread();
     void *handle = addAlarm(nanoseconds);
 
     /// \todo possible race condition for very short alarm times
