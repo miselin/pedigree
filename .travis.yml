@@ -1,6 +1,6 @@
 sudo: false
 language: cpp
-compiler: gcc
+compiler: clang
 matrix:
   include:
   - os: linux
@@ -15,7 +15,7 @@ matrix:
   #   env: OS=osx EASY_BUILD=x64
   exclude:
     - os: linux
-    - compiler: gcc
+    - compiler: clang
 script:
   - ./easy_build_$EASY_BUILD.sh nosudo $OS
   - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
@@ -40,6 +40,8 @@ notifications:
     secure: T9GJHictl8hUOgGh5RRVmRMExqlWJByssoSYdgnFuHA8ugLXyvHyYaVjLPVcFE9yv7w+sQgki0ZIzCyUH/Hg6/UPwRaH8W4Cm57vQwhE+TUvfy6eRRvYT118X/9X3xkYwhNUks+uydP6oI9YTnvr1XrzB6L4htA7Ma/YKBDhLhg=
 addons:
   apt:
+    sources:
+      - ubuntu-toolchain-r-test
     packages:
       - libmpfr-dev
       - libmpc-dev
@@ -54,6 +56,8 @@ addons:
       - uboot-mkimage
       - valgrind
       - python-requests
+      - g++-6
+      - libstdc++-5-dev
 cache:
   directories:
   - $HOME/.ccache
