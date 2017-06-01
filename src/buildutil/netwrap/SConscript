@@ -52,7 +52,8 @@ build_env.MergeFlags({
     'CXXFLAGS': ['-std=c++11', '-Os'],
     'CCFLAGS': ['-g3', '-ggdb'],
     'LINKFLAGS': ['-g3', '-ggdb'],
-    'LIBS': ['netstack', 'network', 'config', 'kernel', 'utility', 'pthread', 'dl'],
+    'LIBS': ['netstack', 'network', 'config', 'kernel', 'utility', 'pthread',
+             'dl', 'rt'],
 })
 
 build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])
