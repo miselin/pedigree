@@ -65,18 +65,15 @@ coverage_env.MergeFlags({
     'LINKFLAGS': build_env['COVERAGE_LINKFLAGS'],
 })
 
-# Build some of the network stack as a library for testing.
-libnetwork_stack = coverage_env.StaticLibrary('network-stack', [
-    '../../modules/system/network-stack/TcpMisc.cc',
-])
 libdebugger = coverage_env.StaticLibrary('debugger', [
     '../../system/kernel/debugger/Scrollable.cc',
     '../../system/kernel/debugger/commands/LocksCommand.cc',
 ])
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
-                     LIBS=[libnetwork_stack, libdebugger, 'utility_coverage',
-                           env['LIBGTEST'], 'pthread'])
+                     LIBS=['netstack', 'network', 'config', 'kernel',
+                           libdebugger, 'utility_coverage', env['LIBGTEST'],
+                           'pthread', 'dl'])
 
 if build_env['HAVE_BENCHMARK']:
     build_env.MergeFlags({

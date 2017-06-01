@@ -216,6 +216,7 @@ int StateBlock::performCleanupTrampoline(void *param)
 {
     StateBlock *block = reinterpret_cast<StateBlock *>(param);
     block->performCleanup();
+    return 0;
 }
 
 void StateBlock::performCleanup()

@@ -45,7 +45,7 @@ defines = [
 	'STANDALONE_MUTEXES',
 ]
 
-libs = ['ext2', 'vfs', 'part', 'utility', 'kernel']
+libs = ['ext2', 'vfs', 'part', 'utility', 'kernel', 'pthread']
 
 if env['HAVE_OPENSSL_SHA']:
     defines.append('HAVE_OPENSSL')

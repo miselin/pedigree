@@ -105,7 +105,7 @@ private:
   {
     public:
       ArpRequest() :
-        destIp(), mac(), mutex(false), cond(), complete(false), success(false)
+        destIp(), mac(), cond(), mutex(false), complete(false), success(false)
       {}
 
       IpAddress destIp;

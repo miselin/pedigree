@@ -105,11 +105,6 @@ class StreamingStderrLogger : public Log::LogCallback
         }
 };
 
-void syscallError(int e)
-{
-    std::cerr << "ERROR: #" << e << std::endl;
-}
-
 uint32_t getUnixTimestamp()
 {
     return time(0);

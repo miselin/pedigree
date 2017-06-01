@@ -59,12 +59,12 @@ public:
 
     /** Adds a request to the queue. Blocks until it finishes and returns the result.
         \param priority The priority to attach to this request. Lower number is higher priority. */
-    uint64_t addRequest(size_t priority, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
-                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
+    MUST_USE_RESULT uint64_t addRequest(size_t priority, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
+                                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
 
     /** Adds a request to the queue with optional behavior on duplicate detection. */
-    uint64_t addRequest(size_t priority, ActionOnDuplicate action, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
-                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
+    MUST_USE_RESULT uint64_t addRequest(size_t priority, ActionOnDuplicate action, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
+                                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
 
     /** Adds an asynchronous request to the queue. Will not block. */
     uint64_t addAsyncRequest(size_t priority, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,

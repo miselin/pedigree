@@ -61,6 +61,10 @@
 #else
 #define SECTION(x) __attribute__((__section__(x)))
 #endif
+/** This function must have its return value used somehow. */
+#define MUST_USE_RESULT __attribute__((warn_unused_result))
+/** This function or variable is used, even if it doesn't appear that way. */
+#define USED __attribute__((used))
 
 // Builtin checks.
 #ifndef __has_builtin

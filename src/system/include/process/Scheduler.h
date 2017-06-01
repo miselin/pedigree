@@ -21,6 +21,9 @@
 #define SCHEDULER_H
 
 #include <processor/types.h>
+#include <utilities/List.h>
+#include <utilities/Tree.h>
+#include <Spinlock.h>
 #include <Atomic.h>
 
 class Thread;

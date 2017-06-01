@@ -20,6 +20,7 @@
 #include <utilities/pocketknife.h>
 
 #include <process/Thread.h>
+#include <processor/Processor.h>
 
 namespace pocketknife
 {
