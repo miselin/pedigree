@@ -284,7 +284,7 @@ bool ProcFs::initialise(Disk *pDisk)
 
     // Kernel command line
     String cmdline(g_pBootstrapInfo->getCommandLine());
-    cmdline += " single noswap";  // ensure we get into single user mode in Linux userspaces
+    cmdline += " noswap quiet";  // ensure we get into single user mode in Linux userspaces
     ConstantFile *pCmdline = new ConstantFile(String("cmdline"), cmdline, getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
