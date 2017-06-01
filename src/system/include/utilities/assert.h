@@ -21,6 +21,7 @@
 #define KERNEL_ASSERT_H
 
 #include <compiler.h>
+#include <stdint.h>
 
 /** @addtogroup kernel
  * @{ */

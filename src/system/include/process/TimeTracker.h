@@ -20,6 +20,8 @@
 #ifndef _PROCESS_TIME_TRACKER_H
 #define _PROCESS_TIME_TRACKER_H
 
+class Process;
+
 /**
  * Tracks time spent and assigns it to the given process, in an RAII way.
  *
@@ -29,39 +31,8 @@
 class TimeTracker
 {
     public:
-    TimeTracker(Process *pProcess, bool fromUserspace)
-        : m_pProcess(pProcess), m_bFromUserspace(fromUserspace)
-    {
-        if (m_pProcess == 0)
-        {
-            // We can get called early, so ensure we don't make any
-            // assumptions about what's present.
-            Thread *pThread = Processor::information().getCurrentThread();
-            if (!pThread)
-                return;
-            m_pProcess = pThread->getParent();
-            if (!m_pProcess)
-                return;
-        }
-
-        // Track time already spent wherever we were previously.
-        m_pProcess->trackTime(m_bFromUserspace);
-
-        // Record current time for the next tracking.
-        m_pProcess->recordTime(!m_bFromUserspace);
-    }
-
-    virtual ~TimeTracker()
-    {
-        if (!m_pProcess)
-            return;
-
-        // Track time spent in the RAII section.
-        m_pProcess->trackTime(!m_bFromUserspace);
-
-        // Record current time for future tracking.
-        m_pProcess->recordTime(m_bFromUserspace);
-    }
+    TimeTracker(Process *pProcess, bool fromUserspace);
+    virtual ~TimeTracker();
 
     private:
     Process *m_pProcess;

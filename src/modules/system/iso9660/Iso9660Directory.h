@@ -28,6 +28,7 @@
 #include <vfs/Directory.h>
 #include <vfs/Filesystem.h>
 
+#include "Iso9660File.h"
 #include "Iso9660Filesystem.h"
 #include "iso9660.h"
 

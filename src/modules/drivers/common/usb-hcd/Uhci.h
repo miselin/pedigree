@@ -31,6 +31,7 @@
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/types.h>
 #include <usb/UsbHub.h>
+#include <utilities/RequestQueue.h>
 
 /** Device driver for the Uhci class */
 class Uhci : public UsbHub,

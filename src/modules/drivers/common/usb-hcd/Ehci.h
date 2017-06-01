@@ -28,6 +28,7 @@
 #include <usb/UsbHub.h>
 #include <utilities/ExtensibleBitmap.h>
 #include <utilities/MemoryAllocator.h>
+#include <utilities/RequestQueue.h>
 
 /** Device driver for the Ehci class */
 class Ehci : public UsbHub,

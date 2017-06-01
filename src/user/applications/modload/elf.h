@@ -20,6 +20,7 @@
 #ifndef ELF_H
 #define ELF_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define SHT_REL 0x9
