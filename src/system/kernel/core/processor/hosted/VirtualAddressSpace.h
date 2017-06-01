@@ -20,69 +20,74 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_HOSTED_VIRTUALADDRESSSPACE_H
 
-#include <utilities/Vector.h>
-#include <processor/types.h>
-#include <processor/VirtualAddressSpace.h>
 #include <Spinlock.h>
+#include <processor/VirtualAddressSpace.h>
+#include <processor/types.h>
+#include <utilities/Vector.h>
 
 //
 // Virtual address space layout
 //
-#define KERNEL_SPACE_START                      reinterpret_cast<void*>(0x0000700000000000)
+#define KERNEL_SPACE_START reinterpret_cast<void *>(0x0000700000000000)
 
-#define USERSPACE_DYNAMIC_LINKER_LOCATION       reinterpret_cast<void*>(0x4FA00000)
+#define USERSPACE_DYNAMIC_LINKER_LOCATION reinterpret_cast<void *>(0x4FA00000)
 
-#define USERSPACE_VIRTUAL_START                 reinterpret_cast<void*>(0x20000000)
-#define USERSPACE_VIRTUAL_HEAP                  reinterpret_cast<void*>(0x50000000)
-#define USERSPACE_RESERVED_START                USERSPACE_DYNAMIC_LINKER_LOCATION
-#define USERSPACE_VIRTUAL_STACK_SIZE            0x100000
-#define USERSPACE_VIRTUAL_MAX_STACK_SIZE        0x100000
-#define USERSPACE_DYNAMIC_START                 reinterpret_cast<void*>(0x0000400000000000)
-#define USERSPACE_DYNAMIC_END                   reinterpret_cast<void*>(0x0000500000000000)
-#define USERSPACE_VIRTUAL_LOWEST_STACK          reinterpret_cast<void*>(USERSPACE_DYNAMIC_END + USERSPACE_VIRTUAL_MAX_STACK_SIZE)
-#define USERSPACE_VIRTUAL_STACK                 reinterpret_cast<void*>(0x00006FFFFFFFF000)
-#define KERNEL_VIRTUAL_MODULE_BASE              reinterpret_cast<void*>(0x70000000)
-#define KERNEL_VIRTUAL_MODULE_SIZE              0x10000000
-#define KERNEL_VIRTUAL_EVENT_BASE               reinterpret_cast<void*>(0x300000000000)
-#define KERNEL_VIRTUAL_HEAP                     reinterpret_cast<void*>(0x0000700000000000)
-#define KERNEL_VIRTUAL_HEAP_SIZE                0x40000000
-#define KERNEL_VIRTUAL_ADDRESS                  reinterpret_cast<void*>(0x400000)
-#define KERNEL_VIRTUAL_CACHE                    reinterpret_cast<void*>(0x200000000000)
-#define KERNEL_VIRTUAL_CACHE_SIZE               0x10000000
-#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS     reinterpret_cast<void*>(0x0000700040000000)
-#define KERNEL_VIRTUAL_MEMORYREGION_SIZE        0x40000000
-#define KERNEL_VIRTUAL_PAGESTACK_4GB            reinterpret_cast<void*>(0x0000700080000000)
-#define KERNEL_VIRTUAL_STACK                    reinterpret_cast<void*>(0x0000700FFFFFF000)
-#define KERNEL_STACK_SIZE                       0x10000
+#define USERSPACE_VIRTUAL_START reinterpret_cast<void *>(0x20000000)
+#define USERSPACE_VIRTUAL_HEAP reinterpret_cast<void *>(0x50000000)
+#define USERSPACE_RESERVED_START USERSPACE_DYNAMIC_LINKER_LOCATION
+#define USERSPACE_VIRTUAL_STACK_SIZE 0x100000
+#define USERSPACE_VIRTUAL_MAX_STACK_SIZE 0x100000
+#define USERSPACE_DYNAMIC_START reinterpret_cast<void *>(0x0000400000000000)
+#define USERSPACE_DYNAMIC_END reinterpret_cast<void *>(0x0000500000000000)
+#define USERSPACE_VIRTUAL_LOWEST_STACK \
+    reinterpret_cast<void *>(          \
+        USERSPACE_DYNAMIC_END + USERSPACE_VIRTUAL_MAX_STACK_SIZE)
+#define USERSPACE_VIRTUAL_STACK reinterpret_cast<void *>(0x00006FFFFFFFF000)
+#define KERNEL_VIRTUAL_MODULE_BASE reinterpret_cast<void *>(0x70000000)
+#define KERNEL_VIRTUAL_MODULE_SIZE 0x10000000
+#define KERNEL_VIRTUAL_EVENT_BASE reinterpret_cast<void *>(0x300000000000)
+#define KERNEL_VIRTUAL_HEAP reinterpret_cast<void *>(0x0000700000000000)
+#define KERNEL_VIRTUAL_HEAP_SIZE 0x40000000
+#define KERNEL_VIRTUAL_ADDRESS reinterpret_cast<void *>(0x400000)
+#define KERNEL_VIRTUAL_CACHE reinterpret_cast<void *>(0x200000000000)
+#define KERNEL_VIRTUAL_CACHE_SIZE 0x10000000
+#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS \
+    reinterpret_cast<void *>(0x0000700040000000)
+#define KERNEL_VIRTUAL_MEMORYREGION_SIZE 0x40000000
+#define KERNEL_VIRTUAL_PAGESTACK_4GB \
+    reinterpret_cast<void *>(0x0000700080000000)
+#define KERNEL_VIRTUAL_STACK reinterpret_cast<void *>(0x0000700FFFFFF000)
+#define KERNEL_STACK_SIZE 0x10000
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
 
-/** The HostedVirtualAddressSpace implements the VirtualAddressSpace class for the x64 processor
- *  architecture, that means it wraps around the processor's paging functionality. */
+/** The HostedVirtualAddressSpace implements the VirtualAddressSpace class for
+ * the x64 processor architecture, that means it wraps around the processor's
+ * paging functionality. */
 class HostedVirtualAddressSpace : public VirtualAddressSpace
 {
-  /** Processor::switchAddressSpace() needs access to m_PhysicalPML4 */
-  friend class Processor;
-  /** Multiprocessor::initialise() needs access to m_PhysicalPML4 */
-  friend class Multiprocessor;
-  /** VirtualAddressSpace::getKernelAddressSpace() needs access to m_KernelSpace */
-  friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
-  /** VirtualAddressSpace::create needs access to the constructor */
-  friend VirtualAddressSpace *VirtualAddressSpace::create();
-  public:
+    /** Processor::switchAddressSpace() needs access to m_PhysicalPML4 */
+    friend class Processor;
+    /** Multiprocessor::initialise() needs access to m_PhysicalPML4 */
+    friend class Multiprocessor;
+    /** VirtualAddressSpace::getKernelAddressSpace() needs access to
+     * m_KernelSpace */
+    friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
+    /** VirtualAddressSpace::create needs access to the constructor */
+    friend VirtualAddressSpace *VirtualAddressSpace::create();
+
+    public:
     //
     // VirtualAddressSpace Interface
     //
     virtual bool isAddressValid(void *virtualAddress);
     virtual bool isMapped(void *virtualAddress);
 
-    virtual bool map(physical_uintptr_t physAddress,
-                     void *virtualAddress,
-                     size_t flags);
-    virtual void getMapping(void *virtualAddress,
-                            physical_uintptr_t &physAddress,
-                            size_t &flags);
+    virtual bool
+    map(physical_uintptr_t physAddress, void *virtualAddress, size_t flags);
+    virtual void getMapping(
+        void *virtualAddress, physical_uintptr_t &physAddress, size_t &flags);
     virtual void setFlags(void *virtualAddress, size_t newFlags);
     virtual void unmap(void *virtualAddress);
     virtual Stack *allocateStack();
@@ -92,7 +97,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     virtual bool memIsInHeap(void *pMem);
     virtual void *getEndOfHeap();
 
-    virtual VirtualAddressSpace *clone(bool copyOnWrite=true);
+    virtual VirtualAddressSpace *clone(bool copyOnWrite = true);
     virtual void revertToKernelAddressSpace();
 
     /** The destructor cleans up the address space */
@@ -131,7 +136,8 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     /** Gets address of the end of the kernel's heap region. */
     virtual uintptr_t getKernelHeapEnd() const
     {
-        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_HEAP) + KERNEL_VIRTUAL_HEAP_SIZE;
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_HEAP) +
+               KERNEL_VIRTUAL_HEAP_SIZE;
     }
 
     /** Gets address of the start of dynamic memory mapping area. */
@@ -155,7 +161,8 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     /** Gets address of the end of the kernel's cache region. */
     virtual uintptr_t getKernelCacheEnd() const
     {
-        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_CACHE) + KERNEL_VIRTUAL_CACHE_SIZE;
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_CACHE) +
+               KERNEL_VIRTUAL_CACHE_SIZE;
     }
 
     /** Gets address of the start of the kernel's event handling block. */
@@ -173,17 +180,19 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     /** Gets address of the end of the kernel's module region. */
     virtual uintptr_t getKernelModulesEnd() const
     {
-        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_MODULE_BASE) + KERNEL_VIRTUAL_MODULE_SIZE;
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_MODULE_BASE) +
+               KERNEL_VIRTUAL_MODULE_SIZE;
     }
 
-  private:
+    private:
     /** The default constructor */
     HostedVirtualAddressSpace();
     /** The constructor for already present paging structures
      *\param[in] Heap virtual address of the beginning of the heap
      *\param[in] PhysicalPageDirectory physical address of the page directory
-     *\param[in] VirtualStack virtual address of the top of the next kernel stack
-     *\note This constructor is only used to construct the kernel VirtualAddressSpace */
+     *\param[in] VirtualStack virtual address of the top of the next kernel
+     *stack \note This constructor is only used to construct the kernel
+     *VirtualAddressSpace */
     HostedVirtualAddressSpace(void *Heap, void *VirtualStack);
 
     /** The copy-constructor
@@ -191,31 +200,34 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     HostedVirtualAddressSpace(const HostedVirtualAddressSpace &);
     /** The copy-constructor
      *\note Not implemented */
-    HostedVirtualAddressSpace &operator = (const HostedVirtualAddressSpace &);
+    HostedVirtualAddressSpace &operator=(const HostedVirtualAddressSpace &);
 
     /** Switch address spaces. */
-    static void switchAddressSpace(VirtualAddressSpace &oldSpace, VirtualAddressSpace &newSpace);
+    static void switchAddressSpace(
+        VirtualAddressSpace &oldSpace, VirtualAddressSpace &newSpace);
 
-    /** Convert the processor independant flags to the processor's representation of the flags
-     *\param[in] flags the processor independant flag representation
-     *\param[in] bFinal whether this is for the actual page or just an intermediate PTE/PDE
-     *\return the proessor specific flag representation */
+    /** Convert the processor independant flags to the processor's
+     *representation of the flags \param[in] flags the processor independant
+     *flag representation \param[in] bFinal whether this is for the actual page
+     *or just an intermediate PTE/PDE \return the proessor specific flag
+     *representation */
     uint64_t toFlags(size_t flags, bool bFinal = false);
-    /** Convert processor's representation of the flags to the processor independant representation
-     *\param[in] Flags the processor specific flag representation
-     *\param[in] bFinal whether this is for the actual page or just an intermediate PTE/PDE
-     *\return the proessor independant flag representation */
+    /** Convert processor's representation of the flags to the processor
+     *independant representation \param[in] Flags the processor specific flag
+     *representation \param[in] bFinal whether this is for the actual page or
+     *just an intermediate PTE/PDE \return the proessor independant flag
+     *representation */
     size_t fromFlags(uint64_t Flags, bool bFinal = false);
-    
+
     /** Allocates a stack with a given size. */
     Stack *doAllocateStack(size_t sSize);
 
     typedef struct
     {
-      bool active;
-      void *vaddr;
-      physical_uintptr_t paddr;
-      size_t flags; // Real flags, not the mmap-specific ones.
+        bool active;
+        void *vaddr;
+        physical_uintptr_t paddr;
+        size_t flags;  // Real flags, not the mmap-specific ones.
     } mapping_t;
 
     /** Current top of the stacks */

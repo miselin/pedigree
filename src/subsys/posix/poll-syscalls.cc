@@ -17,32 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
 #include "poll-syscalls.h"
+#include <compiler.h>
 #include <utilities/assert.h>
 
-#include <syscallError.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
+#include <console/Console.h>
+#include <network-stack/NetManager.h>
+#include <network-stack/Tcp.h>
+#include <process/Process.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
+#include <processor/Processor.h>
 #include <processor/VirtualAddressSpace.h>
-#include <process/Process.h>
+#include <processor/types.h>
+#include <syscallError.h>
 #include <utilities/Tree.h>
+#include <utilities/utility.h>
+#include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
 #include <vfs/MemoryMappedFile.h>
 #include <vfs/Symlink.h>
-#include <vfs/Directory.h>
 #include <vfs/VFS.h>
-#include <console/Console.h>
-#include <network-stack/NetManager.h>
-#include <network-stack/Tcp.h>
-#include <utilities/utility.h>
 
-#include <Subsystem.h>
 #include <PosixSubsystem.h>
-
+#include <Subsystem.h>
 
 static void pollEventHandler(uint8_t *pBuffer);
 
@@ -53,17 +52,15 @@ enum TimeoutType
     InfiniteTimeout
 };
 
-PollEvent::PollEvent() :
-    Event(0, false), m_pSemaphore(0), m_pFd(0), m_nREvent(0), m_pFile(0)
+PollEvent::PollEvent()
+    : Event(0, false), m_pSemaphore(0), m_pFd(0), m_nREvent(0), m_pFile(0)
 {
 }
 
-PollEvent::PollEvent(Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile) :
-    Event(reinterpret_cast<uintptr_t>(&pollEventHandler), false),
-    m_pSemaphore(pSemaphore),
-    m_pFd(fd),
-    m_nREvent(revent),
-    m_pFile(pFile)
+PollEvent::PollEvent(
+    Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile)
+    : Event(reinterpret_cast<uintptr_t>(&pollEventHandler), false),
+      m_pSemaphore(pSemaphore), m_pFd(fd), m_nREvent(revent), m_pFile(pFile)
 {
     assert(pSemaphore);
 }
@@ -83,7 +80,7 @@ void PollEvent::fire()
 size_t PollEvent::serialize(uint8_t *pBuffer)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t*>(alignedBuffer);
+    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
     pBuf[0] = EventNumbers::PollEvent;
     pBuf[1] = reinterpret_cast<size_t>(m_pSemaphore);
     pBuf[2] = reinterpret_cast<size_t>(m_pFd);
@@ -96,14 +93,14 @@ size_t PollEvent::serialize(uint8_t *pBuffer)
 bool PollEvent::unserialize(uint8_t *pBuffer, PollEvent &event)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t*>(alignedBuffer);
+    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
     if (pBuf[0] != EventNumbers::PollEvent)
         return false;
 
-    event.m_pSemaphore = reinterpret_cast<Semaphore*>(pBuf[1]);
-    event.m_pFd        = reinterpret_cast<struct pollfd*>(pBuf[2]);
-    event.m_nREvent    = static_cast<int>(pBuf[3]);
-    event.m_pFile      = reinterpret_cast<File*>(pBuf[4]);
+    event.m_pSemaphore = reinterpret_cast<Semaphore *>(pBuf[1]);
+    event.m_pFd = reinterpret_cast<struct pollfd *>(pBuf[2]);
+    event.m_nREvent = static_cast<int>(pBuf[3]);
+    event.m_pFile = reinterpret_cast<File *>(pBuf[4]);
 
     return true;
 }
@@ -122,10 +119,12 @@ void pollEventHandler(uint8_t *pBuffer)
  *
  *  Permits any number of descriptors, unlike select().
  */
-int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
+int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
 {
     F_NOTICE("poll(" << Dec << nfds << ", " << timeout << Hex << ")");
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(fds), nfds * sizeof(struct pollfd), PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(fds), nfds * sizeof(struct pollfd),
+            PosixSubsystem::SafeWrite))
     {
         F_NOTICE(" -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -138,21 +137,23 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
     size_t timeoutUSecs = (timeout % 1000) * 1000;
     if (timeout < 0)
         timeoutType = InfiniteTimeout;
-    else if(timeout == 0)
+    else if (timeout == 0)
         timeoutType = ReturnImmediately;
     else
         timeoutType = SpecificTimeout;
 
     // Grab the subsystem for this process
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return -1;
     }
 
-    List<PollEvent*> events;
+    List<PollEvent *> events;
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
@@ -166,7 +167,7 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
         // Grab the pollfd structure.
         struct pollfd *me = &fds[i];
         me->revents = 0;
-        if(me->fd < 0)
+        if (me->fd < 0)
         {
             continue;
         }
@@ -191,14 +192,15 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
             {
                 me->revents |= POLLIN;
                 bWillReturnImmediately = true;
-                nRet ++;
+                nRet++;
             }
             else if (!bWillReturnImmediately)
             {
                 // Need to set up a PollEvent.
                 PollEvent *pEvent = new PollEvent(&sem, me, POLLIN, pFd->file);
                 reentrancyLock.acquire();
-                pFd->file->monitor(Processor::information().getCurrentThread(), pEvent);
+                pFd->file->monitor(
+                    Processor::information().getCurrentThread(), pEvent);
                 events.pushBack(pEvent);
 
                 // Quickly check again now we've added the monitoring event,
@@ -211,7 +213,7 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
                 {
                     me->revents |= POLLIN;
                     bWillReturnImmediately = true;
-                    nRet ++;
+                    nRet++;
                 }
 
                 reentrancyLock.release();
@@ -225,14 +227,15 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
             {
                 me->revents |= POLLOUT;
                 bWillReturnImmediately = true;
-                nRet ++;
+                nRet++;
             }
             else if (!bWillReturnImmediately)
             {
                 // Need to set up a PollEvent.
                 PollEvent *pEvent = new PollEvent(&sem, me, POLLOUT, pFd->file);
                 reentrancyLock.acquire();
-                pFd->file->monitor(Processor::information().getCurrentThread(), pEvent);
+                pFd->file->monitor(
+                    Processor::information().getCurrentThread(), pEvent);
                 events.pushBack(pEvent);
 
                 // Quickly check again now we've added the monitoring event,
@@ -245,7 +248,7 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
                 {
                     me->revents |= POLLOUT;
                     bWillReturnImmediately = true;
-                    nRet ++;
+                    nRet++;
                 }
 
                 reentrancyLock.release();
@@ -272,11 +275,11 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
         if (bResult)
         {
             // We were signalled, so one more FD ready.
-            nRet ++;
+            nRet++;
             // While the semaphore is nonzero, more FDs are ready.
             while (sem.tryAcquire())
                 nRet++;
-    }
+        }
         else
         {
             // The timeout event sets the interrupted state, so while this
@@ -299,16 +302,19 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
     {
         // Block any more events being sent to us so we can safely clean up.
         reentrancyLock.acquire();
-        Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::PollEvent, true);
+        Processor::information().getCurrentThread()->inhibitEvent(
+            EventNumbers::PollEvent, true);
         reentrancyLock.release();
 
         for (auto pEvent : events)
         {
-            pEvent->getFile()->cullMonitorTargets(Processor::information().getCurrentThread());
+            pEvent->getFile()->cullMonitorTargets(
+                Processor::information().getCurrentThread());
         }
 
         // Ensure there are no events still pending for this thread.
-        Processor::information().getCurrentThread()->cullEvent(EventNumbers::PollEvent);
+        Processor::information().getCurrentThread()->cullEvent(
+            EventNumbers::PollEvent);
 
         for (auto pEvent : events)
         {
@@ -316,12 +322,16 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout)
         }
 
         // Cleanup is complete, stop inhibiting events now.
-        Processor::information().getCurrentThread()->inhibitEvent(EventNumbers::PollEvent, false);
+        Processor::information().getCurrentThread()->inhibitEvent(
+            EventNumbers::PollEvent, false);
     }
 
     for (size_t i = 0; i < nfds; ++i)
     {
-        F_NOTICE("    -> pollfd[" << i << "]: fd=" << fds[i].fd << ", events=" << fds[i].events << ", revents=" << fds[i].revents);
+        F_NOTICE(
+            "    -> pollfd[" << i << "]: fd=" << fds[i].fd
+                             << ", events=" << fds[i].events
+                             << ", revents=" << fds[i].revents);
     }
 
     F_NOTICE("    -> " << Dec << ((bError) ? -1 : nRet) << Hex);

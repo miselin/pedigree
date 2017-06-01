@@ -26,25 +26,25 @@
 class HostedKeyboard : public Keyboard
 {
     public:
-        HostedKeyboard ();
-        virtual ~HostedKeyboard();
+    HostedKeyboard();
+    virtual ~HostedKeyboard();
 
-        virtual void initialise();
+    virtual void initialise();
 
-        virtual void setDebugState(bool enableDebugState);
-        virtual bool getDebugState();
+    virtual void setDebugState(bool enableDebugState);
+    virtual bool getDebugState();
 
-        virtual char getChar();
-        virtual char getCharNonBlock();
-    
-        virtual char getLedState();
-        virtual void setLedState(char state);
+    virtual char getChar();
+    virtual char getCharNonBlock();
+
+    virtual char getLedState();
+    virtual void setLedState(char state);
 
     private:
-        /// True if we're in debug state
-        bool m_bDebugState;
+    /// True if we're in debug state
+    bool m_bDebugState;
 
-        void blocking(bool enable);
+    void blocking(bool enable);
 };
 
 #endif

@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/DeviceHashTree.h>
-#include <machine/Device.h>
 #include <Log.h>
+#include <machine/Device.h>
+#include <machine/DeviceHashTree.h>
 
 #include <utilities/sha1/sha1.h>
 
@@ -35,7 +35,7 @@ DeviceHashTree::~DeviceHashTree()
 
 static Device *testDevice(Device *p)
 {
-    if(p->getType() != Device::Root)
+    if (p->getType() != Device::Root)
         DeviceHashTree::instance().add(p);
 
     return p;
@@ -43,7 +43,7 @@ static Device *testDevice(Device *p)
 
 void DeviceHashTree::fill(Device *root)
 {
-    Device::foreach(testDevice, root);
+    Device::foreach (testDevice, root);
 
     m_bInitialised = true;
 }
@@ -51,7 +51,7 @@ void DeviceHashTree::fill(Device *root)
 void DeviceHashTree::add(Device *p)
 {
     size_t hash = getHash(p);
-    if(m_DeviceTree.lookup(hash))
+    if (m_DeviceTree.lookup(hash))
         return;
 
     String dump;
@@ -63,7 +63,7 @@ void DeviceHashTree::add(Device *p)
 
 Device *DeviceHashTree::getDevice(uint32_t hash)
 {
-    if(!m_bInitialised)
+    if (!m_bInitialised)
         return 0;
     else
         return m_DeviceTree.lookup(hash);
@@ -71,11 +71,12 @@ Device *DeviceHashTree::getDevice(uint32_t hash)
 
 Device *DeviceHashTree::getDevice(String hash)
 {
-    if(!m_bInitialised)
+    if (!m_bInitialised)
         return 0;
     else
     {
-        uint32_t inthash = StringToUnsignedLong(static_cast<const char*>(hash), 0, 16);
+        uint32_t inthash =
+            StringToUnsignedLong(static_cast<const char *>(hash), 0, 16);
         return m_DeviceTree.lookup(inthash);
     }
 }
@@ -107,7 +108,7 @@ size_t DeviceHashTree::getHash(Device *pChild)
 
     // Hash the string
     mySha1.Reset();
-    mySha1.Input(static_cast<const char*>(theString), theString.length());
+    mySha1.Input(static_cast<const char *>(theString), theString.length());
     unsigned int digest[5];
     mySha1.Result(digest);
 

@@ -25,18 +25,25 @@
 /** @addtogroup kernel
  * @{ */
 
-/** If the passed argument resolves to a Boolean false value, execution will be halted
- *  and a message displayed.
+/** If the passed argument resolves to a Boolean false value, execution will be
+ * halted and a message displayed.
  */
 #if defined(DEBUGGER) || defined(ASSERTS)
-#define assert(x) do { \
-        bool __pedigree_assert_chk = (x); \
-        if(UNLIKELY(!__pedigree_assert_chk)) \
-            _assert(__pedigree_assert_chk, __FILE__, __LINE__, __PRETTY_FUNCTION__); \
-    } while(0)
+#define assert(x)                                          \
+    do                                                     \
+    {                                                      \
+        bool __pedigree_assert_chk = (x);                  \
+        if (UNLIKELY(!__pedigree_assert_chk))              \
+            _assert(                                       \
+                __pedigree_assert_chk, __FILE__, __LINE__, \
+                __PRETTY_FUNCTION__);                      \
+    } while (0)
 
 #ifndef USE_DEBUG_ALLOCATOR
-#define assert_heap_ptr_valid(x) _assert(_assert_ptr_valid(reinterpret_cast<uintptr_t>(x)), __FILE__, __LINE__, __PRETTY_FUNCTION__)
+#define assert_heap_ptr_valid(x)                                               \
+    _assert(                                                                   \
+        _assert_ptr_valid(reinterpret_cast<uintptr_t>(x)), __FILE__, __LINE__, \
+        __PRETTY_FUNCTION__)
 #else
 #define assert_heap_ptr_valid
 #endif
@@ -50,7 +57,8 @@
 #define bool char
 #endif
 
-/// Internal use only, the assert() macro passes the additional arguments automatically
+/// Internal use only, the assert() macro passes the additional arguments
+/// automatically
 #ifdef __cplusplus
 extern "C" {
 #endif

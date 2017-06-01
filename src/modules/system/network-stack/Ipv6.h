@@ -20,18 +20,18 @@
 #ifndef MACHINE_IPV6_H
 #define MACHINE_IPV6_H
 
-#include <utilities/String.h>
-#include <utilities/Vector.h>
-#include <processor/types.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
 #include <LockGuard.h>
 #include <Spinlock.h>
+#include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <processor/types.h>
+#include <utilities/String.h>
+#include <utilities/Vector.h>
 
 #include <ServiceManager.h>
 
-#include "NetworkStack.h"
 #include "Ethernet.h"
+#include "NetworkStack.h"
 
 #include "IpCommon.h"
 
@@ -42,15 +42,19 @@ extern class ServiceFeatures *g_pIpv6Features;
 class Ipv6Service : public Service
 {
     public:
-        Ipv6Service() {}
-        virtual ~Ipv6Service() {}
+    Ipv6Service()
+    {
+    }
+    virtual ~Ipv6Service()
+    {
+    }
 
-        /**
-         * serve: Interface through which clients interact with the Service
-         * 'touch' will perform address autoconfiguration on the given Network object,
-         *      which will provide a link-local IPv6 address.
-         */
-        bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
+    /**
+     * serve: Interface through which clients interact with the Service
+     * 'touch' will perform address autoconfiguration on the given Network
+     * object, which will provide a link-local IPv6 address.
+     */
+    bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
 };
 
 /**
@@ -58,23 +62,28 @@ class Ipv6Service : public Service
  */
 class Ipv6 : public IpBase
 {
-public:
+    public:
     Ipv6();
     virtual ~Ipv6();
 
     /** For access to the stack without declaring an instance of it */
-    static Ipv6& instance()
+    static Ipv6 &instance()
     {
         return ipInstance;
     }
 
     /** Packet arrival callback */
-    void receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset);
+    void
+    receive(size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset);
 
     /** Sends an IP packet */
-    virtual bool send(IpAddress dest, IpAddress from, uint8_t type, size_t nBytes, uintptr_t packet, Network *pCard = 0);
+    virtual bool send(
+        IpAddress dest, IpAddress from, uint8_t type, size_t nBytes,
+        uintptr_t packet, Network *pCard = 0);
 
-    virtual uint16_t ipChecksum(IpAddress &from, IpAddress &to, uint8_t proto, uintptr_t data, uint16_t length);
+    virtual uint16_t ipChecksum(
+        IpAddress &from, IpAddress &to, uint8_t proto, uintptr_t data,
+        uint16_t length);
 
     /// Calculates an IPv6-modified EUI-64 for the given MAC address.
     static void getIpv6Eui64(MacAddress mac, uint8_t *eui);
@@ -89,21 +98,19 @@ public:
         uint8_t destAddress[16];
     } __attribute__((packed));
 
-private:
-
+    private:
     static Ipv6 ipInstance;
 
     // Psuedo-header for checksum when being sent over IPv6
     struct PsuedoHeader
     {
-        uint8_t  src_addr[16];
-        uint8_t  dest_addr[16];
+        uint8_t src_addr[16];
+        uint8_t dest_addr[16];
         uint32_t length;
         uint16_t zero1;
-        uint8_t  zero2;
-        uint8_t  nextHeader;
-    } __attribute__ ((packed));
-
+        uint8_t zero2;
+        uint8_t nextHeader;
+    } __attribute__((packed));
 };
 
 #endif

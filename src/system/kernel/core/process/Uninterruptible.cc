@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
 #include <process/Thread.h>
 #include <process/Uninterruptible.h>
+#include <processor/Processor.h>
 
 Uninterruptible::Uninterruptible()
 {

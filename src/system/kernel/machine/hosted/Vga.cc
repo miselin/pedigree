@@ -22,21 +22,15 @@
 
 #include <stdio.h>
 
-HostedVga::HostedVga() :
-  m_nWidth(80),
-  m_nHeight(25),
-  m_CursorX(0),
-  m_CursorY(0),
-  m_ModeStack(0),
-  m_nMode(3),
-  m_nControls(0),
-  m_pBackbuffer(0)
+HostedVga::HostedVga()
+    : m_nWidth(80), m_nHeight(25), m_CursorX(0), m_CursorY(0), m_ModeStack(0),
+      m_nMode(3), m_nControls(0), m_pBackbuffer(0)
 {
 }
 
 HostedVga::~HostedVga()
 {
-    delete [] m_pBackbuffer;
+    delete[] m_pBackbuffer;
 }
 
 void HostedVga::setControl(Vga::VgaControl which)
@@ -49,25 +43,25 @@ void HostedVga::clearControl(Vga::VgaControl which)
     m_nControls &= ~(1 << static_cast<uint8_t>(which));
 }
 
-bool HostedVga::setMode (int mode)
+bool HostedVga::setMode(int mode)
 {
     m_nMode = mode;
     return true;
 }
 
-bool HostedVga::setLargestTextMode ()
+bool HostedVga::setLargestTextMode()
 {
     return true;
 }
 
-bool HostedVga::isMode (size_t nCols, size_t nRows, bool bIsText, size_t nBpp)
+bool HostedVga::isMode(size_t nCols, size_t nRows, bool bIsText, size_t nBpp)
 {
-    if(bIsText)
+    if (bIsText)
         return true;
     return false;
 }
 
-bool HostedVga::isLargestTextMode ()
+bool HostedVga::isLargestTextMode()
 {
     return true;
 }
@@ -80,7 +74,7 @@ void HostedVga::restoreMode()
 {
 }
 
-void HostedVga::pokeBuffer (uint8_t *pBuffer, size_t nBufLen)
+void HostedVga::pokeBuffer(uint8_t *pBuffer, size_t nBufLen)
 {
     if (!pBuffer)
         return;
@@ -114,7 +108,7 @@ void HostedVga::pokeBuffer (uint8_t *pBuffer, size_t nBufLen)
     moveCursor(savedCursorX, savedCursorY);
 }
 
-void HostedVga::peekBuffer (uint8_t *pBuffer, size_t nBufLen)
+void HostedVga::peekBuffer(uint8_t *pBuffer, size_t nBufLen)
 {
     if (!m_pBackbuffer)
         return;
@@ -125,7 +119,7 @@ void HostedVga::peekBuffer (uint8_t *pBuffer, size_t nBufLen)
     MemoryCopy(pBuffer, m_pBackbuffer, nBufLen);
 }
 
-void HostedVga::moveCursor (size_t nX, size_t nY)
+void HostedVga::moveCursor(size_t nX, size_t nY)
 {
     if (!m_pBackbuffer)
         return;
@@ -151,7 +145,7 @@ bool HostedVga::initialise()
 
 uint8_t HostedVga::ansiColourFixup(uint8_t colour)
 {
-    switch(colour)
+    switch (colour)
     {
         case BootIO::Black:
         case BootIO::DarkGrey:

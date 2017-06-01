@@ -20,47 +20,47 @@
 #if defined(THREADS)
 
 #include <Log.h>
-#include <process/initialiseMultitasking.h>
-#include <process/Thread.h>
-#include <process/Scheduler.h>
-#include <process/Process.h>
-#include <processor/Processor.h>
 #include <process/PerProcessorScheduler.h>
-#include <process/RoundRobinCoreAllocator.h>
+#include <process/Process.h>
 #include <process/ProcessorThreadAllocator.h>
+#include <process/RoundRobinCoreAllocator.h>
+#include <process/Scheduler.h>
+#include <process/Thread.h>
+#include <process/initialiseMultitasking.h>
+#include <processor/Processor.h>
 
 void initialiseMultitasking()
 {
-  // Create the kernel idle process.
-  Process *pProcess = new Process();
-  pProcess->resetCounts();
-  pProcess->description() += "Kernel Process";
+    // Create the kernel idle process.
+    Process *pProcess = new Process();
+    pProcess->resetCounts();
+    pProcess->description() += "Kernel Process";
 
 #ifdef MULTIPROCESSOR
-  pProcess->description() += " - Processor #";
-  pProcess->description() += Processor::id();
+    pProcess->description() += " - Processor #";
+    pProcess->description() += Processor::id();
 #endif
-  
-  // Create the main kernel thread.
-  Thread *pThread = new Thread(pProcess);
-  pThread->detach();
-  
-  // Initialise the scheduler.
-  Scheduler::instance().initialise(pProcess);
 
-  // Initialise the per-process scheduler.
-  Processor::information().getScheduler().initialise(pThread);
+    // Create the main kernel thread.
+    Thread *pThread = new Thread(pProcess);
+    pThread->detach();
+
+    // Initialise the scheduler.
+    Scheduler::instance().initialise(pProcess);
+
+    // Initialise the per-process scheduler.
+    Processor::information().getScheduler().initialise(pThread);
 }
 
 void shutdownMultitasking()
 {
-  /// \todo figure out how to shut down the scheduler then clean up the other
-  /// housekeeping structures (including Process, Thread objects).
+    /// \todo figure out how to shut down the scheduler then clean up the other
+    /// housekeeping structures (including Process, Thread objects).
 }
 
 #ifdef MULTIPROCESSOR
-  void initialiseMultitaskingPerProcessor()
-  {
+void initialiseMultitaskingPerProcessor()
+{
     // Create the kernel idle process.
     Process *pProcess = new Process();
     pProcess->description() += "Kernel Process";
@@ -72,7 +72,7 @@ void shutdownMultitasking()
     Thread *pThread = new Thread(pProcess);
     pThread->detach();
     Processor::information().getScheduler().initialise(pThread);
-  }
+}
 #endif
 
 #endif

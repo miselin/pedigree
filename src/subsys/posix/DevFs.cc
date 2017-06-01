@@ -22,9 +22,9 @@
 #include <vfs/Pipe.h>
 
 #define MACHINE_FORWARD_DECL_ONLY
+#include <machine/InputManager.h>
 #include <machine/Machine.h>
 #include <machine/Vga.h>
-#include <machine/InputManager.h>
 
 #include <console/Console.h>
 #include <utilities/assert.h>
@@ -53,17 +53,18 @@ static void terminalSwitchHandler(InputManager::InputNotification &in)
     p->handleInput(in);
 }
 
-uint64_t RandomFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t RandomFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     /// \todo Endianness issues?
 
     size_t realSize = size;
 
-    if(size < sizeof(uint64_t))
+    if (size < sizeof(uint64_t))
     {
         uint64_t val = random_next();
         char *pBuffer = reinterpret_cast<char *>(buffer);
-        while(size--)
+        while (size--)
         {
             *pBuffer++ = val & 0xFF;
             val >>= 8;
@@ -73,10 +74,10 @@ uint64_t RandomFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bo
     {
         // Align.
         char *pBuffer = reinterpret_cast<char *>(buffer);
-        if(size % 8)
+        if (size % 8)
         {
             uint64_t align = random_next();
-            while(size % 8)
+            while (size % 8)
             {
                 *pBuffer++ = align & 0xFF;
                 --size;
@@ -85,7 +86,7 @@ uint64_t RandomFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bo
         }
 
         uint64_t *pBuffer64 = reinterpret_cast<uint64_t *>(buffer);
-        while(size)
+        while (size)
         {
             *pBuffer64++ = random_next();
             size -= 8;
@@ -95,25 +96,32 @@ uint64_t RandomFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bo
     return realSize - size;
 }
 
-uint64_t RandomFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t RandomFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t NullFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t NullFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t NullFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t NullFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return size;
 }
 
-PtmxFile::PtmxFile(String str, size_t inode, Filesystem *pParentFS, File *pParent, DevFsDirectory *ptsDirectory) :
-    File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_Terminals(), m_pPtsDirectory(ptsDirectory)
+PtmxFile::PtmxFile(
+    String str, size_t inode, Filesystem *pParentFS, File *pParent,
+    DevFsDirectory *ptsDirectory)
+    : File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_Terminals(),
+      m_pPtsDirectory(ptsDirectory)
 {
-    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setPermissionsOnly(
+        FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
     setUidOnly(0);
     setGidOnly(0);
 }
@@ -123,12 +131,14 @@ PtmxFile::~PtmxFile()
     delete m_pPtsDirectory;
 }
 
-uint64_t PtmxFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t PtmxFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t PtmxFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t PtmxFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
@@ -144,8 +154,10 @@ File *PtmxFile::open()
     masterName.Format("pty%d", terminal);
     slaveName.Format("%d", terminal);
 
-    ConsoleMasterFile *pMaster = new ConsoleMasterFile(terminal, masterName, m_pPtsDirectory->getFilesystem());
-    ConsoleSlaveFile *pSlave = new ConsoleSlaveFile(terminal, slaveName, m_pPtsDirectory->getFilesystem());
+    ConsoleMasterFile *pMaster = new ConsoleMasterFile(
+        terminal, masterName, m_pPtsDirectory->getFilesystem());
+    ConsoleSlaveFile *pSlave = new ConsoleSlaveFile(
+        terminal, slaveName, m_pPtsDirectory->getFilesystem());
 
     pMaster->setOther(pSlave);
     pSlave->setOther(pMaster);
@@ -158,23 +170,27 @@ File *PtmxFile::open()
     return pMaster;
 }
 
-uint64_t ZeroFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ZeroFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     ByteSet(reinterpret_cast<void *>(buffer), 0, size);
     return size;
 }
 
-uint64_t ZeroFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ZeroFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return size;
 }
 
-uint64_t RtcFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t RtcFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t RtcFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t RtcFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
@@ -183,7 +199,8 @@ bool RtcFile::supports(const int command)
 {
     // read/set time
     return true;
-    // return static_cast<size_t>(command) == 0x80247009UL || static_cast<size_t>(command) == 0x4024700aUL;
+    // return static_cast<size_t>(command) == 0x80247009UL ||
+    // static_cast<size_t>(command) == 0x4024700aUL;
 }
 
 int RtcFile::command(const int command, void *buffer)
@@ -192,8 +209,10 @@ int RtcFile::command(const int command, void *buffer)
     return 0;
 }
 
-FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode) :
-    File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_pGraphicsParameters(0), m_bTextMode(false), m_nDepth(0)
+FramebufferFile::FramebufferFile(
+    String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
+    : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode),
+      m_pGraphicsParameters(0), m_bTextMode(false), m_nDepth(0)
 {
     // r/w only for root
     setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
@@ -208,15 +227,19 @@ FramebufferFile::~FramebufferFile()
 
 bool FramebufferFile::initialise()
 {
-    ServiceFeatures *pFeatures = ServiceManager::instance().enumerateOperations(String("graphics"));
-    Service         *pService  = ServiceManager::instance().getService(String("graphics"));
-    if(pFeatures && pFeatures->provides(ServiceFeatures::probe))
+    ServiceFeatures *pFeatures =
+        ServiceManager::instance().enumerateOperations(String("graphics"));
+    Service *pService =
+        ServiceManager::instance().getService(String("graphics"));
+    if (pFeatures && pFeatures->provides(ServiceFeatures::probe))
     {
-        if(pService)
+        if (pService)
         {
             m_pGraphicsParameters = new GraphicsService::GraphicsParameters;
             m_pGraphicsParameters->wantTextMode = false;
-            if(!pService->serve(ServiceFeatures::probe, m_pGraphicsParameters, sizeof(*m_pGraphicsParameters)))
+            if (!pService->serve(
+                    ServiceFeatures::probe, m_pGraphicsParameters,
+                    sizeof(*m_pGraphicsParameters)))
             {
                 delete m_pGraphicsParameters;
                 m_pGraphicsParameters = 0;
@@ -226,7 +249,11 @@ bool FramebufferFile::initialise()
             else
             {
                 // Set the file size to reflect the size of the framebuffer.
-                setSize(m_pGraphicsParameters->providerResult.pFramebuffer->getHeight() * m_pGraphicsParameters->providerResult.pFramebuffer->getBytesPerLine());
+                setSize(
+                    m_pGraphicsParameters->providerResult.pFramebuffer
+                        ->getHeight() *
+                    m_pGraphicsParameters->providerResult.pFramebuffer
+                        ->getBytesPerLine());
             }
         }
     }
@@ -236,17 +263,19 @@ bool FramebufferFile::initialise()
 
 uintptr_t FramebufferFile::readBlock(uint64_t location)
 {
-    if(!m_pGraphicsParameters)
+    if (!m_pGraphicsParameters)
         return 0;
 
-    if(location > getSize())
+    if (location > getSize())
     {
         ERROR("FramebufferFile::readBlock with location > size: " << location);
         return 0;
     }
 
     /// \todo If this is NOT virtual, we need to do something about that.
-    return reinterpret_cast<uintptr_t>(m_pGraphicsParameters->providerResult.pFramebuffer->getRawBuffer()) + location;
+    return reinterpret_cast<uintptr_t>(m_pGraphicsParameters->providerResult
+                                           .pFramebuffer->getRawBuffer()) +
+           location;
 }
 
 bool FramebufferFile::supports(const int command)
@@ -256,137 +285,153 @@ bool FramebufferFile::supports(const int command)
 
 int FramebufferFile::command(const int command, void *buffer)
 {
-    if(!m_pGraphicsParameters)
+    if (!m_pGraphicsParameters)
     {
         ERROR("FramebufferFile::command called on an invalid FramebufferFile");
         return -1;
     }
 
     Display *pDisplay = m_pGraphicsParameters->providerResult.pDisplay;
-    Framebuffer *pFramebuffer = m_pGraphicsParameters->providerResult.pFramebuffer;
+    Framebuffer *pFramebuffer =
+        m_pGraphicsParameters->providerResult.pFramebuffer;
 
-    switch(command)
+    switch (command)
     {
         case PEDIGREE_FB_SETMODE:
+        {
+            pedigree_fb_modeset *arg =
+                reinterpret_cast<pedigree_fb_modeset *>(buffer);
+            size_t desiredWidth = arg->width;
+            size_t desiredHeight = arg->height;
+            size_t desiredDepth = arg->depth;
+
+            // Are we seeking a text mode?
+            if (!(desiredWidth && desiredHeight && desiredDepth))
             {
-                pedigree_fb_modeset *arg = reinterpret_cast<pedigree_fb_modeset *>(buffer);
-                size_t desiredWidth = arg->width;
-                size_t desiredHeight = arg->height;
-                size_t desiredDepth = arg->depth;
-
-                // Are we seeking a text mode?
-                if(!(desiredWidth && desiredHeight && desiredDepth))
+                bool bSuccess = false;
+                if (!m_pGraphicsParameters->providerResult.bTextModes)
                 {
-                    bool bSuccess = false;
-                    if(!m_pGraphicsParameters->providerResult.bTextModes)
+                    bSuccess = pDisplay->setScreenMode(0);
+                }
+                else
+                {
+                    // Set via VGA method.
+                    if (Machine::instance().getNumVga())
                     {
-                        bSuccess = pDisplay->setScreenMode(0);
-                    }
-                    else
-                    {
-                        // Set via VGA method.
-                        if(Machine::instance().getNumVga())
-                        {
-                            /// \todo What if there is no text mode!?
-                            Vga *pVga = Machine::instance().getVga(0);
-                            pVga->setMode(3); /// \todo Magic number.
-                            pVga->rememberMode();
-                            pVga->setLargestTextMode();
+                        /// \todo What if there is no text mode!?
+                        Vga *pVga = Machine::instance().getVga(0);
+                        pVga->setMode(3);  /// \todo Magic number.
+                        pVga->rememberMode();
+                        pVga->setLargestTextMode();
 
-                            m_nDepth = 0;
-                            m_bTextMode = true;
+                        m_nDepth = 0;
+                        m_bTextMode = true;
 
-                            bSuccess = true;
-                        }
-                    }
-
-                    if(bSuccess)
-                    {
-                        NOTICE("FramebufferFile: set text mode");
-                        return 0;
-                    }
-                    else
-                    {
-                        return -1;
+                        bSuccess = true;
                     }
                 }
 
-                bool bSet = false;
-                while(desiredDepth > 8)
+                if (bSuccess)
                 {
-                    if(pDisplay->setScreenMode(desiredWidth, desiredHeight, desiredDepth))
-                    {
-                        NOTICE("FramebufferFile: set mode " << Dec << desiredWidth << "x" << desiredHeight << "x" << desiredDepth << Hex << ".");
-                        bSet = true;
-                        break;
-                    }
-                    desiredDepth -= 8;
+                    NOTICE("FramebufferFile: set text mode");
+                    return 0;
                 }
-
-                if(bSet)
+                else
                 {
-                    m_nDepth = desiredDepth;
-
-                    setSize(pFramebuffer->getHeight() * pFramebuffer->getBytesPerLine());
-
-                    if(m_pGraphicsParameters->providerResult.bTextModes && m_bTextMode)
-                    {
-                        // Okay, we need to 'undo' the text mode.
-                        if(Machine::instance().getNumVga())
-                        {
-                            /// \todo What if there is no text mode!?
-                            Vga *pVga = Machine::instance().getVga(0);
-                            pVga->restoreMode();
-
-                            m_bTextMode = false;
-                        }
-                    }
+                    return -1;
                 }
-
-                return bSet ? 0 : -1;
             }
+
+            bool bSet = false;
+            while (desiredDepth > 8)
+            {
+                if (pDisplay->setScreenMode(
+                        desiredWidth, desiredHeight, desiredDepth))
+                {
+                    NOTICE(
+                        "FramebufferFile: set mode "
+                        << Dec << desiredWidth << "x" << desiredHeight << "x"
+                        << desiredDepth << Hex << ".");
+                    bSet = true;
+                    break;
+                }
+                desiredDepth -= 8;
+            }
+
+            if (bSet)
+            {
+                m_nDepth = desiredDepth;
+
+                setSize(
+                    pFramebuffer->getHeight() *
+                    pFramebuffer->getBytesPerLine());
+
+                if (m_pGraphicsParameters->providerResult.bTextModes &&
+                    m_bTextMode)
+                {
+                    // Okay, we need to 'undo' the text mode.
+                    if (Machine::instance().getNumVga())
+                    {
+                        /// \todo What if there is no text mode!?
+                        Vga *pVga = Machine::instance().getVga(0);
+                        pVga->restoreMode();
+
+                        m_bTextMode = false;
+                    }
+                }
+            }
+
+            return bSet ? 0 : -1;
+        }
         case PEDIGREE_FB_GETMODE:
+        {
+            pedigree_fb_mode *arg =
+                reinterpret_cast<pedigree_fb_mode *>(buffer);
+            if (m_bTextMode)
             {
-                pedigree_fb_mode *arg = reinterpret_cast<pedigree_fb_mode *>(buffer);
-                if(m_bTextMode)
-                {
-                    ByteSet(arg, 0, sizeof(*arg));
-                }
-                else
-                {
-                    arg->width = pFramebuffer->getWidth();
-                    arg->height = pFramebuffer->getHeight();
-                    arg->depth = m_nDepth;
-                    arg->bytes_per_pixel = pFramebuffer->getBytesPerPixel();
-                    arg->format = pFramebuffer->getFormat();
-                }
-
-                return 0;
+                ByteSet(arg, 0, sizeof(*arg));
             }
+            else
+            {
+                arg->width = pFramebuffer->getWidth();
+                arg->height = pFramebuffer->getHeight();
+                arg->depth = m_nDepth;
+                arg->bytes_per_pixel = pFramebuffer->getBytesPerPixel();
+                arg->format = pFramebuffer->getFormat();
+            }
+
+            return 0;
+        }
         case PEDIGREE_FB_REDRAW:
+        {
+            pedigree_fb_rect *arg =
+                reinterpret_cast<pedigree_fb_rect *>(buffer);
+            if (!arg)
             {
-                pedigree_fb_rect *arg = reinterpret_cast<pedigree_fb_rect *>(buffer);
-                if(!arg)
-                {
-                    // Redraw all.
-                    pFramebuffer->redraw(0, 0, pFramebuffer->getWidth(), pFramebuffer->getHeight(), true);
-                }
-                else
-                {
-                    pFramebuffer->redraw(arg->x, arg->y, arg->w, arg->h, true);
-                }
-
-                return 0;
+                // Redraw all.
+                pFramebuffer->redraw(
+                    0, 0, pFramebuffer->getWidth(), pFramebuffer->getHeight(),
+                    true);
             }
+            else
+            {
+                pFramebuffer->redraw(arg->x, arg->y, arg->w, arg->h, true);
+            }
+
+            return 0;
+        }
         default:
             return -1;
     }
 }
 
-Tty0File::Tty0File(String str, size_t inode, Filesystem *pParentFS, File *pParent, DevFs *devfs) :
-    File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_pDevFs(devfs)
+Tty0File::Tty0File(
+    String str, size_t inode, Filesystem *pParentFS, File *pParent,
+    DevFs *devfs)
+    : File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_pDevFs(devfs)
 {
-    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setPermissionsOnly(
+        FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
     setUidOnly(0);
     setGidOnly(0);
 }
@@ -395,12 +440,14 @@ Tty0File::~Tty0File()
 {
 }
 
-uint64_t Tty0File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t Tty0File::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t Tty0File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t Tty0File::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
@@ -429,37 +476,48 @@ bool DevFs::initialise(Disk *pDisk)
         delete m_pRoot;
     }
 
-    m_pRoot = new DevFsDirectory(String(""), 0, 0, 0, getNextInode(), this, 0, 0);
+    m_pRoot =
+        new DevFsDirectory(String(""), 0, 0, 0, getNextInode(), this, 0, 0);
     // Allow user/group to read and write, but disallow all others anything
     // other than the ability to list and access files.
-    m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
+    m_pRoot->setPermissions(
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+        FILE_OX);
 
     // Create /dev/null and /dev/zero nodes
-    NullFile *pNull = new NullFile(String("null"), getNextInode(), this, m_pRoot);
-    ZeroFile *pZero = new ZeroFile(String("zero"), getNextInode(), this, m_pRoot);
+    NullFile *pNull =
+        new NullFile(String("null"), getNextInode(), this, m_pRoot);
+    ZeroFile *pZero =
+        new ZeroFile(String("zero"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pNull->getName(), pNull);
     m_pRoot->addEntry(pZero->getName(), pZero);
 
     // Create the /dev/pts directory for ptys to go into.
-    DevFsDirectory *pPts = new DevFsDirectory(String("pts"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
-    pPts->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+    DevFsDirectory *pPts = new DevFsDirectory(
+        String("pts"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+    pPts->setPermissions(
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
     m_pRoot->addEntry(pPts->getName(), pPts);
 
     // Create the /dev/ptmx device.
-    PtmxFile *pPtmx = new PtmxFile(String("ptmx"), getNextInode(), this, m_pRoot, pPts);
+    PtmxFile *pPtmx =
+        new PtmxFile(String("ptmx"), getNextInode(), this, m_pRoot, pPts);
     m_pRoot->addEntry(pPtmx->getName(), pPtmx);
 
     // Create /dev/urandom for the RNG.
-    RandomFile *pUrandom = new RandomFile(String("urandom"), getNextInode(), this, m_pRoot);
+    RandomFile *pUrandom =
+        new RandomFile(String("urandom"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pUrandom->getName(), pUrandom);
 
     // Create /dev/random - note, won't block waiting for more entropy!
-    RandomFile *pRandom = new RandomFile(String("random"), getNextInode(), this, m_pRoot);
+    RandomFile *pRandom =
+        new RandomFile(String("random"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pRandom->getName(), pRandom);
 
     // Create /dev/fb for the framebuffer device.
-    FramebufferFile *pFb = new FramebufferFile(String("fb"), getNextInode(), this, m_pRoot);
-    if(pFb->initialise())
+    FramebufferFile *pFb =
+        new FramebufferFile(String("fb"), getNextInode(), this, m_pRoot);
+    if (pFb->initialise())
         m_pRoot->addEntry(pFb->getName(), pFb);
     else
     {
@@ -471,7 +529,7 @@ bool DevFs::initialise(Disk *pDisk)
     // Create /dev/textui for the text-only UI device.
     m_pTty = new TextIO(String("textui"), getNextInode(), this, m_pRoot);
     m_pTty->markPrimary();
-    if(m_pTty->initialise(false))
+    if (m_pTty->initialise(false))
     {
         m_pRoot->addEntry(m_pTty->getName(), m_pTty);
     }
@@ -484,17 +542,20 @@ bool DevFs::initialise(Disk *pDisk)
     }
 
     // tty0 == current console
-    Tty0File *pTty0 = new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
+    Tty0File *pTty0 =
+        new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
     m_pRoot->addEntry(pTty0->getName(), pTty0);
 
     // console == current console
-    Tty0File *pConsole = new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
+    Tty0File *pConsole =
+        new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
     m_pRoot->addEntry(pConsole->getName(), pConsole);
 
     // create tty1 which is essentially just textui but with a S_IFCHR wrapper
     if (m_pTty)
     {
-        ConsolePhysicalFile *pTty1 = new ConsolePhysicalFile(m_pTty, String("tty1"), this);
+        ConsolePhysicalFile *pTty1 =
+            new ConsolePhysicalFile(m_pTty, String("tty1"), this);
         m_pRoot->addEntry(pTty1->getName(), pTty1);
 
         m_pTtys[0] = m_pTty;
@@ -510,7 +571,8 @@ bool DevFs::initialise(Disk *pDisk)
         TextIO *tio = new TextIO(ttyname, getNextInode(), this, m_pRoot);
         if (tio->initialise(true))
         {
-            ConsolePhysicalFile *file = new ConsolePhysicalFile(tio, ttyname, this);
+            ConsolePhysicalFile *file =
+                new ConsolePhysicalFile(tio, ttyname, this);
             m_pRoot->addEntry(tio->getName(), file);
 
             m_pTtys[i] = tio;
@@ -533,14 +595,16 @@ bool DevFs::initialise(Disk *pDisk)
         }
     }
 
-    Pipe *initctl = new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+    Pipe *initctl =
+        new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
     m_pRoot->addEntry(initctl->getName(), initctl);
 
     RtcFile *rtc = new RtcFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(rtc->getName(), rtc);
 
     // add input handler for terminal switching
-    InputManager::instance().installCallback(InputManager::Key, terminalSwitchHandler, this);
+    InputManager::instance().installCallback(
+        InputManager::Key, terminalSwitchHandler, this);
 
     m_CurrentTty = 0;
 
@@ -560,7 +624,7 @@ void DevFs::revertInode()
 void DevFs::handleInput(InputManager::InputNotification &in)
 {
     uint64_t c = in.data.key.key;
-    if(c & SPECIAL_KEY)
+    if (c & SPECIAL_KEY)
     {
         uint32_t k = c & 0xFFFFFFFFUL;
         char *s = reinterpret_cast<char *>(&k);

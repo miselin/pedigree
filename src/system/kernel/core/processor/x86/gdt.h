@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,11 +29,13 @@
 /** The GDT manager on x86 processors */
 class X86GdtManager
 {
-  public:
+    public:
     /** Get the gdt manager instance
      *\return instance of the gdt manager */
     inline static X86GdtManager &instance()
-      {return m_Instance;}
+    {
+        return m_Instance;
+    }
 
     /** Initialise the GDT
      *\param[in] processorCount the number of processors
@@ -44,11 +45,11 @@ class X86GdtManager
      *\note This should only be called from initialiseProcessor2()
      *\todo and some smp/acpi function */
     static void initialiseProcessor() INITIALISATION_ONLY;
-    
+
     /** Sets up the TLS base for the current CPU to point to the given base. */
     void setTlsBase(uintptr_t base);
 
-  private:
+    private:
     /** The constructor */
     X86GdtManager() INITIALISATION_ONLY;
     /** Copy constructor
@@ -56,7 +57,7 @@ class X86GdtManager
     X86GdtManager(const X86GdtManager &);
     /** Assignment operator
      *\note NOT implemented */
-    X86GdtManager &operator = (const X86GdtManager &);
+    X86GdtManager &operator=(const X86GdtManager &);
     /** The destructor */
     ~X86GdtManager();
 
@@ -66,11 +67,9 @@ class X86GdtManager
      *\param[in] limit the size of the segment (either in bytes or in 4kb units)
      *\param[in] flags the flags
      *\param[in] flags2 additional flags */
-    void setSegmentDescriptor(size_t index,
-                              uint32_t base,
-                              uint32_t limit,
-                              uint8_t flags,
-                              uint8_t flags2);
+    void setSegmentDescriptor(
+        size_t index, uint32_t base, uint32_t limit, uint8_t flags,
+        uint8_t flags2);
     /** Set up a task-state-segment descriptor
      *\param[in] index the descriptor index
      *\param[in] base the base address */
@@ -79,24 +78,25 @@ class X86GdtManager
     /** Write default values into a task-state-segment descriptor.
      *\param[in] pTss The TSS descriptor. */
     void initialiseTss(struct X86TaskStateSegment *pTss) INITIALISATION_ONLY;
-    void initialiseDoubleFaultTss(X86TaskStateSegment *pTss) INITIALISATION_ONLY;
-    
+    void
+    initialiseDoubleFaultTss(X86TaskStateSegment *pTss) INITIALISATION_ONLY;
+
     /** Protected-mode segment descriptor structure */
     struct segment_descriptor
     {
-      /** Bits 0-15 from the limit */
-      uint16_t limit0;
-      /** Bits 0-15 from the base address */
-      uint16_t base0;
-      /** Bits 16-23 from the base address */
-      uint8_t base1;
-      /** The flags */
-      uint8_t flags;
-      /** Additional flags and bits 16-19 from the limit */
-      uint8_t flags_limit1;
-      /** Bits 24-32 from the base address */
-      uint8_t base2;
-    }PACKED;
+        /** Bits 0-15 from the limit */
+        uint16_t limit0;
+        /** Bits 0-15 from the base address */
+        uint16_t base0;
+        /** Bits 16-23 from the base address */
+        uint8_t base1;
+        /** The flags */
+        uint8_t flags;
+        /** Additional flags and bits 16-19 from the limit */
+        uint8_t flags_limit1;
+        /** Bits 24-32 from the base address */
+        uint8_t base2;
+    } PACKED;
 
     /** The Gdt */
     segment_descriptor *m_Gdt;

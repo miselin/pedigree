@@ -24,68 +24,68 @@
 
 namespace Input
 {
-    /// The type for a given callback.
-    const int Key = 1;
-    const int Mouse = 2;
-    const int Joystick = 4;
-    const int RawKey = 8;
-    const int Unknown = 255;
+/// The type for a given callback.
+const int Key = 1;
+const int Mouse = 2;
+const int Joystick = 4;
+const int RawKey = 8;
+const int Unknown = 255;
 
-    typedef int CallbackType;
+typedef int CallbackType;
 
-    /// Structure containing notification to the remote application
-    /// of input. Used to generalise input handling across the system
-    /// for all types of devices.
-    struct InputNotification
+/// Structure containing notification to the remote application
+/// of input. Used to generalise input handling across the system
+/// for all types of devices.
+struct InputNotification
+{
+    CallbackType type;
+
+    union
     {
-        CallbackType type;
-
-        union
+        struct
         {
-            struct
-            {
-                uint64_t key;
-            } key;
-            struct
-            {
-                ssize_t relx;
-                ssize_t rely;
-                ssize_t relz;
+            uint64_t key;
+        } key;
+        struct
+        {
+            ssize_t relx;
+            ssize_t rely;
+            ssize_t relz;
 
-                bool buttons[64];
-            } pointy;
-            struct
-            {
-                /// HID scancode for the key (most generic type of scancode,
-                /// and easy to build translation tables for)
-                uint8_t scancode;
+            bool buttons[64];
+        } pointy;
+        struct
+        {
+            /// HID scancode for the key (most generic type of scancode,
+            /// and easy to build translation tables for)
+            uint8_t scancode;
 
-                /// Whether this is a keyUp event or not.
-                bool keyUp;
-            } rawkey;
-        } data;
-    };
+            /// Whether this is a keyUp event or not.
+            bool keyUp;
+        } rawkey;
+    } data;
+};
 
-    /// Callback function type
-    typedef void (*callback_t)(InputNotification &);
+/// Callback function type
+typedef void (*callback_t)(InputNotification &);
 
-    /// Installs an input callback, to allow a program to be notified of
-    /// input from any of the possible input devices.
-    void installCallback(CallbackType type, callback_t cb);
+/// Installs an input callback, to allow a program to be notified of
+/// input from any of the possible input devices.
+void installCallback(CallbackType type, callback_t cb);
 
-    /// Removes a given callback
-    void removeCallback(callback_t cb);
+/// Removes a given callback
+void removeCallback(callback_t cb);
 
-    /// Inhibits input events.
-    void inhibitEvents();
+/// Inhibits input events.
+void inhibitEvents();
 
-    /// Uninhibits events.
-    void uninhibitEvents();
+/// Uninhibits events.
+void uninhibitEvents();
 
-    /// Loads a new keymap and sets it as the system-wide keymap from the
-    /// given file. There is currently no supported way to obtain mappings
-    /// for keys from the kernel.
-    void loadKeymapFromFile(const char *path);
+/// Loads a new keymap and sets it as the system-wide keymap from the
+/// given file. There is currently no supported way to obtain mappings
+/// for keys from the kernel.
+void loadKeymapFromFile(const char *path);
 };
 
 #endif

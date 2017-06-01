@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,31 +17,30 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Log.h>
 #include <process/LockManager.h>
 #include <processor/Processor.h>
-#include <Log.h>
 
-LockManager::LockManager() :
-  m_Stack(32)
+LockManager::LockManager() : m_Stack(32)
 {
-  m_Stack.clear();
+    m_Stack.clear();
 }
 
 LockManager::~LockManager()
 {
 }
 
-void LockManager::acquired(Semaphore& sem)
+void LockManager::acquired(Semaphore &sem)
 {
-  m_Stack.pushBack(&sem);
+    m_Stack.pushBack(&sem);
 }
 
-void LockManager::released(Semaphore& sem)
+void LockManager::released(Semaphore &sem)
 {
-  Semaphore *pPopped = m_Stack.popBack();
-  if (pPopped != &sem)
-  {
-    m_Stack.pushBack(pPopped);
-    FATAL("Lock release out of order.");
-  }
+    Semaphore *pPopped = m_Stack.popBack();
+    if (pPopped != &sem)
+    {
+        m_Stack.pushBack(pPopped);
+        FATAL("Lock release out of order.");
+    }
 }

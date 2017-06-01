@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -27,8 +26,8 @@
 #ifndef VM_DEVICE_VERSION_H
 #define VM_DEVICE_VERSION_H
 
-#define PCI_VENDOR_ID_VMWARE		0x15AD
-#define PCI_DEVICE_ID_VMWARE_SVGA2  0x0405
-#define PCI_DEVICE_ID_VMWARE_SVGA   0x0710
+#define PCI_VENDOR_ID_VMWARE 0x15AD
+#define PCI_DEVICE_ID_VMWARE_SVGA2 0x0405
+#define PCI_DEVICE_ID_VMWARE_SVGA 0x0710
 
 #endif /* VM_DEVICE_VERSION_H */

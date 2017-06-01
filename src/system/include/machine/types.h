@@ -21,32 +21,32 @@
 #define KERNEL_MACHINE_TYPES_H
 
 #ifdef X86_COMMON
-  #include <machine/x86_common/types.h>
-  #define MACHINE_SPECIFIC_NAME(x) X86Common##x
+#include <machine/x86_common/types.h>
+#define MACHINE_SPECIFIC_NAME(x) X86Common##x
 #endif
 #ifdef MIPS_COMMON
-  #include <machine/mips_common/types.h>
-  #define MACHINE_SPECIFIC_NAME(x) MIPSCommon##x
+#include <machine/mips_common/types.h>
+#define MACHINE_SPECIFIC_NAME(x) MIPSCommon##x
 #endif
 #ifdef ARM_COMMON
-  #include <machine/arm_common/types.h>
-  #define MACHINE_SPECIFIC_NAME(x) ARMCommon##x
+#include <machine/arm_common/types.h>
+#define MACHINE_SPECIFIC_NAME(x) ARMCommon##x
 #endif
 #ifdef PPC_COMMON
-  #include <machine/ppc_common/types.h>
-  #define MACHINE_SPECIFIC_NAME(x) PPCCommon##x
+#include <machine/ppc_common/types.h>
+#define MACHINE_SPECIFIC_NAME(x) PPCCommon##x
 #endif
 #ifdef HOSTED
-  #include <machine/hosted/types.h>
-  #ifndef MACHINE_SPECIFIC_NAME
-  #define MACHINE_SPECIFIC_NAME(x) HostedCommon##x
-  #endif
+#include <machine/hosted/types.h>
+#ifndef MACHINE_SPECIFIC_NAME
+#define MACHINE_SPECIFIC_NAME(x) HostedCommon##x
+#endif
 #endif
 
 // NOTE: This throws a compile-time error if this header is not adapted for
 //       the selected machine architecture
 #ifndef MACHINE_SPECIFIC_NAME
-  #error Unknown machine architecture
+#error Unknown machine architecture
 #endif
 
 /** @addtogroup kernelmachine

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,48 +20,51 @@
 #ifndef MACHINE_MALTA_BONITO64_H
 #define MACHINE_MALTA_BONITO64_H
 
-#include <machine/Machine.h>
+#include "../Keyboard.h"
 #include "../Serial.h"
 #include "../Vga.h"
-#include "../Keyboard.h"
+#include <machine/Machine.h>
 
 /**
  * Concretion of the abstract Machine class for a MIPS Malta/Bonito64 board.
  */
 class Bonito64 : public Machine
 {
-public:
-  inline static Bonito64 &instance() {return m_Instance;}
+    public:
+    inline static Bonito64 &instance()
+    {
+        return m_Instance;
+    }
 
-  virtual void initialise();
-  virtual Serial *getSerial(size_t n);
-  virtual size_t getNumSerial();
-  virtual Vga *getVga(size_t n);
-  virtual size_t getNumVga();
-  virtual IrqManager *getIrqManager();
-  virtual SchedulerTimer *getSchedulerTimer();
-  virtual Timer *getTimer();
-  virtual Keyboard *getKeyboard();
+    virtual void initialise();
+    virtual Serial *getSerial(size_t n);
+    virtual size_t getNumSerial();
+    virtual Vga *getVga(size_t n);
+    virtual size_t getNumVga();
+    virtual IrqManager *getIrqManager();
+    virtual SchedulerTimer *getSchedulerTimer();
+    virtual Timer *getTimer();
+    virtual Keyboard *getKeyboard();
 
-private:
-  /**
-   * Default constructor, does nothing.
-   */
-  Bonito64();
-  Bonito64(const Bonito64 &);
-  Bonito64 &operator = (const Bonito64 &);
-  /**
-   * Virtual destructor, does nothing.
-   */
-  virtual ~Bonito64();
+    private:
+    /**
+     * Default constructor, does nothing.
+     */
+    Bonito64();
+    Bonito64(const Bonito64 &);
+    Bonito64 &operator=(const Bonito64 &);
+    /**
+     * Virtual destructor, does nothing.
+     */
+    virtual ~Bonito64();
 
-  MaltaSerial m_Serial[2];
-  //SchedulerTimer m_SchedulerTimer;
-  //Timer m_Timer;
-  MaltaVga m_Vga;
-  MaltaKeyboard m_Keyboard;
+    MaltaSerial m_Serial[2];
+    // SchedulerTimer m_SchedulerTimer;
+    // Timer m_Timer;
+    MaltaVga m_Vga;
+    MaltaKeyboard m_Keyboard;
 
-  static Bonito64 m_Instance;
+    static Bonito64 m_Instance;
 };
 
 #endif

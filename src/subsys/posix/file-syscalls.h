@@ -20,9 +20,9 @@
 #ifndef FILE_SYSCALLS_H
 #define FILE_SYSCALLS_H
 
-#include <vfs/VFS.h>
 #include <vfs/File.h>
 #include <vfs/Filesystem.h>
+#include <vfs/VFS.h>
 
 #include "DevFs.h"
 #include "logging.h"
@@ -49,14 +49,14 @@ int posix_unlink(char *name);
 int posix_stat(const char *file, struct stat *st);
 int posix_fstat(int fd, struct stat *st);
 int posix_lstat(char *file, struct stat *st);
-int posix_rename(const char* src, const char* dst);
+int posix_rename(const char *src, const char *dst);
 int posix_symlink(char *target, char *link);
 
 int posix_writev(int fd, const struct iovec *iov, int iovcnt);
 int posix_readv(int fd, const struct iovec *iov, int iovcnt);
 
-int posix_getcwd(char* buf, size_t maxlen);
-int posix_readlink(const char* path, char* buf, unsigned int bufsize);
+int posix_getcwd(char *buf, size_t maxlen);
+int posix_readlink(const char *path, char *buf, unsigned int bufsize);
 int posix_realpath(const char *path, char *buf, size_t bufsize);
 
 int posix_getdents(int fd, struct linux_dirent *ents, int count);
@@ -74,14 +74,15 @@ int posix_fchdir(int fd);
 int posix_dup(int fd);
 int posix_dup2(int fd1, int fd2);
 
-int posix_fcntl(int fd, int cmd, void* arg);
+int posix_fcntl(int fd, int cmd, void *arg);
 
-int posix_mkdir(const char* name, int mode);
+int posix_mkdir(const char *name, int mode);
 int posix_rmdir(const char *path);
 
 int posix_isatty(int fd);
 
-void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off);
+void *
+posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off);
 int posix_msync(void *p, size_t len, int flags);
 int posix_munmap(void *addr, size_t len);
 int posix_mprotect(void *addr, size_t len, int prot);
@@ -108,19 +109,26 @@ File *findFileWithAbiFallbacks(String name, File *cwd = nullptr);
 
 int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 int posix_mkdirat(int dirfd, const char *pathname, mode_t mode);
-int posix_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags);
-int posix_futimesat(int dirfd, const char *pathname, const struct timeval *times);
+int posix_fchownat(
+    int dirfd, const char *pathname, uid_t owner, gid_t group, int flags);
+int posix_futimesat(
+    int dirfd, const char *pathname, const struct timeval *times);
 int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags);
 int posix_unlinkat(int dirfd, const char *pathname, int flags);
-int posix_renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath);
-int posix_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags);
+int posix_renameat(
+    int olddirfd, const char *oldpath, int newdirfd, const char *newpath);
+int posix_linkat(
+    int olddirfd, const char *oldpath, int newdirfd, const char *newpath,
+    int flags);
 int posix_symlinkat(const char *oldpath, int newdirfd, const char *newpath);
 int posix_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz);
 int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags);
 int posix_faccessat(int dirfd, const char *pathname, int mode, int flags);
 
-ssize_t posix_getxattr(const char *path, const char *name, void *value, size_t size);
-ssize_t posix_lgetxattr(const char *path, const char *name, void *value, size_t size);
+ssize_t
+posix_getxattr(const char *path, const char *name, void *value, size_t size);
+ssize_t
+posix_lgetxattr(const char *path, const char *name, void *value, size_t size);
 ssize_t posix_fgetxattr(int fd, const char *name, void *value, size_t size);
 
 int posix_mknod(const char *pathname, mode_t mode, dev_t dev);

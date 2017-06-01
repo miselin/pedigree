@@ -33,25 +33,26 @@ ScsiController::ScsiController()
 
 void ScsiController::searchDisks()
 {
-    for(size_t i = 0;i < getNumUnits();i++)
+    for (size_t i = 0; i < getNumUnits(); i++)
     {
         ScsiDisk *pDisk = new ScsiDisk();
-        if(pDisk->initialise(this, i))
+        if (pDisk->initialise(this, i))
             addChild(pDisk);
         else
             delete pDisk;
     }
 }
 
-uint64_t ScsiController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
-                                uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+uint64_t ScsiController::executeRequest(
+    uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+    uint64_t p6, uint64_t p7, uint64_t p8)
 {
-    ScsiDisk *pDisk = reinterpret_cast<ScsiDisk*> (p2);
-    if(p1 == SCSI_REQUEST_READ)
+    ScsiDisk *pDisk = reinterpret_cast<ScsiDisk *>(p2);
+    if (p1 == SCSI_REQUEST_READ)
         return pDisk->doRead(p3);
-    else if(p1 == SCSI_REQUEST_WRITE)
+    else if (p1 == SCSI_REQUEST_WRITE)
         return pDisk->doWrite(p3);
-    else if(p1 == SCSI_REQUEST_SYNC)
+    else if (p1 == SCSI_REQUEST_SYNC)
         return pDisk->doSync(p3);
     else
         return 0;

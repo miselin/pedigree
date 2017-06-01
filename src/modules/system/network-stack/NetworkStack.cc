@@ -19,8 +19,8 @@
 
 #include "NetworkStack.h"
 
-#include <Module.h>
 #include <Log.h>
+#include <Module.h>
 #include <processor/Processor.h>
 
 #include "Ethernet.h"
@@ -36,31 +36,31 @@ static NetworkStack *g_NetworkStack = 0;
 static TcpManager *g_TcpManager = 0;
 #endif
 
-NetworkStack::NetworkStack() :
-  RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
+NetworkStack::NetworkStack()
+    : RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
 {
-  if (stack)
-  {
-    FATAL("NetworkStack created multiple times.");
-  }
+    if (stack)
+    {
+        FATAL("NetworkStack created multiple times.");
+    }
 
-  stack = this;
+    stack = this;
 
-  initialise();
+    initialise();
 
 #if defined(X86_COMMON) || defined(HOSTED)
-  // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
-  if(!m_MemPool.initialise(4096, 1600))
-      if(!m_MemPool.initialise(2048, 1600))
-        if(!m_MemPool.initialise(1024, 1600))
-            ERROR("Couldn't get a valid buffer pool for networking use");
+    // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
+    if (!m_MemPool.initialise(4096, 1600))
+        if (!m_MemPool.initialise(2048, 1600))
+            if (!m_MemPool.initialise(1024, 1600))
+                ERROR("Couldn't get a valid buffer pool for networking use");
 #elif defined(ARM_COMMON)
-  // Probably very little RAM to burn - 4 MB then 2 MB, then 512 KB
-  NOTICE("allocating memory pool");
-  if(!m_MemPool.initialise(1024, 1600))
-      if(!m_MemPool.initialise(512, 1600))
-        if(!m_MemPool.initialise(128, 1600))
-            ERROR("Couldn't get a valid buffer pool for networking use");
+    // Probably very little RAM to burn - 4 MB then 2 MB, then 512 KB
+    NOTICE("allocating memory pool");
+    if (!m_MemPool.initialise(1024, 1600))
+        if (!m_MemPool.initialise(512, 1600))
+            if (!m_MemPool.initialise(128, 1600))
+                ERROR("Couldn't get a valid buffer pool for networking use");
 #else
 #warning Unhandled architecture for the NetworkStack buffer pool
 #endif
@@ -68,16 +68,17 @@ NetworkStack::NetworkStack() :
 
 NetworkStack::~NetworkStack()
 {
-  destroy();
+    destroy();
 
-  stack = 0;
+    stack = 0;
 }
 
-uint64_t NetworkStack::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                uint64_t p6, uint64_t p7, uint64_t p8)
+uint64_t NetworkStack::executeRequest(
+    uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+    uint64_t p6, uint64_t p7, uint64_t p8)
 {
-    Packet *pack = reinterpret_cast<Packet*>(p1);
-    if(!pack)
+    Packet *pack = reinterpret_cast<Packet *>(p1);
+    if (!pack)
         return 0;
 
     uintptr_t packet = pack->buffer;
@@ -85,14 +86,15 @@ uint64_t NetworkStack::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uin
     Network *pCard = pack->pCard;
     uint32_t offset = pack->offset;
 
-    if(!packet || !packetSize)
+    if (!packet || !packetSize)
     {
         delete pack;
         return 0;
     }
 
     // Pass onto the ethernet layer
-    /// \todo We should accept a parameter here that specifies the type of packet
+    /// \todo We should accept a parameter here that specifies the type of
+    /// packet
     ///       so we can pass it on to the correct handler, rather than assuming
     ///       Ethernet.
     Ethernet::instance().receive(packetSize, packet, pCard, offset);
@@ -103,58 +105,59 @@ uint64_t NetworkStack::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uin
     return 0;
 }
 
-void NetworkStack::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset)
+void NetworkStack::receive(
+    size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
 {
-  if(!packet || !nBytes)
-      return;
+    if (!packet || !nBytes)
+        return;
 
-  pCard->gotPacket();
+    pCard->gotPacket();
 
-  // Some cards might be giving us a DMA address or something, so we copy
-  // before passing on to the worker thread...
-  uint8_t *safePacket = reinterpret_cast<uint8_t*>(m_MemPool.allocateNow());
-  if(!safePacket)
-  {
-    ERROR("Network Stack: Out of memory pool space, dropping incoming packet");
-    pCard->droppedPacket();
-    return;
-  }
-  MemoryCopy(safePacket, reinterpret_cast<void*>(packet), nBytes);
-  Packet *p = new Packet;
-  p->buffer = reinterpret_cast<uintptr_t>(safePacket);
-  p->packetLength = nBytes;
-  p->pCard = pCard;
-  p->offset = offset;
+    // Some cards might be giving us a DMA address or something, so we copy
+    // before passing on to the worker thread...
+    uint8_t *safePacket = reinterpret_cast<uint8_t *>(m_MemPool.allocateNow());
+    if (!safePacket)
+    {
+        ERROR("Network Stack: Out of memory pool space, dropping incoming "
+              "packet");
+        pCard->droppedPacket();
+        return;
+    }
+    MemoryCopy(safePacket, reinterpret_cast<void *>(packet), nBytes);
+    Packet *p = new Packet;
+    p->buffer = reinterpret_cast<uintptr_t>(safePacket);
+    p->packetLength = nBytes;
+    p->pCard = pCard;
+    p->offset = offset;
 
-  addAsyncRequest(0, reinterpret_cast<uint64_t>(p));
+    addAsyncRequest(0, reinterpret_cast<uint64_t>(p));
 }
 
 void NetworkStack::registerDevice(Network *pDevice)
 {
-  m_Children.pushBack(pDevice);
+    m_Children.pushBack(pDevice);
 }
 
 Network *NetworkStack::getDevice(size_t n)
 {
-  return m_Children[n];
+    return m_Children[n];
 }
 
 size_t NetworkStack::getNumDevices()
 {
-  return m_Children.count();
+    return m_Children.count();
 }
 
 void NetworkStack::deRegisterDevice(Network *pDevice)
 {
-  int i = 0;
-  for(Vector<Network*>::Iterator it = m_Children.begin();
-      it != m_Children.end();
-      it++, i++)
-  if (*it == pDevice)
-  {
-    m_Children.erase(it);
-    break;
-  }
+    int i = 0;
+    for (Vector<Network *>::Iterator it = m_Children.begin();
+         it != m_Children.end(); it++, i++)
+        if (*it == pDevice)
+        {
+            m_Children.erase(it);
+            break;
+        }
 }
 
 #ifndef NO_NETWORK_SERVICES
@@ -174,7 +177,8 @@ static bool entry()
     g_pIpv6Service = new Ipv6Service;
     g_pIpv6Features = new ServiceFeatures;
     g_pIpv6Features->add(ServiceFeatures::touch);
-    ServiceManager::instance().addService(String("ipv6"), g_pIpv6Service, g_pIpv6Features);
+    ServiceManager::instance().addService(
+        String("ipv6"), g_pIpv6Service, g_pIpv6Features);
 #endif
 
     return true;

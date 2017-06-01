@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <process/Ipc.h>
 #include <native/ipc/Ipc.h>
+#include <process/Ipc.h>
 
-#include <utilities/Tree.h>
 #include <utilities/Pair.h>
 #include <utilities/String.h>
+#include <utilities/Tree.h>
 
 #include <native-ipc.h>
 
@@ -30,7 +30,8 @@ typedef Pair<uint64_t, PedigreeIpc::IpcMessage *> PerProcessUserPointerPair;
 
 /// Lookup between userspace message pointers and the kernel-side heap pointer
 /// that actually contains the relevant information for IPC.
-static Tree<Pair<uint64_t, PedigreeIpc::IpcMessage *>, Ipc::IpcMessage *> __msg_lookup;
+static Tree<Pair<uint64_t, PedigreeIpc::IpcMessage *>, Ipc::IpcMessage *>
+    __msg_lookup;
 
 static inline uint64_t getPid()
 {
@@ -43,16 +44,18 @@ uintptr_t createStandardMessage(PedigreeIpc::IpcMessage *pMessage)
 
     Ipc::IpcMessage *pKernelMessage = new Ipc::IpcMessage();
     Ipc::IpcMessage *pCheck = __msg_lookup.lookup(p);
-    if(pCheck)
+    if (pCheck)
     {
-        FATAL("Inserting an already allocated IPC message [createStandardMessage].");
+        FATAL("Inserting an already allocated IPC message "
+              "[createStandardMessage].");
     }
     __msg_lookup.insert(p, pKernelMessage);
 
     return reinterpret_cast<uintptr_t>(pKernelMessage->getBuffer());
 }
 
-uintptr_t createSharedMessage(PedigreeIpc::IpcMessage *pMessage, size_t nBytes, uintptr_t handle)
+uintptr_t createSharedMessage(
+    PedigreeIpc::IpcMessage *pMessage, size_t nBytes, uintptr_t handle)
 {
     PerProcessUserPointerPair p = makePair(getPid(), pMessage);
 
@@ -67,7 +70,7 @@ void *getIpcSharedRegion(PedigreeIpc::IpcMessage *pMessage)
     PerProcessUserPointerPair p = makePair(getPid(), pMessage);
 
     Ipc::IpcMessage *pKernelMessage = __msg_lookup.lookup(p);
-    if(pKernelMessage)
+    if (pKernelMessage)
         return pKernelMessage->getHandle();
 
     return 0;
@@ -78,21 +81,25 @@ void destroyMessage(PedigreeIpc::IpcMessage *pMessage)
     PerProcessUserPointerPair p = makePair(getPid(), pMessage);
 
     Ipc::IpcMessage *pKernelMessage = __msg_lookup.lookup(p);
-    if(pKernelMessage)
+    if (pKernelMessage)
     {
         __msg_lookup.remove(p);
         delete pKernelMessage;
     }
 }
 
-bool sendIpc(PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMessage, bool bAsync)
+bool sendIpc(
+    PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMessage,
+    bool bAsync)
 {
     PerProcessUserPointerPair p = makePair(getPid(), pMessage);
 
     Ipc::IpcMessage *pKernelMessage = __msg_lookup.lookup(p);
-    if(pKernelMessage)
+    if (pKernelMessage)
     {
-        return Ipc::send(reinterpret_cast<Ipc::IpcEndpoint*>(pEndpoint), pKernelMessage, bAsync);
+        return Ipc::send(
+            reinterpret_cast<Ipc::IpcEndpoint *>(pEndpoint), pKernelMessage,
+            bAsync);
     }
 
     return false;
@@ -101,20 +108,22 @@ bool sendIpc(PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMess
 void *recvIpcPhase1(PedigreeIpc::IpcEndpoint *pEndpoint, bool bAsync)
 {
     Ipc::IpcMessage *pMessage = 0;
-    bool ret = Ipc::recv(reinterpret_cast<Ipc::IpcEndpoint*>(pEndpoint), &pMessage, bAsync);
-    if(!ret)
+    bool ret = Ipc::recv(
+        reinterpret_cast<Ipc::IpcEndpoint *>(pEndpoint), &pMessage, bAsync);
+    if (!ret)
         return 0;
 
-    return reinterpret_cast<void*>(pMessage);
+    return reinterpret_cast<void *>(pMessage);
 }
 
 uintptr_t recvIpcPhase2(PedigreeIpc::IpcMessage *pUserMessage, void *pMessage)
 {
     PerProcessUserPointerPair p = makePair(getPid(), pUserMessage);
 
-    Ipc::IpcMessage *pKernelMessage = reinterpret_cast<Ipc::IpcMessage*>(pMessage);
+    Ipc::IpcMessage *pKernelMessage =
+        reinterpret_cast<Ipc::IpcMessage *>(pMessage);
     Ipc::IpcMessage *pCheck = __msg_lookup.lookup(p);
-    if(pCheck)
+    if (pCheck)
     {
         FATAL("Inserting an already allocated IPC message [recvIpcPhase2].");
     }

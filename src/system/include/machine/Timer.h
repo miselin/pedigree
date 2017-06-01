@@ -20,10 +20,10 @@
 #ifndef KERNEL_MACHINE_TIMER_H
 #define KERNEL_MACHINE_TIMER_H
 
-#include <processor/types.h>
-#include <utilities/assert.h>
 #include <machine/TimerHandler.h>
+#include <processor/types.h>
 #include <time/Time.h>
+#include <utilities/assert.h>
 
 /** @addtogroup kernelmachine
  * @{ */
@@ -31,7 +31,7 @@
 /** Timer for the time-keeping */
 class Timer
 {
-  public:
+    public:
     /** Get the current year
      *\return the current year */
     virtual size_t getYear() = 0;
@@ -73,11 +73,12 @@ class Timer
     virtual bool registerHandler(TimerHandler *handler) = 0;
     virtual bool unregisterHandler(TimerHandler *handler) = 0;
 
-    /** Dispatches the Event \p pEvent to the current thread in \p alarmSecs time.
-     *\param pEvent Event to dispatch.
-     *\param alarmSecs Number of seconds to wait.
+    /** Dispatches the Event \p pEvent to the current thread in \p alarmSecs
+     *time. \param pEvent Event to dispatch. \param alarmSecs Number of seconds
+     *to wait.
      */
-    virtual void addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs=0) = 0;
+    virtual void
+    addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs = 0) = 0;
     /** Removes the event \p pEvent from the alarm queue.
      *\param pEvent Event to remove alarm for. */
     virtual void removeAlarm(class Event *pEvent) = 0;
@@ -94,21 +95,27 @@ class Timer
      * not enabled.
      * \param tohw If true, syncs back to the hardware, instead of from it.
      */
-    virtual void synchronise(bool tohw=false) {}
+    virtual void synchronise(bool tohw = false)
+    {
+    }
 
-  protected:
+    protected:
     /** The default constructor */
-    inline Timer(){}
+    inline Timer()
+    {
+    }
     /** The destructor */
-    inline virtual ~Timer(){}
+    inline virtual ~Timer()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     Timer(const Timer &);
     /** The assignment operator
      *\note NOT implemented */
-    Timer &operator = (const Timer &);
+    Timer &operator=(const Timer &);
 };
 
 /**@}*/

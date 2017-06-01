@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,7 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/// \file msdos.h Declares functions for probing Disk devices for MS-DOS partition tables.
+/// \file msdos.h Declares functions for probing Disk devices for MS-DOS
+/// partition tables.
 
 #ifndef APPLE_H
 #define APPLE_H
@@ -26,23 +26,23 @@
 #include <machine/Device.h>
 #include <machine/Disk.h>
 
-#define APPLE_PM_SIG 0x504D // "PM"
+#define APPLE_PM_SIG 0x504D  // "PM"
 
 typedef struct
 {
-  uint16_t pmSig;       // Partition signature: "PM"
-  uint16_t pmSigPad;    // Reserved - signature padding.
-  uint32_t pmMapBlkCnt; // Number of (512 byte) blocks in the partition map.
-  uint32_t pmPyPartStart; // First physical block of partition.
-  uint32_t pmPartBlkCnt; // Number of blocks in partition.
-  char pmPartName[32];  // Partition name.
-  char pmParType[32];   // Partition type.
-  // We don't care about the rest of the partition map entry.
+    uint16_t pmSig;        // Partition signature: "PM"
+    uint16_t pmSigPad;     // Reserved - signature padding.
+    uint32_t pmMapBlkCnt;  // Number of (512 byte) blocks in the partition map.
+    uint32_t pmPyPartStart;  // First physical block of partition.
+    uint32_t pmPartBlkCnt;   // Number of blocks in partition.
+    char pmPartName[32];     // Partition name.
+    char pmParType[32];      // Partition type.
+    // We don't care about the rest of the partition map entry.
 } ApplePartitionMap;
 
-/** Attempts to find a MS-DOS partition table on pDisk. If found, new Partition objects are created
- * and added as children of pDisk.
- * \return true if a ms-dos partition table was found.
+/** Attempts to find a MS-DOS partition table on pDisk. If found, new Partition
+ * objects are created and added as children of pDisk. \return true if a ms-dos
+ * partition table was found.
  */
 bool appleProbeDisk(Disk *pDisk);
 

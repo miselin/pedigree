@@ -21,9 +21,9 @@
 #define KERNEL_PROCESSOR_ARMV7_PHYSICALMEMORYMANAGER_H
 
 #include <BootstrapInfo.h>
-#include <utilities/RangeList.h>
-#include <processor/PhysicalMemoryManager.h>
 #include <Spinlock.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <utilities/RangeList.h>
 
 /** @addtogroup kernelprocessorArmV7
  * @{ */
@@ -32,10 +32,13 @@
  *\brief Implementation of the PhysicalMemoryManager for common arm */
 class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
 {
-  public:
+    public:
     /** Get the ArmV7PhysicalMemoryManager instance
      *\return instance of the ArmV7PhysicalMemoryManager */
-    inline static ArmV7PhysicalMemoryManager &instance(){return m_Instance;}
+    inline static ArmV7PhysicalMemoryManager &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // PhysicalMemoryManager Interface
@@ -43,42 +46,41 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
     virtual physical_uintptr_t allocatePage();
     virtual void freePage(physical_uintptr_t page);
     /// \todo Implement pin()
-    virtual void pin(physical_uintptr_t page) {};
-    virtual bool allocateRegion(MemoryRegion &Region,
-                                size_t cPages,
-                                size_t pageConstraints,
-                                size_t Flags,
-                                physical_uintptr_t start = -1);
+    virtual void pin(physical_uintptr_t page){};
+    virtual bool allocateRegion(
+        MemoryRegion &Region, size_t cPages, size_t pageConstraints,
+        size_t Flags, physical_uintptr_t start = -1);
 
     void initialise(const BootstrapStruct_t &info);
 
-  protected:
+    protected:
     /** The constructor */
     ArmV7PhysicalMemoryManager();
     /** The destructor */
     virtual ~ArmV7PhysicalMemoryManager();
 
-  private:
+    private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     ArmV7PhysicalMemoryManager(const ArmV7PhysicalMemoryManager &);
     /** The copy-constructor
      *\note Not implemented (singleton) */
-    ArmV7PhysicalMemoryManager &operator = (const ArmV7PhysicalMemoryManager &);
+    ArmV7PhysicalMemoryManager &operator=(const ArmV7PhysicalMemoryManager &);
 
-    /** Same as freePage, but without the lock. Will panic if the lock is unlocked.
-      * \note Use in the wrong place and you die. */
+    /** Same as freePage, but without the lock. Will panic if the lock is
+     * unlocked. \note Use in the wrong place and you die. */
     virtual void freePageUnlocked(physical_uintptr_t page);
-    
+
     /** Unmaps a memory region - called ONLY from MemoryRegion's destructor. */
     virtual void unmapRegion(MemoryRegion *pRegion);
 
-    /** The actual page stack contains is a Stack of the pages with the constraints
-     *  below4GB and below64GB and those pages without address size constraints.
-     *\brief The Stack of pages (below4GB, below64GB, no constraint). */
+    /** The actual page stack contains is a Stack of the pages with the
+     *constraints below4GB and below64GB and those pages without address size
+     *constraints. \brief The Stack of pages (below4GB, below64GB, no
+     *constraint). */
     class PageStack
     {
-      public:
+        public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
         /** Allocate a page with certain constraints
@@ -87,22 +89,24 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
         physical_uintptr_t allocate(size_t constraints);
         /** Free a physical page
          *\param[in] physicalAddress physical address of the page */
-        void free(physical_uintptr_t  physicalAddress);
+        void free(physical_uintptr_t physicalAddress);
         /** The destructor does nothing */
-        inline ~PageStack(){}
+        inline ~PageStack()
+        {
+        }
 
-      private:
+        private:
         /** The copy-constructor
          *\note Not implemented */
         PageStack(const PageStack &);
         /** The copy-constructor
          *\note Not implemented */
-        PageStack &operator = (const PageStack &);
+        PageStack &operator=(const PageStack &);
 
-        /** Pointer to the base address of the stack. The stack grows upwards. */
+/** Pointer to the base address of the stack. The stack grows upwards. */
 #ifdef ARM_BEAGLE
-        //physical_uintptr_t m_Stack[0x10000000 / sizeof(physical_uintptr_t)]; // 256 MB, one entry per address
-        //physical_uintptr_t m_Stack[1024];
+// physical_uintptr_t m_Stack[0x10000000 / sizeof(physical_uintptr_t)]; // 256
+// MB, one entry per address  physical_uintptr_t m_Stack[1024];
 #else
         physical_uintptr_t m_Stack[1];
 #endif
@@ -121,7 +125,7 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
 
     /** RangeList of non-RAM memory */
     RangeList<physical_uintptr_t> m_NonRAMRanges;
-    
+
     /** Virtual-memory available for MemoryRegions */
     RangeList<uintptr_t> m_VirtualMemoryRegions;
 

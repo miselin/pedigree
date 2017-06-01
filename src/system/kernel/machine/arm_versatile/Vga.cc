@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,13 +27,13 @@ ArmVersatileVga::~ArmVersatileVga()
 }
 char ArmVersatileVga::read()
 {
-  return 0;
+    return 0;
 }
 void ArmVersatileVga::write(char c)
 {
 }
 
-bool ArmVersatileVga::setMode (int mode)
+bool ArmVersatileVga::setMode(int mode)
 {
     return false;
 }

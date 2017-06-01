@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -29,27 +28,28 @@ ArmVersatileSerial::~ArmVersatileSerial()
 }
 void ArmVersatileSerial::setBase(uintptr_t nBaseAddr)
 {
-//  tmp = nBaseAddr;
-//  m_pRegs = reinterpret_cast<volatile serial*> (nBaseAddr);
+    //  tmp = nBaseAddr;
+    //  m_pRegs = reinterpret_cast<volatile serial*> (nBaseAddr);
 }
 char ArmVersatileSerial::read()
 {
-  volatile uint32_t *dr = reinterpret_cast<volatile uint32_t*>(0x101f1000);
-  uint32_t c = 0;
-  while ( c == 0 ) c = *dr; // m_pRegs->dr;
-  return static_cast<char>(c);
+    volatile uint32_t *dr = reinterpret_cast<volatile uint32_t *>(0x101f1000);
+    uint32_t c = 0;
+    while (c == 0)
+        c = *dr;  // m_pRegs->dr;
+    return static_cast<char>(c);
 }
 char ArmVersatileSerial::readNonBlock()
 {
-  volatile uint32_t *dr = reinterpret_cast<volatile uint32_t*>(0x101f1000);
-  return static_cast<char>(*dr);
-  //return static_cast<char>(m_pRegs->dr);
+    volatile uint32_t *dr = reinterpret_cast<volatile uint32_t *>(0x101f1000);
+    return static_cast<char>(*dr);
+    // return static_cast<char>(m_pRegs->dr);
 }
 void ArmVersatileSerial::write(char c)
 {
-  volatile uint32_t *dr = reinterpret_cast<volatile uint32_t*>(0x101f1000);
-  if( c == '\n' )
-    write( '\r' );
-  *dr = static_cast<uint32_t>(c);
-  asm volatile("" ::: "memory");
+    volatile uint32_t *dr = reinterpret_cast<volatile uint32_t *>(0x101f1000);
+    if (c == '\n')
+        write('\r');
+    *dr = static_cast<uint32_t>(c);
+    asm volatile("" ::: "memory");
 }

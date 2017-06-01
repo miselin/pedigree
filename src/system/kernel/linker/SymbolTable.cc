@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <linker/SymbolTable.h>
-#include <linker/Elf.h>
 #include <LockGuard.h>
+#include <linker/Elf.h>
+#include <linker/SymbolTable.h>
 
 #ifdef THREADS
 #define RAII_LOCK LockGuard<Mutex> guard(m_Lock)
@@ -27,8 +27,9 @@
 #define RAII_LOCK
 #endif
 
-SymbolTable::SymbolTable(Elf *pElf) :
-  m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(), m_pOriginatingElf(pElf)
+SymbolTable::SymbolTable(Elf *pElf)
+    : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
+      m_pOriginatingElf(pElf)
 {
 }
 
@@ -47,26 +48,30 @@ void SymbolTable::copyTable(Elf *pNewElf, const SymbolTable &newSymtab)
     m_WeakSymbols = newSymtab.m_WeakSymbols;
 }
 
-void SymbolTable::insert(String name, Binding binding, Elf *pParent, uintptr_t value)
+void SymbolTable::insert(
+    String name, Binding binding, Elf *pParent, uintptr_t value)
 {
-  RAII_LOCK;
+    RAII_LOCK;
 
-  doInsert(name, binding, pParent, value);
+    doInsert(name, binding, pParent, value);
 }
 
-void SymbolTable::insertMultiple(SymbolTable *pOther, String name, Binding binding, Elf *pParent, uintptr_t value)
+void SymbolTable::insertMultiple(
+    SymbolTable *pOther, String name, Binding binding, Elf *pParent,
+    uintptr_t value)
 {
-  RAII_LOCK;
+    RAII_LOCK;
 #ifdef THREADS
-  LockGuard<Mutex> guard2(pOther->m_Lock);
+    LockGuard<Mutex> guard2(pOther->m_Lock);
 #endif
 
-  SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
-  if (pOther)
-    pOther->insertShared(name, ptr);
+    SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
+    if (pOther)
+        pOther->insertShared(name, ptr);
 }
 
-SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(String name, Binding binding, Elf *pParent, uintptr_t value)
+SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
+    String name, Binding binding, Elf *pParent, uintptr_t value)
 {
     Symbol *pSymbol = new Symbol(pParent, binding, value);
     SharedPointer<Symbol> newSymbol(pSymbol);
@@ -75,7 +80,8 @@ SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(String name, Binding bi
     return newSymbol;
 }
 
-void SymbolTable::insertShared(String name, SharedPointer<SymbolTable::Symbol> symbol)
+void SymbolTable::insertShared(
+    String name, SharedPointer<SymbolTable::Symbol> symbol)
 {
     SharedPointer<symbolTree_t> tree = getOrInsertTree(symbol->getParent());
     tree->insert(name, symbol);
@@ -84,11 +90,11 @@ void SymbolTable::insertShared(String name, SharedPointer<SymbolTable::Symbol> s
     // it'll fall back to these.
     if (symbol->getBinding() == Global)
     {
-      m_GlobalSymbols.insert(name, symbol);
+        m_GlobalSymbols.insert(name, symbol);
     }
     else if (symbol->getBinding() == Weak)
     {
-      m_WeakSymbols.insert(name, symbol);
+        m_WeakSymbols.insert(name, symbol);
     }
     return;
 }
@@ -127,37 +133,38 @@ void SymbolTable::eraseByElf(Elf *pParent)
     }
 }
 
-uintptr_t SymbolTable::lookup(String name, Elf *pElf, Policy policy, Binding *pBinding)
+uintptr_t
+SymbolTable::lookup(String name, Elf *pElf, Policy policy, Binding *pBinding)
 {
-  RAII_LOCK;
+    RAII_LOCK;
 
-  // Local.
-  SharedPointer<Symbol> sym;
-  SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
-  if (symbolTree)
-  {
-    sym = symbolTree->lookup(name);
+    // Local.
+    SharedPointer<Symbol> sym;
+    SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
+    if (symbolTree)
+    {
+        sym = symbolTree->lookup(name);
+        if (sym)
+        {
+            return sym->getValue();
+        }
+    }
+
+    // Global.
+    sym = m_GlobalSymbols.lookup(name);
     if (sym)
     {
-      return sym->getValue();
+        return sym->getValue();
     }
-  }
 
-  // Global.
-  sym = m_GlobalSymbols.lookup(name);
-  if (sym)
-  {
-    return sym->getValue();
-  }
+    // Weak.
+    sym = m_WeakSymbols.lookup(name);
+    if (sym)
+    {
+        return sym->getValue();
+    }
 
-  // Weak.
-  sym = m_WeakSymbols.lookup(name);
-  if (sym)
-  {
-    return sym->getValue();
-  }
-
-  return 0;
+    return 0;
 }
 
 SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p)

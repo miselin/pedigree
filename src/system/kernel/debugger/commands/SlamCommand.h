@@ -22,8 +22,8 @@
 
 #include <DebuggerCommand.h>
 #include <Scrollable.h>
-#include <utilities/Vector.h>
 #include <utilities/Tree.h>
+#include <utilities/Vector.h>
 
 /** @addtogroup kerneldebuggercommands
  * @{ */
@@ -33,10 +33,9 @@
 /**
  * Traces page allocations.
  */
-class SlamCommand : public DebuggerCommand,
-                          public Scrollable
+class SlamCommand : public DebuggerCommand, public Scrollable
 {
-public:
+    public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -55,7 +54,9 @@ public:
     /**
      * Execute the command with the given screen.
      */
-    bool execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen);
+    bool execute(
+        const HugeStaticString &input, HugeStaticString &output,
+        InterruptState &state, DebuggerIO *screen);
 
     /**
      * Returns the string representation of this command.
@@ -77,19 +78,22 @@ public:
     //
     // Scrollable interface
     //
-    virtual const char *getLine1(size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-    virtual const char *getLine2(size_t index, size_t &colOffset, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
+    virtual const char *getLine1(
+        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
+    virtual const char *getLine2(
+        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
+        DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-private:
+    private:
     struct SlamAllocation
     {
         uintptr_t bt[NUM_SLAM_BT_FRAMES];
         size_t n;
         size_t size;
     };
-    Tree<size_t, SlamAllocation*> m_Tree;
-    Tree<size_t, SlamAllocation*>::Iterator m_It;
+    Tree<size_t, SlamAllocation *> m_Tree;
+    Tree<size_t, SlamAllocation *>::Iterator m_It;
     size_t m_nLines;
     size_t m_nIdx;
     bool m_Lock;

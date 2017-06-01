@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,35 +27,34 @@
  */
 class Bus : public Device
 {
-public:
-  Bus(const char *pName) :
-    m_pName(pName)
-  {
-  }
-  virtual ~Bus()
-  {
-  }
+    public:
+    Bus(const char *pName) : m_pName(pName)
+    {
+    }
+    virtual ~Bus()
+    {
+    }
 
-  virtual Type getType()
-  {
-    return Device::Bus;
-  }
+    virtual Type getType()
+    {
+        return Device::Bus;
+    }
 
-  virtual void getName(String &str)
-  {
-    str = m_pName;
-  }
+    virtual void getName(String &str)
+    {
+        str = m_pName;
+    }
 
-  virtual void dump(String &str)
-  {
-    str = m_pName;
-  }
+    virtual void dump(String &str)
+    {
+        str = m_pName;
+    }
 
-private:
-  Bus(const Bus&);
-  void operator =(const Bus&);
+    private:
+    Bus(const Bus &);
+    void operator=(const Bus &);
 
-  const char *m_pName;
+    const char *m_pName;
 };
 
 #endif

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -35,17 +34,19 @@ enum HidDeviceType
 /// Various utility functions used in HID
 namespace HidUtils
 {
-    /// Retrieves a field in a buffer
-    uint64_t getBufferField(uint8_t *pBuffer, size_t nStart, size_t nLength);
+/// Retrieves a field in a buffer
+uint64_t getBufferField(uint8_t *pBuffer, size_t nStart, size_t nLength);
 
-    /// Converts \param nMin to a negative value, if it has the signed bit set
-    void fixNegativeMinimum(int64_t &nMin, int64_t nMax);
+/// Converts \param nMin to a negative value, if it has the signed bit set
+void fixNegativeMinimum(int64_t &nMin, int64_t nMax);
 
-    /// Converts \param nValue to a negative value, if it has the signed bit set
-    void fixNegativeValue(int64_t nMin, int64_t nMax, int64_t &nValue);
+/// Converts \param nValue to a negative value, if it has the signed bit set
+void fixNegativeValue(int64_t nMin, int64_t nMax, int64_t &nValue);
 
-    /// Sends the input to the right handler in HidInputManager or InputManager
-    void sendInputToManager(HidDeviceType deviceType, uint16_t nUsagePage, uint16_t nUsage, int64_t nRelativeValue);
+/// Sends the input to the right handler in HidInputManager or InputManager
+void sendInputToManager(
+    HidDeviceType deviceType, uint16_t nUsagePage, uint16_t nUsage,
+    int64_t nRelativeValue);
 };
 
 #endif

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,80 +21,83 @@
 #define USBMASSSTORAGEDEVICE_H
 
 #include <processor/types.h>
-#include <usb/UsbDevice.h>
-#include <usb/UsbConstants.h>
 #include <scsi/ScsiController.h>
+#include <usb/UsbConstants.h>
+#include <usb/UsbDevice.h>
 
 class UsbMassStorageDevice : public ScsiController, public UsbDevice
 {
     public:
-        UsbMassStorageDevice(UsbDevice *dev);
-        virtual ~UsbMassStorageDevice();
+    UsbMassStorageDevice(UsbDevice *dev);
+    virtual ~UsbMassStorageDevice();
 
-        virtual void initialiseDriver();
+    virtual void initialiseDriver();
 
-        virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
+    virtual bool sendCommand(
+        size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
 
-        virtual void getUsbDeviceName(String &str)
-        {
-            str = "USB Mass Storage Device";
-        }
+    virtual void getUsbDeviceName(String &str)
+    {
+        str = "USB Mass Storage Device";
+    }
 
-        virtual bool hasSubtree() const
-        {
-            return true;
-        }
+    virtual bool hasSubtree() const
+    {
+        return true;
+    }
 
-        virtual Device *getDevice()
-        {
-            return this;
-        }
+    virtual Device *getDevice()
+    {
+        return this;
+    }
 
     private:
+    bool massStorageReset();
 
-        bool massStorageReset();
+    enum MassStorageRequests
+    {
+        MassStorageRequest =
+            UsbRequestType::Class | UsbRequestRecipient::Interface,
 
-        enum MassStorageRequests
-        {
-            MassStorageRequest  = UsbRequestType::Class | UsbRequestRecipient::Interface,
+        MassStorageReset = 0xFF,
+        MassStorageGetMaxLUN = 0xFE
+    };
 
-            MassStorageReset    = 0xFF,
-            MassStorageGetMaxLUN= 0xFE
-        };
+    enum MassStorageSigs
+    {
+        CbwSig = HOST_TO_LITTLE32(0x43425355),  // USBC
+        CswSig = HOST_TO_LITTLE32(0x53425355)   // USBS
+    };
 
-        enum MassStorageSigs
-        {
-            CbwSig = HOST_TO_LITTLE32(0x43425355),  // USBC
-            CswSig = HOST_TO_LITTLE32(0x53425355)   // USBS
-        };
+    struct Cbw
+    {
+        uint32_t nSig;
+        uint32_t nTag;
+        uint32_t nDataBytes;
+        uint8_t nFlags;
+        uint8_t nLUN;
+        uint8_t nCommandSize;
+        uint8_t pCommand[16];
+    } PACKED;
 
-        struct Cbw {
-            uint32_t nSig;
-            uint32_t nTag;
-            uint32_t nDataBytes;
-            uint8_t nFlags;
-            uint8_t nLUN;
-            uint8_t nCommandSize;
-            uint8_t pCommand[16];
-        } PACKED;
+    struct Csw
+    {
+        uint32_t nSig;
+        uint32_t nTag;
+        uint32_t nResidue;
+        uint8_t nStatus;
+    } PACKED;
 
-        struct Csw {
-            uint32_t nSig;
-            uint32_t nTag;
-            uint32_t nResidue;
-            uint8_t nStatus;
-        } PACKED;
-
-        size_t m_nUnits;
-        Endpoint *m_pInEndpoint;
-        Endpoint *m_pOutEndpoint;
+    size_t m_nUnits;
+    Endpoint *m_pInEndpoint;
+    Endpoint *m_pOutEndpoint;
 
     protected:
-
-        virtual size_t getNumUnits()
-        {
-            return m_nUnits;
-        }
+    virtual size_t getNumUnits()
+    {
+        return m_nUnits;
+    }
 };
 
 #endif

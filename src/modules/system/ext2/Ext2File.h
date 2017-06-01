@@ -20,23 +20,25 @@
 #ifndef EXT2_FILE_H
 #define EXT2_FILE_H
 
-#include "ext2.h"
-#include "Ext2Node.h"
-#include <vfs/File.h>
-#include <utilities/Vector.h>
 #include "Ext2Filesystem.h"
+#include "Ext2Node.h"
+#include "ext2.h"
+#include <utilities/Vector.h>
+#include <vfs/File.h>
 
 /** A File is a file, a directory or a symlink. */
 class Ext2File : public File, public Ext2Node
 {
-private:
+    private:
     /** Copy constructors are hidden - unused! */
     Ext2File(const Ext2File &file);
-    Ext2File& operator =(const Ext2File&);
-public:
+    Ext2File &operator=(const Ext2File &);
+
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    Ext2File(const String &name, uintptr_t inode_num, Inode *inode,
-             class Ext2Filesystem *pFs, File *pParent = 0);
+    Ext2File(
+        const String &name, uintptr_t inode_num, Inode *inode,
+        class Ext2Filesystem *pFs, File *pParent = 0);
     /** Destructor */
     virtual ~Ext2File();
 

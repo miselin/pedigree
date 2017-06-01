@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,9 +21,9 @@
 #define KERNEL_PROCESSOR_MIPS32_INTERRUPTMANAGER_H
 
 #include <compiler.h>
-#include <processor/types.h>
-#include <processor/SyscallManager.h>
 #include <processor/InterruptManager.h>
+#include <processor/SyscallManager.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorMIPS32
  * @{ */
@@ -33,34 +32,42 @@
 class MIPS32InterruptManager : public ::InterruptManager,
                                public ::SyscallManager
 {
-  public:
+    public:
     /** Get the MIPS32InterruptManager class instance
      *\return instance of the MIPS32InterruptManager class */
-    inline static MIPS32InterruptManager &instance(){return m_Instance;}
+    inline static MIPS32InterruptManager &instance()
+    {
+        return m_Instance;
+    }
 
     // InterruptManager Interface
-    virtual bool registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
-    // Specific to MIPS, all external interrupts are vectored differently. IRQs are vectored in a different manner too.
-    virtual bool registerExternalInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
-  
+    virtual bool
+    registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
+    // Specific to MIPS, all external interrupts are vectored differently. IRQs
+    // are vectored in a different manner too.
+    virtual bool registerExternalInterruptHandler(
+        size_t interruptNumber, InterruptHandler *handler);
 
 #ifdef DEBUGGER
-    virtual bool registerInterruptHandlerDebugger(size_t interruptNumber, InterruptHandler *handler);
+    virtual bool registerInterruptHandlerDebugger(
+        size_t interruptNumber, InterruptHandler *handler);
     virtual size_t getBreakpointInterruptNumber() PURE;
     virtual size_t getDebugInterruptNumber() PURE;
 #endif
 
     // SyscallManager Interface
-    virtual bool registerSyscallHandler(Service_t Service, SyscallHandler *handler);
+    virtual bool
+    registerSyscallHandler(Service_t Service, SyscallHandler *handler);
 
     /** Initialises this processors IDTR
      *\note This should only be called from initialiseProcessor()
      *\todo and some smp/acpi function */
     static void initialiseProcessor();
 
-  private:
+    private:
     /** Called when an interrupt was triggered
-     *\param[in] interruptState reference to the usermode/kernel state before the interrupt */
+     *\param[in] interruptState reference to the usermode/kernel state before
+     *the interrupt */
     static void interrupt(InterruptState &interruptState);
     /** The constructor */
     MIPS32InterruptManager();
@@ -69,7 +76,7 @@ class MIPS32InterruptManager : public ::InterruptManager,
     MIPS32InterruptManager(const MIPS32InterruptManager &);
     /** Assignment operator
      *\note NOT implemented */
-    MIPS32InterruptManager &operator = (const MIPS32InterruptManager &);
+    MIPS32InterruptManager &operator=(const MIPS32InterruptManager &);
     /** The destructor */
     virtual ~MIPS32InterruptManager();
 

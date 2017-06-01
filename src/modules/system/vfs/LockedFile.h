@@ -20,10 +20,10 @@
 #ifndef LOCKED_FILE_H
 #define LOCKED_FILE_H
 
-#include <processor/types.h>
-#include <process/Scheduler.h>
-#include <process/Mutex.h>
 #include <Log.h>
+#include <process/Mutex.h>
+#include <process/Scheduler.h>
+#include <processor/types.h>
 
 #include "File.h"
 
@@ -33,8 +33,7 @@
  */
 class LockedFile
 {
-public:
-
+    public:
     /** Standard wrapper constructor */
     LockedFile(File *pFile);
 
@@ -43,7 +42,7 @@ public:
 
     /** Operator = */
     /// \todo Write me!
-    LockedFile & operator = (const LockedFile& c);
+    LockedFile &operator=(const LockedFile &c);
 
     /** Attempts to obtain the lock (exclusively) */
     bool lock(bool bBlock = false);
@@ -60,8 +59,7 @@ public:
     /** Who's locking the file? */
     size_t getLocker();
 
-private:
-
+    private:
     /** Default constructor, not to be used */
     LockedFile();
 
@@ -76,7 +74,7 @@ private:
     /** Locker PID */
     size_t m_LockerPid;
 
-    /** Our lock */
+/** Our lock */
 #ifdef THREADS
     Mutex m_Lock;
 #endif

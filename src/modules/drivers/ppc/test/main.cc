@@ -18,27 +18,27 @@
  */
 
 #include "../../../system/kernel/core/BootIO.h"
-#include <utilities/StaticString.h>
 #include <Log.h>
 #include <Module.h>
+#include <utilities/StaticString.h>
 
 extern BootIO bootIO;
 
 bool entry()
 {
- HugeStaticString str;
- str += "Module is teh loadzor!";
- bootIO.write(str, BootIO::Blue, BootIO::White);
- return false;
+    HugeStaticString str;
+    str += "Module is teh loadzor!";
+    bootIO.write(str, BootIO::Blue, BootIO::White);
+    return false;
 }
 
 void ex()
 {
- HugeStaticString str;
- str += "Module is teh exit0r!";
- bootIO.write(str, BootIO::Blue, BootIO::White);
+    HugeStaticString str;
+    str += "Module is teh exit0r!";
+    bootIO.write(str, BootIO::Blue, BootIO::White);
 }
 
 const char *g_pModuleName = "test";
 ModuleEntry g_pModuleEntry = &entry;
-ModuleExit  g_pModuleExit  = &ex;
+ModuleExit g_pModuleExit = &ex;

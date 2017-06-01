@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
+#include "PedigreeCSyscallManager.h"
 #include <Log.h>
-#include <processor/Processor.h>
+#include <Module.h>
 #include <process/Process.h>
 #include <process/Scheduler.h>
-#include "PedigreeCSyscallManager.h"
+#include <processor/Processor.h>
 
 static PedigreeCSyscallManager g_PedigreeCSyscallManager;
 

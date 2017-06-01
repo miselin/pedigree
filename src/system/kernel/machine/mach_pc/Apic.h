@@ -28,33 +28,40 @@
 /** @addtogroup kernelmachinex86common
  * @{ */
 
-/** The x86/x64 advanced programmable interrupt controller architecture as IrqManager */
+/** The x86/x64 advanced programmable interrupt controller architecture as
+ * IrqManager */
 class Apic : public IrqManager
 {
-  public:
+    public:
     /** The default constructor */
-    inline Apic(){}
+    inline Apic()
+    {
+    }
     /** The destructor */
-    inline virtual ~Apic(){}
+    inline virtual ~Apic()
+    {
+    }
 
     //
     // IrqManager interface
     //
-    virtual irq_id_t registerIsaIrqHandler(uint8_t, IrqHandler *handler, bool bEdge = false);
-    virtual irq_id_t registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
+    virtual irq_id_t
+    registerIsaIrqHandler(uint8_t, IrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t
+    registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
     virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
     virtual void enable(irq_id_t Id, bool bEnable);
 
     bool initialise() INITIALISATION_ONLY;
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     Apic(const Apic &);
     /** The assignment operator
      *\note NOT implemented */
-    Apic &operator = (const Apic &);
+    Apic &operator=(const Apic &);
 
     /** The Apic instance */
     static Apic m_Instance;

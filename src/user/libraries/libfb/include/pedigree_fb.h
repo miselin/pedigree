@@ -37,63 +37,63 @@
 class Framebuffer
 {
     public:
-        Framebuffer();
-        virtual ~Framebuffer();
+    Framebuffer();
+    virtual ~Framebuffer();
 
-        /** General system-specific initialisation. */
-        bool initialise();
+    /** General system-specific initialisation. */
+    bool initialise();
 
-        /** Store current mode (before switching). */
-        void storeMode();
+    /** Store current mode (before switching). */
+    void storeMode();
 
-        /** Restore saved mode. */
-        void restoreMode();
+    /** Restore saved mode. */
+    void restoreMode();
 
-        /** Create framebuffer, enter desired mode. */
-        int enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp);
+    /** Create framebuffer, enter desired mode. */
+    int enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp);
 
-        /** Retrieve base address of the framebuffer. */
-        void *getFramebuffer() const
-        {
-            return m_pFramebuffer;
-        }
+    /** Retrieve base address of the framebuffer. */
+    void *getFramebuffer() const
+    {
+        return m_pFramebuffer;
+    }
 
-        /** Flush framebuffer in the given region. */
-        void flush(size_t x, size_t y, size_t w, size_t h);
+    /** Flush framebuffer in the given region. */
+    void flush(size_t x, size_t y, size_t w, size_t h);
 
-        /** Get framebuffer colour format. */
-        cairo_format_t getFormat() const
-        {
-            return m_Format;
-        }
+    /** Get framebuffer colour format. */
+    cairo_format_t getFormat() const
+    {
+        return m_Format;
+    }
 
-        /** Get framebuffer dimensions. */
-        size_t getWidth() const
-        {
-            return m_Width;
-        }
-        size_t getHeight() const
-        {
-            return m_Height;
-        }
+    /** Get framebuffer dimensions. */
+    size_t getWidth() const
+    {
+        return m_Width;
+    }
+    size_t getHeight() const
+    {
+        return m_Height;
+    }
 
     private:
-        void *m_pFramebuffer;
-        size_t m_FramebufferSize;
+    void *m_pFramebuffer;
+    size_t m_FramebufferSize;
 
-        cairo_format_t m_Format;
+    cairo_format_t m_Format;
 
-        size_t m_Width;
-        size_t m_Height;
+    size_t m_Width;
+    size_t m_Height;
 
 #ifdef TARGET_LINUX
-        SDL_Surface *m_pScreen;
-        SDL_Surface *m_pBackbuffer;
+    SDL_Surface *m_pScreen;
+    SDL_Surface *m_pBackbuffer;
 #else
-        int m_Fb;
+    int m_Fb;
 
-        bool m_bStoredMode;
-        pedigree_fb_mode m_StoredMode;
+    bool m_bStoredMode;
+    pedigree_fb_mode m_StoredMode;
 #endif
 };
 

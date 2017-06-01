@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,13 +18,12 @@
  */
 
 #include "StepCommand.h"
-#include <Log.h>
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
+#include <Log.h>
 #include <processor/Processor.h>
+#include <utilities/utility.h>
 
-StepCommand::StepCommand()
-  : DebuggerCommand()
+StepCommand::StepCommand() : DebuggerCommand()
 {
 }
 
@@ -33,16 +31,16 @@ StepCommand::~StepCommand()
 {
 }
 
-void StepCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void StepCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool StepCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool StepCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
-  // Single step.
-  Processor::setSingleStep(true, state);
-  return false; // Return control to the kernel.
+    // Single step.
+    Processor::setSingleStep(true, state);
+    return false;  // Return control to the kernel.
 }
-
-
-

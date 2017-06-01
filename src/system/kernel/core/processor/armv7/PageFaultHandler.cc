@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
 #include <Debugger.h>
-#include <processor/PageFaultHandler.h>
-#include <process/Scheduler.h>
+#include <Log.h>
 #include <panic.h>
+#include <process/Scheduler.h>
+#include <processor/PageFaultHandler.h>
 #include <processor/PhysicalMemoryManager.h>
 
 /// \todo Implement
@@ -38,7 +37,6 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
 {
 }
 
-PageFaultHandler::PageFaultHandler() :
-    m_Handlers()
+PageFaultHandler::PageFaultHandler() : m_Handlers()
 {
 }

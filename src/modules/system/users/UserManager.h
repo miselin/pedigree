@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,46 +20,51 @@
 #include <processor/types.h>
 #include <utilities/Tree.h>
 
-#include "User.h"
 #include "Group.h"
+#include "User.h"
 
 /** The user manager - this allows lookups of users and groups, and also
     parses the initial file "root:/config/users". */
 class UserManager
 {
-public:
-  /** Get the singleton instance. */
-  static UserManager &instance() {return m_Instance;}
+    public:
+    /** Get the singleton instance. */
+    static UserManager &instance()
+    {
+        return m_Instance;
+    }
 
-  /** Reads in the file "root:/config/users". */
-  void initialise();
+    /** Reads in the file "root:/config/users". */
+    void initialise();
 
-  /** Look up a user by ID. */
-  User *getUser(size_t id);
-  /** Look up a user by name. */
-  User *getUser(String name);
+    /** Look up a user by ID. */
+    User *getUser(size_t id);
+    /** Look up a user by name. */
+    User *getUser(String name);
 
-  /** Look up a group by ID. */
-  Group *getGroup(size_t id);
-  /** Look up a group by name. */
-  Group *getGroup(String name);
+    /** Look up a group by ID. */
+    Group *getGroup(size_t id);
+    /** Look up a group by name. */
+    Group *getGroup(String name);
 
-private:
-  /** Singleton class - default constructor hidden. */
-  UserManager();
-  ~UserManager();
-  UserManager(const UserManager&);
-  UserManager &operator = (const UserManager&);
+    private:
+    /** Singleton class - default constructor hidden. */
+    UserManager();
+    ~UserManager();
+    UserManager(const UserManager &);
+    UserManager &operator=(const UserManager &);
 
-  void initialiseUsers();
-  void initialiseGroups();
-  void addUser(size_t uid, String username, String fullName, String group, String home, String shell, String password);
-  void addGroup(size_t gid, String name);
+    void initialiseUsers();
+    void initialiseGroups();
+    void addUser(
+        size_t uid, String username, String fullName, String group, String home,
+        String shell, String password);
+    void addGroup(size_t gid, String name);
 
-  /** Dictionary of users, indexed by ID. */
-  Tree<size_t, User*> m_Users;
-  /** Dictionary of groups, indexed by ID. */
-  Tree<size_t, Group*> m_Groups;
+    /** Dictionary of users, indexed by ID. */
+    Tree<size_t, User *> m_Users;
+    /** Dictionary of groups, indexed by ID. */
+    Tree<size_t, Group *> m_Groups;
 
-  static UserManager m_Instance;
+    static UserManager m_Instance;
 };

@@ -20,18 +20,18 @@
 #ifndef CACHE_H
 #define CACHE_H
 
-#include <processor/types.h>
-#include <utilities/MemoryAllocator.h>
-#include <utilities/UnlikelyLock.h>
-#include <utilities/Tree.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/BloomFilter.h>
 #include <Spinlock.h>
+#include <processor/types.h>
+#include <utilities/BloomFilter.h>
+#include <utilities/MemoryAllocator.h>
+#include <utilities/RequestQueue.h>
+#include <utilities/Tree.h>
+#include <utilities/UnlikelyLock.h>
 
 #include <machine/TimerHandler.h>
 
-#include <processor/PhysicalMemoryManager.h>
 #include <process/MemoryPressureManager.h>
+#include <processor/PhysicalMemoryManager.h>
 
 #include <utilities/CacheConstants.h>
 
@@ -53,64 +53,65 @@ class Cache;
 class CacheManager : public TimerHandler, public RequestQueue
 {
     public:
-        CacheManager();
-        virtual ~CacheManager();
+    CacheManager();
+    virtual ~CacheManager();
 
-        static CacheManager &instance()
-        {
-            return m_Instance;
-        }
+    static CacheManager &instance()
+    {
+        return m_Instance;
+    }
 
-        void initialise();
+    void initialise();
 
-        void registerCache(Cache *pCache);
-        void unregisterCache(Cache *pCache);
+    void registerCache(Cache *pCache);
+    void unregisterCache(Cache *pCache);
 
-        /**
-         * Trim each cache we know about until 'count' pages have been evicted.
-         */
-        bool trimAll(size_t count = 1);
+    /**
+     * Trim each cache we know about until 'count' pages have been evicted.
+     */
+    bool trimAll(size_t count = 1);
 
-        virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void timer(uint64_t delta, InterruptState &state);
 
 #ifdef THREADS
-        void trimThread();
+    void trimThread();
 #endif
 
     private:
-        /**
-         * RequestQueue doer - children give us new jobs, and we call out to
-         * them when they hit the front of the queue.
-         */
-        virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                uint64_t p6, uint64_t p7, uint64_t p8);
+    /**
+     * RequestQueue doer - children give us new jobs, and we call out to
+     * them when they hit the front of the queue.
+     */
+    virtual uint64_t executeRequest(
+        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+        uint64_t p6, uint64_t p7, uint64_t p8);
 
-        /**
-         * Used to ensure we only ever fire a WriteBack for the same page once -
-         * that is, we don't constantly write back the same page over and over
-         * while it's still queued.
-         */
-        virtual bool compareRequests(const Request &a, const Request &b)
-        {
-            // p2 = CallbackCause, p3 = key in m_Pages
-            return (a.p2 == b.p2) && (a.p3 == b.p3);
-        }
+    /**
+     * Used to ensure we only ever fire a WriteBack for the same page once -
+     * that is, we don't constantly write back the same page over and over
+     * while it's still queued.
+     */
+    virtual bool compareRequests(const Request &a, const Request &b)
+    {
+        // p2 = CallbackCause, p3 = key in m_Pages
+        return (a.p2 == b.p2) && (a.p3 == b.p3);
+    }
 
-        static CacheManager m_Instance;
+    static CacheManager m_Instance;
 
-        List<Cache*> m_Caches;
+    List<Cache *> m_Caches;
 
 #ifdef THREADS
-        Thread *m_pTrimThread;
+    Thread *m_pTrimThread;
 #endif
 
-        bool m_bActive;
+    bool m_bActive;
 };
 
 /** Provides an abstraction of a data cache. */
 class Cache
 {
-private:
+    private:
     struct CachePage
     {
         /// Key for this page.
@@ -156,7 +157,7 @@ private:
         bool checkZeroChecksum() const;
     };
 
-public:
+    public:
     /**
      * Callback type: for functions called by the write-back timer handler.
      *
@@ -167,7 +168,9 @@ public:
      *
      * Then, the write-back thread will mark the page as not-dirty.
      */
-    typedef void (*writeback_t)(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page, void *meta);
+    typedef void (*writeback_t)(
+        CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+        void *meta);
 
     Cache();
     virtual ~Cache();
@@ -176,7 +179,7 @@ public:
     void setCallback(writeback_t newCallback, void *meta);
 
     /** Looks for \p key , increasing \c refcnt by one if returned. */
-    uintptr_t lookup (uintptr_t key);
+    uintptr_t lookup(uintptr_t key);
 
     /**
      * Creates a cache entry with the given key.
@@ -184,13 +187,13 @@ public:
      * The new entry will already be marked as being edited, and so won't be
      * written back until the inserter calls markNoLongerEditing again.
      */
-    uintptr_t insert (uintptr_t key);
+    uintptr_t insert(uintptr_t key);
 
     /** Creates a bunch of cache entries to fill a specific size. Note that
      *  this is just a monster allocation of a virtual address - the physical
      *  pages are NOT CONTIGUOUS.
      */
-    uintptr_t insert (uintptr_t key, size_t size);
+    uintptr_t insert(uintptr_t key, size_t size);
 
     /** Checks if the entire range specified exists in the cache. */
     bool exists(uintptr_t key, size_t length);
@@ -201,7 +204,7 @@ public:
      * This will respect the refcount of the given key, so as to make pin()
      * exhibit more reliable behaviour.
      */
-    bool evict (uintptr_t key);
+    bool evict(uintptr_t key);
 
     /**
      * Empties the cache.
@@ -258,9 +261,9 @@ public:
      * permit write back callbacks to be fired (aside from as a side effect
      * of eviction) until the section has been left.
      *
-     * This is especially useful for an 'insert then read into buffer' operation,
-     * which can cause a writeback in the middle of reading (when nothing has
-     * actually changed at all).
+     * This is especially useful for an 'insert then read into buffer'
+     * operation, which can cause a writeback in the middle of reading (when
+     * nothing has actually changed at all).
      */
     void startAtomic()
     {
@@ -284,14 +287,14 @@ public:
      * asynchronously. After that point, normal checksum-based writebacks take
      * place.
      */
-    void markEditing(uintptr_t key, size_t length=0);
+    void markEditing(uintptr_t key, size_t length = 0);
 
     /**
      * Mark the given page as no longer being edited.
      */
-    void markNoLongerEditing(uintptr_t key, size_t length=0);
+    void markNoLongerEditing(uintptr_t key, size_t length = 0);
 
-private:
+    private:
     /** mapping doer */
     bool map(uintptr_t virt) const;
 
@@ -350,7 +353,7 @@ private:
         UnlikelyLock *cacheLock;
     };
 
-public:
+    public:
     /**
      * Cache timer handler.
      *
@@ -363,12 +366,13 @@ public:
     /**
      * RequestQueue doer, called by the CacheManager instance.
      */
-    virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-            uint64_t p6, uint64_t p7, uint64_t p8);
+    virtual uint64_t executeRequest(
+        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+        uint64_t p6, uint64_t p7, uint64_t p8);
 
-private:
+    private:
     /** Key-item pairs. */
-    Tree<uintptr_t, CachePage*> m_Pages;
+    Tree<uintptr_t, CachePage *> m_Pages;
 
     /** Bloom filter for lookups into m_Pages. */
     BloomFilter<uintptr_t> m_PageFilter;
@@ -379,7 +383,8 @@ private:
     CachePage *m_pLruHead;
     CachePage *m_pLruTail;
 
-    /** Static MemoryAllocator to allocate virtual address space for all caches. */
+    /** Static MemoryAllocator to allocate virtual address space for all caches.
+     */
     static MemoryAllocator m_Allocator;
 
     /** Lock for using the allocator. */
@@ -391,7 +396,8 @@ private:
     /** Callback to be called in the write-back timer handler. */
     writeback_t m_Callback;
 
-    /** Timer interface: number of nanoseconds counted so far in the timer handler. */
+    /** Timer interface: number of nanoseconds counted so far in the timer
+     * handler. */
     uint64_t m_Nanoseconds;
 
     /** Metadata to pass to a callback. */
@@ -414,11 +420,11 @@ private:
  */
 class CachePageGuard
 {
-public:
+    public:
     CachePageGuard(Cache &cache, uintptr_t location);
     virtual ~CachePageGuard();
 
-private:
+    private:
     Cache &m_Cache;
     uintptr_t m_Location;
 };

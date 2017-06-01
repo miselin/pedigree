@@ -17,17 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/types.h>
+#include <Log.h>
 #include <processor/Processor.h>
 #include <processor/hosted/ProcessorInformation.h>
 #include <processor/hosted/VirtualAddressSpace.h>
-#include <Log.h>
+#include <processor/types.h>
 
-namespace __pedigree_hosted {};
+namespace __pedigree_hosted
+{
+};
 using namespace __pedigree_hosted;
 
-#include <signal.h>
 #include <errno.h>
+#include <signal.h>
 
 extern void *safe_stack_top;
 
@@ -41,12 +43,14 @@ extern void *safe_stack_top;
  */
 static bool trickSigaltstack(uintptr_t stack, stack_t *p)
 {
-    if(!stack)
+    if (!stack)
     {
         stack = reinterpret_cast<uintptr_t>(&safe_stack_top);
     }
 
-    int r = callOnStack(stack, reinterpret_cast<uintptr_t>(sigaltstack), reinterpret_cast<uintptr_t>(p));
+    int r = callOnStack(
+        stack, reinterpret_cast<uintptr_t>(sigaltstack),
+        reinterpret_cast<uintptr_t>(p));
     if (r < 0)
     {
         WARNING("sigaltstack failed to set new stack");
@@ -60,7 +64,7 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
 {
     if (stack)
     {
-        void *new_sp = reinterpret_cast<void*>(stack - KERNEL_STACK_SIZE);
+        void *new_sp = reinterpret_cast<void *>(stack - KERNEL_STACK_SIZE);
         stack_t s;
         sigaltstack(0, &s);
         if (s.ss_sp != new_sp)
@@ -74,7 +78,6 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
                 trickSigaltstack(stack, &s);
             }
         }
-
     }
     else if (!stack)
     {
@@ -93,5 +96,5 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
 
 uintptr_t HostedProcessorInformation::getKernelStack() const
 {
-  return m_KernelStack;
+    return m_KernelStack;
 }

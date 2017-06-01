@@ -20,8 +20,8 @@
 #ifndef KERNEL_PROCESSOR_MEMORYREGION_H
 #define KERNEL_PROCESSOR_MEMORYREGION_H
 
-#include <processor/types.h>
 #include <processor/PhysicalMemoryManager.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessor
  * @{ */
@@ -34,65 +34,79 @@
  *\brief Special memory entity in the kernel's virtual address space */
 class MemoryRegion
 {
-  /** X86CommonPhysicalMemoryManager needs access to MemoryRegion's members */
-  friend class X86CommonPhysicalMemoryManager;
-  /** As does PpcCommonPhysicalMemoryManager. */
-  friend class PpcCommonPhysicalMemoryManager;
-  /** As does ArmV7PhysicalMemoryManager. */
-  friend class ArmV7PhysicalMemoryManager;
-  /** As does HostedPhysicalMemoryManager. */
-  friend class HostedPhysicalMemoryManager;
-  public:
+    /** X86CommonPhysicalMemoryManager needs access to MemoryRegion's members */
+    friend class X86CommonPhysicalMemoryManager;
+    /** As does PpcCommonPhysicalMemoryManager. */
+    friend class PpcCommonPhysicalMemoryManager;
+    /** As does ArmV7PhysicalMemoryManager. */
+    friend class ArmV7PhysicalMemoryManager;
+    /** As does HostedPhysicalMemoryManager. */
+    friend class HostedPhysicalMemoryManager;
+
+    public:
     /** The default constructor does nothing  */
     inline MemoryRegion(const char *pName)
-        : m_VirtualAddress(0),m_PhysicalAddress(0), m_Size(0), m_pName(pName), m_bNonRamMemory(false), m_bForced(false) {}
+        : m_VirtualAddress(0), m_PhysicalAddress(0), m_Size(0), m_pName(pName),
+          m_bNonRamMemory(false), m_bForced(false)
+    {
+    }
     /** The destructor unregisters itself from the PMM. */
-    inline virtual ~MemoryRegion() {PhysicalMemoryManager::instance().unmapRegion(this);}
+    inline virtual ~MemoryRegion()
+    {
+        PhysicalMemoryManager::instance().unmapRegion(this);
+    }
 
-    void free() {PhysicalMemoryManager::instance().unmapRegion(this);}
+    void free()
+    {
+        PhysicalMemoryManager::instance().unmapRegion(this);
+    }
 
     /** Get the address of the beginning of the MemoryRegion in the virtual
      *  address space
-     *\return pointer to the beginning of the MemoryRegion (in the virtual address space) */
+     *\return pointer to the beginning of the MemoryRegion (in the virtual
+     *address space) */
     inline void *virtualAddress() const
     {
-      return m_VirtualAddress;
+        return m_VirtualAddress;
     }
     /** Get the physical address of the beginning of the MemoryRegion
-     *\return pointer to the beginning of the MemoryRegion (in the physical address space) */
+     *\return pointer to the beginning of the MemoryRegion (in the physical
+     *address space) */
     inline physical_uintptr_t physicalAddress() const
     {
-      return m_PhysicalAddress;
+        return m_PhysicalAddress;
     }
     /** Get the size of the MemoryRegion
      *\return size of the MemoryRegion in bytes */
     inline size_t size() const
     {
-      return m_Size;
+        return m_Size;
     }
     /** Get the name of the memory-region
      *\return pointer to the name of the memory-region */
     inline const char *name() const
     {
-      return m_pName;
+        return m_pName;
     }
 
     inline operator bool() const
     {
-      return (m_Size != 0);
+        return (m_Size != 0);
     }
 
     inline bool physicalBoundsCheck(physical_uintptr_t address)
     {
-      if (address >= m_PhysicalAddress &&
-          address < (m_PhysicalAddress + m_Size))
-        return true;
-      return false;
+        if (address >= m_PhysicalAddress &&
+            address < (m_PhysicalAddress + m_Size))
+            return true;
+        return false;
     }
-    template<typename T>
+    template <typename T>
     inline T *convertPhysicalPointer(physical_uintptr_t address)
     {
-      return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(m_VirtualAddress) + (address - m_PhysicalAddress));
+        return reinterpret_cast<T *>(
+            reinterpret_cast<uintptr_t>(m_VirtualAddress) +
+            (address - m_PhysicalAddress));
     }
 
     void setNonRamMemory(bool b)
@@ -112,13 +126,13 @@ class MemoryRegion
         return m_bForced;
     }
 
-  private:
+    private:
     /** The copy-constructor
      *\note Not implemented */
     MemoryRegion(const MemoryRegion &);
     /** The copy-constructor
      *\note Not implemented */
-    MemoryRegion &operator = (const MemoryRegion &);
+    MemoryRegion &operator=(const MemoryRegion &);
 
     /** Pointer to the beginning of the memory region in the virtual address
      *  space. */

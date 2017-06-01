@@ -20,8 +20,8 @@
 #ifndef SERVICE_H
 #define SERVICE_H
 
-#include <processor/types.h>
 #include <ServiceFeatures.h>
+#include <processor/types.h>
 
 /// \todo Integrate with the Event system somehow
 
@@ -38,11 +38,16 @@
 class Service
 {
     public:
-        Service() {}
-        virtual ~Service() {}
+    Service()
+    {
+    }
+    virtual ~Service()
+    {
+    }
 
-        /** serve: Interface through which clients interact with the Service */
-        virtual bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen) = 0;
+    /** serve: Interface through which clients interact with the Service */
+    virtual bool
+    serve(ServiceFeatures::Type type, void *pData, size_t dataLen) = 0;
 };
 
 #endif

@@ -25,10 +25,10 @@
 
 #include <Log.h>
 
-#include <vfs/Filesystem.h>
+#include <utilities/ExtensibleBitmap.h>
 #include <vfs/Directory.h>
 #include <vfs/File.h>
-#include <utilities/ExtensibleBitmap.h>
+#include <vfs/Filesystem.h>
 
 class ProcFs;
 class ProcFsDirectory;
@@ -38,135 +38,164 @@ class PosixProcess;
 class MeminfoFile : public File
 {
     public:
-        MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent);
-        ~MeminfoFile();
+    MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent);
+    ~MeminfoFile();
 
-        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-        virtual size_t getSize();
+    virtual size_t getSize();
 
-        static int run(void *p);
+    static int run(void *p);
 
-        void updateThread();
+    void updateThread();
 
     private:
-        Thread *m_pUpdateThread;
-        bool m_bRunning;
-        String m_Contents;
-        Mutex m_Lock;
+    Thread *m_pUpdateThread;
+    bool m_bRunning;
+    String m_Contents;
+    Mutex m_Lock;
 };
 
 class MountFile : public File
 {
     public:
-        MountFile(size_t inode, Filesystem *pParentFS, File *pParent);
-        ~MountFile();
+    MountFile(size_t inode, Filesystem *pParentFS, File *pParent);
+    ~MountFile();
 
-        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-        virtual size_t getSize();
+    virtual size_t getSize();
 };
 
 class UptimeFile : public File
 {
     public:
-        UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent);
-        ~UptimeFile();
+    UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent);
+    ~UptimeFile();
 
-        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-        virtual size_t getSize();
+    virtual size_t getSize();
 
     private:
-        String generateString();
+    String generateString();
 };
 
 class ConstantFile : public File
 {
     public:
-        ConstantFile(String name, String value, size_t inode, Filesystem *pParentFS, File *pParent);
-        ~ConstantFile();
+    ConstantFile(
+        String name, String value, size_t inode, Filesystem *pParentFS,
+        File *pParent);
+    ~ConstantFile();
 
-        uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-        uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-        virtual size_t getSize();
+    virtual size_t getSize();
 
     private:
-        String m_Contents;
+    String m_Contents;
 };
 
-/** This class provides slightly more flexibility for adding files to a directory. */
+/** This class provides slightly more flexibility for adding files to a
+ * directory. */
 class ProcFsDirectory : public Directory
 {
     public:
-        ProcFsDirectory(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-            uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent) :
-            Directory(name, accessedTime, modifiedTime, creationTime, inode,
-                pFs, size, pParent)
-        {
-        }
+    ProcFsDirectory(
+        String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+        Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
+        size_t size, File *pParent)
+        : Directory(
+              name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
+              pParent)
+    {
+    }
 
-        virtual ~ProcFsDirectory()
-        {
-        }
+    virtual ~ProcFsDirectory()
+    {
+    }
 
-        void addEntry(String name, File *pFile)
-        {
-            addDirectoryEntry(name, pFile);
-        }
+    void addEntry(String name, File *pFile)
+    {
+        addDirectoryEntry(name, pFile);
+    }
 };
 
 /** This class provides /dev */
 class ProcFs : public Filesystem
 {
-public:
-  ProcFs() : m_pRoot(0)
-  {
-  }
+    public:
+    ProcFs() : m_pRoot(0)
+    {
+    }
 
-  virtual ~ProcFs();
+    virtual ~ProcFs();
 
-  virtual bool initialise(Disk *pDisk);
+    virtual bool initialise(Disk *pDisk);
 
-  virtual File* getRoot()
-  {
-    return m_pRoot;
-  }
-  virtual String getVolumeLabel()
-  {
-    return String("proc");
-  }
+    virtual File *getRoot()
+    {
+        return m_pRoot;
+    }
+    virtual String getVolumeLabel()
+    {
+        return String("proc");
+    }
 
-  virtual size_t getNextInode();
-  virtual void revertInode();
+    virtual size_t getNextInode();
+    virtual void revertInode();
 
-  void addProcess(PosixProcess *proc);
-  void removeProcess(PosixProcess *proc);
+    void addProcess(PosixProcess *proc);
+    void removeProcess(PosixProcess *proc);
 
-protected:
-  virtual bool createFile(File* parent, String filename, uint32_t mask)
-  {return false;}
-  virtual bool createDirectory(File* parent, String filename, uint32_t mask)
-  {return false;}
-  virtual bool createSymlink(File* parent, String filename, String value)
-  {return false;}
-  virtual bool remove(File* parent, File* file)
-  {return false;}
+    protected:
+    virtual bool createFile(File *parent, String filename, uint32_t mask)
+    {
+        return false;
+    }
+    virtual bool createDirectory(File *parent, String filename, uint32_t mask)
+    {
+        return false;
+    }
+    virtual bool createSymlink(File *parent, String filename, String value)
+    {
+        return false;
+    }
+    virtual bool remove(File *parent, File *file)
+    {
+        return false;
+    }
 
-private:
+    private:
+    ProcFs(const ProcFs &);
+    ProcFs &operator=(const ProcFs &);
 
-  ProcFs(const ProcFs &);
-  ProcFs &operator = (const ProcFs &);
+    ProcFsDirectory *m_pRoot;
 
-  ProcFsDirectory *m_pRoot;
+    Tree<size_t, ProcFsDirectory *> m_pProcessDirectories;
 
-  Tree<size_t, ProcFsDirectory *> m_pProcessDirectories;
-
-  size_t m_NextInode;
+    size_t m_NextInode;
 };
 
 #endif  // PROCFS_H

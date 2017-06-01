@@ -20,15 +20,15 @@
 #ifndef KERNEL_PROCESSOR_X64_UTILS_H
 #define KERNEL_PROCESSOR_X64_UTILS_H
 
-#include <processor/types.h>
 #include <compiler.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorx64
  * @{ */
 
 inline uintptr_t physicalAddress(physical_uintptr_t address) PURE;
 
-template<typename T>
+template <typename T>
 inline T *physicalAddress(T *pAddress) PURE;
 
 /** Get the virtual address from the physical address. This is possible on x64
@@ -37,18 +37,19 @@ inline T *physicalAddress(T *pAddress) PURE;
  *\return the virtual address */
 inline uintptr_t physicalAddress(physical_uintptr_t address)
 {
-  // Implicit cast due to return data type - no need to specify the cast.
-  return address + 0xFFFF800000000000ULL;
+    // Implicit cast due to return data type - no need to specify the cast.
+    return address + 0xFFFF800000000000ULL;
 }
 
 /** Get the virtual address from the physical address. This is possible on x64
  *  because the whole physical memory is mapped into the virtual address space
  *\param[in] pAddress the physical address
  *\return the virtual address */
-template<typename T>
+template <typename T>
 inline T *physicalAddress(T *pAddress)
 {
-  return reinterpret_cast<T*>(reinterpret_cast<uint64_t>(pAddress) + 0xFFFF800000000000);
+    return reinterpret_cast<T *>(
+        reinterpret_cast<uint64_t>(pAddress) + 0xFFFF800000000000);
 }
 
 /** @} */

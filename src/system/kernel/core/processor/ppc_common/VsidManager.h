@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,8 @@
 #ifndef PPC_COMMON_VSIDMANAGER_H
 #define PPC_COMMON_VSIDMANAGER_H
 
-#include <processor/types.h>
 #include <process/Mutex.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorPPCCommon
  * @{ */
@@ -31,54 +30,55 @@
  * PPC has too many possible VSID's to do the same thing as MIPS' ASIDs,
  * so we have to box a little more cleverly.
  *
- * We have a pointer marking the 'high water mark' of the VSID's already allocated.
- * We also have a stack of VSIDs - when a VSID is released it is pushed onto
- * this stack to be reallocated. If the VSID released == the high water mark,
- * we don't push it and just decrement the high water mark instead.
- * 
- * When a VSID is required, we try and pop one off the stack first. If the stack is
- * empty, we increment the high water mark and return that.
+ * We have a pointer marking the 'high water mark' of the VSID's already
+ * allocated. We also have a stack of VSIDs - when a VSID is released it is
+ * pushed onto this stack to be reallocated. If the VSID released == the high
+ * water mark, we don't push it and just decrement the high water mark instead.
+ *
+ * When a VSID is required, we try and pop one off the stack first. If the stack
+ * is empty, we increment the high water mark and return that.
  */
 class VsidManager
 {
-public:
-  /** VSID typedef */
-  typedef uint32_t Vsid;
+    public:
+    /** VSID typedef */
+    typedef uint32_t Vsid;
 
-  /** Gets the instance of the VsidManager */
-  static VsidManager &instance();
+    /** Gets the instance of the VsidManager */
+    static VsidManager &instance();
 
-  /** Returns an VSID. The TLB is flushed of all references to that ASID. */
-  Vsid obtainVsid();
-  /** Takes an VSID. The given VSID is returned to the pool of usable VSIDs. */
-  void returnVsid(Vsid vsid);
+    /** Returns an VSID. The TLB is flushed of all references to that ASID. */
+    Vsid obtainVsid();
+    /** Takes an VSID. The given VSID is returned to the pool of usable VSIDs.
+     */
+    void returnVsid(Vsid vsid);
 
-private:
-  VsidManager(const VsidManager &);
-  VsidManager &operator = (const VsidManager &);
+    private:
+    VsidManager(const VsidManager &);
+    VsidManager &operator=(const VsidManager &);
 
-  /** Stack entry type */
-  struct VsidStack
-  {
-    Vsid vsid;
-    struct VsidStack *next;
-  };
-  /** Default constructor */
-  VsidManager();
-  /** Destructor - not implemented. */
-  ~VsidManager();
+    /** Stack entry type */
+    struct VsidStack
+    {
+        Vsid vsid;
+        struct VsidStack *next;
+    };
+    /** Default constructor */
+    VsidManager();
+    /** Destructor - not implemented. */
+    ~VsidManager();
 
-  /** Our 'high water mark' */
-  Vsid m_HighWaterMark;
-  
-  /** Our stack of useable VSIDs */
-  VsidStack *m_pStack;
+    /** Our 'high water mark' */
+    Vsid m_HighWaterMark;
 
-  /** Our lock, to protect the integrity of our data. */
-  Mutex m_Mutex;
+    /** Our stack of useable VSIDs */
+    VsidStack *m_pStack;
 
-  /** The static VsidManager instance - singleton class. */
-  static VsidManager m_Instance;
+    /** Our lock, to protect the integrity of our data. */
+    Mutex m_Mutex;
+
+    /** The static VsidManager instance - singleton class. */
+    static VsidManager m_Instance;
 };
 /** @} */
 

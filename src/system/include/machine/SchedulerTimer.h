@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,8 @@
 #ifndef KERNEL_MACHINE_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_SCHEDULERTIMER_H
 
-#include <processor/types.h>
 #include <machine/TimerHandler.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelmachine
  * @{ */
@@ -30,21 +29,26 @@
 /** Timer for scheduling */
 class SchedulerTimer
 {
-  public:
+    public:
     virtual bool registerHandler(TimerHandler *handler) = 0;
 
-  protected:
+    protected:
     /** The default constructor */
-    inline SchedulerTimer(){}
+    inline SchedulerTimer()
+    {
+    }
     /** The destructor */
-    inline virtual ~SchedulerTimer(){}
-  private:
+    inline virtual ~SchedulerTimer()
+    {
+    }
+
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     SchedulerTimer(const SchedulerTimer &);
     /** The assignment operator
      *\note NOT implemented */
-    SchedulerTimer &operator = (const SchedulerTimer &);
+    SchedulerTimer &operator=(const SchedulerTimer &);
 };
 
 /** @} */

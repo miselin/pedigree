@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,12 +19,11 @@
 
 #include "SyscallTracer.h"
 
-SyscallTracer::SyscallTracer(const char* pfileName, const char* pFnName, int line)
+SyscallTracer::SyscallTracer(
+    const char *pfileName, const char *pFnName, int line)
 {
-
 }
 
 SyscallTracer::~SyscallTracer()
 {
-
 }

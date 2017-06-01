@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
-#include <Log.h>
 #include "InterruptManager.h"
 #include "PhysicalMemoryManager.h"
 #include "VirtualAddressSpace.h"
+#include <Log.h>
 #include <process/initialiseMultitasking.h>
+#include <processor/Processor.h>
 
 void Processor::initialise1(const BootstrapStruct_t &Info)
 {
@@ -36,12 +36,14 @@ void Processor::initialise1(const BootstrapStruct_t &Info)
     /// \todo Unmap.
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
 
-    uintptr_t mapBase   = reinterpret_cast<uintptr_t>(Info.getModuleBase());
-    size_t mapLen       = Info.getModuleCount();
+    uintptr_t mapBase = reinterpret_cast<uintptr_t>(Info.getModuleBase());
+    size_t mapLen = Info.getModuleCount();
 
-    for(size_t i = 0; i < mapLen; i+= 0x1000)
+    for (size_t i = 0; i < mapLen; i += 0x1000)
     {
-        va.map(mapBase + i, reinterpret_cast<void*>(mapBase + i), VirtualAddressSpace::KernelMode);
+        va.map(
+            mapBase + i, reinterpret_cast<void *>(mapBase + i),
+            VirtualAddressSpace::KernelMode);
     }
 
     m_Initialised = 1;
@@ -49,7 +51,7 @@ void Processor::initialise1(const BootstrapStruct_t &Info)
 
 void Processor::initialise2(const BootstrapStruct_t &Info)
 {
-    // Initialise multitasking
+// Initialise multitasking
 #ifdef THREADS
     initialiseMultitasking();
 #endif
@@ -64,7 +66,8 @@ void Processor::identify(HugeStaticString &str)
     {
         uint32_t data;
 
-        struct {
+        struct
+        {
             uint32_t revision : 4;
             uint32_t partnum : 10;
             uint32_t arch : 4;
@@ -72,10 +75,10 @@ void Processor::identify(HugeStaticString &str)
             char implementer;
         } PACKED;
     } mainID;
-    asm volatile("mrc p15, 0, %0, c0, c0, 0" : "=r" (mainID.data));
+    asm volatile("mrc p15, 0, %0, c0, c0, 0" : "=r"(mainID.data));
 
     // Grab the implementer of this chip
-    switch(mainID.implementer)
+    switch (mainID.implementer)
     {
         case 'A':
             str += "ARM ";
@@ -101,7 +104,7 @@ void Processor::identify(HugeStaticString &str)
     }
 
     // Grab the architecture
-    switch(mainID.arch)
+    switch (mainID.arch)
     {
         case 0x1:
             str += "ARMv4 ";
@@ -146,57 +149,55 @@ void Processor::identify(HugeStaticString &str)
 
 size_t Processor::getDebugBreakpointCount()
 {
-  return 0;
+    return 0;
 }
 
-uintptr_t Processor::getDebugBreakpoint(size_t nBpNumber,
-                                        DebugFlags::FaultType &nFaultType,
-                                        size_t &nLength,
-                                        bool &bEnabled)
+uintptr_t Processor::getDebugBreakpoint(
+    size_t nBpNumber, DebugFlags::FaultType &nFaultType, size_t &nLength,
+    bool &bEnabled)
 {
-  /// \todo Implement.
-  return 0;
+    /// \todo Implement.
+    return 0;
 }
 
-void Processor::enableDebugBreakpoint(size_t nBpNumber,
-                                      uintptr_t nLinearAddress,
-                                      DebugFlags::FaultType nFaultType,
-                                      size_t nLength)
+void Processor::enableDebugBreakpoint(
+    size_t nBpNumber, uintptr_t nLinearAddress,
+    DebugFlags::FaultType nFaultType, size_t nLength)
 {
-  /// \todo Implement.
+    /// \todo Implement.
 }
 
 void Processor::disableDebugBreakpoint(size_t nBpNumber)
 {
-  /// \todo Implement.
+    /// \todo Implement.
 }
 
 void Processor::setInterrupts(bool bEnable)
 {
     bool bCurrent = getInterrupts();
-    if(bCurrent == bEnable)
+    if (bCurrent == bEnable)
         return;
 
     /// \todo FIQs count too
-    if(m_Initialised >= 1) // Interrupts are only initialised at phase 1
+    if (m_Initialised >= 1)  // Interrupts are only initialised at phase 1
     {
         uint32_t cpsr = 0;
-        asm volatile("MRS %0, cpsr" : "=r" (cpsr));
-        if(bEnable)
+        asm volatile("MRS %0, cpsr" : "=r"(cpsr));
+        if (bEnable)
             cpsr &= ~0x80;
         else
             cpsr |= 0x80;
-        asm volatile("MSR cpsr_c, %0" : : "r" (cpsr));
+        asm volatile("MSR cpsr_c, %0" : : "r"(cpsr));
     }
 }
 
 bool Processor::getInterrupts()
 {
     /// \todo FIQs count too
-    if(m_Initialised >= 1) // Interrupts are only initialised at phase 1
+    if (m_Initialised >= 1)  // Interrupts are only initialised at phase 1
     {
         uint32_t cpsr = 0;
-        asm volatile("MRS %0, cpsr" : "=r" (cpsr));
+        asm volatile("MRS %0, cpsr" : "=r"(cpsr));
         return !(cpsr & 0x80);
     }
     else
@@ -205,13 +206,14 @@ bool Processor::getInterrupts()
 
 void Processor::setSingleStep(bool bEnable, InterruptState &state)
 {
-  /// \todo Implement
-  ERROR("Single step unavailable on ARM.");
+    /// \todo Implement
+    ERROR("Single step unavailable on ARM.");
 }
 
 void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 {
-    const ArmV7VirtualAddressSpace &armAddressSpace = static_cast<const ArmV7VirtualAddressSpace&>(AddressSpace);
+    const ArmV7VirtualAddressSpace &armAddressSpace =
+        static_cast<const ArmV7VirtualAddressSpace &>(AddressSpace);
 
     // Do we need to set a new page directory?
     if (readTTBR0() != armAddressSpace.m_PhysicalPageDirectory)
@@ -228,38 +230,38 @@ void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 physical_uintptr_t Processor::readTTBR0()
 {
     physical_uintptr_t ret = 0;
-    asm volatile("MRC p15,0,%0,c2,c0,0" : "=r" (ret));
+    asm volatile("MRC p15,0,%0,c2,c0,0" : "=r"(ret));
     return ret;
 }
 physical_uintptr_t Processor::readTTBR1()
 {
     physical_uintptr_t ret = 0;
-    asm volatile("MRC p15,0,%0,c2,c0,1" : "=r" (ret));
+    asm volatile("MRC p15,0,%0,c2,c0,1" : "=r"(ret));
     return ret;
 }
 physical_uintptr_t Processor::readTTBCR()
 {
     physical_uintptr_t ret = 0;
-    asm volatile("MRC p15,0,%0,c2,c0,2" : "=r" (ret));
+    asm volatile("MRC p15,0,%0,c2,c0,2" : "=r"(ret));
     return ret;
 }
 
 void Processor::writeTTBR0(physical_uintptr_t value)
 {
-    asm volatile("MCR p15,0,%0,c2,c0,0" : : "r" (value));
+    asm volatile("MCR p15,0,%0,c2,c0,0" : : "r"(value));
 }
 void Processor::writeTTBR1(physical_uintptr_t value)
 {
-    asm volatile("MCR p15,0,%0,c2,c0,1" : : "r" (value));
+    asm volatile("MCR p15,0,%0,c2,c0,1" : : "r"(value));
 }
 void Processor::writeTTBCR(uint32_t value)
 {
-    asm volatile("MCR p15,0,%0,c2,c0,2" : : "r" (value));
+    asm volatile("MCR p15,0,%0,c2,c0,2" : : "r"(value));
 }
 
 void Processor::setTlsBase(uintptr_t newBase)
 {
-    // Using the user read-only thread and process ID register to store the TLS base
-    asm volatile("MCR p15,0,%0,c13,c0,3" : : "r" (newBase));
+    // Using the user read-only thread and process ID register to store the TLS
+    // base
+    asm volatile("MCR p15,0,%0,c13,c0,3" : : "r"(newBase));
 }
-

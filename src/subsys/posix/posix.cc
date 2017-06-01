@@ -17,19 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
-#include <Log.h>
-#include <processor/Processor.h>
-#include <process/Process.h>
-#include <process/Scheduler.h>
-#include <vfs/VFS.h>
-#include <ramfs/RamFs.h>
+#include "DevFs.h"
 #include "PosixSyscallManager.h"
+#include "ProcFs.h"
+#include "UnixFilesystem.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
-#include "UnixFilesystem.h"
-#include "DevFs.h"
-#include "ProcFs.h"
+#include <Log.h>
+#include <Module.h>
+#include <process/Process.h>
+#include <process/Scheduler.h>
+#include <processor/Processor.h>
+#include <ramfs/RamFs.h>
+#include <vfs/VFS.h>
 
 static PosixSyscallManager g_PosixSyscallManager;
 
@@ -41,25 +41,26 @@ static ProcFs *g_pProcFs = 0;
 
 static bool init()
 {
-  g_PosixSyscallManager.initialise();
+    g_PosixSyscallManager.initialise();
 
-  g_pDevFs = new DevFs();
-  g_pDevFs->initialise(0);
+    g_pDevFs = new DevFs();
+    g_pDevFs->initialise(0);
 
-  g_pProcFs = new ProcFs();
-  g_pProcFs->initialise(0);
+    g_pProcFs = new ProcFs();
+    g_pProcFs->initialise(0);
 
-  g_pUnixFilesystem = new UnixFilesystem();
+    g_pUnixFilesystem = new UnixFilesystem();
 
-  g_pRunFilesystem = new RamFs;
-  g_pRunFilesystem->initialise(0);
-  VFS::instance().addAlias(g_pRunFilesystem, String("posix-runtime"));
+    g_pRunFilesystem = new RamFs;
+    g_pRunFilesystem->initialise(0);
+    VFS::instance().addAlias(g_pRunFilesystem, String("posix-runtime"));
 
-  VFS::instance().addAlias(g_pUnixFilesystem, g_pUnixFilesystem->getVolumeLabel());
-  VFS::instance().addAlias(g_pDevFs, g_pDevFs->getVolumeLabel());
-  VFS::instance().addAlias(g_pProcFs, g_pProcFs->getVolumeLabel());
+    VFS::instance().addAlias(
+        g_pUnixFilesystem, g_pUnixFilesystem->getVolumeLabel());
+    VFS::instance().addAlias(g_pDevFs, g_pDevFs->getVolumeLabel());
+    VFS::instance().addAlias(g_pProcFs, g_pProcFs->getVolumeLabel());
 
-  return true;
+    return true;
 }
 
 static void destroy()

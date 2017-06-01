@@ -23,8 +23,8 @@
 #include <native/Object.h>
 
 // Values for the 'meta' field in ReturnState.
-#define META_ERROR_MASK         0xFFFF
-#define META_ERROR_BADOBJECT    0x0001
+#define META_ERROR_MASK 0xFFFF
+#define META_ERROR_BADOBJECT 0x0001
 
 struct ReturnState
 {
@@ -74,6 +74,7 @@ void unregister_object(Object *pObject);
  * \param params pointer to parameter block for the system call
  * \return ReturnState object containing the result of the system call
  */
-ReturnState native_call(Object *pObject, uint64_t subid, void *params, size_t params_size);
+ReturnState
+native_call(Object *pObject, uint64_t subid, void *params, size_t params_size);
 
 #endif

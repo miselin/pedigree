@@ -20,33 +20,37 @@
 #include <graphics/GraphicsService.h>
 #include <processor/types.h>
 
-bool GraphicsService::serve(ServiceFeatures::Type type, void *pData, size_t dataLen)
+bool GraphicsService::serve(
+    ServiceFeatures::Type type, void *pData, size_t dataLen)
 {
-    if(!pData)
+    if (!pData)
         return false;
 
     // Touch = provide a new display device
     GraphicsProvider *pProvider = reinterpret_cast<GraphicsProvider *>(pData);
-    if(type & ServiceFeatures::touch)
+    if (type & ServiceFeatures::touch)
     {
         /// \todo Sanity check
         m_Providers.pushBack(pProvider);
-        
+
         ProviderPair bestProvider = determineBestProvider();
         m_pCurrentProvider = bestProvider.bestBase;
         m_pCurrentTextProvider = bestProvider.bestText;
-        
+
         return true;
     }
-    else if(type & ServiceFeatures::probe)
+    else if (type & ServiceFeatures::probe)
     {
-        GraphicsParameters *params = reinterpret_cast<GraphicsParameters *>(pData);
+        GraphicsParameters *params =
+            reinterpret_cast<GraphicsParameters *>(pData);
 
         if (params->wantTextMode)
         {
             if (m_pCurrentTextProvider)
             {
-                MemoryCopy(&params->providerResult, m_pCurrentProvider, sizeof(GraphicsProvider));
+                MemoryCopy(
+                    &params->providerResult, m_pCurrentProvider,
+                    sizeof(GraphicsProvider));
                 params->providerFound = true;
 
                 return true;
@@ -54,7 +58,9 @@ bool GraphicsService::serve(ServiceFeatures::Type type, void *pData, size_t data
         }
         else if (m_pCurrentProvider)
         {
-            MemoryCopy(&params->providerResult, m_pCurrentProvider, sizeof(GraphicsProvider));
+            MemoryCopy(
+                &params->providerResult, m_pCurrentProvider,
+                sizeof(GraphicsProvider));
             params->providerFound = true;
 
             return true;
@@ -73,38 +79,40 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider()
 
     uint64_t bestPoints = 0;
     uint64_t bestTextPoints = 0;
-    for(List<GraphicsProvider*>::Iterator it = m_Providers.begin();
-        it != m_Providers.end();
-        it++)
+    for (List<GraphicsProvider *>::Iterator it = m_Providers.begin();
+         it != m_Providers.end(); it++)
     {
-        if(!*it)
+        if (!*it)
             continue;
-        
+
         GraphicsProvider *pProvider = *it;
-        
+
         uint64_t points = 0;
         uint64_t textPoints = 0;
-        
+
         // Hardware acceleration points
-        if(pProvider->bHardwareAccel)
-            points += (0x10000ULL * 0x10000ULL) * 32ULL; // 16384x16384x32, hard to beat if no hardware accel
-        
+        if (pProvider->bHardwareAccel)
+            points +=
+                (0x10000ULL * 0x10000ULL) *
+                32ULL;  // 16384x16384x32, hard to beat if no hardware accel
+
         // Maximums points (highest resolution in bits)
-        points += pProvider->maxWidth * pProvider->maxHeight * pProvider->maxDepth;
+        points +=
+            pProvider->maxWidth * pProvider->maxHeight * pProvider->maxDepth;
         textPoints += pProvider->maxTextWidth * pProvider->maxTextHeight;
 
         if (!pProvider->bTextModes)
         {
             textPoints *= 0;
         }
-        
+
         // Is this the new best?
         bool bNewBest = false;
-        if(points > bestPoints)
+        if (points > bestPoints)
         {
             bestPoints = points;
             result.bestBase = pProvider;
-            
+
             bNewBest = true;
         }
 
@@ -113,10 +121,13 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider()
             bestTextPoints = textPoints;
             result.bestText = pProvider;
         }
-        
+
         String name;
         pProvider->pDisplay->getName(name);
-        DEBUG_LOG("GraphicsService: provider with display name '" << name << "' got " << points << " points" << (bNewBest ? " [new best choice]" : ""));
+        DEBUG_LOG(
+            "GraphicsService: provider with display name '"
+            << name << "' got " << points << " points"
+            << (bNewBest ? " [new best choice]" : ""));
     }
 
     return result;

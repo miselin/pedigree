@@ -30,46 +30,50 @@
 class ServiceFeatures
 {
     public:
-        enum Type
-        {
-            /** Write: send data to the Service. Open to interpretation (OTI) */
-            write   = 0,
+    enum Type
+    {
+        /** Write: send data to the Service. Open to interpretation (OTI) */
+        write = 0,
 
-            /** Read: obtain data form the service. OTI */
-            read    = 1,
+        /** Read: obtain data form the service. OTI */
+        read = 1,
 
-            /** Touch: inform of new state, pass relevant object data */
-            touch   = 2,
+        /** Touch: inform of new state, pass relevant object data */
+        touch = 2,
 
-            /** Probe: what's happening? OTI */
-            probe   = 4
-        };
+        /** Probe: what's happening? OTI */
+        probe = 4
+    };
 
-        ServiceFeatures() : m_OpEnum(0) {}
-        virtual ~ServiceFeatures() {}
+    ServiceFeatures() : m_OpEnum(0)
+    {
+    }
+    virtual ~ServiceFeatures()
+    {
+    }
 
-        /** Does the operation provide a specific service? */
-        virtual bool provides(Type service)
-        {
-            return (m_OpEnum & service);
-        }
+    /** Does the operation provide a specific service? */
+    virtual bool provides(Type service)
+    {
+        return (m_OpEnum & service);
+    }
 
-        /** Used by the Service itself when installing */
-        virtual void add(Type s)
-        {
-            if(!provides(s))
-                m_OpEnum |= static_cast<uint32_t>(s);
-        }
+    /** Used by the Service itself when installing */
+    virtual void add(Type s)
+    {
+        if (!provides(s))
+            m_OpEnum |= static_cast<uint32_t>(s);
+    }
 
-        /** Used by the Service itself to dynamically change offered features */
-        virtual void remove(Type s)
-        {
-            if(provides(s))
-                m_OpEnum &= ~ static_cast<uint32_t>(s);
-        }
+    /** Used by the Service itself to dynamically change offered features */
+    virtual void remove(Type s)
+    {
+        if (provides(s))
+            m_OpEnum &= ~static_cast<uint32_t>(s);
+    }
 
     private:
-        uint32_t m_OpEnum;
+    uint32_t m_OpEnum;
 };
 
 #endif

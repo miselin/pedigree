@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config/ConfigurationManager.h>
 #include <config/ConfigurationBackend.h>
+#include <config/ConfigurationManager.h>
 
 #include <processor/types.h>
 
-ConfigurationBackend::ConfigurationBackend(String configStore) :
-    m_ConfigStore(configStore)
+ConfigurationBackend::ConfigurationBackend(String configStore)
+    : m_ConfigStore(configStore)
 {
 }
 

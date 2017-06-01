@@ -31,26 +31,26 @@ typedef size_t ProcessorId;
 #ifndef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 #if defined(X86_COMMON)
-  #include <processor/x86_common/ProcessorInformation.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) X86Common##x
+#include <processor/x86_common/ProcessorInformation.h>
+#define PROCESSOR_SPECIFIC_NAME(x) X86Common##x
 #elif defined(MIPS_COMMON)
-  #include <processor/mips_common/ProcessorInformation.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) MIPSCommon##x
+#include <processor/mips_common/ProcessorInformation.h>
+#define PROCESSOR_SPECIFIC_NAME(x) MIPSCommon##x
 #elif defined(ARM_COMMON)
-  #include <processor/arm_common/ProcessorInformation.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) ArmCommon##x
+#include <processor/arm_common/ProcessorInformation.h>
+#define PROCESSOR_SPECIFIC_NAME(x) ArmCommon##x
 #elif defined(PPC_COMMON)
-  #include <processor/ppc_common/ProcessorInformation.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) PPCCommon##x
+#include <processor/ppc_common/ProcessorInformation.h>
+#define PROCESSOR_SPECIFIC_NAME(x) PPCCommon##x
 #elif defined(HOSTED)
-  #include <processor/hosted/ProcessorInformation.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
+#include <processor/hosted/ProcessorInformation.h>
+#define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 
 // NOTE: This throws a compile-time error if this header is not adapted for
 //       the selected processor architecture
 #if !defined(PROCESSOR_SPECIFIC_NAME)
-  #error Unknown processor architecture
+#error Unknown processor architecture
 #endif
 
 /** @addtogroup kernelprocessor

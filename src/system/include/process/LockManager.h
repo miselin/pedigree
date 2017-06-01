@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,29 +24,30 @@
 #include <utilities/Vector.h>
 
 /**
- * A class for managing locks. It is only used if ENFORCE_LOCK_ORDERING is defined,
- * and expects Semaphores to notify it of acquisition and release. If a semaphore is
- * released before one which was acquired after it, an assertion fires.
+ * A class for managing locks. It is only used if ENFORCE_LOCK_ORDERING is
+ * defined, and expects Semaphores to notify it of acquisition and release. If a
+ * semaphore is released before one which was acquired after it, an assertion
+ * fires.
  *
  * It is expected to have one LockManager per processor.
  */
 class LockManager
 {
-public:
-  /** Constructor */
-  LockManager();
-  /** Destructor */
-  ~LockManager();
+    public:
+    /** Constructor */
+    LockManager();
+    /** Destructor */
+    ~LockManager();
 
-  /** Called by Semaphore on successful acquisition. */
-  void acquired(Semaphore &sem);
+    /** Called by Semaphore on successful acquisition. */
+    void acquired(Semaphore &sem);
 
-  /** Called by Semaphore on successful release. */
-  void released(Semaphore &sem);
+    /** Called by Semaphore on successful release. */
+    void released(Semaphore &sem);
 
-private:
-  /** The stack of acquired semaphores. */
-  Vector<Semaphore*> m_Stack;
+    private:
+    /** The stack of acquired semaphores. */
+    Vector<Semaphore *> m_Stack;
 };
 
 #endif

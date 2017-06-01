@@ -23,8 +23,7 @@
 
 #include <cairo/cairo.h>
 
-DirtyRectangle::DirtyRectangle() :
-    m_X(~0), m_Y(~0), m_X2(0), m_Y2(0)
+DirtyRectangle::DirtyRectangle() : m_X(~0), m_Y(~0), m_X2(0), m_Y2(0)
 {
 }
 
@@ -48,9 +47,9 @@ void DirtyRectangle::point(size_t x, size_t y)
 rgb_t interpolateColour(rgb_t col1, rgb_t col2, uint16_t a)
 {
     rgb_t ret;
-    ret.r = (col1.r*a + col2.r*(256-a)) / 256;
-    ret.g = (col1.g*a + col2.g*(256-a)) / 256;
-    ret.b = (col1.b*a + col2.b*(256-a)) / 256;
+    ret.r = (col1.r * a + col2.r * (256 - a)) / 256;
+    ret.g = (col1.g * a + col2.g * (256 - a)) / 256;
+    ret.b = (col1.b * a + col2.b * (256 - a)) / 256;
 
     return ret;
 }

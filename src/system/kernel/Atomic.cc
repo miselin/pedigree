@@ -24,4 +24,3 @@
 Atomic<bool, true>::~Atomic()
 {
 }
-

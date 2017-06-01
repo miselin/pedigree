@@ -20,15 +20,18 @@
 #include "Symlink.h"
 #include "Filesystem.h"
 
-Symlink::Symlink() :
-    File(), m_pCachedSymlink(0)
+Symlink::Symlink() : File(), m_pCachedSymlink(0)
 {
 }
 
-Symlink::Symlink(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-                 uintptr_t inode, Filesystem *pFs, size_t size, File *pParent) :
-    File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_pCachedSymlink(0), m_sTarget()
+Symlink::Symlink(
+    const String &name, Time::Timestamp accessedTime,
+    Time::Timestamp modifiedTime, Time::Timestamp creationTime, uintptr_t inode,
+    Filesystem *pFs, size_t size, File *pParent)
+    : File(
+          name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
+          pParent),
+      m_pCachedSymlink(0), m_sTarget()
 {
 }
 

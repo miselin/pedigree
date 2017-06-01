@@ -23,11 +23,11 @@
 #ifdef THREADS
 #include <Spinlock.h>
 #endif
+#include <panic.h>
 #include <processor/types.h>
+#include <utilities/StaticString.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <utilities/StaticString.h>
-#include <panic.h>
 
 /** @addtogroup kernel
  * @{ */
@@ -38,33 +38,39 @@
 #define LOG_LOCK_ACQUIRE Log::instance().m_Lock.acquire()
 #define LOG_LOCK_RELEASE Log::instance().m_Lock.release()
 #else
-#define LOG_LOCK_ACQUIRE do { } while(0)
-#define LOG_LOCK_RELEASE do { } while(0)
+#define LOG_LOCK_ACQUIRE \
+    do                   \
+    {                    \
+    } while (0)
+#define LOG_LOCK_RELEASE \
+    do                   \
+    {                    \
+    } while (0)
 #endif
 
 #if SHOW_FILE_IN_LOGS
-#define FILE_LOG(entry, level) \
-  do \
-  { \
-    entry << level << __FILE__ << ":" << Dec << __LINE__ << Hex << " " << __FUNCTION__ << " -- "; \
-  } while(0)
+#define FILE_LOG(entry, level)                                             \
+    do                                                                     \
+    {                                                                      \
+        entry << level << __FILE__ << ":" << Dec << __LINE__ << Hex << " " \
+              << __FUNCTION__ << " -- ";                                   \
+    } while (0)
 #else
 #define FILE_LOG(entry, level)
 #endif
 
-#define LOG_AT_LEVEL(level, text, lock) \
-  do \
-  { \
-    Log::LogEntry __log_macro_logentry; \
-    FILE_LOG(__log_macro_logentry, level); \
-    __log_macro_logentry << level << text; \
-    if (lock) \
-      LOG_LOCK_ACQUIRE; \
-    Log::instance() << __log_macro_logentry << Flush; \
-    if (lock) \
-      LOG_LOCK_RELEASE; \
-  } \
-  while (0)
+#define LOG_AT_LEVEL(level, text, lock)                   \
+    do                                                    \
+    {                                                     \
+        Log::LogEntry __log_macro_logentry;               \
+        FILE_LOG(__log_macro_logentry, level);            \
+        __log_macro_logentry << level << text;            \
+        if (lock)                                         \
+            LOG_LOCK_ACQUIRE;                             \
+        Log::instance() << __log_macro_logentry << Flush; \
+        if (lock)                                         \
+            LOG_LOCK_RELEASE;                             \
+    } while (0)
 
 #ifndef NO_LOGGING
 
@@ -93,8 +99,20 @@
  *  Breaks into debugger and panics if the debugger isn't around, or the user
  *  exits it.
  */
-#define FATAL(text) do { LOG_AT_LEVEL(Log::Fatal, text, 1); while(1); } while(0)
-#define FATAL_NOLOCK(text) do { LOG_AT_LEVEL(Log::Fatal, text, 0); while(1); } while(0)
+#define FATAL(text)                        \
+    do                                     \
+    {                                      \
+        LOG_AT_LEVEL(Log::Fatal, text, 1); \
+        while (1)                          \
+            ;                              \
+    } while (0)
+#define FATAL_NOLOCK(text)                 \
+    do                                     \
+    {                                      \
+        LOG_AT_LEVEL(Log::Fatal, text, 0); \
+        while (1)                          \
+            ;                              \
+    } while (0)
 
 #else  // NO_LOGGING
 
@@ -112,32 +130,32 @@
 #endif
 
 /** The maximum length of an individual static log entry. */
-#define LOG_LENGTH  128
+#define LOG_LENGTH 128
 /** The maximum number of static entries in the log. */
 #ifdef HUGE_STATIC_LOG
 // 2MB static log buffer
-#define LOG_ENTRIES ((1<<21)/sizeof(LogEntry))
+#define LOG_ENTRIES ((1 << 21) / sizeof(LogEntry))
 #else
 // 64K static log buffer
-#define LOG_ENTRIES ((1<<16)/sizeof(LogEntry))
+#define LOG_ENTRIES ((1 << 16) / sizeof(LogEntry))
 #endif
 
 /** Radix for Log's integer output */
 enum NumberType
 {
-  /** Hexadecimal */
-  Hex,
-  /** Decimal */
-  Dec,
-  /** Octal */
-  Oct
+    /** Hexadecimal */
+    Hex,
+    /** Decimal */
+    Dec,
+    /** Octal */
+    Oct
 };
 
 /** Modifiers for Log */
 enum Modifier
 {
-  /** Flush this log entry */
-  Flush
+    /** Flush this log entry */
+    Flush
 };
 
 // Function pointer to update boot progress -
@@ -152,170 +170,191 @@ extern void installSerialLogger();
 
 /** Implements a kernel log that can be used to debug problems.
  *\brief the kernel's log
- *\note You should use the NOTICE, WARNING, ERROR and FATAL macros to write something
- *      into the log. Direct access to the log should only be needed to retrieve
- *      the entries from the log (within the debugger's log viewer for example). */
+ *\note You should use the NOTICE, WARNING, ERROR and FATAL macros to write
+ *something into the log. Direct access to the log should only be needed to
+ *retrieve the entries from the log (within the debugger's log viewer for
+ *example). */
 class Log
 {
-public:
-  struct LogEntry;
-
-  /** Output callback function type. Inherit and implement callback to use. */
-  class LogCallback
-  {
     public:
-      virtual void callback(const char *) = 0;
-      virtual ~LogCallback();
-  };
+    struct LogEntry;
 
-  /** Severity level of the log entry */
-  enum SeverityLevel
-  {
-    Debug = 0,
-    Notice,
-    Warning,
-    Error,
-    Fatal
-  };
+    /** Output callback function type. Inherit and implement callback to use. */
+    class LogCallback
+    {
+        public:
+        virtual void callback(const char *) = 0;
+        virtual ~LogCallback();
+    };
 
-  /** The lock
-   *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL macros */
+    /** Severity level of the log entry */
+    enum SeverityLevel
+    {
+        Debug = 0,
+        Notice,
+        Warning,
+        Error,
+        Fatal
+    };
+
+/** The lock
+ *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL
+ *macros */
 #ifdef THREADS
-  Spinlock m_Lock;
+    Spinlock m_Lock;
 #endif
 
-  /** Retrieves the static Log instance.
-   *\return instance of the log class */
-  inline static Log &instance()
-    {return m_Instance;}
-
-   /** Initialises the Log */
-  void initialise1();
-  
-   /** Initialises the default Log callback (to a serial port) */
-  void initialise2();
-
-  /** Installs an output callback */
-  void installCallback(LogCallback *pCallback, bool bSkipBacklog=false);
-
-  /** Removes an output callback */
-  void removeCallback(LogCallback *pCallback);
-
-  /** Adds an entry to the log. */
-  Log &operator << (const LogEntry &entry);
-
-  /** Modifier */
-  Log &operator<< (Modifier type);
-
-  /** Get the number of static entries in the log.
-   *\return the number of static entries in the log */
-  inline size_t getStaticEntryCount() const
-    {return m_StaticEntries;}
-  /** Get the number of dynamic entries in the log
-   *\return the number of dynamic entries in the log */
-  inline size_t getDynamicEntryCount() const
-    {return 0;}
-
-  /** Stores an entry in the log.
-   *\param[in] T type of the log's text */
-  struct LogEntry
-  {
-    /** Constructor does nothing */
-    inline LogEntry() :
-      timestamp(), type(), str(), numberType(Dec)
+    /** Retrieves the static Log instance.
+     *\return instance of the log class */
+    inline static Log &instance()
     {
-
+        return m_Instance;
     }
 
-    /** The time (since boot) that this log entry was added, in ticks. */
-    unsigned int timestamp;
-    /** The severity level of this entry. */
-    SeverityLevel type;
-    /** The actual entry text. */
-    StaticString<LOG_LENGTH> str;
-    /** The number type mode that we are in. */
-    NumberType numberType;
+    /** Initialises the Log */
+    void initialise1();
 
-    /** Adds an entry to the log.
-     *\param[in] str the null-terminated ASCII string that should be added */
-    LogEntry &operator<< (const char *);
-    LogEntry &operator<< (const String &);
-    /** Adds an entry to the log
-     *\param[in] str the null-terminated ASCII string that should be added */
-    inline LogEntry &operator<< (char *append_str)
-      {return (*this) << (reinterpret_cast<const char*>(append_str));}
-    /** Adds an entry to the log
-     *\param[in] b boolean value */
-    LogEntry &operator<< (bool b);
-    /** Adds an entry to the log
-     *\param[in] p pointer value */
-    template<class T>
-    LogEntry &operator<< (T *p)
+    /** Initialises the default Log callback (to a serial port) */
+    void initialise2();
+
+    /** Installs an output callback */
+    void installCallback(LogCallback *pCallback, bool bSkipBacklog = false);
+
+    /** Removes an output callback */
+    void removeCallback(LogCallback *pCallback);
+
+    /** Adds an entry to the log. */
+    Log &operator<<(const LogEntry &entry);
+
+    /** Modifier */
+    Log &operator<<(Modifier type);
+
+    /** Get the number of static entries in the log.
+     *\return the number of static entries in the log */
+    inline size_t getStaticEntryCount() const
     {
-      // Preserve the current number type but always print pointers as hex.
-      NumberType currentNumberType = numberType;
-      return (*this) << Hex << (reinterpret_cast<uintptr_t>(p)) << currentNumberType;
+        return m_StaticEntries;
     }
-    /** Adds an entry to the log (integer type)
-     *\param[in] n the number */
-    template<class T>
-    LogEntry &operator << (T n);
+    /** Get the number of dynamic entries in the log
+     *\return the number of dynamic entries in the log */
+    inline size_t getDynamicEntryCount() const
+    {
+        return 0;
+    }
 
-    /** Starts an entry in the log. */
-    LogEntry &operator<< (SeverityLevel level);
-    /** Changes the number type between hex and decimal. */
-    LogEntry &operator<< (NumberType type);
-  };
+    /** Stores an entry in the log.
+     *\param[in] T type of the log's text */
+    struct LogEntry
+    {
+        /** Constructor does nothing */
+        inline LogEntry() : timestamp(), type(), str(), numberType(Dec)
+        {
+        }
 
-  /** Type of a static log entry (no memory-management involved) */
-  typedef LogEntry StaticLogEntry;
-  typedef LogEntry DynamicLogEntry;
+        /** The time (since boot) that this log entry was added, in ticks. */
+        unsigned int timestamp;
+        /** The severity level of this entry. */
+        SeverityLevel type;
+        /** The actual entry text. */
+        StaticString<LOG_LENGTH> str;
+        /** The number type mode that we are in. */
+        NumberType numberType;
 
-  /** Returns the n'th static log entry, counting from the start. */
-  inline const StaticLogEntry &getStaticEntry(size_t n) const
-    {return m_StaticLog[(m_StaticEntryStart+n) % LOG_ENTRIES];}
-  /** Returns the (n - getStaticEntryCount())'th dynamic log entry */
-  inline const DynamicLogEntry &getDynamicEntry(size_t n) const
-    {return m_StaticLog[0];}
+        /** Adds an entry to the log.
+         *\param[in] str the null-terminated ASCII string that should be added
+        */
+        LogEntry &operator<<(const char *);
+        LogEntry &operator<<(const String &);
+        /** Adds an entry to the log
+         *\param[in] str the null-terminated ASCII string that should be added
+        */
+        inline LogEntry &operator<<(char *append_str)
+        {
+            return (*this) << (reinterpret_cast<const char *>(append_str));
+        }
+        /** Adds an entry to the log
+         *\param[in] b boolean value */
+        LogEntry &operator<<(bool b);
+        /** Adds an entry to the log
+         *\param[in] p pointer value */
+        template <class T>
+        LogEntry &operator<<(T *p)
+        {
+            // Preserve the current number type but always print pointers as
+            // hex.
+            NumberType currentNumberType = numberType;
+            return (*this) << Hex << (reinterpret_cast<uintptr_t>(p))
+                           << currentNumberType;
+        }
+        /** Adds an entry to the log (integer type)
+         *\param[in] n the number */
+        template <class T>
+        LogEntry &operator<<(T n);
 
-  bool echoToSerial()
-    {return m_EchoToSerial;}
+        /** Starts an entry in the log. */
+        LogEntry &operator<<(SeverityLevel level);
+        /** Changes the number type between hex and decimal. */
+        LogEntry &operator<<(NumberType type);
+    };
 
-  inline const LogEntry &getLatestEntry() const
-    {return m_StaticLog[m_StaticEntries - 1];}
+    /** Type of a static log entry (no memory-management involved) */
+    typedef LogEntry StaticLogEntry;
+    typedef LogEntry DynamicLogEntry;
 
-private:
-  /** Default constructor - does nothing. */
-  Log();
-  /** Default destructor - does nothing */
-  ~Log();
-  /** Copy-constructor
-   *\note NOT implemented */
-  Log(const Log &);
-  /** Assignment operator
-   *\note NOT implemented */
-  Log &operator = (const Log &);
+    /** Returns the n'th static log entry, counting from the start. */
+    inline const StaticLogEntry &getStaticEntry(size_t n) const
+    {
+        return m_StaticLog[(m_StaticEntryStart + n) % LOG_ENTRIES];
+    }
+    /** Returns the (n - getStaticEntryCount())'th dynamic log entry */
+    inline const DynamicLogEntry &getDynamicEntry(size_t n) const
+    {
+        return m_StaticLog[0];
+    }
 
-  /** Static buffer of log messages. */
-  StaticLogEntry m_StaticLog[LOG_ENTRIES];
-  /** Dynamic buffer of log messages */
-//  Vector<DynamicLogEntry*> m_DynamicLog;
-  /** Number of entries in the static log */
-  size_t m_StaticEntries;
+    bool echoToSerial()
+    {
+        return m_EchoToSerial;
+    }
 
-  size_t m_StaticEntryStart, m_StaticEntryEnd;
+    inline const LogEntry &getLatestEntry() const
+    {
+        return m_StaticLog[m_StaticEntries - 1];
+    }
 
-  /** Temporary buffer which gets filled by calls to operator<<, and flushed by << Flush. */
-  StaticLogEntry m_Buffer;
+    private:
+    /** Default constructor - does nothing. */
+    Log();
+    /** Default destructor - does nothing */
+    ~Log();
+    /** Copy-constructor
+     *\note NOT implemented */
+    Log(const Log &);
+    /** Assignment operator
+     *\note NOT implemented */
+    Log &operator=(const Log &);
 
-  /** If we should output to serial */
-  bool m_EchoToSerial;
+    /** Static buffer of log messages. */
+    StaticLogEntry m_StaticLog[LOG_ENTRIES];
+    /** Dynamic buffer of log messages */
+    //  Vector<DynamicLogEntry*> m_DynamicLog;
+    /** Number of entries in the static log */
+    size_t m_StaticEntries;
 
-  /** Output callback list */
-  List<LogCallback*> m_OutputCallbacks;
+    size_t m_StaticEntryStart, m_StaticEntryEnd;
 
-  /** The Log instance (singleton class) */
-  static Log m_Instance;
+    /** Temporary buffer which gets filled by calls to operator<<, and flushed
+     * by << Flush. */
+    StaticLogEntry m_Buffer;
+
+    /** If we should output to serial */
+    bool m_EchoToSerial;
+
+    /** Output callback list */
+    List<LogCallback *> m_OutputCallbacks;
+
+    /** The Log instance (singleton class) */
+    static Log m_Instance;
 };
 
 /** @} */

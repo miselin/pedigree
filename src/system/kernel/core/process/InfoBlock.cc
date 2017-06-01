@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Version.h>
 #include <compiler.h>
+#include <machine/Machine.h>
 #include <process/InfoBlock.h>
 #include <processor/VirtualAddressSpace.h>
-#include <machine/Machine.h>
 #include <time/Time.h>
-#include <Version.h>
 
 InfoBlockManager InfoBlockManager::m_Instance;
 
-InfoBlockManager::InfoBlockManager() :
-    TimerHandler(), m_bInitialised(false), m_pInfoBlock(0)
+InfoBlockManager::InfoBlockManager()
+    : TimerHandler(), m_bInitialised(false), m_pInfoBlock(0)
 {
 }
 
@@ -49,15 +49,20 @@ bool InfoBlockManager::initialise()
     if (!infoBlock)
         return false;  // Nothing to do here.
 
-    NOTICE("InfoBlockManager: Setting up global info block at " << Hex << infoBlock);
+    NOTICE(
+        "InfoBlockManager: Setting up global info block at " << Hex
+                                                             << infoBlock);
 
     // Map for userspace.
     physical_uintptr_t page = PhysicalMemoryManager::instance().allocatePage();
     va.map(page, infoBlock, 0);
 
     // Map for the kernel - trick is, our version is a page ahead.
-    m_pInfoBlock = reinterpret_cast<InfoBlock *>(adjust_pointer(infoBlock, 0x1000));
-    va.map(page, m_pInfoBlock, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+    m_pInfoBlock =
+        reinterpret_cast<InfoBlock *>(adjust_pointer(infoBlock, 0x1000));
+    va.map(
+        page, m_pInfoBlock,
+        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
 
     // Set up basic defaults.
     ByteSet(m_pInfoBlock, 0, sizeof(InfoBlock));

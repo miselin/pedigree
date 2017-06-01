@@ -23,32 +23,35 @@
 #include <processor/types.h>
 
 /** The maximum size of one event, serialized. */
-#define EVENT_LIMIT       4096
+#define EVENT_LIMIT 4096
 /** The maximum thread ID one can dispatch an Event to. */
-#define EVENT_TID_MAX     255
-/** The maximum number of times an event can fire while in an event handler (nesting levels).
-    After this, the process will be terminated. */
+#define EVENT_TID_MAX 255
+/** The maximum number of times an event can fire while in an event handler
+   (nesting levels). After this, the process will be terminated. */
 #define MAX_NESTED_EVENTS 16
 
-#define EVENT_MAGIC       0x8899AABBCCDDEEFFULL
+#define EVENT_MAGIC 0x8899AABBCCDDEEFFULL
 
-/** The abstract base class for an asynchronous event. An event can hold any amount of information
-    up to a hard maximum size of EVENT_LIMIT (usually 4096 bytes). An event is serialized using 
-    the virtual serialize() function and sent to a recipient thread in either user or kernel mode,
-    where it is unserialized. */
+/** The abstract base class for an asynchronous event. An event can hold any
+   amount of information up to a hard maximum size of EVENT_LIMIT (usually 4096
+   bytes). An event is serialized using the virtual serialize() function and
+   sent to a recipient thread in either user or kernel mode, where it is
+   unserialized. */
 class Event
 {
-public:
+    public:
     /** Constructs an Event object.
         \param handlerAddress The address of the handling function.
-        \param isDeletable Can the object be deleted after map()? This is used for creating objects
-                           without worrying about destroying them.
-        \param specificNestingLevel Is the event pinned to a specific nesting level? If this value is not ~0UL,
-                                    then the event will only be fired if the current nesting level is 
-                                    \p specificNestingLevel .
-        \note As can be surmised, handlerAddress is NOT reentrant. If you use this Event in multiple
+        \param isDeletable Can the object be deleted after map()? This is used
+       for creating objects without worrying about destroying them. \param
+       specificNestingLevel Is the event pinned to a specific nesting level? If
+       this value is not ~0UL, then the event will only be fired if the current
+       nesting level is \p specificNestingLevel . \note As can be surmised,
+       handlerAddress is NOT reentrant. If you use this Event in multiple
               threads concurrently, you CANNOT change the handler address. */
-    Event(uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel=~0UL);
+    Event(
+        uintptr_t handlerAddress, bool isDeletable,
+        size_t specificNestingLevel = ~0UL);
     virtual ~Event();
 
     /** Retrieves the main trampoline memory address. */
@@ -63,8 +66,9 @@ public:
     /** Retrieves the last handler buffer memory address. */
     static uintptr_t getLastHandlerBuffer();
 
-    /** Returns true if the event is on the heap and can be deleted when handled. This is for creating
-        fire-and-forget messages and not worrying about memory leaks. */
+    /** Returns true if the event is on the heap and can be deleted when
+       handled. This is for creating fire-and-forget messages and not worrying
+       about memory leaks. */
     virtual bool isDeletable();
 
     /** Given a buffer EVENT_LIMIT bytes long, take the variables
@@ -80,29 +84,37 @@ public:
         \return The number of bytes serialized. */
     virtual size_t serialize(uint8_t *pBuffer) = 0;
 
-    /** Given a serialized Event in binary form, attempt to unserialize into the given object.
-        If this is impossible, return false.
+    /** Given a serialized Event in binary form, attempt to unserialize into the
+       given object. If this is impossible, return false.
 
-        \note It is impossible to make static functions virtual, but it is <b>required</b> that 
-              all subclasses of Event implement this function statically. */
+        \note It is impossible to make static functions virtual, but it is
+       <b>required</b> that all subclasses of Event implement this function
+       statically. */
     static bool unserialize(uint8_t *pBuffer, Event &event);
 
-    /** Given a serialized event, returns the type of that event (a constant from eventNumbers.h). */
+    /** Given a serialized event, returns the type of that event (a constant
+     * from eventNumbers.h). */
     static size_t getEventType(uint8_t *pBuffer);
 
     /** Returns the handler address. */
-    uintptr_t getHandlerAddress() {return m_HandlerAddress;}
+    uintptr_t getHandlerAddress()
+    {
+        return m_HandlerAddress;
+    }
 
     /** Returns the specific nesting level, or ~0UL if there is none defined. */
-    size_t getSpecificNestingLevel() {return m_NestingLevel;}
+    size_t getSpecificNestingLevel()
+    {
+        return m_NestingLevel;
+    }
 
     /** Returns the event number / ID. */
     virtual size_t getNumber() = 0;
 
     Event(const Event &other);
-    Event & operator = (const Event &other);
+    Event &operator=(const Event &other);
 
-protected:
+    protected:
     /** Handler address. */
     uintptr_t m_HandlerAddress;
 

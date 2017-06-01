@@ -19,29 +19,21 @@
 
 #include <Log.h>
 #include <Module.h>
-#include <vfs/VFS.h>
-#include <vfs/Filesystem.h>
-#include <processor/Processor.h>
-#include <process/Semaphore.h>
 #include <process/Scheduler.h>
+#include <process/Semaphore.h>
+#include <processor/Processor.h>
+#include <vfs/Filesystem.h>
 #include <vfs/MemoryMappedFile.h>
+#include <vfs/VFS.h>
 
 static const char *g_FilesToPreload[] = {
-    "root»/applications/init",
-    "root»/applications/ttyterm",
-    "root»/applications/winman",
-    "root»/applications/tui",
-    "root»/applications/TUI",
-    "root»/applications/login",
-    "root»/libraries/libload.so",
-    "root»/libraries/libc.so",
-    "root»/libraries/libm.so",
-    "root»/libraries/libstdc++.so",
-    "root»/libraries/libpedigree.so",
-    "root»/libraries/libpedigree-c.so",
-    "root»/libraries/libpthread.so",
-    0
-};
+    "root»/applications/init",        "root»/applications/ttyterm",
+    "root»/applications/winman",      "root»/applications/tui",
+    "root»/applications/TUI",         "root»/applications/login",
+    "root»/libraries/libload.so",     "root»/libraries/libc.so",
+    "root»/libraries/libm.so",        "root»/libraries/libstdc++.so",
+    "root»/libraries/libpedigree.so", "root»/libraries/libpedigree-c.so",
+    "root»/libraries/libpthread.so",  0};
 
 static Semaphore g_Preloads(0);
 
@@ -51,12 +43,12 @@ static int preloadThread(void *p)
 
     NOTICE("PRELOAD: " << s);
 
-    File* pFile = VFS::instance().find(String(s));
-    if(pFile)
+    File *pFile = VFS::instance().find(String(s));
+    if (pFile)
     {
         NOTICE("PRELOAD: preloading " << s << "...");
         size_t sz = 0;
-        while(sz < pFile->getSize())
+        while (sz < pFile->getSize())
         {
             pFile->read(sz, 0x1000, 0);
             sz += 0x1000;
@@ -78,10 +70,12 @@ static bool init()
     do
     {
         NOTICE("PRELOAD: Queue " << s);
-        Thread *pThread = new Thread(Processor::information().getCurrentThread()->getParent(), preloadThread, const_cast<char*>(s));
+        Thread *pThread = new Thread(
+            Processor::information().getCurrentThread()->getParent(),
+            preloadThread, const_cast<char *>(s));
         pThread->detach();
         s = g_FilesToPreload[n++];
-    } while(s);
+    } while (s);
 
     g_Preloads.acquire(n - 1);
     NOTICE("PRELOAD: preloaded " << n << " files.");

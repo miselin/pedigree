@@ -19,16 +19,16 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <stdlib.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <time.h>
 
 #include <map>
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/Tree.h>
 #include <utilities/BloomFilter.h>
+#include <utilities/Tree.h>
 
 #define RANDOM_MAX 0x10000
 
@@ -60,7 +60,8 @@ static void BM_TreeInsert(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 }
 
@@ -77,7 +78,8 @@ static void BM_TreeInsertReverse(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 }
 

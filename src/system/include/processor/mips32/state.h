@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,7 +29,7 @@
 /** MIPS32 Interrupt State */
 class MIPS32InterruptState
 {
-  public:
+    public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -57,16 +56,16 @@ class MIPS32InterruptState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -78,7 +77,7 @@ class MIPS32InterruptState
     /** Get the interrupt number
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
-    
+
     //
     // SyscallState Interface
     //
@@ -95,10 +94,11 @@ class MIPS32InterruptState
     /** Was the exception in a branch delay slot?
      *\return True if the exception occurred in a branch delay slot. */
     inline bool branchDelay() const;
-  private:
+
+    private:
     /** The default constructor
      *\note NOT implemented */
-  public:
+    public:
     MIPS32InterruptState();
 
     /** The copy-constructor
@@ -106,11 +106,13 @@ class MIPS32InterruptState
     MIPS32InterruptState(const MIPS32InterruptState &);
     /** The assignement operator
      *\note NOT implemented */
-    MIPS32InterruptState &operator = (const MIPS32InterruptState &);
+    MIPS32InterruptState &operator=(const MIPS32InterruptState &);
     /** The destructor
      *\note NOT implemented */
-    ~MIPS32InterruptState() {}
-    
+    ~MIPS32InterruptState()
+    {
+    }
+
     /** Assembler temporary register */
     uint32_t m_At;
     /** Value returned by subroutine 0 */
@@ -192,51 +194,52 @@ typedef MIPS32InterruptState MIPS32ProcessorState;
 
 uintptr_t MIPS32InterruptState::getStackPointer() const
 {
-  return m_Sp;
+    return m_Sp;
 }
 void MIPS32InterruptState::setStackPointer(uintptr_t stackPointer)
 {
 }
 uintptr_t MIPS32InterruptState::getInstructionPointer() const
 {
-  return m_Epc;
+    return m_Epc;
 }
 void MIPS32InterruptState::setInstructionPointer(uintptr_t instructionPointer)
 {
 }
 uintptr_t MIPS32InterruptState::getBasePointer() const
 {
-  return 0xdeadbaba;
+    return 0xdeadbaba;
 }
 void MIPS32InterruptState::setBasePointer(uintptr_t basePointer)
 {
 }
 size_t MIPS32InterruptState::getRegisterSize(size_t index) const
 {
-  return 4;
+    return 4;
 }
 
 bool MIPS32InterruptState::kernelMode() const
 {
-  return true;
+    return true;
 }
 size_t MIPS32InterruptState::getInterruptNumber() const
 {
-  return (m_Cause>>2)&0x1F; // Return the ExcCode field of the Cause register.
+    return (m_Cause >> 2) &
+           0x1F;  // Return the ExcCode field of the Cause register.
 }
 
 size_t MIPS32InterruptState::getSyscallService() const
 {
-  return 0;
+    return 0;
 }
 size_t MIPS32InterruptState::getSyscallNumber() const
 {
-  return 0;
+    return 0;
 }
 
 bool MIPS32InterruptState::branchDelay() const
 {
-  return (m_Cause&0x80000000); // Test bit 31 of Cause.
+    return (m_Cause & 0x80000000);  // Test bit 31 of Cause.
 }
 
 #endif

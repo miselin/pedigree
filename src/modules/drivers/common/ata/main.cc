@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <machine/Controller.h>
 #include "AtaController.h"
 #include "IsaAtaController.h"
 #include "PciAtaController.h"
 #include <Log.h>
+#include <Module.h>
+#include <machine/Controller.h>
+#include <machine/Device.h>
+#include <machine/Disk.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
 
 static int nController = 0;
 
@@ -42,47 +42,49 @@ static bool allowProbing = false;
 
 static Device *probeIsaDevice(Controller *pDev)
 {
-  // Create a new AtaController device node.
-  IsaAtaController *pController = new IsaAtaController(pDev, nController++);
+    // Create a new AtaController device node.
+    IsaAtaController *pController = new IsaAtaController(pDev, nController++);
 
-  bFound = true;
+    bFound = true;
 
-  return pController;
+    return pController;
 }
 
 static Device *probePiixController(Device *pDev)
 {
-  static uint8_t interrupt = 14;
+    static uint8_t interrupt = 14;
 
-  // Create a new AtaController device node.
-  Controller *pDevController = new Controller(pDev);
-  uintptr_t intnum = pDevController->getInterruptNumber();
-  if(intnum == 0)
-  {
-      // No valid interrupt, handle
-      pDevController->setInterruptNumber(interrupt);
-      if(interrupt < 15)
-          interrupt++;
-      else
-      {
-          ERROR("PCI IDE: Controller found with no IRQ and IRQs 14 and 15 are already allocated");
-          delete pDevController;
+    // Create a new AtaController device node.
+    Controller *pDevController = new Controller(pDev);
+    uintptr_t intnum = pDevController->getInterruptNumber();
+    if (intnum == 0)
+    {
+        // No valid interrupt, handle
+        pDevController->setInterruptNumber(interrupt);
+        if (interrupt < 15)
+            interrupt++;
+        else
+        {
+            ERROR("PCI IDE: Controller found with no IRQ and IRQs 14 and 15 "
+                  "are already allocated");
+            delete pDevController;
 
-          return pDev;
-      }
-  }
+            return pDev;
+        }
+    }
 
-  PciAtaController *pController = new PciAtaController(pDevController, nController++);
+    PciAtaController *pController =
+        new PciAtaController(pDevController, nController++);
 
-  bFound = true;
+    bFound = true;
 
-  return pController;
+    return pController;
 }
 
 /// Removes the ISA ATA controllers added early in boot
 static Device *removeIsaAta(Device *dev)
 {
-    if(dev->getType() == Device::Controller)
+    if (dev->getType() == Device::Controller)
     {
         // Get its addresses, and search for "command" and "control".
         bool foundCommand = false;
@@ -110,17 +112,18 @@ static Device *probeDisk(Device *pDev)
 {
     // Check to see if this is an AHCI controller.
     // Class 1 = Mass Storage. Subclass 6 = SATA.
-    if((!allowProbing) && (pDev->getPciClassCode() == 0x01 &&
-        pDev->getPciSubclassCode() == 0x06))
+    if ((!allowProbing) &&
+        (pDev->getPciClassCode() == 0x01 && pDev->getPciSubclassCode() == 0x06))
     {
         // No AHCI support yet, so just log and keep going.
-        WARNING("Found a SATA controller of some sort, hoping for ISA fallback.");
+        WARNING(
+            "Found a SATA controller of some sort, hoping for ISA fallback.");
     }
 
     // Look for a PIIX controller
     // Class/subclasss 1:1 == Mass storage + IDE.
-    if(pDev->getPciVendorId() == 0x8086 &&
-        pDev->getPciClassCode() == 1 && pDev->getPciSubclassCode() == 1)
+    if (pDev->getPciVendorId() == 0x8086 && pDev->getPciClassCode() == 1 &&
+        pDev->getPciSubclassCode() == 1)
     {
         // Ensure we probe the most modern PIIX that is present and available.
         // This is important as there may be a PIIX3 in a system that also has
@@ -160,7 +163,6 @@ static Device *probeDisk(Device *pDev)
                     piixLevel = 4;
                 }
                 break;
-
         }
 
         if (piixLevel != -1)
@@ -176,7 +178,7 @@ static Device *probeDisk(Device *pDev)
 
     // No PIIX controller found, fall back to ISA
     /// \todo Could also fall back to ICH?
-    if(!bPiixControllerFound && bFallBackISA)
+    if (!bPiixControllerFound && bFallBackISA)
     {
         // Is this a controller?
         if (pDev->getType() == Device::Controller)
@@ -194,7 +196,7 @@ static Device *probeDisk(Device *pDev)
                     foundControl = true;
             }
             if (allowProbing && foundCommand && foundControl)
-                return probeIsaDevice(static_cast<Controller*> (pDev));
+                return probeIsaDevice(static_cast<Controller *>(pDev));
         }
     }
 
@@ -203,32 +205,32 @@ static Device *probeDisk(Device *pDev)
 
 static bool entry()
 {
-  /// \todo this iterates the device tree up to FOUR times.
-  /// Needs some more thinking about how to do this better.
+    /// \todo this iterates the device tree up to FOUR times.
+    /// Needs some more thinking about how to do this better.
 
-  // Walk the device tree looking for controllers that have 
-  // "control" and "command" addresses.
-  Device::foreach(probeDisk);
+    // Walk the device tree looking for controllers that have
+    // "control" and "command" addresses.
+    Device::foreach (probeDisk);
 
-  // Done initial probe to find out what exists, action the findings now.
-  allowProbing = true;
-  if (bPiixControllerFound)
-  {
-    // Right, we found a PIIX controller. Let's remove the ATA
-    // controllers that are created early in the boot (ISA) now
-    // so that when we probe the controller we don't run into used
-    // ports.
-    Device::foreach(removeIsaAta);
-    Device::foreach(probeDisk);
-  }
-  if (!bFound)
-  {
-    // Try again, allowing ISA devices this time.
-    bFallBackISA = true;
-    Device::foreach(probeDisk);
-  }
+    // Done initial probe to find out what exists, action the findings now.
+    allowProbing = true;
+    if (bPiixControllerFound)
+    {
+        // Right, we found a PIIX controller. Let's remove the ATA
+        // controllers that are created early in the boot (ISA) now
+        // so that when we probe the controller we don't run into used
+        // ports.
+        Device::foreach (removeIsaAta);
+        Device::foreach (probeDisk);
+    }
+    if (!bFound)
+    {
+        // Try again, allowing ISA devices this time.
+        bFallBackISA = true;
+        Device::foreach (probeDisk);
+    }
 
-  return bFound;
+    return bFound;
 }
 
 static void exit()

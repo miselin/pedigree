@@ -25,11 +25,10 @@
 ProcessGroup::~ProcessGroup()
 {
     // Remove all processes in the list from this group
-    for(List<PosixProcess*>::Iterator it = Members.begin();
-        it != Members.end();
-        ++it)
+    for (List<PosixProcess *>::Iterator it = Members.begin();
+         it != Members.end(); ++it)
     {
-        if(*it)
+        if (*it)
         {
             (*it)->setGroupMembership(PosixProcess::NoGroup);
             (*it)->setProcessGroup(0, false);
@@ -42,23 +41,24 @@ ProcessGroup::~ProcessGroup()
     Members.clear();
 }
 
-PosixProcess::PosixProcess() :
-    Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0)
+PosixProcess::PosixProcess()
+    : Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup),
+      m_Mask(0)
 {
     registerProcess();
 }
 
 /** Copy constructor. */
-PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite) :
-    Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
-    m_GroupMembership(NoGroup), m_Mask(0)
+PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite)
+    : Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
+      m_GroupMembership(NoGroup), m_Mask(0)
 {
-    if(pParent->getType() == Posix)
+    if (pParent->getType() == Posix)
     {
         PosixProcess *pPosixParent = static_cast<PosixProcess *>(pParent);
         m_pSession = pPosixParent->m_pSession;
         setProcessGroup(pPosixParent->getProcessGroup());
-        if(m_pProcessGroup)
+        if (m_pProcessGroup)
         {
             setGroupMembership(Member);
         }
@@ -75,16 +75,17 @@ PosixProcess::~PosixProcess()
     unregisterProcess();
 }
 
-void PosixProcess::setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup)
+void PosixProcess::setProcessGroup(
+    ProcessGroup *newGroup, bool bRemoveFromGroup)
 {
     // Remove ourselves from our existing group.
-    if(m_pProcessGroup && bRemoveFromGroup)
+    if (m_pProcessGroup && bRemoveFromGroup)
     {
-        for(List<PosixProcess*>::Iterator it = m_pProcessGroup->Members.begin();
-            it != m_pProcessGroup->Members.end();
-            )
+        for (List<PosixProcess *>::Iterator it =
+                 m_pProcessGroup->Members.begin();
+             it != m_pProcessGroup->Members.end();)
         {
-            if((*it) == this)
+            if ((*it) == this)
             {
                 it = m_pProcessGroup->Members.erase(it);
             }
@@ -95,12 +96,15 @@ void PosixProcess::setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup
 
     // Now join the real group.
     m_pProcessGroup = newGroup;
-    if(m_pProcessGroup)
+    if (m_pProcessGroup)
     {
         m_pProcessGroup->Members.pushBack(this);
-        NOTICE(">>>>>> Adding self to the members list, new size = " << m_pProcessGroup->Members.count() << ".");
+        NOTICE(
+            ">>>>>> Adding self to the members list, new size = "
+            << m_pProcessGroup->Members.count() << ".");
 
-        ProcessGroupManager::instance().setGroupId(m_pProcessGroup->processGroupId);
+        ProcessGroupManager::instance().setGroupId(
+            m_pProcessGroup->processGroupId);
     }
 }
 

@@ -20,33 +20,44 @@
 #ifndef EXT2_DIRECTORY_H
 #define EXT2_DIRECTORY_H
 
-#include "ext2.h"
-#include "Ext2Node.h"
-#include <vfs/Directory.h>
-#include <utilities/Vector.h>
 #include "Ext2Filesystem.h"
+#include "Ext2Node.h"
+#include "ext2.h"
+#include <utilities/Vector.h>
+#include <vfs/Directory.h>
 
 /** A File is a file, a directory or a symlink. */
 class Ext2Directory : public Directory, public Ext2Node
 {
-private:
+    private:
     /** Copy constructors are hidden - unused! */
     Ext2Directory(const Ext2Directory &file);
-    Ext2Directory& operator =(const Ext2Directory&);
-public:
+    Ext2Directory &operator=(const Ext2Directory &);
+
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    Ext2Directory(const String &name, uintptr_t inode_num, Inode *inode,
-                  class Ext2Filesystem *pFs, File *pParent);
+    Ext2Directory(
+        const String &name, uintptr_t inode_num, Inode *inode,
+        class Ext2Filesystem *pFs, File *pParent);
     /** Destructor */
     virtual ~Ext2Directory();
 
-    uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true)
-    {return 0;}
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true)
-    {return 0;}
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true)
+    {
+        return 0;
+    }
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true)
+    {
+        return 0;
+    }
 
     void truncate()
-    {}
+    {
+    }
 
     /** Reads directory contents into File* cache. */
     virtual void cacheDirectoryContents();

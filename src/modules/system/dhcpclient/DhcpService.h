@@ -27,11 +27,15 @@
 class DhcpService : public Service
 {
     public:
-        DhcpService() {}
-        virtual ~DhcpService() {}
+    DhcpService()
+    {
+    }
+    virtual ~DhcpService()
+    {
+    }
 
-        /** serve: Interface through which clients interact with the Service */
-        bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
+    /** serve: Interface through which clients interact with the Service */
+    bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
 };
 
 #endif

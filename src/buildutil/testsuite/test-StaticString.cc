@@ -25,12 +25,19 @@
 
 // Test fixture for typed tests.
 template <typename T>
-class PedigreeStaticStringSignedTypes : public ::testing::Test {};
+class PedigreeStaticStringSignedTypes : public ::testing::Test
+{
+};
 template <typename T>
-class PedigreeStaticStringUnsignedTypes : public ::testing::Test {};
+class PedigreeStaticStringUnsignedTypes : public ::testing::Test
+{
+};
 
 typedef ::testing::Types<short, int, long, long long> SignedIntegerTypes;
-typedef ::testing::Types<unsigned char, unsigned short, unsigned int, unsigned long, unsigned long long> UnsignedIntegerTypes;
+typedef ::testing::Types<
+    unsigned char, unsigned short, unsigned int, unsigned long,
+    unsigned long long>
+    UnsignedIntegerTypes;
 TYPED_TEST_CASE(PedigreeStaticStringSignedTypes, SignedIntegerTypes);
 TYPED_TEST_CASE(PedigreeStaticStringUnsignedTypes, UnsignedIntegerTypes);
 
@@ -218,7 +225,8 @@ TEST(PedigreeStaticString, StripFirst)
 TEST(PedigreeStaticString, StreamInsertion)
 {
     StaticString<64> s("hello");
-    s << " world" << "!";
+    s << " world"
+      << "!";
     EXPECT_STREQ(s, "hello world!");
 }
 

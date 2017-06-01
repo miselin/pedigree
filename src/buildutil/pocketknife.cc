@@ -23,14 +23,13 @@
 
 namespace pocketknife
 {
-
-void runConcurrently(int (*func)(void*), void *param)
+void runConcurrently(int (*func)(void *), void *param)
 {
     std::thread thread(func, param);
     thread.detach();
 }
 
-void *runConcurrentlyAttached(int (*func)(void*), void *param)
+void *runConcurrentlyAttached(int (*func)(void *), void *param)
 {
     std::thread *thread = new std::thread(func, param);
     return thread;
@@ -42,5 +41,4 @@ int attachTo(void *handle)
     thread->join();
     return 0;  /// \todo get return value from thread?
 }
-
 }

@@ -20,12 +20,12 @@
 #ifndef MACHINE_X86_KEYBOARD_H
 #define MACHINE_X86_KEYBOARD_H
 
-#include <machine/Keyboard.h>
 #include <machine/IrqManager.h>
+#include <machine/Keyboard.h>
 #include <machine/KeymapManager.h>
-#include <processor/types.h>
-#include <processor/IoPort.h>
 #include <process/Semaphore.h>
+#include <processor/IoPort.h>
+#include <processor/types.h>
 
 #define BUFLEN 256
 
@@ -35,42 +35,42 @@
 class X86Keyboard : public Keyboard, private IrqHandler
 {
     public:
-        X86Keyboard (uint32_t portBase);
-        virtual ~X86Keyboard();
+    X86Keyboard(uint32_t portBase);
+    virtual ~X86Keyboard();
 
-        /// Initialises the device
-        virtual void initialise();
+    /// Initialises the device
+    virtual void initialise();
 
-        virtual void setDebugState(bool enableDebugState);
-        virtual bool getDebugState();
+    virtual void setDebugState(bool enableDebugState);
+    virtual bool getDebugState();
 
-        virtual char getChar();
-        virtual char getCharNonBlock();
-    
-        virtual char getLedState();
-        virtual void setLedState(char state);
+    virtual char getChar();
+    virtual char getCharNonBlock();
 
-        /// IrqHandler interface
-        virtual bool irq(irq_id_t number, InterruptState &state);
+    virtual char getLedState();
+    virtual void setLedState(char state);
+
+    /// IrqHandler interface
+    virtual bool irq(irq_id_t number, InterruptState &state);
 
     private:
-        /// Converts a scancode into an ASCII character (for use in debug state)
-        char scancodeToAscii(uint8_t scancode);
+    /// Converts a scancode into an ASCII character (for use in debug state)
+    char scancodeToAscii(uint8_t scancode);
 
-        /// True if we're in debug state
-        bool m_bDebugState;
+    /// True if we're in debug state
+    bool m_bDebugState;
 
-        /// The current escape state
-        KeymapManager::EscapeState m_Escape;
+    /// The current escape state
+    KeymapManager::EscapeState m_Escape;
 
-        /// The IO port through which to access the keyboard
-        IoBase *m_pBase;
+    /// The IO port through which to access the keyboard
+    IoBase *m_pBase;
 
-        /// IRQ id
-        irq_id_t m_IrqId;
-    
-        /// Current LED state
-        char m_LedState;
+    /// IRQ id
+    irq_id_t m_IrqId;
+
+    /// Current LED state
+    char m_LedState;
 };
 
 #endif

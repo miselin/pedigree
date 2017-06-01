@@ -21,23 +21,24 @@
 #define MACHINE_HOSTED_SERIAL_H
 
 #include <compiler.h>
-#include <processor/types.h>
 #include <machine/Serial.h>
+#include <processor/types.h>
 
 /**
  * Serial device abstraction.
  */
 class HostedSerial : public Serial
 {
-  public:
+    public:
     HostedSerial();
     virtual void setBase(uintptr_t nBaseAddr);
     virtual ~HostedSerial();
-  
+
     virtual char read();
     virtual char readNonBlock();
     virtual void write(char c);
-  private:
+
+    private:
     bool isConnected();
 
     int m_File;

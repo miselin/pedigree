@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Timer.h"
 #include <compiler.h>
 #include <machine/Machine.h>
 #include <process/Event.h>
 #include <process/Thread.h>
 #include <processor/Processor.h>
-#include "Timer.h"
 
 #include <SlamAllocator.h>
 
@@ -41,18 +41,18 @@ uint8_t daysPerMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 void HostedTimer::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 {
-    Alarm *pAlarm = new Alarm(pEvent, alarmSecs * 1000000 + alarmUsecs + getTickCount(),
-                              Processor::information().getCurrentThread());
+    Alarm *pAlarm = new Alarm(
+        pEvent, alarmSecs * 1000000 + alarmUsecs + getTickCount(),
+        Processor::information().getCurrentThread());
     m_Alarms.pushBack(pAlarm);
 }
 
 void HostedTimer::removeAlarm(Event *pEvent)
 {
-    for (List<Alarm*>::Iterator it = m_Alarms.begin();
-            it != m_Alarms.end();
-            it++)
+    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
+         it++)
     {
-        if ( (*it)->m_pEvent == pEvent )
+        if ((*it)->m_pEvent == pEvent)
         {
             m_Alarms.erase(it);
             return;
@@ -64,11 +64,10 @@ size_t HostedTimer::removeAlarm(class Event *pEvent, bool bRetZero)
 {
     size_t currTime = getTickCount();
 
-    for (List<Alarm*>::Iterator it = m_Alarms.begin();
-            it != m_Alarms.end();
-            it++)
+    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
+         it++)
     {
-        if ( (*it)->m_pEvent == pEvent )
+        if ((*it)->m_pEvent == pEvent)
         {
             size_t ret = 0;
             if (!bRetZero)
@@ -185,7 +184,7 @@ bool HostedTimer::initialise()
 {
     synchronise();
 
-    ByteSet(m_Handlers, 0, sizeof(TimerHandler*) * MAX_TIMER_HANDLERS);
+    ByteSet(m_Handlers, 0, sizeof(TimerHandler *) * MAX_TIMER_HANDLERS);
 
     struct sigevent sv;
     ByteSet(&sv, 0, sizeof(sv));
@@ -193,7 +192,7 @@ bool HostedTimer::initialise()
     sv.sigev_signo = SIGUSR1;
     sv.sigev_value.sival_ptr = this;
     int r = timer_create(CLOCK_MONOTONIC, &sv, &m_Timer);
-    if(r != 0)
+    if (r != 0)
     {
         /// \todo error message or something
         return false;
@@ -204,7 +203,7 @@ bool HostedTimer::initialise()
     interval.it_interval.tv_nsec = INTERVAL;
     interval.it_value.tv_nsec = INTERVAL;
     r = timer_settime(m_Timer, 0, &interval, 0);
-    if(r != 0)
+    if (r != 0)
     {
         timer_delete(m_Timer);
         return false;
@@ -251,9 +250,10 @@ void HostedTimer::uninitialise()
     irqManager.unregisterHandler(m_IrqId, this);
 }
 
-HostedTimer::HostedTimer() : m_Year(0), m_Month(0), m_DayOfMonth(0),
-    m_DayOfWeek(0), m_Hour(0), m_Minute(0), m_Second(0), m_Nanosecond(0),
-    m_IrqId(0), m_Handlers(), m_Alarms()
+HostedTimer::HostedTimer()
+    : m_Year(0), m_Month(0), m_DayOfMonth(0), m_DayOfWeek(0), m_Hour(0),
+      m_Minute(0), m_Second(0), m_Nanosecond(0), m_IrqId(0), m_Handlers(),
+      m_Alarms()
 {
 }
 
@@ -261,7 +261,7 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
 {
     // Should we handle this?
     uint64_t opaque = state.getRegister(0);
-    if(opaque != reinterpret_cast<uint64_t>(this))
+    if (opaque != reinterpret_cast<uint64_t>(this))
     {
         return false;
     }
@@ -276,12 +276,11 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
     while (true)
     {
         bool bDispatched = false;
-        for (List<Alarm*>::Iterator it = m_Alarms.begin();
-                it != m_Alarms.end();
-                it++)
+        for (List<Alarm *>::Iterator it = m_Alarms.begin();
+             it != m_Alarms.end(); it++)
         {
             Alarm *pA = *it;
-            if ( pA->m_Time <= getTickCount() )
+            if (pA->m_Time <= getTickCount())
             {
                 pA->m_pThread->sendEvent(pA->m_pEvent);
                 m_Alarms.erase(it);
@@ -295,8 +294,8 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
 
     if (UNLIKELY(m_Nanosecond >= 1000000ULL))
     {
-        // Every millisecond, unblock any interrupts which were halted and halt any
-        // which need to be halted.
+        // Every millisecond, unblock any interrupts which were halted and halt
+        // any which need to be halted.
         Machine::instance().getIrqManager()->tick();
     }
 
@@ -335,10 +334,13 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
                     m_Hour = 0;
 
                     // Are we in a leap year
-                    bool isLeap = ((m_Year % 4) == 0) & (((m_Year % 100) != 0) | ((m_Year % 400) == 0));
+                    bool isLeap = ((m_Year % 4) == 0) & (((m_Year % 100) != 0) |
+                                                         ((m_Year % 400) == 0));
 
-                    if (UNLIKELY(((m_DayOfMonth > daysPerMonth[m_Month - 1]) && ((m_Month != 2) || isLeap == false)) ||
-                                 (m_DayOfMonth > (daysPerMonth[m_Month - 1] + 1))))
+                    if (UNLIKELY(
+                            ((m_DayOfMonth > daysPerMonth[m_Month - 1]) &&
+                             ((m_Month != 2) || isLeap == false)) ||
+                            (m_DayOfMonth > (daysPerMonth[m_Month - 1] + 1))))
                     {
                         ++m_Month;
                         m_DayOfMonth = 1;

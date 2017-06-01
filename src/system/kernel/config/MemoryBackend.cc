@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,8 +19,8 @@
 
 #include <config/MemoryBackend.h>
 
-MemoryBackend::MemoryBackend(String configStore) :
-    ConfigurationBackend(configStore), m_Tables()
+MemoryBackend::MemoryBackend(String configStore)
+    : ConfigurationBackend(configStore), m_Tables()
 {
 }
 
@@ -39,7 +38,8 @@ size_t MemoryBackend::createTable(String table)
 void MemoryBackend::insert(String table, String key, ConfigValue &value)
 {
     Table *pT = m_Tables.lookup(table);
-    if (!pT) return;
+    if (!pT)
+        return;
 
     ConfigValue *pConfigValue = new ConfigValue(value);
     pT->m_Rows.insert(key, pConfigValue);
@@ -51,7 +51,8 @@ ConfigValue &MemoryBackend::select(String table, String key)
     v.type = Invalid;
 
     Table *pT = m_Tables.lookup(table);
-    if (!pT) return v;
+    if (!pT)
+        return v;
 
     ConfigValue *pV = pT->m_Rows.lookup(key);
     if (pV)
@@ -60,10 +61,12 @@ ConfigValue &MemoryBackend::select(String table, String key)
         return v;
 }
 
-void MemoryBackend::watch(String table, String key, ConfigurationWatcher watcher)
+void MemoryBackend::watch(
+    String table, String key, ConfigurationWatcher watcher)
 {
     Table *pT = m_Tables.lookup(table);
-    if (!pT) return;
+    if (!pT)
+        return;
 
     ConfigValue *pV = pT->m_Rows.lookup(key);
     if (pV)
@@ -79,10 +82,12 @@ void MemoryBackend::watch(String table, String key, ConfigurationWatcher watcher
     }
 }
 
-void MemoryBackend::unwatch(String table, String key, ConfigurationWatcher watcher)
+void MemoryBackend::unwatch(
+    String table, String key, ConfigurationWatcher watcher)
 {
     Table *pT = m_Tables.lookup(table);
-    if (!pT) return;
+    if (!pT)
+        return;
 
     ConfigValue *pV = pT->m_Rows.lookup(key);
     if (pV)

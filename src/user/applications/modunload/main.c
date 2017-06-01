@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -31,7 +30,7 @@ int unload_module(char *name);
 
 int unload_module(char *name)
 {
-    if(!pedigree_module_is_loaded(name))
+    if (!pedigree_module_is_loaded(name))
     {
         printf("Module %s isn't loaded!\n", name);
         return -1;
@@ -39,16 +38,16 @@ int unload_module(char *name)
     printf("Module %s being unloaded...\n", name);
 
     // First unload all dependencies
-    char *dep = (char*)malloc(256);
-    while(pedigree_module_get_depending(name, dep, 256))
+    char *dep = (char *) malloc(256);
+    while (pedigree_module_get_depending(name, dep, 256))
     {
-        if(unload_module(dep) == -1)
+        if (unload_module(dep) == -1)
             return -1;
     }
     free(dep);
     // Finally unload the module
     pedigree_module_unload(name);
-    if(!pedigree_module_is_loaded(name))
+    if (!pedigree_module_is_loaded(name))
         return 0;
     printf("Module %s couldn't been unloaded\n", name);
     return -1;
@@ -56,7 +55,7 @@ int unload_module(char *name)
 
 int main(int argc, char **argv)
 {
-    if(argc < 2)
+    if (argc < 2)
     {
         printf("Usage: %s <module name>\n", argv[0]);
         return 0;

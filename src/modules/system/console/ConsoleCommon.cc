@@ -18,24 +18,26 @@
  */
 
 #include "Console.h"
-#include <vfs/VFS.h>
-#include <processor/Processor.h>
 #include <process/Scheduler.h>
+#include <processor/Processor.h>
+#include <vfs/VFS.h>
 
 extern const char defaultControl[MAX_CONTROL_CHAR];
 
-ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
-    File(consoleName, 0, 0, 0, 0xdeadbeef, pFs, 0, 0), m_pOther(0),
-    m_Flags(DEFAULT_FLAGS), m_Rows(25), m_Cols(80),
-    m_LineBuffer(), m_LineBufferSize(0), m_LineBufferFirstNewline(~0), m_Last(0),
-    m_Buffer(PTY_BUFFER_SIZE), m_ConsoleNumber(consoleNumber),
-    m_Name(consoleName), m_pEvent(0), m_EventTrigger(true)
+ConsoleFile::ConsoleFile(
+    size_t consoleNumber, String consoleName, Filesystem *pFs)
+    : File(consoleName, 0, 0, 0, 0xdeadbeef, pFs, 0, 0), m_pOther(0),
+      m_Flags(DEFAULT_FLAGS), m_Rows(25), m_Cols(80), m_LineBuffer(),
+      m_LineBufferSize(0), m_LineBufferFirstNewline(~0), m_Last(0),
+      m_Buffer(PTY_BUFFER_SIZE), m_ConsoleNumber(consoleNumber),
+      m_Name(consoleName), m_pEvent(0), m_EventTrigger(true)
 {
     MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
 
     // r/w for all (todo: when a console is locked, it should become owned
     // by the locking user)
-    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+    setPermissionsOnly(
+        FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
     setUidOnly(0);
     setGidOnly(0);
 }
@@ -58,13 +60,14 @@ void ConsoleFile::inject(char *buf, size_t len, bool canBlock)
     dataChanged();
 }
 
-size_t ConsoleFile::outputLineDiscipline(char *buf, size_t len, size_t maxSz, size_t flags)
+size_t ConsoleFile::outputLineDiscipline(
+    char *buf, size_t len, size_t maxSz, size_t flags)
 {
     // Make sure we always have the latest flags from the slave.
     size_t slaveFlags = flags;
 
     // Post-process output if enabled.
-    if(slaveFlags & (ConsoleManager::OPostProcess))
+    if (slaveFlags & (ConsoleManager::OPostProcess))
     {
         char *tmpBuff = new char[len];
         size_t realSize = len;
@@ -82,12 +85,15 @@ size_t ConsoleFile::outputLineDiscipline(char *buf, size_t len, size_t maxSz, si
             }
 
             // ONLCR: Map NL to CR-NL on output
-            else if (pC[j] == '\n' && (slaveFlags & ConsoleManager::OMapNLToCRNL))
+            else if (
+                pC[j] == '\n' && (slaveFlags & ConsoleManager::OMapNLToCRNL))
             {
                 if (realSize >= maxSz)
                 {
-                    // We do not have any room to add in the mapped character. Drop it.
-                    WARNING("Console ignored an NL -> CRNL conversion due to a full buffer.");
+                    // We do not have any room to add in the mapped character.
+                    // Drop it.
+                    WARNING("Console ignored an NL -> CRNL conversion due to a "
+                            "full buffer.");
                     tmpBuff[i++] = '\n';
                     continue;
                 }
@@ -96,7 +102,7 @@ size_t ConsoleFile::outputLineDiscipline(char *buf, size_t len, size_t maxSz, si
 
                 char *newBuff = new char[realSize];
                 MemoryCopy(newBuff, tmpBuff, i);
-                delete [] tmpBuff;
+                delete[] tmpBuff;
                 tmpBuff = newBuff;
 
                 // Add the newline and the caused carriage return
@@ -107,20 +113,20 @@ size_t ConsoleFile::outputLineDiscipline(char *buf, size_t len, size_t maxSz, si
             }
 
             // ONLRET: NL performs CR function
-            if(pC[j] == '\n' && (slaveFlags & ConsoleManager::ONLCausesCR))
+            if (pC[j] == '\n' && (slaveFlags & ConsoleManager::ONLCausesCR))
             {
                 tmpBuff[i++] = '\r';
                 continue;
             }
 
-            if(bInsert)
+            if (bInsert)
             {
                 tmpBuff[i++] = pC[j];
             }
         }
 
         MemoryCopy(buf, tmpBuff, realSize);
-        delete [] tmpBuff;
+        delete[] tmpBuff;
         len = realSize;
     }
 
@@ -152,8 +158,8 @@ size_t ConsoleFile::processInput(char *buf, size_t len)
             pC[i] = '\n';
         else if (pC[i] == '\r' && (m_Flags & ConsoleManager::IIgnoreCR))
         {
-            MemoryCopy(buf+i, buf+i+1, len-i-1);
-            i--; // Need to process this byte again, its contents have changed.
+            MemoryCopy(buf + i, buf + i + 1, len - i - 1);
+            i--;  // Need to process this byte again, its contents have changed.
             realLen--;
         }
     }
@@ -161,7 +167,8 @@ size_t ConsoleFile::processInput(char *buf, size_t len)
     return realLen;
 }
 
-void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const char *controlChars)
+void ConsoleFile::inputLineDiscipline(
+    char *buf, size_t len, size_t flags, const char *controlChars)
 {
     // Make sure we always have the latest flags from the slave.
     if (flags == ~0U)
@@ -178,7 +185,7 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
     size_t localWritten = 0;
 
     // Handle temios local modes
-    if(slaveFlags & (ConsoleManager::LCookedMode|ConsoleManager::LEcho))
+    if (slaveFlags & (ConsoleManager::LCookedMode | ConsoleManager::LEcho))
     {
         // Whether or not the application buffer has already been filled
         bool bAppBufferComplete = false;
@@ -188,38 +195,43 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
         size_t destBuffOffset = 0;
 
         // Iterate over the buffer
-        while(!bAppBufferComplete)
+        while (!bAppBufferComplete)
         {
-            for(size_t i = 0; i < len; i++)
+            for (size_t i = 0; i < len; i++)
             {
                 // Handle incoming newline
                 bool isCanonical = (slaveFlags & ConsoleManager::LCookedMode);
-                if(isCanonical && (buf[i] == slaveControlChars[VEOF]))
+                if (isCanonical && (buf[i] == slaveControlChars[VEOF]))
                 {
                     // EOF. Write it and it alone to the slave.
                     performInject(&buf[i], 1, true);
                     return;
                 }
 
-                if((buf[i] == '\r') || (isCanonical && (buf[i] == slaveControlChars[VEOL])))
+                if ((buf[i] == '\r') ||
+                    (isCanonical && (buf[i] == slaveControlChars[VEOL])))
                 {
-                    // LEcho - output the newline. LCookedMode - handle line buffer.
-                    if((slaveFlags & ConsoleManager::LEcho) || (slaveFlags & ConsoleManager::LCookedMode))
+                    // LEcho - output the newline. LCookedMode - handle line
+                    // buffer.
+                    if ((slaveFlags & ConsoleManager::LEcho) ||
+                        (slaveFlags & ConsoleManager::LCookedMode))
                     {
                         // Only echo the newline if we are supposed to
                         m_LineBuffer[m_LineBufferSize++] = '\n';
-                        if((slaveFlags & ConsoleManager::LEchoNewline) || (slaveFlags & ConsoleManager::LEcho))
+                        if ((slaveFlags & ConsoleManager::LEchoNewline) ||
+                            (slaveFlags & ConsoleManager::LEcho))
                         {
                             char buf[] = {'\n', 0};
                             m_Buffer.write(buf, 1);
                             ++localWritten;
                         }
 
-                        if((slaveFlags & ConsoleManager::LCookedMode) && !bAppBufferComplete)
+                        if ((slaveFlags & ConsoleManager::LCookedMode) &&
+                            !bAppBufferComplete)
                         {
                             // Transmit full buffer to slave.
                             size_t realSize = m_LineBufferSize;
-                            if(m_LineBufferFirstNewline < realSize)
+                            if (m_LineBufferFirstNewline < realSize)
                             {
                                 realSize = m_LineBufferFirstNewline;
                                 m_LineBufferFirstNewline = ~0UL;
@@ -227,10 +239,15 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
 
                             performInject(m_LineBuffer, realSize, true);
 
-                            // And now move the buffer over the space we just consumed
-                            uint64_t nConsumedBytes = m_LineBufferSize - realSize;
-                            if(nConsumedBytes) // If zero, the buffer was consumed completely
-                                MemoryCopy(m_LineBuffer, &m_LineBuffer[realSize], nConsumedBytes);
+                            // And now move the buffer over the space we just
+                            // consumed
+                            uint64_t nConsumedBytes =
+                                m_LineBufferSize - realSize;
+                            if (nConsumedBytes)  // If zero, the buffer was
+                                                 // consumed completely
+                                MemoryCopy(
+                                    m_LineBuffer, &m_LineBuffer[realSize],
+                                    nConsumedBytes);
 
                             // Reduce the buffer size now
                             m_LineBufferSize -= realSize;
@@ -238,34 +255,41 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
                             // The buffer has been filled!
                             bAppBufferComplete = true;
                         }
-                        else if((slaveFlags & ConsoleManager::LCookedMode) && (m_LineBufferFirstNewline == ~0UL))
+                        else if (
+                            (slaveFlags & ConsoleManager::LCookedMode) &&
+                            (m_LineBufferFirstNewline == ~0UL))
                         {
-                            // Application buffer has already been filled, let future runs know where the limit is
+                            // Application buffer has already been filled, let
+                            // future runs know where the limit is
                             m_LineBufferFirstNewline = m_LineBufferSize - 1;
                         }
-                        else if(!(slaveFlags & ConsoleManager::LCookedMode))
+                        else if (!(slaveFlags & ConsoleManager::LCookedMode))
                         {
                             // Inject this byte into the slave...
                             destBuff[destBuffOffset++] = buf[i];
                         }
 
                         // Ignore the \n if one is present
-                        if(buf[i+1] == '\n')
+                        if (buf[i + 1] == '\n')
                             i++;
                     }
                 }
-                else if(buf[i] == m_ControlChars[VERASE])
+                else if (buf[i] == m_ControlChars[VERASE])
                 {
-                    if(slaveFlags & (ConsoleManager::LCookedMode|ConsoleManager::LEchoErase))
+                    if (slaveFlags & (ConsoleManager::LCookedMode |
+                                      ConsoleManager::LEchoErase))
                     {
-                        if((slaveFlags & ConsoleManager::LCookedMode) && m_LineBufferSize)
+                        if ((slaveFlags & ConsoleManager::LCookedMode) &&
+                            m_LineBufferSize)
                         {
                             char ctl[3] = {'\x08', ' ', '\x08'};
                             m_Buffer.write(ctl, 3);
                             m_LineBufferSize--;
                             ++localWritten;
                         }
-                        else if((!(slaveFlags & ConsoleManager::LCookedMode)) && destBuffOffset)
+                        else if (
+                            (!(slaveFlags & ConsoleManager::LCookedMode)) &&
+                            destBuffOffset)
                         {
                             char ctl[3] = {'\x08', ' ', '\x08'};
                             m_Buffer.write(ctl, 3);
@@ -277,7 +301,7 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
                 else
                 {
                     // Do we need to handle this character differently?
-                    if(checkForEvent(slaveFlags, buf[i], controlChars))
+                    if (checkForEvent(slaveFlags, buf[i], controlChars))
                     {
                         // So, normally we'll be fine to print nicely, but if
                         // we can't write to the ring buffer, we must not try
@@ -287,7 +311,8 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
                         {
                             // Forcefully clear out bytes so we can write what
                             // we need to to the ring buffer.
-                            WARNING("Console: dropping bytes to be able to render visual control code (e.g. ^C)");
+                            WARNING("Console: dropping bytes to be able to "
+                                    "render visual control code (e.g. ^C)");
                             char tmp[3];
                             m_Buffer.read(tmp, 3);
                         }
@@ -304,14 +329,14 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
                     }
 
                     // Write the character to the slave
-                    if(slaveFlags & ConsoleManager::LEcho)
+                    if (slaveFlags & ConsoleManager::LEcho)
                     {
                         m_Buffer.write(&buf[i], 1);
                         ++localWritten;
                     }
 
                     // Add to the buffer
-                    if(slaveFlags & ConsoleManager::LCookedMode)
+                    if (slaveFlags & ConsoleManager::LCookedMode)
                         m_LineBuffer[m_LineBufferSize++] = buf[i];
                     else
                     {
@@ -321,9 +346,10 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
             }
 
             // We appear to have hit the top of the line buffer!
-            if(m_LineBufferSize >= LINEBUFFER_MAXIMUM)
+            if (m_LineBufferSize >= LINEBUFFER_MAXIMUM)
             {
-                // Our best bet is to return early, giving the application what we can of the line buffer
+                // Our best bet is to return early, giving the application what
+                // we can of the line buffer
                 size_t numBytesToRemove = m_LineBufferSize;
 
                 // Copy the buffer across
@@ -331,8 +357,11 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
 
                 // And now move the buffer over the space we just consumed
                 uint64_t nConsumedBytes = m_LineBufferSize - numBytesToRemove;
-                if(nConsumedBytes) // If zero, the buffer was consumed completely
-                    MemoryCopy(m_LineBuffer, &m_LineBuffer[numBytesToRemove], nConsumedBytes);
+                if (nConsumedBytes)  // If zero, the buffer was consumed
+                                     // completely
+                    MemoryCopy(
+                        m_LineBuffer, &m_LineBuffer[numBytesToRemove],
+                        nConsumedBytes);
 
                 // Reduce the buffer size now
                 m_LineBufferSize -= numBytesToRemove;
@@ -342,19 +371,19 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
             break;
         }
 
-        if(destBuffOffset)
+        if (destBuffOffset)
         {
             performInject(destBuff, len, true);
         }
 
-        delete [] destBuff;
+        delete[] destBuff;
     }
     else
     {
-        for(size_t i = 0; i < len; ++i)
+        for (size_t i = 0; i < len; ++i)
         {
             // Do we need to send an event?
-            if(checkForEvent(slaveFlags, buf[i], controlChars))
+            if (checkForEvent(slaveFlags, buf[i], controlChars))
             {
                 triggerEvent(buf[i]);
                 continue;
@@ -366,19 +395,19 @@ void ConsoleFile::inputLineDiscipline(char *buf, size_t len, size_t flags, const
     }
 
     // Wake up anything waiting on data to read from us.
-    if(localWritten)
+    if (localWritten)
         dataChanged();
 }
 
-bool ConsoleFile::checkForEvent(size_t flags, char check, const char *controlChars)
+bool ConsoleFile::checkForEvent(
+    size_t flags, char check, const char *controlChars)
 {
     // ISIG?
-    if(flags & ConsoleManager::LGenerateEvent)
+    if (flags & ConsoleManager::LGenerateEvent)
     {
-        if(check && (
-                    check == controlChars[VINTR] ||
-                    check == controlChars[VQUIT] ||
-                    check == controlChars[VSUSP]))
+        if (check &&
+            (check == controlChars[VINTR] || check == controlChars[VQUIT] ||
+             check == controlChars[VSUSP]))
         {
             return true;
         }
@@ -388,7 +417,7 @@ bool ConsoleFile::checkForEvent(size_t flags, char check, const char *controlCha
 
 void ConsoleFile::triggerEvent(char cause)
 {
-    if(m_pOther->m_pEvent)
+    if (m_pOther->m_pEvent)
     {
         Thread *pThread = Processor::information().getCurrentThread();
         m_Last = cause;
@@ -396,7 +425,8 @@ void ConsoleFile::triggerEvent(char cause)
         Scheduler::instance().yield();
 
         // Note that we do not release the mutex here.
-        while(!m_EventTrigger.acquire());
+        while (!m_EventTrigger.acquire())
+            ;
     }
 }
 

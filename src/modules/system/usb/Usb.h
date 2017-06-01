@@ -23,11 +23,12 @@
 #include <processor/types.h>
 
 // PID types, ordered as they appear in the EHCI spec
-enum UsbPid {
+enum UsbPid
+{
     // Token PID Types
-    UsbPidOut   = 0xe1,
-    UsbPidIn    = 0x69,
-    UsbPidSOF   = 0xa5,
+    UsbPidOut = 0xe1,
+    UsbPidIn = 0x69,
+    UsbPidSOF = 0xa5,
     UsbPidSetup = 0x2d,
 
     // Data PID Types
@@ -37,17 +38,17 @@ enum UsbPid {
     UsbPidMdata = 0x0f,
 
     // Handshake PID Types
-    UsbPidAck   = 0xd2,
-    UsbPidNak   = 0x5a,
+    UsbPidAck = 0xd2,
+    UsbPidNak = 0x5a,
     UsbPidStall = 0x1e,
-    UsbPidNyet  = 0x96,
+    UsbPidNyet = 0x96,
 
     // Special PID Types
-    UsbPidPre   = 0x3c, // Token
-    UsbPidErr   = 0x3c, // Handshake
+    UsbPidPre = 0x3c,  // Token
+    UsbPidErr = 0x3c,  // Handshake
     UsbPidSplit = 0x78,
-    UsbPidPing  = 0xb4,
-    UsbPidRsvd  = 0xf0
+    UsbPidPing = 0xb4,
+    UsbPidRsvd = 0xf0
 };
 
 enum UsbSpeed
@@ -70,10 +71,18 @@ enum UsbError
 
 struct UsbEndpoint
 {
-    inline UsbEndpoint() :
-        nAddress(0), nEndpoint(0), speed(LowSpeed), nMaxPacketSize(8), nHubAddress(0), nHubPort(0) {}
-    inline UsbEndpoint(uint8_t address, uint8_t hubPort, uint8_t endpoint, UsbSpeed _speed, size_t maxPacketSize) :
-        nAddress(address), nEndpoint(endpoint), speed(_speed), nMaxPacketSize(maxPacketSize), nHubAddress(0), nHubPort(hubPort) {}
+    inline UsbEndpoint()
+        : nAddress(0), nEndpoint(0), speed(LowSpeed), nMaxPacketSize(8),
+          nHubAddress(0), nHubPort(0)
+    {
+    }
+    inline UsbEndpoint(
+        uint8_t address, uint8_t hubPort, uint8_t endpoint, UsbSpeed _speed,
+        size_t maxPacketSize)
+        : nAddress(address), nEndpoint(endpoint), speed(_speed),
+          nMaxPacketSize(maxPacketSize), nHubAddress(0), nHubPort(hubPort)
+    {
+    }
 
     uint8_t nAddress;
     uint8_t nEndpoint;

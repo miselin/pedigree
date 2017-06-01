@@ -21,8 +21,8 @@
 #define KERNEL_PROCESSOR_HOSTED_SYSCALLMANAGER_H
 
 #include <Spinlock.h>
-#include <processor/types.h>
 #include <processor/SyscallManager.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -30,12 +30,16 @@
 /** The syscall manager on x64 processors */
 class HostedSyscallManager : public ::SyscallManager
 {
-  public:
+    public:
     /** Get the HostedSyscallManager class instance
      *\return instance of the HostedSyscallManager class */
-    inline static HostedSyscallManager &instance(){return m_Instance;}
+    inline static HostedSyscallManager &instance()
+    {
+        return m_Instance;
+    }
 
-    virtual bool registerSyscallHandler(Service_t Service, SyscallHandler *pHandler);
+    virtual bool
+    registerSyscallHandler(Service_t Service, SyscallHandler *pHandler);
 
     /** Initialises this processors syscall handling
      *\note This should only be called from Processor::initialise1() and
@@ -43,11 +47,14 @@ class HostedSyscallManager : public ::SyscallManager
     static void initialiseProcessor() INITIALISATION_ONLY;
 
     /** Called to execute a syscall. */
-    uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5);
+    uintptr_t syscall(
+        Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2,
+        uintptr_t p3, uintptr_t p4, uintptr_t p5);
 
-  private:
+    private:
     /** Called when a syscall was called
-     *\param[in] syscallState reference to the usermode state before the syscall */
+     *\param[in] syscallState reference to the usermode state before the syscall
+    */
     static void syscall(SyscallState &syscallState);
 
     /** The constructor */
@@ -57,7 +64,7 @@ class HostedSyscallManager : public ::SyscallManager
     HostedSyscallManager(const HostedSyscallManager &);
     /** Assignment operator
      *\note NOT implemented */
-    HostedSyscallManager &operator = (const HostedSyscallManager &);
+    HostedSyscallManager &operator=(const HostedSyscallManager &);
     /** The destructor */
     virtual ~HostedSyscallManager();
 

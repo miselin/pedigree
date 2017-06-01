@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/List.h>
 #include <processor/types.h>
+#include <utilities/List.h>
 
 // Explicitly instantiate a few known types.
 template class List<void *>;

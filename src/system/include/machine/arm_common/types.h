@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -29,8 +28,8 @@
 /** Define a type for IRQ identifications */
 typedef uint8_t ARMCommonirq_id_t;
 
-#define KSEG0(addr) (addr|0x80000000)
-#define KSEG1(addr) (addr|0xa0000000)
+#define KSEG0(addr) (addr | 0x80000000)
+#define KSEG1(addr) (addr | 0xa0000000)
 
 /** @} */
 

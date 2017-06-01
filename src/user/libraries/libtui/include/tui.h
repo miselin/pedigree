@@ -28,51 +28,51 @@ class DirtyRectangle;
 class TuiRedrawer
 {
     public:
-        virtual ~TuiRedrawer() = default;
+    virtual ~TuiRedrawer() = default;
 
-        virtual void redraw(size_t x, size_t y, size_t w, size_t h) = 0;
+    virtual void redraw(size_t x, size_t y, size_t w, size_t h) = 0;
 };
 
 class Tui
 {
     public:
-        /// Default constructor which builds without using a widget.
-        Tui(TuiRedrawer *pRedrawer);
+    /// Default constructor which builds without using a widget.
+    Tui(TuiRedrawer *pRedrawer);
 
-        /// Constructor which builds using a widget.
-        Tui(Widget *widget);
+    /// Constructor which builds using a widget.
+    Tui(Widget *widget);
 
-        virtual ~Tui();
+    virtual ~Tui();
 
-        /// (Re-)initialise the terminal
-        bool initialise(size_t width, size_t height);
+    /// (Re-)initialise the terminal
+    bool initialise(size_t width, size_t height);
 
-        /// Set the cursor fill state (e.g. box outline vs shaded box)
-        void setCursorStyle(bool filled);
+    /// Set the cursor fill state (e.g. box outline vs shaded box)
+    void setCursorStyle(bool filled);
 
-        /// Re-create rendering surfaces from the newest framebuffer.
-        void recreateSurfaces(void *fb);
+    /// Re-create rendering surfaces from the newest framebuffer.
+    void recreateSurfaces(void *fb);
 
-        /// Handle a resize of the terminal.
-        void resize(size_t newWidth, size_t newHeight);
+    /// Handle a resize of the terminal.
+    void resize(size_t newWidth, size_t newHeight);
 
-        /// Runs the TUI main loop.
-        void run();
+    /// Runs the TUI main loop.
+    void run();
 
-        /// Stops the TUI main loop.
-        void stop();
+    /// Stops the TUI main loop.
+    void stop();
 
-        /// Handles a key press with all Pedigree input special flags.
-        void keyInput(uint64_t key);
+    /// Handles a key press with all Pedigree input special flags.
+    void keyInput(uint64_t key);
 
-        /// Performs a redraw.
-        void redraw(DirtyRectangle &rect);
+    /// Performs a redraw.
+    void redraw(DirtyRectangle &rect);
 
     private:
-        struct TuiLocal *m_LocalData;
+    struct TuiLocal *m_LocalData;
 
-        Widget *m_pWidget;
-        TuiRedrawer *m_pRedrawer;
+    Widget *m_pWidget;
+    TuiRedrawer *m_pRedrawer;
 };
 
 #endif

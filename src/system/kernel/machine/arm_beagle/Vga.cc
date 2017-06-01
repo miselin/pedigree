@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,13 +27,13 @@ ArmBeagleVga::~ArmBeagleVga()
 }
 char ArmBeagleVga::read()
 {
-  return 0;
+    return 0;
 }
 void ArmBeagleVga::write(char c)
 {
 }
 
-bool ArmBeagleVga::setMode (int mode)
+bool ArmBeagleVga::setMode(int mode)
 {
     return false;
 }

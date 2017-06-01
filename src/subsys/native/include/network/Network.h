@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,29 +22,28 @@
 
 namespace PedigreeNetwork
 {
-    class NetworkInterface;
-    
-    class IpAddress;
-    
-    class EthernetAddress;
-    
-    class StationInfo;
-    
-    class NetworkEndpoint;
-    
-    /** Does a route exist for the given IP? */
-    bool routeExists(IpAddress &ip);
-    
-    /** Different mechanisms for getting a network interface */
-    NetworkInterface *getInterface(uint32_t hash);
-    NetworkInterface *getInterface(IpAddress &ipaddr);
-    NetworkInterface *getInterface(EthernetAddress &ethaddr);
-    
-    /** Releases memory taken by getInterface */
-    void releaseInterface(NetworkInterface *iface);
-    
-    /** \todo Interface for endpoints and such */
+class NetworkInterface;
+
+class IpAddress;
+
+class EthernetAddress;
+
+class StationInfo;
+
+class NetworkEndpoint;
+
+/** Does a route exist for the given IP? */
+bool routeExists(IpAddress &ip);
+
+/** Different mechanisms for getting a network interface */
+NetworkInterface *getInterface(uint32_t hash);
+NetworkInterface *getInterface(IpAddress &ipaddr);
+NetworkInterface *getInterface(EthernetAddress &ethaddr);
+
+/** Releases memory taken by getInterface */
+void releaseInterface(NetworkInterface *iface);
+
+/** \todo Interface for endpoints and such */
 };
 
 #endif
-

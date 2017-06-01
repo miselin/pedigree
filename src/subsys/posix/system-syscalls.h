@@ -35,11 +35,14 @@ struct timespec;
 
 uintptr_t posix_brk(uintptr_t theBreak);
 long posix_sbrk(int delta);
-long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls);
+long posix_clone(
+    SyscallState &state, unsigned long flags, void *child_stack, int *ptid,
+    int *ctid, unsigned long newtls);
 int posix_fork(SyscallState &state);
-int posix_execve(const char *name, const char **argv, const char **env, SyscallState &state);
+int posix_execve(
+    const char *name, const char **argv, const char **env, SyscallState &state);
 int posix_waitpid(const int pid, int *status, int options);
-int posix_exit(int code, bool allthreads=true) NORETURN;
+int posix_exit(int code, bool allthreads = true) NORETURN;
 int posix_getpid();
 int posix_getppid();
 
@@ -100,8 +103,8 @@ int posix_setpriority(int which, int who, int prio);
 int posix_setreuid(uid_t ruid, uid_t euid);
 int posix_setregid(gid_t rgid, gid_t egid);
 
-int posix_get_robust_list(int pid, struct robust_list_head **head_ptr, size_t *len_ptr);
+int posix_get_robust_list(
+    int pid, struct robust_list_head **head_ptr, size_t *len_ptr);
 int posix_set_robust_list(struct robust_list_head *head, size_t len);
 
 #endif
-

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,42 +20,48 @@
 #ifndef KERNEL_MACHINE_PPC_COMMON_PIC_H
 #define KERNEL_MACHINE_PPC_COMMON_PIC_H
 
-#include <processor/MemoryMappedIo.h>
-#include <processor/InterruptManager.h>
 #include <machine/IrqManager.h>
+#include <processor/InterruptManager.h>
+#include <processor/MemoryMappedIo.h>
 
 /** @addtogroup kernelmachineppccommon
  * @{ */
 
-
-// CPU registers - PPC implementation of OpenPIC does not need to implement the "this processor"
-//                 registers at 0x0-0x1000, so we use the global ones at 0x20000.
+// CPU registers - PPC implementation of OpenPIC does not need to implement the
+// "this processor"
+//                 registers at 0x0-0x1000, so we use the global ones at
+//                 0x20000.
 #define OPENPIC_REG_TASK_PRIORITY 0x20080
-#define OPENPIC_REG_ACK      0x200A0
-#define OPENPIC_REG_EOI      0x200B0
+#define OPENPIC_REG_ACK 0x200A0
+#define OPENPIC_REG_EOI 0x200B0
 
 // Global registers.
-#define OPENPIC_REG_FEATURE  0x01000
-#define OPENPIC_REG_CONF0    0x01020
-#define OPENPIC_FLAG_CONF0_P 0x20000000 // 8259 passthrough DISABLE - 8259 passthrough is enabled by default, which basically turns off half of the PIC. It doesn't apply to us.
+#define OPENPIC_REG_FEATURE 0x01000
+#define OPENPIC_REG_CONF0 0x01020
+#define OPENPIC_FLAG_CONF0_P \
+    0x20000000  // 8259 passthrough DISABLE - 8259 passthrough is enabled by
+                // default, which basically turns off half of the PIC. It
+                // doesn't apply to us.
 #define OPENPIC_REG_SPURIOUS 0x010E0
 
 // IRQ sources.
 #define OPENPIC_SOURCE_START 0x10000
-#define OPENPIC_SOURCE_END   0x20000
+#define OPENPIC_SOURCE_END 0x20000
 
-#define OPENPIC_SOURCE_MASK  0x80000000
-#define OPENPIC_SOURCE_ACT   0x40000000
-#define OPENPIC_SOURCE_PRIORITY 0x00080000 // Default priority = 15 (highest)
+#define OPENPIC_SOURCE_MASK 0x80000000
+#define OPENPIC_SOURCE_ACT 0x40000000
+#define OPENPIC_SOURCE_PRIORITY 0x00080000  // Default priority = 15 (highest)
 
 /** The PPC's programmable interrupt controller as IrqManager */
-class OpenPic : public IrqManager,
-                private InterruptHandler
+class OpenPic : public IrqManager, private InterruptHandler
 {
-  public:
+    public:
     /** Get the Pic class instance
      *\return the Pic class instance */
-    inline static OpenPic &instance(){return m_Instance;}
+    inline static OpenPic &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // IrqManager interface
@@ -71,17 +76,19 @@ class OpenPic : public IrqManager,
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
-  private:
+    private:
     /** The default constructor */
     OpenPic() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~OpenPic(){}
+    inline virtual ~OpenPic()
+    {
+    }
     /** The copy-constructor
      *\note NOT implemented */
     OpenPic(const OpenPic &);
     /** The assignment operator
      *\note NOT implemented */
-    OpenPic &operator = (const OpenPic &);
+    OpenPic &operator=(const OpenPic &);
 
     void searchNode(class Device *pDev);
 
@@ -108,11 +115,11 @@ class OpenPic : public IrqManager,
 
     struct Feature
     {
-      uint32_t reserved0 : 5;
-      uint32_t num_irq : 11;
-      uint32_t reserved1 : 3;
-      uint32_t num_cpu : 5;
-      uint32_t version : 8;
+        uint32_t reserved0 : 5;
+        uint32_t num_irq : 11;
+        uint32_t reserved1 : 3;
+        uint32_t num_cpu : 5;
+        uint32_t version : 8;
     };
 };
 

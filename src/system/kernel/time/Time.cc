@@ -17,13 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time/Time.h>
 #include <machine/Machine.h>
 #include <machine/Timer.h>
+#include <time/Time.h>
 
 namespace Time
 {
-
 Timestamp getTime(bool sync)
 {
     Timer *pTimer = Machine::instance().getTimer();

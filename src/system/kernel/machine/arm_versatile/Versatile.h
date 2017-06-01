@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,51 +20,54 @@
 #ifndef MACHINE_ARM_VERSATILE_H
 #define MACHINE_ARM_VERSATILE_H
 
-#include <machine/Machine.h>
+#include "Keyboard.h"
 #include "Serial.h"
 #include "Vga.h"
-#include "Keyboard.h"
+#include <machine/Machine.h>
 
 /**
  * Concretion of the abstract Machine class for an ArmVersatile board.
  */
 class ArmVersatile : public Machine
 {
-public:
-  inline static Machine &instance(){return m_Instance;}
+    public:
+    inline static Machine &instance()
+    {
+        return m_Instance;
+    }
 
-  virtual void initialise();
-  virtual Serial *getSerial(size_t n);
-  virtual size_t getNumSerial();
-  virtual Vga *getVga(size_t n);
-  virtual size_t getNumVga();
-  virtual IrqManager *getIrqManager();
-  virtual SchedulerTimer *getSchedulerTimer();
-  virtual Timer *getTimer();
-  virtual Keyboard *getKeyboard();
-  virtual void setKeyboard(Keyboard *kb) {};
+    virtual void initialise();
+    virtual Serial *getSerial(size_t n);
+    virtual size_t getNumSerial();
+    virtual Vga *getVga(size_t n);
+    virtual size_t getNumVga();
+    virtual IrqManager *getIrqManager();
+    virtual SchedulerTimer *getSchedulerTimer();
+    virtual Timer *getTimer();
+    virtual Keyboard *getKeyboard();
+    virtual void setKeyboard(Keyboard *kb){};
 
-  virtual void initialiseDeviceTree(){};
+    virtual void initialiseDeviceTree(){};
 
-private:
-  /**
-   * Default constructor, does nothing.
-   */
-  ArmVersatile();
-  ArmVersatile(const ArmVersatile &);
-  ArmVersatile &operator = (const ArmVersatile &);
-  /**
-   * Virtual destructor, does nothing.
-   */
-  virtual ~ArmVersatile();
+    private:
+    /**
+     * Default constructor, does nothing.
+     */
+    ArmVersatile();
+    ArmVersatile(const ArmVersatile &);
+    ArmVersatile &operator=(const ArmVersatile &);
+    /**
+     * Virtual destructor, does nothing.
+     */
+    virtual ~ArmVersatile();
 
-  ArmVersatileSerial m_Serial[2];
-  //SchedulerTimer m_SchedulerTimer;
-  //Timer m_Timers;
-  ArmVersatileVga m_Vga;
-  ArmVersatileKeyboard m_Keyboard;
+    ArmVersatileSerial m_Serial[2];
+    // SchedulerTimer m_SchedulerTimer;
+    // Timer m_Timers;
+    ArmVersatileVga m_Vga;
+    ArmVersatileKeyboard m_Keyboard;
 
-  static ArmVersatile m_Instance;
+    static ArmVersatile m_Instance;
 };
 
 #endif

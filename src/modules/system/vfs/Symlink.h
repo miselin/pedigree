@@ -20,23 +20,24 @@
 #ifndef SYMLINK_H
 #define SYMLINK_H
 
-#include <time/Time.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/RadixTree.h>
 #include "File.h"
+#include <processor/types.h>
+#include <time/Time.h>
+#include <utilities/RadixTree.h>
+#include <utilities/String.h>
 
 /** A symbolic link node. */
 class Symlink : public File
 {
     friend class Filesystem;
 
-public:
+    public:
     /** Eases the pain of casting, and performs a sanity check. */
     static Symlink *fromFile(File *pF)
     {
-        if (!pF->isSymlink()) FATAL("Casting non-symlink File to Symlink!");
-        return reinterpret_cast<Symlink*> (pF);
+        if (!pF->isSymlink())
+            FATAL("Casting non-symlink File to Symlink!");
+        return reinterpret_cast<Symlink *>(pF);
     }
 
     /** Constructor, creates an invalid file. */
@@ -44,28 +45,33 @@ public:
 
     /** Copy constructors are hidden - unused! */
     Symlink(const Symlink &file);
-private:
-    Symlink& operator =(const Symlink&);
-public:
+
+    private:
+    Symlink &operator=(const Symlink &);
+
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    Symlink(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-            uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
+    Symlink(
+        const String &name, Time::Timestamp accessedTime,
+        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
     /** Destructor - doesn't do anything. */
     virtual ~Symlink();
 
     /** Returns true if the File is actually a symlink. */
     virtual bool isSymlink()
-    {return true;}
+    {
+        return true;
+    }
 
-    /** Reads the contents of the file as a symbolic link and returns the contents in the given
-        buffer.
-        \return Number of bytes copied. */
+    /** Reads the contents of the file as a symbolic link and returns the
+       contents in the given buffer. \return Number of bytes copied. */
     int followLink(char *pBuffer, size_t bufLen);
 
     /** Reads the contents of the file as a symbolic link and follows. */
     File *followLink();
 
-protected:
+    protected:
     File *m_pCachedSymlink;
 
     String m_sTarget;

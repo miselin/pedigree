@@ -24,8 +24,10 @@
 
 static UsbDevice *hidConnected(UsbDevice *pDevice)
 {
-    // We have to use VMware's second mouse interface, the first one is tablet-like
-    if(pDevice->getDescriptor()->nVendorId == 0x0e0f && !pDevice->getInterface()->nInterface)
+    // We have to use VMware's second mouse interface, the first one is
+    // tablet-like
+    if (pDevice->getDescriptor()->nVendorId == 0x0e0f &&
+        !pDevice->getInterface()->nInterface)
         return 0;
 
     return new UsbHumanInterfaceDevice(pDevice);
@@ -33,7 +35,8 @@ static UsbDevice *hidConnected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    UsbPnP::instance().registerCallback(3, SubclassNone, ProtocolNone, hidConnected);
+    UsbPnP::instance().registerCallback(
+        3, SubclassNone, ProtocolNone, hidConnected);
     return true;
 }
 

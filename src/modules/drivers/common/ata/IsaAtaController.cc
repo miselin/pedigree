@@ -23,106 +23,110 @@
 #include <processor/Processor.h>
 #include <time/Time.h>
 
-IsaAtaController::IsaAtaController(Controller *pDev, int nController) :
-  AtaController(pDev, nController)
+IsaAtaController::IsaAtaController(Controller *pDev, int nController)
+    : AtaController(pDev, nController)
 {
-  setSpecificType(String("ata-controller"));
+    setSpecificType(String("ata-controller"));
 
-  // Initialise our ports.
-  bool bPortsFound = false;
-  for (unsigned int i = 0; i < m_Addresses.count(); i++)
-  {
-    if (m_Addresses[i]->m_Name == "command" || m_Addresses[i]->m_Name == "bar0")
+    // Initialise our ports.
+    bool bPortsFound = false;
+    for (unsigned int i = 0; i < m_Addresses.count(); i++)
     {
-      m_pCommandRegs = m_Addresses[i]->m_Io;
-      bPortsFound = true;
+        if (m_Addresses[i]->m_Name == "command" ||
+            m_Addresses[i]->m_Name == "bar0")
+        {
+            m_pCommandRegs = m_Addresses[i]->m_Io;
+            bPortsFound = true;
+        }
+        if (m_Addresses[i]->m_Name == "control" ||
+            m_Addresses[i]->m_Name == "bar1")
+        {
+            m_pControlRegs = m_Addresses[i]->m_Io;
+            bPortsFound = true;
+        }
     }
-    if (m_Addresses[i]->m_Name == "control" || m_Addresses[i]->m_Name == "bar1")
+
+    if (!bPortsFound)
     {
-      m_pControlRegs = m_Addresses[i]->m_Io;
-      bPortsFound = true;
-    }
-  }
-  
-  if(!bPortsFound)
-  {
-    ERROR("ISA ATA: No addresses found for this controller");
-    return;
-  }
-
-  // Look for a floating bus
-  if(m_pControlRegs->read8(6) == 0xFF || m_pCommandRegs->read8(7) == 0xFF)
-  {
-      // No devices on this controller
-      return;
-  }
-  
-  m_Children.clear();
-  
-  // Set up the RequestQueue
-  initialise();
-
-  // Perform a software reset.
-  m_pControlRegs->write8(0x04, 6); // Assert SRST
-  Time::delay(5 * Time::Multiplier::MILLISECOND);
-
-  m_pControlRegs->write8(0, 6); // Negate SRST
-  Time::delay(5 * Time::Multiplier::MILLISECOND);
-
-  // Poll until BSY is clear. Until BSY is clear, no other bits in the
-  // alternate status register are considered valid.
-  uint8_t status = 0;
-  while(1) // ((status&0xC0) != 0) && ((status&0x9) == 0) )
-  {
-    status = m_pControlRegs->read8(6);
-    if(status & 0x80)
-        continue;
-    else if(status & 0x1)
-    {
-        NOTICE("Error during ATA software reset, status = " << status);
+        ERROR("ISA ATA: No addresses found for this controller");
         return;
     }
-    else
-        break;
 
-  }
+    // Look for a floating bus
+    if (m_pControlRegs->read8(6) == 0xFF || m_pCommandRegs->read8(7) == 0xFF)
+    {
+        // No devices on this controller
+        return;
+    }
 
-  // Create two disks - master and slave.
-  AtaDisk *pMaster = new AtaDisk(this, true, m_pCommandRegs, m_pControlRegs);
-  AtaDisk *pSlave = new AtaDisk(this, false, m_pCommandRegs, m_pControlRegs);
+    m_Children.clear();
 
-  pMaster->setInterruptNumber(getInterruptNumber());
-  pSlave->setInterruptNumber(getInterruptNumber());
+    // Set up the RequestQueue
+    initialise();
 
-  size_t masterN = getNumChildren();
-  addChild(pMaster);
-  size_t slaveN = getNumChildren();
-  addChild(pSlave);
+    // Perform a software reset.
+    m_pControlRegs->write8(0x04, 6);  // Assert SRST
+    Time::delay(5 * Time::Multiplier::MILLISECOND);
 
-  // Try and initialise the disks.
-  bool masterInitialised = pMaster->initialise(masterN);
-  bool slaveInitialised = pSlave->initialise(slaveN);
+    m_pControlRegs->write8(0, 6);  // Negate SRST
+    Time::delay(5 * Time::Multiplier::MILLISECOND);
 
-  Machine::instance().getIrqManager()->registerIsaIrqHandler(getInterruptNumber(), static_cast<IrqHandler*> (this));
+    // Poll until BSY is clear. Until BSY is clear, no other bits in the
+    // alternate status register are considered valid.
+    uint8_t status = 0;
+    while (1)  // ((status&0xC0) != 0) && ((status&0x9) == 0) )
+    {
+        status = m_pControlRegs->read8(6);
+        if (status & 0x80)
+            continue;
+        else if (status & 0x1)
+        {
+            NOTICE("Error during ATA software reset, status = " << status);
+            return;
+        }
+        else
+            break;
+    }
 
-  if (!masterInitialised)
-  {
-    removeChild(pMaster);
-    delete pMaster;
-  }
+    // Create two disks - master and slave.
+    AtaDisk *pMaster = new AtaDisk(this, true, m_pCommandRegs, m_pControlRegs);
+    AtaDisk *pSlave = new AtaDisk(this, false, m_pCommandRegs, m_pControlRegs);
 
-  if (!slaveInitialised)
-  {
-    removeChild(pSlave);
-    delete pSlave;
-  }
+    pMaster->setInterruptNumber(getInterruptNumber());
+    pSlave->setInterruptNumber(getInterruptNumber());
+
+    size_t masterN = getNumChildren();
+    addChild(pMaster);
+    size_t slaveN = getNumChildren();
+    addChild(pSlave);
+
+    // Try and initialise the disks.
+    bool masterInitialised = pMaster->initialise(masterN);
+    bool slaveInitialised = pSlave->initialise(slaveN);
+
+    Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        getInterruptNumber(), static_cast<IrqHandler *>(this));
+
+    if (!masterInitialised)
+    {
+        removeChild(pMaster);
+        delete pMaster;
+    }
+
+    if (!slaveInitialised)
+    {
+        removeChild(pSlave);
+        delete pSlave;
+    }
 }
 
 IsaAtaController::~IsaAtaController()
 {
 }
 
-bool IsaAtaController::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite)
+bool IsaAtaController::sendCommand(
+    size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+    uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite)
 {
     Device *pChild = getChild(nUnit);
     if (!pChild)
@@ -132,28 +136,30 @@ bool IsaAtaController::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCo
     }
 
     AtaDisk *pDisk = static_cast<AtaDisk *>(pChild);
-    return pDisk->sendCommand(nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
+    return pDisk->sendCommand(
+        nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
 }
 
-uint64_t IsaAtaController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
-                                       uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+uint64_t IsaAtaController::executeRequest(
+    uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+    uint64_t p6, uint64_t p7, uint64_t p8)
 {
-  AtaDisk *pDisk = reinterpret_cast<AtaDisk*> (p2);
-  if(p1 == SCSI_REQUEST_READ)
-    return pDisk->doRead(p3);
-  else if(p1 == SCSI_REQUEST_WRITE)
-    return pDisk->doWrite(p3);
-  else
-    return 0;
+    AtaDisk *pDisk = reinterpret_cast<AtaDisk *>(p2);
+    if (p1 == SCSI_REQUEST_READ)
+        return pDisk->doRead(p3);
+    else if (p1 == SCSI_REQUEST_WRITE)
+        return pDisk->doWrite(p3);
+    else
+        return 0;
 }
 
 bool IsaAtaController::irq(irq_id_t number, InterruptState &state)
 {
-  for (unsigned int i = 0; i < getNumChildren(); i++)
-  {
-    AtaDisk *pDisk = static_cast<AtaDisk*> (getChild(i));
-    pDisk->irqReceived();
-  }
+    for (unsigned int i = 0; i < getNumChildren(); i++)
+    {
+        AtaDisk *pDisk = static_cast<AtaDisk *>(getChild(i));
+        pDisk->irqReceived();
+    }
 
-  return true;
+    return true;
 }

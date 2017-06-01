@@ -22,16 +22,16 @@
 
 #include <machine/Device.h>
 #include <machine/Display.h>
-#include <utilities/List.h>
-#include <utilities/MemoryAllocator.h>
 #include <processor/MemoryMappedIo.h>
 #include <processor/PhysicalMemoryManager.h>
+#include <utilities/List.h>
+#include <utilities/MemoryAllocator.h>
 
 #include <machine/Framebuffer.h>
 
 class VbeDisplay : public Display
 {
-public:
+    public:
     /** VBE versions, in order. */
     enum VbeVersion
     {
@@ -41,14 +41,16 @@ public:
     };
 
     VbeDisplay();
-    VbeDisplay(Device *p, VbeVersion version, List<Display::ScreenMode*> &sms, size_t vidMemSz, size_t displayNum);
+    VbeDisplay(
+        Device *p, VbeVersion version, List<Display::ScreenMode *> &sms,
+        size_t vidMemSz, size_t displayNum);
 
     virtual ~VbeDisplay();
 
     virtual void *getFramebuffer();
     virtual bool getPixelFormat(Display::PixelFormat &pPf);
     virtual bool getCurrentScreenMode(Display::ScreenMode &sm);
-    virtual bool getScreenModes(List<Display::ScreenMode*> &sms);
+    virtual bool getScreenModes(List<Display::ScreenMode *> &sms);
     virtual bool setScreenMode(Display::ScreenMode sm);
     virtual bool setScreenMode(size_t modeId);
     virtual bool setScreenMode(size_t nWidth, size_t nHeight, size_t nBpp)
@@ -58,26 +60,31 @@ public:
 
     virtual rgb_t *newBuffer();
     virtual void setCurrentBuffer(rgb_t *pBuffer);
-    virtual void updateBuffer(rgb_t *pBuffer, size_t x1=~0UL, size_t y1=~0UL,
-                              size_t x2=~0UL, size_t y2=~0UL);
+    virtual void updateBuffer(
+        rgb_t *pBuffer, size_t x1 = ~0UL, size_t y1 = ~0UL, size_t x2 = ~0UL,
+        size_t y2 = ~0UL);
     virtual void killBuffer(rgb_t *pBuffer);
-    virtual void bitBlit(rgb_t *pBuffer, size_t fromX, size_t fromY, size_t toX, size_t toY, size_t width, size_t height);
-    virtual void fillRectangle(rgb_t *pBuffer, size_t x, size_t y, size_t width, size_t height, rgb_t colour);
+    virtual void bitBlit(
+        rgb_t *pBuffer, size_t fromX, size_t fromY, size_t toX, size_t toY,
+        size_t width, size_t height);
+    virtual void fillRectangle(
+        rgb_t *pBuffer, size_t x, size_t y, size_t width, size_t height,
+        rgb_t colour);
 
     size_t getModeId()
     {
         return m_Mode.id;
     }
-    
+
     virtual void setLogicalFramebuffer(Framebuffer *p)
     {
         m_pLogicalFramebuffer = p;
     }
 
-private:
+    private:
     /** Copy constructor is private. */
     VbeDisplay(const VbeDisplay &);
-    VbeDisplay &operator = (const VbeDisplay &);
+    VbeDisplay &operator=(const VbeDisplay &);
 
     void packColour(rgb_t colour, size_t idx, uintptr_t pFb);
 
@@ -85,14 +92,14 @@ private:
     VbeVersion m_VbeVersion;
 
     /** Screen modes. */
-    List<Display::ScreenMode*> m_ModeList;
+    List<Display::ScreenMode *> m_ModeList;
 
     /** Current mode. */
     Display::ScreenMode m_Mode;
 
     MemoryMappedIo *m_pFramebuffer;
     Framebuffer *m_pLogicalFramebuffer;
-    
+
     Device::Address *m_pFramebufferRawAddress;
 
     /** Possible display modes that we have specialised code for. */
@@ -106,19 +113,23 @@ private:
     /** Buffer format. */
     struct Buffer
     {
-        Buffer() : pBackbuffer(0), pFbBackbuffer(0), mr("Buffer"), fbmr("Fb buffer"), valid(true) {}
-        rgb_t        *pBackbuffer;
-        uint8_t      *pFbBackbuffer;
-        MemoryRegion  mr,fbmr;
+        Buffer()
+            : pBackbuffer(0), pFbBackbuffer(0), mr("Buffer"), fbmr("Fb buffer"),
+              valid(true)
+        {
+        }
+        rgb_t *pBackbuffer;
+        uint8_t *pFbBackbuffer;
+        MemoryRegion mr, fbmr;
 
         bool valid;
 
         private:
-            Buffer(const Buffer&);
-            const Buffer& operator = (const Buffer&);
+        Buffer(const Buffer &);
+        const Buffer &operator=(const Buffer &);
     };
     /** Buffers. */
-    Tree<rgb_t*, Buffer*> m_Buffers;
+    Tree<rgb_t *, Buffer *> m_Buffers;
 
     /** Mode. */
     ModeType m_SpecialisedMode;

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,45 +21,53 @@
 #define KERNEL_PROCESSOR_ARM926E_INTERRUPTMANAGER_H
 
 #include <compiler.h>
-#include <processor/types.h>
-#include <processor/SyscallManager.h>
 #include <processor/InterruptManager.h>
+#include <processor/SyscallManager.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorARM926E
  * @{ */
 
 /** The interrupt handler on mips32 processors */
 class ARM926EInterruptManager : public ::InterruptManager,
-                               public ::SyscallManager
+                                public ::SyscallManager
 {
-  public:
+    public:
     /** Get the ARM926EInterruptManager class instance
      *\return instance of the ARM926EInterruptManager class */
-    inline static ARM926EInterruptManager &instance(){return m_Instance;}
+    inline static ARM926EInterruptManager &instance()
+    {
+        return m_Instance;
+    }
 
     // InterruptManager Interface
-    virtual bool registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
+    virtual bool
+    registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
 
 #ifdef DEBUGGER
-    virtual bool registerInterruptHandlerDebugger(size_t interruptNumber, InterruptHandler *handler);
+    virtual bool registerInterruptHandlerDebugger(
+        size_t interruptNumber, InterruptHandler *handler);
     virtual size_t getBreakpointInterruptNumber() PURE;
     virtual size_t getDebugInterruptNumber() PURE;
 #endif
 
     // SyscallManager Interface
-    virtual bool registerSyscallHandler(Service_t Service, SyscallHandler *handler);
-    
-    virtual uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1=0, uintptr_t p2=0, uintptr_t p3=0, uintptr_t p4=0,
-                              uintptr_t p5=0);
+    virtual bool
+    registerSyscallHandler(Service_t Service, SyscallHandler *handler);
+
+    virtual uintptr_t syscall(
+        Service_t service, uintptr_t function, uintptr_t p1 = 0,
+        uintptr_t p2 = 0, uintptr_t p3 = 0, uintptr_t p4 = 0, uintptr_t p5 = 0);
 
     /** Initialises this processors IDTR
      *\note This should only be called from initialiseProcessor()
      *\todo and some smp/acpi function */
     static void initialiseProcessor();
 
-  private:
+    private:
     /** Called when an interrupt was triggered
-     *\param[in] interruptState reference to the usermode/kernel state before the interrupt */
+     *\param[in] interruptState reference to the usermode/kernel state before
+     *the interrupt */
     static void interrupt(InterruptState &interruptState);
     /** The constructor */
     ARM926EInterruptManager();
@@ -69,7 +76,7 @@ class ARM926EInterruptManager : public ::InterruptManager,
     ARM926EInterruptManager(const ARM926EInterruptManager &);
     /** Assignment operator
      *\note NOT implemented */
-    ARM926EInterruptManager &operator = (const ARM926EInterruptManager &);
+    ARM926EInterruptManager &operator=(const ARM926EInterruptManager &);
     /** The destructor */
     virtual ~ARM926EInterruptManager();
 
@@ -79,7 +86,7 @@ class ARM926EInterruptManager : public ::InterruptManager,
     InterruptHandler *m_DbgHandler[256];
 #endif
     /** The syscall handlers */
-    SyscallHandler *m_SyscallHandler[/*SyscallManager::*/serviceEnd];
+    SyscallHandler *m_SyscallHandler[/*SyscallManager::*/ serviceEnd];
 
     /** The instance of the interrupt manager  */
     static ARM926EInterruptManager m_Instance;

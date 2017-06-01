@@ -23,8 +23,8 @@
 /** @addtogroup kernelprocessorhosted
  * @{ */
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define HOSTED_TYPE(x) typedef x HOSTED##x
 

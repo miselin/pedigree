@@ -20,15 +20,18 @@
 #include "Directory.h"
 #include "Filesystem.h"
 
-Directory::Directory() :
-    File(), m_Cache(), m_bCachePopulated(false)
+Directory::Directory() : File(), m_Cache(), m_bCachePopulated(false)
 {
 }
 
-Directory::Directory(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-                     uintptr_t inode, Filesystem *pFs, size_t size, File *pParent) :
-    File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_Cache(pFs->isCaseSensitive()), m_LinearCache(), m_bCachePopulated(false)
+Directory::Directory(
+    const String &name, Time::Timestamp accessedTime,
+    Time::Timestamp modifiedTime, Time::Timestamp creationTime, uintptr_t inode,
+    Filesystem *pFs, size_t size, File *pParent)
+    : File(
+          name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
+          pParent),
+      m_Cache(pFs->isCaseSensitive()), m_LinearCache(), m_bCachePopulated(false)
 {
 }
 
@@ -36,7 +39,7 @@ Directory::~Directory()
 {
 }
 
-File* Directory::getChild(size_t n)
+File *Directory::getChild(size_t n)
 {
     if (!m_bCachePopulated)
     {
@@ -44,7 +47,7 @@ File* Directory::getChild(size_t n)
         m_bCachePopulated = true;
     }
 
-    if(!m_LinearCache.count())
+    if (!m_LinearCache.count())
     {
         return 0;
     }

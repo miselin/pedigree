@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
 #include "UsbUlpi.h"
+#include <Module.h>
 
 static bool entry()
 {
@@ -30,7 +30,6 @@ static bool entry()
 
 static void exit()
 {
-
 }
 
 MODULE_INFO("usb-glue", &entry, &exit);

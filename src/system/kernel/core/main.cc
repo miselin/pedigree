@@ -96,40 +96,40 @@
 #include "BootstrapInfo.h"
 
 #ifdef DEBUGGER
-    #include <Debugger.h>
-    #include <LocksCommand.h>
+#include <Debugger.h>
+#include <LocksCommand.h>
 #endif
 
-#include <linker/KernelElf.h>             // KernelElf::initialise()
-#include <Version.h>
-#include <Log.h>
-#include <panic.h>
 #include <Archive.h>
+#include <Log.h>
+#include <Version.h>
+#include <linker/KernelElf.h>  // KernelElf::initialise()
+#include <panic.h>
 
-#include "cppsupport.h"                   // initialiseConstructors()
+#include "cppsupport.h"  // initialiseConstructors()
 
-#include <processor/Processor.h>          // Processor::initialise1(), Processor::initialise2()
-#include <processor/PhysicalMemoryManager.h>
 #include <processor/KernelCoreSyscallManager.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <processor/Processor.h>  // Processor::initialise1(), Processor::initialise2()
 
-#include <machine/Machine.h>              // Machine::initialise()
+#include "BootIO.h"
+#include <DebuggerIO.h>
 #include <LocalIO.h>
 #include <SerialIO.h>
-#include <DebuggerIO.h>
-#include "BootIO.h"
+#include <machine/Machine.h>  // Machine::initialise()
 
-#include <process/initialiseMultitasking.h>
-#include <process/Thread.h>
+#include <process/InfoBlock.h>
+#include <process/MemoryPressureKiller.h>
+#include <process/MemoryPressureManager.h>
 #include <process/Scheduler.h>
 #include <process/SchedulingAlgorithm.h>
-#include <process/MemoryPressureManager.h>
-#include <process/MemoryPressureKiller.h>
-#include <process/InfoBlock.h>
+#include <process/Thread.h>
+#include <process/initialiseMultitasking.h>
 
 #include <machine/Device.h>
 
 #ifdef OPENFIRMWARE
-    #include <machine/openfirmware/Device.h>
+#include <machine/openfirmware/Device.h>
 #endif
 
 #include <utilities/List.h>
@@ -151,7 +151,9 @@
 #include <SlamAllocator.h>
 
 #ifdef HOSTED
-namespace __pedigree_hosted {}; // In case it's not defined.
+namespace __pedigree_hosted
+{
+};  // In case it's not defined.
 using namespace __pedigree_hosted;
 #include <stdio.h>
 #endif
@@ -165,39 +167,40 @@ BootstrapStruct_t *g_pBootstrapInfo;
 /** Handles doing recovery on SLAM if memory pressure is encountered. */
 class SlamRecovery : public MemoryPressureHandler
 {
-  public:
+    public:
     virtual const String getMemoryPressureDescription()
     {
-      return String("SLAM recovery; freeing unused slabs.");
+        return String("SLAM recovery; freeing unused slabs.");
     }
 
     virtual bool compact()
     {
-      return SlamAllocator::instance().recovery(5) != 0;
+        return SlamAllocator::instance().recovery(5) != 0;
     }
 };
 
 #ifdef MULTIPROCESSOR
-/** Kernel entry point for application processors (after processor/machine has been initialised
-    on the particular processor */
+/** Kernel entry point for application processors (after processor/machine has
+   been initialised on the particular processor */
 void apMain()
 {
-  NOTICE("Processor #" << Processor::id() << " started.");
+    NOTICE("Processor #" << Processor::id() << " started.");
 
 #ifdef THREADS
-  // Add us as the idle thread for this CPU.
-  Processor::information().getScheduler().setIdle(Processor::information().getCurrentThread());
+    // Add us as the idle thread for this CPU.
+    Processor::information().getScheduler().setIdle(
+        Processor::information().getCurrentThread());
 #endif
 
-  Processor::setInterrupts(true);
-  for (;;)
-  {
-    Processor::haltUntilInterrupt();
+    Processor::setInterrupts(true);
+    for (;;)
+    {
+        Processor::haltUntilInterrupt();
 
 #ifdef THREADS
-    Scheduler::instance().yield();
+        Scheduler::instance().yield();
 #endif
-  }
+    }
 }
 #endif
 
@@ -213,8 +216,8 @@ extern uintptr_t end_module_ctors;
 static int loadModules(void *inf)
 {
 #ifdef STATIC_DRIVERS
-    ModuleInfo *tags = reinterpret_cast<ModuleInfo*>(&start_modinfo);
-    ModuleInfo *lasttag = reinterpret_cast<ModuleInfo*>(&end_modinfo);
+    ModuleInfo *tags = reinterpret_cast<ModuleInfo *>(&start_modinfo);
+    ModuleInfo *lasttag = reinterpret_cast<ModuleInfo *>(&end_modinfo);
 
     // Call static constructors before we start. If we don't... there won't be
     // any properly initialised ModuleInfo structures :)
@@ -227,9 +230,9 @@ static int loadModules(void *inf)
     }
 
     // Run through all the modules
-    while(tags < lasttag)
+    while (tags < lasttag)
     {
-        if(tags->tag == MODULE_TAG)
+        if (tags->tag == MODULE_TAG)
         {
             KernelElf::instance().loadModule(tags);
         }
@@ -237,36 +240,39 @@ static int loadModules(void *inf)
         tags++;
     }
 #else
-    BootstrapStruct_t bsInf = *static_cast<BootstrapStruct_t*>(inf);
+    BootstrapStruct_t bsInf = *static_cast<BootstrapStruct_t *>(inf);
 
-    /// \note We have to do this before we call Processor::initialisationDone() otherwise the
+    /// \note We have to do this before we call Processor::initialisationDone()
+    /// otherwise the
     ///       BootstrapStruct_t might already be unmapped
     Archive initrd(bsInf.getInitrdAddress(), bsInf.getInitrdSize());
-    
+
     size_t nFiles = initrd.getNumFiles();
-    g_BootProgressTotal = nFiles * 2; // Each file has to be preloaded and executed.
+    g_BootProgressTotal =
+        nFiles * 2;  // Each file has to be preloaded and executed.
     for (size_t i = 0; i < nFiles; i++)
     {
         Processor::setInterrupts(true);
-        KernelElf::instance().loadModule(reinterpret_cast<uint8_t*> (initrd.getFile(i)),
-                                         initrd.getFileSize(i));
-        if(!Processor::getInterrupts())
+        KernelElf::instance().loadModule(
+            reinterpret_cast<uint8_t *>(initrd.getFile(i)),
+            initrd.getFileSize(i));
+        if (!Processor::getInterrupts())
             WARNING("A loaded module disabled interrupts.");
     }
 
     // Wait for all modules to finish loading before we continue.
     KernelElf::instance().waitForModulesToLoad();
 
-    // The initialisation is done here, unmap/free the .init section and on x86/64 the identity
-    // mapping of 0-4MB
-    // NOTE: BootstrapStruct_t unusable after this point
+    // The initialisation is done here, unmap/free the .init section and on
+    // x86/64 the identity mapping of 0-4MB NOTE: BootstrapStruct_t unusable
+    // after this point
     Processor::initialisationDone();
 
 #endif
 
-    if(KernelElf::instance().hasPendingModules())
+    if (KernelElf::instance().hasPendingModules())
     {
-      FATAL("At least one module's dependencies were never met.");
+        FATAL("At least one module's dependencies were never met.");
     }
 
 #ifdef HOSTED
@@ -280,162 +286,168 @@ static int loadModules(void *inf)
 extern "C" void _main(BootstrapStruct_t &bsInf) NORETURN;
 extern "C" void _main(BootstrapStruct_t &bsInf)
 {
-  // Firstly call the constructors of all global objects.
-  initialiseConstructors();
+    // Firstly call the constructors of all global objects.
+    initialiseConstructors();
 
-  g_pBootstrapInfo = &bsInf;
+    g_pBootstrapInfo = &bsInf;
 
 #ifdef TRACK_LOCKS
-  g_LocksCommand.setReady();
+    g_LocksCommand.setReady();
 #endif
 
-  // Initialise the processor-specific interface
-  Processor::initialise1(bsInf);
+    // Initialise the processor-specific interface
+    Processor::initialise1(bsInf);
 
-  // Initialise the kernel log
-  Log::instance().initialise1();
+    // Initialise the kernel log
+    Log::instance().initialise1();
 
-  // Initialise the machine-specific interface
-  Machine &machine = Machine::instance();
-  Machine::instance().initialiseDeviceTree();
+    // Initialise the machine-specific interface
+    Machine &machine = Machine::instance();
+    Machine::instance().initialiseDeviceTree();
 
-  machine.initialise();
+    machine.initialise();
 
 #if defined(DEBUGGER)
-  Debugger::instance().initialise();
+    Debugger::instance().initialise();
 #endif
 
-  machine.initialise2();
+    machine.initialise2();
 
-  // Initialise the kernel log's callbacks
-  Log::instance().initialise2();
+    // Initialise the kernel log's callbacks
+    Log::instance().initialise2();
 
-  // Initialise the processor-specific interface
-  // Bootup of the other Application Processors and related tasks
-  Processor::initialise2(bsInf);
-  
-  // Initialise the Kernel Elf class
-  if (KernelElf::instance().initialise(bsInf) == false)
-    panic("KernelElf::initialise() failed");
+    // Initialise the processor-specific interface
+    // Bootup of the other Application Processors and related tasks
+    Processor::initialise2(bsInf);
 
-#ifndef STATIC_DRIVERS // initrd needed if drivers aren't statically linked.
-  if (bsInf.isInitrdLoaded() == false)
-    panic("Initrd module not loaded!");
+    // Initialise the Kernel Elf class
+    if (KernelElf::instance().initialise(bsInf) == false)
+        panic("KernelElf::initialise() failed");
+
+#ifndef STATIC_DRIVERS  // initrd needed if drivers aren't statically linked.
+    if (bsInf.isInitrdLoaded() == false)
+        panic("Initrd module not loaded!");
 #endif
 
-  KernelCoreSyscallManager::instance().initialise();
+    KernelCoreSyscallManager::instance().initialise();
 
-  Processor::setInterrupts(true);
+    Processor::setInterrupts(true);
 
-  // Initialise the boot output.
-  bootIO.initialise();
+    // Initialise the boot output.
+    bootIO.initialise();
 
-  // Spew out a starting string.
-  HugeStaticString str, ident;
-  str += "Pedigree - revision ";
-  str += g_pBuildRevision;
+    // Spew out a starting string.
+    HugeStaticString str, ident;
+    str += "Pedigree - revision ";
+    str += g_pBuildRevision;
 #ifndef DONT_LOG_TO_SERIAL
-  str += "\r\n=======================\r\n";
+    str += "\r\n=======================\r\n";
 #else
-  str += "\n=======================\n";
+    str += "\n=======================\n";
 #endif
-  bootIO.write(str, BootIO::White, BootIO::Black);
+    bootIO.write(str, BootIO::White, BootIO::Black);
 
-  str.clear();
-  str += "Built at ";
-  str += g_pBuildTime;
-  str += " by ";
-  str += g_pBuildUser;
-  str += " on ";
-  str += g_pBuildMachine;
+    str.clear();
+    str += "Built at ";
+    str += g_pBuildTime;
+    str += " by ";
+    str += g_pBuildUser;
+    str += " on ";
+    str += g_pBuildMachine;
 #ifndef DONT_LOG_TO_SERIAL
-  str += "\r\n";
+    str += "\r\n";
 #else
-  str += "\n";
+    str += "\n";
 #endif
-  bootIO.write(str, BootIO::LightGrey, BootIO::Black);
+    bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
-  str.clear();
-  str += "Build flags: ";
-  str += g_pBuildFlags;
+    str.clear();
+    str += "Build flags: ";
+    str += g_pBuildFlags;
 #ifndef DONT_LOG_TO_SERIAL
-  str += "\r\n";
+    str += "\r\n";
 #else
-  str += "\n";
+    str += "\n";
 #endif
-  bootIO.write(str, BootIO::LightGrey, BootIO::Black);
+    bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
-  str.clear();
-  str += "Processor information: ";
-  Processor::identify(ident);
-  str += ident;
+    str.clear();
+    str += "Processor information: ";
+    Processor::identify(ident);
+    str += ident;
 #ifndef DONT_LOG_TO_SERIAL
-  str += "\r\n";
+    str += "\r\n";
 #else
-  str += "\n";
+    str += "\n";
 #endif
-  bootIO.write(str, BootIO::LightGrey, BootIO::Black);
+    bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
-  // Set up the graphics service for drivers to register with
+// Set up the graphics service for drivers to register with
 #ifndef NOGFX
-  GraphicsService *pService = new GraphicsService;
-  ServiceFeatures *pFeatures = new ServiceFeatures;
-  pFeatures->add(ServiceFeatures::touch);
-  pFeatures->add(ServiceFeatures::probe);
-  ServiceManager::instance().addService(String("graphics"), pService, pFeatures);
+    GraphicsService *pService = new GraphicsService;
+    ServiceFeatures *pFeatures = new ServiceFeatures;
+    pFeatures->add(ServiceFeatures::touch);
+    pFeatures->add(ServiceFeatures::probe);
+    ServiceManager::instance().addService(
+        String("graphics"), pService, pFeatures);
 #endif
 
-  // Set up SLAM recovery memory pressure handler.
-  SlamRecovery recovery;
-  MemoryPressureManager::instance().registerHandler(MemoryPressureManager::HighestPriority, &recovery);
+    // Set up SLAM recovery memory pressure handler.
+    SlamRecovery recovery;
+    MemoryPressureManager::instance().registerHandler(
+        MemoryPressureManager::HighestPriority, &recovery);
 
-  // Set up the process killer memory pressure handler.
-  MemoryPressureProcessKiller killer;
-  MemoryPressureManager::instance().registerHandler(MemoryPressureManager::LowestPriority, &killer);
+    // Set up the process killer memory pressure handler.
+    MemoryPressureProcessKiller killer;
+    MemoryPressureManager::instance().registerHandler(
+        MemoryPressureManager::LowestPriority, &killer);
 
-  // Set up the global info block manager.
-  InfoBlockManager::instance().initialise();
+    // Set up the global info block manager.
+    InfoBlockManager::instance().initialise();
 
-  // Bring up the cache subsystem.
-  CacheManager::instance().initialise();
+    // Bring up the cache subsystem.
+    CacheManager::instance().initialise();
 
-  // Initialise the input manager
-  InputManager::instance().initialise();
+    // Initialise the input manager
+    InputManager::instance().initialise();
 
 #ifdef THREADS
-  ZombieQueue::instance().initialise();
+    ZombieQueue::instance().initialise();
 #endif
 
-  /// \todo Seed random number generator.
+/// \todo Seed random number generator.
 
 #if defined(THREADS)
-  Thread *pThread = new Thread(Processor::information().getCurrentThread()->getParent(), &loadModules, static_cast<void*>(&bsInf), 0);
-  pThread->detach();
+    Thread *pThread = new Thread(
+        Processor::information().getCurrentThread()->getParent(), &loadModules,
+        static_cast<void *>(&bsInf), 0);
+    pThread->detach();
 #else
-  loadModules(&bsInf);
+    loadModules(&bsInf);
 #endif
 
 #ifdef DEBUGGER_RUN_AT_START
-  Processor::breakpoint();
+    Processor::breakpoint();
 #endif
 
 #ifdef THREADS
-  // Add us as the idle thread for this CPU.
-  Processor::information().getScheduler().setIdle(Processor::information().getCurrentThread());
+    // Add us as the idle thread for this CPU.
+    Processor::information().getScheduler().setIdle(
+        Processor::information().getCurrentThread());
 #endif
 
-  // This will run when nothing else is available to run
-  for (;;)
-  {
-    // Always enable interrupts in the idle thread, and halt. There is no point
-    // yielding as if this code is running, no other thread is ready (and cannot
-    // be made ready without an interrupt).
-    Processor::setInterrupts(true);
-    Processor::haltUntilInterrupt();
+    // This will run when nothing else is available to run
+    for (;;)
+    {
+        // Always enable interrupts in the idle thread, and halt. There is no
+        // point yielding as if this code is running, no other thread is ready
+        // (and cannot be made ready without an interrupt).
+        Processor::setInterrupts(true);
+        Processor::haltUntilInterrupt();
 
-    // Give up our timeslice (needed especially for no-tick scheduling)
-    Scheduler::instance().yield();
-  }
+        // Give up our timeslice (needed especially for no-tick scheduling)
+        Scheduler::instance().yield();
+    }
 }
 
 void system_reset() NORETURN;
@@ -467,5 +479,6 @@ void system_reset()
 
     // Reset.
     Processor::reset();
-    while(1);
+    while (1)
+        ;
 }

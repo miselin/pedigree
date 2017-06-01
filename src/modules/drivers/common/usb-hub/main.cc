@@ -29,7 +29,8 @@ static UsbDevice *hubConnected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    UsbPnP::instance().registerCallback(9, SubclassNone, ProtocolNone, hubConnected);
+    UsbPnP::instance().registerCallback(
+        9, SubclassNone, ProtocolNone, hubConnected);
     return true;
 }
 

@@ -22,7 +22,7 @@
 
 #include <compiler.h>
 
-/** 
+/**
  * Calls the constructors of global objects
  */
 void initialiseConstructors() INITIALISATION_ONLY;

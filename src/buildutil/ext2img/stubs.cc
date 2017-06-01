@@ -22,18 +22,16 @@
 class StubbedPhysicalMemoryManager : public PhysicalMemoryManager
 {
     public:
-        virtual physical_uintptr_t allocatePage();
-        virtual void freePage(physical_uintptr_t page);
-        virtual void pin(physical_uintptr_t page);
-        virtual bool allocateRegion(MemoryRegion &Region,
-                                    size_t cPages,
-                                    size_t pageConstraints,
-                                    size_t Flags,
-                                    physical_uintptr_t start = -1);
+    virtual physical_uintptr_t allocatePage();
+    virtual void freePage(physical_uintptr_t page);
+    virtual void pin(physical_uintptr_t page);
+    virtual bool allocateRegion(
+        MemoryRegion &Region, size_t cPages, size_t pageConstraints,
+        size_t Flags, physical_uintptr_t start = -1);
 
     private:
-        virtual void freePageUnlocked(physical_uintptr_t page);
-        void unmapRegion(MemoryRegion *pRegion);
+    virtual void freePageUnlocked(physical_uintptr_t page);
+    void unmapRegion(MemoryRegion *pRegion);
 };
 
 // Static shared instance.
@@ -56,11 +54,9 @@ void StubbedPhysicalMemoryManager::pin(physical_uintptr_t page)
 {
 }
 
-bool StubbedPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
-                                                  size_t cPages,
-                                                  size_t pageConstraints,
-                                                  size_t Flags,
-                                                  physical_uintptr_t start)
+bool StubbedPhysicalMemoryManager::allocateRegion(
+    MemoryRegion &Region, size_t cPages, size_t pageConstraints, size_t Flags,
+    physical_uintptr_t start)
 {
     return false;
 }

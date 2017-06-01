@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "DiskImage.h"
 #include <BootstrapInfo.h>
 #include <Log.h>
-#include "DiskImage.h"
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
 bool DiskImage::initialise()
 {
-    if(g_pBootstrapInfo->getModuleCount() < 3)
+    if (g_pBootstrapInfo->getModuleCount() < 3)
     {
         NOTICE("not enough modules to create a DiskImage");
         return false;
@@ -41,7 +41,7 @@ bool DiskImage::initialise()
 
 uintptr_t DiskImage::read(uint64_t location)
 {
-    if((location > m_nSize) || !m_pBase)
+    if ((location > m_nSize) || !m_pBase)
     {
         ERROR("DiskImage::read() - location " << location << " > " << m_nSize);
         ERROR("  -> or " << m_pBase << " is null");
@@ -52,13 +52,15 @@ uintptr_t DiskImage::read(uint64_t location)
     location &= ~(getBlockSize() - 1);
 
     uintptr_t buffer = m_Cache.lookup(location);
-    if(buffer)
+    if (buffer)
     {
         return buffer + offset;
     }
 
     buffer = m_Cache.insert(location, getBlockSize());
-    MemoryCopy(reinterpret_cast<void*>(buffer), adjust_pointer(m_pBase, location), getBlockSize());
+    MemoryCopy(
+        reinterpret_cast<void *>(buffer), adjust_pointer(m_pBase, location),
+        getBlockSize());
 
     m_Cache.markNoLongerEditing(location);
 

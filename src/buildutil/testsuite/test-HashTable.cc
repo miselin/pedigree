@@ -27,83 +27,83 @@ template <int hashModulo = 0>
 class HashableIntegerBase
 {
     public:
-        HashableIntegerBase() : x_(-1)
-        {
-        }
+    HashableIntegerBase() : x_(-1)
+    {
+    }
 
-        HashableIntegerBase(int x) : x_(x)
-        {
-        }
+    HashableIntegerBase(int x) : x_(x)
+    {
+    }
 
-        virtual ~HashableIntegerBase()
-        {
-        }
+    virtual ~HashableIntegerBase()
+    {
+    }
 
-        virtual size_t hash() const
+    virtual size_t hash() const
+    {
+        if (hashModulo)
         {
-            if (hashModulo)
-            {
-                return x_ % hashModulo;
-            }
-            else
-            {
-                return x_;
-            }
+            return x_ % hashModulo;
         }
+        else
+        {
+            return x_;
+        }
+    }
 
-        virtual bool operator == (const HashableIntegerBase &other) const
-        {
-            return x_ == other.x_;
-        }
+    virtual bool operator==(const HashableIntegerBase &other) const
+    {
+        return x_ == other.x_;
+    }
 
-        virtual bool operator != (const HashableIntegerBase &other) const
-        {
-            return x_ != other.x_;
-        }
+    virtual bool operator!=(const HashableIntegerBase &other) const
+    {
+        return x_ != other.x_;
+    }
 
     private:
-        int x_;
+    int x_;
 };
 
 class CollidingHashableInteger : public HashableIntegerBase<0>
 {
     public:
-        CollidingHashableInteger() : HashableIntegerBase()
-        {
-        }
+    CollidingHashableInteger() : HashableIntegerBase()
+    {
+    }
 
-        CollidingHashableInteger(int x) : HashableIntegerBase(x)
-        {
-        }
+    CollidingHashableInteger(int x) : HashableIntegerBase(x)
+    {
+    }
 
-        size_t hash() const
-        {
-            return 1;
-        }
+    size_t hash() const
+    {
+        return 1;
+    }
 };
 
 class HashableInteger : public HashableIntegerBase<0>
 {
     public:
-        HashableInteger() : HashableIntegerBase()
-        {
-        }
+    HashableInteger() : HashableIntegerBase()
+    {
+    }
 
-        HashableInteger(int x) : HashableIntegerBase(x)
-        {
-        }
+    HashableInteger(int x) : HashableIntegerBase(x)
+    {
+    }
 };
 
 class ModuloTenHashableInteger : public HashableIntegerBase<10>
 {
     public:
-        ModuloTenHashableInteger() : HashableIntegerBase()
-        {
-        }
+    ModuloTenHashableInteger() : HashableIntegerBase()
+    {
+    }
 
-        ModuloTenHashableInteger(int x) : HashableIntegerBase(x)
-        {
-        }
+    ModuloTenHashableInteger(int x) : HashableIntegerBase(x)
+    {
+    }
 };
 
 TEST(PedigreeHashTable, NoOpRemoval)

@@ -20,15 +20,15 @@
 #ifndef NE2K_H
 #define NE2K_H
 
-#include <processor/types.h>
 #include <machine/Device.h>
+#include <machine/IrqHandler.h>
 #include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <process/Thread.h>
 #include <processor/IoBase.h>
 #include <processor/IoPort.h>
+#include <processor/types.h>
 #include <utilities/List.h>
-#include <machine/IrqHandler.h>
-#include <process/Thread.h>
-#include <process/Semaphore.h>
 #include <utilities/RequestQueue.h>
 
 #define NE2K_VENDOR_ID 0x10ec
@@ -37,50 +37,49 @@
 /** Device driver for the NE2K class of network device */
 class Ne2k : public Network, public IrqHandler
 {
-public:
-  Ne2k(Network* pDev);
-  virtual ~Ne2k();
+    public:
+    Ne2k(Network *pDev);
+    virtual ~Ne2k();
 
-  virtual void getName(String &str)
-  {
-    str = "ne2k";
-  }
+    virtual void getName(String &str)
+    {
+        str = "ne2k";
+    }
 
-  virtual bool send(size_t nBytes, uintptr_t buffer);
+    virtual bool send(size_t nBytes, uintptr_t buffer);
 
-  virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(StationInfo info);
 
-  virtual StationInfo getStationInfo();
+    virtual StationInfo getStationInfo();
 
-  // IRQ handler callback.
-  virtual bool irq(irq_id_t number, InterruptState &state);
+    // IRQ handler callback.
+    virtual bool irq(irq_id_t number, InterruptState &state);
 
-  IoBase *m_pBase;
+    IoBase *m_pBase;
 
-  bool isConnected();
+    bool isConnected();
 
-private:
+    private:
+    void recv();
 
-  void recv();
+    static int trampoline(void *p) NORETURN;
 
-  static int trampoline(void* p) NORETURN;
+    void receiveThread() NORETURN;
 
-  void receiveThread() NORETURN;
+    struct packet
+    {
+        uintptr_t ptr;
+        size_t len;
+    };
+    uint8_t m_NextPacket;
 
-  struct packet
-  {
-    uintptr_t ptr;
-    size_t len;
-  };
-  uint8_t m_NextPacket;
+    Semaphore m_PacketQueueSize;
+    List<packet *> m_PacketQueue;
 
-  Semaphore m_PacketQueueSize;
-  List<packet*> m_PacketQueue;
+    Spinlock m_PacketQueueLock;
 
-  Spinlock m_PacketQueueLock;
-  
-  Ne2k(const Ne2k&);
-  void operator =(const Ne2k&);
+    Ne2k(const Ne2k &);
+    void operator=(const Ne2k &);
 };
 
 #endif

@@ -20,21 +20,24 @@
 #ifndef KERNEL_MACHINE_HOSTED_PC_H
 #define KERNEL_MACHINE_HOSTED_PC_H
 
-#include <machine/Machine.h>
-#include "Serial.h"
-#include "Vga.h"
-#include "Timer.h"
 #include "IrqManager.h"
-#include "SchedulerTimer.h"
 #include "Keyboard.h"
+#include "SchedulerTimer.h"
+#include "Serial.h"
+#include "Timer.h"
+#include "Vga.h"
+#include <machine/Machine.h>
 
 /**
  * Concretion of the abstract Machine class for hosted systems
  */
 class HostedMachine : public Machine
 {
-  public:
-    inline static HostedMachine &instance(){return m_Instance;}
+    public:
+    inline static HostedMachine &instance()
+    {
+        return m_Instance;
+    }
 
     virtual void initialise() INITIALISATION_ONLY;
 
@@ -51,16 +54,16 @@ class HostedMachine : public Machine
     virtual void setKeyboard(Keyboard *kb);
     virtual void stopAllOtherProcessors();
 
-  private:
+    private:
     /**
-    * Default constructor, does nothing.
-    */
+     * Default constructor, does nothing.
+     */
     HostedMachine() INITIALISATION_ONLY;
     HostedMachine(const HostedMachine &);
-    HostedMachine &operator = (const HostedMachine &);
+    HostedMachine &operator=(const HostedMachine &);
     /**
-    * Virtual destructor, does nothing.
-    */
+     * Virtual destructor, does nothing.
+     */
     virtual ~HostedMachine();
 
     HostedSerial m_Serial[2];

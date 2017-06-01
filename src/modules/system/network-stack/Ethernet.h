@@ -20,61 +20,64 @@
 #ifndef MACHINE_ETHERNET_H
 #define MACHINE_ETHERNET_H
 
+#include "NetworkStack.h"
+#include <machine/Network.h>
+#include <processor/types.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <processor/types.h>
-#include <machine/Network.h>
-#include "NetworkStack.h"
 
-#define ETH_ARP   0x0806
-#define ETH_RARP  0x8035
-#define ETH_IPV4  0x0800
-#define ETH_IPV6  0x86DD
+#define ETH_ARP 0x0806
+#define ETH_RARP 0x8035
+#define ETH_IPV4 0x0800
+#define ETH_IPV6 0x86DD
 
 /**
  * The Pedigree network stack - Ethernet layer
  */
 class Ethernet
 {
-public:
-  Ethernet();
-  virtual ~Ethernet();
+    public:
+    Ethernet();
+    virtual ~Ethernet();
 
-  /** For access to the stack without declaring an instance of it */
-  static Ethernet& instance()
-  {
-    return ethernetInstance;
-  }
+    /** For access to the stack without declaring an instance of it */
+    static Ethernet &instance()
+    {
+        return ethernetInstance;
+    }
 
-  /** Packet arrival callback */
-  void receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset);
+    /** Packet arrival callback */
+    void
+    receive(size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset);
 
-  /** Sends an ethernet packet */
-  static void send(size_t nBytes, uintptr_t packet, Network* pCard, MacAddress dest, uint16_t type);
+    /** Sends an ethernet packet */
+    static void send(
+        size_t nBytes, uintptr_t packet, Network *pCard, MacAddress dest,
+        uint16_t type);
 
-  /** Injects an Ethernet header into a given buffer and returns the size
-    * of the header. */ 
-  size_t injectHeader(uintptr_t packet, MacAddress destMac, MacAddress sourceMac, uint16_t type);
-  
-  /** Gets the MAC address from a given packet */
-  void getMacFromPacket(uintptr_t packet, MacAddress *mac);
+    /** Injects an Ethernet header into a given buffer and returns the size
+     * of the header. */
+    size_t injectHeader(
+        uintptr_t packet, MacAddress destMac, MacAddress sourceMac,
+        uint16_t type);
 
-  inline size_t ethHeaderSize()
-  {
-    return sizeof(ethernetHeader);
-  }
+    /** Gets the MAC address from a given packet */
+    void getMacFromPacket(uintptr_t packet, MacAddress *mac);
 
-private:
+    inline size_t ethHeaderSize()
+    {
+        return sizeof(ethernetHeader);
+    }
 
-  static Ethernet ethernetInstance;
+    private:
+    static Ethernet ethernetInstance;
 
-  struct ethernetHeader
-  {
-    uint16_t  destMac[3];
-    uint16_t  sourceMac[3];
-    uint16_t  type;
-  } __attribute__ ((packed));
-
+    struct ethernetHeader
+    {
+        uint16_t destMac[3];
+        uint16_t sourceMac[3];
+        uint16_t type;
+    } __attribute__((packed));
 };
 
 #endif

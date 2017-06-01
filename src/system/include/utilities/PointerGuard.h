@@ -20,63 +20,68 @@
 #ifndef POINTERGUARD_H
 #define POINTERGUARD_H
 
-#include <processor/types.h>
 #include <Log.h>
+#include <processor/types.h>
 
 /** Provides a guard for a pointer. When the class goes out of scope
-  * the pointer will automatically be freed.
-  */
+ * the pointer will automatically be freed.
+ */
 template <class T>
 class PointerGuard
 {
-  public:
-    PointerGuard(T *p = 0, bool bArray = false) : m_Pointer(p), m_Wrapper(0), m_Array(bArray)
+    public:
+    PointerGuard(T *p = 0, bool bArray = false)
+        : m_Pointer(p), m_Wrapper(0), m_Array(bArray)
     {
-      // NOTICE("PointerGuard: Guarding pointer [" << reinterpret_cast<uintptr_t>(m_Pointer) << "]");
+        // NOTICE("PointerGuard: Guarding pointer [" <<
+        // reinterpret_cast<uintptr_t>(m_Pointer) << "]");
     }
 
-    PointerGuard(T **p = 0, bool bArray = false) : m_Pointer(*p), m_Wrapper(p), m_Array(bArray)
+    PointerGuard(T **p = 0, bool bArray = false)
+        : m_Pointer(*p), m_Wrapper(p), m_Array(bArray)
     {
-      // NOTICE("PointerGuard: Guarding pointer [" << reinterpret_cast<uintptr_t>(m_Pointer) << "]");
+        // NOTICE("PointerGuard: Guarding pointer [" <<
+        // reinterpret_cast<uintptr_t>(m_Pointer) << "]");
     }
 
     virtual ~PointerGuard()
     {
-      // NOTICE("PointerGuard: Out-of-scope, deleting guarded pointer [" << reinterpret_cast<uintptr_t>(m_Pointer) << "]");
-      if(m_Pointer)
-      {
-        if (m_Array)
-          delete [] m_Pointer;
-        else
-          delete m_Pointer;
+        // NOTICE("PointerGuard: Out-of-scope, deleting guarded pointer [" <<
+        // reinterpret_cast<uintptr_t>(m_Pointer) << "]");
+        if (m_Pointer)
+        {
+            if (m_Array)
+                delete[] m_Pointer;
+            else
+                delete m_Pointer;
+            m_Pointer = 0;
+        }
+
+        if (m_Wrapper)
+        {
+            *m_Wrapper = 0;
+        }
+    }
+
+    /** Neither of these should be used, as they defeat the purpose (and will
+     * cause a dual delete of the pointer)
+     */
+
+    PointerGuard(PointerGuard<T> &p)
+    {
+        ERROR("PointerGuard: copy constructor called");
         m_Pointer = 0;
-      }
-
-      if(m_Wrapper)
-      {
-        *m_Wrapper = 0;
-      }
+        m_Wrapper = 0;
     }
 
-    /** Neither of these should be used, as they defeat the purpose (and will cause a dual
-      * delete of the pointer)
-      */
-
-    PointerGuard(PointerGuard<T>& p)
+    PointerGuard<T> &operator=(PointerGuard<T> &p)
     {
-      ERROR("PointerGuard: copy constructor called");
-      m_Pointer = 0;
-      m_Wrapper = 0;
+        ERROR("PointerGuard: operator = called");
+        m_Pointer = 0;
+        m_Wrapper = 0;
     }
 
-    PointerGuard<T>& operator = (PointerGuard<T>& p)
-    {
-      ERROR("PointerGuard: operator = called");
-      m_Pointer = 0;
-      m_Wrapper = 0;
-    }
-
-  private:
+    private:
     T *m_Pointer;
     T **m_Wrapper;
     bool m_Array;

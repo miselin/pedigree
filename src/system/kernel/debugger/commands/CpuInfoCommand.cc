@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,11 +19,10 @@
 
 #include <CpuInfoCommand.h>
 #include <DebuggerIO.h>
-#include <udis86.h>
 #include <Log.h>
-#include <utilities/demangle.h>
 #include <processor/Processor.h>
-
+#include <udis86.h>
+#include <utilities/demangle.h>
 
 CpuInfoCommand::CpuInfoCommand()
 {
@@ -34,18 +32,21 @@ CpuInfoCommand::~CpuInfoCommand()
 {
 }
 
-void CpuInfoCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void CpuInfoCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool CpuInfoCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen)
+bool CpuInfoCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *screen)
 {
-  Processor::identify (output);
-  output += '\n';
-  return true;
+    Processor::identify(output);
+    output += '\n';
+    return true;
 }
 
 const NormalStaticString CpuInfoCommand::getString()
 {
-  return NormalStaticString("cpuinfo");
+    return NormalStaticString("cpuinfo");
 }

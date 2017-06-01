@@ -17,17 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
-#include <stdint.h>
-#include <unistd.h>
-#include <string.h>
 #include <signal.h>
+#include <stdint.h>
+#include <string.h>
 #include <sys/klog.h>
+#include <unistd.h>
 
-#include <tui.h>
-#include <Terminal.h>
 #include <Font.h>
+#include <Terminal.h>
 #include <Xterm.h>
+#include <tui.h>
 
 struct TuiLocal
 {
@@ -46,7 +45,8 @@ struct TuiLocal
     Font *pBoldFont = nullptr;
 };
 
-Tui::Tui(TuiRedrawer *pRedrawer) : m_LocalData(nullptr), m_pWidget(nullptr), m_pRedrawer(pRedrawer)
+Tui::Tui(TuiRedrawer *pRedrawer)
+    : m_LocalData(nullptr), m_pWidget(nullptr), m_pRedrawer(pRedrawer)
 {
     m_LocalData = new TuiLocal;
 }
@@ -90,7 +90,8 @@ bool Tui::initialise(size_t width, size_t height)
 
     if (!m_LocalData->pNormalFont)
     {
-        m_LocalData->pNormalFont = new Font(m_LocalData->pCairo, 14, "DejaVu Sans Mono 10", true, 0);
+        m_LocalData->pNormalFont =
+            new Font(m_LocalData->pCairo, 14, "DejaVu Sans Mono 10", true, 0);
         if (!m_LocalData->pNormalFont)
         {
             klog(LOG_EMERG, "Error: Normal font not loaded!");
@@ -100,7 +101,8 @@ bool Tui::initialise(size_t width, size_t height)
 
     if (!m_LocalData->pBoldFont)
     {
-        m_LocalData->pBoldFont = new Font(m_LocalData->pCairo, 14, "DejaVu Sans Mono Bold 10", true, 0);
+        m_LocalData->pBoldFont = new Font(
+            m_LocalData->pCairo, 14, "DejaVu Sans Mono Bold 10", true, 0);
         if (!m_LocalData->pBoldFont)
         {
             klog(LOG_EMERG, "Error: Bold font not loaded!");
@@ -118,8 +120,12 @@ bool Tui::initialise(size_t width, size_t height)
 
     DirtyRectangle rect;
 
-    m_LocalData->pTerminal = new Terminal(newTermName, m_LocalData->nWidth, m_LocalData->nHeight, 0, 0, 0, m_LocalData->pCairo, m_pWidget, this, m_LocalData->pNormalFont, m_LocalData->pBoldFont);
-    m_LocalData->pTerminal->setCairo(m_LocalData->pCairo, m_LocalData->pSurface);
+    m_LocalData->pTerminal = new Terminal(
+        newTermName, m_LocalData->nWidth, m_LocalData->nHeight, 0, 0, 0,
+        m_LocalData->pCairo, m_pWidget, this, m_LocalData->pNormalFont,
+        m_LocalData->pBoldFont);
+    m_LocalData->pTerminal->setCairo(
+        m_LocalData->pCairo, m_LocalData->pSurface);
     if (!m_LocalData->pTerminal->initialise())
     {
         delete m_LocalData->pTerminal;
@@ -134,16 +140,22 @@ bool Tui::initialise(size_t width, size_t height)
     rect.point(0, 0);
     rect.point(m_LocalData->nWidth, m_LocalData->nHeight);
 
-    if(!m_LocalData->pTerminal)
+    if (!m_LocalData->pTerminal)
     {
-        klog(LOG_ALERT, "TUI: couldn't start up a terminal - failing gracefully...");
-        m_LocalData->pBoldFont->render("There are no pseudo-terminals available.", 5, 5, 0xFFFFFF, 0x000000, false);
-        m_LocalData->pBoldFont->render("Press any key to close this window.", 5, m_LocalData->pBoldFont->getHeight() + 5, 0xFFFFFF, 0x000000, false);
+        klog(
+            LOG_ALERT,
+            "TUI: couldn't start up a terminal - failing gracefully...");
+        m_LocalData->pBoldFont->render(
+            "There are no pseudo-terminals available.", 5, 5, 0xFFFFFF,
+            0x000000, false);
+        m_LocalData->pBoldFont->render(
+            "Press any key to close this window.", 5,
+            m_LocalData->pBoldFont->getHeight() + 5, 0xFFFFFF, 0x000000, false);
 
         redraw(rect);
 
         m_LocalData->bKeyPressed = false;
-        while(!m_LocalData->bKeyPressed)
+        while (!m_LocalData->bKeyPressed)
         {
             if (m_pWidget)
             {
@@ -165,7 +177,7 @@ bool Tui::initialise(size_t width, size_t height)
 
 void Tui::setCursorStyle(bool filled)
 {
-    if(m_LocalData->pTerminal)
+    if (m_LocalData->pTerminal)
     {
         DirtyRectangle dirty;
         m_LocalData->pTerminal->setCursorStyle(filled);
@@ -182,27 +194,26 @@ void Tui::recreateSurfaces(void *fb)
         return;
     }
 
-    if(m_LocalData->pSurface)
+    if (m_LocalData->pSurface)
     {
         cairo_surface_destroy(m_LocalData->pSurface);
         cairo_destroy(m_LocalData->pCairo);
     }
 
     // Wipe out the framebuffer before we do much with it.
-    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, m_LocalData->nWidth);
+    int stride =
+        cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, m_LocalData->nWidth);
     memset(fb, 0, m_LocalData->nHeight * stride);
 
     m_LocalData->pSurface = cairo_image_surface_create_for_data(
-            (uint8_t*) fb,
-            CAIRO_FORMAT_ARGB32,
-            m_LocalData->nWidth,
-            m_LocalData->nHeight,
-            stride);
+        (uint8_t *) fb, CAIRO_FORMAT_ARGB32, m_LocalData->nWidth,
+        m_LocalData->nHeight, stride);
     m_LocalData->pCairo = cairo_create(m_LocalData->pSurface);
 
     if (m_LocalData->pTerminal)
     {
-        m_LocalData->pTerminal->setCairo(m_LocalData->pCairo, m_LocalData->pSurface);
+        m_LocalData->pTerminal->setCairo(
+            m_LocalData->pCairo, m_LocalData->pSurface);
     }
 
     if (m_LocalData->pNormalFont)
@@ -221,7 +232,7 @@ void Tui::resize(size_t newWidth, size_t newHeight)
     m_LocalData->nWidth = newWidth;
     m_LocalData->nHeight = newHeight;
 
-    if(!(m_LocalData->pTerminal && m_LocalData->pCairo))
+    if (!(m_LocalData->pTerminal && m_LocalData->pCairo))
     {
         // Nothing more to do for us.
         return;
@@ -230,7 +241,8 @@ void Tui::resize(size_t newWidth, size_t newHeight)
     // Wipe out the framebuffer, start over.
     cairo_set_operator(m_LocalData->pCairo, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(m_LocalData->pCairo, 0, 0, 0, 0.8);
-    cairo_rectangle(m_LocalData->pCairo, 0, 0, m_LocalData->nWidth, m_LocalData->nHeight);
+    cairo_rectangle(
+        m_LocalData->pCairo, 0, 0, m_LocalData->nWidth, m_LocalData->nHeight);
     cairo_fill(m_LocalData->pCairo);
 
     if (m_LocalData->pTerminal)
@@ -285,7 +297,7 @@ void Tui::run()
         }
 
         int nReady = select(n + 1, &fds, NULL, NULL, 0);
-        if(nReady <= 0)
+        if (nReady <= 0)
         {
             continue;
         }
@@ -293,14 +305,14 @@ void Tui::run()
         // Check for widget events.
         if (m_pWidget)
         {
-            if(FD_ISSET(m_pWidget->getSocket(), &fds))
+            if (FD_ISSET(m_pWidget->getSocket(), &fds))
             {
                 // Dispatch callbacks.
                 Widget::checkForEvents(true);
 
                 // Don't do redraw processing if this was the only descriptor
                 // that was found readable.
-                if(nReady == 1)
+                if (nReady == 1)
                 {
                     continue;
                 }
@@ -313,7 +325,7 @@ void Tui::run()
         if (m_LocalData->pTerminal)
         {
             int fd = m_LocalData->pTerminal->getSelectFd();
-            if(FD_ISSET(fd, &fds))
+            if (FD_ISSET(fd, &fds))
             {
                 // Something to read.
                 ssize_t len = read(fd, buffer, maxBuffSz);
@@ -326,7 +338,7 @@ void Tui::run()
             }
         }
 
-        if(bShouldRedraw)
+        if (bShouldRedraw)
         {
             redraw(dirtyRect);
         }
@@ -342,7 +354,7 @@ void Tui::stop()
 
 void Tui::keyInput(uint64_t key)
 {
-    if(!m_LocalData->pTerminal)
+    if (!m_LocalData->pTerminal)
         return;
 
     // CTRL + key -> unprintable characters
@@ -356,12 +368,14 @@ void Tui::keyInput(uint64_t key)
 
 void Tui::redraw(DirtyRectangle &rect)
 {
-    if(rect.getX() == ~0UL && rect.getY() == ~0UL && rect.getX2() == 0 && rect.getY2() == 0)
+    if (rect.getX() == ~0UL && rect.getY() == ~0UL && rect.getX2() == 0 &&
+        rect.getY2() == 0)
     {
         return;
     }
 
-    PedigreeGraphics::Rect rt(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
+    PedigreeGraphics::Rect rt(
+        rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
     if (m_LocalData->pSurface)
     {
         cairo_surface_flush(m_LocalData->pSurface);
@@ -373,6 +387,7 @@ void Tui::redraw(DirtyRectangle &rect)
     }
     else if (m_pRedrawer)
     {
-        m_pRedrawer->redraw(rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
+        m_pRedrawer->redraw(
+            rect.getX(), rect.getY(), rect.getWidth(), rect.getHeight());
     }
 }

@@ -29,11 +29,13 @@
 /** The GDT manager on x64 processors */
 class X64GdtManager
 {
-  public:
+    public:
     /** Get the gdt manager instance
      *\return instance of the gdt manager */
     inline static X64GdtManager &instance()
-      {return m_Instance;}
+    {
+        return m_Instance;
+    }
 
     /** Initialise the GDT
      *\param[in] processorCount the number of processors
@@ -44,7 +46,7 @@ class X64GdtManager
      *\todo and some smp/acpi function */
     static void initialiseProcessor() INITIALISATION_ONLY;
 
-  private:
+    private:
     /** The constructor */
     X64GdtManager() INITIALISATION_ONLY;
     /** Copy constructor
@@ -52,7 +54,7 @@ class X64GdtManager
     X64GdtManager(const X64GdtManager &);
     /** Assignment operator
      *\note NOT implemented */
-    X64GdtManager &operator = (const X64GdtManager &);
+    X64GdtManager &operator=(const X64GdtManager &);
     /** The destructor */
     ~X64GdtManager();
 
@@ -62,11 +64,9 @@ class X64GdtManager
      *\param[in] limit the size of the segment (either in bytes or in 4kb units)
      *\param[in] flags the flags
      *\param[in] flags2 additional flags */
-    void setSegmentDescriptor(size_t index,
-                              uint64_t base,
-                              uint32_t limit,
-                              uint8_t flags,
-                              uint8_t flags2);
+    void setSegmentDescriptor(
+        size_t index, uint64_t base, uint32_t limit, uint8_t flags,
+        uint8_t flags2);
     /** Set up a task-state-segment descriptor
      *\param[in] index the descriptor index
      *\param[in] base the base address */
@@ -75,8 +75,9 @@ class X64GdtManager
     /** Readies a TSS for use.
      *\param[in] pTss the TSS to ready. */
     void initialiseTss(struct X64TaskStateSegment *pTss) INITIALISATION_ONLY;
-    void initialiseDoubleFaultTss(X64TaskStateSegment *pTss) INITIALISATION_ONLY;
-    
+    void
+    initialiseDoubleFaultTss(X64TaskStateSegment *pTss) INITIALISATION_ONLY;
+
     /** Load the new segment registers
      *\note This function is implemented in asm/gdt.s */
     static void loadSegmentRegisters();
@@ -84,27 +85,27 @@ class X64GdtManager
     /** Long-mode segment descriptor structure */
     struct segment_descriptor
     {
-      /** Bits 0-15 from the limit */
-      uint16_t limit0;
-      /** Bits 0-15 from the base address */
-      uint16_t base0;
-      /** Bits 16-23 from the base address */
-      uint8_t base1;
-      /** The flags */
-      uint8_t flags;
-      /** Additional flags and bits 16-19 from the limit */
-      uint8_t flags_limit1;
-      /** Bits 24-32 from the base address */
-      uint8_t base2;
-    }PACKED;
+        /** Bits 0-15 from the limit */
+        uint16_t limit0;
+        /** Bits 0-15 from the base address */
+        uint16_t base0;
+        /** Bits 16-23 from the base address */
+        uint8_t base1;
+        /** The flags */
+        uint8_t flags;
+        /** Additional flags and bits 16-19 from the limit */
+        uint8_t flags_limit1;
+        /** Bits 24-32 from the base address */
+        uint8_t base2;
+    } PACKED;
 
     /** Upper 8byte of the long-mode task-state-segment descriptor */
     struct tss_descriptor
     {
-      /** Bits 32-63 of the base address */
-      uint32_t base3;
-      /** reserved */
-      uint32_t res;
+        /** Bits 32-63 of the base address */
+        uint32_t base3;
+        /** reserved */
+        uint32_t res;
     };
 
     /** The Gdt */

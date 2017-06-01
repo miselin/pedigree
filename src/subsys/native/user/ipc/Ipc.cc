@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,14 +24,19 @@
 
 using namespace PedigreeIpc;
 
-PedigreeIpc::StandardIpcMessage::StandardIpcMessage() : m_vAddr(0) {}
+PedigreeIpc::StandardIpcMessage::StandardIpcMessage() : m_vAddr(0)
+{
+}
 
 PedigreeIpc::StandardIpcMessage::~StandardIpcMessage()
 {
     syscall1(IPC_DESTROY_MESSAGE, reinterpret_cast<uintptr_t>(this));
 }
 
-PedigreeIpc::SharedIpcMessage::SharedIpcMessage(size_t nBytes, void *handle) : StandardIpcMessage(), m_nBytes(nBytes), m_pHandle(handle) {}
+PedigreeIpc::SharedIpcMessage::SharedIpcMessage(size_t nBytes, void *handle)
+    : StandardIpcMessage(), m_nBytes(nBytes), m_pHandle(handle)
+{
+}
 
 PedigreeIpc::SharedIpcMessage::~SharedIpcMessage()
 {
@@ -41,33 +45,45 @@ PedigreeIpc::SharedIpcMessage::~SharedIpcMessage()
 
 PedigreeIpc::StandardIpcMessage::StandardIpcMessage(void *pKernelMessage)
 {
-    m_vAddr = reinterpret_cast<void*>(syscall2(IPC_RECV_PHASE2, reinterpret_cast<uintptr_t>(this), reinterpret_cast<uintptr_t>(pKernelMessage)));
+    m_vAddr = reinterpret_cast<void *>(syscall2(
+        IPC_RECV_PHASE2, reinterpret_cast<uintptr_t>(this),
+        reinterpret_cast<uintptr_t>(pKernelMessage)));
 }
 
 bool PedigreeIpc::StandardIpcMessage::initialise()
 {
-    m_vAddr = reinterpret_cast<void*>(syscall1(IPC_CREATE_STANDARD_MESSAGE, reinterpret_cast<uintptr_t>(this)));
+    m_vAddr = reinterpret_cast<void *>(syscall1(
+        IPC_CREATE_STANDARD_MESSAGE, reinterpret_cast<uintptr_t>(this)));
 
     return m_vAddr != 0;
 }
 
 bool PedigreeIpc::SharedIpcMessage::initialise()
 {
-    m_vAddr = reinterpret_cast<void*>(syscall3(IPC_CREATE_SHARED_MESSAGE, reinterpret_cast<uintptr_t>(this), m_nBytes, reinterpret_cast<uintptr_t>(m_pHandle)));
-    m_pHandle = reinterpret_cast<void*>(syscall1(IPC_GET_SHARED_REGION, reinterpret_cast<uintptr_t>(this)));
+    m_vAddr = reinterpret_cast<void *>(syscall3(
+        IPC_CREATE_SHARED_MESSAGE, reinterpret_cast<uintptr_t>(this), m_nBytes,
+        reinterpret_cast<uintptr_t>(m_pHandle)));
+    m_pHandle = reinterpret_cast<void *>(
+        syscall1(IPC_GET_SHARED_REGION, reinterpret_cast<uintptr_t>(this)));
 
     return (m_vAddr != 0) && (m_pHandle != 0);
 }
 
-bool PedigreeIpc::send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync)
+bool PedigreeIpc::send(
+    IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync)
 {
-    return static_cast<bool>(syscall3(IPC_SEND_IPC, reinterpret_cast<uintptr_t>(pEndpoint), reinterpret_cast<uintptr_t>(pMessage), static_cast<uintptr_t>(bAsync)));
+    return static_cast<bool>(syscall3(
+        IPC_SEND_IPC, reinterpret_cast<uintptr_t>(pEndpoint),
+        reinterpret_cast<uintptr_t>(pMessage), static_cast<uintptr_t>(bAsync)));
 }
 
-bool PedigreeIpc::recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync)
+bool PedigreeIpc::recv(
+    IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync)
 {
-    void *kernelPointer = reinterpret_cast<void*>(syscall2(IPC_RECV_PHASE1, reinterpret_cast<uintptr_t>(pEndpoint), static_cast<uintptr_t>(bAsync)));
-    if(!kernelPointer)
+    void *kernelPointer = reinterpret_cast<void *>(syscall2(
+        IPC_RECV_PHASE1, reinterpret_cast<uintptr_t>(pEndpoint),
+        static_cast<uintptr_t>(bAsync)));
+    if (!kernelPointer)
         return false;
 
     *pMessage = new StandardIpcMessage(kernelPointer);
@@ -87,5 +103,6 @@ void PedigreeIpc::removeEndpoint(const char *name)
 
 IpcEndpoint *PedigreeIpc::getEndpoint(const char *name)
 {
-    return reinterpret_cast<IpcEndpoint*>(syscall1(IPC_GET_ENDPOINT, reinterpret_cast<uintptr_t>(name)));
+    return reinterpret_cast<IpcEndpoint *>(
+        syscall1(IPC_GET_ENDPOINT, reinterpret_cast<uintptr_t>(name)));
 }

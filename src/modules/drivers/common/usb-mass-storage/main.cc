@@ -29,7 +29,8 @@ static UsbDevice *massStorageConnected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    UsbPnP::instance().registerCallback(8, SubclassNone, ProtocolNone, massStorageConnected);
+    UsbPnP::instance().registerCallback(
+        8, SubclassNone, ProtocolNone, massStorageConnected);
     return true;
 }
 

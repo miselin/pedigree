@@ -29,11 +29,12 @@
 /** Event class for passing to File::monitor. */
 class PollEvent : public Event
 {
-public:
+    public:
     /** The constructor takes a semaphore that it should signal when it fires,
         and an fd_set with an index to set. */
     PollEvent();
-    PollEvent(Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile);
+    PollEvent(
+        Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile);
     virtual ~PollEvent();
 
     void fire();
@@ -53,13 +54,13 @@ public:
         return EventNumbers::PollEvent;
     }
 
-private:
+    private:
     Semaphore *m_pSemaphore;
     struct pollfd *m_pFd;
-    int        m_nREvent;
-    File      *m_pFile;
+    int m_nREvent;
+    File *m_pFile;
 };
 
-int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout);
+int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout);
 
 #endif

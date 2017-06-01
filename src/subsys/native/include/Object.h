@@ -26,18 +26,18 @@
 class Object
 {
     public:
-        Object();
-        virtual ~Object();
+    Object();
+    virtual ~Object();
 
-        /**
-         * Retrieves the global unique identifier for this class.
-         *
-         * The global unique identifier is used when creating a new object to
-         * register the application object with the kernel. This identifier
-         * must match with the kernel's mapping of identifiers to kernel classes
-         * otherwise the system calls will fail in unexpected ways.
-         */
-        virtual uint64_t guid() const = 0;
+    /**
+     * Retrieves the global unique identifier for this class.
+     *
+     * The global unique identifier is used when creating a new object to
+     * register the application object with the kernel. This identifier
+     * must match with the kernel's mapping of identifiers to kernel classes
+     * otherwise the system calls will fail in unexpected ways.
+     */
+    virtual uint64_t guid() const = 0;
 };
 
 #endif

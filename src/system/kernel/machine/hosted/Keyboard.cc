@@ -17,18 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Machine.h>
+#include "Keyboard.h"
+#include <machine/Device.h>
 #include <machine/HidInputManager.h>
 #include <machine/KeymapManager.h>
-#include <machine/Device.h>
-#include "Keyboard.h"
+#include <machine/Machine.h>
 
 #ifdef DEBUGGER
-  #include <Debugger.h>
+#include <Debugger.h>
 
-  #ifdef TRACK_PAGE_ALLOCATIONS
-    #include <AllocationCommand.h>
-  #endif
+#ifdef TRACK_PAGE_ALLOCATIONS
+#include <AllocationCommand.h>
+#endif
 #endif
 
 #ifdef DEBUGGER
@@ -37,19 +37,22 @@
 
 #include <SlamAllocator.h>
 
-namespace __pedigree_hosted {};
+namespace __pedigree_hosted
+{
+};
 using namespace __pedigree_hosted;
 
-#include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <unistd.h>
 
 HostedKeyboard::HostedKeyboard() : m_bDebugState(false)
 {
     // Eat any pending input.
     blocking(false);
     char buf[64] = {0};
-    while(read(0, buf, 64) == 64);
+    while (read(0, buf, 64) == 64)
+        ;
     blocking(true);
 }
 
@@ -68,7 +71,7 @@ void HostedKeyboard::initialise()
 
 char HostedKeyboard::getChar()
 {
-    if(!getDebugState())
+    if (!getDebugState())
         return 0;
 
     blocking(true);
@@ -82,14 +85,14 @@ char HostedKeyboard::getChar()
 
 char HostedKeyboard::getCharNonBlock()
 {
-    if(!getDebugState())
+    if (!getDebugState())
         return 0;
 
     blocking(false);
 
     char buf[2] = {0};
     ssize_t n = read(0, buf, 1);
-    if(n != 1)
+    if (n != 1)
         return 0;
     return buf[0];
 }
@@ -116,11 +119,11 @@ void HostedKeyboard::setLedState(char state)
 void HostedKeyboard::blocking(bool enable)
 {
     int flags = fcntl(0, F_GETFL);
-    if(flags < 0)
+    if (flags < 0)
     {
         return;
     }
-    if(enable)
+    if (enable)
         flags &= ~O_NONBLOCK;
     else
         flags |= O_NONBLOCK;

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,7 +20,7 @@
 #ifndef MACHINE_OF_TYPES_H
 #define MACHINE_OF_TYPES_H
 
-typedef void* OFHandle;
-typedef void* OFParam;
+typedef void *OFHandle;
+typedef void *OFParam;
 
 #endif

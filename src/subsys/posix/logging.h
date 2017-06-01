@@ -21,12 +21,18 @@
 #define _POSIX_KERNEL_LOGGING_H
 
 // Logs to the kernel log with the current PID.
-#define POSIX_VERBOSE_LOG(f, x) do { \
-        auto ____tid = Processor::information().getCurrentThread()->getId(); \
-        auto ____level = Processor::information().getCurrentThread()->getStateLevel(); \
-        auto ____pid = Processor::information().getCurrentThread()->getParent()->getId(); \
-        NOTICE("[" << f << ":\t" << Dec << ____pid << ":" << ____tid << "." << ____level << Hex << "]\t" << x); \
-    } while(0)
+#define POSIX_VERBOSE_LOG(f, x)                                                \
+    do                                                                         \
+    {                                                                          \
+        auto ____tid = Processor::information().getCurrentThread()->getId();   \
+        auto ____level =                                                       \
+            Processor::information().getCurrentThread()->getStateLevel();      \
+        auto ____pid =                                                         \
+            Processor::information().getCurrentThread()->getParent()->getId(); \
+        NOTICE(                                                                \
+            "[" << f << ":\t" << Dec << ____pid << ":" << ____tid << "."       \
+                << ____level << Hex << "]\t" << x);                            \
+    } while (0)
 
 // POSIX_LOG_FACILITIES is an integer for which each bit indicates a particular
 // category to enable verbose logging for.

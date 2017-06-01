@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <libintl.h>
-#include <locale.h>
+#include <curses.h>
 #include <dialog.h>
 #include <dirent.h>
 #include <errno.h>
-#include <curses.h>
+#include <libintl.h>
+#include <locale.h>
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #ifdef __PEDIGREE__
 #define LOCALE_DIR "/system/locale"
@@ -55,7 +55,8 @@ int scan_into_vector(const char *path, std::vector<std::string> &vec)
     {
         for (int i = 0; i < count; ++i)
         {
-            if (!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, ".."))
+            if (!strcmp(namelist[i]->d_name, ".") ||
+                !strcmp(namelist[i]->d_name, ".."))
             {
                 free(namelist[i]);
                 continue;
@@ -85,7 +86,7 @@ void load_keymap(const char *path)
     size_t len = ftell(stream);
     fseek(stream, 0, SEEK_SET);
 
-    char *buffer = (char*) malloc(len);
+    char *buffer = (char *) malloc(len);
     fread(buffer, len, 1, stream);
     fclose(stream);
 
@@ -117,8 +118,8 @@ int languages()
     dialog_vars.item_help = FALSE;
     int status = dialog_menu(
         "Language Selection",
-        "Please select your preferred language from the list below.",
-        0, 0, 0, languages.size(), languages_menu);
+        "Please select your preferred language from the list below.", 0, 0, 0,
+        languages.size(), languages_menu);
 
     free(languages_menu);
 
@@ -154,7 +155,8 @@ int keymaps()
     dialog_vars.item_help = FALSE;
     dialog_menu(
         gettext("Keyboard Layout Selection"),
-        gettext("Please select your preferred keyboard layout from the list below."),
+        gettext("Please select your preferred keyboard layout from the list "
+                "below."),
         0, 0, 0, keymaps.size(), keymaps_menu);
 
     free(keymaps_menu);
@@ -169,8 +171,8 @@ int keymaps()
     dialog_vars.nocancel = 1;
     dialog_msgbox(
         gettext("Ready to Go"),
-        gettext("Configuration is complete.\n\nPedigree is ready for you."),
-        0, 0, 1);
+        gettext("Configuration is complete.\n\nPedigree is ready for you."), 0,
+        0, 1);
 
     return 0;
 }
@@ -192,7 +194,8 @@ int main(int argc, char *argv[])
     int status = dialog_yesno(
         "Welcome to Pedigree",
         "Thanks for trying out Pedigree. This Live CD version supports a few "
-        "languages and keyboard mappings, so we're going to ask some questions to "
+        "languages and keyboard mappings, so we're going to ask some questions "
+        "to "
         "find your preferences and apply them.\n\nAlternatively, you can just "
         "accept the default configuration (English language, EN-US keyboard).\n"
         "\nDo you want to accept the defaults?",

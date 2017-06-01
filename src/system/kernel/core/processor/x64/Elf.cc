@@ -17,47 +17,51 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <linker/Elf.h>
 #include <Log.h>
+#include <linker/Elf.h>
 #include <linker/KernelElf.h>
 
 // http://www.caldera.com/developers/devspecs/abi386-4.pdf
 
-#define R_X86_64_NONE       0
-#define R_X86_64_64         1
-#define R_X86_64_PC32       2
-#define R_X86_64_GOT32      3
-#define R_X86_64_PLT32      4
-#define R_X86_64_COPY       5
-#define R_X86_64_GLOB_DAT   6
-#define R_X86_64_JUMP_SLOT  7
-#define R_X86_64_RELATIVE   8
-#define R_X86_64_GOTPCREL   9
-#define R_X86_64_32         10
-#define R_X86_64_32S        11
-#define R_X86_64_PC64       24
-#define R_X86_64_GOTOFF64   25
-#define R_X86_64_GOTPC32    26
-#define R_X86_64_GOT64      27
+#define R_X86_64_NONE 0
+#define R_X86_64_64 1
+#define R_X86_64_PC32 2
+#define R_X86_64_GOT32 3
+#define R_X86_64_PLT32 4
+#define R_X86_64_COPY 5
+#define R_X86_64_GLOB_DAT 6
+#define R_X86_64_JUMP_SLOT 7
+#define R_X86_64_RELATIVE 8
+#define R_X86_64_GOTPCREL 9
+#define R_X86_64_32 10
+#define R_X86_64_32S 11
+#define R_X86_64_PC64 24
+#define R_X86_64_GOTOFF64 25
+#define R_X86_64_GOTPC32 26
+#define R_X86_64_GOT64 27
 #define R_X86_64_GOTPCREL64 28
-#define R_X86_64_GOTPC64    29
-#define R_X86_64_GOTPLT64   30
-#define R_X86_64_PLTOFF64   31
+#define R_X86_64_GOTPC64 29
+#define R_X86_64_GOTPLT64 30
+#define R_X86_64_PLTOFF64 31
 
-bool Elf::applyRelocation(ElfRel_t rel, ElfSectionHeader_t *pSh, SymbolTable *pSymtab, uintptr_t loadBase, SymbolTable::Policy policy)
+bool Elf::applyRelocation(
+    ElfRel_t rel, ElfSectionHeader_t *pSh, SymbolTable *pSymtab,
+    uintptr_t loadBase, SymbolTable::Policy policy)
 {
     ERROR("The X64 architecture does not use REL entries!");
     return false;
 }
 
-bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *pSymtab, uintptr_t loadBase, SymbolTable::Policy policy)
+bool Elf::applyRelocation(
+    ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *pSymtab,
+    uintptr_t loadBase, SymbolTable::Policy policy)
 {
     // Section not loaded?
     if (pSh && pSh->addr == 0)
-        return true; // Not a fatal error.
+        return true;  // Not a fatal error.
 
     // Avoid NONE relocations.
-    if(R_TYPE(rel.info) == R_X86_64_NONE)
+    if (R_TYPE(rel.info) == R_X86_64_NONE)
         return true;
 
     // Get the address of the unit to be relocated.
@@ -79,21 +83,24 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
 
     const char *pStringTable = 0;
     if (!m_pDynamicStringTable)
-        pStringTable = reinterpret_cast<const char *> (m_pStringTable);
+        pStringTable = reinterpret_cast<const char *>(m_pStringTable);
     else
         pStringTable = m_pDynamicStringTable;
-    
+
     String symbolName("(unknown)");
 
     // If this is a section header, patch straight to it.
     if (pSymbols && ST_TYPE(pSymbols[R_SYM(rel.info)].info) == 3)
     {
-        // Section type - the name will be the name of the section header it refers to.
+        // Section type - the name will be the name of the section header it
+        // refers to.
         int shndx = pSymbols[R_SYM(rel.info)].shndx;
         ElfSectionHeader_t *pReferencedSh = &m_pSectionHeaders[shndx];
         S = pReferencedSh->addr;
     }
-    else if (pSymbols && R_TYPE(rel.info) != R_X86_64_RELATIVE) // Relative doesn't need a symbol!
+    else if (pSymbols && R_TYPE(rel.info) != R_X86_64_RELATIVE)  // Relative
+                                                                 // doesn't need
+                                                                 // a symbol!
     {
         const char *pStr = pStringTable + pSymbols[R_SYM(rel.info)].name;
 
@@ -112,23 +119,27 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
 
         if (S == 0)
         {
-            WARNING("Relocation failed for symbol \"" << pStr << "\" (relocation=" << R_TYPE(rel.info) << ")");
-            WARNING("Relocation at " << address << " (offset=" << rel.offset << ")...");
+            WARNING(
+                "Relocation failed for symbol \""
+                << pStr << "\" (relocation=" << R_TYPE(rel.info) << ")");
+            WARNING(
+                "Relocation at " << address << " (offset=" << rel.offset
+                                 << ")...");
         }
-        
+
         symbolName = pStr;
     }
 
     if (S == 0 && (R_TYPE(rel.info) != R_X86_64_RELATIVE))
         return false;
     if (S == ~0UL)
-        S = 0; // weak relocation, undefined
+        S = 0;  // weak relocation, undefined
 
     // Base address
     uint64_t B = loadBase;
 
-    uint64_t *pResult = reinterpret_cast<uint64_t*> (address);
-    uint64_t result = * pResult;
+    uint64_t *pResult = reinterpret_cast<uint64_t *>(address);
+    uint64_t result = *pResult;
 
     switch (R_TYPE(rel.info))
     {
@@ -138,15 +149,16 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
             result = S + A;
             break;
         case R_X86_64_PC32:
-            result = (result&0xFFFFFFFF00000000) | ((S + A - P) & 0xFFFFFFFF);
+            result = (result & 0xFFFFFFFF00000000) | ((S + A - P) & 0xFFFFFFFF);
             break;
         case R_X86_64_COPY:
             if (!S)
             {
-                ERROR("Cannot perform a R_X86_64_COPY relocation for a weak symbol.");
+                ERROR("Cannot perform a R_X86_64_COPY relocation for a weak "
+                      "symbol.");
                 return false;
             }
-            result = * reinterpret_cast<uintptr_t*> (S);
+            result = *reinterpret_cast<uintptr_t *>(S);
             break;
         case R_X86_64_JUMP_SLOT:
         case R_X86_64_GLOB_DAT:
@@ -158,10 +170,12 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t *pSh, SymbolTable *p
             break;
         case R_X86_64_32:
         case R_X86_64_32S:
-            result = (result&0xFFFFFFFF00000000) | ((S + A) & 0xFFFFFFFF);
+            result = (result & 0xFFFFFFFF00000000) | ((S + A) & 0xFFFFFFFF);
             break;
         default:
-            ERROR ("Relocation not supported for symbol \"" << symbolName << "\": " << Dec << R_TYPE(rel.info));
+            ERROR(
+                "Relocation not supported for symbol \""
+                << symbolName << "\": " << Dec << R_TYPE(rel.info));
     }
 
     // Write back the result.

@@ -17,22 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Log.h>
 #include <processor/StackFrame.h>
 #include <stdarg.h>
-#include <Log.h>
 
 #if defined(DEBUGGER)
 
 uintptr_t HostedStackFrame::getParameter(size_t n)
 {
-  return 0;
+    return 0;
 }
 
 #endif
 
-void HostedStackFrame::construct(ProcessorState &state,
-                              uintptr_t returnAddress,
-                              unsigned int nParams,
-                              ...)
+void HostedStackFrame::construct(
+    ProcessorState &state, uintptr_t returnAddress, unsigned int nParams, ...)
 {
 }

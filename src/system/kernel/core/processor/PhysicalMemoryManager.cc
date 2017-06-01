@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/MemoryRegion.h>
 #include <Log.h>
+#include <processor/MemoryRegion.h>
+#include <processor/PhysicalMemoryManager.h>
 
 PhysicalMemoryManager::PhysicalMemoryManager() : m_MemoryRegions()
 {
@@ -35,23 +35,25 @@ size_t PhysicalMemoryManager::freePageCount() const
 }
 
 #ifndef UTILITY_LINUX
-void PhysicalMemoryManager::allocateMemoryRegionList(Vector<MemoryRegionInfo*> &MemoryRegions)
+void PhysicalMemoryManager::allocateMemoryRegionList(
+    Vector<MemoryRegionInfo *> &MemoryRegions)
 {
-  for (size_t i = 0;i < m_MemoryRegions.count();i++)
-  {
-    MemoryRegionInfo *pMemoryRegionInfo = new MemoryRegionInfo(m_MemoryRegions[i]->virtualAddress(),
-                                                               m_MemoryRegions[i]->physicalAddress(),
-                                                               m_MemoryRegions[i]->size(),
-                                                               m_MemoryRegions[i]->name());
-    MemoryRegions.pushBack(pMemoryRegionInfo);
-  }
+    for (size_t i = 0; i < m_MemoryRegions.count(); i++)
+    {
+        MemoryRegionInfo *pMemoryRegionInfo = new MemoryRegionInfo(
+            m_MemoryRegions[i]->virtualAddress(),
+            m_MemoryRegions[i]->physicalAddress(), m_MemoryRegions[i]->size(),
+            m_MemoryRegions[i]->name());
+        MemoryRegions.pushBack(pMemoryRegionInfo);
+    }
 }
-void PhysicalMemoryManager::freeMemoryRegionList(Vector<MemoryRegionInfo*> &MemoryRegions)
+void PhysicalMemoryManager::freeMemoryRegionList(
+    Vector<MemoryRegionInfo *> &MemoryRegions)
 {
-  while (MemoryRegions.count() != 0)
-  {
-    MemoryRegionInfo *pMemoryRegionInfo = MemoryRegions.popBack();
-    delete pMemoryRegionInfo;
-  }
+    while (MemoryRegions.count() != 0)
+    {
+        MemoryRegionInfo *pMemoryRegionInfo = MemoryRegions.popBack();
+        delete pMemoryRegionInfo;
+    }
 }
 #endif

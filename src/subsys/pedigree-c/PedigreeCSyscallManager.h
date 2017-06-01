@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,32 +20,34 @@
 #ifndef PEDIGREEC_SYSCALL_MANAGER_H
 #define PEDIGREEC_SYSCALL_MANAGER_H
 
-#include <processor/types.h>
 #include <processor/SyscallHandler.h>
+#include <processor/types.h>
 
 class PedigreeCSyscallManager : public SyscallHandler
 {
-public:
-  void initialise();
+    public:
+    void initialise();
 
-  /** Calls a syscall. */
-  uintptr_t call(uintptr_t function, uintptr_t p1=0, uintptr_t p2=0, uintptr_t p3=0, uintptr_t p4=0, uintptr_t p5=0);
+    /** Calls a syscall. */
+    uintptr_t call(
+        uintptr_t function, uintptr_t p1 = 0, uintptr_t p2 = 0,
+        uintptr_t p3 = 0, uintptr_t p4 = 0, uintptr_t p5 = 0);
 
-  /** Called when a syscall arrives. */
-  virtual uintptr_t syscall(SyscallState &state);
+    /** Called when a syscall arrives. */
+    virtual uintptr_t syscall(SyscallState &state);
 
-  /** The constructor */
-  PedigreeCSyscallManager();
-  /** The destructor */
-  virtual ~PedigreeCSyscallManager();
+    /** The constructor */
+    PedigreeCSyscallManager();
+    /** The destructor */
+    virtual ~PedigreeCSyscallManager();
 
-private:
-  /** The copy-constructor
-   *\note Not implemented (singleton) */
-  PedigreeCSyscallManager(const PedigreeCSyscallManager &);
-  /** The copy-constructor
-   *\note Not implemented (singleton) */
-  PedigreeCSyscallManager &operator = (const PedigreeCSyscallManager &);
+    private:
+    /** The copy-constructor
+     *\note Not implemented (singleton) */
+    PedigreeCSyscallManager(const PedigreeCSyscallManager &);
+    /** The copy-constructor
+     *\note Not implemented (singleton) */
+    PedigreeCSyscallManager &operator=(const PedigreeCSyscallManager &);
 };
 
 #endif

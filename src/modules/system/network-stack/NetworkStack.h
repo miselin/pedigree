@@ -20,12 +20,12 @@
 #ifndef MACHINE_NETWORK_STACK_H
 #define MACHINE_NETWORK_STACK_H
 
+#include <machine/Network.h>
+#include <processor/types.h>
+#include <utilities/MemoryPool.h>
+#include <utilities/RequestQueue.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <processor/types.h>
-#include <machine/Network.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/MemoryPool.h>
 
 /**
  * The Pedigree network stack
@@ -34,71 +34,73 @@
  */
 class NetworkStack : public RequestQueue
 {
-public:
-  NetworkStack();
-  virtual ~NetworkStack();
-  
-  /** For access to the stack without declaring an instance of it */
-  static NetworkStack& instance()
-  {
-    return *stack;
-  }
-  
-  /** Called when a packet arrives */
-  void receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset);
+    public:
+    NetworkStack();
+    virtual ~NetworkStack();
 
-  /** Registers a given network device with the stack */
-  void registerDevice(Network *pDevice);
+    /** For access to the stack without declaring an instance of it */
+    static NetworkStack &instance()
+    {
+        return *stack;
+    }
 
-  /** Returns the n'th registered network device */
-  Network *getDevice(size_t n);
+    /** Called when a packet arrives */
+    void
+    receive(size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset);
 
-  /** Returns the number of devices registered with the stack */
-  size_t getNumDevices();
-  
-  /** Unregisters a given network device from the stack */
-  void deRegisterDevice(Network *pDevice);
+    /** Registers a given network device with the stack */
+    void registerDevice(Network *pDevice);
 
-  /** Sets the loopback device for the stack */
-  void setLoopback(Network *pCard)
-  {
-    m_pLoopback = pCard;
-  }
+    /** Returns the n'th registered network device */
+    Network *getDevice(size_t n);
 
-  /** Gets the loopback device for the stack */
-  inline Network *getLoopback()
-  {
-    return m_pLoopback;
-  }
+    /** Returns the number of devices registered with the stack */
+    size_t getNumDevices();
 
-  /** Grabs the memory pool for networking use */
-  inline MemoryPool &getMemPool()
-  {
-      return m_MemPool;
-  }
+    /** Unregisters a given network device from the stack */
+    void deRegisterDevice(Network *pDevice);
 
-private:
-  static NetworkStack *stack;
-  
-  struct Packet
-  {
-      uintptr_t buffer;
-      size_t packetLength;
-      Network *pCard;
-      uint32_t offset;
-  };
-  
-  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                  uint64_t p6, uint64_t p7, uint64_t p8);
+    /** Sets the loopback device for the stack */
+    void setLoopback(Network *pCard)
+    {
+        m_pLoopback = pCard;
+    }
 
-  /** Loopback device */
-  Network *m_pLoopback;
+    /** Gets the loopback device for the stack */
+    inline Network *getLoopback()
+    {
+        return m_pLoopback;
+    }
 
-  /** Network devices registered with the stack. */
-  Vector<Network*> m_Children;
+    /** Grabs the memory pool for networking use */
+    inline MemoryPool &getMemPool()
+    {
+        return m_MemPool;
+    }
 
-  /** Networking memory pool */
-  MemoryPool m_MemPool;
+    private:
+    static NetworkStack *stack;
+
+    struct Packet
+    {
+        uintptr_t buffer;
+        size_t packetLength;
+        Network *pCard;
+        uint32_t offset;
+    };
+
+    virtual uint64_t executeRequest(
+        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+        uint64_t p6, uint64_t p7, uint64_t p8);
+
+    /** Loopback device */
+    Network *m_pLoopback;
+
+    /** Network devices registered with the stack. */
+    Vector<Network *> m_Children;
+
+    /** Networking memory pool */
+    MemoryPool m_MemPool;
 };
 
 #endif

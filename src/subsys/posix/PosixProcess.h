@@ -20,9 +20,9 @@
 #ifndef POSIX_PROCESS_H
 #define POSIX_PROCESS_H
 
-#include <processor/types.h>
 #include "PosixSubsystem.h"
 #include <Log.h>
+#include <processor/types.h>
 
 #include <process/Process.h>
 
@@ -31,107 +31,106 @@ class PosixProcess;
 class PosixSession
 {
     public:
-        PosixSession() : Leader(0)
-        {
-        }
+    PosixSession() : Leader(0)
+    {
+    }
 
-        virtual ~PosixSession()
-        {
-        }
+    virtual ~PosixSession()
+    {
+    }
 
-        /** Session leader. */
-        PosixProcess *Leader;
+    /** Session leader. */
+    PosixProcess *Leader;
 };
 
 class ProcessGroup
 {
     public:
-        ProcessGroup() : processGroupId(0), Leader(0), Members()
-        {
-            Members.clear();
-        }
+    ProcessGroup() : processGroupId(0), Leader(0), Members()
+    {
+        Members.clear();
+    }
 
-        virtual ~ProcessGroup();
+    virtual ~ProcessGroup();
 
-        /** The process group ID of this process group. */
-        int processGroupId;
+    /** The process group ID of this process group. */
+    int processGroupId;
 
-        /** The group leader of the process group. */
-        PosixProcess *Leader;
+    /** The group leader of the process group. */
+    PosixProcess *Leader;
 
-        /** List of each Process that is in this process group.
-         *  Includes the Leader, iterate over this in order to
-         *  obtain every Process in the process group.
-         */
-        List<PosixProcess*> Members;
+    /** List of each Process that is in this process group.
+     *  Includes the Leader, iterate over this in order to
+     *  obtain every Process in the process group.
+     */
+    List<PosixProcess *> Members;
 
     private:
-        ProcessGroup(const ProcessGroup&);
-        ProcessGroup &operator = (ProcessGroup &);
+    ProcessGroup(const ProcessGroup &);
+    ProcessGroup &operator=(ProcessGroup &);
 };
 
 class PosixProcess : public Process
 {
     public:
+    /** Defines what status this Process has within its group */
+    enum Membership
+    {
+        /** Group leader. The one who created the group, and whose PID was
+         * absorbed to become the Process Group ID.
+         */
+        Leader = 0,
 
-        /** Defines what status this Process has within its group */
-        enum Membership
-        {
-            /** Group leader. The one who created the group, and whose PID was absorbed
-             *  to become the Process Group ID.
-             */
-            Leader = 0,
+        /** Group member. These processes have a unique Process ID. */
+        Member,
 
-            /** Group member. These processes have a unique Process ID. */
-            Member,
+        /** Not in a group. */
+        NoGroup
+    };
 
-            /** Not in a group. */
-            NoGroup
-        };
+    /** Information about a robust list. */
+    struct RobustListData
+    {
+        void *head;
+        size_t head_len;
+    };
 
-        /** Information about a robust list. */
-        struct RobustListData
-        {
-            void *head;
-            size_t head_len;
-        };
+    PosixProcess();
 
-        PosixProcess();
+    /** Copy constructor. */
+    PosixProcess(Process *pParent, bool bCopyOnWrite = true);
+    virtual ~PosixProcess();
 
-        /** Copy constructor. */
-        PosixProcess(Process *pParent, bool bCopyOnWrite = true);
-        virtual ~PosixProcess();
+    void setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup = true);
+    ProcessGroup *getProcessGroup() const;
 
-        void setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup = true);
-        ProcessGroup *getProcessGroup() const;
+    void setGroupMembership(Membership type);
+    Membership getGroupMembership() const;
 
-        void setGroupMembership(Membership type);
-        Membership getGroupMembership() const;
+    PosixSession *getSession() const;
+    void setSession(PosixSession *p);
 
-        PosixSession *getSession() const;
-        void setSession(PosixSession *p);
+    virtual ProcessType getType();
 
-        virtual ProcessType getType();
+    void setMask(uint32_t mask);
+    uint32_t getMask() const;
 
-        void setMask(uint32_t mask);
-        uint32_t getMask() const;
-
-        const RobustListData &getRobustList() const;
-        void setRobustList(const RobustListData &data);
+    const RobustListData &getRobustList() const;
+    void setRobustList(const RobustListData &data);
 
     private:
-        // Register with other systems e.g. procfs
-        void registerProcess();
-        void unregisterProcess();
+    // Register with other systems e.g. procfs
+    void registerProcess();
+    void unregisterProcess();
 
-        PosixProcess(const PosixProcess&);
-        PosixProcess& operator=(const PosixProcess&);
+    PosixProcess(const PosixProcess &);
+    PosixProcess &operator=(const PosixProcess &);
 
-        PosixSession *m_pSession;
-        ProcessGroup *m_pProcessGroup;
-        Membership m_GroupMembership;
-        uint32_t m_Mask;
-        RobustListData m_RobustListData;
+    PosixSession *m_pSession;
+    ProcessGroup *m_pProcessGroup;
+    Membership m_GroupMembership;
+    uint32_t m_Mask;
+    RobustListData m_RobustListData;
 };
 
 #endif

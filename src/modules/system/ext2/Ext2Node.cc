@@ -19,12 +19,12 @@
 
 #include "Ext2Node.h"
 #include "Ext2Filesystem.h"
-#include <utilities/assert.h>
 #include <syscallError.h>
+#include <utilities/assert.h>
 
-Ext2Node::Ext2Node(uintptr_t inode_num, Inode *pInode, Ext2Filesystem *pFs) :
-    m_pInode(pInode), m_InodeNumber(inode_num), m_pExt2Fs(pFs),
-    m_Blocks(), m_nMetadataBlocks(0), m_nSize(LITTLE_TO_HOST32(pInode->i_size))
+Ext2Node::Ext2Node(uintptr_t inode_num, Inode *pInode, Ext2Filesystem *pFs)
+    : m_pInode(pInode), m_InodeNumber(inode_num), m_pExt2Fs(pFs), m_Blocks(),
+      m_nMetadataBlocks(0), m_nSize(LITTLE_TO_HOST32(pInode->i_size))
 {
     // i_blocks == # of 512-byte blocks. Convert to FS block count.
     uint32_t blockCount = LITTLE_TO_HOST32(pInode->i_blocks);
@@ -95,7 +95,8 @@ void Ext2Node::trackBlock(uint32_t block)
     m_Blocks.pushBack(block);
 
     // Inode i_blocks field is actually the count of 512-byte blocks.
-    uint32_t i_blocks = ((m_Blocks.count() + m_nMetadataBlocks) * m_pExt2Fs->m_BlockSize) / 512;
+    uint32_t i_blocks =
+        ((m_Blocks.count() + m_nMetadataBlocks) * m_pExt2Fs->m_BlockSize) / 512;
     m_pInode->i_blocks = HOST_TO_LITTLE32(i_blocks);
 
     // Write updated inode.
@@ -104,7 +105,9 @@ void Ext2Node::trackBlock(uint32_t block)
 
 void Ext2Node::wipe()
 {
-    NOTICE("wipe: " << m_Blocks.count() << " blocks, size is " << m_nSize << "...");
+    NOTICE(
+        "wipe: " << m_Blocks.count() << " blocks, size is " << m_nSize
+                 << "...");
     for (size_t i = 0; i < m_Blocks.count(); ++i)
     {
         ensureBlockLoaded(i);
@@ -141,18 +144,20 @@ bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
         {
             // preallocate() doesn't change this, so fix the mismatch now.
             m_nSize = size;
-            fileAttributeChanged(m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
-                                 LITTLE_TO_HOST32(m_pInode->i_mtime),
-                                 LITTLE_TO_HOST32(m_pInode->i_ctime));
+            fileAttributeChanged(
+                m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
+                LITTLE_TO_HOST32(m_pInode->i_mtime),
+                LITTLE_TO_HOST32(m_pInode->i_ctime));
         }
         return true;
     }
     else if (!onlyBlocks)
     {
         m_nSize = size;
-        fileAttributeChanged(m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
-                             LITTLE_TO_HOST32(m_pInode->i_mtime),
-                             LITTLE_TO_HOST32(m_pInode->i_ctime));
+        fileAttributeChanged(
+            m_nSize, LITTLE_TO_HOST32(m_pInode->i_atime),
+            LITTLE_TO_HOST32(m_pInode->i_mtime),
+            LITTLE_TO_HOST32(m_pInode->i_ctime));
     }
 
     size_t delta = size - currentMaxSize;
@@ -195,7 +200,8 @@ bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
         }
 
         // Load the block and zero it.
-        uint8_t *pBuffer = reinterpret_cast<uint8_t*>(m_pExt2Fs->readBlock(block));
+        uint8_t *pBuffer =
+            reinterpret_cast<uint8_t *>(m_pExt2Fs->readBlock(block));
         ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
     }
 
@@ -206,7 +212,9 @@ bool Ext2Node::ensureBlockLoaded(size_t nBlock)
 {
     if (nBlock > m_Blocks.count())
     {
-        FATAL("EXT2: ensureBlockLoaded: Algorithmic error [block " << nBlock << " > " << m_Blocks.count() << "].");
+        FATAL(
+            "EXT2: ensureBlockLoaded: Algorithmic error [block "
+            << nBlock << " > " << m_Blocks.count() << "].");
     }
     if (m_Blocks[nBlock] == ~0U)
         getBlockNumber(nBlock);
@@ -216,33 +224,39 @@ bool Ext2Node::ensureBlockLoaded(size_t nBlock)
 
 bool Ext2Node::getBlockNumber(size_t nBlock)
 {
-    size_t nPerBlock = m_pExt2Fs->m_BlockSize/4;
+    size_t nPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
-    assert (nBlock >= 12);
+    assert(nBlock >= 12);
 
-    if (nBlock < nPerBlock+12)
+    if (nBlock < nPerBlock + 12)
     {
-        getBlockNumberIndirect(LITTLE_TO_HOST32(m_pInode->i_block[12]), 12, nBlock);
+        getBlockNumberIndirect(
+            LITTLE_TO_HOST32(m_pInode->i_block[12]), 12, nBlock);
         return true;
     }
 
-    if (nBlock < (nPerBlock*nPerBlock)+nPerBlock+12)
+    if (nBlock < (nPerBlock * nPerBlock) + nPerBlock + 12)
     {
-        getBlockNumberBiindirect(LITTLE_TO_HOST32(m_pInode->i_block[13]), nPerBlock+12, nBlock);
+        getBlockNumberBiindirect(
+            LITTLE_TO_HOST32(m_pInode->i_block[13]), nPerBlock + 12, nBlock);
         return true;
     }
 
-    getBlockNumberTriindirect(LITTLE_TO_HOST32(m_pInode->i_block[14]),
-                              (nPerBlock*nPerBlock)+nPerBlock+12, nBlock);
+    getBlockNumberTriindirect(
+        LITTLE_TO_HOST32(m_pInode->i_block[14]),
+        (nPerBlock * nPerBlock) + nPerBlock + 12, nBlock);
 
     return true;
 }
 
-bool Ext2Node::getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size_t nBlock)
+bool Ext2Node::getBlockNumberIndirect(
+    uint32_t inode_block, size_t nBlocks, size_t nBlock)
 {
-    uint32_t *buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(inode_block));
+    uint32_t *buffer =
+        reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(inode_block));
 
-    for (size_t i = 0; i < m_pExt2Fs->m_BlockSize/4 && nBlocks < m_Blocks.count(); i++)
+    for (size_t i = 0;
+         i < m_pExt2Fs->m_BlockSize / 4 && nBlocks < m_Blocks.count(); i++)
     {
         m_Blocks[nBlocks++] = LITTLE_TO_HOST32(buffer[i]);
     }
@@ -250,39 +264,45 @@ bool Ext2Node::getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size
     return true;
 }
 
-bool Ext2Node::getBlockNumberBiindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock)
+bool Ext2Node::getBlockNumberBiindirect(
+    uint32_t inode_block, size_t nBlocks, size_t nBlock)
 {
-    size_t nPerBlock = m_pExt2Fs->m_BlockSize/4;
+    size_t nPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
-    uint32_t *buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(inode_block));
+    uint32_t *buffer =
+        reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(inode_block));
 
     // What indirect block does nBlock exist on?
-    size_t nIndirectBlock = (nBlock-nBlocks) / nPerBlock;
+    size_t nIndirectBlock = (nBlock - nBlocks) / nPerBlock;
 
-    getBlockNumberIndirect(LITTLE_TO_HOST32(buffer[nIndirectBlock]),
-                           nBlocks+nIndirectBlock*nPerBlock, nBlock);
+    getBlockNumberIndirect(
+        LITTLE_TO_HOST32(buffer[nIndirectBlock]),
+        nBlocks + nIndirectBlock * nPerBlock, nBlock);
 
     return true;
 }
 
-bool Ext2Node::getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock)
+bool Ext2Node::getBlockNumberTriindirect(
+    uint32_t inode_block, size_t nBlocks, size_t nBlock)
 {
-    size_t nPerBlock = m_pExt2Fs->m_BlockSize/4;
+    size_t nPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
-    uint32_t *buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(inode_block));
+    uint32_t *buffer =
+        reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(inode_block));
 
     // What biindirect block does nBlock exist on?
-    size_t nBiBlock = (nBlock-nBlocks) / (nPerBlock*nPerBlock);
+    size_t nBiBlock = (nBlock - nBlocks) / (nPerBlock * nPerBlock);
 
-    getBlockNumberBiindirect(LITTLE_TO_HOST32(buffer[nBiBlock]),
-                             nBlocks+nBiBlock*nPerBlock*nPerBlock, nBlock);
+    getBlockNumberBiindirect(
+        LITTLE_TO_HOST32(buffer[nBiBlock]),
+        nBlocks + nBiBlock * nPerBlock * nPerBlock, nBlock);
 
     return true;
 }
 
 bool Ext2Node::addBlock(uint32_t blockValue)
 {
-    size_t nEntriesPerBlock = m_pExt2Fs->m_BlockSize/4;
+    size_t nEntriesPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
     // Calculate whether direct, indirect or tri-indirect addressing is needed.
     if (m_Blocks.count() < 12)
@@ -295,7 +315,8 @@ bool Ext2Node::addBlock(uint32_t blockValue)
         // Indirect addressing needed.
         size_t indirectIdx = m_Blocks.count() - 12;
 
-        // If this is the first indirect block, we need to reserve a new table block.
+        // If this is the first indirect block, we need to reserve a new table
+        // block.
         if (m_Blocks.count() == 12)
         {
             uint32_t newBlock = m_pExt2Fs->findFreeBlock(m_InodeNumber);
@@ -307,7 +328,8 @@ bool Ext2Node::addBlock(uint32_t blockValue)
                 return false;
             }
 
-            void *buffer = reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
+            void *buffer =
+                reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
             ByteSet(buffer, 0, m_pExt2Fs->m_BlockSize);
 
             // Write back the zeroed block to prepare the indirect block.
@@ -320,23 +342,29 @@ bool Ext2Node::addBlock(uint32_t blockValue)
 
         // Now we can set the block.
         uint32_t bufferBlock = LITTLE_TO_HOST32(m_pInode->i_block[12]);
-        uint32_t *buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(bufferBlock));
+        uint32_t *buffer =
+            reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(bufferBlock));
 
         buffer[indirectIdx] = HOST_TO_LITTLE32(blockValue);
         m_pExt2Fs->writeBlock(bufferBlock);
     }
-    else if (m_Blocks.count() < 12 + nEntriesPerBlock + nEntriesPerBlock*nEntriesPerBlock)
+    else if (
+        m_Blocks.count() <
+        12 + nEntriesPerBlock + nEntriesPerBlock * nEntriesPerBlock)
     {
         // Bi-indirect addressing required.
 
-        // Index from the start of the bi-indirect block (i.e. ignore the 12 direct entries and one indirect block).
+        // Index from the start of the bi-indirect block (i.e. ignore the 12
+        // direct entries and one indirect block).
         size_t biIdx = m_Blocks.count() - 12 - nEntriesPerBlock;
-        // Block number inside the bi-indirect table of where to find the indirect block table.
+        // Block number inside the bi-indirect table of where to find the
+        // indirect block table.
         size_t indirectBlock = biIdx / nEntriesPerBlock;
         // Index inside the indirect block table.
         size_t indirectIdx = biIdx % nEntriesPerBlock;
 
-        // If this is the first bi-indirect block, we need to reserve a bi-indirect table block.
+        // If this is the first bi-indirect block, we need to reserve a
+        // bi-indirect table block.
         if (biIdx == 0)
         {
             uint32_t newBlock = m_pExt2Fs->findFreeBlock(m_InodeNumber);
@@ -348,7 +376,8 @@ bool Ext2Node::addBlock(uint32_t blockValue)
                 return false;
             }
 
-            void *buffer = reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
+            void *buffer =
+                reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
             ByteSet(buffer, 0, m_pExt2Fs->m_BlockSize);
 
             // Taken on a new block - update block count (but don't track in
@@ -358,7 +387,8 @@ bool Ext2Node::addBlock(uint32_t blockValue)
 
         // Now we can safely read the bi-indirect block.
         uint32_t bufferBlock = LITTLE_TO_HOST32(m_pInode->i_block[13]);
-        uint32_t *pBlock = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(bufferBlock));
+        uint32_t *pBlock =
+            reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(bufferBlock));
 
         // Do we need to start a new indirect block?
         if (indirectIdx == 0)
@@ -374,7 +404,8 @@ bool Ext2Node::addBlock(uint32_t blockValue)
 
             m_pExt2Fs->writeBlock(bufferBlock);
 
-            void *buffer = reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
+            void *buffer =
+                reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
             ByteSet(buffer, 0, m_pExt2Fs->m_BlockSize);
 
             // Taken on a new block - update block count (but don't track in
@@ -382,14 +413,18 @@ bool Ext2Node::addBlock(uint32_t blockValue)
             m_nMetadataBlocks++;
         }
 
-        // Cache this as it gets clobbered by the readBlock call (using the same buffer).
+        // Cache this as it gets clobbered by the readBlock call (using the same
+        // buffer).
         uint32_t nIndirectBlockNum = LITTLE_TO_HOST32(pBlock[indirectBlock]);
 
         // Grab the indirect block.
-        pBlock = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(nIndirectBlockNum));
+        pBlock = reinterpret_cast<uint32_t *>(
+            m_pExt2Fs->readBlock(nIndirectBlockNum));
         if (pBlock == reinterpret_cast<uint32_t *>(~0))
         {
-            ERROR("Could not read block (" << nIndirectBlockNum << ") that we wanted to add.");
+            ERROR(
+                "Could not read block (" << nIndirectBlockNum
+                                         << ") that we wanted to add.");
             return false;
         }
 
@@ -409,12 +444,14 @@ bool Ext2Node::addBlock(uint32_t blockValue)
     return true;
 }
 
-void Ext2Node::fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime)
+void Ext2Node::fileAttributeChanged(
+    size_t size, size_t atime, size_t mtime, size_t ctime)
 {
     // Reconstruct the inode from the cached fields.
-    uint32_t i_blocks = ((m_Blocks.count() + m_nMetadataBlocks) * m_pExt2Fs->m_BlockSize) / 512;
+    uint32_t i_blocks =
+        ((m_Blocks.count() + m_nMetadataBlocks) * m_pExt2Fs->m_BlockSize) / 512;
     m_pInode->i_blocks = HOST_TO_LITTLE32(i_blocks);
-    m_pInode->i_size = HOST_TO_LITTLE32(size); /// \todo 4GB files.
+    m_pInode->i_size = HOST_TO_LITTLE32(size);  /// \todo 4GB files.
     m_pInode->i_atime = HOST_TO_LITTLE32(atime);
     m_pInode->i_mtime = HOST_TO_LITTLE32(mtime);
     m_pInode->i_ctime = HOST_TO_LITTLE32(ctime);
@@ -481,29 +518,47 @@ void Ext2Node::unpinBlock(uint64_t location)
 uint32_t Ext2Node::modeToPermissions(uint32_t mode) const
 {
     uint32_t permissions = 0;
-    if (mode & EXT2_S_IRUSR) permissions |= FILE_UR;
-    if (mode & EXT2_S_IWUSR) permissions |= FILE_UW;
-    if (mode & EXT2_S_IXUSR) permissions |= FILE_UX;
-    if (mode & EXT2_S_IRGRP) permissions |= FILE_GR;
-    if (mode & EXT2_S_IWGRP) permissions |= FILE_GW;
-    if (mode & EXT2_S_IXGRP) permissions |= FILE_GX;
-    if (mode & EXT2_S_IROTH) permissions |= FILE_OR;
-    if (mode & EXT2_S_IWOTH) permissions |= FILE_OW;
-    if (mode & EXT2_S_IXOTH) permissions |= FILE_OX;
+    if (mode & EXT2_S_IRUSR)
+        permissions |= FILE_UR;
+    if (mode & EXT2_S_IWUSR)
+        permissions |= FILE_UW;
+    if (mode & EXT2_S_IXUSR)
+        permissions |= FILE_UX;
+    if (mode & EXT2_S_IRGRP)
+        permissions |= FILE_GR;
+    if (mode & EXT2_S_IWGRP)
+        permissions |= FILE_GW;
+    if (mode & EXT2_S_IXGRP)
+        permissions |= FILE_GX;
+    if (mode & EXT2_S_IROTH)
+        permissions |= FILE_OR;
+    if (mode & EXT2_S_IWOTH)
+        permissions |= FILE_OW;
+    if (mode & EXT2_S_IXOTH)
+        permissions |= FILE_OX;
     return permissions;
 }
 
 uint32_t Ext2Node::permissionsToMode(uint32_t permissions) const
 {
     uint32_t mode = 0;
-    if (permissions & FILE_UR) mode |= EXT2_S_IRUSR;
-    if (permissions & FILE_UW) mode |= EXT2_S_IWUSR;
-    if (permissions & FILE_UX) mode |= EXT2_S_IXUSR;
-    if (permissions & FILE_GR) mode |= EXT2_S_IRGRP;
-    if (permissions & FILE_GW) mode |= EXT2_S_IWGRP;
-    if (permissions & FILE_GX) mode |= EXT2_S_IXGRP;
-    if (permissions & FILE_OR) mode |= EXT2_S_IROTH;
-    if (permissions & FILE_OW) mode |= EXT2_S_IWOTH;
-    if (permissions & FILE_OX) mode |= EXT2_S_IXOTH;
+    if (permissions & FILE_UR)
+        mode |= EXT2_S_IRUSR;
+    if (permissions & FILE_UW)
+        mode |= EXT2_S_IWUSR;
+    if (permissions & FILE_UX)
+        mode |= EXT2_S_IXUSR;
+    if (permissions & FILE_GR)
+        mode |= EXT2_S_IRGRP;
+    if (permissions & FILE_GW)
+        mode |= EXT2_S_IWGRP;
+    if (permissions & FILE_GX)
+        mode |= EXT2_S_IXGRP;
+    if (permissions & FILE_OR)
+        mode |= EXT2_S_IROTH;
+    if (permissions & FILE_OW)
+        mode |= EXT2_S_IWOTH;
+    if (permissions & FILE_OX)
+        mode |= EXT2_S_IXOTH;
     return mode;
 }

@@ -19,22 +19,25 @@
 
 #include "Ps2Mouse.h"
 
-#include <processor/IoBase.h>
-#include <machine/Machine.h>
-#include <processor/Processor.h>
-#include <machine/IrqManager.h>
-#include <machine/InputManager.h>
 #include <LockGuard.h>
 #include <Log.h>
+#include <machine/InputManager.h>
+#include <machine/IrqManager.h>
+#include <machine/Machine.h>
+#include <processor/IoBase.h>
+#include <processor/Processor.h>
 
-Ps2Mouse::Ps2Mouse(Device *pDev) : m_pBase(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(), m_IrqWait(0)
+Ps2Mouse::Ps2Mouse(Device *pDev)
+    : m_pBase(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(), m_IrqWait(0)
 {
     setSpecificType(String("ps2-mouse"));
 
     // Install ourselves as the IRQ handler for the mouse
-        setInterruptNumber(12);
-    Machine::instance().getIrqManager()->registerIsaIrqHandler(getInterruptNumber(), static_cast<IrqHandler*>(this));
-    Machine::instance().getIrqManager()->control(getInterruptNumber(), IrqManager::MitigationThreshold, 100);
+    setInterruptNumber(12);
+    Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        getInterruptNumber(), static_cast<IrqHandler *>(this));
+    Machine::instance().getIrqManager()->control(
+        getInterruptNumber(), IrqManager::MitigationThreshold, 100);
 }
 
 Ps2Mouse::~Ps2Mouse()
@@ -55,11 +58,11 @@ bool Ps2Mouse::initialise(IoBase *pBase)
     enableIrq();
 
     // Set default settings on the mouse
-    if(!setDefaults())
+    if (!setDefaults())
         return false;
 
     // Finally, enable the mouse
-    if(!enableMouse())
+    if (!enableMouse())
         return false;
 
     return true;
@@ -69,10 +72,10 @@ bool Ps2Mouse::irq(irq_id_t number, InterruptState &state)
 {
     uint8_t b = m_pBase->read8(4);
 
-    if((b & 0x01) && (b & 0x20))
+    if ((b & 0x01) && (b & 0x20))
     {
         b = m_pBase->read8();
-        if(b == MouseAck)
+        if (b == MouseAck)
         {
             m_IrqWait.release();
         }
@@ -81,13 +84,12 @@ bool Ps2Mouse::irq(irq_id_t number, InterruptState &state)
             LockGuard<Spinlock> guard(m_BufferLock);
 
             m_Buffer[m_BufferIndex++] = b;
-            if(m_BufferIndex == 3)
+            if (m_BufferIndex == 3)
             {
                 InputManager::instance().mouseUpdate(
-                        static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1])),
-                        static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2])),
-                        0,
-                        static_cast<uint32_t>(m_Buffer[0]) & 0x3);
+                    static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1])),
+                    static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2])), 0,
+                    static_cast<uint32_t>(m_Buffer[0]) & 0x3);
                 m_BufferIndex = 0;
             }
         }
@@ -159,11 +161,11 @@ bool Ps2Mouse::setDefaults()
     mouseWrite(SetDefaults);
 
     m_IrqWait.acquire(1, 0, 500);
-    if(Processor::information().getCurrentThread()->wasInterrupted())
+    if (Processor::information().getCurrentThread()->wasInterrupted())
     {
         // Read the acknowledgement byte
         uint8_t ack = mouseRead();
-        if(ack != MouseAck)
+        if (ack != MouseAck)
         {
             NOTICE("Ps2Mouse: mouse didn't ack SetDefaults");
             return false;
@@ -182,11 +184,11 @@ bool Ps2Mouse::enableMouse()
     mouseWrite(0xF4);
 
     m_IrqWait.acquire(1, 0, 500);
-    if(Processor::information().getCurrentThread()->wasInterrupted())
+    if (Processor::information().getCurrentThread()->wasInterrupted())
     {
         // Read the acknowledgement byte
         uint8_t ack = mouseRead();
-        if(ack != MouseAck)
+        if (ack != MouseAck)
         {
             NOTICE("Ps2Mouse: mouse didn't ack Enable");
             return false;

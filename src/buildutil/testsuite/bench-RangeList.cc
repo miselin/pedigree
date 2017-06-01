@@ -19,8 +19,8 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <ctime>
 #include <cstdlib>
+#include <ctime>
 
 #include <benchmark/benchmark.h>
 
@@ -57,7 +57,8 @@ static void BM_RangeListAllocate(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_RangeListFree(benchmark::State &state)
@@ -75,7 +76,8 @@ static void BM_RangeListFree(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_RangeListScatter(benchmark::State &state)
@@ -100,7 +102,8 @@ static void BM_RangeListScatter(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 BENCHMARK(BM_RangeListAllocate)->Range(1, 2 << 24);

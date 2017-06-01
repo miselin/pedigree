@@ -19,13 +19,13 @@
 
 #include "VFS.h"
 #include <Log.h>
-#include <utilities/utility.h>
-#include <users/UserManager.h>
 #include <syscallError.h>
+#include <users/UserManager.h>
+#include <utilities/utility.h>
 
 #ifndef VFS_STANDALONE
-#include <processor/Processor.h>
 #include <Module.h>
+#include <processor/Processor.h>
 #endif
 
 #include <ramfs/RamFs.h>
@@ -42,8 +42,7 @@ VFS &VFS::instance()
     return m_Instance;
 }
 
-VFS::VFS() :
-    m_Aliases(), m_ProbeCallbacks(), m_MountCallbacks()
+VFS::VFS() : m_Aliases(), m_ProbeCallbacks(), m_MountCallbacks()
 {
 }
 
@@ -72,9 +71,9 @@ VFS::~VFS()
 
 bool VFS::mount(Disk *pDisk, String &alias)
 {
-    for (List<Filesystem::ProbeCallback*>::Iterator it = m_ProbeCallbacks.begin();
-         it != m_ProbeCallbacks.end();
-         it++)
+    for (List<Filesystem::ProbeCallback *>::Iterator it =
+             m_ProbeCallbacks.begin();
+         it != m_ProbeCallbacks.end(); it++)
     {
         Filesystem::ProbeCallback cb = **it;
         Filesystem *pFs = cb(pDisk);
@@ -86,15 +85,14 @@ bool VFS::mount(Disk *pDisk, String &alias)
             }
             alias = getUniqueAlias(alias);
             addAlias(pFs, alias);
-            
-            if(m_Mounts.lookup(pFs) == 0)
-                m_Mounts.insert(pFs, new List<String*>);
-            
+
+            if (m_Mounts.lookup(pFs) == 0)
+                m_Mounts.insert(pFs, new List<String *>);
+
             m_Mounts.lookup(pFs)->pushBack(new String(alias));
 
-            for (List<MountCallback*>::Iterator it2 = m_MountCallbacks.begin();
-                 it2 != m_MountCallbacks.end();
-                 it2++)
+            for (List<MountCallback *>::Iterator it2 = m_MountCallbacks.begin();
+                 it2 != m_MountCallbacks.end(); it2++)
             {
                 MountCallback mc = *(*it2);
                 mc();
@@ -108,48 +106,48 @@ bool VFS::mount(Disk *pDisk, String &alias)
 
 void VFS::addAlias(Filesystem *pFs, const String &alias)
 {
-    if(!pFs)
+    if (!pFs)
         return;
 
     pFs->m_nAliases++;
     m_Aliases.insert(alias, pFs);
-    
-    if(m_Mounts.lookup(pFs) == 0)
-        m_Mounts.insert(pFs, new List<String*>);
-    
+
+    if (m_Mounts.lookup(pFs) == 0)
+        m_Mounts.insert(pFs, new List<String *>);
+
     m_Mounts.lookup(pFs)->pushBack(new String(alias));
 }
 
 void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
     Filesystem *pFs = m_Aliases.lookup(oldAlias);
-    if(pFs)
+    if (pFs)
     {
         m_Aliases.insert(newAlias, pFs);
-        
-        if(m_Mounts.lookup(pFs) == 0)
-            m_Mounts.insert(pFs, new List<String*>);
-        
+
+        if (m_Mounts.lookup(pFs) == 0)
+            m_Mounts.insert(pFs, new List<String *>);
+
         m_Mounts.lookup(pFs)->pushBack(new String(newAlias));
     }
 }
 
 String VFS::getUniqueAlias(const String &alias)
 {
-    if(!aliasExists(alias))
+    if (!aliasExists(alias))
         return alias;
 
     // <alias>-n is how we keep them unique
     // negative numbers already have a dash
     int32_t index = -1;
-    while(true)
+    while (true)
     {
         NormalStaticString tmpAlias;
-        tmpAlias += static_cast<const char*>(alias);
+        tmpAlias += static_cast<const char *>(alias);
         tmpAlias.append(index);
 
-        String s(static_cast<const char*>(tmpAlias));
-        if(!aliasExists(s))
+        String s(static_cast<const char *>(tmpAlias));
+        if (!aliasExists(s))
             return s;
         index--;
     }
@@ -168,12 +166,11 @@ void VFS::removeAlias(const String &alias)
 
 void VFS::removeAllAliases(Filesystem *pFs)
 {
-    if(!pFs)
+    if (!pFs)
         return;
 
-    for (RadixTree<Filesystem*>::Iterator it = m_Aliases.begin();
-         it != m_Aliases.end();
-         )
+    for (RadixTree<Filesystem *>::Iterator it = m_Aliases.begin();
+         it != m_Aliases.end();)
     {
         if (pFs == (*it))
         {
@@ -182,23 +179,22 @@ void VFS::removeAllAliases(Filesystem *pFs)
         else
             ++it;
     }
-    
+
     /// \todo Locking.
-    if(m_Mounts.lookup(pFs) != 0)
+    if (m_Mounts.lookup(pFs) != 0)
     {
-        List<String*>* pList = m_Mounts.lookup(pFs);
-        for(List<String*>::Iterator it = pList->begin();
-            it != pList->end();
-            it++)
+        List<String *> *pList = m_Mounts.lookup(pFs);
+        for (List<String *>::Iterator it = pList->begin(); it != pList->end();
+             it++)
         {
             delete *it;
         }
-        
+
         delete pList;
-        
+
         m_Mounts.remove(pFs);
     }
-    
+
     delete pFs;
 }
 
@@ -215,7 +211,7 @@ File *VFS::find(const String &path, File *pStartNode)
     for (i = 0; i < path.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i+1] == '\xbb')
+        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -225,13 +221,15 @@ File *VFS::find(const String &path, File *pStartNode)
     if (!bColon)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode) return 0;
-        else return pStartNode->getFilesystem()->find(path, pStartNode);
+        if (!pStartNode)
+            return 0;
+        else
+            return pStartNode->getFilesystem()->find(path, pStartNode);
     }
     else
     {
         String tail(path);
-        String newPath = tail.split(i+2);
+        String newPath = tail.split(i + 2);
         tail.chomp();
         tail.chomp();
 
@@ -239,7 +237,7 @@ File *VFS::find(const String &path, File *pStartNode)
         Filesystem *pFs = lookupFilesystem(tail);
         if (!pFs)
             return 0;
-        
+
         return pFs->find(newPath, 0);
     }
 }
@@ -258,7 +256,6 @@ void VFS::addMountCallback(MountCallback callback)
     m_MountCallbacks.pushBack(p);
 }
 
-
 bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
 {
     // Search for a colon.
@@ -267,7 +264,7 @@ bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
     for (i = 0; i < path.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i+1] == '\xbb')
+        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -277,13 +274,16 @@ bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
     if (!bColon)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode) return false;
-        else return pStartNode->getFilesystem()->createFile(path, mask, pStartNode);
+        if (!pStartNode)
+            return false;
+        else
+            return pStartNode->getFilesystem()->createFile(
+                path, mask, pStartNode);
     }
     else
     {
         String tail(path);
-        String newPath = tail.split(i+2);
+        String newPath = tail.split(i + 2);
         tail.chomp();
         tail.chomp();
 
@@ -303,7 +303,7 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
     for (i = 0; i < path.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i+1] == '\xbb')
+        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -313,14 +313,17 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
     if (!bColon)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode) return false;
-        else return pStartNode->getFilesystem()->createDirectory(path, mask, pStartNode);
+        if (!pStartNode)
+            return false;
+        else
+            return pStartNode->getFilesystem()->createDirectory(
+                path, mask, pStartNode);
     }
     else
     {
         // i+2 as the delimiter character (») is two bytes long.
         String tail(path);
-        String newPath = tail.split(i+2);
+        String newPath = tail.split(i + 2);
         tail.chomp();
         tail.chomp();
 
@@ -332,7 +335,8 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
     }
 }
 
-bool VFS::createSymlink(const String &path, const String &value, File *pStartNode)
+bool VFS::createSymlink(
+    const String &path, const String &value, File *pStartNode)
 {
     // Search for a colon.
     bool bColon = false;
@@ -340,7 +344,7 @@ bool VFS::createSymlink(const String &path, const String &value, File *pStartNod
     for (i = 0; i < path.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i+1] == '\xbb')
+        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -350,13 +354,16 @@ bool VFS::createSymlink(const String &path, const String &value, File *pStartNod
     if (!bColon)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode) return false;
-        else return pStartNode->getFilesystem()->createSymlink(path, value, pStartNode);
+        if (!pStartNode)
+            return false;
+        else
+            return pStartNode->getFilesystem()->createSymlink(
+                path, value, pStartNode);
     }
     else
     {
         String tail(path);
-        String newPath = tail.split(i+2);
+        String newPath = tail.split(i + 2);
         tail.chomp();
         tail.chomp();
 
@@ -376,7 +383,7 @@ bool VFS::createLink(const String &path, File *target, File *pStartNode)
     for (i = 0; i < path.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i+1] == '\xbb')
+        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -386,13 +393,16 @@ bool VFS::createLink(const String &path, File *target, File *pStartNode)
     if (!bColon)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode) return false;
-        else return pStartNode->getFilesystem()->createLink(path, target, pStartNode);
+        if (!pStartNode)
+            return false;
+        else
+            return pStartNode->getFilesystem()->createLink(
+                path, target, pStartNode);
     }
     else
     {
         String tail(path);
-        String newPath = tail.split(i+2);
+        String newPath = tail.split(i + 2);
         tail.chomp();
         tail.chomp();
 
@@ -412,7 +422,7 @@ bool VFS::remove(const String &path, File *pStartNode)
     for (i = 0; i < path.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i+1] == '\xbb')
+        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -422,13 +432,15 @@ bool VFS::remove(const String &path, File *pStartNode)
     if (!bColon)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode) return false;
-        else return pStartNode->getFilesystem()->remove(path, pStartNode);
+        if (!pStartNode)
+            return false;
+        else
+            return pStartNode->getFilesystem()->remove(path, pStartNode);
     }
     else
     {
         String tail(path);
-        String newPath = tail.split(i+2);
+        String newPath = tail.split(i + 2);
         tail.chomp();
         tail.chomp();
 
@@ -453,7 +465,8 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
         return true;
     }
 
-    User *pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
+    User *pCurrentUser =
+        Processor::information().getCurrentThread()->getParent()->getUser();
 
     size_t uid = pFile->getUid();
     size_t gid = pFile->getGid();
@@ -479,7 +492,8 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
     }
 
     // Needed permissions.
-    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
+    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) |
+                      (bExecute ? FILE_UX : 0);
     if ((check & needed) != needed)
     {
         SYSCALL_ERROR(PermissionDenied);

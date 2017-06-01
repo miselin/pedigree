@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,11 +20,11 @@
 #ifndef MACHINE_ICMPV6_H
 #define MACHINE_ICMPV6_H
 
+#include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <processor/types.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <processor/types.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
 
 class IpBase;
 
@@ -35,31 +34,34 @@ class IpBase;
 class Icmpv6
 {
     public:
-        Icmpv6();
-        virtual ~Icmpv6();
+    Icmpv6();
+    virtual ~Icmpv6();
 
-        /** For access to the stack without declaring an instance of it */
-        static Icmpv6& instance()
-        {
-            return icmpInstance;
-        }
+    /** For access to the stack without declaring an instance of it */
+    static Icmpv6 &instance()
+    {
+        return icmpInstance;
+    }
 
-        /** Packet arrival callback */
-        void receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes, IpBase *pIp, Network* pCard);
+    /** Packet arrival callback */
+    void receive(
+        IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
+        IpBase *pIp, Network *pCard);
 
-        /** Sends an ICMP packet */
-        static void send(IpAddress dest, IpAddress from, uint8_t type, uint8_t code, uintptr_t payload, size_t nBytes, Network *pCard = 0);
+    /** Sends an ICMP packet */
+    static void send(
+        IpAddress dest, IpAddress from, uint8_t type, uint8_t code,
+        uintptr_t payload, size_t nBytes, Network *pCard = 0);
 
     private:
+    static Icmpv6 icmpInstance;
 
-        static Icmpv6 icmpInstance;
-
-        struct icmpv6Header
-        {
-            uint8_t type;
-            uint8_t code;
-            uint16_t checksum;
-        } __attribute__ ((packed));
+    struct icmpv6Header
+    {
+        uint8_t type;
+        uint8_t code;
+        uint16_t checksum;
+    } __attribute__((packed));
 };
 
 #endif

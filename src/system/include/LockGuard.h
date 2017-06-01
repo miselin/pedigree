@@ -25,23 +25,23 @@
 /** @addtogroup kernel
  * @{ */
 
-template<class T>
+template <class T>
 class LockGuard
 {
-  public:
+    public:
     inline LockGuard(T &Lock, bool Condition = true)
-      : m_Lock(Lock), m_bCondition(Condition)
+        : m_Lock(Lock), m_bCondition(Condition)
     {
-      if (m_bCondition)
-        m_Lock.acquire();
+        if (m_bCondition)
+            m_Lock.acquire();
     }
     inline virtual ~LockGuard()
     {
-      if (m_bCondition)
-        m_Lock.release();
+        if (m_bCondition)
+            m_Lock.release();
     }
 
-  private:
+    private:
     LockGuard() = delete;
     NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
 
@@ -49,24 +49,24 @@ class LockGuard
     bool m_bCondition;
 };
 
-template<class T>
+template <class T>
 class RecursingLockGuard
 {
-  public:
+    public:
     inline RecursingLockGuard(T &Lock, bool Condition = true)
-      : m_Lock(Lock), m_bCondition(Condition)
+        : m_Lock(Lock), m_bCondition(Condition)
     {
-      // T::allow_recursion must exist to be able to use RecursingLockGuard.
-      if (m_bCondition)
-        m_Lock.acquire(T::allow_recursion);
+        // T::allow_recursion must exist to be able to use RecursingLockGuard.
+        if (m_bCondition)
+            m_Lock.acquire(T::allow_recursion);
     }
     inline virtual ~RecursingLockGuard()
     {
-      if (m_bCondition)
-        m_Lock.release();
+        if (m_bCondition)
+            m_Lock.release();
     }
 
-  private:
+    private:
     RecursingLockGuard() = delete;
     NOT_COPYABLE_OR_ASSIGNABLE(RecursingLockGuard);
 

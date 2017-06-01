@@ -28,10 +28,13 @@
 /** The x86 Device Not Present(NM) Exception handler. */
 class NMFaultHandler : private InterruptHandler
 {
-public:
+    public:
     /** Get the NMFaultHandler instance
      *  \return the NMFaultHandler instance.  */
-    inline static NMFaultHandler& instance()  {return m_Instance;}
+    inline static NMFaultHandler &instance()
+    {
+        return m_Instance;
+    }
 
     /** Register the NMFaultHandler with the InterruptManager.
      * \return true if sucessful, false otherwise.  */
@@ -44,13 +47,14 @@ public:
     // InterruptHandler interface.
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
-private:
+
+    private:
     /** The default constructor.  */
     NMFaultHandler() INITIALISATION_ONLY;
 
     /**The copy constructor.
      * Note not implemented.  */
-    NMFaultHandler(const NMFaultHandler&);
+    NMFaultHandler(const NMFaultHandler &);
 
     /** The NMFaultHandler instance */
     static NMFaultHandler m_Instance;

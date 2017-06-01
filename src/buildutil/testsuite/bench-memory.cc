@@ -36,10 +36,11 @@ static void BM_Memory_MemoryCopy(benchmark::State &state)
         MemoryCopy(dest, src, state.range_x());
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] dest;
-    delete [] src;
+    delete[] dest;
+    delete[] src;
 }
 
 static void BM_Memory_OverlappedMemoryCopy(benchmark::State &state)
@@ -52,9 +53,10 @@ static void BM_Memory_OverlappedMemoryCopy(benchmark::State &state)
         MemoryCopy(buf + 1, buf, state.range_x() - 1);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Memory_ForwardMemoryCopy(benchmark::State &state)
@@ -68,10 +70,11 @@ static void BM_Memory_ForwardMemoryCopy(benchmark::State &state)
         ForwardMemoryCopy(dest, src, state.range_x());
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] dest;
-    delete [] src;
+    delete[] dest;
+    delete[] src;
 }
 
 static void BM_Memory_ByteSet(benchmark::State &state)
@@ -83,9 +86,10 @@ static void BM_Memory_ByteSet(benchmark::State &state)
         ByteSet(buf, 0xAB, state.range_x());
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Memory_ByteSetZero(benchmark::State &state)
@@ -97,9 +101,10 @@ static void BM_Memory_ByteSetZero(benchmark::State &state)
         ByteSet(buf, 0, state.range_x());
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Memory_WordSet(benchmark::State &state)
@@ -112,9 +117,11 @@ static void BM_Memory_WordSet(benchmark::State &state)
         WordSet(buf, 0xAB, state.range_x() / factor);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t((state.range_x() / factor) * factor));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) *
+        int64_t((state.range_x() / factor) * factor));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Memory_DoubleWordSet(benchmark::State &state)
@@ -127,9 +134,11 @@ static void BM_Memory_DoubleWordSet(benchmark::State &state)
         DoubleWordSet(buf, 0xAB, state.range_x() / factor);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t((state.range_x() / factor) * factor));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) *
+        int64_t((state.range_x() / factor) * factor));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Memory_QuadWordSet(benchmark::State &state)
@@ -142,9 +151,11 @@ static void BM_Memory_QuadWordSet(benchmark::State &state)
         QuadWordSet(buf, 0xAB, state.range_x() / factor);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t((state.range_x() / factor) * factor));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) *
+        int64_t((state.range_x() / factor) * factor));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Memory_MemoryCompare(benchmark::State &state)
@@ -167,21 +178,22 @@ static void BM_Memory_MemoryCompare(benchmark::State &state)
         ++(*buf2);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf1;
-    delete [] buf2;
+    delete[] buf1;
+    delete[] buf2;
 }
 
 // Test very large copies and sets for the base interfaces.
-BENCHMARK(BM_Memory_MemoryCopy)->Range(8, 8<<24);
-BENCHMARK(BM_Memory_OverlappedMemoryCopy)->Range(8, 8<<24);
-BENCHMARK(BM_Memory_ForwardMemoryCopy)->Range(8, 8<<24);
-BENCHMARK(BM_Memory_ByteSet)->Range(8, 8<<24);
+BENCHMARK(BM_Memory_MemoryCopy)->Range(8, 8 << 24);
+BENCHMARK(BM_Memory_OverlappedMemoryCopy)->Range(8, 8 << 24);
+BENCHMARK(BM_Memory_ForwardMemoryCopy)->Range(8, 8 << 24);
+BENCHMARK(BM_Memory_ByteSet)->Range(8, 8 << 24);
 
 // Smaller ranges for somewhat lesser benchmarks.
-BENCHMARK(BM_Memory_ByteSetZero)->Range(8, 8<<16);
-BENCHMARK(BM_Memory_WordSet)->Range(8, 8<<16);
-BENCHMARK(BM_Memory_DoubleWordSet)->Range(8, 8<<16);
-BENCHMARK(BM_Memory_QuadWordSet)->Range(8, 8<<16);
-BENCHMARK(BM_Memory_MemoryCompare)->Range(8, 8<<16);
+BENCHMARK(BM_Memory_ByteSetZero)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_WordSet)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_DoubleWordSet)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_QuadWordSet)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_MemoryCompare)->Range(8, 8 << 16);

@@ -24,17 +24,18 @@
 
 void Processor::halt()
 {
-  while(1);
+    while (1)
+        ;
 }
 
 void Processor::breakpoint()
 {
-  //
+    //
 }
 
 void Processor::reset()
 {
-  //
+    //
 }
 
 void Processor::haltUntilInterrupt()

@@ -58,7 +58,8 @@ static void BM_CxxStringCopyToStatic(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(strlen(assign)));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(strlen(assign)));
 }
 
 static void BM_CxxStringCopyToDynamic(benchmark::State &state)
@@ -143,7 +144,9 @@ static void BM_CxxStringEndswith(benchmark::State &state)
 
     char buf[state.range(0)];
     memset(buf, 'a', state.range(0));
-    strncpy(buf + (state.range(0) - tail.length()), static_cast<const char *>(tail), tail.length());
+    strncpy(
+        buf + (state.range(0) - tail.length()), static_cast<const char *>(tail),
+        tail.length());
 
     String s(buf, state.range(0));
 

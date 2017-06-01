@@ -20,9 +20,9 @@
 #include "Serial.h"
 #include <utilities/StaticString.h>
 
-#include <unistd.h>
-#include <stdio.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
 
 HostedSerial::HostedSerial() : m_File(-1), m_nFileNumber(0)
 {
@@ -30,7 +30,7 @@ HostedSerial::HostedSerial() : m_File(-1), m_nFileNumber(0)
 
 HostedSerial::~HostedSerial()
 {
-    if(m_File >= 0)
+    if (m_File >= 0)
     {
         close(m_File);
         m_File = -1;
@@ -40,7 +40,7 @@ HostedSerial::~HostedSerial()
 void HostedSerial::setBase(uintptr_t nBaseAddr)
 {
     m_nFileNumber = nBaseAddr;
-    if(m_File >= 0)
+    if (m_File >= 0)
         close(m_File);
 
     NormalStaticString s;
@@ -48,27 +48,28 @@ void HostedSerial::setBase(uintptr_t nBaseAddr)
     s.append("serial");
     s.append(m_nFileNumber);
     s.append(".log");
-    m_File = open(static_cast<const char *>(s), O_TRUNC | O_CREAT | O_WRONLY, 0644);
+    m_File =
+        open(static_cast<const char *>(s), O_TRUNC | O_CREAT | O_WRONLY, 0644);
 }
 
 char HostedSerial::read()
 {
-  // Cannot do.
-  return '\0';
+    // Cannot do.
+    return '\0';
 }
 
 char HostedSerial::readNonBlock()
 {
-  return read();
+    return read();
 }
 
 void HostedSerial::write(char c)
 {
-  char buf[2] = {c, 0};
-  ::write(m_File, buf, 1);
+    char buf[2] = {c, 0};
+    ::write(m_File, buf, 1);
 }
 
 bool HostedSerial::isConnected()
 {
-  return m_File >= 0;
+    return m_File >= 0;
 }

@@ -20,11 +20,11 @@
 #ifndef MACHINE_INPUT_MANAGER_H
 #define MACHINE_INPUT_MANAGER_H
 
+#include <Spinlock.h>
+#include <process/Semaphore.h>
 #include <processor/Processor.h>
 #include <processor/types.h>
 #include <utilities/List.h>
-#include <process/Semaphore.h>
-#include <Spinlock.h>
 
 /**
  * Global manager for all input from HID devices.
@@ -32,163 +32,167 @@
 class InputManager
 {
     public:
+    /// The type for a given callback (enum values can't be used for bitwise
+    /// operations, so we define these as constants).
+    const static int Key = 1;
+    const static int Mouse = 2;
+    const static int Joystick = 4;
+    const static int RawKey = 8;
+    const static int Unknown = 255;
 
-        /// The type for a given callback (enum values can't be used for bitwise
-        /// operations, so we define these as constants).
-        const static int Key = 1;
-        const static int Mouse = 2;
-        const static int Joystick = 4;
-        const static int RawKey = 8;
-        const static int Unknown = 255;
-        
-        typedef int CallbackType;
+    typedef int CallbackType;
 
-        /// Structure containing notification to the remote application
-        /// of input. Used to generalise input handling across the system
-        /// for all types of devices.
-        struct InputNotification
+    /// Structure containing notification to the remote application
+    /// of input. Used to generalise input handling across the system
+    /// for all types of devices.
+    struct InputNotification
+    {
+        CallbackType type;
+        void *meta;
+
+        union
         {
-            CallbackType type;
-            void *meta;
-
-            union
+            struct
             {
-                struct
-                {
-                    uint64_t key;
-                } key;
-                struct
-                {
-                    ssize_t relx;
-                    ssize_t rely;
-                    ssize_t relz;
+                uint64_t key;
+            } key;
+            struct
+            {
+                ssize_t relx;
+                ssize_t rely;
+                ssize_t relz;
 
-                    bool buttons[64];
-                } pointy;
-                struct
-                {
-                    /// HID scancode for the key (most generic type of scancode,
-                    /// and easy to build translation tables for)
-                    uint8_t scancode;
-                    
-                    /// Whether this is a keyUp event or not.
-                    bool keyUp;
-                } rawkey;
-            } data;
-        };
+                bool buttons[64];
+            } pointy;
+            struct
+            {
+                /// HID scancode for the key (most generic type of scancode,
+                /// and easy to build translation tables for)
+                uint8_t scancode;
 
-        /// Callback function type
-        typedef void (*callback_t)(InputNotification &);
+                /// Whether this is a keyUp event or not.
+                bool keyUp;
+            } rawkey;
+        } data;
+    };
 
-        /// Default constructor
-        InputManager();
+    /// Callback function type
+    typedef void (*callback_t)(InputNotification &);
 
-        /// Default destructor
-        virtual ~InputManager();
+    /// Default constructor
+    InputManager();
 
-        /// Begins the worker thread
-        void initialise();
+    /// Default destructor
+    virtual ~InputManager();
 
-        /// Shuts down the worker thread, clears queues, and removes callbacks.
-        void shutdown();
+    /// Begins the worker thread
+    void initialise();
 
-        /// Singleton design
-        static InputManager& instance()
-        {
-            return m_Instance;
-        }
+    /// Shuts down the worker thread, clears queues, and removes callbacks.
+    void shutdown();
 
-        /// Called whenever a key is pressed and needs to be added to the queue
-        void keyPressed(uint64_t key);
-        
-        /// Called whenever a raw key signal comes in
-        /// \param scancode a HID scancode
-        void rawKeyUpdate(uint8_t scancode, bool bKeyUp);
+    /// Singleton design
+    static InputManager &instance()
+    {
+        return m_Instance;
+    }
 
-        /// Called whenever mouse input comes in.
-        void mouseUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
+    /// Called whenever a key is pressed and needs to be added to the queue
+    void keyPressed(uint64_t key);
 
-        /// Called whenever joystick input comes in
-        void joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
+    /// Called whenever a raw key signal comes in
+    /// \param scancode a HID scancode
+    void rawKeyUpdate(uint8_t scancode, bool bKeyUp);
 
-        /// Installs a callback
-        void installCallback(CallbackType filter, callback_t callback, void *meta = 0, Thread *pThread = 0, uintptr_t param = 0);
+    /// Called whenever mouse input comes in.
+    void mouseUpdate(
+        ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
 
-        /// Removes a callback
-        void removeCallback(callback_t callback, void *meta = 0, Thread *pThread = 0);
-        
-        /// Removes a callback by searching for a Thread pointer. This can be
-        /// used to avoid useless and broken links to a Thread in the callback
-        /// list if the Thread doesn't clean up properly.
-        bool removeCallbackByThread(Thread *pThread);
+    /// Called whenever joystick input comes in
+    void joystickUpdate(
+        ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
 
-        /// Thread trampoline
-        static int trampoline(void *ptr);
+    /// Installs a callback
+    void installCallback(
+        CallbackType filter, callback_t callback, void *meta = 0,
+        Thread *pThread = 0, uintptr_t param = 0);
 
-        /// Main worker thread
-        void mainThread();
+    /// Removes a callback
+    void
+    removeCallback(callback_t callback, void *meta = 0, Thread *pThread = 0);
 
-        /// Returns whether the instance is creating notifications.
-        bool isActive() const
-        {
-            return m_bActive;
-        }
+    /// Removes a callback by searching for a Thread pointer. This can be
+    /// used to avoid useless and broken links to a Thread in the callback
+    /// list if the Thread doesn't clean up properly.
+    bool removeCallbackByThread(Thread *pThread);
+
+    /// Thread trampoline
+    static int trampoline(void *ptr);
+
+    /// Main worker thread
+    void mainThread();
+
+    /// Returns whether the instance is creating notifications.
+    bool isActive() const
+    {
+        return m_bActive;
+    }
 
     private:
-        /// Static instance
-        static InputManager m_Instance;
+    /// Static instance
+    static InputManager m_Instance;
 
-        /// Puts a notification into the queue (doer for all main functions)
-        /// \note Deletes \p note if THREADS is not defined
-        void putNotification(InputNotification *note);
+    /// Puts a notification into the queue (doer for all main functions)
+    /// \note Deletes \p note if THREADS is not defined
+    void putNotification(InputNotification *note);
 
-        /// Item in the callback list. This stores information that may be needed
-        /// to create and send an Event for a userspace callback.
-        struct CallbackItem
-        {
-            /// The handler function
-            callback_t func;
-
-#ifdef THREADS
-            /// Thread to send an Event to. If null, the Event will be sent to the
-            /// current thread, which is only valid for kernel callbacks (as there
-            /// will be no address space switch for a call to a kernel function).
-            Thread *pThread;
-#endif
-
-            /// Parameter to put into the serialised buffer sent to userspace.
-            /// Typically holds the address of a userspace callback.
-            uintptr_t nParam;
-            
-            /// Filter for this callback
-            CallbackType filter;
-
-            /// Meta pointer for the InputNotifications we generate.
-            void *meta;
-        };
-
-        /// Input queue (for distribution to applications)
-        List<InputNotification*> m_InputQueue;
-
-        /// Spinlock for work on queues.
-        /// \note Using a Spinlock here because a lot of our work will happen
-        ///       in the middle of an IRQ where it's potentially dangerous to
-        ///       reschedule (which may happen with a Mutex or Semaphore).
-        Spinlock m_QueueLock;
-
-        /// Callback list
-        List<CallbackItem*> m_Callbacks;
+    /// Item in the callback list. This stores information that may be needed
+    /// to create and send an Event for a userspace callback.
+    struct CallbackItem
+    {
+        /// The handler function
+        callback_t func;
 
 #ifdef THREADS
-        /// Key press queue Semaphore
-        Semaphore m_InputQueueSize;
-
-        /// Thread object for our worker thread
-        Thread *m_pThread;
+        /// Thread to send an Event to. If null, the Event will be sent to the
+        /// current thread, which is only valid for kernel callbacks (as there
+        /// will be no address space switch for a call to a kernel function).
+        Thread *pThread;
 #endif
 
-        /// Are we active?
-        bool m_bActive;
+        /// Parameter to put into the serialised buffer sent to userspace.
+        /// Typically holds the address of a userspace callback.
+        uintptr_t nParam;
+
+        /// Filter for this callback
+        CallbackType filter;
+
+        /// Meta pointer for the InputNotifications we generate.
+        void *meta;
+    };
+
+    /// Input queue (for distribution to applications)
+    List<InputNotification *> m_InputQueue;
+
+    /// Spinlock for work on queues.
+    /// \note Using a Spinlock here because a lot of our work will happen
+    ///       in the middle of an IRQ where it's potentially dangerous to
+    ///       reschedule (which may happen with a Mutex or Semaphore).
+    Spinlock m_QueueLock;
+
+    /// Callback list
+    List<CallbackItem *> m_Callbacks;
+
+#ifdef THREADS
+    /// Key press queue Semaphore
+    Semaphore m_InputQueueSize;
+
+    /// Thread object for our worker thread
+    Thread *m_pThread;
+#endif
+
+    /// Are we active?
+    bool m_bActive;
 };
 
 #endif

@@ -18,12 +18,14 @@
  */
 
 #include <Log.h>
-#include <processor/types.h>
 #include <process/Event.h>
 #include <process/SignalEvent.h>
+#include <processor/types.h>
 
-SignalEvent::SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel) :
-    Event(handlerAddress, false, specificNestingLevel), m_SignalNumber(signalNum)
+SignalEvent::SignalEvent(
+    uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel)
+    : Event(handlerAddress, false, specificNestingLevel),
+      m_SignalNumber(signalNum)
 {
 }
 

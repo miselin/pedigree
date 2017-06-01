@@ -20,9 +20,9 @@
 #include "UnixFilesystem.h"
 #include <LockGuard.h>
 
-UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent) :
-    File(name, 0, 0, 0, 0, pFs, 0, pParent),
-    m_RingBuffer(MAX_UNIX_DGRAM_BACKLOG)
+UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent)
+    : File(name, 0, 0, 0, 0, pFs, 0, pParent),
+      m_RingBuffer(MAX_UNIX_DGRAM_BACKLOG)
 {
 }
 
@@ -32,12 +32,14 @@ UnixSocket::~UnixSocket()
 
 int UnixSocket::select(bool bWriting, int timeout)
 {
-    if(timeout)
+    if (timeout)
     {
-        while(!m_RingBuffer.waitFor(bWriting ? RingBufferWait::Writing : RingBufferWait::Reading));
+        while (!m_RingBuffer.waitFor(
+            bWriting ? RingBufferWait::Writing : RingBufferWait::Reading))
+            ;
         return 1;
     }
-    else if(bWriting)
+    else if (bWriting)
     {
         return m_RingBuffer.canWrite();
     }
@@ -47,55 +49,57 @@ int UnixSocket::select(bool bWriting, int timeout)
     }
 }
 
-uint64_t UnixSocket::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t UnixSocket::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
+    if (bCanBlock)
     {
-        if(!m_RingBuffer.waitFor(RingBufferWait::Reading))
-            return 0; // Interrupted.
+        if (!m_RingBuffer.waitFor(RingBufferWait::Reading))
+            return 0;  // Interrupted.
     }
-    else if(!m_RingBuffer.dataReady())
+    else if (!m_RingBuffer.dataReady())
     {
         return 0;
     }
 
     struct buf *b = m_RingBuffer.read();
-    if(size > b->len)
+    if (size > b->len)
         size = b->len;
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);
-    if(b->remotePath)
+    if (b->remotePath)
     {
-        if(location)
+        if (location)
         {
             StringCopyN(reinterpret_cast<char *>(location), b->remotePath, 255);
         }
 
-        delete [] b->remotePath;
+        delete[] b->remotePath;
     }
-    delete [] b->pBuffer;
+    delete[] b->pBuffer;
     delete b;
 
     return size;
 }
 
-uint64_t UnixSocket::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t UnixSocket::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(bCanBlock)
+    if (bCanBlock)
     {
-        if(!m_RingBuffer.waitFor(RingBufferWait::Writing))
-            return 0; // Interrupted.
+        if (!m_RingBuffer.waitFor(RingBufferWait::Writing))
+            return 0;  // Interrupted.
     }
-    else if(!m_RingBuffer.canWrite())
+    else if (!m_RingBuffer.canWrite())
     {
         return 0;
     }
 
     struct buf *b = new struct buf;
     b->pBuffer = new char[size];
-    MemoryCopy(b->pBuffer, reinterpret_cast<void*>(buffer), size);
+    MemoryCopy(b->pBuffer, reinterpret_cast<void *>(buffer), size);
     b->len = size;
     b->remotePath = 0;
-    if(location)
+    if (location)
     {
         b->remotePath = new char[255];
         StringCopyN(b->remotePath, reinterpret_cast<char *>(location), 255);
@@ -107,8 +111,8 @@ uint64_t UnixSocket::write(uint64_t location, uint64_t size, uintptr_t buffer, b
     return size;
 }
 
-UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent) :
-    Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock(false)
+UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)
+    : Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock(false)
 {
     cacheDirectoryContents();
 }
@@ -138,8 +142,7 @@ void UnixDirectory::cacheDirectoryContents()
     markCachePopulated();
 }
 
-UnixFilesystem::UnixFilesystem() :
-    Filesystem(), m_pRoot(0)
+UnixFilesystem::UnixFilesystem() : Filesystem(), m_pRoot(0)
 {
     UnixDirectory *pRoot = new UnixDirectory(String(""), this, 0);
     pRoot->addEntry(String("."), pRoot);
@@ -148,7 +151,9 @@ UnixFilesystem::UnixFilesystem() :
     m_pRoot = pRoot;
 
     // allow owner/group rwx but others only r-x on the filesystem root
-    m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
+    m_pRoot->setPermissions(
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+        FILE_OX);
 }
 
 UnixFilesystem::~UnixFilesystem()
@@ -158,27 +163,32 @@ UnixFilesystem::~UnixFilesystem()
 
 bool UnixFilesystem::createFile(File *parent, String filename, uint32_t mask)
 {
-    UnixDirectory *pParent = static_cast<UnixDirectory *>(Directory::fromFile(parent));
+    UnixDirectory *pParent =
+        static_cast<UnixDirectory *>(Directory::fromFile(parent));
 
     UnixSocket *pSocket = new UnixSocket(filename, this, parent);
-    if(!pParent->addEntry(filename, pSocket))
+    if (!pParent->addEntry(filename, pSocket))
     {
         delete pSocket;
         return false;
     }
 
     // give owner/group full permission to the socket by default
-    pSocket->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
+    pSocket->setPermissions(
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+        FILE_OX);
 
     return true;
 }
 
-bool UnixFilesystem::createDirectory(File *parent, String filename, uint32_t mask)
+bool UnixFilesystem::createDirectory(
+    File *parent, String filename, uint32_t mask)
 {
-    UnixDirectory *pParent = static_cast<UnixDirectory *>(Directory::fromFile(parent));
+    UnixDirectory *pParent =
+        static_cast<UnixDirectory *>(Directory::fromFile(parent));
 
     UnixDirectory *pChild = new UnixDirectory(filename, this, parent);
-    if(!pParent->addEntry(filename, pChild))
+    if (!pParent->addEntry(filename, pChild))
     {
         delete pChild;
         return false;
@@ -188,14 +198,16 @@ bool UnixFilesystem::createDirectory(File *parent, String filename, uint32_t mas
     pChild->addEntry(String(".."), pParent);
 
     // give owner/group full permission to the directory by default
-    pChild->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
+    pChild->setPermissions(
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+        FILE_OX);
 
     return true;
 }
 
 bool UnixFilesystem::remove(File *parent, File *file)
 {
-    UnixDirectory *pParent = static_cast<UnixDirectory *>(Directory::fromFile(parent));
+    UnixDirectory *pParent =
+        static_cast<UnixDirectory *>(Directory::fromFile(parent));
     return pParent->removeEntry(file);
 }
-

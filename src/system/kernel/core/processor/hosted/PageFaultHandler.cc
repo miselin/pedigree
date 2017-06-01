@@ -17,15 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <Debugger.h>
-#include <processor/PageFaultHandler.h>
-#include <process/Scheduler.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
 #include "VirtualAddressSpace.h"
+#include <Debugger.h>
+#include <Log.h>
+#include <panic.h>
+#include <process/Scheduler.h>
+#include <processor/PageFaultHandler.h>
+#include <processor/PhysicalMemoryManager.h>
 
-namespace __pedigree_hosted {};
+namespace __pedigree_hosted
+{
+};
 using namespace __pedigree_hosted;
 
 #include <signal.h>
@@ -53,36 +55,47 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     uintptr_t code = info->si_code;
 
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if (va.isMapped(reinterpret_cast<void*>(page)))
+    if (va.isMapped(reinterpret_cast<void *>(page)))
     {
         physical_uintptr_t phys;
         size_t flags;
-        va.getMapping(reinterpret_cast<void*>(page), phys, flags);
+        va.getMapping(reinterpret_cast<void *>(page), phys, flags);
         if (flags & VirtualAddressSpace::CopyOnWrite)
         {
 #ifdef SUPERDEBUG
-            NOTICE_NOLOCK(Processor::information().getCurrentThread()->getParent()->getId() << " PageFaultHandler: copy-on-write for v=" << page);
+            NOTICE_NOLOCK(
+                Processor::information()
+                    .getCurrentThread()
+                    ->getParent()
+                    ->getId()
+                << " PageFaultHandler: copy-on-write for v=" << page);
 #endif
 
-            Process *pProcess = Processor::information().getCurrentThread()->getParent();
+            Process *pProcess =
+                Processor::information().getCurrentThread()->getParent();
             size_t pageSz = PhysicalMemoryManager::instance().getPageSize();
 
-            // Get a temporary page in which we can store the current mapping for copy.
+            // Get a temporary page in which we can store the current mapping
+            // for copy.
             uintptr_t tempAddr = 0;
             pProcess->getSpaceAllocator().allocate(pageSz, tempAddr);
 
             // Map temporary page to the old page.
-            if (!va.map(phys, reinterpret_cast<void *>(tempAddr), VirtualAddressSpace::KernelMode))
+            if (!va.map(
+                    phys, reinterpret_cast<void *>(tempAddr),
+                    VirtualAddressSpace::KernelMode))
             {
                 FATAL("PageFaultHandler: CoW temporary map() failed");
                 return;
             }
 
-            // OK, we can now unmap the old page - we hold a valid temporary mapping.
-            va.unmap(reinterpret_cast<void*>(page));
+            // OK, we can now unmap the old page - we hold a valid temporary
+            // mapping.
+            va.unmap(reinterpret_cast<void *>(page));
 
             // Allocate new page for the new memory region.
-            physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
+            physical_uintptr_t p =
+                PhysicalMemoryManager::instance().allocatePage();
             if (!p)
             {
                 FATAL("PageFaultHandler: CoW OOM'd!");
@@ -92,23 +105,23 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             // Map in the new page, making sure to mark it not CoW.
             flags |= VirtualAddressSpace::Write;
             flags &= ~VirtualAddressSpace::CopyOnWrite;
-            if (!va.map(p, reinterpret_cast<void*>(page), flags))
+            if (!va.map(p, reinterpret_cast<void *>(page), flags))
             {
                 FATAL("PageFaultHandler: CoW new map() failed.");
                 return;
             }
 
             // Perform the actual copy.
-            MemoryCopy(reinterpret_cast<uint8_t*>(page),
-                   reinterpret_cast<uint8_t*>(tempAddr),
-                   pageSz);
+            MemoryCopy(
+                reinterpret_cast<uint8_t *>(page),
+                reinterpret_cast<uint8_t *>(tempAddr), pageSz);
 
             // Release temporary page.
             va.unmap(reinterpret_cast<void *>(tempAddr));
             pProcess->getSpaceAllocator().free(tempAddr, pageSz);
 
-            // Clean up old reference to memory (may free the page, if we were the
-            // last one to reference the CoW page)
+            // Clean up old reference to memory (may free the page, if we were
+            // the last one to reference the CoW page)
             PhysicalMemoryManager::instance().freePage(phys);
             return;
         }
@@ -117,9 +130,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START))
     {
         // Check our handler list.
-        for (List<MemoryTrapHandler*>::Iterator it = m_Handlers.begin();
-                it != m_Handlers.end();
-                it++)
+        for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
+             it != m_Handlers.end(); it++)
         {
             if ((*it)->trap(page, code == SEGV_ACCERR))
             {
@@ -150,30 +162,33 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     static LargeStaticString sCode;
     sCode.clear();
     sCode.append("Details: PID=");
-    sCode.append(Processor::information().getCurrentThread()->getParent()->getId());
+    sCode.append(
+        Processor::information().getCurrentThread()->getParent()->getId());
     sCode.append(" ");
 
-    if (code == SEGV_MAPERR) sCode.append("NOT ");
+    if (code == SEGV_MAPERR)
+        sCode.append("NOT ");
     sCode.append("PRESENT | ");
 
-    ERROR(static_cast<const char*>(sError));
-    ERROR(static_cast<const char*>(sCode));
+    ERROR(static_cast<const char *>(sError));
+    ERROR(static_cast<const char *>(sCode));
 
 #ifdef DEBUGGER
-    if(state.kernelMode())
+    if (state.kernelMode())
         Debugger::instance().start(state, sError);
 #endif
 
     Scheduler &scheduler = Scheduler::instance();
     if (UNLIKELY(scheduler.getNumProcesses() == 0))
     {
-        //  We are in the early stages of the boot process (no processes started)
+        //  We are in the early stages of the boot process (no processes
+        //  started)
         panic(sError);
     }
     else
     {
         //  Unrecoverable PFE in a process - Kill the process and yield
-        //Processor::information().getCurrentThread()->getParent()->kill();
+        // Processor::information().getCurrentThread()->getParent()->kill();
         Thread *pThread = Processor::information().getCurrentThread();
         Process *pProcess = pThread->getParent();
         Subsystem *pSubsystem = pProcess->getSubsystem();
@@ -184,12 +199,12 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             pProcess->kill();
 
             //  kill member function also calls yield(), so shouldn't get here.
-            for (;;) ;
+            for (;;)
+                ;
         }
     }
 }
 
-PageFaultHandler::PageFaultHandler() :
-    m_Handlers()
+PageFaultHandler::PageFaultHandler() : m_Handlers()
 {
 }

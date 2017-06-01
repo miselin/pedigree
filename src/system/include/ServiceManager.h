@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -39,45 +38,44 @@
 class ServiceManager
 {
     public:
-        ServiceManager();
-        virtual ~ServiceManager();
+    ServiceManager();
+    virtual ~ServiceManager();
 
-        static ServiceManager &instance()
-        {
-            return m_Instance;
-        }
+    static ServiceManager &instance()
+    {
+        return m_Instance;
+    }
 
-        /**
-         *  Enumerates all possible operations that can be performed for a
-         *  given Service
-         */
-        ServiceFeatures *enumerateOperations(String serviceName);
+    /**
+     *  Enumerates all possible operations that can be performed for a
+     *  given Service
+     */
+    ServiceFeatures *enumerateOperations(String serviceName);
 
-        /** Adds a service to the manager */
-        void addService(String serviceName, Service *s, ServiceFeatures *feats);
+    /** Adds a service to the manager */
+    void addService(String serviceName, Service *s, ServiceFeatures *feats);
 
-        /** Removes a service from the manager */
-        void removeService(String serviceName);
+    /** Removes a service from the manager */
+    void removeService(String serviceName);
 
-        /** Gets the Service object for a service */
-        Service *getService(String serviceName);
+    /** Gets the Service object for a service */
+    Service *getService(String serviceName);
 
     private:
+    static ServiceManager m_Instance;
 
-        static ServiceManager m_Instance;
+    /** Internal representation of a Service */
+    class InternalService
+    {
+        public:
+        /// The Service itself
+        Service *pService;
 
-        /** Internal representation of a Service */
-        class InternalService
-        {
-            public:
-                /// The Service itself
-                Service *pService;
+        /// Service operation enumeration
+        ServiceFeatures *pFeatures;
+    };
 
-                /// Service operation enumeration
-                ServiceFeatures *pFeatures;
-        };
-
-        /** Services we know about */
-        RadixTree<InternalService *> m_Services;
+    /** Services we know about */
+    RadixTree<InternalService *> m_Services;
 };
 #endif

@@ -20,7 +20,7 @@
 #include "BootstrapInfo.h"
 
 extern "C" {
-void _main(BootstrapStruct_t&);
+void _main(BootstrapStruct_t &);
 
 extern void init_stacks();
 
@@ -34,5 +34,4 @@ extern "C" int start(BootstrapStruct_t *bs)
 
     return 0x13371337;
 }
-
 }

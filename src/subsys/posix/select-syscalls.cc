@@ -17,31 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
 #include "select-syscalls.h"
+#include <compiler.h>
 #include <utilities/assert.h>
 
-#include <syscallError.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
+#include <console/Console.h>
+#include <network-stack/NetManager.h>
+#include <network-stack/Tcp.h>
+#include <process/Process.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
+#include <processor/Processor.h>
 #include <processor/VirtualAddressSpace.h>
-#include <process/Process.h>
+#include <processor/types.h>
+#include <syscallError.h>
 #include <utilities/Tree.h>
+#include <utilities/utility.h>
+#include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
 #include <vfs/MemoryMappedFile.h>
 #include <vfs/Symlink.h>
-#include <vfs/Directory.h>
 #include <vfs/VFS.h>
-#include <console/Console.h>
-#include <network-stack/NetManager.h>
-#include <network-stack/Tcp.h>
-#include <utilities/utility.h>
 
-#include <Subsystem.h>
 #include <PosixSubsystem.h>
+#include <Subsystem.h>
 
 #include <sys/socket.h>
 
@@ -54,17 +54,15 @@ enum TimeoutType
     InfiniteTimeout
 };
 
-SelectEvent::SelectEvent() :
-    Event(0, false), m_pSemaphore(0), m_pFdSet(0), m_FdIdx(0), m_pFile(0)
+SelectEvent::SelectEvent()
+    : Event(0, false), m_pSemaphore(0), m_pFdSet(0), m_FdIdx(0), m_pFile(0)
 {
 }
 
-SelectEvent::SelectEvent(Semaphore *pSemaphore, fd_set *pFdSet, size_t fdIdx, File *pFile) :
-    Event(reinterpret_cast<uintptr_t>(&selectEventHandler), false),
-    m_pSemaphore(pSemaphore),
-    m_pFdSet(pFdSet),
-    m_FdIdx(fdIdx),
-    m_pFile(pFile)
+SelectEvent::SelectEvent(
+    Semaphore *pSemaphore, fd_set *pFdSet, size_t fdIdx, File *pFile)
+    : Event(reinterpret_cast<uintptr_t>(&selectEventHandler), false),
+      m_pSemaphore(pSemaphore), m_pFdSet(pFdSet), m_FdIdx(fdIdx), m_pFile(pFile)
 {
     assert(pSemaphore);
 }
@@ -83,7 +81,7 @@ void SelectEvent::fire()
 size_t SelectEvent::serialize(uint8_t *pBuffer)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t*>(alignedBuffer);
+    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
     pBuf[0] = EventNumbers::SelectEvent;
     pBuf[1] = reinterpret_cast<size_t>(m_pSemaphore);
     pBuf[2] = reinterpret_cast<size_t>(m_pFdSet);
@@ -96,14 +94,14 @@ size_t SelectEvent::serialize(uint8_t *pBuffer)
 bool SelectEvent::unserialize(uint8_t *pBuffer, SelectEvent &event)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t*>(alignedBuffer);
+    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
     if (pBuf[0] != EventNumbers::SelectEvent)
         return false;
 
-    event.m_pSemaphore = reinterpret_cast<Semaphore*>(pBuf[1]);
-    event.m_pFdSet     = reinterpret_cast<fd_set*>(pBuf[2]);
-    event.m_FdIdx      = pBuf[3];
-    event.m_pFile      = reinterpret_cast<File*>(pBuf[4]);
+    event.m_pSemaphore = reinterpret_cast<Semaphore *>(pBuf[1]);
+    event.m_pFdSet = reinterpret_cast<fd_set *>(pBuf[2]);
+    event.m_FdIdx = pBuf[3];
+    event.m_pFile = reinterpret_cast<File *>(pBuf[4]);
 
     return true;
 }
@@ -120,7 +118,7 @@ void selectEventHandler(uint8_t *pBuffer)
 
 static const char *timeoutTypeName(TimeoutType type)
 {
-    switch(type)
+    switch (type)
     {
         case InfiniteTimeout:
             return "infinite";
@@ -133,23 +131,33 @@ static const char *timeoutTypeName(TimeoutType type)
     }
 }
 
-int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, timeval *timeout)
+int posix_select(
+    int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
+    timeval *timeout)
 {
     bool bValidAddresses = true;
-    if(readfds)
-        bValidAddresses = bValidAddresses && PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(readfds), sizeof(fd_set), PosixSubsystem::SafeWrite);
-    if(writefds)
-        bValidAddresses = bValidAddresses && PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(writefds), sizeof(fd_set), PosixSubsystem::SafeWrite);
-    if(errorfds)
-        bValidAddresses = bValidAddresses && PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(errorfds), sizeof(fd_set), PosixSubsystem::SafeWrite);
-    if(timeout)
-        bValidAddresses = bValidAddresses && PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(timeout), sizeof(timeval), PosixSubsystem::SafeWrite);
+    if (readfds)
+        bValidAddresses =
+            bValidAddresses && PosixSubsystem::checkAddress(
+                                   reinterpret_cast<uintptr_t>(readfds),
+                                   sizeof(fd_set), PosixSubsystem::SafeWrite);
+    if (writefds)
+        bValidAddresses =
+            bValidAddresses && PosixSubsystem::checkAddress(
+                                   reinterpret_cast<uintptr_t>(writefds),
+                                   sizeof(fd_set), PosixSubsystem::SafeWrite);
+    if (errorfds)
+        bValidAddresses =
+            bValidAddresses && PosixSubsystem::checkAddress(
+                                   reinterpret_cast<uintptr_t>(errorfds),
+                                   sizeof(fd_set), PosixSubsystem::SafeWrite);
+    if (timeout)
+        bValidAddresses =
+            bValidAddresses && PosixSubsystem::checkAddress(
+                                   reinterpret_cast<uintptr_t>(timeout),
+                                   sizeof(timeval), PosixSubsystem::SafeWrite);
 
-    if(!bValidAddresses)
+    if (!bValidAddresses)
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
@@ -169,24 +177,28 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
         timeoutUSecs = timeout->tv_usec % 1000000;
     }
 
-    F_NOTICE("select(" << Dec << nfds << ", ?, ?, ?, {" << timeoutTypeName(timeoutType) << ", " << timeoutSecs << "})" << Hex);
+    F_NOTICE(
+        "select(" << Dec << nfds << ", ?, ?, ?, {"
+                  << timeoutTypeName(timeoutType) << ", " << timeoutSecs << "})"
+                  << Hex);
 
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return -1;
     }
 
-    if((nfds == 0) && (timeout == 0))
+    if ((nfds == 0) && (timeout == 0))
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    List<SelectEvent*> events;
+    List<SelectEvent *> events;
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
@@ -231,7 +243,8 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
 
         if (!pFile)
         {
-            ERROR("select: a file descriptor was given that did not have a file object.");
+            ERROR("select: a file descriptor was given that did not have a "
+                  "file object.");
             bError = true;
             break;
         }
@@ -245,7 +258,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
             if (pFile->select(false, 0))
             {
                 bWillReturnImmediately = true;
-                nRet ++;
+                nRet++;
             }
             else if (bWillReturnImmediately)
                 FD_CLR(i, readfds);
@@ -267,7 +280,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
                 if (pFile->select(false, 0))
                 {
                     bWillReturnImmediately = true;
-                    nRet ++;
+                    nRet++;
                 }
 
                 reentrancyLock.release();
@@ -282,7 +295,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
             if (pFile->select(true, 0))
             {
                 bWillReturnImmediately = true;
-                nRet ++;
+                nRet++;
             }
             else if (bWillReturnImmediately)
                 FD_CLR(i, writefds);
@@ -304,7 +317,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
                 if (pFile->select(true, 0))
                 {
                     bWillReturnImmediately = true;
-                    nRet ++;
+                    nRet++;
                 }
 
                 reentrancyLock.release();
@@ -332,10 +345,9 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
             {
                 FD_CLR(i, errorfds);
                 // Need to set up a SelectEvent.
-                SelectEvent *pEvent = new SelectEvent(&sem, errorfds, i, pFd->file);
-                reentrancyLock.acquire();
-                pFd->file->monitor(pThread, pEvent);
-                events.pushBack(pEvent);
+                SelectEvent *pEvent = new SelectEvent(&sem, errorfds, i,
+        pFd->file); reentrancyLock.acquire(); pFd->file->monitor(pThread,
+        pEvent); events.pushBack(pEvent);
 
                 // Quickly check again now we've added the monitoring event,
                 // to avoid a race condition where we could miss the event.
@@ -370,7 +382,7 @@ int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, 
         if (bResult)
         {
             // We were signalled, so one more FD ready.
-            nRet ++;
+            nRet++;
             // While the semaphore is nonzero, more FDs are ready.
             while (sem.tryAcquire())
                 nRet++;

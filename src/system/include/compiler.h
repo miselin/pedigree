@@ -35,7 +35,8 @@
 #define NORETURN __attribute__((noreturn))
 /** Function does not have a side-effect (except for the return value) */
 #define PURE __attribute__((pure))
-/** Function does not have a side-effect and does only depend on its arguments */
+/** Function does not have a side-effect and does only depend on its arguments
+ */
 #define CONST __attribute__((const))
 /** Functions that should always be inlined */
 #define ALWAYS_INLINE __attribute__((always_inline))
@@ -78,11 +79,12 @@
 #if __has_builtin(__builtin_assume_aligned) || !defined(__clang__)
 #define ASSUME_ALIGNMENT(b, sz) __builtin_assume_aligned((b), sz)
 #else
-#define ASSUME_ALIGNMENT(b, sz) ((reinterpret_cast<uintptr_t>(b) % (sz)) == 0) ? (b) : (UNREACHABLE, (b))
+#define ASSUME_ALIGNMENT(b, sz) \
+    ((reinterpret_cast<uintptr_t>(b) % (sz)) == 0) ? (b) : (UNREACHABLE, (b))
 #endif
 
-/** Pack initialisation functions into a special section that could be freed after
- *  the kernel initialisation is finished */
+/** Pack initialisation functions into a special section that could be freed
+ * after the kernel initialisation is finished */
 #define INITIALISATION_ONLY SECTION(".init.text")
 #define INITIALISATION_ONLY_DATA SECTION(".init.data")
 
@@ -100,21 +102,19 @@
 #endif
 
 #ifdef __cplusplus
-#define NOT_COPY_CONSTRUCTIBLE(Type) \
-    Type(const Type &) = delete
-#define NOT_ASSIGNABLE(Type) \
-    Type &operator = (const Type &) = delete
+#define NOT_COPY_CONSTRUCTIBLE(Type) Type(const Type &) = delete
+#define NOT_ASSIGNABLE(Type) Type &operator=(const Type &) = delete
 #define NOT_COPYABLE_OR_ASSIGNABLE(Type) \
-    NOT_COPY_CONSTRUCTIBLE(Type); \
+    NOT_COPY_CONSTRUCTIBLE(Type);        \
     NOT_ASSIGNABLE(Type)
 
 #define WITHOUT_IMPLICIT_CONSTRUCTORS(Type) \
-    Type() = delete; \
+    Type() = delete;                        \
     NOT_COPYABLE_OR_ASSIGNABLE(Type)
 #endif
 
 // BARRIER forces GCC to not reorder code across the barrier.
-#define BARRIER() __asm__ __volatile__ ("" ::: "memory")
+#define BARRIER() __asm__ __volatile__("" ::: "memory")
 
 // FENCE performs a full load/store hardware memory fence.
 #define FENCE() __sync_synchronize()

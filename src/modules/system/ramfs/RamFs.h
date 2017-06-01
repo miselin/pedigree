@@ -27,45 +27,48 @@
 
 class Disk;
 
-#include <vfs/VFS.h>
-#include <vfs/Directory.h>
 #include <processor/types.h>
+#include <vfs/Directory.h>
+#include <vfs/VFS.h>
 
 #include <utilities/Cache.h>
 
 class RamFile : public File
 {
     public:
-        RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
+    RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
 
-        virtual ~RamFile();
+    virtual ~RamFile();
 
-        virtual void truncate();
+    virtual void truncate();
 
-        virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-        bool canWrite();
+    bool canWrite();
 
     protected:
-        virtual uintptr_t readBlock(uint64_t location);
+    virtual uintptr_t readBlock(uint64_t location);
 
-        virtual void pinBlock(uint64_t location);
+    virtual void pinBlock(uint64_t location);
 
-        virtual void unpinBlock(uint64_t location);
+    virtual void unpinBlock(uint64_t location);
 
     private:
-        Cache m_FileBlocks;
+    Cache m_FileBlocks;
 
-        size_t m_nOwnerPid;
+    size_t m_nOwnerPid;
 };
 
 /** Defines a directory in the RamFS */
 class RamDir : public Directory
 {
-private:
+    private:
     RamDir(const RamDir &);
-    RamDir& operator =(const RamDir&);
-public:
+    RamDir &operator=(const RamDir &);
+
+    public:
     RamDir(String name, size_t inode, class Filesystem *pFs, File *pParent);
     virtual ~RamDir();
 
@@ -81,7 +84,7 @@ public:
 /** Defines a filesystem that is completely in RAM. */
 class RamFs : public Filesystem
 {
-public:
+    public:
     RamFs();
     virtual ~RamFs();
 
@@ -97,7 +100,7 @@ public:
         return m_bProcessOwners;
     }
 
-    virtual File* getRoot()
+    virtual File *getRoot()
     {
         return m_pRoot;
     }
@@ -106,14 +109,14 @@ public:
         return String("ramfs");
     }
 
-protected:
-    virtual bool createFile(File* parent, String filename, uint32_t mask);
-    virtual bool createDirectory(File* parent, String filename, uint32_t mask);
-    virtual bool createSymlink(File* parent, String filename, String value);
-    virtual bool remove(File* parent, File* file);
+    protected:
+    virtual bool createFile(File *parent, String filename, uint32_t mask);
+    virtual bool createDirectory(File *parent, String filename, uint32_t mask);
+    virtual bool createSymlink(File *parent, String filename, String value);
+    virtual bool remove(File *parent, File *file);
 
-    RamFs(const RamFs&);
-    void operator =(const RamFs&);
+    RamFs(const RamFs &);
+    void operator=(const RamFs &);
 
     /** Root filesystem node. */
     File *m_pRoot;

@@ -28,20 +28,26 @@
  */
 class ConnectionlessEndpoint : public Endpoint
 {
-private:
+    private:
     ConnectionlessEndpoint(const ConnectionlessEndpoint &e);
-    const ConnectionlessEndpoint& operator = (const ConnectionlessEndpoint& e);
-public:
-    ConnectionlessEndpoint() :
-            Endpoint()
-    {}
-    ConnectionlessEndpoint(uint16_t local, uint16_t remote) :
-            Endpoint(local, remote)
-    {}
-    ConnectionlessEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
-            Endpoint(remoteIp, local, remote)
-    {}
-    virtual ~ConnectionlessEndpoint() {}
+    const ConnectionlessEndpoint &operator=(const ConnectionlessEndpoint &e);
+
+    public:
+    ConnectionlessEndpoint() : Endpoint()
+    {
+    }
+    ConnectionlessEndpoint(uint16_t local, uint16_t remote)
+        : Endpoint(local, remote)
+    {
+    }
+    ConnectionlessEndpoint(
+        IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0)
+        : Endpoint(remoteIp, local, remote)
+    {
+    }
+    virtual ~ConnectionlessEndpoint()
+    {
+    }
 
     virtual EndpointType getType() const
     {
@@ -56,7 +62,9 @@ public:
      * \param broadcast broadcast over the network
      * \returns -1 on failure, the number of bytes sent otherwise
      */
-    virtual int send(size_t nBytes, uintptr_t buffer, RemoteEndpoint remoteHost, bool broadcast, Network *pCard = 0)
+    virtual int send(
+        size_t nBytes, uintptr_t buffer, RemoteEndpoint remoteHost,
+        bool broadcast, Network *pCard = 0)
     {
         return -1;
     }
@@ -69,7 +77,9 @@ public:
      * \param remoteHost on successful return, identifies the remote host
      * \returns -1 on failure, the number of bytes received otherwise
      */
-    virtual int recv(uintptr_t buffer, size_t maxSize, bool bBlock, RemoteEndpoint* remoteHost, int nTimeout = 30)
+    virtual int recv(
+        uintptr_t buffer, size_t maxSize, bool bBlock,
+        RemoteEndpoint *remoteHost, int nTimeout = 30)
     {
         return -1;
     }

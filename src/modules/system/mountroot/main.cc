@@ -19,10 +19,10 @@
 
 #include <Log.h>
 #include <Module.h>
-#include <machine/Disk.h>
-#include <vfs/VFS.h>
 #include <core/BootIO.h>
 #include <lodisk/LoDisk.h>
+#include <machine/Disk.h>
+#include <vfs/VFS.h>
 
 static bool bRootMounted = false;
 
@@ -44,7 +44,7 @@ static Device *probeDisk(Device *diskDevice)
     }
 
     Disk *pDisk = static_cast<Disk *>(diskDevice);
-    String alias; // Null - gets assigned by the filesystem.
+    String alias;  // Null - gets assigned by the filesystem.
     if (VFS::instance().mount(pDisk, alias))
     {
         // For mount message
@@ -57,7 +57,8 @@ static Device *probeDisk(Device *diskDevice)
             s += alias;
             s += "»/.pedigree-root";
 
-            File* f = VFS::instance().find(String(static_cast<const char*>(s)));
+            File *f =
+                VFS::instance().find(String(static_cast<const char *>(s)));
             if (f && !bRootMounted)
             {
                 NOTICE("Mounted " << alias << " successfully as root.");
@@ -66,7 +67,7 @@ static Device *probeDisk(Device *diskDevice)
             }
         }
 
-        if(!didMountAsRoot)
+        if (!didMountAsRoot)
         {
             NOTICE("Mounted " << alias << ".");
         }
@@ -78,7 +79,7 @@ static Device *probeDisk(Device *diskDevice)
 static bool init()
 {
     // Mount all available filesystems.
-    Device::foreach(probeDisk);
+    Device::foreach (probeDisk);
 
     if (VFS::instance().find(String("raw»/")) == 0)
     {
@@ -87,13 +88,15 @@ static bool init()
     }
 
     // Are we running a live CD?
-    /// \todo Use the configuration manager to determine if we're running a live CD or
+    /// \todo Use the configuration manager to determine if we're running a live
+    /// CD or
     ///       not, to avoid the potential for conflicts here.
-    if(VFS::instance().find(String("root»/livedisk.img")))
+    if (VFS::instance().find(String("root»/livedisk.img")))
     {
         NOTICE("trying to find live disk");
-        FileDisk *pRamDisk = new FileDisk(String("root»/livedisk.img"), FileDisk::RamOnly);
-        if(pRamDisk && pRamDisk->initialise())
+        FileDisk *pRamDisk =
+            new FileDisk(String("root»/livedisk.img"), FileDisk::RamOnly);
+        if (pRamDisk && pRamDisk->initialise())
         {
             NOTICE("have a live disk");
             Device::addToRoot(pRamDisk);
@@ -102,14 +105,14 @@ static bool init()
             VFS::instance().removeAlias(String("root"));
             bRootMounted = false;
             NOTICE("probing ram disk for partitions");
-            Device::foreach(probeDisk, pRamDisk);
+            Device::foreach (probeDisk, pRamDisk);
         }
         else
             delete pRamDisk;
     }
 
     // Is there a root disk mounted?
-    if(VFS::instance().find(String("root»/.pedigree-root")) == 0)
+    if (VFS::instance().find(String("root»/.pedigree-root")) == 0)
     {
         error("No root disk on this system (no root»/.pedigree-root found).");
         return false;
@@ -134,7 +137,9 @@ static void destroy()
     while (deletionQueue.count())
     {
         Filesystem *pFs = deletionQueue.popFront();
-        NOTICE("Unmounting " << pFs->getVolumeLabel() << " [" << Hex << pFs << "]...");
+        NOTICE(
+            "Unmounting " << pFs->getVolumeLabel() << " [" << Hex << pFs
+                          << "]...");
         VFS::instance().removeAllAliases(pFs);
         NOTICE("unmount done");
     }

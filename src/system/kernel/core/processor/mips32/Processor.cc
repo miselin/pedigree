@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,32 +17,32 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "InterruptManager.h"
 #include <processor/Processor.h>
 #include <processor/TlbManager.h>
-#include "InterruptManager.h"
 
 void Processor::initialise1(const BootstrapStruct_t &Info)
 {
-  // Initialise this processor's interrupt handling
-  MIPS32InterruptManager::initialiseProcessor();
+    // Initialise this processor's interrupt handling
+    MIPS32InterruptManager::initialiseProcessor();
 
-  // TODO: Initialise the physical memory-management
-  TlbManager::instance().initialise();
+    // TODO: Initialise the physical memory-management
+    TlbManager::instance().initialise();
 
-//   m_Initialised = 1;
+    //   m_Initialised = 1;
 }
 
 void Processor::initialise2(const BootstrapStruct_t &Info)
 {
-  // TODO
+    // TODO
 
-//   m_Initialised = 2;
+    //   m_Initialised = 2;
 }
 
 void Processor::identify(HugeStaticString &str)
 {
-  // Get the processor ID register.
-  uint32_t prId = 0;
-  asm volatile("mfc0 %0, $15; nop" : "=r" (prId));
-  str += prId;
+    // Get the processor ID register.
+    uint32_t prId = 0;
+    asm volatile("mfc0 %0, $15; nop" : "=r"(prId));
+    str += prId;
 }

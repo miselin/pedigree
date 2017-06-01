@@ -35,11 +35,11 @@
 class Uninterruptible
 {
     public:
-        Uninterruptible();
-        ~Uninterruptible();
+    Uninterruptible();
+    ~Uninterruptible();
 
     private:
-        NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
+    NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
 };
 
 #endif  // PROCESS_INTERRUPTIBLE_H

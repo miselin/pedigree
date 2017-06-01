@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_STATE_H
 #define KERNEL_PROCESSOR_HOSTED_STATE_H
 
+#include <Log.h>
 #include <compiler.h>
 #include <processor/types.h>
-#include <Log.h>
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -30,10 +30,11 @@
 /** x64 Interrupt State */
 class HostedInterruptState
 {
-  friend class HostedProcessorState;
-  friend class HostedInterruptManager;
-  friend class PageFaultHandler;
-  public:
+    friend class HostedProcessorState;
+    friend class HostedInterruptManager;
+    friend class PageFaultHandler;
+
+    public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -64,16 +65,16 @@ class HostedInterruptState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -93,11 +94,12 @@ class HostedInterruptState
      *\param[in] flags the new flags */
     inline void setFlags(uint64_t flags);
 
-    /** Construct a dummy interruptstate on the stack given in 'state', which when executed will 
-     *  set the processor to 'state'. */
-    static HostedInterruptState *construct(class HostedProcessorState &state, bool userMode);
+    /** Construct a dummy interruptstate on the stack given in 'state', which
+     * when executed will set the processor to 'state'. */
+    static HostedInterruptState *
+    construct(class HostedProcessorState &state, bool userMode);
 
-  private:
+    private:
     /** The default constructor */
     HostedInterruptState();
     /** The copy-constructor
@@ -105,7 +107,7 @@ class HostedInterruptState
     HostedInterruptState(const HostedInterruptState &);
     /** The assignement operator
      *\note NOT implemented */
-    HostedInterruptState &operator = (const HostedInterruptState &);
+    HostedInterruptState &operator=(const HostedInterruptState &);
     /** The destructor */
     ~HostedInterruptState();
 
@@ -132,9 +134,10 @@ class HostedInterruptState
 /** x64 Syscall State */
 class HostedSyscallState
 {
-  friend class HostedProcessorState;
-  friend class HostedSyscallManager;
-  public:
+    friend class HostedProcessorState;
+    friend class HostedSyscallManager;
+
+    public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -165,16 +168,16 @@ class HostedSyscallState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -191,21 +194,21 @@ class HostedSyscallState
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
-  public:
+    public:
     uint64_t service;
     uint64_t number;
     uint64_t p1, p2, p3, p4, p5;
     uint64_t error;
-    uint64_t error_ptr; // pointer to error
+    uint64_t error_ptr;  // pointer to error
     uint64_t result;
     uint64_t rsp;
-    uint64_t _align0; // deterministically pad to 16 bytes
+    uint64_t _align0;  // deterministically pad to 16 bytes
 } PACKED;
 
 /** x64 ProcessorState */
 class HostedProcessorState
 {
-  public:
+    public:
     /** Default constructor initializes everything with 0 */
     inline HostedProcessorState();
     /** Copy-constructor */
@@ -217,13 +220,13 @@ class HostedProcessorState
      *\param[in] x reference to the SyscallState object */
     inline HostedProcessorState(const HostedSyscallState &);
     /** Assignment operator */
-    inline HostedProcessorState &operator = (const HostedProcessorState &);
+    inline HostedProcessorState &operator=(const HostedProcessorState &);
     /** Assignment from InterruptState
      *\param[in] reference to the InterruptState */
-    inline HostedProcessorState &operator = (const HostedInterruptState &);
+    inline HostedProcessorState &operator=(const HostedInterruptState &);
     /** Assignment from SyscallState
      *\param[in] reference to the SyscallState */
-    inline HostedProcessorState &operator = (const HostedSyscallState &);
+    inline HostedProcessorState &operator=(const HostedSyscallState &);
     /** Destructor does nothing */
     inline ~HostedProcessorState();
 
@@ -256,7 +259,7 @@ class HostedProcessorState
 /** x64 SchedulerState */
 class HostedSchedulerState
 {
-public:
+    public:
     uint64_t state[128];
 };
 
@@ -267,7 +270,7 @@ public:
 //
 uintptr_t HostedInterruptState::getStackPointer() const
 {
-  return m_stackPointer;
+    return m_stackPointer;
 }
 void HostedInterruptState::setStackPointer(uintptr_t stackPointer)
 {
@@ -275,37 +278,37 @@ void HostedInterruptState::setStackPointer(uintptr_t stackPointer)
 }
 uintptr_t HostedInterruptState::getInstructionPointer() const
 {
-  return m_instructionPointer;
+    return m_instructionPointer;
 }
 void HostedInterruptState::setInstructionPointer(uintptr_t instructionPointer)
 {
-  m_instructionPointer = instructionPointer;
+    m_instructionPointer = instructionPointer;
 }
 uintptr_t HostedInterruptState::getBasePointer() const
 {
-  return m_basePointer;
+    return m_basePointer;
 }
 void HostedInterruptState::setBasePointer(uintptr_t basePointer)
 {
-  m_basePointer = basePointer;
+    m_basePointer = basePointer;
 }
 size_t HostedInterruptState::getRegisterSize(size_t index) const
 {
-  return sizeof(processor_register_t);
+    return sizeof(processor_register_t);
 }
 
 bool HostedInterruptState::kernelMode() const
 {
-  return true;
+    return true;
 }
 size_t HostedInterruptState::getInterruptNumber() const
 {
-  return which;
+    return which;
 }
 
 uint64_t HostedInterruptState::getFlags() const
 {
-  return 0;
+    return 0;
 }
 void HostedInterruptState::setFlags(uint64_t flags)
 {
@@ -313,7 +316,7 @@ void HostedInterruptState::setFlags(uint64_t flags)
 
 uintptr_t HostedSyscallState::getStackPointer() const
 {
-  return rsp;
+    return rsp;
 }
 void HostedSyscallState::setStackPointer(uintptr_t stackPointer)
 {
@@ -321,39 +324,44 @@ void HostedSyscallState::setStackPointer(uintptr_t stackPointer)
 }
 uintptr_t HostedSyscallState::getInstructionPointer() const
 {
-  return 0;
+    return 0;
 }
 void HostedSyscallState::setInstructionPointer(uintptr_t instructionPointer)
 {
 }
 uintptr_t HostedSyscallState::getBasePointer() const
 {
-  return 0;
+    return 0;
 }
 void HostedSyscallState::setBasePointer(uintptr_t basePointer)
 {
 }
 size_t HostedSyscallState::getRegisterSize(size_t index) const
 {
-  return sizeof(processor_register_t);
+    return sizeof(processor_register_t);
 }
 
 size_t HostedSyscallState::getSyscallService() const
 {
-  return service;
+    return service;
 }
 size_t HostedSyscallState::getSyscallNumber() const
 {
-  return number;
+    return number;
 }
 uintptr_t HostedSyscallState::getSyscallParameter(size_t n) const
 {
-    if(n == 0) return p1;
-    if(n == 1) return p2;
-    if(n == 2) return p3;
-    if(n == 3) return p4;
-    if(n == 4) return p5;
-  return 0;
+    if (n == 0)
+        return p1;
+    if (n == 1)
+        return p2;
+    if (n == 2)
+        return p3;
+    if (n == 3)
+        return p4;
+    if (n == 4)
+        return p5;
+    return 0;
 }
 void HostedSyscallState::setSyscallReturnValue(uintptr_t val)
 {
@@ -364,35 +372,36 @@ void HostedSyscallState::setSyscallErrno(uintptr_t val)
     error = val;
 }
 
-
-HostedProcessorState::HostedProcessorState()
-  : state()
+HostedProcessorState::HostedProcessorState() : state()
 {
 }
 HostedProcessorState::HostedProcessorState(const HostedProcessorState &x)
-  : state(x.state)
+    : state(x.state)
 {
 }
 HostedProcessorState::HostedProcessorState(const HostedInterruptState &x)
-  : state(x.state)
+    : state(x.state)
 {
 }
 HostedProcessorState::HostedProcessorState(const HostedSyscallState &x)
 {
 }
-HostedProcessorState &HostedProcessorState::operator = (const HostedProcessorState &x)
+HostedProcessorState &HostedProcessorState::
+operator=(const HostedProcessorState &x)
 {
-  state = x.state;
-  return *this;
+    state = x.state;
+    return *this;
 }
-HostedProcessorState &HostedProcessorState::operator = (const HostedInterruptState &x)
+HostedProcessorState &HostedProcessorState::
+operator=(const HostedInterruptState &x)
 {
-  state = x.state;
-  return *this;
+    state = x.state;
+    return *this;
 }
-HostedProcessorState &HostedProcessorState::operator = (const HostedSyscallState &x)
+HostedProcessorState &HostedProcessorState::
+operator=(const HostedSyscallState &x)
 {
-  return *this;
+    return *this;
 }
 HostedProcessorState::~HostedProcessorState()
 {
@@ -400,21 +409,21 @@ HostedProcessorState::~HostedProcessorState()
 
 uintptr_t HostedProcessorState::getStackPointer() const
 {
-  return 0;
+    return 0;
 }
 void HostedProcessorState::setStackPointer(uintptr_t stackPointer)
 {
 }
 uintptr_t HostedProcessorState::getInstructionPointer() const
 {
-  return 0;
+    return 0;
 }
 void HostedProcessorState::setInstructionPointer(uintptr_t instructionPointer)
 {
 }
 uintptr_t HostedProcessorState::getBasePointer() const
 {
-  return 0;
+    return 0;
 }
 void HostedProcessorState::setBasePointer(uintptr_t basePointer)
 {

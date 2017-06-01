@@ -17,16 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "instrument.h"
 #include <machine/Machine.h>
 #include <utilities/StaticString.h>
-#include "instrument.h"
 
-#define USE_LITE_RECORD     1
+#define USE_LITE_RECORD 1
 
-extern "C"
-{
-void __cyg_profile_func_enter (void *func_address, void *call_site)
-  __attribute__((no_instrument_function)) __attribute__((hot));
+extern "C" {
+void __cyg_profile_func_enter(void *func_address, void *call_site)
+    __attribute__((no_instrument_function)) __attribute__((hot));
 
 #define COM1 0x3F8
 #define COM2 0x2F8
@@ -37,11 +36,11 @@ void __cyg_profile_func_enter (void *func_address, void *call_site)
 static volatile int g_WrittenFirst = 0;
 #endif
 
-void __cyg_profile_func_enter (void *func_address, void *call_site)
+void __cyg_profile_func_enter(void *func_address, void *call_site)
 {
 #ifdef INSTRUMENTATION
-    // NOTE: you cannot call anything in this function, as doing so would
-    // re-enter. That means hand-crafted serial writes are necessary.
+// NOTE: you cannot call anything in this function, as doing so would
+// re-enter. That means hand-crafted serial writes are necessary.
 #ifdef X64
     if (UNLIKELY(g_WrittenFirst == 0))
     {
@@ -51,7 +50,7 @@ void __cyg_profile_func_enter (void *func_address, void *call_site)
 #if USE_LITE_RECORD
             flag |= INSTRUMENT_GLOBAL_LITE;
 #endif
-            asm volatile("outb %%al, %%dx" :: "d" (COM2), "a" (flag));
+            asm volatile("outb %%al, %%dx" ::"d"(COM2), "a"(flag));
         }
     }
 
@@ -68,20 +67,22 @@ void __cyg_profile_func_enter (void *func_address, void *call_site)
     // Semi-unrolled, all-in-one assembly serial-port write.
     uintptr_t x = 0;
     size_t y = 0;
-    asm volatile("pushf; cli;" \
-        ".1:\n" \
-        "movq (%0), %%rax;" \
-        "outb %%al, %%dx;" \
-        "shr $8, %%rax;" \
-        "outb %%al, %%dx;" \
-        "shr $8, %%rax;" \
-        "outb %%al, %%dx;" \
-        "shr $8, %%rax;" \
-        "outb %%al, %%dx;" \
-        "add $4, %0;" \
-        "sub $4, %1;" \
-        "jnz .1; popf" : "=&r" (x), "=&r" (y) : "d" (COM2), "0" (record.buffer),
-            "1" (sizeof record.buffer) : "rax", "memory");
+    asm volatile("pushf; cli;"
+                 ".1:\n"
+                 "movq (%0), %%rax;"
+                 "outb %%al, %%dx;"
+                 "shr $8, %%rax;"
+                 "outb %%al, %%dx;"
+                 "shr $8, %%rax;"
+                 "outb %%al, %%dx;"
+                 "shr $8, %%rax;"
+                 "outb %%al, %%dx;"
+                 "add $4, %0;"
+                 "sub $4, %1;"
+                 "jnz .1; popf"
+                 : "=&r"(x), "=&r"(y)
+                 : "d"(COM2), "0"(record.buffer), "1"(sizeof record.buffer)
+                 : "rax", "memory");
 #endif
 #endif
 }

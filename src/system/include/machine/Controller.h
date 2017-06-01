@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,36 +27,35 @@
  */
 class Controller : public Device
 {
-public:
-  Controller()
-  {
-  }
-  /*Controller(Controller *pDev) :
-    Device(pDev)
-  {
-  }*/
-  Controller(Device *pDev) :
-    Device(pDev)
-  {
-  }
-  virtual ~Controller()
-  {
-  }
+    public:
+    Controller()
+    {
+    }
+    /*Controller(Controller *pDev) :
+      Device(pDev)
+    {
+    }*/
+    Controller(Device *pDev) : Device(pDev)
+    {
+    }
+    virtual ~Controller()
+    {
+    }
 
-  virtual Type getType()
-  {
-    return Device::Controller;
-  }
+    virtual Type getType()
+    {
+        return Device::Controller;
+    }
 
-  virtual void getName(String &str)
-  {
-    str = "Generic controller";
-  }
+    virtual void getName(String &str)
+    {
+        str = "Generic controller";
+    }
 
-  virtual void dump(String &str)
-  {
-    str = "Generic controller";
-  }
+    virtual void dump(String &str)
+    {
+        str = "Generic controller";
+    }
 };
 
 #endif

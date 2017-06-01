@@ -25,8 +25,8 @@
 
 #include <utilities/StaticString.h>
 
-#include <processor/Processor.h>
 #include <machine/Machine.h>
+#include <processor/Processor.h>
 
 #include <Log.h>
 #include <utilities/utility.h>
@@ -37,10 +37,10 @@
 
 void _assert(bool b, const char *file, int line, const char *func)
 {
-    if(b)
+    if (b)
         return;
 
-    if(Processor::m_Initialised)
+    if (Processor::m_Initialised)
     {
         ERROR_NOLOCK("Assertion failed in file " << file);
         ERROR_NOLOCK("In function '" << func << "'");
@@ -50,6 +50,7 @@ void _assert(bool b, const char *file, int line, const char *func)
         ERROR_NOLOCK("You may not resume after a failed assertion.");
     }
 
-    // Best reason for a return is that the debugger isn't active. Either way, it's an error condition, panic.
+    // Best reason for a return is that the debugger isn't active. Either way,
+    // it's an error condition, panic.
     panic("assertion failed");
 }

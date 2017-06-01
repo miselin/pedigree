@@ -27,11 +27,12 @@
 /** Event class for passing to File::monitor. */
 class SelectEvent : public Event
 {
-public:
+    public:
     /** The constructor takes a semaphore that it should signal when it fires,
         and an fd_set with an index to set. */
     SelectEvent();
-    SelectEvent(Semaphore *pSemaphore, fd_set *pFdSet, size_t fdIdx, File *pFile);
+    SelectEvent(
+        Semaphore *pSemaphore, fd_set *pFdSet, size_t fdIdx, File *pFile);
     virtual ~SelectEvent();
 
     void fire();
@@ -51,13 +52,15 @@ public:
         return EventNumbers::SelectEvent;
     }
 
-private:
+    private:
     Semaphore *m_pSemaphore;
-    fd_set    *m_pFdSet;
-    size_t     m_FdIdx;
-    File      *m_pFile;
+    fd_set *m_pFdSet;
+    size_t m_FdIdx;
+    File *m_pFile;
 };
 
-int posix_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, timeval *timeout);
+int posix_select(
+    int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
+    timeval *timeout);
 
 #endif

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,11 +20,11 @@
 #ifndef MACHINE_UDP_H
 #define MACHINE_UDP_H
 
+#include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <processor/types.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <processor/types.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
 
 #include "IpCommon.h"
 
@@ -34,33 +33,36 @@
  */
 class Udp
 {
-private:
+    private:
+    static Udp udpInstance;
 
-  static Udp udpInstance;
+    struct udpHeader
+    {
+        uint16_t src_port;
+        uint16_t dest_port;
+        uint16_t len;
+        uint16_t checksum;
+    } __attribute__((packed));
 
-  struct udpHeader
-  {
-    uint16_t  src_port;
-    uint16_t  dest_port;
-    uint16_t  len;
-    uint16_t  checksum;
-  } __attribute__ ((packed));
+    public:
+    Udp();
+    virtual ~Udp();
 
-public:
-  Udp();
-  virtual ~Udp();
+    /** For access to the stack without declaring an instance of it */
+    static Udp &instance()
+    {
+        return udpInstance;
+    }
 
-  /** For access to the stack without declaring an instance of it */
-  static Udp& instance()
-  {
-    return udpInstance;
-  }
+    /** Packet arrival callback */
+    void receive(
+        IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
+        IpBase *pIp, Network *pCard);
 
-  /** Packet arrival callback */
-  void receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes, IpBase *pIp, Network* pCard);
-
-  /** Sends a UDP packet */
-  static bool send(IpAddress dest, uint16_t srcPort, uint16_t destPort, size_t nBytes, uintptr_t payload, bool broadcast = false, Network *pCard = 0);
+    /** Sends a UDP packet */
+    static bool send(
+        IpAddress dest, uint16_t srcPort, uint16_t destPort, size_t nBytes,
+        uintptr_t payload, bool broadcast = false, Network *pCard = 0);
 };
 
 #endif

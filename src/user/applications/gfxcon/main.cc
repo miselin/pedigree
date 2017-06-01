@@ -17,44 +17,43 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <signal.h>
 #include <errno.h>
-#include <sys/klog.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/klog.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <native/graphics/Graphics.h>
 #include <native/input/Input.h>
 
-#include <tui.h>
 #include <pedigree_fb.h>
+#include <tui.h>
 
 static Tui *g_Tui = nullptr;
 
 class GfxConTuiRedrawer : public TuiRedrawer
 {
     public:
-        GfxConTuiRedrawer(Framebuffer *pFramebuffer)
-        {
-            m_pFramebuffer = pFramebuffer;
-        }
+    GfxConTuiRedrawer(Framebuffer *pFramebuffer)
+    {
+        m_pFramebuffer = pFramebuffer;
+    }
 
-        virtual void redraw(size_t x, size_t y, size_t w, size_t h)
-        {
-            m_pFramebuffer->flush(x, y, w, h);
-        }
+    virtual void redraw(size_t x, size_t y, size_t w, size_t h)
+    {
+        m_pFramebuffer->flush(x, y, w, h);
+    }
 
     private:
-        Framebuffer *m_pFramebuffer;
+    Framebuffer *m_pFramebuffer;
 };
 
 /**
@@ -64,10 +63,10 @@ class GfxConTuiRedrawer : public TuiRedrawer
  */
 void input_handler(Input::InputNotification &note)
 {
-    if(!g_Tui) // No terminal yet!
+    if (!g_Tui)  // No terminal yet!
         return;
 
-    if(note.type != Input::Key)
+    if (note.type != Input::Key)
         return;
 
     uint64_t c = note.data.key.key;
@@ -79,7 +78,7 @@ int main(int argc, char *argv[])
     // Create ourselves a lock file so we don't end up getting run twice.
     /// \todo Revisit this when exiting the window manager is possible.
     int fd = open("runtime»/gfxcon.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
-    if(fd < 0)
+    if (fd < 0)
     {
         fprintf(stderr, "gfxcon: lock file exists, terminating.\n");
         return EXIT_FAILURE;
@@ -99,12 +98,12 @@ int main(int argc, char *argv[])
     // Kick off a process group, fork to run the modeset shim.
     setpgid(0, 0);
     pid_t child = fork();
-    if(child == -1)
+    if (child == -1)
     {
         fprintf(stderr, "gfxcon: could not fork: %s\n", strerror(errno));
         return 1;
     }
-    else if(child != 0)
+    else if (child != 0)
     {
         // Wait for the child (ie, real window manager process) to terminate.
         int status = 0;
@@ -115,13 +114,16 @@ int main(int argc, char *argv[])
         delete pFramebuffer;
 
         // Termination information
-        if(WIFEXITED(status))
+        if (WIFEXITED(status))
         {
-            fprintf(stderr, "gfxcon: terminated with status %d\n", WEXITSTATUS(status));
+            fprintf(
+                stderr, "gfxcon: terminated with status %d\n",
+                WEXITSTATUS(status));
         }
-        else if(WIFSIGNALED(status))
+        else if (WIFSIGNALED(status))
         {
-            fprintf(stderr, "gfxcon: terminated by signal %d\n", WTERMSIG(status));
+            fprintf(
+                stderr, "gfxcon: terminated by signal %d\n", WTERMSIG(status));
         }
         else
         {

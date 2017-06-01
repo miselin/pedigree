@@ -175,13 +175,15 @@ TEST(PedigreeTcpBuffer, Chase)
         if (i && (i % readThreshold == 0))
         {
             // Read entries into our buffer.
-            buffer.read(reinterpret_cast<uintptr_t>(numbers) + offset,
-                        readThreshold * sizeof(size_t));
+            buffer.read(
+                reinterpret_cast<uintptr_t>(numbers) + offset,
+                readThreshold * sizeof(size_t));
             offset += readThreshold * sizeof(size_t);
         }
     }
 
-    buffer.read(reinterpret_cast<uintptr_t>(numbers) + offset, buffer.getDataSize());
+    buffer.read(
+        reinterpret_cast<uintptr_t>(numbers) + offset, buffer.getDataSize());
 
     for (size_t i = 0; i < n; ++i)
     {
@@ -191,5 +193,5 @@ TEST(PedigreeTcpBuffer, Chase)
             break;
     }
 
-    delete [] numbers;
+    delete[] numbers;
 }

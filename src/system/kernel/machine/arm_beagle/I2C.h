@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,65 +20,64 @@
 #ifndef _I2C_H
 #define _I2C_H
 
-#include <processor/types.h>
 #include <processor/MemoryRegion.h>
+#include <processor/types.h>
 
 class I2C
 {
     public:
-        I2C() : m_MmioBase("I2C")
-        {
-        }
-        virtual ~I2C()
-        {
-        }
+    I2C() : m_MmioBase("I2C")
+    {
+    }
+    virtual ~I2C()
+    {
+    }
 
-        static I2C &instance(size_t n)
-        {
-            return m_Instance[n];
-        }
+    static I2C &instance(size_t n)
+    {
+        return m_Instance[n];
+    }
 
-        void initialise(uintptr_t baseAddr);
+    void initialise(uintptr_t baseAddr);
 
-        bool transmit(uint8_t addr, uintptr_t buffer, size_t len);
-        bool receive(uint8_t addr, uintptr_t buffer, size_t maxlen);
+    bool transmit(uint8_t addr, uintptr_t buffer, size_t len);
+    bool receive(uint8_t addr, uintptr_t buffer, size_t maxlen);
 
-        bool write(uint8_t addr, uint8_t reg, uint8_t data);
-        uint8_t read(uint8_t addr, uint8_t reg);
+    bool write(uint8_t addr, uint8_t reg, uint8_t data);
+    uint8_t read(uint8_t addr, uint8_t reg);
 
     private:
+    static I2C m_Instance[3];
 
-        static I2C m_Instance[3];
+    MemoryRegion m_MmioBase;
 
-        MemoryRegion m_MmioBase;
+    void waitForBus();
 
-        void waitForBus();
-
-        enum Registers
-        {
-            I2C_REV     = 0x00 / 2, // R
-            I2C_IE      = 0x04 / 2, // RW
-            I2C_STAT    = 0x08 / 2, // RW
-            I2C_WE      = 0x0C / 2, // RW
-            I2C_SYSS    = 0x10 / 2, // R
-            I2C_BUF     = 0x14 / 2, // RW
-            I2C_CNT     = 0x18 / 2, // RW
-            I2C_DATA    = 0x1C / 2, // RW
-            I2C_SYSC    = 0x20 / 2, // RW
-            I2C_CON     = 0x24 / 2, // RW
-            I2C_OA0     = 0x28 / 2, // RW
-            I2C_SA      = 0x2C / 2, // RW
-            I2C_PSC     = 0x30 / 2, // RW
-            I2C_SCLL    = 0x34 / 2, // RW
-            I2C_SCLH    = 0x38 / 2, // RW
-            I2C_SYSTEST = 0x3C / 2, // RW
-            I2C_BUFSTAT = 0x40 / 2, // R
-            I2C_OA1     = 0x44 / 2, // RW
-            I2C_OA2     = 0x48 / 2, // RW
-            I2C_OA3     = 0x4C / 2, // RW
-            I2C_ACTOA   = 0x50 / 2, // R
-            I2C_SBLOCK  = 0x54 / 2, // RW
-        };
+    enum Registers
+    {
+        I2C_REV = 0x00 / 2,      // R
+        I2C_IE = 0x04 / 2,       // RW
+        I2C_STAT = 0x08 / 2,     // RW
+        I2C_WE = 0x0C / 2,       // RW
+        I2C_SYSS = 0x10 / 2,     // R
+        I2C_BUF = 0x14 / 2,      // RW
+        I2C_CNT = 0x18 / 2,      // RW
+        I2C_DATA = 0x1C / 2,     // RW
+        I2C_SYSC = 0x20 / 2,     // RW
+        I2C_CON = 0x24 / 2,      // RW
+        I2C_OA0 = 0x28 / 2,      // RW
+        I2C_SA = 0x2C / 2,       // RW
+        I2C_PSC = 0x30 / 2,      // RW
+        I2C_SCLL = 0x34 / 2,     // RW
+        I2C_SCLH = 0x38 / 2,     // RW
+        I2C_SYSTEST = 0x3C / 2,  // RW
+        I2C_BUFSTAT = 0x40 / 2,  // R
+        I2C_OA1 = 0x44 / 2,      // RW
+        I2C_OA2 = 0x48 / 2,      // RW
+        I2C_OA3 = 0x4C / 2,      // RW
+        I2C_ACTOA = 0x50 / 2,    // R
+        I2C_SBLOCK = 0x54 / 2,   // RW
+    };
 };
 
 #endif

@@ -20,74 +20,81 @@
 #ifndef NETMANAGER_H
 #define NETMANAGER_H
 
-#include <vfs/VFS.h>
-#include <vfs/Filesystem.h>
+#include <process/Scheduler.h>
 #include <utilities/RequestQueue.h>
 #include <utilities/Vector.h>
-#include <process/Scheduler.h>
+#include <vfs/Filesystem.h>
+#include <vfs/VFS.h>
 
-#include <network-stack/ConnectionlessEndpoint.h>
 #include <network-stack/ConnectionBasedEndpoint.h>
+#include <network-stack/ConnectionlessEndpoint.h>
 #include <network-stack/Endpoint.h>
 #include <network-stack/Tcp.h>
 
-#define NETMAN_TYPE_UDP    1
-#define NETMAN_TYPE_TCP    2
-#define NETMAN_TYPE_RAW    3
-#define NETMAN_TYPE_UDP6   10
-#define NETMAN_TYPE_TCP6   11
+#define NETMAN_TYPE_UDP 1
+#define NETMAN_TYPE_TCP 2
+#define NETMAN_TYPE_RAW 3
+#define NETMAN_TYPE_UDP6 10
+#define NETMAN_TYPE_TCP6 11
 
 #ifndef IN_PROTOCOLS_DEFINED
 #define IN_PROTOCOLS_DEFINED
 enum Protocol
 {
-  IPPROTO_IP = 0,
-  IPPROTO_IPV6,
-  IPPROTO_ICMP,
-  IPPROTO_RAW,
-  IPPROTO_TCP,
-  IPPROTO_UDP,
-  IPPROTO_MAX
+    IPPROTO_IP = 0,
+    IPPROTO_IPV6,
+    IPPROTO_ICMP,
+    IPPROTO_RAW,
+    IPPROTO_TCP,
+    IPPROTO_UDP,
+    IPPROTO_MAX
 };
 #endif
 
 /** File subclass for sockets */
 class Socket : public File
 {
-  private:
+    private:
     /** Copy constructors are hidden - (mostly) unimplemented (or invalid)! */
     Socket(const File &file);
-    File& operator =(const File&);
+    File &operator=(const File &);
 
     // Endpoints are not able to be copied
     Socket(const Socket &file) : File(), m_Endpoint(0), m_Protocol(0)
     {
-      ERROR("Socket copy constructor called");
+        ERROR("Socket copy constructor called");
     }
-    Socket& operator =(const Socket &file)
+    Socket &operator=(const Socket &file)
     {
-      ERROR("Socket copy constructor called");
-      return *this;
+        ERROR("Socket copy constructor called");
+        return *this;
     }
 
-    uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-  public:
-    Socket(int proto, Endpoint *p, Filesystem *pFs) :
-      File(String("socket"), 0, 0, 0, 0, pFs, 0, 0), m_Endpoint(p), m_Protocol(proto)
-    {}
+    public:
+    Socket(int proto, Endpoint *p, Filesystem *pFs)
+        : File(String("socket"), 0, 0, 0, 0, pFs, 0, 0), m_Endpoint(p),
+          m_Protocol(proto)
+    {
+    }
     virtual ~Socket()
-    {}
+    {
+    }
 
     inline Endpoint *getEndpoint()
     {
-      return m_Endpoint;
+        return m_Endpoint;
     }
 
     inline int getProtocol()
     {
-      return m_Protocol;
+        return m_Protocol;
     }
 
     /** Similar to POSIX's select() function */
@@ -95,14 +102,14 @@ class Socket : public File
 
     virtual void decreaseRefCount(bool bIsWriter);
 
-    /** Somehow the endpoint state changed - data came in, it d/c'd, whatever. */
+    /** Somehow the endpoint state changed - data came in, it d/c'd, whatever.
+     */
     virtual void endpointStateChanged()
     {
         dataChanged();
     }
 
-  private:
-
+    private:
     Endpoint *m_Endpoint;
     int m_Protocol;
 };
@@ -110,63 +117,80 @@ class Socket : public File
 /** Provides an interface to Endpoints for applications */
 class NetManager : public Filesystem
 {
-public:
-  NetManager() : m_Endpoints()
-  {
-    m_Endpoints.clear();
-  }
+    public:
+    NetManager() : m_Endpoints()
+    {
+        m_Endpoints.clear();
+    }
 
-  virtual ~NetManager()
-  {
-  }
+    virtual ~NetManager()
+    {
+    }
 
-  static NetManager &instance()
-  {
-    return m_Instance;
-  }
+    static NetManager &instance()
+    {
+        return m_Instance;
+    }
 
-  //
-  // NetManager interface.
-  //
+    //
+    // NetManager interface.
+    //
 
-  File* newEndpoint(int type, int protocol);
+    File *newEndpoint(int type, int protocol);
 
-  bool isEndpoint(File* f);
+    bool isEndpoint(File *f);
 
-  Endpoint* getEndpoint(File* f);
+    Endpoint *getEndpoint(File *f);
 
-  void removeEndpoint(File* f);
+    void removeEndpoint(File *f);
 
-  File* accept(File* f);
+    File *accept(File *f);
 
-  uint64_t read(File *pFile, uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-  uint64_t write(File *pFile, uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t read(
+        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-  //
-  // Filesystem interface.
-  //
+    //
+    // Filesystem interface.
+    //
 
-  virtual bool initialise(Disk *pDisk)
-    {return false;}
-  virtual File* getRoot()
-  {return 0;}
-  virtual String getVolumeLabel()
-  {return String("netman");}
+    virtual bool initialise(Disk *pDisk)
+    {
+        return false;
+    }
+    virtual File *getRoot()
+    {
+        return 0;
+    }
+    virtual String getVolumeLabel()
+    {
+        return String("netman");
+    }
 
-protected:
-  virtual bool createFile(File* parent, String filename, uint32_t mask)
-  {return false;}
-  virtual bool createDirectory(File* parent, String filename, uint32_t mask)
-  {return false;}
-  virtual bool createSymlink(File* parent, String filename, String value)
-  {return false;}
-  virtual bool remove(File* parent, File* file)
-  {return false;}
+    protected:
+    virtual bool createFile(File *parent, String filename, uint32_t mask)
+    {
+        return false;
+    }
+    virtual bool createDirectory(File *parent, String filename, uint32_t mask)
+    {
+        return false;
+    }
+    virtual bool createSymlink(File *parent, String filename, String value)
+    {
+        return false;
+    }
+    virtual bool remove(File *parent, File *file)
+    {
+        return false;
+    }
 
-private:
-
-  Vector<Endpoint*> m_Endpoints;
-  static NetManager m_Instance;
+    private:
+    Vector<Endpoint *> m_Endpoints;
+    static NetManager m_Instance;
 };
 
 #endif

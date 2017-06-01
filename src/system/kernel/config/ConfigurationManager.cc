@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,15 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config/ConfigurationManager.h>
 #include <config/ConfigurationBackend.h>
+#include <config/ConfigurationManager.h>
 
 #include <processor/types.h>
 
 ConfigurationManager ConfigurationManager::m_Instance;
 
-ConfigurationManager::ConfigurationManager() :
-    m_Backends()
+ConfigurationManager::ConfigurationManager() : m_Backends()
 {
 }
 
@@ -43,62 +41,67 @@ size_t ConfigurationManager::createTable(String configStore, String table)
 {
     // Lookup the backend
     ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if(!backend)
+    if (!backend)
         return 0;
     return backend->createTable(table);
 }
 
-void ConfigurationManager::insert(String configStore, String table, String key, ConfigValue &value)
+void ConfigurationManager::insert(
+    String configStore, String table, String key, ConfigValue &value)
 {
     // Lookup the backend
     ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if(!backend)
+    if (!backend)
         return;
     return backend->insert(table, key, value);
 }
 
-ConfigValue &ConfigurationManager::select(String configStore, String table, String key)
+ConfigValue &
+ConfigurationManager::select(String configStore, String table, String key)
 {
     static ConfigValue v;
-    
+
     // Lookup the backend
     ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if(!backend)
+    if (!backend)
         return v;
     return backend->select(table, key);
 }
 
-void ConfigurationManager::watch(String configStore, String table, String key, ConfigurationWatcher watcher)
+void ConfigurationManager::watch(
+    String configStore, String table, String key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
     ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if(!backend)
+    if (!backend)
         return;
     return backend->watch(table, key, watcher);
 }
 
-void ConfigurationManager::unwatch(String configStore, String table, String key, ConfigurationWatcher watcher)
+void ConfigurationManager::unwatch(
+    String configStore, String table, String key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
     ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if(!backend)
+    if (!backend)
         return;
     return backend->unwatch(table, key, watcher);
 }
 
-bool ConfigurationManager::installBackend(ConfigurationBackend *pBackend, String configStore)
+bool ConfigurationManager::installBackend(
+    ConfigurationBackend *pBackend, String configStore)
 {
     // Check for sanity
-    if(!pBackend)
+    if (!pBackend)
         return false;
 
     // Get the real config store to use
     String realConfigStore = configStore;
-    if(configStore.length() == 0)
+    if (configStore.length() == 0)
         realConfigStore = pBackend->getConfigStore();
 
     // Install into the list
-    if(!backendExists(realConfigStore))
+    if (!backendExists(realConfigStore))
     {
         m_Backends.insert(realConfigStore, pBackend);
         return true;
@@ -111,7 +114,7 @@ void ConfigurationManager::removeBackend(String configStore)
 {
     // Lookup the backend
     ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if(!backend)
+    if (!backend)
         return;
 
     // Remove it from the list and free used memory

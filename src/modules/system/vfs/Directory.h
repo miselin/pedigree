@@ -20,47 +20,51 @@
 #ifndef DIRECTORY_H
 #define DIRECTORY_H
 
-#include <time/Time.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/RadixTree.h>
 #include "File.h"
+#include <processor/types.h>
+#include <time/Time.h>
+#include <utilities/RadixTree.h>
+#include <utilities/String.h>
 
 /** A Directory node. */
 class Directory : public File
 {
     friend class Filesystem;
 
-public:
-
+    public:
     /** Eases the pain of casting, and performs a sanity check. */
     static Directory *fromFile(File *pF)
     {
-        if (!pF->isDirectory()) FATAL("Casting non-directory File to Directory!");
-        return reinterpret_cast<Directory*> (pF);
+        if (!pF->isDirectory())
+            FATAL("Casting non-directory File to Directory!");
+        return reinterpret_cast<Directory *>(pF);
     }
 
     /** Constructor, creates an invalid directory. */
     Directory();
 
     /** Copy constructors are hidden - unused! */
-private:
+    private:
     Directory(const Directory &file);
-    Directory& operator =(const Directory&);
+    Directory &operator=(const Directory &);
 
-public:
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    Directory(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-              uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
+    Directory(
+        const String &name, Time::Timestamp accessedTime,
+        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
     /** Destructor - doesn't do anything. */
     virtual ~Directory();
 
     /** Returns true if the File is actually a directory. */
     virtual bool isDirectory()
-    {return true;}
+    {
+        return true;
+    }
 
     /** Returns the n'th child of this directory, or an invalid file. */
-    File* getChild(size_t n);
+    File *getChild(size_t n);
 
     /** Returns the number of children in this directory. */
     size_t getNumChildren();
@@ -100,9 +104,9 @@ public:
      */
     bool addEphemeralFile(File *pFile);
 
-private:
+    private:
     /** Directory contents cache. */
-    RadixTree<File*> m_Cache;
+    RadixTree<File *> m_Cache;
 
     /**
      * Directory contents, mirroring m_Cache but allowing for improved
@@ -119,7 +123,7 @@ private:
     /** Reparse target. */
     Directory *m_ReparseTarget = nullptr;
 
-protected:
+    protected:
     /** Provides subclasses with direct access to the directory's listing. */
     virtual const RadixTree<File *> &getCache()
     {

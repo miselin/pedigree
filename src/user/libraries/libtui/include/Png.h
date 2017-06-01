@@ -21,33 +21,38 @@
 #define TUI_PNG_H
 
 #include "environment.h"
-#include <stdlib.h>
+#include <png.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <png.h>
+#include <stdlib.h>
 
 class Png
 {
-public:
+    public:
     Png(const char *filename);
     ~Png();
-    
+
     void render(rgb_t *pFb, size_t x, size_t y, size_t width, size_t height);
 
     size_t getWidth()
-    {return m_nWidth;}
+    {
+        return m_nWidth;
+    }
 
     size_t getHeight()
-    {return m_nHeight;}
+    {
+        return m_nHeight;
+    }
 
-private:
+    private:
     Png(const Png &);
-    Png &operator = (const Png &);
+    Png &operator=(const Png &);
 
-    uint32_t compileColour(uint8_t r, uint8_t g, uint8_t b, Display::PixelFormat pf);
+    uint32_t
+    compileColour(uint8_t r, uint8_t g, uint8_t b, Display::PixelFormat pf);
 
     png_structp m_PngPtr;
-    png_infop   m_InfoPtr;
+    png_infop m_InfoPtr;
     size_t m_nWidth;
     size_t m_nHeight;
 

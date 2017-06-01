@@ -21,32 +21,32 @@
 #define KERNEL_PROCESSOR_TYPES_H
 
 #if defined(X86)
-  #include <processor/x86/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) X86##x
+#include <processor/x86/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-  #include <processor/x64/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) X64##x
+#include <processor/x64/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-  #include <processor/mips32/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
+#include <processor/mips32/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-  #include <processor/mips64/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
+#include <processor/mips64/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM_COMMON)
-  #include <processor/arm_common/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) ARM##x
+#include <processor/arm_common/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) ARM##x
 #elif defined(PPC32)
-  #include <processor/ppc32/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
+#include <processor/ppc32/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(HOSTED)
-  #include <processor/hosted/types.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x
+#include <processor/hosted/types.h>
+#define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x
 #endif
 
 // NOTE: This throws a compile-time error if this header is not adapted for
 //       the selected processor architecture
 #if !defined(PROCESSOR_SPECIFIC_NAME)
-  #error Unknown processor architecture
+#error Unknown processor architecture
 #endif
 
 /** @addtogroup kernelprocessor
@@ -97,12 +97,12 @@ typedef PROCESSOR_SPECIFIC_NAME(size_t) size_t;
 // NOTE: This should be defined in the file included at the top of this file
 //       if this processor architecture does not support I/O ports
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-  /** Define an I/O port type */
-  typedef PROCESSOR_SPECIFIC_NAME(io_port_t) io_port_t;
+/** Define an I/O port type */
+typedef PROCESSOR_SPECIFIC_NAME(io_port_t) io_port_t;
 #endif
 
 #if !defined(PAGE_SIZE)
-  #error PAGE_SIZE not defined
+#error PAGE_SIZE not defined
 #endif
 
 /** @} */

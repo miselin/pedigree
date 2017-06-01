@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,36 +17,36 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <panic.h>
 #include <processor/IoPort.h>
 #include <processor/IoPortManager.h>
-#include <panic.h>
 
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
 
-  bool IoPort::allocate(io_port_t ioPort, size_t size)
-  {
+bool IoPort::allocate(io_port_t ioPort, size_t size)
+{
     // Free any allocated I/O ports
     if (m_Size != 0)
-      free();
+        free();
 
     if (IoPortManager::instance().allocate(this, ioPort, size) == true)
-    {    
-      m_IoPort = ioPort;
-      m_Size = size;
-      return true;
+    {
+        m_IoPort = ioPort;
+        m_Size = size;
+        return true;
     }
     return false;
-  }
+}
 
-  void IoPort::free()
-  {
+void IoPort::free()
+{
     if (m_Size != 0)
     {
-      IoPortManager::instance().free(this);
+        IoPortManager::instance().free(this);
 
-      m_IoPort = 0;
-      m_Size = 0;
+        m_IoPort = 0;
+        m_Size = 0;
     }
-  }
+}
 
 #endif

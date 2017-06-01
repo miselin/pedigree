@@ -27,44 +27,44 @@
 #include <machine/Timer.h>
 #undef MACHINE_FORWARD_DECL_ONLY
 
-#include <process/Semaphore.h>
 #include <Log.h>
+#include <process/Semaphore.h>
 
-/** The Pedigree network stack - Network timeout (for anything that blocks on a semaphore) */
+/** The Pedigree network stack - Network timeout (for anything that blocks on a
+ * semaphore) */
 class NetworkBlockTimeout : public TimerHandler
 {
-  public:
+    public:
     NetworkBlockTimeout();
 
     void setTimeout(uint32_t seconds);
 
     /** Sets the internal semaphore, which gets released if a timeout occurs */
-    void setSemaphore(Semaphore* sem);
+    void setSemaphore(Semaphore *sem);
 
-    /** Sets the internal "timed out" bool pointer, so that the timeout is not mistaken
-        as a data arrival Semaphore release */
-    void setTimedOut(bool* b);
+    /** Sets the internal "timed out" bool pointer, so that the timeout is not
+       mistaken as a data arrival Semaphore release */
+    void setTimedOut(bool *b);
 
     virtual void timer(uint64_t delta, InterruptState &state);
 
-  private:
+    private:
     uint64_t m_Nanoseconds;
     uint64_t m_Seconds;
     uint32_t m_Timeout;
 
-    Semaphore* m_Sem;
-    bool* m_TimedOut;
+    Semaphore *m_Sem;
+    bool *m_TimedOut;
 
-    NetworkBlockTimeout(const NetworkBlockTimeout& s) :
-        m_Nanoseconds(0), m_Seconds(0), m_Timeout(30), m_Sem(0), m_TimedOut(0)
+    NetworkBlockTimeout(const NetworkBlockTimeout &s)
+        : m_Nanoseconds(0), m_Seconds(0), m_Timeout(30), m_Sem(0), m_TimedOut(0)
     {
     }
-    NetworkBlockTimeout& operator = (const NetworkBlockTimeout& s)
+    NetworkBlockTimeout &operator=(const NetworkBlockTimeout &s)
     {
-      ERROR("NetworkBlockTimeout copy constructor has been called.");
-      return *this;
+        ERROR("NetworkBlockTimeout copy constructor has been called.");
+        return *this;
     }
 };
 
 #endif
-

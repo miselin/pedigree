@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,5 +21,6 @@
 
 uintptr_t Iso9660File::readBlock(uint64_t location)
 {
-    return reinterpret_cast<Iso9660Filesystem*>(m_pFilesystem)->readBlock(this, location);
+    return reinterpret_cast<Iso9660Filesystem *>(m_pFilesystem)
+        ->readBlock(this, location);
 }

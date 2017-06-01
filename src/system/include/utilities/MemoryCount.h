@@ -23,7 +23,7 @@
 /** RAII handler to figure out memory usage delta from start to end of scope. */
 class MemoryCount
 {
-public:
+    public:
     MemoryCount(const char *context)
     {
         m_StartPages = PhysicalMemoryManager::instance().freePageCount();
@@ -35,11 +35,15 @@ public:
     {
         m_EndPages = PhysicalMemoryManager::instance().freePageCount();
         ssize_t diff = static_cast<ssize_t>(m_StartPages - m_EndPages);
-        NOTICE("KERNELELF: Page difference while executing " << m_Context << ": " << Dec << diff << Hex);
-        NOTICE("KERNELELF:   -> difference is " << Dec << ((diff * 4096) / 1024) << Hex << "K");
+        NOTICE(
+            "KERNELELF: Page difference while executing "
+            << m_Context << ": " << Dec << diff << Hex);
+        NOTICE(
+            "KERNELELF:   -> difference is " << Dec << ((diff * 4096) / 1024)
+                                             << Hex << "K");
     }
 
-private:
+    private:
     size_t m_StartPages;
     size_t m_EndPages;
     const char *m_Context;

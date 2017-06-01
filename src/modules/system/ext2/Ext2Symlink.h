@@ -20,28 +20,32 @@
 #ifndef EXT2_SYMLINK_H
 #define EXT2_SYMLINK_H
 
-#include "ext2.h"
-#include "Ext2Node.h"
-#include <vfs/Symlink.h>
-#include <utilities/Vector.h>
 #include "Ext2Filesystem.h"
+#include "Ext2Node.h"
+#include "ext2.h"
+#include <utilities/Vector.h>
+#include <vfs/Symlink.h>
 
 /** A File is a file, a directory or a symlink. */
 class Ext2Symlink : public Symlink, public Ext2Node
 {
-private:
+    private:
     /** Copy constructors are hidden - unused! */
     Ext2Symlink(const Ext2Symlink &file);
-    Ext2Symlink& operator =(const Ext2Symlink&);
-public:
+    Ext2Symlink &operator=(const Ext2Symlink &);
+
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    Ext2Symlink(const String &name, uintptr_t inode_num, Inode *inode,
-                class Ext2Filesystem *pFs, File *pParent = 0);
+    Ext2Symlink(
+        const String &name, uintptr_t inode_num, Inode *inode,
+        class Ext2Filesystem *pFs, File *pParent = 0);
     /** Destructor */
     virtual ~Ext2Symlink();
 
-    uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+    uint64_t
+    read(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+    uint64_t
+    write(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
 
     void truncate();
 

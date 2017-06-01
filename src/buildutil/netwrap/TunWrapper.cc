@@ -22,9 +22,9 @@
 #include <cstdio>
 #include <iostream>
 
+#include <errno.h>
 #include <poll.h>
 #include <unistd.h>
-#include <errno.h>
 
 #include <network-stack/NetworkStack.h>
 #include <utilities/pocketknife.h>
@@ -157,7 +157,8 @@ void TunWrapper::packetPusher()
         }
 
         packet *p = m_Packets.popFront();
-        NetworkStack::instance().receive(p->bytes, reinterpret_cast<uintptr_t>(p->buffer), this, 0);
+        NetworkStack::instance().receive(
+            p->bytes, reinterpret_cast<uintptr_t>(p->buffer), this, 0);
         delete p;
     }
     lock.release();

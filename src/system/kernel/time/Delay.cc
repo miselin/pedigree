@@ -17,17 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time/Time.h>
 #include <machine/Machine.h>
 #include <machine/Timer.h>
 #include <process/Event.h>
-#include <process/eventNumbers.h>
 #include <process/Thread.h>
+#include <process/eventNumbers.h>
 #include <processor/Processor.h>
+#include <time/Time.h>
 
 namespace Time
 {
-
 static void delayTimerFired(uint8_t *pBuffer)
 {
     Processor::information().getCurrentThread()->setInterrupted(true);
@@ -35,9 +34,9 @@ static void delayTimerFired(uint8_t *pBuffer)
 
 class DelayTimerEvent : public Event
 {
-public:
-    DelayTimerEvent() :
-        Event(reinterpret_cast<uintptr_t>(&delayTimerFired), false)
+    public:
+    DelayTimerEvent()
+        : Event(reinterpret_cast<uintptr_t>(&delayTimerFired), false)
     {
     }
     virtual ~DelayTimerEvent()
@@ -107,5 +106,4 @@ void removeAlarm(void *handle)
     Machine::instance().getTimer()->removeAlarm(pEvent);
     delete pEvent;
 }
-
 }

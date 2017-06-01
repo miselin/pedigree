@@ -17,21 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <pwd.h>
-#include <stdio.h>
-#include <signal.h>
-#include <unistd.h>
-#include <termios.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pwd.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
 #include <utmp.h>
 
 #include <sys/fb.h>
@@ -78,16 +77,18 @@ void handle_input(Input::InputNotification &note)
 {
     pedigree_fb_mode current_mode;
     int fb = open("/dev/fb", O_RDWR);
-    if(fb >= 0)
+    if (fb >= 0)
     {
         int result = ioctl(fb, PEDIGREE_FB_GETMODE, &current_mode);
         close(fb);
 
-        if(!result)
+        if (!result)
         {
-            if(current_mode.width && current_mode.height && current_mode.depth)
+            if (current_mode.width && current_mode.height && current_mode.depth)
             {
-                klog(LOG_INFO, "ttyterm: dropping input, currently in graphics mode!");
+                klog(
+                    LOG_INFO,
+                    "ttyterm: dropping input, currently in graphics mode!");
                 return;
             }
         }
@@ -95,31 +96,31 @@ void handle_input(Input::InputNotification &note)
 
     klog(LOG_INFO, "ttyterm: system input (type=%d)", note.type);
 
-    if(note.type & Input::Key)
+    if (note.type & Input::Key)
     {
         uint64_t c = note.data.key.key;
 
         ActualKey realKey = None;
-        if(c & SPECIAL_KEY)
+        if (c & SPECIAL_KEY)
         {
             uint32_t k = c & 0xFFFFFFFFULL;
             char str[5];
-            memcpy(str, reinterpret_cast<char*>(&k), 4);
+            memcpy(str, reinterpret_cast<char *>(&k), 4);
             str[4] = 0;
 
-            if(!strcmp(str, "left"))
+            if (!strcmp(str, "left"))
             {
                 realKey = Left;
             }
-            else if(!strcmp(str, "righ"))
+            else if (!strcmp(str, "righ"))
             {
                 realKey = Right;
             }
-            else if(!strcmp(str, "up"))
+            else if (!strcmp(str, "up"))
             {
                 realKey = Up;
             }
-            else if(!strcmp(str, "down"))
+            else if (!strcmp(str, "down"))
             {
                 realKey = Down;
             }
@@ -129,18 +130,18 @@ void handle_input(Input::InputNotification &note)
                 return;
             }
         }
-        else if(c & CTRL_KEY)
+        else if (c & CTRL_KEY)
         {
             // CTRL-key = unprintable (ie, CTRL-C, CTRL-U)
             c &= 0x1F;
         }
 
-        if(c == '\n')
-            c = '\r'; // Enter key (ie, return) - CRtoNL.
+        if (c == '\n')
+            c = '\r';  // Enter key (ie, return) - CRtoNL.
 
-        if(realKey != None)
+        if (realKey != None)
         {
-            switch(realKey)
+            switch (realKey)
             {
                 case Left:
                     write(g_MasterPty, "\e[D", 3);
@@ -158,14 +159,14 @@ void handle_input(Input::InputNotification &note)
                     break;
             }
         }
-        else if(c & ALT_KEY)
+        else if (c & ALT_KEY)
         {
             // ALT escaped key
             c &= 0x7F;
             char buf[2] = {'\e', static_cast<char>(c & 0xFF)};
             write(g_MasterPty, buf, 2);
         }
-        else if(c)
+        else if (c)
         {
             uint32_t utf32 = c & 0xFFFFFFFF;
 
@@ -174,27 +175,27 @@ void handle_input(Input::InputNotification &note)
             size_t nbuf = 0;
             if (utf32 <= 0x7F)
             {
-                buf[0] = utf32&0x7F;
+                buf[0] = utf32 & 0x7F;
                 nbuf = 1;
             }
             else if (utf32 <= 0x7FF)
             {
-                buf[0] = 0xC0 | ((utf32>>6) & 0x1F);
+                buf[0] = 0xC0 | ((utf32 >> 6) & 0x1F);
                 buf[1] = 0x80 | (utf32 & 0x3F);
                 nbuf = 2;
             }
             else if (utf32 <= 0xFFFF)
             {
-                buf[0] = 0xE0 | ((utf32>>12) & 0x0F);
-                buf[1] = 0x80 | ((utf32>>6) & 0x3F);
+                buf[0] = 0xE0 | ((utf32 >> 12) & 0x0F);
+                buf[1] = 0x80 | ((utf32 >> 6) & 0x3F);
                 buf[2] = 0x80 | (utf32 & 0x3F);
                 nbuf = 3;
             }
             else if (utf32 <= 0x10FFFF)
             {
-                buf[0] = 0xE0 | ((utf32>>18) & 0x07);
-                buf[1] = 0x80 | ((utf32>>12) & 0x3F);
-                buf[2] = 0x80 | ((utf32>>6) & 0x3F);
+                buf[0] = 0xE0 | ((utf32 >> 18) & 0x07);
+                buf[1] = 0x80 | ((utf32 >> 12) & 0x3F);
+                buf[2] = 0x80 | ((utf32 >> 6) & 0x3F);
                 buf[3] = 0x80 | (utf32 & 0x3F);
                 nbuf = 4;
             }
@@ -211,7 +212,7 @@ int main(int argc, char **argv)
 
     // Create ourselves a lock file so we don't end up getting run twice.
     int fd = open("runtime»/ttyterm.lck", O_WRONLY | O_EXCL | O_CREAT);
-    if(fd < 0)
+    if (fd < 0)
     {
         fprintf(stderr, "ttyterm: lock file exists, terminating.\n");
         return 1;
@@ -224,7 +225,7 @@ int main(int argc, char **argv)
 
     // Ensure we are in fact in text mode.
     int fb = open("/dev/fb", O_RDWR);
-    if(fb >= 0)
+    if (fb >= 0)
     {
         /// \todo error handling?
         klog(LOG_INFO, "ttyterm: forcing text mode");
@@ -241,17 +242,21 @@ int main(int argc, char **argv)
 
     // Get a PTY and the main TTY.
     int tty = open("/dev/textui", O_WRONLY);
-    if(tty < 0)
+    if (tty < 0)
     {
-        klog(LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s", strerror(errno));
+        klog(
+            LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s",
+            strerror(errno));
         return 1;
     }
 
     g_MasterPty = posix_openpt(O_RDWR);
-    if(g_MasterPty < 0)
+    if (g_MasterPty < 0)
     {
         close(tty);
-        klog(LOG_ALERT, "ttyterm: couldn't get a pseudo-terminal to use: %s", strerror(errno));
+        klog(
+            LOG_ALERT, "ttyterm: couldn't get a pseudo-terminal to use: %s",
+            strerror(errno));
         return 1;
     }
 
@@ -273,12 +278,12 @@ int main(int argc, char **argv)
 
     // Start up child process.
     g_RunningPid = fork();
-    if(g_RunningPid == -1)
+    if (g_RunningPid == -1)
     {
         klog(LOG_ALERT, "ttyterm: couldn't fork: %s", strerror(errno));
         return EXIT_FAILURE;
     }
-    else if(g_RunningPid == 0)
+    else if (g_RunningPid == 0)
     {
         close(0);
         close(1);
@@ -308,7 +313,7 @@ int main(int argc, char **argv)
         ut.ut_pid = getpid();
         ut.ut_tv = tv;
         strncpy(ut.ut_id, "/", UT_LINESIZE);
-        strncpy(ut.ut_line, "console", UT_LINESIZE); // ttyterm is the console
+        strncpy(ut.ut_line, "console", UT_LINESIZE);  // ttyterm is the console
         pututxline(&ut);
         endutxent();
 
@@ -317,7 +322,9 @@ int main(int argc, char **argv)
 
         klog(LOG_INFO, "Starting up '" FIRST_PROGRAM "' on pty %s", slavename);
         execl(FIRST_PROGRAM, FIRST_PROGRAM, 0);
-        klog(LOG_ALERT, "Launching " FIRST_PROGRAM " failed (next line is the error in errno...)");
+        klog(
+            LOG_ALERT, "Launching " FIRST_PROGRAM
+                       " failed (next line is the error in errno...)");
         klog(LOG_ALERT, strerror(errno));
         exit(1);
     }
@@ -325,7 +332,7 @@ int main(int argc, char **argv)
     // Main loop - read from PTY master, write to TTY.
     const size_t maxBuffSize = 32768;
     char buffer[maxBuffSize];
-    while(1)
+    while (1)
     {
         fd_set fds;
         FD_ZERO(&fds);
@@ -333,10 +340,10 @@ int main(int argc, char **argv)
         FD_SET(tty, &fds);
 
         int nReady = select(g_MasterPty + 1, &fds, NULL, NULL, NULL);
-        if(nReady > 0)
+        if (nReady > 0)
         {
             // Handle incoming data from the PTY.
-            if(FD_ISSET(g_MasterPty, &fds))
+            if (FD_ISSET(g_MasterPty, &fds))
             {
                 // We need to inhibit any input events while we read from the
                 // master pty, as events must write to it. If we were to
@@ -350,7 +357,7 @@ int main(int argc, char **argv)
             }
 
             // Handle incoming data from the TTY.
-            if(FD_ISSET(tty, &fds))
+            if (FD_ISSET(tty, &fds))
             {
                 size_t len = read(tty, buffer, maxBuffSize);
                 buffer[len] = 0;

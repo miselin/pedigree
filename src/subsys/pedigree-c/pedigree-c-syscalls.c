@@ -26,12 +26,16 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-/// \todo make all these available in a header somewhere that isn't the POSIX subsystem
-void pedigree_config_getcolname(size_t resultIdx, size_t n, char *buf, size_t bufsz);
+/// \todo make all these available in a header somewhere that isn't the POSIX
+/// subsystem
+void pedigree_config_getcolname(
+    size_t resultIdx, size_t n, char *buf, size_t bufsz);
 
-void pedigree_config_getstr_n(size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz);
+void pedigree_config_getstr_n(
+    size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz);
 
-void pedigree_config_getstr_s(size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz);
+void pedigree_config_getstr_s(
+    size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz);
 
 int pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n);
 
@@ -61,7 +65,7 @@ size_t strlen(const char *);
 
 int pedigree_load_keymap(char *buf, size_t sz)
 {
-    return syscall2(PEDIGREE_LOAD_KEYMAP, (long)buf, (long)sz);
+    return syscall2(PEDIGREE_LOAD_KEYMAP, (long) buf, (long) sz);
 }
 
 void pedigree_reboot()
@@ -74,7 +78,7 @@ void pedigree_haltfs()
     syscall0(PEDIGREE_HALTFS);
 }
 
-int pedigree_get_mount(char* mount_buf, char* info_buf, size_t n)
+int pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
 {
     return syscall3(PEDIGREE_GET_MOUNT, (long) mount_buf, (long) info_buf, n);
 }
@@ -107,36 +111,42 @@ void pedigree_event_return()
 
 void pedigree_module_load(char *file)
 {
-    syscall1(PEDIGREE_MODULE_LOAD, (long)file);
+    syscall1(PEDIGREE_MODULE_LOAD, (long) file);
 }
 
 void pedigree_module_unload(char *name)
 {
-    syscall1(PEDIGREE_MODULE_UNLOAD, (long)name);
+    syscall1(PEDIGREE_MODULE_UNLOAD, (long) name);
 }
 
 int pedigree_module_is_loaded(char *name)
 {
-    return syscall1(PEDIGREE_MODULE_IS_LOADED, (long)name);
+    return syscall1(PEDIGREE_MODULE_IS_LOADED, (long) name);
 }
 
 int pedigree_module_get_depending(char *name, char *buf, size_t bufsz)
 {
-    return syscall3(PEDIGREE_MODULE_GET_DEPENDING, (long)name, (long)buf, bufsz);
+    return syscall3(
+        PEDIGREE_MODULE_GET_DEPENDING, (long) name, (long) buf, bufsz);
 }
 
-void pedigree_config_getcolname(size_t resultIdx, size_t n, char *buf, size_t bufsz)
+void pedigree_config_getcolname(
+    size_t resultIdx, size_t n, char *buf, size_t bufsz)
 {
-    syscall4(PEDIGREE_CONFIG_GETCOLNAME, resultIdx, n, (long)buf, bufsz);
+    syscall4(PEDIGREE_CONFIG_GETCOLNAME, resultIdx, n, (long) buf, bufsz);
 }
 
-void pedigree_config_getstr_n(size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz)
+void pedigree_config_getstr_n(
+    size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz)
 {
-    syscall5(PEDIGREE_CONFIG_GETSTR_N, resultIdx, row, n, (long)buf, bufsz);
+    syscall5(PEDIGREE_CONFIG_GETSTR_N, resultIdx, row, n, (long) buf, bufsz);
 }
-void pedigree_config_getstr_s(size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz)
+void pedigree_config_getstr_s(
+    size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz)
 {
-    syscall5(PEDIGREE_CONFIG_GETSTR_S, resultIdx, row, (long)col, (long)buf, bufsz);
+    syscall5(
+        PEDIGREE_CONFIG_GETSTR_S, resultIdx, row, (long) col, (long) buf,
+        bufsz);
 }
 
 int pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n)
@@ -145,7 +155,7 @@ int pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n)
 }
 int pedigree_config_getnum_s(size_t resultIdx, size_t row, const char *col)
 {
-    return syscall3(PEDIGREE_CONFIG_GETNUM_S, row, resultIdx, (long)col);
+    return syscall3(PEDIGREE_CONFIG_GETNUM_S, row, resultIdx, (long) col);
 }
 
 int pedigree_config_getbool_n(size_t resultIdx, size_t row, size_t n)
@@ -154,12 +164,12 @@ int pedigree_config_getbool_n(size_t resultIdx, size_t row, size_t n)
 }
 int pedigree_config_getbool_s(size_t resultIdx, size_t row, const char *col)
 {
-    return syscall3(PEDIGREE_CONFIG_GETBOOL_S, resultIdx, row, (long)col);
+    return syscall3(PEDIGREE_CONFIG_GETBOOL_S, resultIdx, row, (long) col);
 }
 
 int pedigree_config_query(const char *query)
 {
-    return syscall1(PEDIGREE_CONFIG_QUERY, (long)query);
+    return syscall1(PEDIGREE_CONFIG_QUERY, (long) query);
 }
 
 void pedigree_config_freeresult(size_t resultIdx)
@@ -184,17 +194,17 @@ int pedigree_config_was_successful(size_t resultIdx)
 
 void pedigree_config_get_error_message(size_t resultIdx, char *buf, int bufsz)
 {
-    syscall3(PEDIGREE_CONFIG_GET_ERROR_MESSAGE, resultIdx, (long)buf, bufsz);
+    syscall3(PEDIGREE_CONFIG_GET_ERROR_MESSAGE, resultIdx, (long) buf, bufsz);
 }
 
 char *pedigree_config_escape_string(const char *str)
 {
     // Expect the worst: every char needs to be escaped
-    char *bufferStart = (char*)malloc(strlen(str) * 2 + 1);
+    char *bufferStart = (char *) malloc(strlen(str) * 2 + 1);
     char *buffer = bufferStart;
-    while(*str)
+    while (*str)
     {
-        if(*str == '\'')
+        if (*str == '\'')
         {
             *buffer++ = '\'';
             *buffer++ = '\'';
@@ -215,7 +225,7 @@ char *pedigree_config_escape_string(const char *str)
 // Pedigree-specific function: login with given uid and password.
 int pedigree_login(uid_t uid, const char *password)
 {
-    return (long)syscall2(PEDIGREE_LOGIN, uid, (long)password);
+    return (long) syscall2(PEDIGREE_LOGIN, uid, (long) password);
 }
 
 int pedigree_gfx_get_provider(void *p)
@@ -235,7 +245,8 @@ uintptr_t pedigree_gfx_get_raw_buffer(void *p)
 
 int pedigree_gfx_create_buffer(void *p, void **b, void *args)
 {
-    return syscall3(PEDIGREE_GFX_CREATE_BUFFER, (long) p, (long) b, (long) args);
+    return syscall3(
+        PEDIGREE_GFX_CREATE_BUFFER, (long) p, (long) b, (long) args);
 }
 
 int pedigree_gfx_destroy_buffer(void *p, void *b)
@@ -253,7 +264,8 @@ void pedigree_gfx_blit(void *p, void *args)
     syscall2(PEDIGREE_GFX_BLIT, (long) p, (long) args);
 }
 
-void pedigree_gfx_set_pixel(void *p, uint32_t x, uint32_t y, uint32_t colour, uint32_t fmt)
+void pedigree_gfx_set_pixel(
+    void *p, uint32_t x, uint32_t y, uint32_t colour, uint32_t fmt)
 {
     syscall5(PEDIGREE_GFX_SET_PIXEL, (long) p, x, y, colour, fmt);
 }
@@ -288,13 +300,15 @@ void pedigree_gfx_delete_fbuffer(void *p)
     syscall1(PEDIGREE_GFX_DELETE_FBUFFER, (long) p);
 }
 
-void pedigree_gfx_fbinfo(void *p, size_t *w, size_t *h, uint32_t *fmt, size_t *bypp)
+void pedigree_gfx_fbinfo(
+    void *p, size_t *w, size_t *h, uint32_t *fmt, size_t *bypp)
 {
-    syscall5(PEDIGREE_GFX_FBINFO, (long) p, (long) w, (long) h, (long) fmt, (long) bypp);
+    syscall5(
+        PEDIGREE_GFX_FBINFO, (long) p, (long) w, (long) h, (long) fmt,
+        (long) bypp);
 }
 
-void pedigree_gfx_setpalette(void* p, uint32_t *data, size_t entries)
+void pedigree_gfx_setpalette(void *p, uint32_t *data, size_t entries)
 {
     syscall3(PEDIGREE_GFX_SETPALETTE, (long) p, (long) data, (long) entries);
 }
-

@@ -39,8 +39,10 @@
 
 // Endianness shizzle.
 #define BS8(x) (x)
-#define BS16(x) (((x&0xFF00)>>8)|((x&0x00FF)<<8))
-#define BS32(x) (((x&0xFF000000)>>24)|((x&0x00FF0000)>>8)|((x&0x0000FF00)<<8)|((x&0x000000FF)<<24))
+#define BS16(x) (((x & 0xFF00) >> 8) | ((x & 0x00FF) << 8))
+#define BS32(x)                                           \
+    (((x & 0xFF000000) >> 24) | ((x & 0x00FF0000) >> 8) | \
+     ((x & 0x0000FF00) << 8) | ((x & 0x000000FF) << 24))
 #define BS64(x) (x)
 
 #ifdef TARGET_IS_LITTLE_ENDIAN
@@ -65,7 +67,7 @@
 #define HOST_TO_BIG32(x) BS32((x))
 #define HOST_TO_BIG64(x) BS64((x))
 
-#else // else Big endian
+#else  // else Big endian
 
 #define BIG_TO_HOST8(x) (x)
 #define BIG_TO_HOST16(x) (x)
@@ -94,45 +96,49 @@
 #define MAX_PARAM_LENGTH 64
 
 #ifdef __cplusplus
-  /** Add a offset (in bytes) to the pointer and return the result
-   *\brief Adjust a pointer
-   *\return new pointer pointing to 'pointer + offset' (NOT pointer arithmetic!) */
-  template<typename T>
-  inline T *adjust_pointer(T *pointer, ssize_t offset)
-  {
-    return reinterpret_cast<T*>(reinterpret_cast<intptr_t>(pointer) + offset);
-  }
+/** Add a offset (in bytes) to the pointer and return the result
+ *\brief Adjust a pointer
+ *\return new pointer pointing to 'pointer + offset' (NOT pointer arithmetic!)
+*/
+template <typename T>
+inline T *adjust_pointer(T *pointer, ssize_t offset)
+{
+    return reinterpret_cast<T *>(reinterpret_cast<intptr_t>(pointer) + offset);
+}
 
-  /** Page-align the given pointer. */
-  template<typename T>
-  inline T *page_align(T *p)
-  {
-    return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(p) & ~(PhysicalMemoryManager::getPageSize() - 1));
-  }
+/** Page-align the given pointer. */
+template <typename T>
+inline T *page_align(T *p)
+{
+    return reinterpret_cast<T *>(
+        reinterpret_cast<uintptr_t>(p) &
+        ~(PhysicalMemoryManager::getPageSize() - 1));
+}
 
-  template<typename T>
-  inline void swap(T a, T b)
-  {
-      T t = a;
-      a = b;
-      b = t;
-  }
+template <typename T>
+inline void swap(T a, T b)
+{
+    T t = a;
+    a = b;
+    b = t;
+}
 
-  /** Return b - a. */
-  template<typename T1, typename T2>
-  inline intptr_t pointer_diff(T1 *a, T2 *b)
-  {
+/** Return b - a. */
+template <typename T1, typename T2>
+inline intptr_t pointer_diff(T1 *a, T2 *b)
+{
     return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
-  }
+}
 
-  /** Return the difference between a and b, without a sign. */
-  template<typename T1, typename T2>
-  inline uintptr_t abs_difference(T1 a, T2 b)
-  {
+/** Return the difference between a and b, without a sign. */
+template <typename T1, typename T2>
+inline uintptr_t abs_difference(T1 a, T2 b)
+{
     intptr_t value = b - a;
-    if (value < 0) value *= -1;
+    if (value < 0)
+        value *= -1;
     return value;
-  }
+}
 #endif
 
 /** @} */

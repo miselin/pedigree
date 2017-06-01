@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,39 +20,41 @@
 #ifndef TUI_PNG_H
 #define TUI_PNG_H
 
-#include <stdlib.h>
+#include <png.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <png.h>
+#include <stdlib.h>
 
 #include <cairo/cairo.h>
 
 class Png
 {
-public:
+    public:
     Png(const char *filename);
     ~Png();
-    
+
     void render(cairo_t *cr, size_t x, size_t y, size_t width, size_t height);
     void renderPartial(
-            cairo_t *cr,
-            size_t atX, size_t atY,
-            size_t innerX, size_t innerY,
-            size_t partialWidth, size_t partialHeight,
-            size_t scaleWidth, size_t scaleHeight);
+        cairo_t *cr, size_t atX, size_t atY, size_t innerX, size_t innerY,
+        size_t partialWidth, size_t partialHeight, size_t scaleWidth,
+        size_t scaleHeight);
 
     size_t getWidth()
-    {return m_nWidth;}
+    {
+        return m_nWidth;
+    }
 
     size_t getHeight()
-    {return m_nHeight;}
+    {
+        return m_nHeight;
+    }
 
-private:
+    private:
     Png(const Png &);
-    Png &operator = (const Png &);
+    Png &operator=(const Png &);
 
     png_structp m_PngPtr;
-    png_infop   m_InfoPtr;
+    png_infop m_InfoPtr;
     size_t m_nWidth;
     size_t m_nHeight;
 

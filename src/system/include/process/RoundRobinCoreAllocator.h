@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -26,50 +25,51 @@
 class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm
 {
     public:
-        RoundRobinCoreAllocator() : m_ProcMap(), m_pNext(0)
-        {}
-        
-        virtual ~RoundRobinCoreAllocator()
-        {}
-        
-        virtual bool initialise(List<PerProcessorScheduler*> &procList)
+    RoundRobinCoreAllocator() : m_ProcMap(), m_pNext(0)
+    {
+    }
+
+    virtual ~RoundRobinCoreAllocator()
+    {
+    }
+
+    virtual bool initialise(List<PerProcessorScheduler *> &procList)
+    {
+        List<PerProcessorScheduler *>::Iterator it = procList.begin();
+        PerProcessorScheduler *pFirst = m_pNext = *it;
+        it++;
+
+        // 1 CPU?
+        if (it == procList.end())
         {
-            List<PerProcessorScheduler*>::Iterator it = procList.begin();
-            PerProcessorScheduler *pFirst = m_pNext = *it;
-            it++;
-            
-            // 1 CPU?
-            if(it == procList.end())
-            {
-                NOTICE("Quitting, only one CPU was present.");
-                m_ProcMap.insert(pFirst, pFirst);
-                return true;
-            }
-            
-            for(; it != procList.end(); it++)
-            {
-                m_ProcMap.insert(pFirst, *it);
-                pFirst = *it;
-            }
-            
-            // Loop.
-            m_ProcMap.insert(pFirst, m_pNext);
-            
+            NOTICE("Quitting, only one CPU was present.");
+            m_ProcMap.insert(pFirst, pFirst);
             return true;
         }
-        
-        virtual PerProcessorScheduler* allocateThread(Thread *pThread)
+
+        for (; it != procList.end(); it++)
         {
-            PerProcessorScheduler *pReturn = m_ProcMap.lookup(m_pNext);
-            m_pNext = pReturn;
-            return pReturn;
+            m_ProcMap.insert(pFirst, *it);
+            pFirst = *it;
         }
-    
+
+        // Loop.
+        m_ProcMap.insert(pFirst, m_pNext);
+
+        return true;
+    }
+
+    virtual PerProcessorScheduler *allocateThread(Thread *pThread)
+    {
+        PerProcessorScheduler *pReturn = m_ProcMap.lookup(m_pNext);
+        m_pNext = pReturn;
+        return pReturn;
+    }
+
     private:
-    
-        Tree<PerProcessorScheduler*, PerProcessorScheduler*> m_ProcMap;
-        
-        PerProcessorScheduler* m_pNext;
+    Tree<PerProcessorScheduler *, PerProcessorScheduler *> m_ProcMap;
+
+    PerProcessorScheduler *m_pNext;
 };
 
 #endif

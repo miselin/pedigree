@@ -20,7 +20,8 @@
 #ifndef _NATIVE_SYSCALL_H
 #define _NATIVE_SYSCALL_H
 
-// If you change this, ensure you change src/system/include/processor/Syscalls.h !
+// If you change this, ensure you change src/system/include/processor/Syscalls.h
+// !
 #define SERVICE 3
 #define SERVICE_INIT int ign = 0
 #define SERVICE_ERROR ign

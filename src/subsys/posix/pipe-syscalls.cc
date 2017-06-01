@@ -19,58 +19,62 @@
 
 #include <syscallError.h>
 
-#include "pipe-syscalls.h"
 #include "file-syscalls.h"
-#include <vfs/VFS.h>
+#include "pipe-syscalls.h"
 #include <vfs/Pipe.h>
+#include <vfs/VFS.h>
 
-#include <Subsystem.h>
 #include <PosixSubsystem.h>
+#include <Subsystem.h>
 
 #include <Module.h>
 
-#include <processor/Processor.h>
 #include <process/Process.h>
+#include <processor/Processor.h>
 
 #include <fcntl.h>
 
-typedef Tree<size_t,FileDescriptor*> FdMap;
+typedef Tree<size_t, FileDescriptor *> FdMap;
 
 int posix_pipe(int filedes[2])
 {
-  if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(filedes), sizeof(int) * 2, PosixSubsystem::SafeWrite))
-  {
-      F_NOTICE("pipe -> invalid address");
-      SYSCALL_ERROR(InvalidArgument);
-      return -1;
-  }
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(filedes), sizeof(int) * 2,
+            PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE("pipe -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
 
-  F_NOTICE("pipe");
+    F_NOTICE("pipe");
 
-  Process *pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-  if(!pSubsystem)
-  {
-      ERROR("No subsystem for the process!");
-      return -1;
-  }
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for the process!");
+        return -1;
+    }
 
-  size_t readFd = pSubsystem->getFd();
-  size_t writeFd = pSubsystem->getFd();
+    size_t readFd = pSubsystem->getFd();
+    size_t writeFd = pSubsystem->getFd();
 
-  filedes[0] = readFd;
-  filedes[1] = writeFd;
+    filedes[0] = readFd;
+    filedes[1] = writeFd;
 
-  File* p = new Pipe(String(""), 0, 0, 0, 0, 0, 0, 0, true);
+    File *p = new Pipe(String(""), 0, 0, 0, 0, 0, 0, 0, true);
 
-  // Create the file descriptor for both
-  FileDescriptor* read = new FileDescriptor(p, 0, readFd, 0, O_RDONLY);
-  pSubsystem->addFileDescriptor(readFd, read);
+    // Create the file descriptor for both
+    FileDescriptor *read = new FileDescriptor(p, 0, readFd, 0, O_RDONLY);
+    pSubsystem->addFileDescriptor(readFd, read);
 
-  FileDescriptor* write = new FileDescriptor(p, 0, writeFd, 0, O_WRONLY);
-  pSubsystem->addFileDescriptor(writeFd, write);
+    FileDescriptor *write = new FileDescriptor(p, 0, writeFd, 0, O_WRONLY);
+    pSubsystem->addFileDescriptor(writeFd, write);
 
-  F_NOTICE("pipe: returning " << readFd << " and " << writeFd << ".");
+    F_NOTICE("pipe: returning " << readFd << " and " << writeFd << ".");
 
-  return 0;
+    return 0;
 }

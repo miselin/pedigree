@@ -17,26 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Machine.h>
 #include <Log.h>
+#include <machine/Machine.h>
 
 class SerialLogger : public Log::LogCallback
 {
     public:
-        void callback(const char* str)
-        {
-            if (!Machine::instance().isInitialised())
-                return;
+    void callback(const char *str)
+    {
+        if (!Machine::instance().isInitialised())
+            return;
 
-            Machine::instance().getSerial(0)->write(str);
+        Machine::instance().getSerial(0)->write(str);
 #ifndef SERIAL_IS_FILE
-            // Handle carriage return if we're writing to a real terminal
-            // Technically this will create a \n\r, but it will do the same
-            // thing. This may also be redundant, but better to be safe than
-            // sorry imho.
-            Machine::instance().getSerial(0)->write('\r');
+        // Handle carriage return if we're writing to a real terminal
+        // Technically this will create a \n\r, but it will do the same
+        // thing. This may also be redundant, but better to be safe than
+        // sorry imho.
+        Machine::instance().getSerial(0)->write('\r');
 #endif
-        }
+    }
 };
 
 static SerialLogger g_SerialCallback;

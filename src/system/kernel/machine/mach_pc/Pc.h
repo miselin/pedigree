@@ -20,15 +20,15 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_PC_H
 #define KERNEL_MACHINE_X86_COMMON_PC_H
 
-#include <machine/Machine.h>
+#include "Keyboard.h"
 #include "Pic.h"
-#include "Rtc.h"
 #include "Pit.h"
+#include "Rtc.h"
 #include "Serial.h"
 #include "Vga.h"
-#include "Keyboard.h"
+#include <machine/Machine.h>
 #if defined(SMBIOS)
-  #include "SMBios.h"
+#include "SMBios.h"
 #endif
 #include "LocalApic.h"
 
@@ -37,15 +37,18 @@
  */
 class Pc : public Machine
 {
-  public:
-    inline static Pc &instance(){return m_Instance;}
+    public:
+    inline static Pc &instance()
+    {
+        return m_Instance;
+    }
 
     virtual void initialise() INITIALISATION_ONLY;
     virtual void deinitialise();
 
-    #if defined(MULTIPROCESSOR)
-      void initialiseProcessor() INITIALISATION_ONLY;
-    #endif
+#if defined(MULTIPROCESSOR)
+    void initialiseProcessor() INITIALISATION_ONLY;
+#endif
 
     virtual void initialiseDeviceTree();
 
@@ -59,41 +62,42 @@ class Pc : public Machine
     virtual Keyboard *getKeyboard();
     virtual void setKeyboard(Keyboard *kb);
 
-    #if defined(APIC)
-      /** Get the Local APIC class instance
-       *\return reference to the Local APIC class instance */
-      inline LocalApic &getLocalApic()
-        {return m_LocalApic;}
-    #endif
+#if defined(APIC)
+    /** Get the Local APIC class instance
+     *\return reference to the Local APIC class instance */
+    inline LocalApic &getLocalApic()
+    {
+        return m_LocalApic;
+    }
+#endif
 
-    #ifdef MULTIPROCESSOR
-      virtual void stopAllOtherProcessors();
-    #endif
+#ifdef MULTIPROCESSOR
+    virtual void stopAllOtherProcessors();
+#endif
 
-
-  private:
+    private:
     /**
-    * Default constructor, does nothing.
-    */
+     * Default constructor, does nothing.
+     */
     Pc() INITIALISATION_ONLY;
     Pc(const Pc &);
-    Pc &operator = (const Pc &);
+    Pc &operator=(const Pc &);
     /**
-    * Virtual destructor, does nothing.
-    */
+     * Virtual destructor, does nothing.
+     */
     virtual ~Pc();
 
     X86Serial m_pSerial[4];
     X86Vga m_Vga;
     Keyboard *m_Keyboard;
 
-    #if defined(SMBIOS)
-      SMBios m_SMBios;
-    #endif
+#if defined(SMBIOS)
+    SMBios m_SMBios;
+#endif
 
-    #if defined(APIC)
-      LocalApic m_LocalApic;
-    #endif
+#if defined(APIC)
+    LocalApic m_LocalApic;
+#endif
 
     static Pc m_Instance;
 };

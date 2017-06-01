@@ -20,29 +20,29 @@
 #ifndef EVENT_NUMBERS_H
 #define EVENT_NUMBERS_H
 
-/** The globally-defined event numbers for each Event subclass. These must be unique so that
-    identification of serialized data is possible. */
+/** The globally-defined event numbers for each Event subclass. These must be
+   unique so that identification of serialized data is possible. */
 namespace EventNumbers
 {
-    const size_t PosixSignalStart = 0;
-    // Posix signals in here.
-    const size_t PosixSignalEnd   = 32;
+const size_t PosixSignalStart = 0;
+// Posix signals in here.
+const size_t PosixSignalEnd = 32;
 
-    const size_t TimeoutGuard     = 33;
-    const size_t Interrupt        = 34;
-    const size_t TimedTask        = 35;
-    const size_t SelectEvent      = 36;
+const size_t TimeoutGuard = 33;
+const size_t Interrupt = 34;
+const size_t TimedTask = 35;
+const size_t SelectEvent = 36;
 
-    const size_t InputEvent       = 37;
-    const size_t TuiEvent         = 38;
+const size_t InputEvent = 37;
+const size_t TuiEvent = 38;
 
-    const size_t PollEvent        = 39;
+const size_t PollEvent = 39;
 
-    const size_t TerminalEvent    = 40;
+const size_t TerminalEvent = 40;
 
-    const size_t DelayTimer       = 40;
+const size_t DelayTimer = 40;
 
-    const size_t UserStart        = 0xFFFF; ///< Start of user-defined events.
+const size_t UserStart = 0xFFFF;  ///< Start of user-defined events.
 }
 
 #endif

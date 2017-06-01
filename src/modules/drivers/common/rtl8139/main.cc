@@ -17,20 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Rtl8139.h"
 #include <Log.h>
 #include <Module.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
 #include <machine/Device.h>
 #include <machine/Network.h>
-#include "Rtl8139.h"
+#include <processor/Processor.h>
+#include <processor/types.h>
 
 void probeDevice(Device *pDev)
 {
     NOTICE("RTL8139 found");
 
     // Create a new RTL8139 node
-    Rtl8139 *pRtl8139 = new Rtl8139(reinterpret_cast<Network*>(pDev));
+    Rtl8139 *pRtl8139 = new Rtl8139(reinterpret_cast<Network *>(pDev));
 
     // Replace pDev with pRtl8139.
     pRtl8139->setParent(pDev->getParent());
@@ -40,12 +40,12 @@ void probeDevice(Device *pDev)
 void entry()
 {
     /// \todo replace with foreach (which can do the replacement for us)
-    Device::searchByVendorIdAndDeviceId(RTL8139_VENDOR_ID, RTL8139_DEVICE_ID, probeDevice);
+    Device::searchByVendorIdAndDeviceId(
+        RTL8139_VENDOR_ID, RTL8139_DEVICE_ID, probeDevice);
 }
 
 void exit()
 {
-
 }
 
 MODULE_INFO("rtl8139", &entry, &exit, "network-stack");

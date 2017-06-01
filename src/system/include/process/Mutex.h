@@ -25,19 +25,20 @@
 class Mutex
 {
     public:
-        Mutex(bool bLocked = false);
-        ~Mutex();
+    Mutex(bool bLocked = false);
+    ~Mutex();
 
-        bool acquire();
-        bool tryAcquire();
-        void release();
+    bool acquire();
+    bool tryAcquire();
+    void release();
 
-        void *getPrivate() const
-        {
-          return m_Private;
-        }
+    void *getPrivate() const
+    {
+        return m_Private;
+    }
+
     private:
-        void *m_Private;
+    void *m_Private;
 };
 
 #else
@@ -51,11 +52,11 @@ class Mutex
  */
 class Mutex : public Semaphore
 {
-public:
-  /** Constructor */
-  Mutex(bool bLocked = false);
-  /** Destructor */
-  ~Mutex();
+    public:
+    /** Constructor */
+    Mutex(bool bLocked = false);
+    /** Destructor */
+    ~Mutex();
 };
 
 #endif  // THREADS

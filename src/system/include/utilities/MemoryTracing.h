@@ -25,28 +25,29 @@
 
 namespace MemoryTracing
 {
-    enum AllocationTrace {
-        Allocation = 'A',
-        Free = 'F',
-        Metadata = 'M',
-        PageAlloc = 'P',
-        PageFree = 'X',
-    };
+enum AllocationTrace
+{
+    Allocation = 'A',
+    Free = 'F',
+    Metadata = 'M',
+    PageAlloc = 'P',
+    PageFree = 'X',
+};
 
-    const int num_backtrace_entries = 5;
+const int num_backtrace_entries = 5;
 
-    union AllocationTraceEntry
+union AllocationTraceEntry
+{
+    struct
     {
-        struct
-        {
-            AllocationTrace type;
-            uint32_t sz;
-            uint32_t ptr;
-            uint32_t bt[num_backtrace_entries];
-        } data;
+        AllocationTrace type;
+        uint32_t sz;
+        uint32_t ptr;
+        uint32_t bt[num_backtrace_entries];
+    } data;
 
-        char buf[sizeof(data)];
-    };
+    char buf[sizeof(data)];
+};
 }
 
 /**
@@ -55,7 +56,8 @@ namespace MemoryTracing
  * This includes a full backtrace which will NOT include the caller of
  * traceAllocation.
  */
-extern void traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size);
+extern void
+traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size);
 
 /**
  * Adds a metadata field to the memory trace.

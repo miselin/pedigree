@@ -26,7 +26,6 @@ static bool entry()
 
 static void exit()
 {
-
 }
 
 MODULE_INFO("scsi", &entry, &exit);

@@ -20,10 +20,10 @@
 #ifndef MACHINE_TCPMISC_H
 #define MACHINE_TCPMISC_H
 
-#include <utilities/Tree.h>
+#include "Endpoint.h"
 #include <utilities/Iterator.h>
 #include <utilities/List.h>
-#include "Endpoint.h"
+#include <utilities/Tree.h>
 
 #include <Log.h>
 
@@ -35,19 +35,19 @@
 /** A TCP "Buffer" (also known as a stream) */
 class TcpBuffer
 {
-  public:
-
-    TcpBuffer() :
-      m_BufferSize(0), m_DataSize(0)
+    public:
+    TcpBuffer()
+        : m_BufferSize(0), m_DataSize(0)
 #ifdef THREADS
-      , m_Lock(false)
+          ,
+          m_Lock(false)
 #endif
     {
-      setSize(32768);
+        setSize(32768);
     }
     virtual ~TcpBuffer()
     {
-      setSize(0);
+        setSize(0);
     }
 
     /** Writes data to the buffer */
@@ -74,7 +74,7 @@ class TcpBuffer
         return m_BufferSize - m_DataSize;
     }
 
-  private:
+    private:
     /** Current buffer size */
     size_t m_BufferSize;
 
@@ -85,16 +85,16 @@ class TcpBuffer
 
     struct Segment
     {
-      Segment() : buffer(), reader(0), size(0)
-      {
-      }
+        Segment() : buffer(), reader(0), size(0)
+        {
+        }
 
-      /// Buffer in which the segment is stored.
-      uint8_t buffer[m_SegmentBufferSize];
-      /// Read offset so far.
-      size_t reader;
-      /// Number of bytes in this segment so far.
-      size_t size;
+        /// Buffer in which the segment is stored.
+        uint8_t buffer[m_SegmentBufferSize];
+        /// Read offset so far.
+        size_t reader;
+        /// Number of bytes in this segment so far.
+        size_t size;
     };
 
     List<Segment *> m_Segments;
@@ -103,7 +103,8 @@ class TcpBuffer
     void newSegment(uintptr_t buffer, size_t size);
 
     /** Read data from the given segment. */
-    size_t readSegment(Segment *pSegment, uintptr_t target, size_t size, bool bUpdate = true);
+    size_t readSegment(
+        Segment *pSegment, uintptr_t target, size_t size, bool bUpdate = true);
 
 #ifdef THREADS
     /** Buffer lock */
@@ -114,18 +115,19 @@ class TcpBuffer
 /** Connection state block handle */
 struct StateBlockHandle
 {
-  StateBlockHandle() :
-    localPort(0), remotePort(0), remoteHost(), listen(false)
-  {}
+    StateBlockHandle()
+        : localPort(0), remotePort(0), remoteHost(), listen(false)
+    {
+    }
 
-  uint16_t localPort;
-  uint16_t remotePort;
-  Endpoint::RemoteEndpoint remoteHost;
+    uint16_t localPort;
+    uint16_t remotePort;
+    Endpoint::RemoteEndpoint remoteHost;
 
-  bool listen;
+    bool listen;
 
-  bool operator == (const StateBlockHandle &a);
-  bool operator > (const StateBlockHandle &a);
+    bool operator==(const StateBlockHandle &a);
+    bool operator>(const StateBlockHandle &a);
 };
 
 #endif

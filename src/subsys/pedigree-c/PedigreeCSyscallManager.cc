@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/SyscallManager.h>
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
 #include <Log.h>
+#include <process/Scheduler.h>
+#include <processor/Processor.h>
+#include <processor/SyscallManager.h>
 
 #include "PedigreeCSyscallManager.h"
 #include "pedigreecSyscallNumbers.h"
@@ -42,14 +42,19 @@ void PedigreeCSyscallManager::initialise()
     pedigree_config_init();
 }
 
-uintptr_t PedigreeCSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5)
+uintptr_t PedigreeCSyscallManager::call(
+    uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4,
+    uintptr_t p5)
 {
     if (function >= serviceEnd)
     {
-        ERROR("PedigreeCSyscallManager: invalid function called: " << Dec << static_cast<int>(function));
+        ERROR(
+            "PedigreeCSyscallManager: invalid function called: "
+            << Dec << static_cast<int>(function));
         return 0;
     }
-    return SyscallManager::instance().syscall(posix, function, p1, p2, p3, p4, p5);
+    return SyscallManager::instance().syscall(
+        posix, function, p1, p2, p3, p4, p5);
 }
 
 uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
@@ -67,33 +72,41 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
     {
         // Pedigree system calls, called from POSIX applications
         case PEDIGREE_LOGIN:
-            return pedigree_login(static_cast<int>(p1), reinterpret_cast<const char *>(p2));
+            return pedigree_login(
+                static_cast<int>(p1), reinterpret_cast<const char *>(p2));
         case PEDIGREE_LOAD_KEYMAP:
-            return pedigree_load_keymap(reinterpret_cast<uint32_t*>(p1), p2);
+            return pedigree_load_keymap(reinterpret_cast<uint32_t *>(p1), p2);
         case PEDIGREE_GET_MOUNT:
-            return pedigree_get_mount(reinterpret_cast<char*>(p1), reinterpret_cast<char*>(p2), p3);
+            return pedigree_get_mount(
+                reinterpret_cast<char *>(p1), reinterpret_cast<char *>(p2), p3);
         case PEDIGREE_REBOOT:
             pedigree_reboot();
             return 0;
         case PEDIGREE_CONFIG_GETCOLNAME:
-            pedigree_config_getcolname(p1, p2, reinterpret_cast<char*>(p3), p4);
+            pedigree_config_getcolname(
+                p1, p2, reinterpret_cast<char *>(p3), p4);
             return 0;
         case PEDIGREE_CONFIG_GETSTR_N:
-            pedigree_config_getstr(p1, p2, p3, reinterpret_cast<char*>(p4), p5);
+            pedigree_config_getstr(
+                p1, p2, p3, reinterpret_cast<char *>(p4), p5);
             return 0;
         case PEDIGREE_CONFIG_GETSTR_S:
-            pedigree_config_getstr(p1, p2, reinterpret_cast<const char*>(p3), reinterpret_cast<char*>(p4), p5);
+            pedigree_config_getstr(
+                p1, p2, reinterpret_cast<const char *>(p3),
+                reinterpret_cast<char *>(p4), p5);
             return 0;
         case PEDIGREE_CONFIG_GETNUM_N:
             return pedigree_config_getnum(p1, p2, p3);
         case PEDIGREE_CONFIG_GETNUM_S:
-            return pedigree_config_getnum(p1, p2, reinterpret_cast<const char*>(p3));
+            return pedigree_config_getnum(
+                p1, p2, reinterpret_cast<const char *>(p3));
         case PEDIGREE_CONFIG_GETBOOL_N:
             return pedigree_config_getbool(p1, p2, p3);
         case PEDIGREE_CONFIG_GETBOOL_S:
-            return pedigree_config_getbool(p1, p2, reinterpret_cast<const char*>(p3));
+            return pedigree_config_getbool(
+                p1, p2, reinterpret_cast<const char *>(p3));
         case PEDIGREE_CONFIG_QUERY:
-            return pedigree_config_query(reinterpret_cast<const char*>(p1));
+            return pedigree_config_query(reinterpret_cast<const char *>(p1));
         case PEDIGREE_CONFIG_FREERESULT:
             pedigree_config_freeresult(p1);
             return 0;
@@ -104,65 +117,86 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
         case PEDIGREE_CONFIG_WAS_SUCCESSFUL:
             return pedigree_config_was_successful(p1);
         case PEDIGREE_CONFIG_GET_ERROR_MESSAGE:
-            pedigree_config_get_error_message(p1, reinterpret_cast<char*>(p2), p3);
+            pedigree_config_get_error_message(
+                p1, reinterpret_cast<char *>(p2), p3);
             return 0;
         case PEDIGREE_MODULE_LOAD:
-            pedigree_module_load(reinterpret_cast<char*>(p1));
+            pedigree_module_load(reinterpret_cast<char *>(p1));
             return 0;
         case PEDIGREE_MODULE_UNLOAD:
-            pedigree_module_unload(reinterpret_cast<char*>(p1));
+            pedigree_module_unload(reinterpret_cast<char *>(p1));
             return 0;
         case PEDIGREE_MODULE_IS_LOADED:
-            return pedigree_module_is_loaded(reinterpret_cast<char*>(p1));
+            return pedigree_module_is_loaded(reinterpret_cast<char *>(p1));
         case PEDIGREE_MODULE_GET_DEPENDING:
-            return pedigree_module_get_depending(reinterpret_cast<char*>(p1), reinterpret_cast<char*>(p2), p3);
+            return pedigree_module_get_depending(
+                reinterpret_cast<char *>(p1), reinterpret_cast<char *>(p2), p3);
         case PEDIGREE_GFX_GET_PROVIDER:
-            return pedigree_gfx_get_provider(reinterpret_cast<void*>(p1));
+            return pedigree_gfx_get_provider(reinterpret_cast<void *>(p1));
         case PEDIGREE_GFX_GET_CURR_MODE:
-            return pedigree_gfx_get_curr_mode(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            return pedigree_gfx_get_curr_mode(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
         case PEDIGREE_GFX_GET_RAW_BUFFER:
-            return pedigree_gfx_get_raw_buffer(reinterpret_cast<void*>(p1));
+            return pedigree_gfx_get_raw_buffer(reinterpret_cast<void *>(p1));
         case PEDIGREE_GFX_CREATE_BUFFER:
-            return pedigree_gfx_create_buffer(reinterpret_cast<void*>(p1), reinterpret_cast<void**>(p2), reinterpret_cast<void*>(p3));
+            return pedigree_gfx_create_buffer(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void **>(p2),
+                reinterpret_cast<void *>(p3));
         case PEDIGREE_GFX_DESTROY_BUFFER:
-            return pedigree_gfx_destroy_buffer(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            return pedigree_gfx_destroy_buffer(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
         case PEDIGREE_GFX_REDRAW:
-            pedigree_gfx_redraw(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            pedigree_gfx_redraw(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
             return 0;
         case PEDIGREE_GFX_BLIT:
-            pedigree_gfx_blit(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            pedigree_gfx_blit(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
             return 0;
         case PEDIGREE_GFX_SET_PIXEL:
-            pedigree_gfx_set_pixel(reinterpret_cast<void*>(p1), p2, p3, p4, p5);
+            pedigree_gfx_set_pixel(
+                reinterpret_cast<void *>(p1), p2, p3, p4, p5);
             return 0;
         case PEDIGREE_GFX_RECT:
-            pedigree_gfx_rect(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            pedigree_gfx_rect(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
             return 0;
         case PEDIGREE_GFX_COPY:
-            pedigree_gfx_copy(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            pedigree_gfx_copy(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
             return 0;
         case PEDIGREE_GFX_LINE:
-            pedigree_gfx_line(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            pedigree_gfx_line(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
             return 0;
         case PEDIGREE_GFX_DRAW:
-            pedigree_gfx_draw(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            pedigree_gfx_draw(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
             return 0;
         case PEDIGREE_GFX_CREATE_FBUFFER:
-            return pedigree_gfx_create_fbuffer(reinterpret_cast<void*>(p1), reinterpret_cast<void*>(p2));
+            return pedigree_gfx_create_fbuffer(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
         case PEDIGREE_GFX_DELETE_FBUFFER:
-            pedigree_gfx_delete_fbuffer(reinterpret_cast<void*>(p1));
+            pedigree_gfx_delete_fbuffer(reinterpret_cast<void *>(p1));
             return 0;
         case PEDIGREE_GFX_FBINFO:
-            pedigree_gfx_fbinfo(reinterpret_cast<void*>(p1), reinterpret_cast<size_t*>(p2), reinterpret_cast<size_t*>(p3), reinterpret_cast<uint32_t*>(p4), reinterpret_cast<size_t*>(p5));
+            pedigree_gfx_fbinfo(
+                reinterpret_cast<void *>(p1), reinterpret_cast<size_t *>(p2),
+                reinterpret_cast<size_t *>(p3),
+                reinterpret_cast<uint32_t *>(p4),
+                reinterpret_cast<size_t *>(p5));
             return 0;
         case PEDIGREE_GFX_SETPALETTE:
-            pedigree_gfx_setpalette(reinterpret_cast<void*>(p1), reinterpret_cast<uint32_t*>(p2), p3);
+            pedigree_gfx_setpalette(
+                reinterpret_cast<void *>(p1), reinterpret_cast<uint32_t *>(p2),
+                p3);
             return 0;
         case PEDIGREE_INPUT_INSTALL_CALLBACK:
-            pedigree_input_install_callback(reinterpret_cast<void*>(p1), p2, p3);
+            pedigree_input_install_callback(
+                reinterpret_cast<void *>(p1), p2, p3);
             return 0;
         case PEDIGREE_INPUT_REMOVE_CALLBACK:
-            pedigree_input_remove_callback(reinterpret_cast<void*>(p1));
+            pedigree_input_remove_callback(reinterpret_cast<void *>(p1));
             return 0;
         case PEDIGREE_INPUT_INHIBIT_EVENTS:
             pedigree_input_inhibit_events(p1);
@@ -175,6 +209,10 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
         case PEDIGREE_HALTFS:
             pedigree_haltfs();
             return 0;
-        default: ERROR ("PedigreeCSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber()); return 0;
+        default:
+            ERROR(
+                "PedigreeCSyscallManager: invalid syscall received: "
+                << Dec << state.getSyscallNumber());
+            return 0;
     }
 }

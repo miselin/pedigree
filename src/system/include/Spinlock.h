@@ -26,7 +26,8 @@ class Spinlock
 {
     friend class PerProcessorScheduler;
     friend class LocksCommand;
-  public:
+
+    public:
     Spinlock(bool bLocked = false, bool bAvoidTracking = false);
 
     /**
@@ -36,7 +37,7 @@ class Spinlock
      * some circumstances (especially during multiprocessor startup). It really
      * shouldn't be used for the majority of cases.
      */
-    bool acquire(bool recurse=false, bool safe=true);
+    bool acquire(bool recurse = false, bool safe = true);
 
     /** Exit the critical section, without restoring interrupts. */
     void exit();
@@ -50,7 +51,7 @@ class Spinlock
 
     static const bool allow_recursion = true;
 
-  private:
+    private:
     /** Unwind the spinlock because a thread is releasing it. */
     void unwind();
 

@@ -20,9 +20,9 @@
 #ifndef _PROCESS_ZOMBIE_QUEUE_H
 #define _PROCESS_ZOMBIE_QUEUE_H
 
+#include <Log.h>
 #include <processor/types.h>
 #include <utilities/RequestQueue.h>
-#include <Log.h>
 
 class Process;
 
@@ -36,33 +36,33 @@ class ZombieObject
 class ZombieProcess : public ZombieObject
 {
     public:
-        ZombieProcess(Process *pProcess);
-        virtual ~ZombieProcess();
+    ZombieProcess(Process *pProcess);
+    virtual ~ZombieProcess();
 
     private:
-        Process *m_pProcess;
+    Process *m_pProcess;
 };
 
-/** 
-  * ZombieQueue: takes zombie objects and frees them. This is used so those
-  * objects do not have to do something like "delete this", which is bad.
-  */
+/**
+ * ZombieQueue: takes zombie objects and frees them. This is used so those
+ * objects do not have to do something like "delete this", which is bad.
+ */
 class ZombieQueue : public RequestQueue
 {
     public:
-        ZombieQueue();
-        virtual ~ZombieQueue();
+    ZombieQueue();
+    virtual ~ZombieQueue();
 
-        static ZombieQueue &instance();
+    static ZombieQueue &instance();
 
-        void addObject(ZombieObject *pObject);
+    void addObject(ZombieObject *pObject);
 
     private:
-        virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                        uint64_t p6, uint64_t p7, uint64_t p8);
+    virtual uint64_t executeRequest(
+        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+        uint64_t p6, uint64_t p7, uint64_t p8);
 
-        static ZombieQueue m_Instance;
+    static ZombieQueue m_Instance;
 };
 
 #endif
-

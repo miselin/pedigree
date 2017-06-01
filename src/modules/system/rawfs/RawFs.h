@@ -32,39 +32,74 @@
     (raw device access). */
 class RawFs : public Filesystem
 {
-public:
+    public:
     RawFs();
     virtual ~RawFs();
 
     //
     // Filesystem interface.
     //
-    virtual bool initialise(Disk *pDisk) {return false;}
-    static Filesystem *probe (Disk *pDisk) {return 0;}
+    virtual bool initialise(Disk *pDisk)
+    {
+        return false;
+    }
+    static Filesystem *probe(Disk *pDisk)
+    {
+        return 0;
+    }
     virtual File *getRoot();
-    virtual String getVolumeLabel() {return String("RawFs");}
-    virtual uint64_t read(File *pFile, uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock) {return 0;}
-    virtual uint64_t write(File *pFile, uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock) {return 0;}
-    virtual void truncate(File *pFile) {return;}
-    virtual void fileAttributeChanged(File *pFile) {return;}
-    virtual void cacheDirectoryContents(File *pFile) {return;}
+    virtual String getVolumeLabel()
+    {
+        return String("RawFs");
+    }
+    virtual uint64_t read(
+        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+        bool canBlock)
+    {
+        return 0;
+    }
+    virtual uint64_t write(
+        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+        bool canBlock)
+    {
+        return 0;
+    }
+    virtual void truncate(File *pFile)
+    {
+        return;
+    }
+    virtual void fileAttributeChanged(File *pFile)
+    {
+        return;
+    }
+    virtual void cacheDirectoryContents(File *pFile)
+    {
+        return;
+    }
 
-protected:
-    virtual bool createFile(File* parent, String filename, uint32_t mask)
-    {return false;}
-    virtual bool createDirectory(File* parent, String filename, uint32_t mask)
-    {return false;}
-    virtual bool createSymlink(File* parent, String filename, String value)
-    {return false;}
-    virtual bool remove(File* parent, File* file)
-    {return false;}
+    protected:
+    virtual bool createFile(File *parent, String filename, uint32_t mask)
+    {
+        return false;
+    }
+    virtual bool createDirectory(File *parent, String filename, uint32_t mask)
+    {
+        return false;
+    }
+    virtual bool createSymlink(File *parent, String filename, String value)
+    {
+        return false;
+    }
+    virtual bool remove(File *parent, File *file)
+    {
+        return false;
+    }
 
-private:
+    private:
     RawFs(const RawFs &);
-    RawFs &operator = (const RawFs &);
+    RawFs &operator=(const RawFs &);
 
     class RawFsDir *m_pRoot;
 };
 
 #endif
-

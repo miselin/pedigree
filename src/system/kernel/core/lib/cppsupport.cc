@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
-#include <processor/types.h>
-#include <Spinlock.h>
 #include "cppsupport.h"
-#include <panic.h>
-#include <processor/Processor.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <machine/Machine.h>
 #include <Log.h>
+#include <Spinlock.h>
+#include <compiler.h>
+#include <machine/Machine.h>
+#include <panic.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <processor/Processor.h>
+#include <processor/VirtualAddressSpace.h>
+#include <processor/types.h>
 
 #include <utilities/MemoryTracing.h>
 
@@ -51,27 +51,27 @@ extern uintptr_t end_dtors;
 /// Call this before using any global objects.
 void initialiseConstructors()
 {
-  // Constructor list is defined in the linker script.
-  // The .ctors section is just an array of function pointers.
-  // iterate through, calling each in turn.
-  uintptr_t *iterator = &start_ctors;
-  while (iterator < &end_ctors)
-  {
-    void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-    fp();
-    iterator++;
-  }
+    // Constructor list is defined in the linker script.
+    // The .ctors section is just an array of function pointers.
+    // iterate through, calling each in turn.
+    uintptr_t *iterator = &start_ctors;
+    while (iterator < &end_ctors)
+    {
+        void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+        fp();
+        iterator++;
+    }
 }
 
 void runKernelDestructors()
 {
-  uintptr_t *iterator = &start_dtors;
-  while (iterator < &end_dtors)
-  {
-    void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-    fp();
-    iterator++;
-  }
+    uintptr_t *iterator = &start_dtors;
+    while (iterator < &end_dtors)
+    {
+        void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+        fp();
+        iterator++;
+    }
 }
 
 #ifdef MEMORY_TRACING
@@ -88,7 +88,8 @@ void stopTracingAllocations()
 
 static volatile int g_TraceLock = 0;
 
-void traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size)
+void traceAllocation(
+    void *ptr, MemoryTracing::AllocationTrace type, size_t size)
 {
     // Don't trace if we're not allowed to.
     if (!traceAllocations)
@@ -99,14 +100,18 @@ void traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size
     entry.data.sz = size & 0xFFFFFFFFU;
     entry.data.ptr = reinterpret_cast<uintptr_t>(ptr) & 0xFFFFFFFFU;
 
-#define BT_FRAME(N) do { \
-    if (!__builtin_frame_address(N)) \
-    { \
-        entry.data.bt[N] = 0; \
-        break; \
-    } \
-    entry.data.bt[N] = reinterpret_cast<uintptr_t>(__builtin_return_address(N)) & 0xFFFFFFFFU; \
-} while(0)
+#define BT_FRAME(N)                                                    \
+    do                                                                 \
+    {                                                                  \
+        if (!__builtin_frame_address(N))                               \
+        {                                                              \
+            entry.data.bt[N] = 0;                                      \
+            break;                                                     \
+        }                                                              \
+        entry.data.bt[N] =                                             \
+            reinterpret_cast<uintptr_t>(__builtin_return_address(N)) & \
+            0xFFFFFFFFU;                                               \
+    } while (0)
 
     BT_FRAME(0);
     BT_FRAME(1);
@@ -116,9 +121,10 @@ void traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size
 
     __asm__ __volatile__("pushfq; cli" ::: "memory");
 
-    for(size_t i = 0; i < sizeof entry.buf; ++i)
+    for (size_t i = 0; i < sizeof entry.buf; ++i)
     {
-        __asm__ __volatile__("outb %%al, %%dx" :: "Nd" (0x2F8), "a" (entry.buf[i]));
+        __asm__ __volatile__(
+            "outb %%al, %%dx" ::"Nd"(0x2F8), "a"(entry.buf[i]));
     }
 
     __asm__ __volatile__("popf" ::: "memory");
@@ -132,7 +138,7 @@ void traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size
  */
 void traceMetadata(NormalStaticString str, void *p1, void *p2)
 {
-    // this can be provided by scripts/addr2line.py these days
+// this can be provided by scripts/addr2line.py these days
 #if 0
     LockGuard<Spinlock> guard(traceLock);
 
@@ -179,7 +185,8 @@ extern "C" void ATEXIT(void (*f)(void *), void *p, void *d)
 {
 }
 
-/// Called by G++ if a pure virtual function is called. Bad Thing, should never happen!
+/// Called by G++ if a pure virtual function is called. Bad Thing, should never
+/// happen!
 extern "C" void __cxa_pure_virtual() NORETURN;
 void __cxa_pure_virtual()
 {
@@ -190,11 +197,11 @@ void __cxa_pure_virtual()
 #ifndef HAS_THREAD_SANITIZER
 extern "C" int __cxa_guard_acquire()
 {
-  return 1;
+    return 1;
 }
 extern "C" void __cxa_guard_release()
 {
-  // TODO
+    // TODO
 }
 #endif
 
@@ -211,15 +218,16 @@ extern "C" void __cxa_guard_release()
 
 extern "C" void *MALLOC(size_t sz)
 {
-    return reinterpret_cast<void *>(new uint8_t[sz]); //SlamAllocator::instance().allocate(sz));
+    return reinterpret_cast<void *>(
+        new uint8_t[sz]);  // SlamAllocator::instance().allocate(sz));
 }
 
 extern "C" void FREE(void *p)
 {
     if (p == 0)
         return;
-    //SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
-    delete [] reinterpret_cast<uint8_t*>(p);
+    // SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
+    delete[] reinterpret_cast<uint8_t *>(p);
 }
 
 extern "C" void *REALLOC(void *p, size_t sz)
@@ -233,10 +241,12 @@ extern "C" void *REALLOC(void *p, size_t sz)
     }
 
     // Don't attempt to read past the end of the source buffer if we can help it
-    size_t copySz = SlamAllocator::instance().allocSize(reinterpret_cast<uintptr_t>(p)) - sizeof(SlamAllocator::AllocFooter);
-    if(copySz > sz)
+    size_t copySz =
+        SlamAllocator::instance().allocSize(reinterpret_cast<uintptr_t>(p)) -
+        sizeof(SlamAllocator::AllocFooter);
+    if (copySz > sz)
         copySz = sz;
-    
+
     /// \note If sz > p's original size, this may fail.
     void *tmp = MALLOC(sz);
     MemoryCopy(tmp, p, copySz);
@@ -245,66 +255,70 @@ extern "C" void *REALLOC(void *p, size_t sz)
     return tmp;
 }
 
-void *operator new (size_t size) noexcept
+void *operator new(size_t size) noexcept
 {
-    void *ret = reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
+    void *ret =
+        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
     return ret;
 }
-void *operator new[] (size_t size) noexcept
+void *operator new[](size_t size) noexcept
 {
-    void *ret = reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
+    void *ret =
+        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
     return ret;
 }
-void *operator new (size_t size, void* memory) noexcept
+void *operator new(size_t size, void *memory) noexcept
 {
-  return memory;
+    return memory;
 }
-void *operator new[] (size_t size, void* memory) noexcept
+void *operator new[](size_t size, void *memory) noexcept
 {
-  return memory;
+    return memory;
 }
-void operator delete (void * p) noexcept
+void operator delete(void *p) noexcept
 {
-    if (p == 0) return;
-    if(SlamAllocator::instance().isPointerValid(reinterpret_cast<uintptr_t>(p)))
+    if (p == 0)
+        return;
+    if (SlamAllocator::instance().isPointerValid(
+            reinterpret_cast<uintptr_t>(p)))
         SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
 }
-void operator delete[] (void * p) noexcept
+void operator delete[](void *p) noexcept
 {
-    if (p == 0) return;
-    if(SlamAllocator::instance().isPointerValid(reinterpret_cast<uintptr_t>(p)))
+    if (p == 0)
+        return;
+    if (SlamAllocator::instance().isPointerValid(
+            reinterpret_cast<uintptr_t>(p)))
         SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
 }
-void operator delete (void *p, void *q) noexcept
+void operator delete(void *p, void *q) noexcept
 {
-  // TODO
-  panic("Operator delete (placement) -implement");
+    // TODO
+    panic("Operator delete (placement) -implement");
 }
-void operator delete[] (void *p, void *q) noexcept
+void operator delete[](void *p, void *q) noexcept
 {
-  // TODO
-  panic("Operator delete[] (placement) -implement");
+    // TODO
+    panic("Operator delete[] (placement) -implement");
 }
 
 #ifdef HOSTED
-extern "C"
-{
+extern "C" {
 
 void *__wrap_malloc(size_t sz)
 {
-  return _malloc(sz);
+    return _malloc(sz);
 }
 
 void *__wrap_realloc(void *p, size_t sz)
 {
-  return _realloc(p, sz);
+    return _realloc(p, sz);
 }
 
 void __wrap_free(void *p)
 {
-  return _free(p);
+    return _free(p);
 }
-
 }
 #endif
 

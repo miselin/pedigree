@@ -17,13 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
-#include <Log.h>
-#include <Debugger.h>
 #include "IrqManager.h"
+#include <Debugger.h>
 #include <LockGuard.h>
+#include <Log.h>
+#include <compiler.h>
 
-namespace __pedigree_hosted {}; // In case it doesn't exist yet.
+namespace __pedigree_hosted
+{
+};  // In case it doesn't exist yet.
 using namespace __pedigree_hosted;
 
 #include <signal.h>
@@ -41,32 +43,34 @@ void HostedIrqManager::tick()
 
 bool HostedIrqManager::control(uint8_t irq, ControlCode code, size_t argument)
 {
-  return true;
+    return true;
 }
 
-irq_id_t HostedIrqManager::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
+irq_id_t HostedIrqManager::registerIsaIrqHandler(
+    uint8_t irq, IrqHandler *handler, bool bEdge)
 {
-  if (UNLIKELY(irq >= 16))
-    return 0;
+    if (UNLIKELY(irq >= 16))
+        return 0;
 
-  // Save the IrqHandler
-  m_Handler[irq].pushBack(handler);
+    // Save the IrqHandler
+    m_Handler[irq].pushBack(handler);
 
-  return irqToSignal[irq];
+    return irqToSignal[irq];
 }
 
-irq_id_t HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
+irq_id_t
+HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 {
-  if (UNLIKELY(!pDevice))
-    return 0;
-  irq_id_t irq = pDevice->getInterruptNumber();
-  if (UNLIKELY(irq >= 16))
-    return 0;
+    if (UNLIKELY(!pDevice))
+        return 0;
+    irq_id_t irq = pDevice->getInterruptNumber();
+    if (UNLIKELY(irq >= 16))
+        return 0;
 
-  // Save the IrqHandler
-  m_Handler[irq].pushBack(handler);
+    // Save the IrqHandler
+    m_Handler[irq].pushBack(handler);
 
-  return irqToSignal[irq];
+    return irqToSignal[irq];
 }
 
 void HostedIrqManager::acknowledgeIrq(irq_id_t Id)
@@ -75,63 +79,61 @@ void HostedIrqManager::acknowledgeIrq(irq_id_t Id)
 
 void HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandler *handler)
 {
-  size_t irq = signalToIrq[Id];
+    size_t irq = signalToIrq[Id];
 
-  // Remove the handler
-  for(List<IrqHandler*>::Iterator it = m_Handler[irq].begin();
-      it != m_Handler[irq].end();
-      it++)
-  {
-    if(*it == handler)
+    // Remove the handler
+    for (List<IrqHandler *>::Iterator it = m_Handler[irq].begin();
+         it != m_Handler[irq].end(); it++)
     {
-        m_Handler[irq].erase(it);
-        return;
+        if (*it == handler)
+        {
+            m_Handler[irq].erase(it);
+            return;
+        }
     }
-  }
 }
 
 bool HostedIrqManager::initialise()
 {
-  // Register the interrupts
-  InterruptManager &IntManager = InterruptManager::instance();
-  if (IntManager.registerInterruptHandler(SIGUSR1, this) == false)
-    return false;
-  if (IntManager.registerInterruptHandler(SIGUSR2, this) == false)
-    return false;
+    // Register the interrupts
+    InterruptManager &IntManager = InterruptManager::instance();
+    if (IntManager.registerInterruptHandler(SIGUSR1, this) == false)
+        return false;
+    if (IntManager.registerInterruptHandler(SIGUSR2, this) == false)
+        return false;
 
-  irqToSignal[0] = SIGUSR1;
-  irqToSignal[1] = SIGUSR2;
+    irqToSignal[0] = SIGUSR1;
+    irqToSignal[1] = SIGUSR2;
 
-  signalToIrq[SIGUSR1] = 0;
-  signalToIrq[SIGUSR2] = 1;
+    signalToIrq[SIGUSR1] = 0;
+    signalToIrq[SIGUSR2] = 1;
 
-  return true;
+    return true;
 }
 
 HostedIrqManager::HostedIrqManager() : m_Lock(false)
 {
-  for(size_t i = 0; i < 2; i++)
-  {
-    m_Handler[i].clear();
-  }
+    for (size_t i = 0; i < 2; i++)
+    {
+        m_Handler[i].clear();
+    }
 }
 
 void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
 {
-  size_t irq = signalToIrq[interruptNumber];
+    size_t irq = signalToIrq[interruptNumber];
 
-  // Call the irq handler, if any
-  if (LIKELY(m_Handler[irq].count() != 0))
-  {
-    for(List<IrqHandler*>::Iterator it = m_Handler[irq].begin();
-        it != m_Handler[irq].end();
-        it++)
+    // Call the irq handler, if any
+    if (LIKELY(m_Handler[irq].count() != 0))
     {
-        (*it)->irq(irq, state);
+        for (List<IrqHandler *>::Iterator it = m_Handler[irq].begin();
+             it != m_Handler[irq].end(); it++)
+        {
+            (*it)->irq(irq, state);
+        }
     }
-  }
-  else
-  {
-    NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
-  }
+    else
+    {
+        NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
+    }
 }

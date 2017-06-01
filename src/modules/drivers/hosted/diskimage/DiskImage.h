@@ -26,7 +26,7 @@
 /** Loads a disk image as a usable disk device. */
 class DiskImage : public Disk
 {
-public:
+    public:
     DiskImage() : Disk(), m_pBase(0), m_nSize(0), m_Cache()
     {
     }
@@ -60,7 +60,7 @@ public:
 
     virtual void unpin(uint64_t location);
 
-private:
+    private:
     void *m_pBase;
     size_t m_nSize;
 

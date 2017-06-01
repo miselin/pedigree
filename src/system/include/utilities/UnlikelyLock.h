@@ -20,8 +20,8 @@
 #ifndef UNLIKELY_LOCK_H
 #define UNLIKELY_LOCK_H
 
-#include <process/Mutex.h>
 #include <process/ConditionVariable.h>
+#include <process/Mutex.h>
 
 /** \file UnlikelyLock.h
     \author James Molloy
@@ -33,16 +33,17 @@
     concurrently, but when locked, all threads must exit and never reenter.
 
     This is implemented as a simple counting semaphore that starts at zero. Any
-    thread can acquire by adding one to the semaphore. If a thread discovers that the
-    semaphore was over a threshold (100000), it decrements again and returns false.
+    thread can acquire by adding one to the semaphore. If a thread discovers
+   that the semaphore was over a threshold (100000), it decrements again and
+   returns false.
 
-    Thus, the lock can be acquired by adding 100000 to the atomic member, and waiting until
-    the atomic member's value drops to exactly 100000, at which point all threads will have
-    exited.
+    Thus, the lock can be acquired by adding 100000 to the atomic member, and
+   waiting until the atomic member's value drops to exactly 100000, at which
+   point all threads will have exited.
 */
 class UnlikelyLock
 {
-public:
+    public:
     UnlikelyLock();
     ~UnlikelyLock();
 
@@ -60,7 +61,7 @@ public:
     /** Releases the lock. */
     void release();
 
-private:
+    private:
     Mutex m_Lock;
     ConditionVariable m_Condition;
 

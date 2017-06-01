@@ -20,60 +20,60 @@
 #ifndef KERNEL_UTILITIES_PAIR_H
 #define KERNEL_UTILITIES_PAIR_H
 
-#include <utilities/template.h>
 #include <processor/types.h>
+#include <utilities/template.h>
 
 /** @addtogroup kernelutilities
  * @{ */
 
-template<class T1, class T2>
+template <class T1, class T2>
 class Pair
 {
     public:
-        Pair() :
-            m_First(), m_Second()
-        {}
-        Pair(const T1 &a, const T2 &b)
-        {
-            m_First = a;
-            m_Second = b;
-        }
+    Pair() : m_First(), m_Second()
+    {
+    }
+    Pair(const T1 &a, const T2 &b)
+    {
+        m_First = a;
+        m_Second = b;
+    }
 
-        T1 first() const
-        {
-            return m_First;
-        }
+    T1 first() const
+    {
+        return m_First;
+    }
 
-        T2 second() const
-        {
-            return m_Second;
-        }
+    T2 second() const
+    {
+        return m_Second;
+    }
 
     private:
-        T1 m_First;
-        T2 m_Second;
+    T1 m_First;
+    T2 m_Second;
 };
 
-template<class T1, class T2>
-bool operator == (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
+template <class T1, class T2>
+bool operator==(const Pair<T1, T2> &left, const Pair<T1, T2> &right)
 {
     return (left.first() == right.first()) && (left.second() == right.second());
 }
 
-template<class T1, class T2>
-bool operator != (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
+template <class T1, class T2>
+bool operator!=(const Pair<T1, T2> &left, const Pair<T1, T2> &right)
 {
     return (left.first() != right.first()) || (left.second() != right.second());
 }
 
-template<class T1, class T2>
-bool operator < (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
+template <class T1, class T2>
+bool operator<(const Pair<T1, T2> &left, const Pair<T1, T2> &right)
 {
-    if(left.first() < right.first())
+    if (left.first() < right.first())
     {
         return true;
     }
-    else if(right.first() < left.first())
+    else if (right.first() < left.first())
     {
         return false;
     }
@@ -81,26 +81,26 @@ bool operator < (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
     return left.second() < right.second();
 }
 
-template<class T1, class T2>
-bool operator <= (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
+template <class T1, class T2>
+bool operator<=(const Pair<T1, T2> &left, const Pair<T1, T2> &right)
 {
     return !(right < left);
 }
 
-template<class T1, class T2>
-bool operator > (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
+template <class T1, class T2>
+bool operator>(const Pair<T1, T2> &left, const Pair<T1, T2> &right)
 {
     return right < left;
 }
 
-template<class T1, class T2>
-bool operator >= (const Pair<T1, T2>& left, const Pair<T1, T2>& right)
+template <class T1, class T2>
+bool operator>=(const Pair<T1, T2> &left, const Pair<T1, T2> &right)
 {
     return !(left < right);
 }
 
-template<typename T1, typename T2>
-Pair<T1,T2> makePair(T1 a, T2 b)
+template <typename T1, typename T2>
+Pair<T1, T2> makePair(T1 a, T2 b)
 {
     return Pair<T1, T2>(a, b);
 }

@@ -20,26 +20,26 @@
 #ifndef SYSCALL_NUMBERS_H
 #define SYSCALL_NUMBERS_H
 
-#define NATIVE_USERSPACE_TO_KERNEL      1
+#define NATIVE_USERSPACE_TO_KERNEL 1
 
-#define IPC_CREATE_STANDARD_MESSAGE             2
-#define IPC_CREATE_SHARED_MESSAGE               3
-#define IPC_GET_SHARED_REGION                   4
-#define IPC_DESTROY_MESSAGE                     5
-#define IPC_SEND_IPC                            6
-#define IPC_RECV_PHASE1                         7
-#define IPC_RECV_PHASE2                         8
-#define IPC_CREATE_ENDPOINT                     9
-#define IPC_REMOVE_ENDPOINT                     10
-#define IPC_GET_ENDPOINT                        11
+#define IPC_CREATE_STANDARD_MESSAGE 2
+#define IPC_CREATE_SHARED_MESSAGE 3
+#define IPC_GET_SHARED_REGION 4
+#define IPC_DESTROY_MESSAGE 5
+#define IPC_SEND_IPC 6
+#define IPC_RECV_PHASE1 7
+#define IPC_RECV_PHASE2 8
+#define IPC_CREATE_ENDPOINT 9
+#define IPC_REMOVE_ENDPOINT 10
+#define IPC_GET_ENDPOINT 11
 
 // "New" native API.
-#define NATIVE_REGISTER_OBJECT              0x1000
-#define NATIVE_UNREGISTER_OBJECT            0x1001
+#define NATIVE_REGISTER_OBJECT 0x1000
+#define NATIVE_UNREGISTER_OBJECT 0x1001
 
-#define NATIVE_CALL                         0x2000
+#define NATIVE_CALL 0x2000
 
 /** Native API class unique identifiers */
-#define NATIVE_GUID_CONFIG                  0x00000001
+#define NATIVE_GUID_CONFIG 0x00000001
 
 #endif

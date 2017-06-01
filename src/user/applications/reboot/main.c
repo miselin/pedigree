@@ -22,7 +22,7 @@
 
 int main(void)
 {
-    //printf("Rebooting Pedigree...\n");
+    // printf("Rebooting Pedigree...\n");
     if (reboot(0) != 0)
     {
         perror("reboot failed");

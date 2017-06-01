@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,13 +18,12 @@
  */
 
 #include "MappingCommand.h"
-#include <utilities/utility.h>
+#include <processor/PhysicalMemoryManager.h>
 #include <processor/Processor.h>
 #include <processor/VirtualAddressSpace.h>
-#include <processor/PhysicalMemoryManager.h>
+#include <utilities/utility.h>
 
-MappingCommand::MappingCommand()
-    : DebuggerCommand()
+MappingCommand::MappingCommand() : DebuggerCommand()
 {
 }
 
@@ -33,11 +31,14 @@ MappingCommand::~MappingCommand()
 {
 }
 
-void MappingCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void MappingCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool MappingCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool MappingCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
     // If we see just "mapping", no parameters were matched.
     uintptr_t address = 0;
@@ -62,12 +63,14 @@ bool MappingCommand::execute(const HugeStaticString &input, HugeStaticString &ou
         return true;
     }
 
-    VirtualAddressSpace &thisVa = Processor::information().getVirtualAddressSpace();
-    VirtualAddressSpace &kernelVa = VirtualAddressSpace::getKernelAddressSpace();
+    VirtualAddressSpace &thisVa =
+        Processor::information().getVirtualAddressSpace();
+    VirtualAddressSpace &kernelVa =
+        VirtualAddressSpace::getKernelAddressSpace();
 
-    address &= ~(PhysicalMemoryManager::getPageSize()-1);
+    address &= ~(PhysicalMemoryManager::getPageSize() - 1);
 
-    void *vAddr = reinterpret_cast<void*>(address);
+    void *vAddr = reinterpret_cast<void *>(address);
 
     output = "0x";
     output.append(address, 16);

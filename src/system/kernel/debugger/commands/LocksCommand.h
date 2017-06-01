@@ -43,11 +43,11 @@
 /**
  * Traces lock allocations.
  */
-class LocksCommand : public DebuggerCommand,
-                     public Scrollable
+class LocksCommand : public DebuggerCommand, public Scrollable
 {
     friend class Spinlock;
-public:
+
+    public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -66,8 +66,10 @@ public:
     /**
      * Execute the command with the given screen.
      */
-    bool execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen);
-  
+    bool execute(
+        const HugeStaticString &input, HugeStaticString &output,
+        InterruptState &state, DebuggerIO *screen);
+
     /**
      * Returns the string representation of this command.
      */
@@ -84,16 +86,18 @@ public:
      */
     void setFatal();
 
-    bool lockAttempted(const Spinlock *pLock, size_t nCpu=~0U, bool intState=false);
-    bool lockAcquired(const Spinlock *pLock, size_t nCpu=~0U, bool intState=false);
-    bool lockReleased(const Spinlock *pLock, size_t nCpu=~0U);
+    bool lockAttempted(
+        const Spinlock *pLock, size_t nCpu = ~0U, bool intState = false);
+    bool lockAcquired(
+        const Spinlock *pLock, size_t nCpu = ~0U, bool intState = false);
+    bool lockReleased(const Spinlock *pLock, size_t nCpu = ~0U);
 
     /**
      * Notifies the command that a core is about to reschedule.
      *
      * Note: NO locks should be held across a reschedule.
      */
-    bool checkSchedule(size_t nCpu=~0U);
+    bool checkSchedule(size_t nCpu = ~0U);
 
     /**
      * Notifies the command that we'd like to lock the given lock, allowing
@@ -101,17 +105,20 @@ public:
      * dependency inversion. This should be called after an acquire() fails,
      * as it may have undesirable overhead for the "perfect" case.
      */
-    bool checkState(const Spinlock *pLock, size_t nCpu=~0U);
+    bool checkState(const Spinlock *pLock, size_t nCpu = ~0U);
 
     // Scrollable interface.
-    virtual const char *getLine1(size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-    virtual const char *getLine2(size_t index, size_t &colOffset, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour) ;
+    virtual const char *getLine1(
+        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
+    virtual const char *getLine2(
+        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
+        DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
 
-protected:
+    protected:
     void clearFatal();
 
-private:
+    private:
     enum State
     {
         /// The lock is about to be attempted.
@@ -126,7 +133,7 @@ private:
 
     const char *stateName(State s)
     {
-        switch(s)
+        switch (s)
         {
             case Attempted:
                 return "attempted";

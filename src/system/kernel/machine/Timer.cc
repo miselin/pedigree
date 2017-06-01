@@ -22,6 +22,7 @@
 
 Time::Timestamp Timer::getUnixTimestamp()
 {
-  return Time::Conversion::toUnix(getSecond(), getMinute(), getHour(),
-    getDayOfMonth(), getMonth(), getYear());
+    return Time::Conversion::toUnix(
+        getSecond(), getMinute(), getHour(), getDayOfMonth(), getMonth(),
+        getYear());
 }

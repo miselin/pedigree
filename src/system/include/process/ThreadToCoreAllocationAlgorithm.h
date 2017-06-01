@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,27 +20,29 @@
 #ifndef _THREAD_TO_CORE_ALLOCATION_ALGORITHM_H
 #define _THREAD_TO_CORE_ALLOCATION_ALGORITHM_H
 
-#include <process/Thread.h>
 #include <process/PerProcessorScheduler.h>
+#include <process/Thread.h>
 
 /// \todo Document.
 
 class ThreadToCoreAllocationAlgorithm
 {
     public:
-        ThreadToCoreAllocationAlgorithm()
-        {}
-        
-        virtual ~ThreadToCoreAllocationAlgorithm()
-        {}
-        
-        virtual bool initialise(List<PerProcessorScheduler*> &procList) = 0;
-        
-        virtual PerProcessorScheduler* allocateThread(Thread *pThread) = 0;
-        
-        virtual void threadRemoved(Thread *pThread)
-        {}
+    ThreadToCoreAllocationAlgorithm()
+    {
+    }
+
+    virtual ~ThreadToCoreAllocationAlgorithm()
+    {
+    }
+
+    virtual bool initialise(List<PerProcessorScheduler *> &procList) = 0;
+
+    virtual PerProcessorScheduler *allocateThread(Thread *pThread) = 0;
+
+    virtual void threadRemoved(Thread *pThread)
+    {
+    }
 };
 
 #endif
-

@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_X64_STATE_H
 #define KERNEL_PROCESSOR_X64_STATE_H
 
+#include <Log.h>
 #include <compiler.h>
 #include <processor/types.h>
-#include <Log.h>
 
 /** @addtogroup kernelprocessorx64
  * @{ */
@@ -30,10 +30,11 @@
 /** x64 Interrupt State */
 class X64InterruptState
 {
-  friend class X64ProcessorState;
-  friend class X64InterruptManager;
-  friend class PageFaultHandler;
-  public:
+    friend class X64ProcessorState;
+    friend class X64InterruptManager;
+    friend class PageFaultHandler;
+
+    public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -64,20 +65,20 @@ class X64InterruptState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Set a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\param[in] value the new value for the register*/
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \param[in] value the new value for the register*/
     void setRegister(size_t index, uintptr_t value);
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -97,11 +98,12 @@ class X64InterruptState
      *\param[in] flags the new flags */
     inline void setFlags(uint64_t flags);
 
-    /** Construct a dummy interruptstate on the stack given in 'state', which when executed will 
-     *  set the processor to 'state'. */
-    static X64InterruptState *construct(class X64ProcessorState &state, bool userMode);
+    /** Construct a dummy interruptstate on the stack given in 'state', which
+     * when executed will set the processor to 'state'. */
+    static X64InterruptState *
+    construct(class X64ProcessorState &state, bool userMode);
 
-  private:
+    private:
     /** The default constructor
      *\note NOT implemented */
     X64InterruptState();
@@ -110,7 +112,7 @@ class X64InterruptState
     X64InterruptState(const X64InterruptState &);
     /** The assignement operator
      *\note NOT implemented */
-    X64InterruptState &operator = (const X64InterruptState &);
+    X64InterruptState &operator=(const X64InterruptState &);
     /** The destructor
      *\note NOT implemented */
     ~X64InterruptState();
@@ -164,9 +166,10 @@ class X64InterruptState
 /** x64 Syscall State */
 class X64SyscallState
 {
-  friend class X64ProcessorState;
-  friend class X64SyscallManager;
-  public:
+    friend class X64ProcessorState;
+    friend class X64SyscallManager;
+
+    public:
     //
     // General Interface (InterruptState, SyscallState & ProcessorState)
     //
@@ -197,16 +200,16 @@ class X64SyscallState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -223,7 +226,7 @@ class X64SyscallState
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
-  public:
+    public:
     /** The R15 general purpose register */
     uint64_t m_R15;
     /** The R14 general purpose register */
@@ -240,12 +243,14 @@ class X64SyscallState
     uint64_t m_R8;
     /** The base-pointer */
     uint64_t m_Rbp;
-  public:
+
+    public:
     /** The RSI general purpose register */
     uint64_t m_Rsi;
     /** The RDI general purpose register */
     uint64_t m_Rdi;
-  private:
+
+    private:
     /** The RDX general purpose register */
     uint64_t m_Rdx;
     /** The RBX general purpose register */
@@ -263,7 +268,7 @@ class X64SyscallState
 /** x64 ProcessorState */
 class X64ProcessorState
 {
-  public:
+    public:
     /** Default constructor initializes everything with 0 */
     inline X64ProcessorState();
     /** Copy-constructor */
@@ -275,13 +280,13 @@ class X64ProcessorState
      *\param[in] x reference to the SyscallState object */
     inline X64ProcessorState(const X64SyscallState &);
     /** Assignment operator */
-    inline X64ProcessorState &operator = (const X64ProcessorState &);
+    inline X64ProcessorState &operator=(const X64ProcessorState &);
     /** Assignment from InterruptState
      *\param[in] reference to the InterruptState */
-    inline X64ProcessorState &operator = (const X64InterruptState &);
+    inline X64ProcessorState &operator=(const X64InterruptState &);
     /** Assignment from SyscallState
      *\param[in] reference to the SyscallState */
-    inline X64ProcessorState &operator = (const X64SyscallState &);
+    inline X64ProcessorState &operator=(const X64SyscallState &);
     /** Destructor does nothing */
     inline ~X64ProcessorState();
 
@@ -349,18 +354,18 @@ class X64ProcessorState
 /** x64 SchedulerState */
 class X64SchedulerState
 {
-public:
-    uint64_t r8,r9,r10,r11,r12,r13,r14,r15;
+    public:
+    uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
     uint64_t rbx;
     uint64_t rbp;
     uint64_t rsp;
     uint64_t rip;
-    
+
     // bit 0: Has FPU
     // bit 1: Used SSE
     uint32_t flags;
-    
-    uint8_t x87FPU_MMX_XMM_MXCSR_State[512+16] __attribute__((aligned(16)));
+
+    uint8_t x87FPU_MMX_XMM_MXCSR_State[512 + 16] __attribute__((aligned(16)));
 };
 
 /** @} */
@@ -370,210 +375,224 @@ public:
 //
 uintptr_t X64InterruptState::getStackPointer() const
 {
-  return m_Rsp;
+    return m_Rsp;
 }
 void X64InterruptState::setStackPointer(uintptr_t stackPointer)
 {
-  m_Rsp = stackPointer;
+    m_Rsp = stackPointer;
 }
 uintptr_t X64InterruptState::getInstructionPointer() const
 {
-  return m_Rip;
+    return m_Rip;
 }
 void X64InterruptState::setInstructionPointer(uintptr_t instructionPointer)
 {
-  m_Rip = instructionPointer;
+    m_Rip = instructionPointer;
 }
 uintptr_t X64InterruptState::getBasePointer() const
 {
-  return m_Rbp;
+    return m_Rbp;
 }
 void X64InterruptState::setBasePointer(uintptr_t basePointer)
 {
-  m_Rbp = basePointer;
+    m_Rbp = basePointer;
 }
 size_t X64InterruptState::getRegisterSize(size_t index) const
 {
-  return 8;
+    return 8;
 }
 
 bool X64InterruptState::kernelMode() const
 {
-  return (m_Cs == 0x08);
+    return (m_Cs == 0x08);
 }
 size_t X64InterruptState::getInterruptNumber() const
 {
-  return m_IntNumber;
+    return m_IntNumber;
 }
 
 uint64_t X64InterruptState::getFlags() const
 {
-  return m_Rflags;
+    return m_Rflags;
 }
 void X64InterruptState::setFlags(uint64_t flags)
 {
-  m_Rflags = flags;
+    m_Rflags = flags;
 }
 
 uintptr_t X64SyscallState::getStackPointer() const
 {
-  return m_Rsp;
+    return m_Rsp;
 }
 void X64SyscallState::setStackPointer(uintptr_t stackPointer)
 {
-  m_Rsp = stackPointer;
+    m_Rsp = stackPointer;
 }
 uintptr_t X64SyscallState::getInstructionPointer() const
 {
-  return m_RipRcx;
+    return m_RipRcx;
 }
 void X64SyscallState::setInstructionPointer(uintptr_t instructionPointer)
 {
-  m_RipRcx = instructionPointer;
+    m_RipRcx = instructionPointer;
 }
 uintptr_t X64SyscallState::getBasePointer() const
 {
-  return m_Rbp;
+    return m_Rbp;
 }
 void X64SyscallState::setBasePointer(uintptr_t basePointer)
 {
-  m_Rbp = basePointer;
+    m_Rbp = basePointer;
 }
 size_t X64SyscallState::getRegisterSize(size_t index) const
 {
-  return 8;
+    return 8;
 }
 
 size_t X64SyscallState::getSyscallService() const
 {
-  return ((m_Rax >> 16) & 0xFFFF);
+    return ((m_Rax >> 16) & 0xFFFF);
 }
 size_t X64SyscallState::getSyscallNumber() const
 {
-  return (m_Rax & 0xFFFF);
+    return (m_Rax & 0xFFFF);
 }
 uintptr_t X64SyscallState::getSyscallParameter(size_t n) const
 {
-  switch (n)
-  {
-    case 0: return m_Rbx;
-    case 1: return m_Rdx;
-    case 2: return m_Rsi;
-    case 3: return m_Rdi;
-    case 4: return m_R8;
-    case 5: return m_R9;
+    switch (n)
+    {
+        case 0:
+            return m_Rbx;
+        case 1:
+            return m_Rdx;
+        case 2:
+            return m_Rsi;
+        case 3:
+            return m_Rdi;
+        case 4:
+            return m_R8;
+        case 5:
+            return m_R9;
 
-    // redirection for linux syscall parameters
-    case 6: return m_Rdi;
-    case 7: return m_Rsi;
-    case 8: return m_Rdx;
-    case 9: return m_R10;
-    case 10: return m_R8;
-    case 11: return m_R9;
+        // redirection for linux syscall parameters
+        case 6:
+            return m_Rdi;
+        case 7:
+            return m_Rsi;
+        case 8:
+            return m_Rdx;
+        case 9:
+            return m_R10;
+        case 10:
+            return m_R8;
+        case 11:
+            return m_R9;
 
-    default:
-      WARNING("Bad syscall parameter requested: " << Dec << n);
-      return 0;
-  }
+        default:
+            WARNING("Bad syscall parameter requested: " << Dec << n);
+            return 0;
+    }
 }
 void X64SyscallState::setSyscallReturnValue(uintptr_t val)
 {
-  m_Rax = val;
+    m_Rax = val;
 }
 void X64SyscallState::setSyscallErrno(uintptr_t val)
 {
-  m_Rbx = val;
+    m_Rbx = val;
 }
 
-
 X64ProcessorState::X64ProcessorState()
-  : r15(), r14(), r13(), r12(), r11(), r10(), r9(), r8(), rbp(), rsi(), rdi(),
-    rdx(), rcx(), rbx(), rax(), rip(), rflags(), rsp()
+    : r15(), r14(), r13(), r12(), r11(), r10(), r9(), r8(), rbp(), rsi(), rdi(),
+      rdx(), rcx(), rbx(), rax(), rip(), rflags(), rsp()
 {
 }
 X64ProcessorState::X64ProcessorState(const X64ProcessorState &x)
-  : r15(x.r15), r14(x.r14), r13(x.r13), r12(x.r12), r11(x.r11), r10(x.r10), r9(x.r9), r8(x.r8),
-    rbp(x.rbp), rsi(x.rsi), rdi(x.rdi), rdx(x.rdx), rcx(x.rcx), rbx(x.rbx), rax(x.rax), rip(x.rip),
-    rflags(x.rflags), rsp(x.rsp)
+    : r15(x.r15), r14(x.r14), r13(x.r13), r12(x.r12), r11(x.r11), r10(x.r10),
+      r9(x.r9), r8(x.r8), rbp(x.rbp), rsi(x.rsi), rdi(x.rdi), rdx(x.rdx),
+      rcx(x.rcx), rbx(x.rbx), rax(x.rax), rip(x.rip), rflags(x.rflags),
+      rsp(x.rsp)
 {
 }
 X64ProcessorState::X64ProcessorState(const X64InterruptState &x)
-  : r15(x.m_R15), r14(x.m_R14), r13(x.m_R13), r12(x.m_R12), r11(x.m_R11), r10(x.m_R10), r9(x.m_R9),
-    r8(x.m_R8), rbp(x.m_Rbp), rsi(x.m_Rsi), rdi(x.m_Rdi), rdx(x.m_Rdx), rcx(x.m_Rcx), rbx(x.m_Rbx),
-    rax(x.m_Rax), rip(x.m_Rip), rflags(x.m_Rflags), rsp(x.m_Rsp)
+    : r15(x.m_R15), r14(x.m_R14), r13(x.m_R13), r12(x.m_R12), r11(x.m_R11),
+      r10(x.m_R10), r9(x.m_R9), r8(x.m_R8), rbp(x.m_Rbp), rsi(x.m_Rsi),
+      rdi(x.m_Rdi), rdx(x.m_Rdx), rcx(x.m_Rcx), rbx(x.m_Rbx), rax(x.m_Rax),
+      rip(x.m_Rip), rflags(x.m_Rflags), rsp(x.m_Rsp)
 {
 }
 X64ProcessorState::X64ProcessorState(const X64SyscallState &x)
-  : r15(x.m_R15), r14(x.m_R14), r13(x.m_R13), r12(x.m_R12), r11(x.m_RFlagsR11), r10(x.m_R10), r9(x.m_R9),
-    r8(x.m_R8), rbp(x.m_Rbp), rsi(x.m_Rsi), rdi(x.m_Rdi), rdx(x.m_Rdx), rcx(x.m_RipRcx), rbx(x.m_Rbx),
-    rax(x.m_Rax), rip(x.m_RipRcx), rflags(x.m_RFlagsR11), rsp(x.m_Rsp)
+    : r15(x.m_R15), r14(x.m_R14), r13(x.m_R13), r12(x.m_R12),
+      r11(x.m_RFlagsR11), r10(x.m_R10), r9(x.m_R9), r8(x.m_R8), rbp(x.m_Rbp),
+      rsi(x.m_Rsi), rdi(x.m_Rdi), rdx(x.m_Rdx), rcx(x.m_RipRcx), rbx(x.m_Rbx),
+      rax(x.m_Rax), rip(x.m_RipRcx), rflags(x.m_RFlagsR11), rsp(x.m_Rsp)
 {
 }
-X64ProcessorState &X64ProcessorState::operator = (const X64ProcessorState &x)
+X64ProcessorState &X64ProcessorState::operator=(const X64ProcessorState &x)
 {
-  r15 = x.r15;
-  r14 = x.r14;
-  r13 = x.r13;
-  r12 = x.r12;
-  r11 = x.r11;
-  r10 = x.r10;
-  r9 = x.r9;
-  r8 = x.r8;
-  rbp = x.rbp;
-  rsi = x.rsi;
-  rdi = x.rdi;
-  rdx = x.rdx;
-  rcx = x.rcx;
-  rbx = x.rbx;
-  rax = x.rax;
-  rip = x.rip;
-  rflags = x.rflags;
-  rsp = x.rsp;
-  return *this;
+    r15 = x.r15;
+    r14 = x.r14;
+    r13 = x.r13;
+    r12 = x.r12;
+    r11 = x.r11;
+    r10 = x.r10;
+    r9 = x.r9;
+    r8 = x.r8;
+    rbp = x.rbp;
+    rsi = x.rsi;
+    rdi = x.rdi;
+    rdx = x.rdx;
+    rcx = x.rcx;
+    rbx = x.rbx;
+    rax = x.rax;
+    rip = x.rip;
+    rflags = x.rflags;
+    rsp = x.rsp;
+    return *this;
 }
-X64ProcessorState &X64ProcessorState::operator = (const X64InterruptState &x)
+X64ProcessorState &X64ProcessorState::operator=(const X64InterruptState &x)
 {
-  r15 = x.m_R15;
-  r14 = x.m_R14;
-  r13 = x.m_R13;
-  r12 = x.m_R12;
-  r11 = x.m_R11;
-  r10 = x.m_R10;
-  r9 = x.m_R9;
-  r8 = x.m_R8;
-  rbp = x.m_Rbp;
-  rsi = x.m_Rsi;
-  rdi = x.m_Rdi;
-  rdx = x.m_Rdx;
-  rcx = x.m_Rcx;
-  rbx = x.m_Rbx;
-  rax = x.m_Rax;
-  rip = x.m_Rip;
-  rflags = x.m_Rflags;
-  rsp = x.m_Rsp;
-  return *this;
+    r15 = x.m_R15;
+    r14 = x.m_R14;
+    r13 = x.m_R13;
+    r12 = x.m_R12;
+    r11 = x.m_R11;
+    r10 = x.m_R10;
+    r9 = x.m_R9;
+    r8 = x.m_R8;
+    rbp = x.m_Rbp;
+    rsi = x.m_Rsi;
+    rdi = x.m_Rdi;
+    rdx = x.m_Rdx;
+    rcx = x.m_Rcx;
+    rbx = x.m_Rbx;
+    rax = x.m_Rax;
+    rip = x.m_Rip;
+    rflags = x.m_Rflags;
+    rsp = x.m_Rsp;
+    return *this;
 }
-X64ProcessorState &X64ProcessorState::operator = (const X64SyscallState &x)
+X64ProcessorState &X64ProcessorState::operator=(const X64SyscallState &x)
 {
-  r15 = x.m_R15;
-  r14 = x.m_R14;
-  r13 = x.m_R13;
-  r12 = x.m_R12;
-  r11 = x.m_RFlagsR11;
-  r10 = x.m_R10;
-  r9 = x.m_R9;
-  r8 = x.m_R8;
-  rbp = x.m_Rbp;
-  rsi = x.m_Rsi;
-  rdi = x.m_Rdi;
-  rdx = x.m_Rdx;
-  rcx = x.m_RipRcx;
-  rbx = x.m_Rbx;
-  rax = x.m_Rax;
-  rip = x.m_RipRcx;
-  rflags = x.m_RFlagsR11;
-  rsp = x.m_Rsp;
-  return *this;
+    r15 = x.m_R15;
+    r14 = x.m_R14;
+    r13 = x.m_R13;
+    r12 = x.m_R12;
+    r11 = x.m_RFlagsR11;
+    r10 = x.m_R10;
+    r9 = x.m_R9;
+    r8 = x.m_R8;
+    rbp = x.m_Rbp;
+    rsi = x.m_Rsi;
+    rdi = x.m_Rdi;
+    rdx = x.m_Rdx;
+    rcx = x.m_RipRcx;
+    rbx = x.m_Rbx;
+    rax = x.m_Rax;
+    rip = x.m_RipRcx;
+    rflags = x.m_RFlagsR11;
+    rsp = x.m_Rsp;
+    return *this;
 }
 X64ProcessorState::~X64ProcessorState()
 {
@@ -581,27 +600,27 @@ X64ProcessorState::~X64ProcessorState()
 
 uintptr_t X64ProcessorState::getStackPointer() const
 {
-  return rsp;
+    return rsp;
 }
 void X64ProcessorState::setStackPointer(uintptr_t stackPointer)
 {
-  rsp = stackPointer;
+    rsp = stackPointer;
 }
 uintptr_t X64ProcessorState::getInstructionPointer() const
 {
-  return rip;
+    return rip;
 }
 void X64ProcessorState::setInstructionPointer(uintptr_t instructionPointer)
 {
-  rip = instructionPointer;
+    rip = instructionPointer;
 }
 uintptr_t X64ProcessorState::getBasePointer() const
 {
-  return rbp;
+    return rbp;
 }
 void X64ProcessorState::setBasePointer(uintptr_t basePointer)
 {
-  rbp = basePointer;
+    rbp = basePointer;
 }
 
 #endif

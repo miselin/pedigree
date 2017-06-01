@@ -17,29 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <panic.h>
-#include <LockGuard.h>
-#include <utilities/StaticString.h>
 #include "InterruptManager.h"
+#include <LockGuard.h>
+#include <panic.h>
+#include <utilities/StaticString.h>
 #if defined(DEBUGGER)
 #include <Debugger.h>
 #endif
 
 #ifdef THREADS
-#include <process/Process.h>
 #include <Subsystem.h>
+#include <process/Process.h>
 #endif
 
-namespace __pedigree_hosted {};
+namespace __pedigree_hosted
+{
+};
 using namespace __pedigree_hosted;
 
-#include <stdio.h>
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
 
 namespace __pedigree_interrupt_manager_cc
 {
-    #include <string.h>
+#include <string.h>
 }
 
 HostedInterruptManager HostedInterruptManager::m_Instance;
@@ -49,8 +51,8 @@ InterruptManager &InterruptManager::instance()
     return HostedInterruptManager::instance();
 }
 
-bool HostedInterruptManager::registerInterruptHandler(size_t nInterruptNumber,
-        InterruptHandler *pHandler)
+bool HostedInterruptManager::registerInterruptHandler(
+    size_t nInterruptNumber, InterruptHandler *pHandler)
 {
     // Lock the class until the end of the function
     LockGuard<Spinlock> lock(m_Lock);
@@ -71,8 +73,8 @@ bool HostedInterruptManager::registerInterruptHandler(size_t nInterruptNumber,
 
 #if defined(DEBUGGER)
 
-bool HostedInterruptManager::registerInterruptHandlerDebugger(size_t nInterruptNumber,
-        InterruptHandler *pHandler)
+bool HostedInterruptManager::registerInterruptHandlerDebugger(
+    size_t nInterruptNumber, InterruptHandler *pHandler)
 {
     // Lock the class until the end of the function
     LockGuard<Spinlock> lock(m_Lock);
@@ -146,8 +148,8 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
         panic("shutdown failed");
     }
 
-    // Were we running in the kernel, or user space?
-    // User space processes have a subsystem, kernel ones do not.
+// Were we running in the kernel, or user space?
+// User space processes have a subsystem, kernel ones do not.
 #ifdef THREADS
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
@@ -171,13 +173,14 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
     if (LIKELY(nIntNumber != SIGTRAP))
     {
         // TODO:: Check for debugger initialisation.
-        // TODO: register dump, maybe a breakpoint so the deubbger can take over?
+        // TODO: register dump, maybe a breakpoint so the deubbger can take
+        // over?
         // TODO: Rework this
         // for now just print out the exception name and number
         static LargeStaticString e;
         e.clear();
-        e.append ("Signal #0x");
-        e.append (nIntNumber, 16);
+        e.append("Signal #0x");
+        e.append(nIntNumber, 16);
 #if defined(DEBUGGER)
         Debugger::instance().start(interruptState, e);
 #else
@@ -197,9 +200,9 @@ static void handler(int which, siginfo_t *info, void *ptr)
 
 void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
 {
-    if(!Processor::getInterrupts())
+    if (!Processor::getInterrupts())
     {
-        if(which == SIGUSR1 || which == SIGUSR2)
+        if (which == SIGUSR1 || which == SIGUSR2)
         {
             FATAL_NOLOCK("interrupts disabled but interrupts are firing");
         }
@@ -215,7 +218,7 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
     interrupt(state);
 
     // Update return signal mask.
-    ucontext_t *ctx = reinterpret_cast<ucontext_t*>(meta);
+    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(meta);
     sigprocmask(0, 0, &ctx->uc_sigmask);
 }
 
@@ -234,8 +237,7 @@ void HostedInterruptManager::initialiseProcessor()
     }
 }
 
-HostedInterruptManager::HostedInterruptManager()
-    : m_Lock()
+HostedInterruptManager::HostedInterruptManager() : m_Lock()
 {
     // Initialise the pointers to the pHandler
     for (size_t i = 0; i < MAX_SIGNAL; i++)

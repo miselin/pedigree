@@ -20,44 +20,50 @@
 #ifndef ATA_ATA_CONTROLLER_H
 #define ATA_ATA_CONTROLLER_H
 
-#include <processor/types.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <machine/Controller.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <utilities/RequestQueue.h>
-#include <machine/IrqHandler.h>
 #include "AtaController.h"
 #include "AtaDisk.h"
+#include <machine/Controller.h>
+#include <machine/Device.h>
+#include <machine/Disk.h>
+#include <machine/IrqHandler.h>
+#include <processor/IoBase.h>
+#include <processor/IoPort.h>
+#include <processor/types.h>
+#include <utilities/RequestQueue.h>
 
 /** The controller for up to two AtaDisks. This uses a background thread
  * and a request queue. */
-class IsaAtaController : public AtaController /* public Controller, public RequestQueue, public IrqHandler */
+class IsaAtaController
+    : public AtaController /* public Controller, public RequestQueue, public
+                              IrqHandler */
 {
-public:
-  IsaAtaController(Controller *pDev, int nController = 0);
-  virtual ~IsaAtaController();
+    public:
+    IsaAtaController(Controller *pDev, int nController = 0);
+    virtual ~IsaAtaController();
 
-  virtual void getName(String &str)
-  {
-      TinyStaticString s;
-      s.clear();
-      s += "isa-ata-";
-      s.append(m_nController);
-      str = String(static_cast<const char*>(s));
-  }
+    virtual void getName(String &str)
+    {
+        TinyStaticString s;
+        s.clear();
+        s += "isa-ata-";
+        s.append(m_nController);
+        str = String(static_cast<const char *>(s));
+    }
 
-  virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
+    virtual bool sendCommand(
+        size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
 
-  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
-                                  uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
+    virtual uint64_t executeRequest(
+        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+        uint64_t p6, uint64_t p7, uint64_t p8);
 
-  // IRQ handler callback.
-  virtual bool irq(irq_id_t number, InterruptState &state);
-private:
-  IsaAtaController(const IsaAtaController&);
-  void operator =(const IsaAtaController&);
+    // IRQ handler callback.
+    virtual bool irq(irq_id_t number, InterruptState &state);
+
+    private:
+    IsaAtaController(const IsaAtaController &);
+    void operator=(const IsaAtaController &);
 };
 
 #endif

@@ -18,22 +18,22 @@
  */
 
 #include <fcntl.h>
-#include <sys/klog.h>
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/fb.h>
-#include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sys/klog.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include <native/graphics/Graphics.h>
 
 #include "pedigree_fb.h"
 
-Framebuffer::Framebuffer() : m_pFramebuffer(0), m_FramebufferSize(0),
-    m_Format(), m_Width(0), m_Height(0), m_Fb(-1),
-    m_bStoredMode(false), m_StoredMode()
+Framebuffer::Framebuffer()
+    : m_pFramebuffer(0), m_FramebufferSize(0), m_Format(), m_Width(0),
+      m_Height(0), m_Fb(-1), m_bStoredMode(false), m_StoredMode()
 {
 }
 
@@ -57,7 +57,7 @@ bool Framebuffer::initialise()
 {
     // Grab a framebuffer to use.
     m_Fb = open("/dev/fb", O_RDWR);
-    if(m_Fb < 0)
+    if (m_Fb < 0)
     {
         klog(LOG_INFO, "libfb: no framebuffer device");
         fprintf(stderr, "libfb: couldn't open framebuffer device");
@@ -75,7 +75,7 @@ void Framebuffer::storeMode()
     // Grab the current mode so we can restore it if we die.
     pedigree_fb_mode current_mode;
     int result = ioctl(m_Fb, PEDIGREE_FB_GETMODE, &current_mode);
-    if(result == 0)
+    if (result == 0)
     {
         m_bStoredMode = true;
         m_StoredMode = current_mode;
@@ -88,8 +88,7 @@ void Framebuffer::restoreMode()
         return;
 
     // Restore old graphics mode.
-    pedigree_fb_modeset old_mode = {m_StoredMode.width,
-                                    m_StoredMode.height,
+    pedigree_fb_modeset old_mode = {m_StoredMode.width, m_StoredMode.height,
                                     m_StoredMode.depth};
     ioctl(m_Fb, PEDIGREE_FB_SETMODE, &old_mode);
 
@@ -105,22 +104,28 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
     // Can we set the graphics mode we want?
     pedigree_fb_modeset mode = {desiredW, desiredH, desiredBpp};
     int result = ioctl(m_Fb, PEDIGREE_FB_SETMODE, &mode);
-    if(result < 0)
+    if (result < 0)
     {
         // No! Bad!
-        /// \note Mode set logic will try and find a mode in a lower colour depth
+        /// \note Mode set logic will try and find a mode in a lower colour
+        /// depth
         ///       if the desired one cannot be set.
         klog(LOG_INFO, "libfb: can't set the desired mode");
-        fprintf(stderr, "libfb: could not set desired mode (%ux%u) in any colour depth.\n", mode.width, mode.height);
+        fprintf(
+            stderr,
+            "libfb: could not set desired mode (%ux%u) in any colour depth.\n",
+            mode.width, mode.height);
         return EXIT_FAILURE;
     }
 
     pedigree_fb_mode set_mode;
     result = ioctl(m_Fb, PEDIGREE_FB_GETMODE, &set_mode);
-    if(result < 0)
+    if (result < 0)
     {
         klog(LOG_INFO, "libfb: can't get mode info");
-        fprintf(stderr, "libfb: could not get mode information after setting mode.\n");
+        fprintf(
+            stderr,
+            "libfb: could not get mode information after setting mode.\n");
 
         // Back to text.
         memset(&mode, 0, sizeof(mode));
@@ -132,21 +137,25 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
     m_Height = set_mode.height;
 
     m_Format = CAIRO_FORMAT_ARGB32;
-    if(set_mode.format == PedigreeGraphics::Bits24_Rgb)
+    if (set_mode.format == PedigreeGraphics::Bits24_Rgb)
     {
-        if(set_mode.bytes_per_pixel != 4)
+        if (set_mode.bytes_per_pixel != 4)
         {
-            fprintf(stderr, "libfb: error: incompatible framebuffer format (bytes per pixel)\n");
+            fprintf(
+                stderr, "libfb: error: incompatible framebuffer format (bytes "
+                        "per pixel)\n");
             return EXIT_FAILURE;
         }
     }
-    else if(set_mode.format == PedigreeGraphics::Bits16_Rgb565)
+    else if (set_mode.format == PedigreeGraphics::Bits16_Rgb565)
     {
         m_Format = CAIRO_FORMAT_RGB16_565;
     }
-    else if(set_mode.format > PedigreeGraphics::Bits32_Rgb)
+    else if (set_mode.format > PedigreeGraphics::Bits32_Rgb)
     {
-        fprintf(stderr, "libfb: error: incompatible framebuffer format (possibly BGR or similar)\n");
+        fprintf(
+            stderr, "libfb: error: incompatible framebuffer format (possibly "
+                    "BGR or similar)\n");
         return EXIT_FAILURE;
     }
 
@@ -155,15 +164,11 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
     // Map the framebuffer in to our address space.
     klog(LOG_INFO, "Mapping /dev/fb in (sz=%x)...", stride * set_mode.height);
     m_pFramebuffer = mmap(
-        0,
-        stride * set_mode.height,
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED,
-        m_Fb,
+        0, stride * set_mode.height, PROT_READ | PROT_WRITE, MAP_SHARED, m_Fb,
         0);
     klog(LOG_INFO, "Got %p...", m_pFramebuffer);
 
-    if(m_pFramebuffer == MAP_FAILED)
+    if (m_pFramebuffer == MAP_FAILED)
     {
         klog(LOG_CRIT, "libfb: couldn't map framebuffer into address space");
         return EXIT_FAILURE;

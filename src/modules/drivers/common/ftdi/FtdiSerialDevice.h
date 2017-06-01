@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,32 +20,36 @@
 #ifndef FTDISERIALDEVICE_H
 #define FTDISERIALDEVICE_H
 
+#include <machine/Serial.h>
 #include <processor/types.h>
 #include <usb/UsbDevice.h>
-#include <machine/Serial.h>
 
 class FtdiSerialDevice : public UsbDevice, public Serial
 {
     public:
-        FtdiSerialDevice(UsbDevice *dev);
-        virtual ~FtdiSerialDevice();
+    FtdiSerialDevice(UsbDevice *dev);
+    virtual ~FtdiSerialDevice();
 
-        virtual void initialiseDriver();
+    virtual void initialiseDriver();
 
-        virtual void setBase(uintptr_t nBaseAddr){}
-        virtual char read();
-        virtual char readNonBlock(){return 0;}
-        virtual void write(char c);
+    virtual void setBase(uintptr_t nBaseAddr)
+    {
+    }
+    virtual char read();
+    virtual char readNonBlock()
+    {
+        return 0;
+    }
+    virtual void write(char c);
 
-        virtual void getName(String &str)
-        {
-            str = "USB FTDI Serial Device";
-        }
+    virtual void getName(String &str)
+    {
+        str = "USB FTDI Serial Device";
+    }
 
     private:
-
-        Endpoint *m_pInEndpoint;
-        Endpoint *m_pOutEndpoint;
+    Endpoint *m_pInEndpoint;
+    Endpoint *m_pOutEndpoint;
 };
 
 #endif

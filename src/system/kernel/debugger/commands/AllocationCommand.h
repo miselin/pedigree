@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,8 +22,8 @@
 
 #include <DebuggerCommand.h>
 #include <Scrollable.h>
-#include <utilities/Vector.h>
 #include <utilities/Tree.h>
+#include <utilities/Vector.h>
 
 /** @addtogroup kerneldebuggercommands
  * @{ */
@@ -34,10 +33,9 @@
 /**
  * Traces page allocations.
  */
-class AllocationCommand : public DebuggerCommand,
-                          public Scrollable
+class AllocationCommand : public DebuggerCommand, public Scrollable
 {
-public:
+    public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -56,8 +54,10 @@ public:
     /**
      * Execute the command with the given screen.
      */
-    bool execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen);
-  
+    bool execute(
+        const HugeStaticString &input, HugeStaticString &output,
+        InterruptState &state, DebuggerIO *screen);
+
     /**
      * Returns the string representation of this command.
      */
@@ -69,22 +69,29 @@ public:
     void allocatePage(physical_uintptr_t page);
     void freePage(physical_uintptr_t page);
     void postProcess();
-  
+
     bool isMallocing()
-    {return m_bAllocating;}
+    {
+        return m_bAllocating;
+    }
     void setMallocing(bool b)
-    {m_bAllocating = b;}
+    {
+        m_bAllocating = b;
+    }
 
     void checkpoint();
 
     //
     // Scrollable interface
     //
-    virtual const char *getLine1(size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-    virtual const char *getLine2(size_t index, size_t &colOffset, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
+    virtual const char *getLine1(
+        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
+    virtual const char *getLine2(
+        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
+        DebuggerIO::Colour &bgColour);
     virtual size_t getLineCount();
-  
-private:
+
+    private:
     struct Allocation
     {
         physical_uintptr_t page;
@@ -92,11 +99,11 @@ private:
         size_t n;
         size_t pid;
     };
-    Vector<Allocation*> m_Allocations;
-    Vector<void*> m_Frees;
+    Vector<Allocation *> m_Allocations;
+    Vector<void *> m_Frees;
     size_t m_nLines;
-    Tree<size_t, Allocation*> m_Tree;
-    Tree<size_t, Allocation*>::Iterator m_It;
+    Tree<size_t, Allocation *> m_Tree;
+    Tree<size_t, Allocation *>::Iterator m_It;
     size_t m_nIdx;
     bool m_bAllocating;
 };

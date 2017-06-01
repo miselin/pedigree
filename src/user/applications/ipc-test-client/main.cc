@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
 #include <native/ipc/Ipc.h>
+#include <stdio.h>
 
 #include <sys/klog.h>
 
@@ -35,17 +35,17 @@ int main(int argc, char *argv[])
     // Create a "Hello World!" message.
     IpcMessage *pMessage = new IpcMessage();
 
-    if(!pMessage)
+    if (!pMessage)
         klog(LOG_ERR, "operator new returned null");
 
-    if(!pMessage->initialise())
+    if (!pMessage->initialise())
     {
         printf("Message couldn't be initialised.\n");
         return 1;
     }
 
     char *pBuffer = reinterpret_cast<char *>(pMessage->getBuffer());
-    if(!pBuffer)
+    if (!pBuffer)
     {
         printf("Message creation failed.\n");
         return 1;

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -29,7 +28,8 @@
 
 Loopback Loopback::m_Instance;
 
-static uint8_t g_LocalIpv6[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+static uint8_t g_LocalIpv6[16] = {0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 1};
 
 Loopback::Loopback() : Network()
 {
@@ -46,7 +46,7 @@ Loopback::Loopback() : Network()
     m_StationInfo.nIpv6Addresses = 1;
 }
 
-Loopback::Loopback(Network* pDev) : Network(pDev)
+Loopback::Loopback(Network *pDev) : Network(pDev)
 {
     setSpecificType(String("Loopback-card"));
     NetworkStack::instance().registerDevice(this);
@@ -67,7 +67,7 @@ Loopback::~Loopback()
 
 bool Loopback::send(size_t nBytes, uintptr_t buffer)
 {
-    if(nBytes > 0xffff)
+    if (nBytes > 0xffff)
     {
         ERROR("Loopback: Attempt to send a packet with size > 64 KB");
         return false;

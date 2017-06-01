@@ -20,9 +20,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "sqlite3/sqlite3.h"
 #include <processor/types.h>
 #include <utilities/String.h>
-#include "sqlite3/sqlite3.h"
 
 extern sqlite3 *g_pSqlite;
 
@@ -32,26 +32,34 @@ extern sqlite3 *g_pSqlite;
  */
 class Config
 {
-public:
+    public:
     class Result
     {
-    public:
+        public:
         Result(char **ppResult, size_t rows, size_t cols, char *error, int ret);
         ~Result();
 
         /** Returns true if the result is valid, false if there was an error. */
         bool succeeded()
-        {return m_Ret == 0;}
+        {
+            return m_Ret == 0;
+        }
         /** Returns the error message. */
         char *errorMessage()
-        {return m_pError;}
+        {
+            return m_pError;
+        }
 
         /** Returns the number of rows. */
         size_t rows()
-        {return m_Rows;}
+        {
+            return m_Rows;
+        }
         /** Returns the number of columns. */
         size_t cols()
-        {return m_Cols;}
+        {
+            return m_Cols;
+        }
 
         /** Returns the name of the n'th column. */
         String getColumnName(size_t n);
@@ -70,29 +78,31 @@ public:
         /** Returns the value in the column called 'str', in boolean form. */
         bool getBool(size_t row, const char *str);
 
-    private:
+        private:
         Result(const Result &);
-        Result &operator = (const Result &);
+        Result &operator=(const Result &);
 
         size_t lookupCol(const char *str);
 
         char **m_ppResult;
         size_t m_Rows, m_Cols;
-        char  *m_pError;
-        int    m_Ret;
+        char *m_pError;
+        int m_Ret;
     };
 
     Config();
     ~Config();
 
     static Config &instance()
-    {return m_Instance;}
+    {
+        return m_Instance;
+    }
 
     /** Performs a select/update/insert/whatever query on the database.
         \return A Result* object, which should be deleted after use, or 0. */
     Result *query(const char *sql);
 
-private:
+    private:
     static Config m_Instance;
 };
 

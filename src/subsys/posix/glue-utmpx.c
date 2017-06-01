@@ -17,24 +17,25 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #include "newlib.h"
 
-#include <sys/errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/errno.h>
 #include <utmpx.h>
 
 static FILE *utmp = 0;
 
-#define CHECK_UTMP_FILE(badval) do { \
-        if (!utmp) \
-        { \
+#define CHECK_UTMP_FILE(badval)            \
+    do                                     \
+    {                                      \
+        if (!utmp)                         \
+        {                                  \
             utmp = fopen(UTMP_FILE, "r+"); \
-            if (!utmp) \
-                return badval; \
-        } \
-    } while(0)
+            if (!utmp)                     \
+                return badval;             \
+        }                                  \
+    } while (0)
 
 /**
  * endutxent is a notification from the application that it is done with utmp.
@@ -59,7 +60,7 @@ struct utmpx *getutxent(void)
 
     size_t n = fread(&ut, sizeof(struct utmpx), 1, utmp);
     if (!n)
-        return 0; // EOF
+        return 0;  // EOF
 
     return &ut;
 }
@@ -94,7 +95,7 @@ struct utmpx *getutxid(const struct utmpx *ut)
                 break;
             }
         }
-    } while(p);
+    } while (p);
 
     return p;
 }
@@ -124,7 +125,7 @@ struct utmpx *getutxline(const struct utmpx *ut)
                     break;
             }
         }
-    } while(p);
+    } while (p);
 
     return p;
 }

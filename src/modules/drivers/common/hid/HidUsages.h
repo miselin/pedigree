@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,48 +24,48 @@
 
 namespace HidUsagePages
 {
-    /// A list of HID usage pages
-    enum HidUsagePages
-    {
-        Undefined       = 0x00,
-        GenericDesktop  = 0x01,
-        Simulation      = 0x02,
-        VR              = 0x03,
-        Sport           = 0x04,
-        Game            = 0x05,
-        GenericDevice   = 0x06,
-        Keyboard        = 0x07,
-        Led             = 0x08,
-        Button          = 0x09,
-        Ordinal         = 0x0a,
-        Telephony       = 0x0b,
-        Consumer        = 0x0c,
-        Digitizer       = 0x0d,
-        Pid             = 0x0f,
-        Unicode         = 0x10
-    };
+/// A list of HID usage pages
+enum HidUsagePages
+{
+    Undefined = 0x00,
+    GenericDesktop = 0x01,
+    Simulation = 0x02,
+    VR = 0x03,
+    Sport = 0x04,
+    Game = 0x05,
+    GenericDevice = 0x06,
+    Keyboard = 0x07,
+    Led = 0x08,
+    Button = 0x09,
+    Ordinal = 0x0a,
+    Telephony = 0x0b,
+    Consumer = 0x0c,
+    Digitizer = 0x0d,
+    Pid = 0x0f,
+    Unicode = 0x10
+};
 };
 
 namespace HidUsages
 {
-    /// A list of HID usages
-    enum HidUsages
-    {
-        // Generic Desktop Page
-        Pointer     = 0x01,
-        Mouse       = 0x02,
-        Joystick    = 0x04,
-        GamePad     = 0x05,
-        Keyboard    = 0x06,
-        Keypad      = 0x07,
-        X           = 0x30,
-        Y           = 0x31,
-        Z           = 0x32,
-        Rx          = 0x33,
-        Ry          = 0x34,
-        Rz          = 0x35,
-        Wheel       = 0x38,
-    };
+/// A list of HID usages
+enum HidUsages
+{
+    // Generic Desktop Page
+    Pointer = 0x01,
+    Mouse = 0x02,
+    Joystick = 0x04,
+    GamePad = 0x05,
+    Keyboard = 0x06,
+    Keypad = 0x07,
+    X = 0x30,
+    Y = 0x31,
+    Z = 0x32,
+    Rx = 0x33,
+    Ry = 0x34,
+    Rz = 0x35,
+    Wheel = 0x38,
+};
 };
 
 #endif

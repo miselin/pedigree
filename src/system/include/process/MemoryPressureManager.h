@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef MEMORY_PRESSURE_MANAGER_H
 #define MEMORY_PRESSURE_MANAGER_H
 
@@ -26,7 +25,7 @@
 #include <utilities/String.h>
 
 /** Maximum memory pressure handler priority (one list per priority level). */
-#define MAX_MEMPRESSURE_PRIORITY    16
+#define MAX_MEMPRESSURE_PRIORITY 16
 
 /**
  * MemoryPressureHandler: interface for memory pressure handlers.
@@ -34,17 +33,21 @@
 class MemoryPressureHandler
 {
     public:
-        MemoryPressureHandler() {}
-        virtual ~MemoryPressureHandler() {}
+    MemoryPressureHandler()
+    {
+    }
+    virtual ~MemoryPressureHandler()
+    {
+    }
 
-        virtual const String getMemoryPressureDescription() = 0;
+    virtual const String getMemoryPressureDescription() = 0;
 
-        /**
-         * Called by MemoryPressureManager to request this handler to take
-         * action to reduce memory pressure.
-         * \return true if pages were released, false otherwise.
-         */
-        virtual bool compact() = 0;
+    /**
+     * Called by MemoryPressureManager to request this handler to take
+     * action to reduce memory pressure.
+     * \return true if pages were released, false otherwise.
+     */
+    virtual bool compact() = 0;
 };
 
 /**
@@ -57,58 +60,61 @@ class MemoryPressureHandler
 class MemoryPressureManager
 {
     public:
-        MemoryPressureManager() : m_Handlers() {}
-        ~MemoryPressureManager() {}
+    MemoryPressureManager() : m_Handlers()
+    {
+    }
+    ~MemoryPressureManager()
+    {
+    }
 
-        const static size_t HighestPriority = 0;
-        const static size_t HighPriority = MAX_MEMPRESSURE_PRIORITY / 3;
-        const static size_t MediumPriority = MAX_MEMPRESSURE_PRIORITY / 2;
-        const static size_t LowPriority = (MAX_MEMPRESSURE_PRIORITY * 2) / 3;
-        const static size_t LowestPriority = MAX_MEMPRESSURE_PRIORITY - 1;
+    const static size_t HighestPriority = 0;
+    const static size_t HighPriority = MAX_MEMPRESSURE_PRIORITY / 3;
+    const static size_t MediumPriority = MAX_MEMPRESSURE_PRIORITY / 2;
+    const static size_t LowPriority = (MAX_MEMPRESSURE_PRIORITY * 2) / 3;
+    const static size_t LowestPriority = MAX_MEMPRESSURE_PRIORITY - 1;
 
-        static MemoryPressureManager &instance()
-        {
-            return m_Instance;
-        }
+    static MemoryPressureManager &instance()
+    {
+        return m_Instance;
+    }
 
-        static size_t getHighWatermark()
-        {
-            // Once the system has only this or less pages free, we begin
-            // doing compacts. We do not want to wait until the system is
-            // actually out of memory, as some compact mechanisms require
-            // allocating memory.
-            return 16;
-        }
+    static size_t getHighWatermark()
+    {
+        // Once the system has only this or less pages free, we begin
+        // doing compacts. We do not want to wait until the system is
+        // actually out of memory, as some compact mechanisms require
+        // allocating memory.
+        return 16;
+    }
 
-        static size_t getLowWatermark()
-        {
-            // Caches can begin voluntarily evicting cache pages at this mark.
-            // Should no action be taken, the system will take over forcefully
-            // at the high water mark.
-            return 32;
-        }
+    static size_t getLowWatermark()
+    {
+        // Caches can begin voluntarily evicting cache pages at this mark.
+        // Should no action be taken, the system will take over forcefully
+        // at the high water mark.
+        return 32;
+    }
 
-        /**
-         * Attempt to alleviate memory pressure by requesting registered
-         * handlers release pages that can be safely released.
-         */
-        bool compact();
+    /**
+     * Attempt to alleviate memory pressure by requesting registered
+     * handlers release pages that can be safely released.
+     */
+    bool compact();
 
-        /**
-         * Register a new handler.
-         */
-        void registerHandler(size_t prio, MemoryPressureHandler *pHandler);
+    /**
+     * Register a new handler.
+     */
+    void registerHandler(size_t prio, MemoryPressureHandler *pHandler);
 
-        /**
-         * Remove a handler.
-         */
-        void removeHandler(MemoryPressureHandler *pHandler);
+    /**
+     * Remove a handler.
+     */
+    void removeHandler(MemoryPressureHandler *pHandler);
 
     private:
-        static MemoryPressureManager m_Instance;
+    static MemoryPressureManager m_Instance;
 
-        List<MemoryPressureHandler *> m_Handlers[MAX_MEMPRESSURE_PRIORITY];
+    List<MemoryPressureHandler *> m_Handlers[MAX_MEMPRESSURE_PRIORITY];
 };
-
 
 #endif

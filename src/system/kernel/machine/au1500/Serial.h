@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,7 +24,7 @@
 
 /**
  * Implements a driver for the Serial connection of the malta's UART.
- * 
+ *
  * Base for UART registers: 0x11100000
  * Register offsets:
  * RXDATA:   0x00  Receive char fifo.
@@ -43,29 +42,29 @@
  */
 class Au1500Serial : public Serial
 {
-  public:
+    public:
     Au1500Serial();
     virtual ~Au1500Serial();
-  
+
     virtual void setBase(uintptr_t nBaseAddr);
     virtual char read();
     virtual char readNonBlock();
     virtual void write(char c);
-    
+
     struct serial
     {
-      uint32_t rxdata;
-      uint32_t txdata;
-      uint32_t inten;
-      uint32_t intcause;
-      uint32_t fifoctrl;
-      uint32_t linectrl;
-      uint32_t mdmstat;
-      uint32_t autoflow;
-      uint32_t clkdiv;
-      uint32_t enable;
+        uint32_t rxdata;
+        uint32_t txdata;
+        uint32_t inten;
+        uint32_t intcause;
+        uint32_t fifoctrl;
+        uint32_t linectrl;
+        uint32_t mdmstat;
+        uint32_t autoflow;
+        uint32_t clkdiv;
+        uint32_t enable;
     } PACKED;
-    
+
     /**
      * The serial device's registers.
      */

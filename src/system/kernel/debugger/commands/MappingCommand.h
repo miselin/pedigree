@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -32,7 +31,7 @@
  */
 class MappingCommand : public DebuggerCommand
 {
-public:
+    public:
     /**
      * Default constructor - zeroes stuff.
      */
@@ -51,8 +50,10 @@ public:
     /**
      * Execute the command with the given screen.
      */
-    bool execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen);
-  
+    bool execute(
+        const HugeStaticString &input, HugeStaticString &output,
+        InterruptState &state, DebuggerIO *screen);
+
     /**
      * Returns the string representation of this command.
      */
@@ -60,7 +61,6 @@ public:
     {
         return NormalStaticString("mapping");
     }
-
 };
 
 /** @} */

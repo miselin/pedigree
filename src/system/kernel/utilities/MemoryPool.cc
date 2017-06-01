@@ -17,25 +17,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
-#include <utilities/MemoryPool.h>
-#include <processor/VirtualAddressSpace.h>
 #include <LockGuard.h>
 #include <Log.h>
+#include <processor/Processor.h>
+#include <processor/VirtualAddressSpace.h>
+#include <utilities/MemoryPool.h>
 
 static void map(uintptr_t location)
 {
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
 #ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &currva = Processor::information().getVirtualAddressSpace();
+    VirtualAddressSpace &currva =
+        Processor::information().getVirtualAddressSpace();
     Processor::switchAddressSpace(va);
 #endif
 
     void *page = page_align(reinterpret_cast<void *>(location));
     if (!va.isMapped(page))
     {
-        physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-        va.map(phys, page, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+        physical_uintptr_t phys =
+            PhysicalMemoryManager::instance().allocatePage();
+        va.map(
+            phys, page,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
     }
 
 #ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
@@ -47,7 +51,8 @@ static bool unmap(uintptr_t location)
 {
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
 #ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &currva = Processor::information().getVirtualAddressSpace();
+    VirtualAddressSpace &currva =
+        Processor::information().getVirtualAddressSpace();
     Processor::switchAddressSpace(va);
 #endif
 
@@ -70,8 +75,8 @@ static bool unmap(uintptr_t location)
     return result;
 }
 
-MemoryPoolPressureHandler::MemoryPoolPressureHandler(MemoryPool *pool) :
-    m_Pool(pool)
+MemoryPoolPressureHandler::MemoryPoolPressureHandler(MemoryPool *pool)
+    : m_Pool(pool)
 {
 }
 
@@ -89,21 +94,25 @@ bool MemoryPoolPressureHandler::compact()
     return m_Pool->trim();
 }
 
-MemoryPool::MemoryPool() :
+MemoryPool::MemoryPool()
+    :
 #ifdef THREADS
-    m_Condition(), m_Lock(),
+      m_Condition(),
+      m_Lock(),
 #endif
-    m_BufferSize(1024), m_BufferCount(0), m_Pool("memory-pool"),
-    m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
+      m_BufferSize(1024), m_BufferCount(0), m_Pool("memory-pool"),
+      m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
 {
 }
 
-MemoryPool::MemoryPool(const char *poolName) :
+MemoryPool::MemoryPool(const char *poolName)
+    :
 #ifdef THREADS
-    m_Condition(), m_Lock(),
+      m_Condition(),
+      m_Lock(),
 #endif
-    m_BufferSize(1024), m_BufferCount(0), m_Pool(poolName),
-    m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
+      m_BufferSize(1024), m_BufferCount(0), m_Pool(poolName),
+      m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
 {
 }
 
@@ -122,49 +131,51 @@ bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
-    if(m_bInitialised)
+    if (m_bInitialised)
         return true;
 
-    if(!poolSize || !bufferSize || (bufferSize > (poolSize * PhysicalMemoryManager::getPageSize())))
+    if (!poolSize || !bufferSize ||
+        (bufferSize > (poolSize * PhysicalMemoryManager::getPageSize())))
         return false;
 
     // Find the next power of two for bufferSize, if it isn't already one
-    if((bufferSize & (bufferSize - 1)))
+    if ((bufferSize & (bufferSize - 1)))
     {
         size_t powerOf2 = 1;
         size_t lg2 = 0;
-        while(powerOf2 < bufferSize)
+        while (powerOf2 < bufferSize)
         {
             powerOf2 <<= 1;
-            lg2 ++;
+            lg2++;
         }
         bufferSize = powerOf2;
     }
 
     m_BufferSize = bufferSize;
 
-    NOTICE("MemoryPool: allocating memory pool '" << m_Pool.name() << "', " << Dec << ((poolSize * 4096) / 1024) << Hex << "K. Buffer size is " << m_BufferSize << ".");
+    NOTICE(
+        "MemoryPool: allocating memory pool '"
+        << m_Pool.name() << "', " << Dec << ((poolSize * 4096) / 1024) << Hex
+        << "K. Buffer size is " << m_BufferSize << ".");
     m_bInitialised = PhysicalMemoryManager::instance().allocateRegion(
-        m_Pool,
-        poolSize,
-        PhysicalMemoryManager::virtualOnly,
-        VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode
-    );
-    if(!m_bInitialised)
+        m_Pool, poolSize, PhysicalMemoryManager::virtualOnly,
+        VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);
+    if (!m_bInitialised)
         return false;
 
     m_BufferCount = (poolSize * 0x1000) / bufferSize;
 
     // Register us as a memory pressure handler, with top priority. We should
     // very easily be able to free pages in most cases.
-    MemoryPressureManager::instance().registerHandler(MemoryPressureManager::HighestPriority, &m_PressureHandler);
+    MemoryPressureManager::instance().registerHandler(
+        MemoryPressureManager::HighestPriority, &m_PressureHandler);
 
     return true;
 }
 
 uintptr_t MemoryPool::allocate()
 {
-    if(!m_bInitialised)
+    if (!m_bInitialised)
         return 0;
 
     return allocateDoer(true);
@@ -172,7 +183,7 @@ uintptr_t MemoryPool::allocate()
 
 uintptr_t MemoryPool::allocateNow()
 {
-    if(!m_bInitialised)
+    if (!m_bInitialised)
         return 0;
 
     return allocateDoer(false);
@@ -239,10 +250,11 @@ void MemoryPool::free(uintptr_t buffer)
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
-    if(!m_bInitialised)
+    if (!m_bInitialised)
         return;
 
-    size_t n = (buffer - reinterpret_cast<uintptr_t>(m_Pool.virtualAddress())) / m_BufferSize;
+    size_t n = (buffer - reinterpret_cast<uintptr_t>(m_Pool.virtualAddress())) /
+               m_BufferSize;
     m_AllocBitmap.clear(n);
 
     ++m_BufferCount;
@@ -264,7 +276,8 @@ bool MemoryPool::trim()
             if (!m_AllocBitmap.test(n))
             {
                 uintptr_t page = poolBase + (n * 0x1000);
-                for (size_t off = 0; off < m_BufferSize; off += PhysicalMemoryManager::getPageSize())
+                for (size_t off = 0; off < m_BufferSize;
+                     off += PhysicalMemoryManager::getPageSize())
                 {
                     if (unmap(page + off))
                         ++nFreed;

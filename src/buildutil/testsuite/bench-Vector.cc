@@ -100,7 +100,8 @@ static void BM_VectorPopFront(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_VectorPopBack(benchmark::State &state)
@@ -124,7 +125,8 @@ static void BM_VectorPopBack(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 // Vector is *not fast* to do huge amounts of insertions/deletions in, so we
@@ -133,5 +135,5 @@ BENCHMARK(BM_VectorPushFront);
 BENCHMARK(BM_VectorPushBack);
 BENCHMARK(BM_VectorReservedPushFront);
 BENCHMARK(BM_VectorReservedPushBack);
-BENCHMARK(BM_VectorPopFront)->Range(8, 8<<8);
-BENCHMARK(BM_VectorPopBack)->Range(8, 8<<8);
+BENCHMARK(BM_VectorPopFront)->Range(8, 8 << 8);
+BENCHMARK(BM_VectorPopBack)->Range(8, 8 << 8);

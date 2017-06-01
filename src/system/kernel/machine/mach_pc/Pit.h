@@ -20,21 +20,23 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_PIT_H
 #define KERNEL_MACHINE_X86_COMMON_PIT_H
 
-#include <processor/IoPort.h>
 #include <machine/IrqManager.h>
 #include <machine/SchedulerTimer.h>
+#include <processor/IoPort.h>
 #include <processor/state.h>
 
 /** @addtogroup kernelmachinex86common
  * @{ */
 
 /** The programmable interval timer implements the SchedulerTimer interface */
-class Pit : public SchedulerTimer,
-            private IrqHandler
+class Pit : public SchedulerTimer, private IrqHandler
 {
-  public:
+    public:
     /** Get the Pit class instance */
-    inline static Pit &instance(){return m_Instance;}
+    inline static Pit &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // SchedulerTimer interface
@@ -44,22 +46,24 @@ class Pit : public SchedulerTimer,
     /** Initialises the class
      *\return true, if successful, false otherwise */
     bool initialise() INITIALISATION_ONLY;
-     /** Uninitialises the class */
+    /** Uninitialises the class */
     void uninitialise();
 
-  protected:
+    protected:
     /** The default constructor */
     Pit() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~Pit(){}
+    inline virtual ~Pit()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     Pit(const Pit &);
     /** The assignment operator
      *\note NOT implemented */
-    Pit &operator = (const Pit &);
+    Pit &operator=(const Pit &);
 
     //
     // IrqHandler interface

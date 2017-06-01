@@ -34,7 +34,8 @@ TEST(PedigreeTime, ToUnixConversion)
 TEST(PedigreeTime, Over32bit)
 {
     // 03:14:07 19 January 2038 - 32-bit signed integer rollover.
-    EXPECT_EQ(Time::Conversion::toUnix(7, 14, 3, 19, 1, 2038), (1ULL << 31ULL) - 1);
+    EXPECT_EQ(
+        Time::Conversion::toUnix(7, 14, 3, 19, 1, 2038), (1ULL << 31ULL) - 1);
     // No longer fits into a 32-bit signed integer.
     EXPECT_EQ(Time::Conversion::toUnix(8, 14, 3, 19, 1, 2038), (1ULL << 31ULL));
 }

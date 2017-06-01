@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,8 @@
 #ifndef KERNEL_MACHINE_PPC_COMMON_DECREMENTER_H
 #define KERNEL_MACHINE_PPC_COMMON_DECREMENTER_H
 
-#include <processor/InterruptHandler.h>
 #include <machine/SchedulerTimer.h>
+#include <processor/InterruptHandler.h>
 #include <processor/state.h>
 
 /** @addtogroup kernelmachineppccommon
@@ -31,10 +30,9 @@
 #define DECREMENTER_PERIOD 100
 
 /** The decrementer timer implements the SchedulerTimer interface */
-class Decrementer : public SchedulerTimer,
-                    private InterruptHandler
+class Decrementer : public SchedulerTimer, private InterruptHandler
 {
-  public:
+    public:
     //
     // SchedulerTimer interface
     //
@@ -43,21 +41,23 @@ class Decrementer : public SchedulerTimer,
     /** Initialises the class
      *\return true, if successful, false otherwise */
     bool initialise() INITIALISATION_ONLY;
-     /** Uninitialises the class */
+    /** Uninitialises the class */
     void uninitialise();
 
     /** The default constructor */
     Decrementer() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~Decrementer(){}
+    inline virtual ~Decrementer()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     Decrementer(const Decrementer &);
     /** The assignment operator
      *\note NOT implemented */
-    Decrementer &operator = (const Decrementer &);
+    Decrementer &operator=(const Decrementer &);
 
     //
     // InterruptHandler interface

@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <unistd.h>
-#include <sys/mman.h>
-#include <signal.h>
 #include <setjmp.h>
+#include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 static int i = 0;
 static char *p = 0;
@@ -41,46 +41,46 @@ static void *adjust_pointer(void *p, ssize_t amt)
 
 static void sigsegv(int s)
 {
-    if(i == -1)
+    if (i == -1)
     {
         fail();
     }
 
-    switch(i)
+    switch (i)
     {
         case 0:
-            {
-                printf("PROT_NONE works, checking read...\n");
-                mprotect(p, 0x1000, PROT_READ);
-                i = -1;
-                volatile char c = *p;
-                i = 0;
-            }
-            break;
+        {
+            printf("PROT_NONE works, checking read...\n");
+            mprotect(p, 0x1000, PROT_READ);
+            i = -1;
+            volatile char c = *p;
+            i = 0;
+        }
+        break;
 
         case 1:
-            {
-                printf("PROT_READ works, checking write...\n");
-                mprotect(p, 0x1000, PROT_WRITE);
-                i = -1;
-                *((volatile char *) p) = 'Y';
-                i = 1;
-                mprotect(p, 0x1000, PROT_NONE);
-            }
-            break;
+        {
+            printf("PROT_READ works, checking write...\n");
+            mprotect(p, 0x1000, PROT_WRITE);
+            i = -1;
+            *((volatile char *) p) = 'Y';
+            i = 1;
+            mprotect(p, 0x1000, PROT_NONE);
+        }
+        break;
 
         case 2:
-            {
-                printf("PROT_WRITE works, checking exec...\n");
-                mprotect(p, 0x1000, PROT_WRITE);
-                i = -1;
-                *((volatile unsigned char *) p) = 0xC3; // ret
-                fn f = (fn) p;
-                mprotect(p, 0x1000, PROT_EXEC);
-                f();
-                i = 2;
-            }
-            break;
+        {
+            printf("PROT_WRITE works, checking exec...\n");
+            mprotect(p, 0x1000, PROT_WRITE);
+            i = -1;
+            *((volatile unsigned char *) p) = 0xC3;  // ret
+            fn f = (fn) p;
+            mprotect(p, 0x1000, PROT_EXEC);
+            f();
+            i = 2;
+        }
+        break;
 
         default:
             printf("Attempting to return to original context...\n");
@@ -115,7 +115,8 @@ void test_mprotect()
 #ifdef SA_NODEFER
     act.sa_flags = SA_NODEFER;
 #else
-    act.sa_flags = 0; // Pedigree doesn't yet have SA_NODEFER (SIGSEGV nests anyway)
+    act.sa_flags =
+        0;  // Pedigree doesn't yet have SA_NODEFER (SIGSEGV nests anyway)
 #endif
     sigaction(SIGSEGV, &act, 0);
 
@@ -142,7 +143,7 @@ void test_mprotect()
     // Check for 100% enclosed.
     mprotect(adjust_pointer(p, -0x1000), 0x12000, PROT_WRITE);
     status("Test B... ");
-    if(setjmp(buf) == 1)
+    if (setjmp(buf) == 1)
         fail();
     *p = 'X';
     p[0x10000 - 1] = 'X';
@@ -152,10 +153,10 @@ void test_mprotect()
     // Check for overlap at beginning.
     mprotect(adjust_pointer(p, -0x1000), 0x5000, PROT_WRITE);
     status("Test C... ");
-    if(setjmp(buf) == 1)
+    if (setjmp(buf) == 1)
         fail();
     *p = 'X';
-    if(setjmp(buf) == 0)
+    if (setjmp(buf) == 0)
     {
         p[0x5001] = 'X';
         fail();
@@ -166,10 +167,10 @@ void test_mprotect()
     // Check for overlap at end.
     mprotect(adjust_pointer(p, 0x5000), 0x6000, PROT_WRITE);
     status("Test D... ");
-    if(setjmp(buf) == 1)
+    if (setjmp(buf) == 1)
         fail();
     p[0x5000] = 'X';
-    if(setjmp(buf) == 0)
+    if (setjmp(buf) == 0)
     {
         *p = 'X';
         fail();
@@ -180,16 +181,16 @@ void test_mprotect()
     // Check middle.
     mprotect(adjust_pointer(p, 0x2000), 0x6000, PROT_WRITE);
     status("Test E... ");
-    if(setjmp(buf) == 1)
+    if (setjmp(buf) == 1)
         fail();
     p[0x2000] = 'X';
-    if(setjmp(buf) == 0)
+    if (setjmp(buf) == 0)
     {
         *p = 'X';
         fail();
     }
 
-    if(setjmp(buf) == 0)
+    if (setjmp(buf) == 0)
     {
         p[0x8001] = 'X';
         fail();

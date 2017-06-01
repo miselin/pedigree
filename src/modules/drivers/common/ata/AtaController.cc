@@ -20,7 +20,8 @@
 #include "AtaController.h"
 #include "AtaDisk.h"
 
-bool AtaController::compareRequests(const RequestQueue::Request &a, const RequestQueue::Request &b)
+bool AtaController::compareRequests(
+    const RequestQueue::Request &a, const RequestQueue::Request &b)
 {
     // Request type, ATA disk, and request location match.
     if (a.p2 != b.p2)

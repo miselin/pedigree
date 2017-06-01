@@ -27,24 +27,30 @@
 
 class MemoryTrapHandler
 {
-public:
-    virtual ~MemoryTrapHandler() {}
+    public:
+    virtual ~MemoryTrapHandler()
+    {
+    }
 
     /** Trap event handler.
         \param address The address of the trap.
-        \param bIsWrite True if the trap was caused by a write, false if by a read.
-        \return True if the trap was handled successfully (and the handler can
-                return), or false if another handler needs to be tried. */
-    virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite) = 0;
+        \param bIsWrite True if the trap was caused by a write, false if by a
+       read. \return True if the trap was handled successfully (and the handler
+       can return), or false if another handler needs to be tried. */
+    virtual bool
+    trap(InterruptState &state, uintptr_t address, bool bIsWrite) = 0;
 };
 
 /** The x86 Page Fault Exception handler. */
 class PageFaultHandler : private InterruptHandler
 {
-public:
+    public:
     /** Get the PageFaultHandler instance
      *  \return the PageFaultHandler instance.  */
-    inline static PageFaultHandler& instance()  {return m_Instance;}
+    inline static PageFaultHandler &instance()
+    {
+        return m_Instance;
+    }
 
     /** Register the PageFaultHandler with the InterruptManager.
      * \return true if sucessful, false otherwise.  */
@@ -52,19 +58,22 @@ public:
 
     /** Registers a trap handler. */
     void registerHandler(MemoryTrapHandler *pHandler)
-      {m_Handlers.pushBack(pHandler);}
+    {
+        m_Handlers.pushBack(pHandler);
+    }
 
     //
     // InterruptHandler interface.
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
-private:
+
+    private:
     /** The default constructor.  */
     PageFaultHandler() INITIALISATION_ONLY;
 
     /**The copy constructor.
      * Note not implemented.  */
-    PageFaultHandler(const PageFaultHandler&);
+    PageFaultHandler(const PageFaultHandler &);
 
     List<MemoryTrapHandler *> m_Handlers;
 

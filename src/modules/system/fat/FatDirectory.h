@@ -21,8 +21,8 @@
 #define FAT_DIRECTORY_H
 
 #include "FatFilesystem.h"
-#include <vfs/Directory.h>
 #include <utilities/Vector.h>
+#include <vfs/Directory.h>
 
 #include "FatFile.h"
 #include "fat.h"
@@ -30,75 +30,86 @@
 /** A File is a file, a directory or a symlink. */
 class FatDirectory : public Directory
 {
-private:
-  /** Copy constructors are hidden - unused! */
-  FatDirectory(const FatDirectory &file);
-  FatDirectory& operator =(const FatDirectory&);
-public:
-  /** Constructor, should be called only by a Filesystem. */
-  FatDirectory(String name, uintptr_t cluster,
-           class FatFilesystem *pFs, File *pParent, FatFileInfo &info,
-           uint32_t dirClus = 0, uint32_t dirOffset = 0);
-  /** Destructor */
-  virtual ~FatDirectory();
+    private:
+    /** Copy constructors are hidden - unused! */
+    FatDirectory(const FatDirectory &file);
+    FatDirectory &operator=(const FatDirectory &);
 
-  uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true)
-  {return 0;}
-  uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true)
-  {return 0;}
+    public:
+    /** Constructor, should be called only by a Filesystem. */
+    FatDirectory(
+        String name, uintptr_t cluster, class FatFilesystem *pFs, File *pParent,
+        FatFileInfo &info, uint32_t dirClus = 0, uint32_t dirOffset = 0);
+    /** Destructor */
+    virtual ~FatDirectory();
 
-  void truncate()
-  {}
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true)
+    {
+        return 0;
+    }
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true)
+    {
+        return 0;
+    }
 
-  /** Reads directory contents into File* cache. */
-  virtual void cacheDirectoryContents();
+    void truncate()
+    {
+    }
 
-  /** Adds a directory entry. */
-  virtual bool addEntry(String filename, File *pFile, size_t type);
-  /** Removes a directory entry. */
-  virtual bool removeEntry(File *pFile);
+    /** Reads directory contents into File* cache. */
+    virtual void cacheDirectoryContents();
 
-  /** Updates inode attributes. */
-  void fileAttributeChanged();
+    /** Adds a directory entry. */
+    virtual bool addEntry(String filename, File *pFile, size_t type);
+    /** Removes a directory entry. */
+    virtual bool removeEntry(File *pFile);
 
-  /** Set the internal cluster (in the case of FAT) */
-  virtual void setInode(uintptr_t inode);
+    /** Updates inode attributes. */
+    void fileAttributeChanged();
 
-  uint32_t getDirCluster()
-  {
-    return m_DirClus;
-  }
-  void setDirCluster(uint32_t custom)
-  {
-    m_DirClus = custom;
-  }
-  uint32_t getDirOffset()
-  {
-    return m_DirOffset;
-  }
-  void setDirOffset(uint32_t custom)
-  {
-    m_DirOffset = custom;
-  }
+    /** Set the internal cluster (in the case of FAT) */
+    virtual void setInode(uintptr_t inode);
 
-  static const String &symlinkSuffix() {
-    static String s(".__sym");
-    return s;
-  }
+    uint32_t getDirCluster()
+    {
+        return m_DirClus;
+    }
+    void setDirCluster(uint32_t custom)
+    {
+        m_DirClus = custom;
+    }
+    uint32_t getDirOffset()
+    {
+        return m_DirOffset;
+    }
+    void setDirOffset(uint32_t custom)
+    {
+        m_DirOffset = custom;
+    }
 
-private:
-  uint32_t m_DirClus;
-  uint32_t m_DirOffset;
+    static const String &symlinkSuffix()
+    {
+        static String s(".__sym");
+        return s;
+    }
 
-  FatType m_Type;
-  uintptr_t m_BlockSize;
-  bool m_bRootDir;
+    private:
+    uint32_t m_DirClus;
+    uint32_t m_DirOffset;
 
-  /** Lock for add/remove/cache operations, so we don't break horribly. */
-  Mutex m_Lock;
+    FatType m_Type;
+    uintptr_t m_BlockSize;
+    bool m_bRootDir;
 
-  /** Number of bytes to iterate over for this directory */
-  uint32_t m_DirBlockSize;
+    /** Lock for add/remove/cache operations, so we don't break horribly. */
+    Mutex m_Lock;
+
+    /** Number of bytes to iterate over for this directory */
+    uint32_t m_DirBlockSize;
 };
 
 #endif

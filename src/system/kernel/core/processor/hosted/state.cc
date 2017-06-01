@@ -19,11 +19,8 @@
 
 #include <processor/state.h>
 
-const char *HostedInterruptStateRegisterName[3] =
-{
-  "state",
-  "extra",
-  "meta",
+const char *HostedInterruptStateRegisterName[3] = {
+    "state", "extra", "meta",
 };
 
 HostedInterruptState::HostedInterruptState() : state(0), which(0)
@@ -36,36 +33,40 @@ HostedInterruptState::~HostedInterruptState()
 
 size_t HostedInterruptState::getRegisterCount() const
 {
-  return 3;
+    return 3;
 }
 processor_register_t HostedInterruptState::getRegister(size_t index) const
 {
-  if (index == 0) return state;
-  if (index == 1) return extra;
-  if (index == 2) return meta;
-  return 0;
+    if (index == 0)
+        return state;
+    if (index == 1)
+        return extra;
+    if (index == 2)
+        return meta;
+    return 0;
 }
 const char *HostedInterruptState::getRegisterName(size_t index) const
 {
-  return HostedInterruptStateRegisterName[index];
+    return HostedInterruptStateRegisterName[index];
 }
 
 size_t HostedSyscallState::getRegisterCount() const
 {
-  return 0;
+    return 0;
 }
 
 processor_register_t HostedSyscallState::getRegister(size_t index) const
 {
-  return 0;
+    return 0;
 }
 
 const char *HostedSyscallState::getRegisterName(size_t index) const
 {
-  return "<no registers>";
+    return "<no registers>";
 }
 
-HostedInterruptState *HostedInterruptState::construct(HostedProcessorState &state, bool userMode)
+HostedInterruptState *
+HostedInterruptState::construct(HostedProcessorState &state, bool userMode)
 {
-  return 0;
+    return 0;
 }

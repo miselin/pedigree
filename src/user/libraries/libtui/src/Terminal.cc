@@ -17,20 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "environment.h"
 #include "Terminal.h"
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include "environment.h"
 #include <errno.h>
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <sys/wait.h>
+#include <fcntl.h>
 #include <pwd.h>
-#include <utmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
 #include <sys/klog.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
+#include <utmp.h>
 
 #include <native/graphics/Graphics.h>
 
@@ -38,10 +38,15 @@
 
 extern PedigreeGraphics::Framebuffer *g_pFramebuffer;
 
-Terminal::Terminal(char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft, size_t offsetTop, rgb_t *pBackground,
-             cairo_t *pCairo, class Widget *pWidget, class Tui *pTui, class Font *pNormalFont, class Font *pBoldFont) :
-    m_pBuffer(0), m_pFramebuffer(0), m_pXterm(0), m_Len(0), m_WriteBufferLen(0), m_bHasPendingRequest(false),
-    m_PendingRequestSz(0), m_Pid(0), m_OffsetLeft(offsetLeft), m_OffsetTop(offsetTop), m_Cancel(0), m_WriteInProgress(0)
+Terminal::Terminal(
+    char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft,
+    size_t offsetTop, rgb_t *pBackground, cairo_t *pCairo,
+    class Widget *pWidget, class Tui *pTui, class Font *pNormalFont,
+    class Font *pBoldFont)
+    : m_pBuffer(0), m_pFramebuffer(0), m_pXterm(0), m_Len(0),
+      m_WriteBufferLen(0), m_bHasPendingRequest(false), m_PendingRequestSz(0),
+      m_Pid(0), m_OffsetLeft(offsetLeft), m_OffsetTop(offsetTop), m_Cancel(0),
+      m_WriteInProgress(0)
 {
     cairo_save(pCairo);
     cairo_set_operator(pCairo, CAIRO_OPERATOR_SOURCE);
@@ -57,11 +62,13 @@ Terminal::Terminal(char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft
     m_pName[255] = 0;
 
 #ifndef NEW_XTERM
-    m_pXterm = new Xterm(0, nWidth, nHeight, m_OffsetLeft, m_OffsetTop, this, pWidget, pTui, pNormalFont, pBoldFont);
+    m_pXterm = new Xterm(
+        0, nWidth, nHeight, m_OffsetLeft, m_OffsetTop, this, pWidget, pTui,
+        pNormalFont, pBoldFont);
 #else
     Display::ScreenMode mode;
     mode.width = nWidth - 1;
-    mode.height = nHeight-offsetTop - 1;
+    mode.height = nHeight - offsetTop - 1;
     mode.pf.mRed = 0xFF;
     mode.pf.mGreen = 0xFF;
     mode.pf.mBlue = 0xFF;
@@ -69,15 +76,16 @@ Terminal::Terminal(char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft
     mode.pf.pGreen = 8;
     mode.pf.pBlue = 0;
     mode.pf.nBpp = 24;
-    mode.pf.nPitch = nWidth*3;
-    m_pXterm = new Vt100(mode, reinterpret_cast<uint8_t*>(m_pBuffer)+nWidth*offsetTop);
+    mode.pf.nPitch = nWidth * 3;
+    m_pXterm = new Vt100(
+        mode, reinterpret_cast<uint8_t *>(m_pBuffer) + nWidth * offsetTop);
 #endif
 }
 
 bool Terminal::initialise()
 {
     m_MasterPty = posix_openpt(O_RDWR | O_NOCTTY);
-    if(m_MasterPty < 0)
+    if (m_MasterPty < 0)
     {
         klog(LOG_INFO, "TUI: Couldn't create terminal: %s", strerror(errno));
         return false;
@@ -127,7 +135,8 @@ bool Terminal::initialise()
         if (n < 0)
         {
             klog(LOG_INFO, "opening %s failed", slavename);
-            klog(LOG_INFO, "opening stdin failed %d %s", errno, strerror(errno));
+            klog(
+                LOG_INFO, "opening stdin failed %d %s", errno, strerror(errno));
         }
 
         // Mark opened slave as our ctty.
@@ -145,18 +154,20 @@ bool Terminal::initialise()
 
         // Program to run.
         const char *prog = pw->pw_shell;
-        if(!prog)
+        if (!prog)
         {
             prog = getenv("SHELL");
-            if(!prog)
+            if (!prog)
             {
                 // Fall back to bash
-                klog(LOG_WARNING, "$SHELL unset, falling back to /applications/bash");
+                klog(
+                    LOG_WARNING,
+                    "$SHELL unset, falling back to /applications/bash");
                 prog = "/applications/bash";
             }
         }
 
-        // Create utmpx entry.
+// Create utmpx entry.
 #ifndef TARGET_LINUX
         /// \todo Clean it up when the child terminates.
         struct utmpx ut;
@@ -175,13 +186,18 @@ bool Terminal::initialise()
 
         // Launch the shell now.
         execl(prog, prog, NULL);
-        klog(LOG_ALERT, "Launching shell failed (next line is the error in errno...)");
+        klog(
+            LOG_ALERT,
+            "Launching shell failed (next line is the error in errno...)");
         klog(LOG_ALERT, "error: %s", strerror(errno));
 
         DirtyRectangle rect;
         write("Couldn't load shell for this terminal... ", rect);
         write(strerror(errno), rect);
-        write("\r\n\r\nYour installation of Pedigree may not be complete, or you may have hit a bug.", rect);
+        write(
+            "\r\n\r\nYour installation of Pedigree may not be complete, or you "
+            "may have hit a bug.",
+            rect);
         redrawAll(rect);
 
         exit(1);
@@ -242,8 +258,8 @@ char Terminal::getFromQueue()
     if (m_Len > 0)
     {
         char c = m_pQueue[0];
-        for (size_t i = 0; i < m_Len-1; i++)
-            m_pQueue[i] = m_pQueue[i+1];
+        for (size_t i = 0; i < m_Len - 1; i++)
+            m_pQueue[i] = m_pQueue[i + 1];
         m_Len--;
         return c;
     }
@@ -262,7 +278,7 @@ void Terminal::write(const char *pStr, DirtyRectangle &rect)
 
     bool bWasAlreadyRunning = m_WriteInProgress;
     m_WriteInProgress = true;
-    //klog(LOG_NOTICE, "Beginning write...");
+    // klog(LOG_NOTICE, "Beginning write...");
     while (!m_Cancel && (*pStr || m_WriteBufferLen))
     {
         // Fill the buffer.
@@ -273,39 +289,43 @@ void Terminal::write(const char *pStr, DirtyRectangle &rect)
             else
                 break;
         }
-        if(m_Cancel) // Check break point from above loop
+        if (m_Cancel)  // Check break point from above loop
             break;
         // Begin UTF-8 -> UTF-32 conversion.
-        /// \todo Add some checking - every successive byte should start with 0b10.
+        /// \todo Add some checking - every successive byte should start with
+        /// 0b10.
         uint32_t utf32;
         size_t nBytes;
-        if ( (m_pWriteBuffer[0] & 0x80) == 0x00 )
+        if ((m_pWriteBuffer[0] & 0x80) == 0x00)
         {
             utf32 = static_cast<uint32_t>(m_pWriteBuffer[0]);
             nBytes = 1;
         }
-        else if ( (m_pWriteBuffer[0] & 0xE0) == 0xC0 )
+        else if ((m_pWriteBuffer[0] & 0xE0) == 0xC0)
         {
-            if (m_WriteBufferLen < 2) return;
-            utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0])&0x1F) << 6) |
-                (static_cast<uint32_t>(m_pWriteBuffer[1])&0x3F);
+            if (m_WriteBufferLen < 2)
+                return;
+            utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0]) & 0x1F) << 6) |
+                    (static_cast<uint32_t>(m_pWriteBuffer[1]) & 0x3F);
             nBytes = 2;
         }
-        else if ( (m_pWriteBuffer[0] & 0xF0) == 0xE0 )
+        else if ((m_pWriteBuffer[0] & 0xF0) == 0xE0)
         {
-            if (m_WriteBufferLen < 3) return;
-            utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0])&0x0F) << 12) |
-                ((static_cast<uint32_t>(m_pWriteBuffer[1])&0x3F) << 6) |
-                (static_cast<uint32_t>(m_pWriteBuffer[2])&0x3F);
+            if (m_WriteBufferLen < 3)
+                return;
+            utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0]) & 0x0F) << 12) |
+                    ((static_cast<uint32_t>(m_pWriteBuffer[1]) & 0x3F) << 6) |
+                    (static_cast<uint32_t>(m_pWriteBuffer[2]) & 0x3F);
             nBytes = 3;
         }
-        else if ( (m_pWriteBuffer[0] & 0xF8) == 0xF0 )
+        else if ((m_pWriteBuffer[0] & 0xF8) == 0xF0)
         {
-            if (m_WriteBufferLen < 4) return;
-            utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0])&0x0F) << 18) |
-                ((static_cast<uint32_t>(m_pWriteBuffer[1])&0x3F) << 12) |
-                ((static_cast<uint32_t>(m_pWriteBuffer[2])&0x3F)<<6) |
-                (static_cast<uint32_t>(m_pWriteBuffer[3])&0x3F);
+            if (m_WriteBufferLen < 4)
+                return;
+            utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0]) & 0x0F) << 18) |
+                    ((static_cast<uint32_t>(m_pWriteBuffer[1]) & 0x3F) << 12) |
+                    ((static_cast<uint32_t>(m_pWriteBuffer[2]) & 0x3F) << 6) |
+                    (static_cast<uint32_t>(m_pWriteBuffer[3]) & 0x3F);
             nBytes = 4;
         }
         else
@@ -314,23 +334,26 @@ void Terminal::write(const char *pStr, DirtyRectangle &rect)
             continue;
         }
 
-        memmove(m_pWriteBuffer, &m_pWriteBuffer[nBytes], 4-nBytes);
+        memmove(m_pWriteBuffer, &m_pWriteBuffer[nBytes], 4 - nBytes);
         m_WriteBufferLen -= nBytes;
 
-        // End UTF-8 -> UTF-32 conversion.
+// End UTF-8 -> UTF-32 conversion.
 #ifndef NEW_XTERM
         m_pXterm->write(utf32, rect);
 #else
-        rect.point(m_OffsetLeft,m_OffsetTop);
-        rect.point(m_pXterm->getCols()*8+m_OffsetLeft, m_pXterm->getRows()*16+m_OffsetTop);
-        m_pXterm->write(static_cast<uint8_t>(utf32&0xFF));
+        rect.point(m_OffsetLeft, m_OffsetTop);
+        rect.point(
+            m_pXterm->getCols() * 8 + m_OffsetLeft,
+            m_pXterm->getRows() * 16 + m_OffsetTop);
+        m_pXterm->write(static_cast<uint8_t>(utf32 & 0xFF));
 #endif
     }
-    //klog(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not ");
+    // klog(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not
+    // ");
 
-    if(!bWasAlreadyRunning)
+    if (!bWasAlreadyRunning)
     {
-        if(m_Cancel)
+        if (m_Cancel)
             m_Cancel = 0;
         m_WriteInProgress = false;
     }
@@ -341,19 +364,19 @@ void Terminal::write(const char *pStr, DirtyRectangle &rect)
 void Terminal::addToQueue(char c, bool bFlush)
 {
     // Don't allow keys to be pressed past the buffer's size
-    if((c != 0) && (m_Len >= 256))
+    if ((c != 0) && (m_Len >= 256))
     {
         return;
     }
-    if((c == 0) && (!m_Len))
+    if ((c == 0) && (!m_Len))
     {
         return;
     }
 
-    if(c)
+    if (c)
         m_pQueue[m_Len++] = c;
 
-    if(bFlush)
+    if (bFlush)
     {
         ssize_t result = ::write(m_MasterPty, m_pQueue, m_Len);
         if (result >= 0)
@@ -373,7 +396,8 @@ void Terminal::addToQueue(char c, bool bFlush)
 void Terminal::setActive(bool b, DirtyRectangle &rect)
 {
     // Force complete redraw
-    // m_pFramebuffer->redraw(0, 0, m_pFramebuffer->getWidth(), m_pFramebuffer->getHeight(), false);
+    // m_pFramebuffer->redraw(0, 0, m_pFramebuffer->getWidth(),
+    // m_pFramebuffer->getHeight(), false);
 
     // if (b)
     //    Syscall::setCurrentBuffer(m_pBuffer);

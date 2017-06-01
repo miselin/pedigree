@@ -17,48 +17,51 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "PosixSubsystem.h"
+#include "errors.h"
 #include <process/Scheduler.h>
-#include <utilities/Tree.h>
-#include <utilities/List.h>
 #include <pthread-syscalls.h>
 #include <syscallError.h>
-#include "errors.h"
-#include "PosixSubsystem.h"
+#include <utilities/List.h>
+#include <utilities/Tree.h>
 
 /// \todo add paths to include from path/to/musl-<vers>/src/internal/futex.h
-#define FUTEX_WAIT      0
-#define FUTEX_WAKE      1
-#define FUTEX_FD        2
-#define FUTEX_REQUEUE       3
-#define FUTEX_CMP_REQUEUE   4
-#define FUTEX_WAKE_OP       5
-#define FUTEX_LOCK_PI       6
-#define FUTEX_UNLOCK_PI     7
-#define FUTEX_TRYLOCK_PI    8
-#define FUTEX_WAIT_BITSET   9
+#define FUTEX_WAIT 0
+#define FUTEX_WAKE 1
+#define FUTEX_FD 2
+#define FUTEX_REQUEUE 3
+#define FUTEX_CMP_REQUEUE 4
+#define FUTEX_WAKE_OP 5
+#define FUTEX_LOCK_PI 6
+#define FUTEX_UNLOCK_PI 7
+#define FUTEX_TRYLOCK_PI 8
+#define FUTEX_WAIT_BITSET 9
 #define FUTEX_PRIVATE 128
 #define FUTEX_CLOCK_REALTIME 256
 
-extern "C"
-{
-    extern void pthread_stub();
-    extern char pthread_stub_end;
+extern "C" {
+extern void pthread_stub();
+extern char pthread_stub_end;
 }
 
 Tree<int *, List<Thread *> *> g_futexes;
 
-int posix_futex(int *uaddr, int futex_op, int val, const struct timespec *timeout)
+int posix_futex(
+    int *uaddr, int futex_op, int val, const struct timespec *timeout)
 {
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if(!pSubsystem)
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return -1;
     }
 
-    PT_NOTICE("futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", " << timeout << ")");
+    PT_NOTICE(
+        "futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", "
+                 << timeout << ")");
 
     if (!(futex_op & FUTEX_PRIVATE))
     {
@@ -67,7 +70,8 @@ int posix_futex(int *uaddr, int futex_op, int val, const struct timespec *timeou
 
     if (futex_op & FUTEX_CLOCK_REALTIME)
     {
-        PT_NOTICE(" -> warning: clock choice (monotonic vs realtime) is not yet supported");
+        PT_NOTICE(" -> warning: clock choice (monotonic vs realtime) is not "
+                  "yet supported");
         futex_op &= ~FUTEX_CLOCK_REALTIME;
     }
 
@@ -148,23 +152,27 @@ int posix_futex(int *uaddr, int futex_op, int val, const struct timespec *timeou
 /**
  * Forcefully registers the given thread with the given PosixSubsystem.
  */
-void pedigree_copy_posix_thread(Thread *origThread, PosixSubsystem *origSubsystem, Thread *newThread, PosixSubsystem *newSubsystem)
+void pedigree_copy_posix_thread(
+    Thread *origThread, PosixSubsystem *origSubsystem, Thread *newThread,
+    PosixSubsystem *newSubsystem)
 {
-    PosixSubsystem::PosixThread *pOldPosixThread = origSubsystem->getThread(origThread->getId());
+    PosixSubsystem::PosixThread *pOldPosixThread =
+        origSubsystem->getThread(origThread->getId());
     if (!pOldPosixThread)
     {
         // Nothing to see here.
         return;
     }
 
-    PosixSubsystem::PosixThread *pNewPosixThread = new PosixSubsystem::PosixThread;
+    PosixSubsystem::PosixThread *pNewPosixThread =
+        new PosixSubsystem::PosixThread;
     pNewPosixThread->pThread = newThread;
     pNewPosixThread->returnValue = 0;
 
     // Copy thread-specific data across.
-    for (Tree<size_t, PosixSubsystem::PosixThreadKey *>::Iterator it = pOldPosixThread->m_ThreadData.begin();
-        it != pOldPosixThread->m_ThreadData.end();
-        ++it)
+    for (Tree<size_t, PosixSubsystem::PosixThreadKey *>::Iterator it =
+             pOldPosixThread->m_ThreadData.begin();
+         it != pOldPosixThread->m_ThreadData.end(); ++it)
     {
         size_t key = it.key();
         PosixSubsystem::PosixThreadKey *data = it.value();
@@ -191,18 +199,23 @@ void pedigree_init_pthreads()
     PT_NOTICE("init_pthreads");
     // Make sure we can write to the trampoline area.
     Processor::information().getVirtualAddressSpace().setFlags(
-            reinterpret_cast<void*> (Event::getTrampoline()),
-            VirtualAddressSpace::Write);
-    MemoryCopy(reinterpret_cast<void*>(Event::getSecondaryTrampoline()), reinterpret_cast<void*>(pthread_stub), (reinterpret_cast<uintptr_t>(&pthread_stub_end) - reinterpret_cast<uintptr_t>(pthread_stub)));
+        reinterpret_cast<void *>(Event::getTrampoline()),
+        VirtualAddressSpace::Write);
+    MemoryCopy(
+        reinterpret_cast<void *>(Event::getSecondaryTrampoline()),
+        reinterpret_cast<void *>(pthread_stub),
+        (reinterpret_cast<uintptr_t>(&pthread_stub_end) -
+         reinterpret_cast<uintptr_t>(pthread_stub)));
     Processor::information().getVirtualAddressSpace().setFlags(
-            reinterpret_cast<void*> (Event::getTrampoline()),
-            VirtualAddressSpace::Execute | VirtualAddressSpace::Shared);
+        reinterpret_cast<void *>(Event::getTrampoline()),
+        VirtualAddressSpace::Execute | VirtualAddressSpace::Shared);
 
     // Make sure the main thread is actually known.
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if(!pSubsystem)
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return;
@@ -218,9 +231,11 @@ void *posix_pedigree_create_waiter()
 {
     PT_NOTICE("posix_pedigree_create_waiter");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if(!pSubsystem)
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return 0;
@@ -240,9 +255,11 @@ int posix_pedigree_thread_wait_for(void *waiter)
 {
     PT_NOTICE("posix_pedigree_thread_wait_for");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if(!pSubsystem)
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return -1;
@@ -263,7 +280,8 @@ int posix_pedigree_thread_wait_for(void *waiter)
         return -1;
     }
 
-    while(!sem->acquire(1));
+    while (!sem->acquire(1))
+        ;
 
     return 0;
 }
@@ -272,9 +290,11 @@ int posix_pedigree_thread_trigger(void *waiter)
 {
     PT_NOTICE("posix_pedigree_thread_trigger");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if(!pSubsystem)
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return 0;
@@ -295,9 +315,11 @@ void posix_pedigree_destroy_waiter(void *waiter)
 {
     PT_NOTICE("posix_pedigree_destroy_waiter");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
-    if(!pSubsystem)
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
         return;

@@ -17,20 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <machine/Display.h>
 #include <machine/Framebuffer.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
 #include <processor/Processor.h>
-#include <machine/Display.h>
+#include <processor/VirtualAddressSpace.h>
 
 #include <Log.h>
 
-Graphics::Buffer *Framebuffer::swCreateBuffer(const void *srcData, Graphics::PixelFormat srcFormat, size_t width, size_t height, uint32_t *pPalette)
+Graphics::Buffer *Framebuffer::swCreateBuffer(
+    const void *srcData, Graphics::PixelFormat srcFormat, size_t width,
+    size_t height, uint32_t *pPalette)
 {
-    if(UNLIKELY(!m_FramebufferBase))
+    if (UNLIKELY(!m_FramebufferBase))
         return 0;
-    if(UNLIKELY(!(width && height)))
+    if (UNLIKELY(!(width && height)))
         return 0;
 
     Graphics::PixelFormat destFormat = m_PixelFormat;
@@ -45,12 +47,9 @@ Graphics::Buffer *Framebuffer::swCreateBuffer(const void *srcData, Graphics::Pix
 
     MemoryRegion *pRegion = new MemoryRegion("sw-framebuffer-buffer");
     bool bSuccess = PhysicalMemoryManager::instance().allocateRegion(
-                     *pRegion,
-                     (fullBufferSize / 0x1000) + 1,
-                     0,
-                     VirtualAddressSpace::Write);
+        *pRegion, (fullBufferSize / 0x1000) + 1, 0, VirtualAddressSpace::Write);
 
-    if(!bSuccess)
+    if (!bSuccess)
     {
         delete pRegion;
         return 0;
@@ -58,7 +57,9 @@ Graphics::Buffer *Framebuffer::swCreateBuffer(const void *srcData, Graphics::Pix
 
     // Copy the buffer in full
     void *pAddress = pRegion->virtualAddress();
-    if(((sourceBytesPerPixel == destBytesPerPixel) && (sourceBytesPerLine == destBytesPerLine)) && (srcFormat == destFormat))
+    if (((sourceBytesPerPixel == destBytesPerPixel) &&
+         (sourceBytesPerLine == destBytesPerLine)) &&
+        (srcFormat == destFormat))
     {
         // Same pixel format and same pixel size. Safe to do a conventional
         // memcpy. The pixel size check is to handle cases where a buffer may
@@ -71,50 +72,59 @@ Graphics::Buffer *Framebuffer::swCreateBuffer(const void *srcData, Graphics::Pix
     {
         // Have to convert and pack each pixel, much slower than memcpy.
         size_t x, y;
-        for(y = 0; y < height; y++)
+        for (y = 0; y < height; y++)
         {
-            for(x = 0; x < width; x++)
+            for (x = 0; x < width; x++)
             {
-                size_t sourceOffset = (y * sourceBytesPerLine) + (x * sourceBytesPerPixel);
-                size_t destOffset = (y * destBytesPerLine) + (x * destBytesPerPixel);
+                size_t sourceOffset =
+                    (y * sourceBytesPerLine) + (x * sourceBytesPerPixel);
+                size_t destOffset =
+                    (y * destBytesPerLine) + (x * destBytesPerPixel);
 
                 // We'll always access the beginning of a pixel, which makes
                 // things here much simpler.
-                const uint32_t *pSource = reinterpret_cast<const uint32_t*>(adjust_pointer(srcData, sourceOffset));
+                const uint32_t *pSource = reinterpret_cast<const uint32_t *>(
+                    adjust_pointer(srcData, sourceOffset));
 
                 uint32_t transform = 0;
-                if(srcFormat == Graphics::Bits8_Idx)
+                if (srcFormat == Graphics::Bits8_Idx)
                 {
                     uint32_t source = pPalette[(*pSource) & 0xFF];
-                    Graphics::convertPixel(source, Graphics::Bits24_Bgr, transform, destFormat);
+                    Graphics::convertPixel(
+                        source, Graphics::Bits24_Bgr, transform, destFormat);
                 }
-                else {
-                    Graphics::convertPixel(*pSource, srcFormat, transform, destFormat);
-                }
-
-                if(destBytesPerPixel == 4)
+                else
                 {
-                    uint32_t *pDest = reinterpret_cast<uint32_t*>(adjust_pointer(pAddress, destOffset));
+                    Graphics::convertPixel(
+                        *pSource, srcFormat, transform, destFormat);
+                }
 
-                    if(sourceBytesPerPixel == 3)
+                if (destBytesPerPixel == 4)
+                {
+                    uint32_t *pDest = reinterpret_cast<uint32_t *>(
+                        adjust_pointer(pAddress, destOffset));
+
+                    if (sourceBytesPerPixel == 3)
                         transform &= 0xFFFFFF;
-                    else if(sourceBytesPerPixel == 2)
+                    else if (sourceBytesPerPixel == 2)
                         transform &= 0xFFFF;
 
                     *pDest = transform;
                 }
-                else if(destBytesPerPixel == 3)
+                else if (destBytesPerPixel == 3)
                 {
                     // Handle existing data after this byte if it exists
-                    uint32_t *pDest = reinterpret_cast<uint32_t*>(adjust_pointer(pAddress, destOffset));
+                    uint32_t *pDest = reinterpret_cast<uint32_t *>(
+                        adjust_pointer(pAddress, destOffset));
                     *pDest = (*pDest & 0xFF000000) | (transform & 0xFFFFFF);
                 }
-                else if(destBytesPerPixel == 2)
+                else if (destBytesPerPixel == 2)
                 {
-                    uint16_t *pDest = reinterpret_cast<uint16_t*>(adjust_pointer(pAddress, destOffset));
+                    uint16_t *pDest = reinterpret_cast<uint16_t *>(
+                        adjust_pointer(pAddress, destOffset));
                     *pDest = transform & 0xFFFF;
                 }
-                else if(destBytesPerPixel == 1)
+                else if (destBytesPerPixel == 1)
                 {
                     /// \todo 8-bit
                 }
@@ -129,30 +139,32 @@ Graphics::Buffer *Framebuffer::swCreateBuffer(const void *srcData, Graphics::Pix
     pBuffer->format = m_PixelFormat;
     pBuffer->bytesPerPixel = destBytesPerPixel;
     pBuffer->bufferId = 0;
-    pBuffer->pBacking = reinterpret_cast<void*>(pRegion);
+    pBuffer->pBacking = reinterpret_cast<void *>(pRegion);
 
     return pBuffer;
 }
 
 void Framebuffer::swDestroyBuffer(Graphics::Buffer *pBuffer)
 {
-    if(pBuffer && pBuffer->base)
+    if (pBuffer && pBuffer->base)
     {
-        MemoryRegion *pRegion = reinterpret_cast<MemoryRegion*>(pBuffer->pBacking);
-        delete pRegion; // Unmaps the memory as well
+        MemoryRegion *pRegion =
+            reinterpret_cast<MemoryRegion *>(pBuffer->pBacking);
+        delete pRegion;  // Unmaps the memory as well
 
         delete pBuffer;
     }
 }
 
-void Framebuffer::swBlit(Graphics::Buffer *pBuffer, size_t srcx, size_t srcy,
-                         size_t destx, size_t desty, size_t width, size_t height)
+void Framebuffer::swBlit(
+    Graphics::Buffer *pBuffer, size_t srcx, size_t srcy, size_t destx,
+    size_t desty, size_t width, size_t height)
 {
-    if(UNLIKELY(!m_FramebufferBase))
+    if (UNLIKELY(!m_FramebufferBase))
         return;
-    if(UNLIKELY(!(width && height)))
+    if (UNLIKELY(!(width && height)))
         return;
-    if(UNLIKELY(!pBuffer))
+    if (UNLIKELY(!pBuffer))
         return;
 
     size_t bytesPerLine = m_nBytesPerLine;
@@ -162,30 +174,31 @@ void Framebuffer::swBlit(Graphics::Buffer *pBuffer, size_t srcx, size_t srcy,
     size_t sourceBytesPerLine = pBuffer->width * destBytesPerPixel;
 
     // Sanity check and clip
-    if((srcx > pBuffer->width) || (srcy > pBuffer->height))
+    if ((srcx > pBuffer->width) || (srcy > pBuffer->height))
         return;
-    if((destx > m_nWidth) || (desty > m_nHeight))
+    if ((destx > m_nWidth) || (desty > m_nHeight))
         return;
-    if((srcx + width) > pBuffer->width)
+    if ((srcx + width) > pBuffer->width)
         width = (srcx + width) - pBuffer->width;
-    if((srcy + height) > pBuffer->height)
+    if ((srcy + height) > pBuffer->height)
         height = (srcy + height) - pBuffer->height;
-    if((destx + width) > m_nWidth)
-        width = m_nWidth - destx; // (destx + width) - m_nWidth;
-    if((desty + height) > m_nHeight)
-        height = m_nHeight - desty; // (desty + height) - m_nHeight;
+    if ((destx + width) > m_nWidth)
+        width = m_nWidth - destx;  // (destx + width) - m_nWidth;
+    if ((desty + height) > m_nHeight)
+        height = m_nHeight - desty;  // (desty + height) - m_nHeight;
 
     /// \todo This code is broken for the case where srcx/srcy are not zero. :(
 
-    void *pSrc = reinterpret_cast<void*>(pBuffer->base);
+    void *pSrc = reinterpret_cast<void *>(pBuffer->base);
 
     // Blit across the width of the screen? How handy!
-    if(UNLIKELY((srcx == destx) && (srcx == 0) && (width == m_nWidth)))
+    if (UNLIKELY((srcx == destx) && (srcx == 0) && (width == m_nWidth)))
     {
         size_t sourceBufferOffset = (srcy * sourceBytesPerLine);
         size_t frameBufferOffset = (desty * bytesPerLine);
 
-        void *dest = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffset);
+        void *dest =
+            reinterpret_cast<void *>(m_FramebufferBase + frameBufferOffset);
         void *src = adjust_pointer(pSrc, sourceBufferOffset);
 
         MemoryCopy(dest, src, bytesPerLine * height);
@@ -193,12 +206,15 @@ void Framebuffer::swBlit(Graphics::Buffer *pBuffer, size_t srcx, size_t srcy,
     else
     {
         // Line-by-line copy
-        for(size_t y1 = desty, y2 = srcy; y1 < (desty + height); y1++, y2++)
+        for (size_t y1 = desty, y2 = srcy; y1 < (desty + height); y1++, y2++)
         {
-            size_t sourceBufferOffset = (y2 * sourceBytesPerLine) + (srcx * sourceBytesPerPixel);
-            size_t frameBufferOffset = (y1 * bytesPerLine) + (destx * destBytesPerPixel);
+            size_t sourceBufferOffset =
+                (y2 * sourceBytesPerLine) + (srcx * sourceBytesPerPixel);
+            size_t frameBufferOffset =
+                (y1 * bytesPerLine) + (destx * destBytesPerPixel);
 
-            void *dest = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffset);
+            void *dest =
+                reinterpret_cast<void *>(m_FramebufferBase + frameBufferOffset);
             void *src = adjust_pointer(pSrc, sourceBufferOffset);
 
             MemoryCopy(dest, src, width * destBytesPerPixel);
@@ -206,30 +222,33 @@ void Framebuffer::swBlit(Graphics::Buffer *pBuffer, size_t srcx, size_t srcy,
     }
 }
 
-void Framebuffer::swRect(size_t x, size_t y, size_t width, size_t height, uint32_t colour, Graphics::PixelFormat format)
+void Framebuffer::swRect(
+    size_t x, size_t y, size_t width, size_t height, uint32_t colour,
+    Graphics::PixelFormat format)
 {
-    if(UNLIKELY(!m_FramebufferBase))
+    if (UNLIKELY(!m_FramebufferBase))
         return;
-    if(UNLIKELY(!(width && height)))
+    if (UNLIKELY(!(width && height)))
         return;
 
     // Sanity check and clip
-    if((x > m_nWidth) || (y > m_nHeight))
+    if ((x > m_nWidth) || (y > m_nHeight))
         return;
-    if(width > m_nWidth)
+    if (width > m_nWidth)
         width = m_nWidth;
-    if(height > m_nHeight)
+    if (height > m_nHeight)
         height = m_nHeight;
-    if((x + width) > m_nWidth)
+    if ((x + width) > m_nWidth)
         width = (x + width) - m_nWidth;
-    if((y + height) > m_nHeight)
+    if ((y + height) > m_nHeight)
         height = (y + height) - m_nHeight;
 
     uint32_t transformColour = 0;
-    if(format == Graphics::Bits8_Idx)
+    if (format == Graphics::Bits8_Idx)
     {
         uint32_t source = m_Palette[colour & 0xFF];
-        Graphics::convertPixel(source, Graphics::Bits24_Bgr, transformColour, m_PixelFormat);
+        Graphics::convertPixel(
+            source, Graphics::Bits24_Bgr, transformColour, m_PixelFormat);
     }
     else
         Graphics::convertPixel(colour, format, transformColour, m_PixelFormat);
@@ -238,41 +257,46 @@ void Framebuffer::swRect(size_t x, size_t y, size_t width, size_t height, uint32
     size_t bytesPerLine = m_nBytesPerLine;
 
     // Can we just do an easy memset?
-    if(UNLIKELY((!x) && (width == m_nWidth)))
+    if (UNLIKELY((!x) && (width == m_nWidth)))
     {
         size_t frameBufferOffset = (y * bytesPerLine) + (x * bytesPerPixel);
 
-        void *dest = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffset);
+        void *dest =
+            reinterpret_cast<void *>(m_FramebufferBase + frameBufferOffset);
 
         size_t copySize = (bytesPerLine * height);
-        if(bytesPerPixel == 4) /// \todo Handle 24-bit properly
+        if (bytesPerPixel == 4)  /// \todo Handle 24-bit properly
         {
-            if((copySize % 8) == 0) // QWORD boundary
+            if ((copySize % 8) == 0)  // QWORD boundary
             {
-                uint64_t val = (static_cast<uint64_t>(transformColour) << 32) | transformColour;
+                uint64_t val = (static_cast<uint64_t>(transformColour) << 32) |
+                               transformColour;
                 QuadWordSet(dest, val, copySize / 8);
             }
             else
                 DoubleWordSet(dest, transformColour, copySize / 4);
         }
-        else if(bytesPerPixel == 3)
+        else if (bytesPerPixel == 3)
         {
             // 24-bit has to set three bytes at a time and leave the top byte
             // untouched. Painful.
-            for(size_t i = 0; i < (copySize / 3); i++)
+            for (size_t i = 0; i < (copySize / 3); i++)
             {
-                uint32_t *p = reinterpret_cast<uint32_t*>(m_FramebufferBase + frameBufferOffset + (i * 3));
+                uint32_t *p = reinterpret_cast<uint32_t *>(
+                    m_FramebufferBase + frameBufferOffset + (i * 3));
                 *p = (*p & 0xFF000000) | transformColour;
             }
         }
-        else if(bytesPerPixel == 2)
+        else if (bytesPerPixel == 2)
         {
-            if((copySize % 8) == 0) // QWORD boundary
+            if ((copySize % 8) == 0)  // QWORD boundary
             {
-                uint64_t val = (static_cast<uint64_t>(transformColour) << 48) | (static_cast<uint64_t>(transformColour) << 32) | (transformColour << 16) | transformColour;
+                uint64_t val = (static_cast<uint64_t>(transformColour) << 48) |
+                               (static_cast<uint64_t>(transformColour) << 32) |
+                               (transformColour << 16) | transformColour;
                 QuadWordSet(dest, val, copySize / 8);
             }
-            else if((copySize % 4) == 0) // DWORD boundary
+            else if ((copySize % 4) == 0)  // DWORD boundary
             {
                 uint32_t val = (transformColour << 16) | transformColour;
                 DoubleWordSet(dest, val, copySize / 4);
@@ -286,41 +310,49 @@ void Framebuffer::swRect(size_t x, size_t y, size_t width, size_t height, uint32
     else
     {
         // Line-by-line fill
-        for(size_t desty = y; desty < (y + height); desty++)
+        for (size_t desty = y; desty < (y + height); desty++)
         {
-            size_t frameBufferOffset = (desty * bytesPerLine) + (x * bytesPerPixel);
+            size_t frameBufferOffset =
+                (desty * bytesPerLine) + (x * bytesPerPixel);
 
-            void *dest = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffset);
+            void *dest =
+                reinterpret_cast<void *>(m_FramebufferBase + frameBufferOffset);
 
             size_t copySize = width * bytesPerPixel;
-            if(bytesPerPixel == 4) /// \todo Handle 24-bit properly
+            if (bytesPerPixel == 4)  /// \todo Handle 24-bit properly
             {
-                if((copySize % 8) == 0) // QWORD boundary
+                if ((copySize % 8) == 0)  // QWORD boundary
                 {
-                    uint64_t val = (static_cast<uint64_t>(transformColour) << 32) | transformColour;
+                    uint64_t val =
+                        (static_cast<uint64_t>(transformColour) << 32) |
+                        transformColour;
                     QuadWordSet(dest, val, copySize / 8);
                 }
                 else
                     DoubleWordSet(dest, transformColour, copySize / 4);
             }
-            else if(bytesPerPixel == 3)
+            else if (bytesPerPixel == 3)
             {
-                // 24-bit has to set three bytes at a time and leave the top byte
-                // untouched. Painful.
-                for(size_t i = 0; i < (copySize / 3); i++)
+                // 24-bit has to set three bytes at a time and leave the top
+                // byte untouched. Painful.
+                for (size_t i = 0; i < (copySize / 3); i++)
                 {
-                    uint32_t *p = reinterpret_cast<uint32_t*>(m_FramebufferBase + frameBufferOffset + (i * 3));
+                    uint32_t *p = reinterpret_cast<uint32_t *>(
+                        m_FramebufferBase + frameBufferOffset + (i * 3));
                     *p = (*p & 0xFF000000) | transformColour;
                 }
             }
-            else if(bytesPerPixel == 2)
+            else if (bytesPerPixel == 2)
             {
-                if((copySize % 8) == 0) // QWORD boundary
+                if ((copySize % 8) == 0)  // QWORD boundary
                 {
-                    uint64_t val = (static_cast<uint64_t>(transformColour) << 48) | (static_cast<uint64_t>(transformColour) << 32) | (transformColour << 16) | transformColour;
+                    uint64_t val =
+                        (static_cast<uint64_t>(transformColour) << 48) |
+                        (static_cast<uint64_t>(transformColour) << 32) |
+                        (transformColour << 16) | transformColour;
                     QuadWordSet(dest, val, copySize / 8);
                 }
-                else if((copySize % 4) == 0) // DWORD boundary
+                else if ((copySize % 4) == 0)  // DWORD boundary
                 {
                     uint32_t val = (transformColour << 16) | transformColour;
                     DoubleWordSet(dest, val, copySize / 4);
@@ -334,32 +366,33 @@ void Framebuffer::swRect(size_t x, size_t y, size_t width, size_t height, uint32
     }
 }
 
-void Framebuffer::swCopy(size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w, size_t h)
+void Framebuffer::swCopy(
+    size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w, size_t h)
 {
-    if(UNLIKELY(!m_FramebufferBase))
+    if (UNLIKELY(!m_FramebufferBase))
         return;
-    if(UNLIKELY(!(w && h)))
+    if (UNLIKELY(!(w && h)))
         return;
-    if(UNLIKELY((srcx == destx) && (srcy == desty)))
+    if (UNLIKELY((srcx == destx) && (srcy == desty)))
         return;
 
     // Sanity check and clip
-    if((srcx > m_nWidth) || (srcy > m_nHeight))
+    if ((srcx > m_nWidth) || (srcy > m_nHeight))
         return;
-    if((destx > m_nWidth) || (desty > m_nHeight))
+    if ((destx > m_nWidth) || (desty > m_nHeight))
         return;
-    if((srcx + w) > m_nWidth)
+    if ((srcx + w) > m_nWidth)
         w = (srcx + w) - m_nWidth;
-    if((srcy + h) > m_nHeight)
+    if ((srcy + h) > m_nHeight)
         h = (srcy + h) - m_nHeight;
-    if((destx + w) > m_nWidth)
+    if ((destx + w) > m_nWidth)
         w = (destx + w) - m_nWidth;
-    if((desty + h) > m_nHeight)
+    if ((desty + h) > m_nHeight)
         h = (desty + h) - m_nHeight;
 
-    if((srcx == destx) && (srcy == desty))
+    if ((srcx == destx) && (srcy == desty))
         return;
-    if(!(w && h))
+    if (!(w && h))
         return;
 
     size_t bytesPerLine = m_nBytesPerLine;
@@ -367,81 +400,93 @@ void Framebuffer::swCopy(size_t srcx, size_t srcy, size_t destx, size_t desty, s
     /// \todo consider source bytes per line?
 
     // Easy memcpy?
-    if(UNLIKELY(((!srcx) && (!destx)) && (w == m_nWidth)))
+    if (UNLIKELY(((!srcx) && (!destx)) && (w == m_nWidth)))
     {
-        size_t frameBufferOffsetSrc = (srcy * bytesPerLine) + (srcx * bytesPerPixel);
-        size_t frameBufferOffsetDest = (desty * bytesPerLine) + (destx * bytesPerPixel);
+        size_t frameBufferOffsetSrc =
+            (srcy * bytesPerLine) + (srcx * bytesPerPixel);
+        size_t frameBufferOffsetDest =
+            (desty * bytesPerLine) + (destx * bytesPerPixel);
 
-        void *dest = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffsetDest);
-        void *src = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffsetSrc);
+        void *dest =
+            reinterpret_cast<void *>(m_FramebufferBase + frameBufferOffsetDest);
+        void *src =
+            reinterpret_cast<void *>(m_FramebufferBase + frameBufferOffsetSrc);
 
         MemoryCopy(dest, src, h * bytesPerLine);
     }
     else
     {
         // Not so easy, but still not too hard
-        for(size_t yoff = 0; yoff < h; yoff++)
+        for (size_t yoff = 0; yoff < h; yoff++)
         {
-            size_t frameBufferOffsetSrc = ((srcy + yoff) * bytesPerLine) + (srcx * bytesPerPixel);
-            size_t frameBufferOffsetDest = ((desty + yoff) * bytesPerLine) + (destx * bytesPerPixel);
+            size_t frameBufferOffsetSrc =
+                ((srcy + yoff) * bytesPerLine) + (srcx * bytesPerPixel);
+            size_t frameBufferOffsetDest =
+                ((desty + yoff) * bytesPerLine) + (destx * bytesPerPixel);
 
-            void *dest = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffsetDest);
-            void *src = reinterpret_cast<void*>(m_FramebufferBase + frameBufferOffsetSrc);
+            void *dest = reinterpret_cast<void *>(
+                m_FramebufferBase + frameBufferOffsetDest);
+            void *src = reinterpret_cast<void *>(
+                m_FramebufferBase + frameBufferOffsetSrc);
 
             MemoryCopy(dest, src, w * bytesPerPixel);
         }
     }
 }
 
-void Framebuffer::swLine(size_t x1, size_t y1, size_t x2, size_t y2, uint32_t colour, Graphics::PixelFormat format)
+void Framebuffer::swLine(
+    size_t x1, size_t y1, size_t x2, size_t y2, uint32_t colour,
+    Graphics::PixelFormat format)
 {
-    if(UNLIKELY(!m_FramebufferBase))
+    if (UNLIKELY(!m_FramebufferBase))
         return;
 
     // Clip co-ordinates where necessary
-    if(x1 > m_nWidth)
+    if (x1 > m_nWidth)
         x1 = m_nWidth;
-    if(x2 > m_nWidth)
+    if (x2 > m_nWidth)
         x2 = m_nWidth;
-    if(y1 > m_nHeight)
+    if (y1 > m_nHeight)
         y1 = m_nHeight;
-    if(y2 > m_nHeight)
+    if (y2 > m_nHeight)
         y2 = m_nHeight;
 
-    // NOTICE("swLine(" << Dec << x1 << ", " << y1 << " -> " << x2 << ", " << y2 << Hex << ")");
+    // NOTICE("swLine(" << Dec << x1 << ", " << y1 << " -> " << x2 << ", " << y2
+    // << Hex << ")");
 
-    if(UNLIKELY((x1 == x2) && (y1 == y2)))
+    if (UNLIKELY((x1 == x2) && (y1 == y2)))
         return;
 
     uint32_t transformColour = 0;
-    if(format == Graphics::Bits8_Idx)
+    if (format == Graphics::Bits8_Idx)
     {
         uint32_t source = m_Palette[colour & 0xFF];
-        Graphics::convertPixel(source, Graphics::Bits24_Bgr, transformColour, m_PixelFormat);
+        Graphics::convertPixel(
+            source, Graphics::Bits24_Bgr, transformColour, m_PixelFormat);
     }
     else
         Graphics::convertPixel(colour, format, transformColour, m_PixelFormat);
 
     // Special cases
-    if(x1 == x2) // Vertical line
+    if (x1 == x2)  // Vertical line
     {
-        if(y1 > y2)
+        if (y1 > y2)
             swap(y1, y2);
-        for(size_t y = y1; y < y2; y++)
+        for (size_t y = y1; y < y2; y++)
             setPixel(x1, y, transformColour, m_PixelFormat);
         return;
     }
-    else if(y1 == y2)
+    else if (y1 == y2)
     {
-        if(x1 > x2)
+        if (x1 > x2)
             swap(x1, x2);
-        for(size_t x = x1; x < x2; x++)
+        for (size_t x = x1; x < x2; x++)
             setPixel(x, y1, transformColour, m_PixelFormat);
         return;
     }
 
-    // Bresenham's algorithm, referred to Computer Graphics, C Version (2nd Edition)
-    // from 1997, by D. Hearn and M. Pauline Baker (page 88)
+    // Bresenham's algorithm, referred to Computer Graphics, C Version (2nd
+    // Edition) from 1997, by D. Hearn and M. Pauline Baker (page 88)
     // http://www.amazon.com/Computer-Graphics-C-Version-2nd/dp/0135309247
 
     ssize_t dx = static_cast<ssize_t>(x2) - static_cast<ssize_t>(x1);
@@ -449,7 +494,7 @@ void Framebuffer::swLine(size_t x1, size_t y1, size_t x2, size_t y2, uint32_t co
     ssize_t p = 2 * (dy - dx);
     ssize_t x, y, xEnd;
 
-    if(x1 > x2)
+    if (x1 > x2)
     {
         x = x2;
         y = y2;
@@ -464,10 +509,10 @@ void Framebuffer::swLine(size_t x1, size_t y1, size_t x2, size_t y2, uint32_t co
 
     setPixel(x, y, transformColour, m_PixelFormat);
 
-    while(x < xEnd)
+    while (x < xEnd)
     {
         x++;
-        if(p < 0)
+        if (p < 0)
             p += (dy * 2);
         else
         {
@@ -479,69 +524,74 @@ void Framebuffer::swLine(size_t x1, size_t y1, size_t x2, size_t y2, uint32_t co
     }
 }
 
-void Framebuffer::swSetPixel(size_t x, size_t y, uint32_t colour, Graphics::PixelFormat format)
+void Framebuffer::swSetPixel(
+    size_t x, size_t y, uint32_t colour, Graphics::PixelFormat format)
 {
-    if(UNLIKELY(!m_FramebufferBase))
+    if (UNLIKELY(!m_FramebufferBase))
         return;
 
-    if(x > m_nWidth)
+    if (x > m_nWidth)
         x = m_nWidth;
-    if(y > m_nHeight)
+    if (y > m_nHeight)
         y = m_nHeight;
 
     size_t bytesPerPixel = m_nBytesPerPixel;
     size_t bytesPerLine = m_nBytesPerLine;
 
     uint32_t transformColour = 0;
-    if(format == Graphics::Bits8_Idx)
+    if (format == Graphics::Bits8_Idx)
     {
         uint32_t source = m_Palette[colour & 0xFF];
-        Graphics::convertPixel(source, Graphics::Bits24_Bgr, transformColour, m_PixelFormat);
+        Graphics::convertPixel(
+            source, Graphics::Bits24_Bgr, transformColour, m_PixelFormat);
     }
     else
         Graphics::convertPixel(colour, format, transformColour, m_PixelFormat);
 
     size_t frameBufferOffset = (y * bytesPerLine) + (x * bytesPerPixel);
 
-    if(bytesPerPixel == 4)
+    if (bytesPerPixel == 4)
     {
-        uint32_t *pDest = reinterpret_cast<uint32_t*>(m_FramebufferBase + frameBufferOffset);
+        uint32_t *pDest =
+            reinterpret_cast<uint32_t *>(m_FramebufferBase + frameBufferOffset);
         *pDest = transformColour;
     }
-    else if(bytesPerPixel == 3)
+    else if (bytesPerPixel == 3)
     {
         // Handle existing data after this byte if it exists
-        uint32_t *pDest = reinterpret_cast<uint32_t*>(m_FramebufferBase + frameBufferOffset);
+        uint32_t *pDest =
+            reinterpret_cast<uint32_t *>(m_FramebufferBase + frameBufferOffset);
         *pDest = (*pDest & 0xFF000000) | (transformColour & 0xFFFFFF);
     }
-    else if(bytesPerPixel == 2)
+    else if (bytesPerPixel == 2)
     {
-        uint16_t *pDest = reinterpret_cast<uint16_t*>(m_FramebufferBase + frameBufferOffset);
+        uint16_t *pDest =
+            reinterpret_cast<uint16_t *>(m_FramebufferBase + frameBufferOffset);
         *pDest = transformColour & 0xFFFF;
     }
-    else if(bytesPerPixel == 1)
+    else if (bytesPerPixel == 1)
     {
         /// \todo 8-bit
     }
 }
 
-void Framebuffer::swDraw(void *pBuffer, size_t srcx, size_t srcy,
-                         size_t destx, size_t desty, size_t width, size_t height,
-                         Graphics::PixelFormat format,
-                         bool bLowestCall)
+void Framebuffer::swDraw(
+    void *pBuffer, size_t srcx, size_t srcy, size_t destx, size_t desty,
+    size_t width, size_t height, Graphics::PixelFormat format, bool bLowestCall)
 {
     // Potentially inefficient use of RAM and VRAM, but best way to avoid
     // redundant copies of code lying around.
-    Graphics::Buffer *p = createBuffer(pBuffer, format, srcx + width, srcy + height, m_Palette);
-    if(!p)
+    Graphics::Buffer *p =
+        createBuffer(pBuffer, format, srcx + width, srcy + height, m_Palette);
+    if (!p)
         return;
     blit(p, srcx, srcy, destx, desty, width, height, bLowestCall);
     destroyBuffer(p);
 }
 
-void Framebuffer::swDraw(Graphics::Buffer *pBuffer, size_t srcx, size_t srcy,
-                         size_t destx, size_t desty, size_t width, size_t height,
-                         bool bLowestCall)
+void Framebuffer::swDraw(
+    Graphics::Buffer *pBuffer, size_t srcx, size_t srcy, size_t destx,
+    size_t desty, size_t width, size_t height, bool bLowestCall)
 {
     blit(pBuffer, srcx, srcy, destx, desty, width, height, bLowestCall);
 }

@@ -18,13 +18,12 @@
  */
 
 #include "PanicCommand.h"
-#include <Log.h>
-#include <utilities/utility.h>
 #include <DebuggerIO.h>
+#include <Log.h>
 #include <panic.h>
+#include <utilities/utility.h>
 
-PanicCommand::PanicCommand()
- : DebuggerCommand()
+PanicCommand::PanicCommand() : DebuggerCommand()
 {
 }
 
@@ -32,12 +31,14 @@ PanicCommand::~PanicCommand()
 {
 }
 
-void PanicCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void PanicCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool PanicCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool PanicCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
-  panic( "uh oh!" );
+    panic("uh oh!");
 }
-

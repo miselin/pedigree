@@ -20,20 +20,19 @@
 #include <graphics/Graphics.h>
 #include <machine/Framebuffer.h>
 
-Framebuffer *Graphics::createFramebuffer(Framebuffer *pParent,
-                                         size_t x, size_t y,
-                                         size_t w, size_t h,
-                                         void *pFbOverride)
+Framebuffer *Graphics::createFramebuffer(
+    Framebuffer *pParent, size_t x, size_t y, size_t w, size_t h,
+    void *pFbOverride)
 {
-    if(!(w && h))
+    if (!(w && h))
         return 0;
 
     // Don't allow insane placement, but do allow "offscreen" buffers.
     // They may be moved later, at which point they will be "onscreen"
     // buffers.
-    if((x > pParent->getWidth()) || (y > pParent->getHeight()))
+    if ((x > pParent->getWidth()) || (y > pParent->getHeight()))
         return 0;
-    
+
     // Every framebuffer in the system uses the same framebuffer format - that
     // of the graphics card itself.
     Graphics::PixelFormat format = pParent->getFormat();
@@ -43,11 +42,13 @@ Framebuffer *Graphics::createFramebuffer(Framebuffer *pParent,
 
     // Allocate space for the buffer
     uint8_t *pMem = 0;
-    if(!pFbOverride)
+    if (!pFbOverride)
         pMem = new uint8_t[bytesPerLine * h];
     else
-        pMem = reinterpret_cast<uint8_t*>(pFbOverride);
-    NOTICE("pMem: " << reinterpret_cast<uintptr_t>(pMem) << " ov=" << (pFbOverride ? "yes" : "no"));
+        pMem = reinterpret_cast<uint8_t *>(pFbOverride);
+    NOTICE(
+        "pMem: " << reinterpret_cast<uintptr_t>(pMem)
+                 << " ov=" << (pFbOverride ? "yes" : "no"));
 
     // Create the framebuffer
     Framebuffer *pRet = new Framebuffer();
@@ -65,12 +66,13 @@ Framebuffer *Graphics::createFramebuffer(Framebuffer *pParent,
 
 void Graphics::destroyFramebuffer(Framebuffer *pFramebuffer)
 {
-    if((!pFramebuffer) || (!pFramebuffer->getRawBuffer()))
+    if ((!pFramebuffer) || (!pFramebuffer->getRawBuffer()))
         return;
 
     // Let the parent redraw itself onto this region
-    if(pFramebuffer->getParent())
-        pFramebuffer->redraw(0, 0, pFramebuffer->getWidth(), pFramebuffer->getHeight(), false);
+    if (pFramebuffer->getParent())
+        pFramebuffer->redraw(
+            0, 0, pFramebuffer->getWidth(), pFramebuffer->getHeight(), false);
 
     // Delete our framebuffer memory
     /// \todo Need a flag to know that this address isn't on the heap!
@@ -79,4 +81,3 @@ void Graphics::destroyFramebuffer(Framebuffer *pFramebuffer)
     // Finally delete the framebuffer object
     delete pFramebuffer;
 }
-

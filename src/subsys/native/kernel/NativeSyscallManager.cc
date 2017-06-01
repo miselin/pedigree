@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/SyscallManager.h>
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
 #include <Log.h>
+#include <process/Scheduler.h>
+#include <processor/Processor.h>
+#include <processor/SyscallManager.h>
 
-#include <native/ipc/Ipc.h>
 #include <native-ipc.h>
+#include <native/ipc/Ipc.h>
 
 #include "NativeSyscallManager.h"
 #include <native/nativeSyscallNumbers.h>
@@ -41,15 +41,20 @@ void NativeSyscallManager::initialise()
     SyscallManager::instance().registerSyscallHandler(native, this);
 }
 
-uintptr_t NativeSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5)
+uintptr_t NativeSyscallManager::call(
+    uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4,
+    uintptr_t p5)
 {
     if (function >= serviceEnd)
     {
-        ERROR("NativeSyscallManager: invalid function called: " << Dec << static_cast<int>(function));
+        ERROR(
+            "NativeSyscallManager: invalid function called: "
+            << Dec << static_cast<int>(function));
         return 0;
     }
 
-    uintptr_t ret = SyscallManager::instance().syscall(native, function, p1, p2, p3, p4, p5);
+    uintptr_t ret = SyscallManager::instance().syscall(
+        native, function, p1, p2, p3, p4, p5);
     return ret;
 }
 
@@ -64,26 +69,37 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
     // We're interruptible.
     Processor::setInterrupts(true);
 
-    // NOTICE("Native syscall " << state.getSyscallNumber() << " (" << p1 << ", " << p2 << ", " << p3 << ", " << p4 << ", " << p5);
+    // NOTICE("Native syscall " << state.getSyscallNumber() << " (" << p1 << ",
+    // " << p2 << ", " << p3 << ", " << p4 << ", " << p5);
 
     switch (state.getSyscallNumber())
     {
         case IPC_CREATE_STANDARD_MESSAGE:
-            return createStandardMessage(reinterpret_cast<PedigreeIpc::IpcMessage*>(p1));
+            return createStandardMessage(
+                reinterpret_cast<PedigreeIpc::IpcMessage *>(p1));
         case IPC_CREATE_SHARED_MESSAGE:
-            return createSharedMessage(reinterpret_cast<PedigreeIpc::IpcMessage*>(p1), p2, p3);
+            return createSharedMessage(
+                reinterpret_cast<PedigreeIpc::IpcMessage *>(p1), p2, p3);
         case IPC_GET_SHARED_REGION:
-            return reinterpret_cast<uintptr_t>(getIpcSharedRegion(reinterpret_cast<PedigreeIpc::IpcMessage*>(p1)));
+            return reinterpret_cast<uintptr_t>(getIpcSharedRegion(
+                reinterpret_cast<PedigreeIpc::IpcMessage *>(p1)));
         case IPC_DESTROY_MESSAGE:
-            destroyMessage(reinterpret_cast<PedigreeIpc::IpcMessage*>(p1));
+            destroyMessage(reinterpret_cast<PedigreeIpc::IpcMessage *>(p1));
             break;
 
         case IPC_SEND_IPC:
-            return static_cast<uintptr_t>(sendIpc(reinterpret_cast<PedigreeIpc::IpcEndpoint*>(p1),reinterpret_cast<PedigreeIpc::IpcMessage*>(p2), static_cast<bool>(p3)));
+            return static_cast<uintptr_t>(sendIpc(
+                reinterpret_cast<PedigreeIpc::IpcEndpoint *>(p1),
+                reinterpret_cast<PedigreeIpc::IpcMessage *>(p2),
+                static_cast<bool>(p3)));
         case IPC_RECV_PHASE1:
-            return reinterpret_cast<uintptr_t>(recvIpcPhase1(reinterpret_cast<PedigreeIpc::IpcEndpoint*>(p1), static_cast<bool>(p2)));
+            return reinterpret_cast<uintptr_t>(recvIpcPhase1(
+                reinterpret_cast<PedigreeIpc::IpcEndpoint *>(p1),
+                static_cast<bool>(p2)));
         case IPC_RECV_PHASE2:
-            return recvIpcPhase2(reinterpret_cast<PedigreeIpc::IpcMessage*>(p1), reinterpret_cast<void*>(p2));
+            return recvIpcPhase2(
+                reinterpret_cast<PedigreeIpc::IpcMessage *>(p1),
+                reinterpret_cast<void *>(p2));
 
         case IPC_CREATE_ENDPOINT:
             createEndpoint(reinterpret_cast<const char *>(p1));
@@ -92,7 +108,8 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
             removeEndpoint(reinterpret_cast<const char *>(p1));
             break;
         case IPC_GET_ENDPOINT:
-            return reinterpret_cast<uintptr_t>(getEndpoint(reinterpret_cast<const char *>(p1)));
+            return reinterpret_cast<uintptr_t>(
+                getEndpoint(reinterpret_cast<const char *>(p1)));
 
         /** New IPC system. **/
         case NATIVE_REGISTER_OBJECT:
@@ -129,7 +146,8 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
                 uint64_t subid = p2;
                 void *params = reinterpret_cast<void *>(p3);
                 size_t params_size = p4;
-                ReturnState *adjustedState = reinterpret_cast<ReturnState *>(p5);
+                ReturnState *adjustedState =
+                    reinterpret_cast<ReturnState *>(p5);
 
                 /// \todo check that pointer parameters are mapped.
 
@@ -146,7 +164,11 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
             }
             break;
 
-        default: ERROR ("NativeSyscallManager: invalid syscall received: " << Dec << state.getSyscallNumber()); return 0;
+        default:
+            ERROR(
+                "NativeSyscallManager: invalid syscall received: "
+                << Dec << state.getSyscallNumber());
+            return 0;
     }
 
     return 0;
@@ -155,24 +177,25 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
 class Foo : public NativeBase
 {
     public:
-        virtual ReturnState syscall(uint64_t subid, void *params, size_t params_size)
+    virtual ReturnState
+    syscall(uint64_t subid, void *params, size_t params_size)
+    {
+        NOTICE("syscall subid=" << subid);
+
+        ReturnState ret;
+        switch (subid)
         {
-            NOTICE("syscall subid=" << subid);
-
-            ReturnState ret;
-            switch(subid)
-            {
-                case 0x1234:
-                    ret.success = true;
-                    ret.value = 0x4321;
-                    break;
-                default:
-                    ret.success = false;
-                    ret.meta = 0;
-            }
-
-            return ret;
+            case 0x1234:
+                ret.success = true;
+                ret.value = 0x4321;
+                break;
+            default:
+                ret.success = false;
+                ret.meta = 0;
         }
+
+        return ret;
+    }
 };
 
 NativeBase *NativeSyscallManager::factory(uint64_t guid)

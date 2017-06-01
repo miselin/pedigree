@@ -18,24 +18,25 @@
  */
 
 #include "Endpoint.h"
-#include "ConnectionlessEndpoint.h"
 #include "ConnectionBasedEndpoint.h"
+#include "ConnectionlessEndpoint.h"
 
-Endpoint::Endpoint() :
-    m_Sockets(), m_LocalPort(0), m_RemotePort(0), m_LocalIp(), m_RemoteIp(),
-    m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
+Endpoint::Endpoint()
+    : m_Sockets(), m_LocalPort(0), m_RemotePort(0), m_LocalIp(), m_RemoteIp(),
+      m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
 {
 }
 
-Endpoint::Endpoint(uint16_t local, uint16_t remote) :
-    m_Sockets(), m_LocalPort(local), m_RemotePort(remote), m_LocalIp(), m_RemoteIp(),
-    m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
+Endpoint::Endpoint(uint16_t local, uint16_t remote)
+    : m_Sockets(), m_LocalPort(local), m_RemotePort(remote), m_LocalIp(),
+      m_RemoteIp(), m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
 {
 }
 
-Endpoint::Endpoint(IpAddress remoteIp, uint16_t local, uint16_t remote) :
-    m_Sockets(), m_LocalPort(local), m_RemotePort(remote), m_LocalIp(), m_RemoteIp(remoteIp),
-    m_Manager(0), m_Error(Error::NoError), m_bConnection(false)
+Endpoint::Endpoint(IpAddress remoteIp, uint16_t local, uint16_t remote)
+    : m_Sockets(), m_LocalPort(local), m_RemotePort(remote), m_LocalIp(),
+      m_RemoteIp(remoteIp), m_Manager(0), m_Error(Error::NoError),
+      m_bConnection(false)
 {
 }
 
@@ -88,12 +89,13 @@ bool Endpoint::dataReady(bool block, uint32_t timeout)
     return false;
 }
 
-size_t Endpoint::depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost)
+size_t Endpoint::depositPayload(
+    size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost)
 {
     return 0;
 }
 
-void Endpoint::setCard(Network* pCard)
+void Endpoint::setCard(Network *pCard)
 {
 }
 
@@ -119,9 +121,10 @@ void Endpoint::AddSocket(Socket *s)
 
 void Endpoint::RemoveSocket(Socket *s)
 {
-    for(List<Socket*>::Iterator it = m_Sockets.begin(); it != m_Sockets.end(); ++it)
+    for (List<Socket *>::Iterator it = m_Sockets.begin(); it != m_Sockets.end();
+         ++it)
     {
-        if(*it == s)
+        if (*it == s)
         {
             m_Sockets.erase(it);
             return;

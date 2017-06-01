@@ -17,23 +17,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
 #include "Ps2Mouse.h"
+#include <Module.h>
 
 // Global static object for the PS/2 mouse we'll be working with
 static Ps2Mouse *g_Ps2Mouse = 0;
 
 static bool entry()
 {
-    auto f = [] (Device *p) {
+    auto f = [](Device *p) {
         if (g_Ps2Mouse)
         {
             return p;
         }
 
-        if(p->addresses().count() > 0)
+        if (p->addresses().count() > 0)
         {
-            if(p->addresses()[0]->m_Name == "ps2-base")
+            if (p->addresses()[0]->m_Name == "ps2-base")
             {
                 Ps2Mouse *pNewChild = new Ps2Mouse(p);
                 if (pNewChild->initialise(p->addresses()[0]->m_Io))
@@ -52,7 +52,7 @@ static bool entry()
     };
 
     auto c = pedigree_std::make_callable(f);
-    Device::foreach(c, 0);
+    Device::foreach (c, 0);
 
     // Cannot replace the child, as we need to have it present for keyboards.
     if (g_Ps2Mouse)
@@ -66,7 +66,7 @@ static bool entry()
 
 static void unload()
 {
-    if(g_Ps2Mouse)
+    if (g_Ps2Mouse)
         delete g_Ps2Mouse;
 }
 

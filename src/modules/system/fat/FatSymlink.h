@@ -20,10 +20,10 @@
 #ifndef FAT_SYMLINK_H
 #define FAT_SYMLINK_H
 
-#include <vfs/Symlink.h>
-#include <time/Time.h>
 #include <processor/types.h>
+#include <time/Time.h>
 #include <utilities/String.h>
+#include <vfs/Symlink.h>
 
 #include "FatFile.h"
 
@@ -36,11 +36,15 @@
  */
 class FatSymlink : public Symlink
 {
-public:
-    FatSymlink(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-       uintptr_t inode, class Filesystem *pFs, size_t size, uint32_t dirClus = 0,
-       uint32_t dirOffset = 0, File *pParent = 0);
-    virtual ~FatSymlink() {}
+    public:
+    FatSymlink(
+        String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+        Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
+        size_t size, uint32_t dirClus = 0, uint32_t dirOffset = 0,
+        File *pParent = 0);
+    virtual ~FatSymlink()
+    {
+    }
     uint32_t getDirCluster()
     {
         return m_DirClus;
@@ -63,13 +67,17 @@ public:
      *      which case the data can be found by calling getPhysicalPage.
      *  \param[in] bCanBlock Whether or not the File can block when reading
      */
-    virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
     /** Writes to the file.
      *  \param[in] bCanBlock Whether or not the File can block when reading
      */
-    virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
-private:
+    private:
     uint32_t m_DirClus;
     uint32_t m_DirOffset;
 };

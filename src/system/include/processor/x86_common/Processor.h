@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,7 +22,7 @@
 
 void Processor::breakpoint()
 {
-    asm volatile ("int $3");
+    asm volatile("int $3");
 }
 
 void Processor::halt()
@@ -47,7 +46,7 @@ void Processor::haltUntilInterrupt()
 {
     bool bWasInterrupts = getInterrupts();
     __asm__ __volatile__("sti; hlt");
-    if(!bWasInterrupts)
+    if (!bWasInterrupts)
         setInterrupts(false);
 }
 

@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
-#include <machine/Device.h>
-#include <machine/Network.h>
 #include "Ne2k.h"
 #include <Log.h>
+#include <Module.h>
+#include <machine/Device.h>
+#include <machine/Network.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
 
 static bool bFound = false;
 
@@ -32,7 +32,7 @@ static void probeDevice(Device *pDev)
     NOTICE("NE2K found");
 
     // Create a new NE2K node
-    Ne2k *pNe2k = new Ne2k(reinterpret_cast<Network*>(pDev));
+    Ne2k *pNe2k = new Ne2k(reinterpret_cast<Network *>(pDev));
 
     // Replace pDev with pNe2k.
     pNe2k->setParent(pDev->getParent());
@@ -43,14 +43,14 @@ static void probeDevice(Device *pDev)
 
 static bool entry()
 {
-    Device::searchByVendorIdAndDeviceId(NE2K_VENDOR_ID, NE2K_DEVICE_ID, probeDevice);
+    Device::searchByVendorIdAndDeviceId(
+        NE2K_VENDOR_ID, NE2K_DEVICE_ID, probeDevice);
 
     return bFound;
 }
 
 static void exit()
 {
-
 }
 
 MODULE_NAME("ne2k");

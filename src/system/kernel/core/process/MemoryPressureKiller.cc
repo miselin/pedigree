@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Log.h>
+#include <Subsystem.h>
 #include <process/MemoryPressureKiller.h>
 #include <process/Process.h>
 #include <process/Scheduler.h>
-#include <Subsystem.h>
-#include <Log.h>
 
 static size_t mb(size_t pages)
 {
@@ -31,7 +31,7 @@ static size_t mb(size_t pages)
 bool MemoryPressureProcessKiller::compact()
 {
     Process *pCandidateProcess = 0;
-    for(size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
+    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
     {
         Process *pProcess = Scheduler::instance().getProcess(i);
 
@@ -54,8 +54,14 @@ bool MemoryPressureProcessKiller::compact()
     if (!pCandidateProcess)
         return false;
 
-    NOTICE_NOLOCK("MemoryPressureProcessKiller will kill pid=" << Dec << pCandidateProcess->getId() << Hex);
-    NOTICE_NOLOCK("virt=" << Dec << mb(pCandidateProcess->getVirtualPageCount()) << "m phys=" << mb(pCandidateProcess->getPhysicalPageCount()) << "m shared=" << mb(pCandidateProcess->getSharedPageCount()) << "m" << Hex);
+    NOTICE_NOLOCK(
+        "MemoryPressureProcessKiller will kill pid="
+        << Dec << pCandidateProcess->getId() << Hex);
+    NOTICE_NOLOCK(
+        "virt=" << Dec << mb(pCandidateProcess->getVirtualPageCount())
+                << "m phys=" << mb(pCandidateProcess->getPhysicalPageCount())
+                << "m shared=" << mb(pCandidateProcess->getSharedPageCount())
+                << "m" << Hex);
 
     // Hard kill the process (SIGKILL, in POSIX terms).
     // We cannot afford to let the thread do anything else.

@@ -30,11 +30,11 @@
 #endif
 
 #ifndef TESTSUITE
-int stateBlockFree(void* p)
+int stateBlockFree(void *p)
 {
-  StateBlock* stateBlock = reinterpret_cast<StateBlock*>(p);
-  TcpManager::instance().removeConn(stateBlock->connId);
-  return 0;
+    StateBlock *stateBlock = reinterpret_cast<StateBlock *>(p);
+    TcpManager::instance().removeConn(stateBlock->connId);
+    return 0;
 }
 #endif
 
@@ -108,7 +108,8 @@ size_t TcpBuffer::write(uintptr_t buffer, size_t nBytes)
     return nBytes;
 }
 
-size_t TcpBuffer::readSegment(Segment *pSegment, uintptr_t target, size_t size, bool bUpdate)
+size_t TcpBuffer::readSegment(
+    Segment *pSegment, uintptr_t target, size_t size, bool bUpdate)
 {
     // Count of bytes present that have not yet been read.
     size_t availableBytes = pSegment->size - pSegment->reader;
@@ -118,8 +119,9 @@ size_t TcpBuffer::readSegment(Segment *pSegment, uintptr_t target, size_t size, 
     if (bytesToRead > availableBytes)
         bytesToRead = availableBytes;
 
-    MemoryCopy(reinterpret_cast<void *>(target),
-               adjust_pointer(pSegment->buffer, pSegment->reader), bytesToRead);
+    MemoryCopy(
+        reinterpret_cast<void *>(target),
+        adjust_pointer(pSegment->buffer, pSegment->reader), bytesToRead);
 
     if (bUpdate)
     {
@@ -138,8 +140,8 @@ size_t TcpBuffer::read(uintptr_t buffer, size_t nBytes, bool bDoNotMove)
         size_t totalRead = 0;
         for (auto it : m_Segments)
         {
-            totalRead += readSegment(it, buffer + totalRead,
-                                     nBytes - totalRead, false);
+            totalRead +=
+                readSegment(it, buffer + totalRead, nBytes - totalRead, false);
         }
 
         return totalRead;
@@ -150,8 +152,8 @@ size_t TcpBuffer::read(uintptr_t buffer, size_t nBytes, bool bDoNotMove)
         while (m_Segments.count() && totalRead < nBytes)
         {
             Segment *pSegment = m_Segments.popFront();
-            totalRead += readSegment(pSegment, buffer + totalRead,
-                                     nBytes - totalRead, true);
+            totalRead += readSegment(
+                pSegment, buffer + totalRead, nBytes - totalRead, true);
 
             // Did we not completely read this segment?
             if (pSegment->reader < pSegment->size)
@@ -185,40 +187,48 @@ void TcpBuffer::setSize(size_t newBufferSize)
     m_Segments.clear();
 }
 
-bool StateBlockHandle::operator == (const StateBlockHandle &a)
+bool StateBlockHandle::operator==(const StateBlockHandle &a)
 {
     bool r = false;
-    if(a.listen) // Require the client to want listen sockets only
+    if (a.listen)  // Require the client to want listen sockets only
     {
-        if(listen)
+        if (listen)
         {
-            // NOTICE_NOLOCK("Operator == (listen) : [" << localPort << ", " << a.localPort << "]");
+            // NOTICE_NOLOCK("Operator == (listen) : [" << localPort << ", " <<
+            // a.localPort << "]");
             r = (localPort == a.localPort);
         }
     }
     else
     {
-        // NOTICE_NOLOCK("Operator == [" << localPort << ", " << a.localPort << "] [" << remotePort << ", " << a.remotePort << "]" << " [" << remoteHost.ip.toString() << ", " << a.remoteHost.ip.toString() << "]");
-        r = ((localPort == a.localPort) && (remoteHost.ip == a.remoteHost.ip) && (remotePort == a.remotePort));
+        // NOTICE_NOLOCK("Operator == [" << localPort << ", " << a.localPort <<
+        // "] [" << remotePort << ", " << a.remotePort << "]" << " [" <<
+        // remoteHost.ip.toString() << ", " << a.remoteHost.ip.toString() <<
+        // "]");
+        r =
+            ((localPort == a.localPort) && (remoteHost.ip == a.remoteHost.ip) &&
+             (remotePort == a.remotePort));
     }
     return r;
 }
 
-bool StateBlockHandle::operator > (const StateBlockHandle &a)
+bool StateBlockHandle::operator>(const StateBlockHandle &a)
 {
     bool r = false;
-    if(a.listen)
+    if (a.listen)
     {
         if (listen)
         {
-            // NOTICE_NOLOCK("Operator > (listen) : [" << localPort << ", " << a.localPort << "]");
+            // NOTICE_NOLOCK("Operator > (listen) : [" << localPort << ", " <<
+            // a.localPort << "]");
             r = (localPort > a.localPort);
         }
     }
     else
     {
-        // NOTICE_NOLOCK("Operator > : [" << localPort << ", " << a.localPort << "] [" << remotePort << ", " << a.remotePort << "]");
-        if(localPort)
+        // NOTICE_NOLOCK("Operator > : [" << localPort << ", " << a.localPort <<
+        // "] [" << remotePort << ", " << a.remotePort << "]");
+        if (localPort)
             r = ((localPort >= a.localPort) && (remotePort > a.remotePort));
         else
             r = (remotePort > a.remotePort);

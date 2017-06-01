@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,80 +21,94 @@
 #define MACHINE_MALTA_KEYBOARD_H
 
 #include <machine/Keyboard.h>
-#include <machine/openfirmware/OpenFirmware.h>
 #include <machine/openfirmware/Device.h>
+#include <machine/openfirmware/OpenFirmware.h>
 
 class PPCKeyboard : public Keyboard
 {
-public:
-  PPCKeyboard ();
-  virtual ~PPCKeyboard();
-  
-  /**
-   * Initialises the device.
-   */
-  virtual void initialise();
+    public:
+    PPCKeyboard();
+    virtual ~PPCKeyboard();
 
-  virtual void setDebugState(bool enableDebugMode);
-  virtual bool getDebugState() {return true;}
-  
-  /**
-   * Retrieves a character from the keyboard. Blocking I/O.
-   * \return The character recieved or zero if it is a character
-   *         without an ascii representation.
-   */
-  virtual char getChar();
-  
-  /**
-   * Retrieves a character from the keyboard. Non blocking I/O.
-   * \return The character recieved or zero if it is a character
-   *         without an ascii representation, or zero also if no
-   *         character was present.
-   */
-  virtual char getCharNonBlock();
+    /**
+     * Initialises the device.
+     */
+    virtual void initialise();
 
-  /**
-   * Retrieves a character from the keyboard in special descriptor format.
-   * Blocking I/O.
-   * \return The character received along with any modifier keys used.
-   */
-  virtual Character getCharacter();
+    virtual void setDebugState(bool enableDebugMode);
+    virtual bool getDebugState()
+    {
+        return true;
+    }
 
-  /**
-   * Retrieves a character from the keyboard in special descriptor format.
-   * Nonblocking I/O.
-   * \return The character recieved along with any modifier keys used. The character
-   *         can be tested for validity with the CHARACTER_VALID macro.
-   */
-  virtual Character getCharacterNonBlock();
+    /**
+     * Retrieves a character from the keyboard. Blocking I/O.
+     * \return The character recieved or zero if it is a character
+     *         without an ascii representation.
+     */
+    virtual char getChar();
 
-  
-  /**
-   * \return True if shift is currently held.
-   */
-  virtual bool shift() {return false;}
-  
-  /**
-   * \return True if ctrl is currently held.
-   */
-  virtual bool ctrl() {return false;}
-  
-  /**
-   * \return True if alt is currently held.
-   */
-  virtual bool alt() {return false;}
-  
-  /**
-   * \return True if caps lock is currently on.
-   */
-  virtual bool capsLock() {return false;}
+    /**
+     * Retrieves a character from the keyboard. Non blocking I/O.
+     * \return The character recieved or zero if it is a character
+     *         without an ascii representation, or zero also if no
+     *         character was present.
+     */
+    virtual char getCharNonBlock();
 
-private:
-  PPCKeyboard(const PPCKeyboard &);
-  PPCKeyboard &operator = (const PPCKeyboard &);
+    /**
+     * Retrieves a character from the keyboard in special descriptor format.
+     * Blocking I/O.
+     * \return The character received along with any modifier keys used.
+     */
+    virtual Character getCharacter();
 
-  /** Our keyboard device. */
-  OFHandle m_Dev;
+    /**
+     * Retrieves a character from the keyboard in special descriptor format.
+     * Nonblocking I/O.
+     * \return The character recieved along with any modifier keys used. The
+     * character can be tested for validity with the CHARACTER_VALID macro.
+     */
+    virtual Character getCharacterNonBlock();
+
+    /**
+     * \return True if shift is currently held.
+     */
+    virtual bool shift()
+    {
+        return false;
+    }
+
+    /**
+     * \return True if ctrl is currently held.
+     */
+    virtual bool ctrl()
+    {
+        return false;
+    }
+
+    /**
+     * \return True if alt is currently held.
+     */
+    virtual bool alt()
+    {
+        return false;
+    }
+
+    /**
+     * \return True if caps lock is currently on.
+     */
+    virtual bool capsLock()
+    {
+        return false;
+    }
+
+    private:
+    PPCKeyboard(const PPCKeyboard &);
+    PPCKeyboard &operator=(const PPCKeyboard &);
+
+    /** Our keyboard device. */
+    OFHandle m_Dev;
 };
 
 #endif

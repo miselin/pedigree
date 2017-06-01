@@ -23,8 +23,8 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/utility.h>
 #include <utilities/smhasher/MurmurHash3.h>
+#include <utilities/utility.h>
 
 static void BM_Utility_Checksum(benchmark::State &state)
 {
@@ -36,9 +36,10 @@ static void BM_Utility_Checksum(benchmark::State &state)
         benchmark::DoNotOptimize(checksum(buf, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Utility_Checksum16(benchmark::State &state)
@@ -51,9 +52,10 @@ static void BM_Utility_Checksum16(benchmark::State &state)
         benchmark::DoNotOptimize(checksum16(buf, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Utility_Checksum32(benchmark::State &state)
@@ -66,9 +68,10 @@ static void BM_Utility_Checksum32(benchmark::State &state)
         benchmark::DoNotOptimize(checksum32(buf, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 static void BM_Utility_Checksum32Naive(benchmark::State &state)
 {
@@ -80,9 +83,10 @@ static void BM_Utility_Checksum32Naive(benchmark::State &state)
         benchmark::DoNotOptimize(checksum32_naive(buf, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Utility_ChecksumPage(benchmark::State &state)
@@ -92,12 +96,13 @@ static void BM_Utility_ChecksumPage(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksumPage(reinterpret_cast<uintptr_t>(buf)));
+        benchmark::DoNotOptimize(
+            checksumPage(reinterpret_cast<uintptr_t>(buf)));
     }
 
     state.SetBytesProcessed(int64_t(state.iterations()) * 4096);
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Utility_HashElf(benchmark::State &state)
@@ -110,9 +115,10 @@ static void BM_Utility_HashElf(benchmark::State &state)
         benchmark::DoNotOptimize(elfHash(buf, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Utility_HashJenkins(benchmark::State &state)
@@ -125,9 +131,10 @@ static void BM_Utility_HashJenkins(benchmark::State &state)
         benchmark::DoNotOptimize(jenkinsHash(buf, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_Utility_HashMurmur(benchmark::State &state)
@@ -142,19 +149,20 @@ static void BM_Utility_HashMurmur(benchmark::State &state)
         benchmark::DoNotOptimize(result);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 
-    delete [] buf;
+    delete[] buf;
 }
 
 // Test checksum over a large range of sizes.
-BENCHMARK(BM_Utility_Checksum)->Range(8, 8<<24);
-BENCHMARK(BM_Utility_Checksum16)->Range(8, 8<<24);
-BENCHMARK(BM_Utility_Checksum32)->Range(8, 8<<24);
-BENCHMARK(BM_Utility_Checksum32Naive)->Range(8, 8<<24);
+BENCHMARK(BM_Utility_Checksum)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_Checksum16)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_Checksum32)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_Checksum32Naive)->Range(8, 8 << 24);
 
 BENCHMARK(BM_Utility_ChecksumPage);
 
-BENCHMARK(BM_Utility_HashElf)->Range(8, 8<<24);
-BENCHMARK(BM_Utility_HashJenkins)->Range(8, 8<<24);
-BENCHMARK(BM_Utility_HashMurmur)->Range(8, 8<<24);
+BENCHMARK(BM_Utility_HashElf)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_HashJenkins)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_HashMurmur)->Range(8, 8 << 24);

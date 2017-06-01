@@ -28,9 +28,9 @@
  */
 class TimeTracker
 {
-public:
-    TimeTracker(Process *pProcess, bool fromUserspace) :
-        m_pProcess(pProcess), m_bFromUserspace(fromUserspace)
+    public:
+    TimeTracker(Process *pProcess, bool fromUserspace)
+        : m_pProcess(pProcess), m_bFromUserspace(fromUserspace)
     {
         if (m_pProcess == 0)
         {
@@ -63,7 +63,7 @@ public:
         m_pProcess->recordTime(m_bFromUserspace);
     }
 
-private:
+    private:
     Process *m_pProcess;
     bool m_bFromUserspace;
 };

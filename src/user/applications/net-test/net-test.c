@@ -17,30 +17,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
+#include <string.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <signal.h>
 
 int main(int argc, char **argv)
 {
     int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    if(sock == -1)
+    if (sock == -1)
     {
-      printf("Couldn't get a socket: %d [%s]\n", errno, strerror(errno));
-      return 1;
+        printf("Couldn't get a socket: %d [%s]\n", errno, strerror(errno));
+        return 1;
     }
 
     struct timeval t;
@@ -49,13 +48,13 @@ int main(int argc, char **argv)
     fd_set readfd;
     FD_SET(sock, &readfd);
 
-    char* tmp = (char*) malloc(2048);
-    while(1)
+    char *tmp = (char *) malloc(2048);
+    while (1)
     {
-      select(sock + 1, &readfd, 0, 0, &t);
-      int n = read(sock, tmp, 2048);
-      if(n > 0)
-        printf("interface received %d bytes\n", n);
+        select(sock + 1, &readfd, 0, 0, &t);
+        int n = read(sock, tmp, 2048);
+        if (n > 0)
+            printf("interface received %d bytes\n", n);
     }
 
     return 0;

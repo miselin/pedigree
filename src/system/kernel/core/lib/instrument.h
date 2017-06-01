@@ -25,10 +25,10 @@
 
 // Global flags are held within the first byte written to the instrumentation
 // stream, and control things like which data types to use.
-#define INSTRUMENT_GLOBAL_LITE     (1 << 0)
+#define INSTRUMENT_GLOBAL_LITE (1 << 0)
 
 // Record flags define how to interpret the specific records.
-#define INSTRUMENT_RECORD_ENTRY    (1 << 0)
+#define INSTRUMENT_RECORD_ENTRY (1 << 0)
 #define INSTRUMENT_RECORD_SHORTPTR (1 << 4)
 
 #define INSTRUMENT_MAGIC 0x1090U

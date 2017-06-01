@@ -20,61 +20,64 @@
 #ifndef FAT_FILE_H
 #define FAT_FILE_H
 
-#include <vfs/File.h>
-#include <time/Time.h>
 #include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/RadixTree.h>
+#include <time/Time.h>
 #include <utilities/Cache.h>
+#include <utilities/RadixTree.h>
+#include <utilities/String.h>
+#include <vfs/File.h>
 
 /** A File is a file, a directory or a symlink. */
 class FatFile : public File
 {
-private:
-  /** Copy constructors are hidden - unused! */
-  FatFile(const File &file);
-  File& operator =(const File&);
-public:
-  /** Constructor, should be called only by a Filesystem. */
-  FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-       uintptr_t inode, class Filesystem *pFs, size_t size, uint32_t dirClus = 0,
-       uint32_t dirOffset = 0, File *pParent = 0);
-  /** Destructor - doesn't do anything. */
-  virtual ~FatFile();
+    private:
+    /** Copy constructors are hidden - unused! */
+    FatFile(const File &file);
+    File &operator=(const File &);
 
-  uint32_t getDirCluster()
-  {
-    return m_DirClus;
-  }
-  void setDirCluster(uint32_t custom)
-  {
-    m_DirClus = custom;
-  }
-  uint32_t getDirOffset()
-  {
-    return m_DirOffset;
-  }
-  void setDirOffset(uint32_t custom)
-  {
-    m_DirOffset = custom;
-  }
+    public:
+    /** Constructor, should be called only by a Filesystem. */
+    FatFile(
+        String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+        Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
+        size_t size, uint32_t dirClus = 0, uint32_t dirOffset = 0,
+        File *pParent = 0);
+    /** Destructor - doesn't do anything. */
+    virtual ~FatFile();
 
-  uintptr_t readBlock(uint64_t location);
-  void writeBlock(uint64_t location, uintptr_t addr);
+    uint32_t getDirCluster()
+    {
+        return m_DirClus;
+    }
+    void setDirCluster(uint32_t custom)
+    {
+        m_DirClus = custom;
+    }
+    uint32_t getDirOffset()
+    {
+        return m_DirOffset;
+    }
+    void setDirOffset(uint32_t custom)
+    {
+        m_DirOffset = custom;
+    }
 
-  void extend(size_t newSize);
+    uintptr_t readBlock(uint64_t location);
+    void writeBlock(uint64_t location, uintptr_t addr);
 
-  using File::sync;
-  virtual void sync(size_t offset, bool async);
+    void extend(size_t newSize);
 
-  virtual void pinBlock(uint64_t location);
-  virtual void unpinBlock(uint64_t location);
+    using File::sync;
+    virtual void sync(size_t offset, bool async);
 
-private:
-  uint32_t m_DirClus;
-  uint32_t m_DirOffset;
+    virtual void pinBlock(uint64_t location);
+    virtual void unpinBlock(uint64_t location);
 
-  Cache m_FileBlockCache;
+    private:
+    uint32_t m_DirClus;
+    uint32_t m_DirOffset;
+
+    Cache m_FileBlockCache;
 };
 
 #endif

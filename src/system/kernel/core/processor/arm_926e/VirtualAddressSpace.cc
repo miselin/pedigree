@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,30 +17,30 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <panic.h>
+#include "VirtualAddressSpace.h"
 #include <Log.h>
-#include <utilities/utility.h>
+#include <panic.h>
+#include <processor/PhysicalMemoryManager.h>
 #include <processor/Processor.h>
 #include <processor/types.h>
-#include <processor/PhysicalMemoryManager.h>
-#include "VirtualAddressSpace.h"
+#include <utilities/utility.h>
 
 Arm926EVirtualAddressSpace Arm926EVirtualAddressSpace::m_KernelSpace;
 
 VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace()
 {
-  return Arm926EVirtualAddressSpace::m_KernelSpace;
+    return Arm926EVirtualAddressSpace::m_KernelSpace;
 }
 
 VirtualAddressSpace *VirtualAddressSpace::create()
 {
-  // TODO
-  //return new X86VirtualAddressSpace();
-  return 0;
+    // TODO
+    // return new X86VirtualAddressSpace();
+    return 0;
 }
 
-Arm926EVirtualAddressSpace::Arm926EVirtualAddressSpace() :
-  VirtualAddressSpace(reinterpret_cast<void*> (0))
+Arm926EVirtualAddressSpace::Arm926EVirtualAddressSpace()
+    : VirtualAddressSpace(reinterpret_cast<void *>(0))
 {
 }
 
@@ -51,32 +50,30 @@ Arm926EVirtualAddressSpace::~Arm926EVirtualAddressSpace()
 
 bool Arm926EVirtualAddressSpace::initialise()
 {
-  return true;
+    return true;
 }
 
 bool Arm926EVirtualAddressSpace::isAddressValid(void *virtualAddress)
 {
-  return true;
+    return true;
 }
 
 bool Arm926EVirtualAddressSpace::isMapped(void *virtualAddress)
 {
-  return true;
+    return true;
 }
 
-bool Arm926EVirtualAddressSpace::map(physical_uintptr_t physicalAddress,
-                                    void *virtualAddress,
-                                    size_t flags)
+bool Arm926EVirtualAddressSpace::map(
+    physical_uintptr_t physicalAddress, void *virtualAddress, size_t flags)
 {
-  return false;
+    return false;
 }
 
-void Arm926EVirtualAddressSpace::getMapping(void *virtualAddress,
-                                           physical_uintptr_t &physicalAddress,
-                                           size_t &flags)
+void Arm926EVirtualAddressSpace::getMapping(
+    void *virtualAddress, physical_uintptr_t &physicalAddress, size_t &flags)
 {
-  physicalAddress = 0;
-  flags = 0;
+    physicalAddress = 0;
+    flags = 0;
 }
 
 void Arm926EVirtualAddressSpace::setFlags(void *virtualAddress, size_t newFlags)
@@ -89,10 +86,10 @@ void Arm926EVirtualAddressSpace::unmap(void *virtualAddress)
 
 void *Arm926EVirtualAddressSpace::allocateStack()
 {
-  // TODO
-  return 0;
+    // TODO
+    return 0;
 }
 void Arm926EVirtualAddressSpace::freeStack(void *pStack)
 {
-  // TODO
+    // TODO
 }

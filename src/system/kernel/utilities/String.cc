@@ -17,30 +17,34 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/utility.h>
 #include <utilities/String.h>
+#include <utilities/utility.h>
 
 #include <Log.h>
 
 String::String()
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
+      m_Static(), m_HeapData(true)
 {
 }
 
 String::String(const char *s)
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
+      m_Static(), m_HeapData(true)
 {
     assign(s);
 }
 
 String::String(const char *s, size_t length)
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
+      m_Static(), m_HeapData(true)
 {
     assign(s, length);
 }
 
 String::String(const String &x)
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize), m_Static(), m_HeapData(true)
+    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
+      m_Static(), m_HeapData(true)
 {
     assign(x);
 }
@@ -69,19 +73,19 @@ String::~String()
     free();
 }
 
-String &String::operator = (const String &x)
+String &String::operator=(const String &x)
 {
     assign(x);
     return *this;
 }
 
-String &String::operator = (const char *s)
+String &String::operator=(const char *s)
 {
     assign(s);
     return *this;
 }
 
-String &String::operator += (const String &x)
+String &String::operator+=(const String &x)
 {
     // Switch from const to dynamic string.
     if (!m_HeapData)
@@ -112,7 +116,7 @@ String &String::operator += (const String &x)
     return *this;
 }
 
-String &String::operator += (const char *s)
+String &String::operator+=(const char *s)
 {
     // Switch from const to dynamic string.
     if (!m_HeapData)
@@ -141,7 +145,7 @@ String &String::operator += (const char *s)
     return *this;
 }
 
-bool String::operator == (const String &s) const
+bool String::operator==(const String &s) const
 {
     if (m_Length != s.m_Length)
         return false;
@@ -153,7 +157,7 @@ bool String::operator == (const String &s) const
     return !StringCompareN(buf, other_buf, m_Length);
 }
 
-bool String::operator == (const char *s) const
+bool String::operator==(const char *s) const
 {
     const char *buf = extract();
 
@@ -189,7 +193,7 @@ void String::assign(const String &x)
         MemoryCopy(m_Static, x.m_Static, m_Length + 1);
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
         m_Size = StaticSize;
@@ -203,7 +207,7 @@ void String::assign(const String &x)
     }
 
     m_HeapData = true;
-    // m_ConstData = nullptr;
+// m_ConstData = nullptr;
 
 #ifdef ADDITIONAL_CHECKS
     if (*this != x)
@@ -235,7 +239,7 @@ void String::assign(const char *s, size_t len)
         ByteSet(m_Static, 0, StaticSize);
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
         m_Size = StaticSize;
@@ -245,7 +249,7 @@ void String::assign(const char *s, size_t len)
         StringCopyN(m_Static, s, copyLength);
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
         m_Size = StaticSize;
@@ -285,7 +289,7 @@ void String::reserve(size_t size, bool zero)
             MemoryCopy(m_Static, m_Data, size);
             if (m_HeapData)
             {
-                delete [] m_Data;
+                delete[] m_Data;
             }
             m_Data = 0;
         }
@@ -295,13 +299,13 @@ void String::reserve(size_t size, bool zero)
     else if (size > m_Size)
     {
         char *tmp = m_Data;
-        m_Data = new char [size];
+        m_Data = new char[size];
         if (tmp)
         {
             MemoryCopy(m_Data, tmp, m_Size > size ? size : m_Size);
             if (m_HeapData)
             {
-                delete [] tmp;
+                delete[] tmp;
             }
         }
         else if (zero)
@@ -315,7 +319,7 @@ void String::free()
 {
     if (m_HeapData)
     {
-        delete [] m_Data;
+        delete[] m_Data;
     }
     ByteSet(m_Static, 0, StaticSize);
     m_Data = 0;
@@ -345,13 +349,13 @@ void String::split(size_t offset, String &back)
 
     // Handle the case where the split causes our string to suddenly be shorter
     // than the static size.
-    if((m_Length < StaticSize) && (buf == m_Data))
+    if ((m_Length < StaticSize) && (buf == m_Data))
     {
         MemoryCopy(m_Static, buf, m_Length);
         buf = m_Static;
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
         m_Size = StaticSize;
@@ -369,13 +373,13 @@ void String::strip()
 void String::lstrip()
 {
     char *buf = extract();
-    
-    if(!iswhitespace(buf[0]))
+
+    if (!iswhitespace(buf[0]))
         return;
 
     // finish up the byte tail
     size_t n = 0;
-    while(n < m_Length && iswhitespace(buf[n]))
+    while (n < m_Length && iswhitespace(buf[n]))
         n++;
 
     // Move the data to cover up the whitespace and avoid reallocating m_Data
@@ -390,7 +394,7 @@ void String::lstrip()
         m_Size = StaticSize;
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
     }
@@ -400,11 +404,11 @@ void String::rstrip()
 {
     char *buf = extract();
 
-    if(!iswhitespace(buf[m_Length - 1]))
+    if (!iswhitespace(buf[m_Length - 1]))
         return;
 
     size_t n = m_Length;
-    while(n > 0 && iswhitespace(buf[n - 1]))
+    while (n > 0 && iswhitespace(buf[n - 1]))
         n--;
 
     // m_Size is still valid - it's the size of the buffer. m_Length is now
@@ -420,7 +424,7 @@ void String::rstrip()
         m_Size = StaticSize;
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
     }
@@ -464,7 +468,8 @@ void String::tokenise(char token, List<SharedPointer<String>> &output)
 
     if (!pos)
     {
-        tokenise_t pStr = tokenise_t(new String(buffer, m_Length - (buffer - orig_buffer)));
+        tokenise_t pStr =
+            tokenise_t(new String(buffer, m_Length - (buffer - orig_buffer)));
         if (pStr->length())
             output.pushBack(pStr);
     }
@@ -484,7 +489,7 @@ void String::lchomp()
         m_Size = StaticSize;
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
     }
@@ -494,7 +499,7 @@ void String::chomp()
 {
     char *buf = extract();
 
-    m_Length --;
+    m_Length--;
     buf[m_Length] = '\0';
 
     // Did we suddenly drop below the static size?
@@ -504,7 +509,7 @@ void String::chomp()
         m_Size = StaticSize;
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
     }
@@ -524,7 +529,7 @@ void String::Format(const char *fmt, ...)
         m_Size = StaticSize;
         if (m_HeapData)
         {
-            delete [] m_Data;
+            delete[] m_Data;
         }
         m_Data = 0;
     }
@@ -544,7 +549,7 @@ bool String::endswith(const char c) const
 bool String::endswith(const String &s) const
 {
     // Not a suffix check.
-    if(m_Length == s.length())
+    if (m_Length == s.length())
         return *this == s;
 
     const char *otherbuf = s.extract();
@@ -559,7 +564,7 @@ bool String::endswith(const char *s, size_t len) const
     }
 
     // Suffix exceeds our length.
-    if(m_Length < len)
+    if (m_Length < len)
         return false;
 
     const char *mybuf = extract();
@@ -582,7 +587,7 @@ bool String::startswith(const char c) const
 bool String::startswith(const String &s) const
 {
     // Not a prefix check.
-    if(m_Length == s.length())
+    if (m_Length == s.length())
         return *this == s;
 
     const char *otherbuf = s.extract();
@@ -597,7 +602,7 @@ bool String::startswith(const char *s, size_t len) const
     }
 
     // Prefix exceeds our length.
-    if(m_Length < len)
+    if (m_Length < len)
         return false;
 
     const char *mybuf = extract();
@@ -618,7 +623,7 @@ char *String::extract() const
         return const_cast<char *>(m_ConstData);
     }
 
-    if(m_Length < StaticSize)
+    if (m_Length < StaticSize)
     {
         // const_cast because we don't have a side effect but need to return
         // a pointer to our object regardless

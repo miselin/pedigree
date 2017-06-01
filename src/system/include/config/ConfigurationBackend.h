@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -26,34 +25,36 @@
 #include <config/ConfigurationManager.h>
 
 /** A configuration backend for the Pedigree configuration system.
-  *
-  * By subclassing this class, it is possible to handle different
-  * methods for configuration (for instance, a backend for SQL,
-  * flat files, and pure memory access).
-  */
+ *
+ * By subclassing this class, it is possible to handle different
+ * methods for configuration (for instance, a backend for SQL,
+ * flat files, and pure memory access).
+ */
 class ConfigurationBackend
 {
-public:
+    public:
     ConfigurationBackend(String configStore);
     virtual ~ConfigurationBackend();
 
-    virtual size_t createTable(String table) =0;
-    /** Inserts the value 'value' into the table 'table', with its key as 'key' */
-    virtual void insert(String table, String key, ConfigValue &value) =0;
+    virtual size_t createTable(String table) = 0;
+    /** Inserts the value 'value' into the table 'table', with its key as 'key'
+     */
+    virtual void insert(String table, String key, ConfigValue &value) = 0;
     /** Returns the value in table, with key matching 'key', or zero. */
-    virtual ConfigValue &select(String table, String key) =0;
+    virtual ConfigValue &select(String table, String key) = 0;
 
     /** Watch a specific table entry. */
-    virtual void watch(String table, String key, ConfigurationWatcher watcher) =0;
+    virtual void
+    watch(String table, String key, ConfigurationWatcher watcher) = 0;
     /** Remove a watcher from a table entry. */
-    virtual void unwatch(String table, String key, ConfigurationWatcher watcher) =0;
+    virtual void
+    unwatch(String table, String key, ConfigurationWatcher watcher) = 0;
 
     virtual String getConfigStore();
 
-    virtual String getTypeName() =0;
+    virtual String getTypeName() = 0;
 
-protected:
-
+    protected:
     String m_ConfigStore;
 };
 

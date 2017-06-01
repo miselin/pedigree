@@ -17,71 +17,81 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "VFS.h"
 #include "File.h"
-#include "Symlink.h"
 #include "Filesystem.h"
+#include "Symlink.h"
+#include "VFS.h"
+#include <Log.h>
+#include <process/Scheduler.h>
 #include <processor/Processor.h>
 #include <processor/types.h>
-#include <process/Scheduler.h>
-#include <Log.h>
 
-void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page, void *meta)
+void File::writeCallback(
+    CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+    void *meta)
 {
     File *pFile = reinterpret_cast<File *>(meta);
 
-    switch(cause)
+    switch (cause)
     {
         case CacheConstants::WriteBack:
-            {
+        {
 #ifdef THREADS
-                LockGuard<Mutex>(pFile->m_Lock);
+            LockGuard<Mutex>(pFile->m_Lock);
 #endif
 
-                // We are given one dirty page. Blocks can be smaller than a page.
-                size_t off = 0;
-                for(; off < PhysicalMemoryManager::getPageSize(); off += pFile->getBlockSize())
-                {
-                    pFile->writeBlock(loc + off, page + off);
-                }
+            // We are given one dirty page. Blocks can be smaller than a page.
+            size_t off = 0;
+            for (; off < PhysicalMemoryManager::getPageSize();
+                 off += pFile->getBlockSize())
+            {
+                pFile->writeBlock(loc + off, page + off);
             }
-            break;
+        }
+        break;
         case CacheConstants::Eviction:
             // Remove this page from our data cache.
             /// \todo handle block size < 4K??
             pFile->setCachedPage(loc / pFile->getBlockSize(), FILE_BAD_BLOCK);
             break;
         default:
-            WARNING("File: unknown cache callback -- could indicate potential future I/O issues.");
+            WARNING("File: unknown cache callback -- could indicate potential "
+                    "future I/O issues.");
             break;
     }
 }
 
-File::File() :
-    m_Name(), m_AccessedTime(0), m_ModifiedTime(0),
-    m_CreationTime(0), m_Inode(0), m_pFilesystem(0), m_Size(0),
-    m_pParent(0), m_nWriters(0), m_nReaders(0), m_Uid(0), m_Gid(0),
-    m_Permissions(0), m_DataCache(), m_bDirect(false)
+File::File()
+    : m_Name(), m_AccessedTime(0), m_ModifiedTime(0), m_CreationTime(0),
+      m_Inode(0), m_pFilesystem(0), m_Size(0), m_pParent(0), m_nWriters(0),
+      m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0), m_DataCache(),
+      m_bDirect(false)
 #ifndef VFS_NOMMU
-    , m_FillCache()
+      ,
+      m_FillCache()
 #endif
 #ifdef THREADS
-    , m_Lock(), m_MonitorTargets()
+      ,
+      m_Lock(), m_MonitorTargets()
 #endif
 {
 }
 
-File::File(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-           uintptr_t inode, Filesystem *pFs, size_t size, File *pParent) :
-    m_Name(name), m_AccessedTime(accessedTime), m_ModifiedTime(modifiedTime),
-    m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
-    m_Size(size), m_pParent(pParent), m_nWriters(0), m_nReaders(0), m_Uid(0),
-    m_Gid(0), m_Permissions(0), m_DataCache(), m_bDirect(false)
+File::File(
+    const String &name, Time::Timestamp accessedTime,
+    Time::Timestamp modifiedTime, Time::Timestamp creationTime, uintptr_t inode,
+    Filesystem *pFs, size_t size, File *pParent)
+    : m_Name(name), m_AccessedTime(accessedTime), m_ModifiedTime(modifiedTime),
+      m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
+      m_Size(size), m_pParent(pParent), m_nWriters(0), m_nReaders(0), m_Uid(0),
+      m_Gid(0), m_Permissions(0), m_DataCache(), m_bDirect(false)
 #ifndef VFS_NOMMU
-    , m_FillCache()
+      ,
+      m_FillCache()
 #endif
 #ifdef THREADS
-    , m_Lock(), m_MonitorTargets()
+      ,
+      m_Lock(), m_MonitorTargets()
 #endif
 {
     size_t maxBlock = size / getBlockSize();
@@ -98,23 +108,28 @@ File::~File()
 {
 }
 
-uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t
+File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if ((location+size) >= m_Size)
+    if ((location + size) >= m_Size)
     {
         size_t oldSize = size;
-        size = m_Size-location;
-        if((location + size) > m_Size)
+        size = m_Size - location;
+        if ((location + size) > m_Size)
         {
             // Completely broken read parameters.
-            ERROR("VFS: even after fixup, read at location " << location << " is larger than file size (" << m_Size << ")");
-            ERROR("VFS:    fixup size: " << size << ", original size: " << oldSize);
+            ERROR(
+                "VFS: even after fixup, read at location "
+                << location << " is larger than file size (" << m_Size << ")");
+            ERROR(
+                "VFS:    fixup size: " << size
+                                       << ", original size: " << oldSize);
             return 0;
         }
     }
 
     const size_t blockSize = getBlockSize();
-    
+
     size_t n = 0;
     while (size)
     {
@@ -122,11 +137,11 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
             return n;
 
         uintptr_t block = location / blockSize;
-        uintptr_t offs  = location % blockSize;
-        uintptr_t sz    = (size+offs > blockSize) ? blockSize-offs : size;
+        uintptr_t offs = location % blockSize;
+        uintptr_t sz = (size + offs > blockSize) ? blockSize - offs : size;
 
         // Handle a possible early EOF.
-        if(sz > (m_Size - location))
+        if (sz > (m_Size - location))
             sz = m_Size - location;
 
 #ifdef THREADS
@@ -142,7 +157,10 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
             buff = readBlock(block * blockSize);
             if (!buff)
             {
-                ERROR("File::read - bad read (" << (block * blockSize) << " - block size is " << blockSize << ")");
+                ERROR(
+                    "File::read - bad read ("
+                    << (block * blockSize) << " - block size is " << blockSize
+                    << ")");
                 return n;
             }
             if (!m_bDirect)
@@ -154,11 +172,11 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
         m_Lock.release();
 #endif
 
-        if(buffer)
+        if (buffer)
         {
-            MemoryCopy(reinterpret_cast<void*>(buffer),
-                   reinterpret_cast<void*>(buff + offs),
-                   sz);
+            MemoryCopy(
+                reinterpret_cast<void *>(buffer),
+                reinterpret_cast<void *>(buff + offs), sz);
             buffer += sz;
         }
 
@@ -169,7 +187,8 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
     return n;
 }
 
-uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t
+File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     size_t blockSize = getBlockSize();
 
@@ -180,8 +199,8 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
     while (size)
     {
         uintptr_t block = location / blockSize;
-        uintptr_t offs  = location % blockSize;
-        uintptr_t sz    = (size+offs > blockSize) ? blockSize-offs : size;
+        uintptr_t offs = location % blockSize;
+        uintptr_t sz = (size + offs > blockSize) ? blockSize - offs : size;
 
 #ifdef THREADS
         m_Lock.acquire();
@@ -196,7 +215,10 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
             buff = readBlock(block * blockSize);
             if (!buff)
             {
-                ERROR("File::write - bad read (" << (block * blockSize) << " - block size is " << blockSize << ")");
+                ERROR(
+                    "File::write - bad read ("
+                    << (block * blockSize) << " - block size is " << blockSize
+                    << ")");
                 return n;
             }
             if (!m_bDirect)
@@ -208,9 +230,9 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
         m_Lock.release();
 #endif
 
-        MemoryCopy(reinterpret_cast<void*>(buff+offs),
-               reinterpret_cast<void*>(buffer),
-               sz);
+        MemoryCopy(
+            reinterpret_cast<void *>(buff + offs),
+            reinterpret_cast<void *>(buffer), sz);
 
         // Trigger an immediate write-back - write-through cache.
         writeBlock(block * blockSize, buff);
@@ -249,12 +271,12 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
     offset &= ~(blockSize - 1);
 
     // Quick and easy exit.
-    if(offset > m_Size)
+    if (offset > m_Size)
     {
         return ~0UL;
     }
 
-    // Check if we have this page in the cache.
+// Check if we have this page in the cache.
 #ifdef THREADS
     m_Lock.acquire();
 #endif
@@ -277,13 +299,14 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
 #endif
             if (read(offset, nativeBlockSize, vaddr, true) != nativeBlockSize)
             {
-                ERROR("Reading into fill cache failed, cannot get backing page.");
+                ERROR(
+                    "Reading into fill cache failed, cannot get backing page.");
                 return ~0UL;
             }
 
             m_FillCache.markNoLongerEditing(offset, nativeBlockSize);
 #ifdef THREADS
-    m_Lock.acquire();
+            m_Lock.acquire();
 #endif
         }
     }
@@ -297,7 +320,7 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
 
     // Look up the page now that we've confirmed it is in the cache.
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if(va.isMapped(reinterpret_cast<void *>(vaddr)))
+    if (va.isMapped(reinterpret_cast<void *>(vaddr)))
     {
         physical_uintptr_t phys = 0;
         size_t flags = 0;
@@ -340,13 +363,13 @@ void File::returnPhysicalPage(size_t offset)
     offset &= ~(blockSize - 1);
 
     // Quick and easy exit for bad input.
-    if(offset > m_Size)
+    if (offset > m_Size)
     {
         return;
     }
 
-    // Release the page. Beware - this could cause a cache evict, which will
-    // make the next read/write at this offset do real (slow) I/O.
+// Release the page. Beware - this could cause a cache evict, which will
+// make the next read/write at this offset do real (slow) I/O.
 #ifdef THREADS
     m_Lock.acquire();
 #endif
@@ -444,9 +467,8 @@ void File::dataChanged()
     m_Lock.acquire();
 
     bool bAny = false;
-    for (List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end();
-         it++)
+    for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+         it != m_MonitorTargets.end(); it++)
     {
         MonitorTarget *pMT = *it;
 
@@ -460,7 +482,7 @@ void File::dataChanged()
     m_Lock.release();
 
     // If anything was waiting on a change, wake it up now.
-    if(bAny)
+    if (bAny)
     {
         Scheduler::instance().yield();
     }
@@ -472,9 +494,8 @@ void File::cullMonitorTargets(Thread *pThread)
 {
     LockGuard<Mutex> guard(m_Lock);
 
-    for (List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end();
-         it++)
+    for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+         it != m_MonitorTargets.end(); it++)
     {
         MonitorTarget *pMT = *it;
 
@@ -505,7 +526,7 @@ String File::getFullPath(bool bWithLabel)
     if (getParent() != 0)
         str = getName();
 
-    File* f = this;
+    File *f = this;
     while ((f = f->getParent()))
     {
         // This feels a bit weird considering the while loop's subject...

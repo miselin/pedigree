@@ -22,7 +22,6 @@
 
 namespace Time
 {
-
 struct runAfterParams
 {
     int (*func)(void *);
@@ -48,5 +47,4 @@ void runAfter(int (*func)(void *), void *param, Timestamp nanoseconds)
     p->duration = nanoseconds;
     pocketknife::runConcurrently(runAfterThread, p);
 }
-
 }

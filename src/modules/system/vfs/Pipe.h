@@ -20,11 +20,11 @@
 #ifndef PIPE_H
 #define PIPE_H
 
-#include <time/Time.h>
+#include "File.h"
 #include <processor/types.h>
+#include <time/Time.h>
 #include <utilities/Buffer.h>
 #include <utilities/String.h>
-#include "File.h"
 
 #define PIPE_BUF_MAX 2048
 
@@ -36,12 +36,13 @@ class Pipe : public File
     friend class Filesystem;
     friend class ZombiePipe;
 
-public:
+    public:
     /** Eases the pain of casting, and performs a sanity check. */
     static Pipe *fromFile(File *pF)
     {
-        if (!pF->isPipe()) FATAL("Casting non-symlink File to Pipe!");
-        return reinterpret_cast<Pipe*> (pF);
+        if (!pF->isPipe())
+            FATAL("Casting non-symlink File to Pipe!");
+        return reinterpret_cast<Pipe *>(pF);
     }
 
     /** Constructor, creates an invalid file. */
@@ -49,12 +50,17 @@ public:
 
     /** Copy constructors are hidden - unused! */
     Pipe(const Pipe &file);
-private:
-    Pipe& operator =(const Pipe&);
-public:
+
+    private:
+    Pipe &operator=(const Pipe &);
+
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    Pipe(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-         uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent, bool bIsAnonymous = false);
+    Pipe(
+        const String &name, Time::Timestamp accessedTime,
+        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent,
+        bool bIsAnonymous = false);
     /** Destructor - doesn't do anything. */
     virtual ~Pipe();
 
@@ -62,9 +68,13 @@ public:
     virtual int select(bool bWriting = false, int timeout = 0);
 
     /** Reads from the file. */
-    virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
     /** Writes to the file. */
-    virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
     /** Pipes are anonymous (no name). */
     virtual bool isPipe() const;
@@ -77,8 +87,9 @@ public:
         (and also when all readers have hung up so we can die). */
     virtual void decreaseRefCount(bool bIsWriter);
 
-protected:
-    /** If we're an anonymous pipe, we should delete ourselves when all readers/writers have hung up. */
+    protected:
+    /** If we're an anonymous pipe, we should delete ourselves when all
+     * readers/writers have hung up. */
     bool m_bIsAnonymous;
 
     /** Have we reached EOF? */

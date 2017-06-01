@@ -28,17 +28,17 @@
 
 /** General Vector template class, aka dynamic array
  *\brief A vector / dynamic array */
-template<class T>
+template <class T>
 class Vector
 {
-  static_assert(sizeof(T) <= 16,
-                "Vector<T> should not be used with large objects");
+    static_assert(
+        sizeof(T) <= 16, "Vector<T> should not be used with large objects");
 
-  public:
+    public:
     /** Random-access iterator for the Vector */
-    typedef T*       Iterator;
+    typedef T *Iterator;
     /** Contant random-access iterator for the Vector */
-    typedef T const* ConstIterator;
+    typedef T const *ConstIterator;
 
     /** The default constructor, does nothing */
     Vector();
@@ -53,11 +53,11 @@ class Vector
 
     /** The assignment operator
      *\param[in] x the object that should be copied */
-    Vector &operator = (const Vector &x);
+    Vector &operator=(const Vector &x);
     /** The [] operator
      *\param[in] index the index of the element that should be returned
      *\return the element at index index */
-    T &operator [](size_t index) const;
+    T &operator[](size_t index) const;
 
     /** Get the number of elements that we have reserved space for
      *\return the number of elements that we have reserved space for */
@@ -91,25 +91,25 @@ class Vector
      *\return iterator pointing to the beginning of the Vector */
     inline Iterator begin()
     {
-      return m_Data + m_Start;
+        return m_Data + m_Start;
     }
     /** Get a constant iterator pointing to the beginning of the Vector
      *\return constant iterator pointing to the beginning of the Vector */
     inline ConstIterator begin() const
     {
-      return m_Data + m_Start;
+        return m_Data + m_Start;
     }
     /** Get an iterator pointing to the last element + 1
      *\return iterator pointing to the last element + 1 */
     inline Iterator end()
     {
-      return m_Data + m_Start + m_Count;
+        return m_Data + m_Start + m_Count;
     }
     /** Get a constant iterator pointing to the last element + 1
      *\return constant iterator pointing to the last element + 1 */
     inline ConstIterator end() const
     {
-      return m_Data + m_Start + m_Count;
+        return m_Data + m_Start + m_Count;
     }
     /** Copy the content of a Vector into this Vector
      *\param[in] x the reference Vector */
@@ -119,7 +119,7 @@ class Vector
      *\param[in] copy Should we copy the old contents over? */
     void reserve(size_t size, bool copy);
 
-  private:
+    private:
     /** Internal reserve() function.
      *\param[in] size the number of elements to reserve space for
      *\param[in] copy Should we copy the old contents over?
@@ -140,203 +140,201 @@ class Vector
     static const int m_ReserveFactor = 2;
 };
 
-template<class T>
-Vector<T>::Vector()
- : m_Size(0), m_Count(0), m_Start(0), m_Data(0)
+template <class T>
+Vector<T>::Vector() : m_Size(0), m_Count(0), m_Start(0), m_Data(0)
 {
 }
 
-template<class T>
-Vector<T>::Vector(size_t size)
- : m_Size(0), m_Count(0), m_Start(0), m_Data(0)
+template <class T>
+Vector<T>::Vector(size_t size) : m_Size(0), m_Count(0), m_Start(0), m_Data(0)
 {
-  reserve(size, false);
+    reserve(size, false);
 }
 
-template<class T>
+template <class T>
 Vector<T>::Vector(const Vector &x)
- : m_Size(0), m_Count(0), m_Start(0), m_Data(0)
+    : m_Size(0), m_Count(0), m_Start(0), m_Data(0)
 {
-  assign(x);
+    assign(x);
 }
 
-template<class T>
+template <class T>
 Vector<T>::~Vector()
 {
-  if (m_Data != 0)
-    delete []m_Data;
+    if (m_Data != 0)
+        delete[] m_Data;
 }
 
-template<class T>
-Vector<T> &Vector<T>::operator = (const Vector &x)
+template <class T>
+Vector<T> &Vector<T>::operator=(const Vector &x)
 {
-  assign(x);
-  return *this;
+    assign(x);
+    return *this;
 }
 
-template<class T>
-T &Vector<T>::operator [](size_t index) const
+template <class T>
+T &Vector<T>::operator[](size_t index) const
 {
-  static T outofbounds = T();
-  if (index > m_Count)
-    return outofbounds;
-  return m_Data[m_Start + index];
+    static T outofbounds = T();
+    if (index > m_Count)
+        return outofbounds;
+    return m_Data[m_Start + index];
 }
 
-template<class T>
+template <class T>
 size_t Vector<T>::size() const
 {
-  return m_Size;
+    return m_Size;
 }
 
-template<class T>
+template <class T>
 size_t Vector<T>::count() const
 {
-  return m_Count;
+    return m_Count;
 }
 
-template<class T>
+template <class T>
 void Vector<T>::pushBack(T value)
 {
-  reserve(m_Count + 1, true);
+    reserve(m_Count + 1, true);
 
-  // If we've hit the end of the reserved space we can use, we need to move
-  // the existing entries (rather than this happening in each reserve).
-  if ((m_Start + m_Count + 1) > m_Size)
-  {
-    pedigree_std::copy(m_Data, m_Data + m_Start, m_Count);
-    m_Start = 0;
-  }
+    // If we've hit the end of the reserved space we can use, we need to move
+    // the existing entries (rather than this happening in each reserve).
+    if ((m_Start + m_Count + 1) > m_Size)
+    {
+        pedigree_std::copy(m_Data, m_Data + m_Start, m_Count);
+        m_Start = 0;
+    }
 
-  m_Data[m_Start + m_Count++] = value;
+    m_Data[m_Start + m_Count++] = value;
 }
 
-template<class T>
+template <class T>
 T Vector<T>::popBack()
 {
-  m_Count--;
-  return m_Data[m_Start + m_Count];
+    m_Count--;
+    return m_Data[m_Start + m_Count];
 }
 
-template<class T>
+template <class T>
 void Vector<T>::pushFront(T value)
 {
-  const T *oldData = m_Data;
+    const T *oldData = m_Data;
 
-  reserve(m_Count + 1, false, false);
+    reserve(m_Count + 1, false, false);
 
-  if (m_Start)
-  {
-    m_Start--;
-    m_Data[m_Start] = value;
-  }
-  else
-  {
-    // We have a bigger buffer, copy items from the old buffer now.
-    m_Data[0] = value;
-    pedigree_std::copy(&m_Data[1], oldData, m_Count);
-  }
+    if (m_Start)
+    {
+        m_Start--;
+        m_Data[m_Start] = value;
+    }
+    else
+    {
+        // We have a bigger buffer, copy items from the old buffer now.
+        m_Data[0] = value;
+        pedigree_std::copy(&m_Data[1], oldData, m_Count);
+    }
 
-  m_Count++;
+    m_Count++;
 
-  // All finished with the previous buffer now.
-  if (m_Data != oldData)
-  {
-    delete [] oldData;
-  }
+    // All finished with the previous buffer now.
+    if (m_Data != oldData)
+    {
+        delete[] oldData;
+    }
 }
 
-template<class T>
+template <class T>
 T Vector<T>::popFront()
 {
-  T ret = m_Data[0];
-  m_Count--;
-  m_Start++;
-  return ret;
+    T ret = m_Data[0];
+    m_Count--;
+    m_Start++;
+    return ret;
 }
 
-template<class T>
+template <class T>
 void Vector<T>::setAt(size_t idx, T value)
 {
-  if(idx < m_Count)
-    m_Data[m_Start + idx] = value;
+    if (idx < m_Count)
+        m_Data[m_Start + idx] = value;
 }
 
-template<class T>
+template <class T>
 void Vector<T>::clear()
 {
-  m_Count = 0;
-  m_Size = 0;
-  delete [] m_Data;
-  m_Data = 0;
+    m_Count = 0;
+    m_Size = 0;
+    delete[] m_Data;
+    m_Data = 0;
 }
 
-template<class T>
+template <class T>
 typename Vector<T>::Iterator Vector<T>::erase(Iterator iter)
 {
-  size_t which = iter - begin();
-  pedigree_std::copy(&m_Data[which], &m_Data[which + 1], m_Count - which - 1);
-  m_Count--;
-  return iter;
+    size_t which = iter - begin();
+    pedigree_std::copy(&m_Data[which], &m_Data[which + 1], m_Count - which - 1);
+    m_Count--;
+    return iter;
 }
 
-template<class T>
+template <class T>
 void Vector<T>::assign(const Vector &x)
 {
-  reserve(x.size(), false);
-  pedigree_std::copy(m_Data, x.m_Data, x.m_Count);
-  m_Count = x.count();
-  m_Start = x.m_Start;
+    reserve(x.size(), false);
+    pedigree_std::copy(m_Data, x.m_Data, x.m_Count);
+    m_Count = x.count();
+    m_Start = x.m_Start;
 }
 
-template<class T>
+template <class T>
 void Vector<T>::reserve(size_t size, bool copy)
 {
-  reserve(size, copy, true);
+    reserve(size, copy, true);
 }
 
-template<class T>
+template <class T>
 void Vector<T>::reserve(size_t size, bool copy, bool free)
 {
-  if (size <= m_Size)
-    return;
-  else if (size < (m_Size * m_ReserveFactor))
-  {
-    // Grow exponentially.
-    size = m_Size * m_ReserveFactor;
-  }
+    if (size <= m_Size)
+        return;
+    else if (size < (m_Size * m_ReserveFactor))
+    {
+        // Grow exponentially.
+        size = m_Size * m_ReserveFactor;
+    }
 
-  T *tmp = m_Data;
-  m_Data = new T[size];
-  if (tmp != 0)
-  {
-    if (copy == true)
+    T *tmp = m_Data;
+    m_Data = new T[size];
+    if (tmp != 0)
     {
-      pedigree_std::copy(m_Data, tmp + m_Start, m_Size - m_Start);
-      m_Start = 0;
+        if (copy == true)
+        {
+            pedigree_std::copy(m_Data, tmp + m_Start, m_Size - m_Start);
+            m_Start = 0;
+        }
+        if (free)
+        {
+            delete[] tmp;
+        }
     }
-    if (free)
-    {
-      delete []tmp;
-    }
-  }
-  m_Size = size;
+    m_Size = size;
 }
 
 template <class T>
 void Vector<T>::swap(Iterator a, Iterator b)
 {
-  if (a == b)
-    return;
-  else if (a < begin() || a >= end())
-    return;
-  else if (b < begin() || b >= end())
-    return;
+    if (a == b)
+        return;
+    else if (a < begin() || a >= end())
+        return;
+    else if (b < begin() || b >= end())
+        return;
 
-  // Perform the swap.
-  T tmp = *a;
-  *a = *b;
-  *b = tmp;
+    // Perform the swap.
+    T tmp = *a;
+    *a = *b;
+    *b = tmp;
 }
 
 /** @} */

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,49 +29,49 @@
  */
 class X86Disassembler : public DisassemblerBase
 {
-public:
-  X86Disassembler();
-  ~X86Disassembler();
+    public:
+    X86Disassembler();
+    ~X86Disassembler();
 
-  /**
-   * Sets the location of the next instruction to be disassembled.
-   */
-  void setLocation(uintptr_t location);
+    /**
+     * Sets the location of the next instruction to be disassembled.
+     */
+    void setLocation(uintptr_t location);
 
-  /**
-   * Gets the location of the next instruction to be disassembled.
-   */
-  uintptr_t getLocation();
+    /**
+     * Gets the location of the next instruction to be disassembled.
+     */
+    uintptr_t getLocation();
 
-  /**
-   * Sets the mode of disassembly - 16-bit, 32-bit or 64-bit
-   * If a disassembler doesn't support a requested mode, it should
-   * return without changing anything.
-   * \param mode Mode - 16, 32 or 64.
-   */
-  void setMode(size_t mode);
-  
-  /**
-   * Disassembles one instruction and populates the given StaticString
-   * with a textual representation.
-   */
-  void disassemble(LargeStaticString &text);
+    /**
+     * Sets the mode of disassembly - 16-bit, 32-bit or 64-bit
+     * If a disassembler doesn't support a requested mode, it should
+     * return without changing anything.
+     * \param mode Mode - 16, 32 or 64.
+     */
+    void setMode(size_t mode);
 
-private:
-  /**
-   * Current disassembling location in memory.
-   */
-  uintptr_t m_Location;
+    /**
+     * Disassembles one instruction and populates the given StaticString
+     * with a textual representation.
+     */
+    void disassemble(LargeStaticString &text);
 
-  /**
-   * Current mode.
-   */
-  int m_Mode;
+    private:
+    /**
+     * Current disassembling location in memory.
+     */
+    uintptr_t m_Location;
 
-  /**
-   * Disassembler object.
-   */
-  ud_t m_Obj;
+    /**
+     * Current mode.
+     */
+    int m_Mode;
+
+    /**
+     * Disassembler object.
+     */
+    ud_t m_Obj;
 };
 
 typedef X86Disassembler Disassembler;

@@ -23,12 +23,13 @@
 
 using namespace Input;
 
-static void event_callback(size_t p1, size_t p2, uintptr_t* pBuffer, size_t p4)
+static void event_callback(size_t p1, size_t p2, uintptr_t *pBuffer, size_t p4)
 {
-    if(pBuffer[1])
+    if (pBuffer[1])
     {
         callback_t cb = reinterpret_cast<callback_t>(pBuffer[1]);
-        Input::InputNotification *pNote = reinterpret_cast<Input::InputNotification*>(&pBuffer[2]);
+        Input::InputNotification *pNote =
+            reinterpret_cast<Input::InputNotification *>(&pBuffer[2]);
         cb(*pNote);
     }
 
@@ -37,12 +38,14 @@ static void event_callback(size_t p1, size_t p2, uintptr_t* pBuffer, size_t p4)
 
 void Input::installCallback(CallbackType type, callback_t cb)
 {
-    pedigree_input_install_callback(reinterpret_cast<void*>(event_callback), static_cast<uint32_t>(type), reinterpret_cast<uintptr_t>(cb));
+    pedigree_input_install_callback(
+        reinterpret_cast<void *>(event_callback), static_cast<uint32_t>(type),
+        reinterpret_cast<uintptr_t>(cb));
 }
 
 void Input::removeCallback(callback_t cb)
 {
-    pedigree_input_remove_callback(reinterpret_cast<void*>(cb));
+    pedigree_input_remove_callback(reinterpret_cast<void *>(cb));
 }
 
 void Input::inhibitEvents()
@@ -61,7 +64,9 @@ void Input::loadKeymapFromFile(const char *path)
     FILE *pFile = fopen(path, "r");
     if (!pFile)
     {
-        fprintf(stderr, "Input::loadKeymapFromFile: Error opening file `%s'.\n", path);
+        fprintf(
+            stderr, "Input::loadKeymapFromFile: Error opening file `%s'.\n",
+            path);
         return;
     }
 
@@ -71,10 +76,10 @@ void Input::loadKeymapFromFile(const char *path)
     fseek(pFile, 0, SEEK_SET);
 
     // Read the file
-    uint32_t *pBuffer = new uint32_t [(nLength / sizeof(uint32_t)) + 1];
+    uint32_t *pBuffer = new uint32_t[(nLength / sizeof(uint32_t)) + 1];
     fread(pBuffer, 1, nLength, pFile);
     fclose(pFile);
 
-    if(pedigree_load_keymap(pBuffer, nLength))
+    if (pedigree_load_keymap(pBuffer, nLength))
         fprintf(stderr, "Input::loadKeymapFromFile: Error loading keymap\n");
 }

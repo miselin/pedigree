@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,8 +23,8 @@
 
 uintptr_t MIPS32StackFrame::getParameter(size_t n)
 {
-  // TODO: Implement
-  return 0;
+    // TODO: Implement
+    return 0;
 }
 
 #endif

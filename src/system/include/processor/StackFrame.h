@@ -23,35 +23,35 @@
 #include <processor/StackFrameBase.h>
 
 #if defined(X86)
-  #include <processor/x86/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) X86##x
+#include <processor/x86/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-  #include <processor/x64/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) X64##x
+#include <processor/x64/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-  #include <processor/mips32/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
+#include <processor/mips32/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-  #include <processor/mips64/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
+#include <processor/mips64/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM926E)
-  #include <processor/arm_926e/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
+#include <processor/arm_926e/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
 #elif defined(PPC32)
-  #include <processor/ppc32/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
+#include <processor/ppc32/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(ARMV7)
-  #include <processor/armv7/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
+#include <processor/armv7/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif defined(HOSTED)
-  #include <processor/hosted/StackFrame.h>
-  #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
+#include <processor/hosted/StackFrame.h>
+#define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 
 // NOTE: This throws a compile-time error if this header is not adapted for
 //       the selected processor architecture
 #if !defined(PROCESSOR_SPECIFIC_NAME)
-  #error Unknown processor architecture
+#error Unknown processor architecture
 #endif
 
 /** @addtogroup kernelprocessor

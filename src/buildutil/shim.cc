@@ -19,22 +19,22 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include <errno.h>
+#include <pthread.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <time.h>
 #include <sys/mman.h>
-#include <pthread.h>
-#include <setjmp.h>
+#include <time.h>
 
-#include <time/Time.h>
 #include <Spinlock.h>
-#include <process/Mutex.h>
 #include <process/ConditionVariable.h>
+#include <process/Mutex.h>
+#include <process/Scheduler.h>
+#include <time/Time.h>
 #include <utilities/Cache.h>
 #include <utilities/MemoryPool.h>
-#include <process/Scheduler.h>
 #include <utilities/TimeoutGuard.h>
 
 void *g_pBootstrapInfo = 0;
@@ -43,7 +43,6 @@ Scheduler Scheduler::m_Instance;
 
 namespace Time
 {
-
 Timestamp getTime(bool sync)
 {
     return time(NULL);
@@ -61,8 +60,7 @@ bool delay(Timestamp nanoseconds)
 
 }  // Time
 
-extern "C"
-void panic(const char *s)
+extern "C" void panic(const char *s)
 {
     fprintf(stderr, "PANIC: %s\n", s);
     abort();
@@ -82,7 +80,9 @@ uintptr_t getHeapBase()
     base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (base == MAP_FAILED)
     {
-        fprintf(stderr, "cannot get a region of memory for SlamAllocator: %s\n", strerror(errno));
+        fprintf(
+            stderr, "cannot get a region of memory for SlamAllocator: %s\n",
+            strerror(errno));
         abort();
     }
 
@@ -96,8 +96,9 @@ uintptr_t getHeapEnd()
 
 void getPageAt(void *addr)
 {
-    void *r = mmap(addr, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE |
-        MAP_FIXED | MAP_ANONYMOUS, -1, 0);
+    void *r = mmap(
+        addr, 0x1000, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
     if (r == MAP_FAILED)
     {
         fprintf(stderr, "map failed: %s\n", strerror(errno));
@@ -118,10 +119,10 @@ void unmapAll()
 
 /** Spinlock implementation. */
 
-Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) :
-    m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
-    m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba),
-    m_pOwner(0), m_bOwned(false), m_Level(0), m_OwnedProcessor(~0)
+Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
+    : m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
+      m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba), m_pOwner(0),
+      m_bOwned(false), m_Level(0), m_OwnedProcessor(~0)
 {
 }
 
@@ -145,8 +146,8 @@ void Spinlock::exit()
 
 /** ConditionVariable implementation. */
 
-ConditionVariable::ConditionVariable() :
-    m_Lock(false), m_Waiters(), m_Private(0)
+ConditionVariable::ConditionVariable()
+    : m_Lock(false), m_Waiters(), m_Private(0)
 {
     pthread_cond_t *cond = new pthread_cond_t;
     *cond = PTHREAD_COND_INITIALIZER;
@@ -167,7 +168,8 @@ ConditionVariable::~ConditionVariable()
 bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
 {
     pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
-    pthread_mutex_t *m = reinterpret_cast<pthread_mutex_t *>(mutex.getPrivate());
+    pthread_mutex_t *m =
+        reinterpret_cast<pthread_mutex_t *>(mutex.getPrivate());
 
     int r = 0;
     if (timeout == 0)
@@ -200,8 +202,7 @@ void ConditionVariable::broadcast()
 
 /** Mutex implementation. */
 
-Mutex::Mutex(bool bLocked) :
-    m_Private(0)
+Mutex::Mutex(bool bLocked) : m_Private(0)
 {
     pthread_mutex_t *mutex = new pthread_mutex_t;
     *mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -251,7 +252,8 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
         return;
     }
 
-    void *p = mmap(0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void *p = mmap(
+        0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (p != MAP_FAILED)
     {
         alloc_start = reinterpret_cast<uintptr_t>(p);
@@ -262,9 +264,9 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
 }
 #endif
 
-MemoryPool::MemoryPool() :
-    m_BufferSize(4096), m_BufferCount(0), m_bInitialised(false),
-    m_AllocBitmap()
+MemoryPool::MemoryPool()
+    : m_BufferSize(4096), m_BufferCount(0), m_bInitialised(false),
+      m_AllocBitmap()
 {
 }
 

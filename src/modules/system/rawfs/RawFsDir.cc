@@ -20,15 +20,11 @@
 #include "RawFsDir.h"
 #include "RawFs.h"
 
-RawFsDir::RawFsDir(String name, RawFs *pFs, File *pParent) :
-    Directory(name,
-	      0 /* Accessed time */,
-	      0 /* Modified time */,
-	      0 /* Creation time */,
-	      0 /* Inode number */,
-	      static_cast<Filesystem*>(pFs),
-	      0 /* Size */,
-	      pParent)
+RawFsDir::RawFsDir(String name, RawFs *pFs, File *pParent)
+    : Directory(
+          name, 0 /* Accessed time */, 0 /* Modified time */,
+          0 /* Creation time */, 0 /* Inode number */,
+          static_cast<Filesystem *>(pFs), 0 /* Size */, pParent)
 {
     // RW for root, readable only by others.
     uint32_t permissions =

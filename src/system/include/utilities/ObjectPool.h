@@ -22,8 +22,8 @@
 
 #include <processor/types.h>
 #ifdef THREADS
-#include <Spinlock.h>
 #include <LockGuard.h>
+#include <Spinlock.h>
 #endif
 #include <utilities/Vector.h>
 
@@ -41,74 +41,76 @@ template <class T, size_t poolSize = 16>
 class ObjectPool
 {
     public:
-        ObjectPool() : m_Pool()
+    ObjectPool()
+        : m_Pool()
 #ifdef THREADS
-            , m_Spinlock()
-#endif        
+          ,
+          m_Spinlock()
+#endif
+    {
+    }
+
+    virtual ~ObjectPool()
+    {
+        for (auto it = m_Pool.begin(); it != m_Pool.end(); ++it)
         {
+            delete *it;
+        }
+    }
+
+    template <typename... Args>
+    T *allocate(Args... args)
+    {
+        if (!poolSize)
+        {
+            return new T(args...);
         }
 
-        virtual ~ObjectPool()
-        {
-            for (auto it = m_Pool.begin(); it != m_Pool.end(); ++it)
-            {
-                delete *it;
-            }
-        }
-
-        template <typename... Args>
-        T *allocate(Args... args)
-        {
-            if (!poolSize)
-            {
-                return new T(args...);
-            }
-
 #ifdef THREADS
-            LockGuard<Spinlock> guard(m_Spinlock);
+        LockGuard<Spinlock> guard(m_Spinlock);
 #endif
 
-            m_Pool.reserve(poolSize, true);
-            if (m_Pool.count())
-            {
-                // popping from the rear of a vector is much faster
-                return m_Pool.popBack();
-            }
-            else
-            {
-                return new T(args...);
-            }
-        }
-
-        void deallocate(T *object)
+        m_Pool.reserve(poolSize, true);
+        if (m_Pool.count())
         {
-            if (!poolSize)
-            {
-                delete object;
-                return;
-            }
+            // popping from the rear of a vector is much faster
+            return m_Pool.popBack();
+        }
+        else
+        {
+            return new T(args...);
+        }
+    }
+
+    void deallocate(T *object)
+    {
+        if (!poolSize)
+        {
+            delete object;
+            return;
+        }
 
 #ifdef THREADS
-            LockGuard<Spinlock> guard(m_Spinlock);
+        LockGuard<Spinlock> guard(m_Spinlock);
 #endif
 
-            // We only add the object back to the pool if we aren't already at
-            // capacity (otherwise we'd resize the Vector).
-            m_Pool.reserve(poolSize, true);
-            if (m_Pool.count() < poolSize)
-            {
-                m_Pool.pushBack(object);
-            }
-            else
-            {
-                delete object;
-            }
+        // We only add the object back to the pool if we aren't already at
+        // capacity (otherwise we'd resize the Vector).
+        m_Pool.reserve(poolSize, true);
+        if (m_Pool.count() < poolSize)
+        {
+            m_Pool.pushBack(object);
         }
+        else
+        {
+            delete object;
+        }
+    }
 
     private:
-        Vector<T *> m_Pool;
+    Vector<T *> m_Pool;
 #ifdef THREADS
-        Spinlock m_Spinlock;
+    Spinlock m_Spinlock;
 #endif
 };
 

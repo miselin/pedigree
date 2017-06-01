@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,130 +20,139 @@
 #ifndef _GPIO_H
 #define _GPIO_H
 
-#include <processor/types.h>
+#include <Log.h>
+#include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/VirtualAddressSpace.h>
-#include <processor/MemoryRegion.h>
-#include <Log.h>
+#include <processor/types.h>
 
 /** GPIO implementation for the BeagleBoard */
 class Gpio
 {
     public:
-        Gpio() : m_Gpio1("GPIO1"), m_Gpio2("GPIO2"), m_Gpio3("GPIO3"),
-                 m_Gpio4("GPIO4"), m_Gpio5("GPIO5"), m_Gpio6("GPIO6")
-        {}
-        ~Gpio()
-        {}
+    Gpio()
+        : m_Gpio1("GPIO1"), m_Gpio2("GPIO2"), m_Gpio3("GPIO3"),
+          m_Gpio4("GPIO4"), m_Gpio5("GPIO5"), m_Gpio6("GPIO6")
+    {
+    }
+    ~Gpio()
+    {
+    }
 
-        static Gpio &instance()
+    static Gpio &instance()
+    {
+        return m_Instance;
+    }
+
+    void initialise(
+        uintptr_t gpio1, uintptr_t gpio2, uintptr_t gpio3, uintptr_t gpio4,
+        uintptr_t gpio5, uintptr_t gpio6)
+    {
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                m_Gpio1, 1,
+                PhysicalMemoryManager::continuous |
+                    PhysicalMemoryManager::force,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                gpio1))
         {
-            return m_Instance;
+            ERROR("GPIO: Couldn't get a memory region!");
+            return;
         }
+        initspecific(
+            1, reinterpret_cast<volatile uint32_t *>(m_Gpio1.virtualAddress()));
 
-        void initialise(uintptr_t gpio1, uintptr_t gpio2, uintptr_t gpio3, uintptr_t gpio4, uintptr_t gpio5, uintptr_t gpio6)
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                m_Gpio2, 1,
+                PhysicalMemoryManager::continuous |
+                    PhysicalMemoryManager::force,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                gpio2))
         {
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                        m_Gpio1,
-                        1,
-                        PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                        gpio1))
-            {
-                ERROR("GPIO: Couldn't get a memory region!");
-                return;
-            }
-            initspecific(1, reinterpret_cast<volatile uint32_t*>(m_Gpio1.virtualAddress()));
-
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                        m_Gpio2,
-                        1,
-                        PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                        gpio2))
-            {
-                ERROR("GPIO: Couldn't get a memory region!");
-                return;
-            }
-            initspecific(2, reinterpret_cast<volatile uint32_t*>(m_Gpio2.virtualAddress()));
-
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                        m_Gpio3,
-                        1,
-                        PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                        gpio3))
-            {
-                ERROR("GPIO: Couldn't get a memory region!");
-                return;
-            }
-            initspecific(3, reinterpret_cast<volatile uint32_t*>(m_Gpio3.virtualAddress()));
-
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                        m_Gpio4,
-                        1,
-                        PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                        gpio4))
-            {
-                ERROR("GPIO: Couldn't get a memory region!");
-                return;
-            }
-            initspecific(4, reinterpret_cast<volatile uint32_t*>(m_Gpio4.virtualAddress()));
-
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                        m_Gpio5,
-                        1,
-                        PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                        gpio5))
-            {
-                ERROR("GPIO: Couldn't get a memory region!");
-                return;
-            }
-            initspecific(5, reinterpret_cast<volatile uint32_t*>(m_Gpio5.virtualAddress()));
-
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                        m_Gpio6,
-                        1,
-                        PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                        gpio6))
-            {
-                ERROR("GPIO: Couldn't get a memory region!");
-                return;
-            }
-            initspecific(6, reinterpret_cast<volatile uint32_t*>(m_Gpio6.virtualAddress()));
+            ERROR("GPIO: Couldn't get a memory region!");
+            return;
         }
+        initspecific(
+            2, reinterpret_cast<volatile uint32_t *>(m_Gpio2.virtualAddress()));
 
-        void clearpin(int pin);
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                m_Gpio3, 1,
+                PhysicalMemoryManager::continuous |
+                    PhysicalMemoryManager::force,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                gpio3))
+        {
+            ERROR("GPIO: Couldn't get a memory region!");
+            return;
+        }
+        initspecific(
+            3, reinterpret_cast<volatile uint32_t *>(m_Gpio3.virtualAddress()));
 
-        void drivepin(int pin);
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                m_Gpio4, 1,
+                PhysicalMemoryManager::continuous |
+                    PhysicalMemoryManager::force,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                gpio4))
+        {
+            ERROR("GPIO: Couldn't get a memory region!");
+            return;
+        }
+        initspecific(
+            4, reinterpret_cast<volatile uint32_t *>(m_Gpio4.virtualAddress()));
 
-        bool pinstate(int pin);
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                m_Gpio5, 1,
+                PhysicalMemoryManager::continuous |
+                    PhysicalMemoryManager::force,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                gpio5))
+        {
+            ERROR("GPIO: Couldn't get a memory region!");
+            return;
+        }
+        initspecific(
+            5, reinterpret_cast<volatile uint32_t *>(m_Gpio5.virtualAddress()));
 
-        int capturepin(int pin);
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                m_Gpio6, 1,
+                PhysicalMemoryManager::continuous |
+                    PhysicalMemoryManager::force,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                gpio6))
+        {
+            ERROR("GPIO: Couldn't get a memory region!");
+            return;
+        }
+        initspecific(
+            6, reinterpret_cast<volatile uint32_t *>(m_Gpio6.virtualAddress()));
+    }
 
-        void enableoutput(int pin);
-        
+    void clearpin(int pin);
+
+    void drivepin(int pin);
+
+    bool pinstate(int pin);
+
+    int capturepin(int pin);
+
+    void enableoutput(int pin);
+
     private:
+    /// Initialises a specific GPIO to a given set of defaults
+    void initspecific(int n, volatile uint32_t *gpio);
 
-        /// Initialises a specific GPIO to a given set of defaults
-        void initspecific(int n, volatile uint32_t *gpio);
+    /// Gets the correct GPIO MMIO range for a given GPIO pin. The base
+    /// indicates which bit represents this pin in registers, where relevant
+    volatile uint32_t *getGpioForPin(int pin, int *bit);
 
-        /// Gets the correct GPIO MMIO range for a given GPIO pin. The base
-        /// indicates which bit represents this pin in registers, where relevant
-        volatile uint32_t *getGpioForPin(int pin, int *bit);
+    MemoryRegion m_Gpio1;
+    MemoryRegion m_Gpio2;
+    MemoryRegion m_Gpio3;
+    MemoryRegion m_Gpio4;
+    MemoryRegion m_Gpio5;
+    MemoryRegion m_Gpio6;
 
-        MemoryRegion m_Gpio1;
-        MemoryRegion m_Gpio2;
-        MemoryRegion m_Gpio3;
-        MemoryRegion m_Gpio4;
-        MemoryRegion m_Gpio5;
-        MemoryRegion m_Gpio6;
-
-        static Gpio m_Instance;
+    static Gpio m_Instance;
 };
-
 
 #endif

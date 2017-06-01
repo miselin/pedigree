@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -33,103 +32,125 @@
 
 static int syscall0(int function)
 {
-  int eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
-  int ret;
-  SERVICE_INIT;
+    int eax = ((SERVICE & 0xFFFF) << 16) | (function & 0xFFFF);
+    int ret;
+    SERVICE_INIT;
 #ifdef USE_PIC_SYSCALLS
-  asm volatile("push %%ebx; \
+    asm volatile("push %%ebx; \
                 mov %1, %%ebx; \
                 int $255; \
                 mov %%ebx, %1; \
-                pop %%ebx" : "=a" (ret), "=r" (SERVICE_ERROR) : "0" (eax));
+                pop %%ebx"
+                 : "=a"(ret), "=r"(SERVICE_ERROR)
+                 : "0"(eax));
 #else
-  asm volatile("int $255" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax));
+    asm volatile("int $255" : "=a"(ret), "=b"(SERVICE_ERROR) : "0"(eax));
 #endif
-  return ret;
+    return ret;
 }
 
 static int syscall1(int function, int p1)
 {
-  int eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
-  int ret;
-  SERVICE_INIT;
+    int eax = ((SERVICE & 0xFFFF) << 16) | (function & 0xFFFF);
+    int ret;
+    SERVICE_INIT;
 #ifdef USE_PIC_SYSCALLS
-  asm volatile("push %%ebx; \
+    asm volatile("push %%ebx; \
                 mov %1, %%ebx; \
                 int $255; \
                 mov %%ebx, %1; \
-                pop %%ebx" : "=a" (ret), "=r" (SERVICE_ERROR) : "0" (eax), "1" (p1));
+                pop %%ebx"
+                 : "=a"(ret), "=r"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1));
 #else
-  asm volatile("int $255" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1));
+    asm volatile("int $255"
+                 : "=a"(ret), "=b"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1));
 #endif
-  return ret;
+    return ret;
 }
 
 static int syscall2(int function, int p1, int p2)
 {
-  int eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
-  int ret;
-  SERVICE_INIT;
+    int eax = ((SERVICE & 0xFFFF) << 16) | (function & 0xFFFF);
+    int ret;
+    SERVICE_INIT;
 #ifdef USE_PIC_SYSCALLS
-  asm volatile("push %%ebx; \
+    asm volatile("push %%ebx; \
                 mov %1, %%ebx; \
                 int $255; \
                 mov %%ebx, %1; \
-                pop %%ebx" : "=a" (ret), "=r" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2));
+                pop %%ebx"
+                 : "=a"(ret), "=r"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2));
 #else
-  asm volatile("int $255" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2));
+    asm volatile("int $255"
+                 : "=a"(ret), "=b"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2));
 #endif
-  return ret;
+    return ret;
 }
 
 static int syscall3(int function, int p1, int p2, int p3)
 {
-  int eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
-  int ret;
-  SERVICE_INIT;
+    int eax = ((SERVICE & 0xFFFF) << 16) | (function & 0xFFFF);
+    int ret;
+    SERVICE_INIT;
 #ifdef USE_PIC_SYSCALLS
-  asm volatile("push %%ebx; \
+    asm volatile("push %%ebx; \
                 mov %1, %%ebx; \
                 int $255; \
                 mov %%ebx, %1; \
-                pop %%ebx" : "=a" (ret), "=r" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2), "d" (p3));
+                pop %%ebx"
+                 : "=a"(ret), "=r"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2), "d"(p3));
 #else
-  asm volatile("int $255" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2), "d" (p3));
+    asm volatile("int $255"
+                 : "=a"(ret), "=b"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2), "d"(p3));
 #endif
-  return ret;
+    return ret;
 }
 
 static int syscall4(int function, int p1, int p2, int p3, int p4)
 {
-  int eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
-  int ret;
-  SERVICE_INIT;
+    int eax = ((SERVICE & 0xFFFF) << 16) | (function & 0xFFFF);
+    int ret;
+    SERVICE_INIT;
 #ifdef USE_PIC_SYSCALLS
-  asm volatile("push %%ebx; \
+    asm volatile("push %%ebx; \
                 mov %1, %%ebx; \
                 int $255; \
                 mov %%ebx, %1; \
-                pop %%ebx" : "=a" (ret), "=r" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2), "d" (p3), "S" (p4));
+                pop %%ebx"
+                 : "=a"(ret), "=r"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2), "d"(p3), "S"(p4));
 #else
-  asm volatile("int $255" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2), "d" (p3), "S" (p4));
+    asm volatile("int $255"
+                 : "=a"(ret), "=b"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2), "d"(p3), "S"(p4));
 #endif
-  return ret;
+    return ret;
 }
 
 static int syscall5(int function, int p1, int p2, int p3, int p4, int p5)
 {
-  int eax = ((SERVICE&0xFFFF) << 16) | (function&0xFFFF);
-  int ret;
-  SERVICE_INIT;
+    int eax = ((SERVICE & 0xFFFF) << 16) | (function & 0xFFFF);
+    int ret;
+    SERVICE_INIT;
 #ifdef USE_PIC_SYSCALLS
-  asm volatile("push %%ebx; \
+    asm volatile("push %%ebx; \
                 mov %1, %%ebx; \
                 int $255; \
                 mov %%ebx, %1; \
-                pop %%ebx" : "=a" (ret), "+m" (p1) : "0" (eax), "c" (p2), "d" (p3), "S" (p4), "D" (p5));
-  SERVICE_ERROR = p1;
+                pop %%ebx"
+                 : "=a"(ret), "+m"(p1)
+                 : "0"(eax), "c"(p2), "d"(p3), "S"(p4), "D"(p5));
+    SERVICE_ERROR = p1;
 #else
-  asm volatile("int $255" : "=a" (ret), "=b" (SERVICE_ERROR) : "0" (eax), "1" (p1), "c" (p2), "d" (p3), "S" (p4), "D" (p5));
+    asm volatile("int $255"
+                 : "=a"(ret), "=b"(SERVICE_ERROR)
+                 : "0"(eax), "1"(p1), "c"(p2), "d"(p3), "S"(p4), "D"(p5));
 #endif
-  return ret;
+    return ret;
 }

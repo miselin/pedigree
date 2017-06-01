@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Backtracer.h>
 #include <Backtrace.h>
+#include <Backtracer.h>
 #include <DebuggerIO.h>
-#include <utilities/utility.h>
 #include <utilities/StaticString.h>
+#include <utilities/utility.h>
 
 #include <DwarfUnwinder.h>
 
@@ -34,27 +33,30 @@ Backtracer::~Backtracer()
 {
 }
 
-void Backtracer::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void Backtracer::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
-  // TODO: add symbols.
-  output = "<address> (optional)";
+    // TODO: add symbols.
+    output = "<address> (optional)";
 }
 
-bool Backtracer::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen)
+bool Backtracer::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *screen)
 {
-  Backtrace bt;
-  bt.performBacktrace(state);
+    Backtrace bt;
+    bt.performBacktrace(state);
 
-  bt.prettyPrint(output);
-  
-//   DwarfUnwinder du(elf.debugFrameTable(), elf.debugFrameTableLength());
-//   ProcessorState initial(state);
-//   ProcessorState next;
-//   du.unwind(initial, next);
-  return true;
+    bt.prettyPrint(output);
+
+    //   DwarfUnwinder du(elf.debugFrameTable(), elf.debugFrameTableLength());
+    //   ProcessorState initial(state);
+    //   ProcessorState next;
+    //   du.unwind(initial, next);
+    return true;
 }
 
 const NormalStaticString Backtracer::getString()
 {
-  return NormalStaticString("backtrace");
+    return NormalStaticString("backtrace");
 }

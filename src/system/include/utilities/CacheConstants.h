@@ -24,7 +24,6 @@
 // class, which may not be necessary in all situations.
 namespace CacheConstants
 {
-
 /**
  * Callback Cause enumeration.
  *
@@ -39,7 +38,6 @@ enum CallbackCause
     Eviction,
     PleaseEvict,
 };
-
 }
 
 #endif  // CACHE_CONSTANTS_H

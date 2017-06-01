@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,68 +20,73 @@
 #ifndef KERNEL_PROCESSOR_X86_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_X86_INTERRUPTMANAGER_H
 
-#include <compiler.h>
 #include <Spinlock.h>
-#include <processor/types.h>
-#include <processor/SyscallManager.h>
+#include <compiler.h>
 #include <processor/InterruptManager.h>
+#include <processor/SyscallManager.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorx86
  * @{ */
 
 /** The interrupt/syscall manager on x86 processors */
-class X86InterruptManager : public ::InterruptManager,
-                            public ::SyscallManager
+class X86InterruptManager : public ::InterruptManager, public ::SyscallManager
 {
-  public:
+    public:
     /** Get the X86InterruptManager class instance
      *\return instance of the X86InterruptManager class */
-    inline static X86InterruptManager &instance(){return m_Instance;}
+    inline static X86InterruptManager &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // InterruptManager Interface
     //
-    virtual bool registerInterruptHandler(size_t nInterruptNumber,
-                                          InterruptHandler *pHandler);
+    virtual bool registerInterruptHandler(
+        size_t nInterruptNumber, InterruptHandler *pHandler);
 
-    #ifdef DEBUGGER
-      virtual bool registerInterruptHandlerDebugger(size_t nInterruptNumber,
-                                                    InterruptHandler *pHandler);
-      virtual size_t getBreakpointInterruptNumber() PURE;
-      virtual size_t getDebugInterruptNumber() PURE;
-    #endif
+#ifdef DEBUGGER
+    virtual bool registerInterruptHandlerDebugger(
+        size_t nInterruptNumber, InterruptHandler *pHandler);
+    virtual size_t getBreakpointInterruptNumber() PURE;
+    virtual size_t getDebugInterruptNumber() PURE;
+#endif
 
     //
     // SyscallManager Interface
     //
-    virtual bool registerSyscallHandler(Service_t Service,
-                                        SyscallHandler *pHandler);
+    virtual bool
+    registerSyscallHandler(Service_t Service, SyscallHandler *pHandler);
 
-    virtual uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1=0, uintptr_t p2=0, uintptr_t p3=0, uintptr_t p4=0,
-                              uintptr_t p5=0);
+    virtual uintptr_t syscall(
+        Service_t service, uintptr_t function, uintptr_t p1 = 0,
+        uintptr_t p2 = 0, uintptr_t p3 = 0, uintptr_t p4 = 0, uintptr_t p5 = 0);
 
     /** Initialises this processor's IDTR
      *\note This should only be called from Processor::initialise1() and
      *      Multiprocessor::applicationProcessorStartup() */
     static void initialiseProcessor() INITIALISATION_ONLY;
 
-  private:
+    private:
     /** Called when an interrupt was triggered
-     *\param[in] interruptState reference to the usermode/kernel state before the interrupt */
+     *\param[in] interruptState reference to the usermode/kernel state before
+     *the interrupt */
     static void interrupt(InterruptState &interruptState);
 
     /** Sets up an interrupt gate
      *\param[in] nInterruptNumber the interrupt number
-     *\param[in] interruptHandler address of the assembler interrupt handler stub
-     *\param[in] bUserspace is the userspace allowed to call this callgate? */
-    void setInterruptGate(size_t nInterruptNumber,
-                          uintptr_t interruptHandler,
-                          bool bUserspace) INITIALISATION_ONLY;
+     *\param[in] interruptHandler address of the assembler interrupt handler
+     *stub \param[in] bUserspace is the userspace allowed to call this callgate?
+    */
+    void setInterruptGate(
+        size_t nInterruptNumber, uintptr_t interruptHandler,
+        bool bUserspace) INITIALISATION_ONLY;
     /** Sets up a task gate
      *\param[in] nInterruptNumber the interrupt number
      *\param[in] tssSeg the segment in the GDT for the TSS */
-    void setTaskGate(size_t nInterruptNumber,
-                     uint16_t tssSeg) INITIALISATION_ONLY;
+    void
+    setTaskGate(size_t nInterruptNumber, uint16_t tssSeg) INITIALISATION_ONLY;
     /** The constructor */
     X86InterruptManager() INITIALISATION_ONLY;
     /** Copy constructor
@@ -90,33 +94,33 @@ class X86InterruptManager : public ::InterruptManager,
     X86InterruptManager(const X86InterruptManager &);
     /** Assignment operator
      *\note NOT implemented */
-    X86InterruptManager &operator = (const X86InterruptManager &);
+    X86InterruptManager &operator=(const X86InterruptManager &);
     /** The destructor */
     virtual ~X86InterruptManager();
 
     /** Structure of a x86 protected-mode gate descriptor */
     struct GateDescriptor
     {
-      /** Bits 0-15 of the offset */
-      uint16_t offset0;
-      /** The segment selector */
-      uint16_t selector;
-      /** Reserved, must be 0 */
-      uint8_t res;
-      /** Flags */
-      uint8_t flags;
-      /** Bits 16-31 of the offset */
-      uint16_t offset1;
+        /** Bits 0-15 of the offset */
+        uint16_t offset0;
+        /** The segment selector */
+        uint16_t selector;
+        /** Reserved, must be 0 */
+        uint8_t res;
+        /** Flags */
+        uint8_t flags;
+        /** Bits 16-31 of the offset */
+        uint16_t offset1;
     } PACKED;
 
     /** The interrupt descriptor table (IDT) */
     GateDescriptor m_IDT[256];
     /** The normal interrupt handlers */
     InterruptHandler *m_pHandler[256];
-    #ifdef DEBUGGER
-      /** The debugger interrupt handlers */
-      InterruptHandler *m_pDbgHandler[256];
-    #endif
+#ifdef DEBUGGER
+    /** The debugger interrupt handlers */
+    InterruptHandler *m_pDbgHandler[256];
+#endif
     /** The syscall handlers */
     SyscallHandler *m_pSyscallHandler[serviceEnd];
 

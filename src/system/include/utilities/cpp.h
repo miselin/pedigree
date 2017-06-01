@@ -55,68 +55,116 @@ struct is_not<T, T>
     static const bool value = false;
 };
 
-template<typename T>
+template <typename T>
 struct is_integral
 {
     static const bool value = false;
 };
-template<>struct is_integral<bool>{static const bool value = true;};
-template<>struct is_integral<char>{static const bool value = true;};
-template<>struct is_integral<unsigned char>{static const bool value = true;};
-template<>struct is_integral<signed char>{static const bool value = true;};
-template<>struct is_integral<short>{static const bool value = true;};
-template<>struct is_integral<unsigned short>{static const bool value = true;};
-template<>struct is_integral<int>{static const bool value = true;};
-template<>struct is_integral<unsigned int>{static const bool value = true;};
-template<>struct is_integral<long>{static const bool value = true;};
-template<>struct is_integral<unsigned long>{static const bool value = true;};
-template<>struct is_integral<long long>{static const bool value = true;};
-template<>struct is_integral<unsigned long long>{static const bool value = true;};
+template <>
+struct is_integral<bool>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<char>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<unsigned char>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<signed char>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<short>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<unsigned short>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<int>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<unsigned int>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<long>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<unsigned long>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<long long>
+{
+    static const bool value = true;
+};
+template <>
+struct is_integral<unsigned long long>
+{
+    static const bool value = true;
+};
 
-template<typename T>
+template <typename T>
 struct is_pointer
 {
     static const bool value = false;
 };
-template<typename T>
-struct is_pointer<T*>
+template <typename T>
+struct is_pointer<T *>
 {
     static const bool value = true;
 };
 
 /** remove_all_extents gets a bare (e.g. T) type from array types (e.g. T[]). */
-template<class T>
+template <class T>
 struct remove_all_extents
 {
     typedef T type;
 };
 
-template<class T>
+template <class T>
 struct remove_all_extents<T[]>
 {
     typedef typename remove_all_extents<T>::type type;
 };
 
-template<class T, size_t N>
+template <class T, size_t N>
 struct remove_all_extents<T[N]>
 {
     typedef typename remove_all_extents<T>::type type;
 };
 
 /** Enable if the given expression is true. */
-template<bool, class T = void>
+template <bool, class T = void>
 struct enable_if
 {
 };
 
-template<class T>
+template <class T>
 struct enable_if<true, T>
 {
     typedef T type;
 };
 
 /** Provide a static integral constant. */
-template<class T, T v>
+template <class T, T v>
 struct integral_constant
 {
     static constexpr T value = v;
@@ -124,37 +172,37 @@ struct integral_constant
     typedef integral_constant type;
     constexpr operator value_type() const noexcept
     {
-       return value;
+        return value;
     }
 };
 
-template<class T, T v>
+template <class T, T v>
 constexpr T integral_constant<T, v>::value;
 
 /** is_scalar checks for scalar types */
 /// \todo this should check a little more than just this
-template<class T>
-struct is_scalar : integral_constant<bool,
-    is_integral<T>::value || is_pointer<T>::value>
+template <class T>
+struct is_scalar
+    : integral_constant<bool, is_integral<T>::value || is_pointer<T>::value>
 {
 };
 
 /** Identify a type as trivial (e.g. default constructor, scalar type). */
-template<class T>
+template <class T>
 struct is_trivial : public integral_constant<bool, __is_trivial(T)>
 {
 };
 
 /** Identify a type as trivially copyable (can memcpy it). */
-template<class T>
-struct is_trivially_copyable :
-    public integral_constant<bool,
-        is_scalar<typename remove_all_extents<T>::type>::value>
+template <class T>
+struct is_trivially_copyable
+    : public integral_constant<
+          bool, is_scalar<typename remove_all_extents<T>::type>::value>
 {
 };
 
 /** Perform a copy in the easiest way possible. */
-template<class T>
+template <class T>
 typename enable_if<is_trivially_copyable<T>::value>::type *
 copy(T *dest, const T *src, size_t count)
 {
@@ -166,7 +214,7 @@ copy(T *dest, const T *src, size_t count)
 }
 
 /** Perform a copy in the easiest way possible. */
-template<class T>
+template <class T>
 typename enable_if<!is_trivially_copyable<T>::value>::type *
 copy(T *dest, const T *src, size_t count)
 {
@@ -178,13 +226,13 @@ copy(T *dest, const T *src, size_t count)
 }
 
 /** Obtain information about a function. */
-template<class T>
+template <class T>
 struct function_traits : public function_traits<decltype(&T::operator())>
 {
 };
 
 template <class C, class R, class... Args>
-struct function_traits<R (C::*) (Args...) const>
+struct function_traits<R (C::*)(Args...) const>
 {
     typedef R return_type;
     typedef C class_type;
@@ -207,19 +255,18 @@ template <class F>
 class Callable
 {
     public:
-        Callable(const F &x) : func(x)
-        {
-        }
+    Callable(const F &x) : func(x)
+    {
+    }
 
-        template <class... Args>
-        typename function_traits<F>::return_type
-        operator () (Args... args)
-        {
-            return func(args...);
-        }
+    template <class... Args>
+    typename function_traits<F>::return_type operator()(Args... args)
+    {
+        return func(args...);
+    }
 
     private:
-        const F &func;
+    const F &func;
 };
 
 /** Creates a callable. */

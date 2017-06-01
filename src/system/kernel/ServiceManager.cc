@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,8 +21,7 @@
 
 ServiceManager ServiceManager::m_Instance;
 
-ServiceManager::ServiceManager() :
-    m_Services()
+ServiceManager::ServiceManager() : m_Services()
 {
 }
 
@@ -35,13 +33,14 @@ ServiceManager::~ServiceManager()
 ServiceFeatures *ServiceManager::enumerateOperations(String serviceName)
 {
     InternalService *p = m_Services.lookup(serviceName);
-    if(p)
+    if (p)
         return p->pFeatures;
     else
         return 0;
 }
 
-void ServiceManager::addService(String serviceName, Service *s, ServiceFeatures *feats)
+void ServiceManager::addService(
+    String serviceName, Service *s, ServiceFeatures *feats)
 {
     InternalService *p = new InternalService;
     p->pService = s;
@@ -57,7 +56,7 @@ void ServiceManager::removeService(String serviceName)
 Service *ServiceManager::getService(String serviceName)
 {
     InternalService *p = m_Services.lookup(serviceName);
-    if(p)
+    if (p)
         return p->pService;
     else
         return 0;

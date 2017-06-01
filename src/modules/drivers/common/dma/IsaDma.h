@@ -34,15 +34,18 @@
 class IsaDma
 {
     public:
-        IsaDma()
-        {}
-        virtual ~IsaDma()
-        {}
+    IsaDma()
+    {
+    }
+    virtual ~IsaDma()
+    {
+    }
 
-        static IsaDma &instance();
+    static IsaDma &instance();
 
-        /// Initialises a read operation
-        virtual bool initTransfer(uint8_t channel, uint8_t mode, size_t length, uintptr_t addr) = 0;
+    /// Initialises a read operation
+    virtual bool initTransfer(
+        uint8_t channel, uint8_t mode, size_t length, uintptr_t addr) = 0;
 
     private:
 };

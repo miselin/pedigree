@@ -19,10 +19,10 @@
 
 #include <Log.h>
 #include <Module.h>
-#include <machine/Machine.h>
 #include <compiler.h>
-#include <time/Time.h>
+#include <machine/Machine.h>
 #include <network-stack/Filter.h>
+#include <time/Time.h>
 
 struct PcapHeader
 {
@@ -88,7 +88,8 @@ static bool filterCallback(uintptr_t packet, size_t size)
 
     PcapRecord header;
     header.ts_sec = time / Time::Multiplier::SECOND;
-    header.ts_usec = (time % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
+    header.ts_usec =
+        (time % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
     header.stored_length = size;
     header.orig_length = size;
 
@@ -119,7 +120,8 @@ static bool entry()
         return false;
     }
 
-    g_FilterEntry = NetworkFilter::instance().installCallback(1, filterCallback);
+    g_FilterEntry =
+        NetworkFilter::instance().installCallback(1, filterCallback);
     if (g_FilterEntry == static_cast<size_t>(-1))
     {
         NOTICE("pcap: could not install callback");

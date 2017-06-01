@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,23 +20,27 @@
 #ifndef KERNEL_SINGLETON_H
 #define KERNEL_SINGLETON_H
 
-template<class T>
+template <class T>
 class Singleton
 {
-  public:
+    public:
     static T &instance()
     {
-      static T m_Instance;
-      return m_Instance;
+        static T m_Instance;
+        return m_Instance;
     }
 
-  protected:
-    Singleton(){}
-    ~Singleton(){}
+    protected:
+    Singleton()
+    {
+    }
+    ~Singleton()
+    {
+    }
 
-  private:
+    private:
     Singleton(const Singleton &);
-    Singleton &operator = (const Singleton &);
+    Singleton &operator=(const Singleton &);
 };
 
 #endif

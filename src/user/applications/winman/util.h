@@ -33,27 +33,27 @@
 class SharedBuffer
 {
     public:
-        SharedBuffer(size_t size);
-        SharedBuffer(size_t size, void *handle);
+    SharedBuffer(size_t size);
+    SharedBuffer(size_t size, void *handle);
 
-        virtual ~SharedBuffer();
+    virtual ~SharedBuffer();
 
-        /** Retrieve the memory address of the buffer. */
-        void *getBuffer();
+    /** Retrieve the memory address of the buffer. */
+    void *getBuffer();
 
-        /** Retrieve a handle that can used create a matching SharedBuffer */
-        void *getHandle();
+    /** Retrieve a handle that can used create a matching SharedBuffer */
+    void *getHandle();
 
 #ifdef TARGET_LINUX
-        char m_ShmName[8];
-        int m_ShmFd;
+    char m_ShmName[8];
+    int m_ShmFd;
 
-        void *m_pBuffer;
-        size_t m_Size;
+    void *m_pBuffer;
+    size_t m_Size;
 
-        static size_t m_NextId;
+    static size_t m_NextId;
 #else
-        PedigreeIpc::SharedIpcMessage *m_pFramebuffer;
+    PedigreeIpc::SharedIpcMessage *m_pFramebuffer;
 #endif
 };
 

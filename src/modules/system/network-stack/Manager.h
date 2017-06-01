@@ -20,39 +20,41 @@
 #ifndef MACHINE_MANAGER_H
 #define MACHINE_MANAGER_H
 
-#include "Endpoint.h"
 #include "ConnectionBasedEndpoint.h"
+#include "Endpoint.h"
 
 /**
-  * Defines the standard interface for any type of protocol manager object
-  * Basically, all protocols have a manager which controls allocation of
-  * Endpoints, and also facilitates extra protocol-specific functionality.
-  * ALL protocol manager classes must inherit this function and add the
-  * relevant getManager() routine to their Endpoint type.
-  */
+ * Defines the standard interface for any type of protocol manager object
+ * Basically, all protocols have a manager which controls allocation of
+ * Endpoints, and also facilitates extra protocol-specific functionality.
+ * ALL protocol manager classes must inherit this function and add the
+ * relevant getManager() routine to their Endpoint type.
+ */
 class ProtocolManager
 {
     public:
-        ProtocolManager()
-        {}
-        virtual ~ProtocolManager()
-        {}
-        
-        /**
-         * The default implementation is quite simple. Individual managers may
-         * provide further functionality, they should override this function.
-         */
-        virtual void returnEndpoint(Endpoint *e)
+    ProtocolManager()
+    {
+    }
+    virtual ~ProtocolManager()
+    {
+    }
+
+    /**
+     * The default implementation is quite simple. Individual managers may
+     * provide further functionality, they should override this function.
+     */
+    virtual void returnEndpoint(Endpoint *e)
+    {
+        e->shutdown(Endpoint::ShutBoth);
+        if (e->getType() == Endpoint::ConnectionBased)
         {
-            e->shutdown(Endpoint::ShutBoth);
-            if(e->getType() == Endpoint::ConnectionBased)
-            {
-                ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(e);
-                ce->close();
-            }
-            delete e;
+            ConnectionBasedEndpoint *ce =
+                static_cast<ConnectionBasedEndpoint *>(e);
+            ce->close();
         }
+        delete e;
+    }
 };
 
 #endif
-

@@ -97,11 +97,13 @@ typedef void (*ModuleExit)();
 
 #ifdef STATIC_DRIVERS
 
-#define MODULE_TAG          0xdeadbaba
+#define MODULE_TAG 0xdeadbaba
 
 struct ModuleInfo
 {
-    ModuleInfo(const char *newName, ModuleEntry newEntry, ModuleExit newExit, const char **newDeps)
+    ModuleInfo(
+        const char *newName, ModuleEntry newEntry, ModuleExit newExit,
+        const char **newDeps)
     {
         tag = MODULE_TAG;
         name = newName;
@@ -117,9 +119,10 @@ struct ModuleInfo
     const char **dependencies;
 } PACKED;
 
-#define MODULE_INFO2(name, entry, exit, ...) \
+#define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \
-    static ModuleInfo __module SECTION(".modinfo") (name, entry, exit, __mod_deps);
+    static ModuleInfo __module SECTION(".modinfo")(     \
+        name, entry, exit, __mod_deps);
 
 #define MODULE_OPTIONAL_DEPENDS(...)
 
@@ -128,15 +131,19 @@ struct ModuleInfo
 #define MODULE_NAME(x) const char *g_pModuleName SECTION(".modinfo") = x
 #define MODULE_ENTRY(x) ModuleEntry g_pModuleEntry SECTION(".modinfo") = x
 #define MODULE_EXIT(x) ModuleExit g_pModuleExit SECTION(".modinfo") = x
-#define MODULE_DEPENDS(...) const char *g_pDepends[] SECTION(".modinfo") = {__VA_ARGS__, 0}
-#define MODULE_DEPENDS2(...) const char *g_pDepends[] SECTION(".modinfo") = {__VA_ARGS__}
+#define MODULE_DEPENDS(...) \
+    const char *g_pDepends[] SECTION(".modinfo") = {__VA_ARGS__, 0}
+#define MODULE_DEPENDS2(...) \
+    const char *g_pDepends[] SECTION(".modinfo") = {__VA_ARGS__}
 
-#define MODULE_OPTIONAL_DEPENDS(...) const char *g_pOptionalDepends[] SECTION(".modinfo") = {__VA_ARGS__, 0}
+#define MODULE_OPTIONAL_DEPENDS(...) \
+    const char *g_pOptionalDepends[] SECTION(".modinfo") = {__VA_ARGS__, 0}
 
-#define MODULE_INFO2(name, entry, exit, ...) MODULE_NAME(name); \
-                                            MODULE_ENTRY(entry); \
-                                            MODULE_EXIT(exit); \
-                                            MODULE_DEPENDS2(__VA_ARGS__);
+#define MODULE_INFO2(name, entry, exit, ...) \
+    MODULE_NAME(name);                       \
+    MODULE_ENTRY(entry);                     \
+    MODULE_EXIT(exit);                       \
+    MODULE_DEPENDS2(__VA_ARGS__);
 
 extern const char *g_pModuleName;
 extern ModuleEntry g_pModuleEntry;

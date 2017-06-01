@@ -20,24 +20,24 @@
 #ifndef ATA_CONTROLLER_H
 #define ATA_CONTROLLER_H
 
-#include <processor/types.h>
+#include <Log.h>
+#include <machine/Controller.h>
 #include <machine/Device.h>
 #include <machine/Disk.h>
-#include <machine/Controller.h>
+#include <machine/IrqHandler.h>
 #include <processor/IoBase.h>
 #include <processor/IoPort.h>
+#include <processor/types.h>
 #include <utilities/RequestQueue.h>
-#include <machine/IrqHandler.h>
-#include <Log.h>
 
 #include <scsi/ScsiController.h>
 
 /** Base class for an ATA controller. */
 class AtaController : public ScsiController, public IrqHandler
 {
-public:
-    AtaController(Controller *pDev, int nController = 0) :
-        ScsiController(pDev), m_nController(nController)
+    public:
+    AtaController(Controller *pDev, int nController = 0)
+        : ScsiController(pDev), m_nController(nController)
     {
         setSpecificType(String("ata-controller"));
 
@@ -50,7 +50,8 @@ public:
 
     virtual void getName(String &str) = 0;
 
-    virtual bool compareRequests(const RequestQueue::Request &a, const RequestQueue::Request &b);
+    virtual bool compareRequests(
+        const RequestQueue::Request &a, const RequestQueue::Request &b);
 
     // IRQ handler callback.
     virtual bool irq(irq_id_t number, InterruptState &state)
@@ -61,11 +62,12 @@ public:
 
     IoBase *m_pCommandRegs;
     IoBase *m_pControlRegs;
-private:
-    AtaController(const AtaController&);
-    void operator =(const AtaController&);
 
-protected:
+    private:
+    AtaController(const AtaController &);
+    void operator=(const AtaController &);
+
+    protected:
     int m_nController;
 
     virtual size_t getNumUnits()

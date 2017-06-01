@@ -24,16 +24,17 @@
 #include <processor/VirtualAddressSpace.h>
 #include <processor/state.h>
 
+#include "PosixSubsystem.h"
 #include <process/Semaphore.h>
 #include <process/Thread.h>
-#include "PosixSubsystem.h"
 
 #include "logging.h"
 
 #include <sys/types.h>
 
 void pedigree_init_pthreads();
-void pedigree_copy_posix_thread(Thread *, PosixSubsystem *, Thread *, PosixSubsystem *);
+void pedigree_copy_posix_thread(
+    Thread *, PosixSubsystem *, Thread *, PosixSubsystem *);
 
 /// Creates a new wait object that threads can use to synchronise.
 void *posix_pedigree_create_waiter();
@@ -41,7 +42,8 @@ int posix_pedigree_thread_wait_for(void *waiter);
 int posix_pedigree_thread_trigger(void *waiter);
 void posix_pedigree_destroy_waiter(void *waiter);
 
-int posix_futex(int *uaddr, int futex_op, int val, const struct timespec *timeout);
+int posix_futex(
+    int *uaddr, int futex_op, int val, const struct timespec *timeout);
 
 pid_t posix_gettid();
 

@@ -26,19 +26,20 @@
 /** @addtogroup kernel
  * @{ */
 
-// Again, if we're passed via grub these multiboot #defines will be valid, otherwise they won't.
+// Again, if we're passed via grub these multiboot #defines will be valid,
+// otherwise they won't.
 #if defined(MULTIBOOT)
-#define MULTIBOOT_FLAG_MEM     0x001
-#define MULTIBOOT_FLAG_DEVICE  0x002
+#define MULTIBOOT_FLAG_MEM 0x001
+#define MULTIBOOT_FLAG_DEVICE 0x002
 #define MULTIBOOT_FLAG_CMDLINE 0x004
-#define MULTIBOOT_FLAG_MODS    0x008
-#define MULTIBOOT_FLAG_AOUT    0x010
-#define MULTIBOOT_FLAG_ELF     0x020
-#define MULTIBOOT_FLAG_MMAP    0x040
-#define MULTIBOOT_FLAG_CONFIG  0x080
-#define MULTIBOOT_FLAG_LOADER  0x100
-#define MULTIBOOT_FLAG_APM     0x200
-#define MULTIBOOT_FLAG_VBE     0x400
+#define MULTIBOOT_FLAG_MODS 0x008
+#define MULTIBOOT_FLAG_AOUT 0x010
+#define MULTIBOOT_FLAG_ELF 0x020
+#define MULTIBOOT_FLAG_MMAP 0x040
+#define MULTIBOOT_FLAG_CONFIG 0x080
+#define MULTIBOOT_FLAG_LOADER 0x100
+#define MULTIBOOT_FLAG_APM 0x200
+#define MULTIBOOT_FLAG_VBE 0x400
 #endif
 
 extern class BootstrapStruct_t *g_pBootstrapInfo;
@@ -53,7 +54,7 @@ class BootstrapStruct_t
 #ifdef HOSTED
     friend int ::main(int argc, char *argv[]);
 #endif
-public:
+    public:
     BootstrapStruct_t();
 
     bool isInitrdLoaded() const;
@@ -81,9 +82,9 @@ public:
     void *getModuleBase() const;
 
 #ifdef HOSTED
-typedef uintptr_t bootstrap_uintptr_t;
+    typedef uintptr_t bootstrap_uintptr_t;
 #else
-typedef uint32_t bootstrap_uintptr_t;
+    typedef uint32_t bootstrap_uintptr_t;
 #endif
 
     typedef struct
@@ -99,9 +100,9 @@ typedef uint32_t bootstrap_uintptr_t;
         return reinterpret_cast<const Module *>(getModuleBase());
     }
 
-private:
-    // If we are passed via grub, this information will be completely different to
-    // via the bootstrapper.
+    private:
+    // If we are passed via grub, this information will be completely different
+    // to via the bootstrapper.
     uint32_t flags;
 
     uint32_t mem_lower;
@@ -144,7 +145,7 @@ private:
 
 struct BootstrapStruct_t
 {
-    int (*prom)(struct anon*);
+    int (*prom)(struct anon *);
     uint32_t initrd_start;
     uint32_t initrd_end;
 
@@ -160,7 +161,7 @@ struct BootstrapStruct_t
     }
     inline uint8_t *getInitrdAddress() const
     {
-        return reinterpret_cast<uint8_t*>(initrd_start);
+        return reinterpret_cast<uint8_t *>(initrd_start);
     }
     inline size_t getInitrdSize() const
     {

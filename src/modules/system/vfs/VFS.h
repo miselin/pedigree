@@ -20,28 +20,30 @@
 #ifndef VFS_H
 #define VFS_H
 
+#include "Filesystem.h"
 #include <processor/types.h>
 #include <utilities/List.h>
 #include <utilities/String.h>
-#include "Filesystem.h"
 
 /** This class implements a virtual file system.
  *
- * The pedigree VFS is structured in a similar way to windows' - every filesystem
- * is identified by a unique name and accessed thus:
+ * The pedigree VFS is structured in a similar way to windows' - every
+ * filesystem is identified by a unique name and accessed thus:
  *
  * myfs:/mydir/myfile
  *
  * No UNIX-style mounting of filesystems inside filesystems is possible.
  * A filesystem may be referred to by multiple names - a reference count is
- * maintained by the filesystem - when no aliases point to it, it is unmounted totally.
+ * maintained by the filesystem - when no aliases point to it, it is unmounted
+ * totally.
  *
- * The 'root' filesystem - that is the FS with system data on, is visible by the alias
- * 'root', thus; 'root:/System/Boot/kernel' could be used to access the kernel image.
+ * The 'root' filesystem - that is the FS with system data on, is visible by the
+ * alias 'root', thus; 'root:/System/Boot/kernel' could be used to access the
+ * kernel image.
  */
 class VFS
 {
-public:
+    public:
     /** Callback type, called when a disk is mounted or unmounted. */
     typedef void (*MountCallback)();
 
@@ -71,20 +73,20 @@ public:
     bool aliasExists(const String &alias);
 
     /** Obtains a list of all filesystem aliases */
-    inline RadixTree<Filesystem*> &getAliases()
+    inline RadixTree<Filesystem *> &getAliases()
     {
         return m_Aliases;
     }
 
     /** Obtains a list of all mounted filesystems */
-    inline Tree<Filesystem *, List<String*>* > &getMounts()
+    inline Tree<Filesystem *, List<String *> *> &getMounts()
     {
         return m_Mounts;
     }
 
-    /** Removes an alias from a filesystem. If no aliases remain for that filesystem,
-     *  the filesystem is destroyed.
-     *\param pAlias The alias to remove. */
+    /** Removes an alias from a filesystem. If no aliases remain for that
+     *filesystem, the filesystem is destroyed. \param pAlias The alias to
+     *remove. */
     void removeAlias(const String &alias);
 
     /** Removes all aliases from a filesystem - the filesystem is destroyed.
@@ -97,24 +99,28 @@ public:
     Filesystem *lookupFilesystem(const String &alias);
 
     /** Attempts to obtain a File for a specific path. */
-    File *find(const String &path, File *pStartNode=0);
+    File *find(const String &path, File *pStartNode = 0);
 
     /** Attempts to create a file. */
-    bool createFile(const String &path, uint32_t mask, File *pStartNode=0);
+    bool createFile(const String &path, uint32_t mask, File *pStartNode = 0);
 
     /** Attempts to create a directory. */
-    bool createDirectory(const String &path, uint32_t mask, File *pStartNode=0);
+    bool
+    createDirectory(const String &path, uint32_t mask, File *pStartNode = 0);
 
     /** Attempts to create a symlink. */
-    bool createSymlink(const String &path, const String &value, File *pStartNode=0);
+    bool createSymlink(
+        const String &path, const String &value, File *pStartNode = 0);
 
     /** Attempts to create a hard link. */
-    bool createLink(const String &path, File *target, File *pStartNode=0);
+    bool createLink(const String &path, File *target, File *pStartNode = 0);
 
-    /** Attempts to remove a file/directory/symlink. WILL FAIL IF DIRECTORY NOT EMPTY */
-    bool remove(const String &path, File *pStartNode=0);
+    /** Attempts to remove a file/directory/symlink. WILL FAIL IF DIRECTORY NOT
+     * EMPTY */
+    bool remove(const String &path, File *pStartNode = 0);
 
-    /** Adds a filesystem probe callback - this is called when a device is mounted. */
+    /** Adds a filesystem probe callback - this is called when a device is
+     * mounted. */
     void addProbeCallback(Filesystem::ProbeCallback callback);
 
     /** Adds a mount callback - the function is called when a disk is mounted or
@@ -122,7 +128,8 @@ public:
     void addMountCallback(MountCallback callback);
 
     /** Checks if the current user can access the given file. */
-    static bool checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute);
+    static bool
+    checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute);
 
     /** Separator between mount point and filesystem path. */
     static constexpr const char *mountSeparator()
@@ -130,19 +137,19 @@ public:
         return "»";
     }
 
-private:
+    private:
     /** The static instance object. */
     static VFS m_Instance;
 
     /** A static File object representing an invalid file */
-    static File* m_EmptyFile;
+    static File *m_EmptyFile;
 
-private:
-    RadixTree<Filesystem*> m_Aliases;
-    Tree<Filesystem*, List<String*>* > m_Mounts;
+    private:
+    RadixTree<Filesystem *> m_Aliases;
+    Tree<Filesystem *, List<String *> *> m_Mounts;
 
-    List<Filesystem::ProbeCallback*> m_ProbeCallbacks;
-    List<MountCallback*> m_MountCallbacks;
+    List<Filesystem::ProbeCallback *> m_ProbeCallbacks;
+    List<MountCallback *> m_MountCallbacks;
 };
 
 #endif

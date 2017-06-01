@@ -20,34 +20,34 @@
 #include <compiler.h>
 #include <utilities/TimeoutGuard.h>
 #ifdef THREADS
-#include <process/Thread.h>
 #include <process/PerProcessorScheduler.h>
+#include <process/Thread.h>
 #endif
-#include <processor/Processor.h>
-#include <machine/Timer.h>
-#include <machine/Machine.h>
 #include <LockGuard.h>
 #include <Log.h>
+#include <machine/Machine.h>
+#include <machine/Timer.h>
+#include <processor/Processor.h>
 
 static void guardEventFired(uint8_t *pBuffer) NORETURN;
 
-TimeoutGuard::TimeoutGuard(size_t timeoutSecs) :
-    m_pEvent(0), m_bTimedOut(false),
+TimeoutGuard::TimeoutGuard(size_t timeoutSecs)
+    : m_pEvent(0), m_bTimedOut(false),
 #ifdef THREADS
-    m_State(),
+      m_State(),
 #endif
-    m_nLevel(0), m_Lock()
+      m_nLevel(0), m_Lock()
 {
 #ifdef THREADS
-    if(timeoutSecs)
+    if (timeoutSecs)
     {
         Thread *pThread = Processor::information().getCurrentThread();
-        
+
         m_nLevel = pThread->getStateLevel();
         m_pEvent = new TimeoutGuardEvent(this, m_nLevel);
-        
+
         Machine::instance().getTimer()->addAlarm(m_pEvent, timeoutSecs);
-        
+
         // Generate the SchedulerState to restore to.
         Processor::saveState(m_State);
     }
@@ -101,9 +101,12 @@ static void guardEventFired(uint8_t *pBuffer)
 #endif
 }
 
-TimeoutGuard::TimeoutGuardEvent::TimeoutGuardEvent(TimeoutGuard *pTarget, size_t specificNestingLevel) :
-    Event(reinterpret_cast<uintptr_t>(&guardEventFired), true /* Deletable */, specificNestingLevel),
-    m_pTarget(pTarget)
+TimeoutGuard::TimeoutGuardEvent::TimeoutGuardEvent(
+    TimeoutGuard *pTarget, size_t specificNestingLevel)
+    : Event(
+          reinterpret_cast<uintptr_t>(&guardEventFired), true /* Deletable */,
+          specificNestingLevel),
+      m_pTarget(pTarget)
 {
 }
 
@@ -114,18 +117,19 @@ TimeoutGuard::TimeoutGuardEvent::~TimeoutGuardEvent()
 size_t TimeoutGuard::TimeoutGuardEvent::serialize(uint8_t *pBuffer)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBufferSize_t = reinterpret_cast<size_t*> (alignedBuffer);
+    size_t *pBufferSize_t = reinterpret_cast<size_t *>(alignedBuffer);
     pBufferSize_t[0] = EventNumbers::TimeoutGuard;
-    pBufferSize_t[1] = reinterpret_cast<size_t> (m_pTarget);
-    return 2*sizeof(size_t);
+    pBufferSize_t[1] = reinterpret_cast<size_t>(m_pTarget);
+    return 2 * sizeof(size_t);
 }
 
-bool TimeoutGuard::TimeoutGuardEvent::unserialize(uint8_t *pBuffer, TimeoutGuardEvent &event)
+bool TimeoutGuard::TimeoutGuardEvent::unserialize(
+    uint8_t *pBuffer, TimeoutGuardEvent &event)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBufferSize_t = reinterpret_cast<size_t*> (alignedBuffer);
+    size_t *pBufferSize_t = reinterpret_cast<size_t *>(alignedBuffer);
     if (pBufferSize_t[0] != EventNumbers::TimeoutGuard)
         return false;
-    event.m_pTarget = reinterpret_cast<TimeoutGuard*> (pBufferSize_t[1]);
+    event.m_pTarget = reinterpret_cast<TimeoutGuard *>(pBufferSize_t[1]);
     return true;
 }

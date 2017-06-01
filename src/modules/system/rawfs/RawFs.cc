@@ -18,8 +18,8 @@
  */
 
 #include "RawFs.h"
-#include "RawFsFile.h"
 #include "RawFsDir.h"
+#include "RawFsFile.h"
 
 #include <Module.h>
 #include <processor/Processor.h>
@@ -33,7 +33,7 @@ RawFs::RawFs() : m_pRoot(0)
 
 RawFs::~RawFs()
 {
-    if(m_pRoot)
+    if (m_pRoot)
         delete m_pRoot;
 }
 
@@ -67,23 +67,20 @@ static void searchNode(Device *pDev, RawFsDir *pDir)
             if (hasDiskChildren(pChild))
             {
                 NOTICE("rawfs: adding dir '" << str << "'");
-                RawFsDir *pDir2 = new RawFsDir(str,
-                                               g_pRawFs,
-                                               static_cast<File*>(pDir));
+                RawFsDir *pDir2 =
+                    new RawFsDir(str, g_pRawFs, static_cast<File *>(pDir));
                 pDir->addEntry(pDir2);
-                pDir->addEntry(new RawFsFile(String("entire-disk"),
-                                             g_pRawFs,
-                                            static_cast<File*>(pDir),
-                                             reinterpret_cast<Disk*>(pChild)));
+                pDir->addEntry(new RawFsFile(
+                    String("entire-disk"), g_pRawFs, static_cast<File *>(pDir),
+                    reinterpret_cast<Disk *>(pChild)));
                 searchNode(pChild, pDir2);
             }
             else
             {
                 NOTICE("rawfs: adding file '" << str << "'");
-                pDir->addEntry(new RawFsFile(str,
-                                             g_pRawFs,
-                                             static_cast<File*>(pDir),
-                                             reinterpret_cast<Disk*>(pChild)));
+                pDir->addEntry(new RawFsFile(
+                    str, g_pRawFs, static_cast<File *>(pDir),
+                    reinterpret_cast<Disk *>(pChild)));
             }
         }
         else
@@ -93,7 +90,7 @@ static void searchNode(Device *pDev, RawFsDir *pDir)
 
 static void rescanTree()
 {
-    RawFsDir *pD = static_cast<RawFsDir*>(g_pRawFs->getRoot());
+    RawFsDir *pD = static_cast<RawFsDir *>(g_pRawFs->getRoot());
     pD->removeRecursive();
 
     // Find the disk topology in an intermediate form.

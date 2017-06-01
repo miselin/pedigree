@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,7 +29,7 @@
 /** ARM926E Interrupt State */
 class ARM926EInterruptState
 {
-  public:
+    public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -57,16 +56,16 @@ class ARM926EInterruptState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -78,7 +77,7 @@ class ARM926EInterruptState
     /** Get the interrupt number
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
-    
+
     //
     // SyscallState Interface
     //
@@ -89,10 +88,10 @@ class ARM926EInterruptState
      *\return the syscall function number */
     inline size_t getSyscallNumber() const;
 
-  private:
+    private:
     /** The default constructor
      *\note NOT implemented */
-  public:
+    public:
     ARM926EInterruptState();
 
     /** The copy-constructor
@@ -100,11 +99,13 @@ class ARM926EInterruptState
     ARM926EInterruptState(const ARM926EInterruptState &);
     /** The assignement operator
      *\note NOT implemented */
-    ARM926EInterruptState &operator = (const ARM926EInterruptState &);
+    ARM926EInterruptState &operator=(const ARM926EInterruptState &);
     /** The destructor
      *\note NOT implemented */
-    ~ARM926EInterruptState() {}
-    
+    ~ARM926EInterruptState()
+    {
+    }
+
     /** ARM926E Registers and State **/
     uint32_t m_r0;
     uint32_t m_r1;
@@ -122,7 +123,8 @@ class ARM926EInterruptState
     uint32_t m_Sp;
     uint32_t m_Lnk;
     uint32_t m_Pc;
-    uint32_t m_Cpsr; // holds cpu mode, IRQ and FIQ status, and 4 flags (32-bit)
+    uint32_t
+        m_Cpsr;  // holds cpu mode, IRQ and FIQ status, and 4 flags (32-bit)
 } PACKED;
 
 typedef ARM926EInterruptState ARM926ESyscallState;
@@ -130,19 +132,19 @@ typedef ARM926EInterruptState ARM926EProcessorState;
 
 class __attribute__((aligned(16))) ARM926ESchedulerState
 {
-public:
+    public:
     uint32_t edi;
     uint32_t esi;
     uint32_t ebx;
     uint32_t ebp;
     uint32_t esp;
     uint32_t eip;
-    
+
     // bit 0: Has FPU
     // bit 1: Used SSE
     uint32_t flags;
-    
-    uint8_t x87FPU_MMX_XMM_MXCSR_State[512+16] __attribute__((aligned(16)));
+
+    uint8_t x87FPU_MMX_XMM_MXCSR_State[512 + 16] __attribute__((aligned(16)));
 } __attribute__((aligned(16)));
 
 /** @} */
@@ -153,58 +155,58 @@ public:
 
 uintptr_t ARM926EInterruptState::getStackPointer() const
 {
-  return m_Sp;
+    return m_Sp;
 }
 void ARM926EInterruptState::setStackPointer(uintptr_t stackPointer)
 {
 }
 uintptr_t ARM926EInterruptState::getInstructionPointer() const
 {
-  return m_Pc;
+    return m_Pc;
 }
 void ARM926EInterruptState::setInstructionPointer(uintptr_t instructionPointer)
 {
 }
 uintptr_t ARM926EInterruptState::getBasePointer() const
 {
-  return m_Fp; // assume frame pointer = base pointer
+    return m_Fp;  // assume frame pointer = base pointer
 }
 void ARM926EInterruptState::setBasePointer(uintptr_t basePointer)
 {
-  m_Fp = basePointer; // TODO: some form of casting? Not sure which to use...
+    m_Fp = basePointer;  // TODO: some form of casting? Not sure which to use...
 }
 size_t ARM926EInterruptState::getRegisterSize(size_t index) const
 {
 #if defined(BITS_32)
-  return 4;
+    return 4;
 #else
-  return 4; // TODO: handle other bits sizes (this is mainly here)
-            // in order to help future development if ARM ends up
-            // requiring 64-bit or something
+    return 4;  // TODO: handle other bits sizes (this is mainly here)
+               // in order to help future development if ARM ends up
+               // requiring 64-bit or something
 #endif
 }
 
 bool ARM926EInterruptState::kernelMode() const
 {
-  // TODO: the ARM926E is NOT always in kernel mode, handle this properly
-  // This'll require some reading up on the CPSR mode bits
-  return true;
+    // TODO: the ARM926E is NOT always in kernel mode, handle this properly
+    // This'll require some reading up on the CPSR mode bits
+    return true;
 }
 size_t ARM926EInterruptState::getInterruptNumber() const
 {
-  // TODO: implement
-  return 0;
+    // TODO: implement
+    return 0;
 }
 
 size_t ARM926EInterruptState::getSyscallService() const
 {
-  // TODO: implement
-  return 0;
+    // TODO: implement
+    return 0;
 }
 size_t ARM926EInterruptState::getSyscallNumber() const
 {
-  // TODO: implement
-  return 0;
+    // TODO: implement
+    return 0;
 }
 
 #endif

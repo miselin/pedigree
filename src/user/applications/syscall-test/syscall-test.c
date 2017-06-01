@@ -17,113 +17,116 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define PASS 1
 #define FAIL 0
 
 int test_open(void)
 {
-  printf ("open():\n");
-  printf ("\tOpen existing file - ");
-  int fd = open ("/applications/shell", O_RDONLY);
-  if (fd != -1)
-  {
-    close(fd);
-    printf("PASS\n");
-  }
-  else
-  {
-    printf("FAIL - errno %d (%s)\n", errno, strerror(errno));
-    return FAIL;
-  }
+    printf("open():\n");
+    printf("\tOpen existing file - ");
+    int fd = open("/applications/shell", O_RDONLY);
+    if (fd != -1)
+    {
+        close(fd);
+        printf("PASS\n");
+    }
+    else
+    {
+        printf("FAIL - errno %d (%s)\n", errno, strerror(errno));
+        return FAIL;
+    }
 
-  printf ("\tOpen nonexistant file - ");
-  int fd2 = open ("/applications/penis", O_RDONLY);
-  if (fd2 == -1 && errno == ENOENT)
-  {
-    close(fd2);
-    printf("PASS\n");
-  }
-  else
-  {
-    printf ("FAIL - errno %d (%s)\n", errno, strerror(errno));
-    return FAIL;
-  }
+    printf("\tOpen nonexistant file - ");
+    int fd2 = open("/applications/penis", O_RDONLY);
+    if (fd2 == -1 && errno == ENOENT)
+    {
+        close(fd2);
+        printf("PASS\n");
+    }
+    else
+    {
+        printf("FAIL - errno %d (%s)\n", errno, strerror(errno));
+        return FAIL;
+    }
 
-  printf ("\tCreate file - ");
-  int fd3 = open ("/file-doesnt-exist", O_RDWR | O_CREAT);
-  if (fd3 != -1)
-  {
-    close(fd3);
-    printf("PASS\n");
-  }
-  else
-  {
-    printf("FAIL - errno %d (%s)\n", errno, strerror(errno));
-    return FAIL;
-  }
+    printf("\tCreate file - ");
+    int fd3 = open("/file-doesnt-exist", O_RDWR | O_CREAT);
+    if (fd3 != -1)
+    {
+        close(fd3);
+        printf("PASS\n");
+    }
+    else
+    {
+        printf("FAIL - errno %d (%s)\n", errno, strerror(errno));
+        return FAIL;
+    }
 
-  printf("\tRecycle descriptors - ");
-  int fd4 = open ("/applications/bash", O_RDWR);
-  close(fd4);
-  int fd5 = open ("/applications/bash", O_RDWR);
-  close(fd5);
-  if(fd4 == fd5)
-  {
-    printf("PASS\n");
-  }
-  else
-  {
-    printf("FAIL - %d, %d\n", fd4, fd5);
-    return FAIL;
-  }
+    printf("\tRecycle descriptors - ");
+    int fd4 = open("/applications/bash", O_RDWR);
+    close(fd4);
+    int fd5 = open("/applications/bash", O_RDWR);
+    close(fd5);
+    if (fd4 == fd5)
+    {
+        printf("PASS\n");
+    }
+    else
+    {
+        printf("FAIL - %d, %d\n", fd4, fd5);
+        return FAIL;
+    }
 
-  int hahaha = open("/applications/bash", O_RDWR);
-  pid_t pid = fork();
+    int hahaha = open("/applications/bash", O_RDWR);
+    pid_t pid = fork();
 
-  if(pid == -1)
-  {
-      printf("FAIL - fork failed\n");
-      return FAIL;
-  }
+    if (pid == -1)
+    {
+        printf("FAIL - fork failed\n");
+        return FAIL;
+    }
 
-  if(pid == 0)
-  {
-      close(hahaha);
-      int rofl = open("/applications/bash", O_RDWR);
+    if (pid == 0)
+    {
+        close(hahaha);
+        int rofl = open("/applications/bash", O_RDWR);
 
-      printf("%d/%d\n", hahaha, rofl);
+        printf("%d/%d\n", hahaha, rofl);
 
-      close(rofl);
-      exit(0);
-  }
-  close(hahaha);
+        close(rofl);
+        exit(0);
+    }
+    close(hahaha);
 
-  printf("Complete\n");
+    printf("Complete\n");
 
-  while(1);
+    while (1)
+        ;
 
-  return PASS;
+    return PASS;
 }
 
-int main (int argc, char **argv)
+int main(int argc, char **argv)
 {
-  printf("argc: %d, argv[0]: %s, &optind: %x\n", argc, argv[0], &optind);
-  while(
-    getopt(argc, argv,
-       "h?ABC:DEFHIKLNOQ:RST:UVWY:abcdefgijklmo:pr:s:tvwxz") != -1)
-  {printf("bleh\n");}
-  printf("optind: %d\n", optind);
-  printf ("Syscall test starting...\n");
+    printf("argc: %d, argv[0]: %s, &optind: %x\n", argc, argv[0], &optind);
+    while (getopt(
+               argc, argv,
+               "h?ABC:DEFHIKLNOQ:RST:UVWY:abcdefgijklmo:pr:s:tvwxz") != -1)
+    {
+        printf("bleh\n");
+    }
+    printf("optind: %d\n", optind);
+    printf("Syscall test starting...\n");
 
-  if (test_open() == PASS)
-      return EXIT_SUCCESS;
-  else
-      return EXIT_FAILURE;
+    if (test_open() == PASS)
+        return EXIT_SUCCESS;
+    else
+        return EXIT_FAILURE;
 }

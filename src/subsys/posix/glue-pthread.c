@@ -22,8 +22,8 @@
 // Define errno before including syscall.h.
 #include "errno.h"
 #define errno (*__errno())
-extern int *__errno (void);
-int h_errno; // required by networking code
+extern int *__errno(void);
+int h_errno;  // required by networking code
 
 #include "posix-syscall.h"
 
@@ -33,9 +33,10 @@ int h_errno; // required by networking code
 #define _PTHREAD_ATTR_MAGIC 0xdeadbeef
 
 // Define to 1 to get verbose debugging (hinders performance) in some functions
-#define PTHREAD_DEBUG       0
+#define PTHREAD_DEBUG 0
 
-#define STUBBED(str) syscall1(POSIX_STUBBED, (long)(str)); \
+#define STUBBED(str)                       \
+    syscall1(POSIX_STUBBED, (long) (str)); \
     errno = ENOSYS;
 
 typedef void (*pthread_once_func_t)(void);
@@ -90,13 +91,16 @@ int pthread_cancel(pthread_t thread)
 int pthread_once(pthread_once_t *once_control, pthread_once_func_t init_routine)
 {
     int control = once_control->__internal.control;
-    if(!control || (control > 32))
+    if (!control || (control > 32))
     {
-        syslog(LOG_DEBUG, "[%d] pthread_once called with an invalid once_control (> 32)", getpid());
+        syslog(
+            LOG_DEBUG,
+            "[%d] pthread_once called with an invalid once_control (> 32)",
+            getpid());
         return -1;
     }
 
-    if(!onceFunctions[control])
+    if (!onceFunctions[control])
     {
         init_routine();
         onceFunctions[control] = 1;
@@ -106,10 +110,14 @@ int pthread_once(pthread_once_t *once_control, pthread_once_func_t init_routine)
     return 0;
 }
 
-int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void*), void *arg)
+int pthread_create(
+    pthread_t *thread, const pthread_attr_t *attr,
+    void *(*start_routine)(void *), void *arg)
 {
     *thread = (pthread_t) malloc(sizeof(**thread));
-    return syscall4(POSIX_PTHREAD_CREATE, (long) thread, (long) attr, (long) start_routine, (long) arg);
+    return syscall4(
+        POSIX_PTHREAD_CREATE, (long) thread, (long) attr, (long) start_routine,
+        (long) arg);
 }
 
 int pthread_join(pthread_t thread, void **value_ptr)
@@ -134,11 +142,11 @@ pthread_t pthread_self()
     /// \todo this is not brilliant.
     static struct _pthread_t result;
 #ifdef X86_COMMON
-    asm volatile("mov %%fs:0, %0" : "=r" (result.__internal.kthread));
+    asm volatile("mov %%fs:0, %0" : "=r"(result.__internal.kthread));
 #endif
 
 #ifdef ARMV7
-    asm volatile("mrc p15,0,%0,c13,c0,3" : "=r" (result.__internal.kthread));
+    asm volatile("mrc p15,0,%0,c13,c0,3" : "=r"(result.__internal.kthread));
 #endif
 
     return &result;
@@ -163,13 +171,13 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset)
 
 int pthread_attr_init(pthread_attr_t *attr)
 {
-    if(!attr)
+    if (!attr)
     {
         errno = ENOMEM;
         return -1;
     }
 
-    if(attr->__internal.magic == _PTHREAD_ATTR_MAGIC)
+    if (attr->__internal.magic == _PTHREAD_ATTR_MAGIC)
     {
         errno = EBUSY;
         return -1;
@@ -183,13 +191,13 @@ int pthread_attr_init(pthread_attr_t *attr)
 
 int pthread_attr_destroy(pthread_attr_t *attr)
 {
-    if(!attr)
+    if (!attr)
     {
         errno = ENOMEM;
         return -1;
     }
 
-    if(attr->__internal.magic != _PTHREAD_ATTR_MAGIC)
+    if (attr->__internal.magic != _PTHREAD_ATTR_MAGIC)
     {
         errno = EINVAL;
         return -1;
@@ -200,7 +208,7 @@ int pthread_attr_destroy(pthread_attr_t *attr)
 
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *ret)
 {
-    if(!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC) || !ret)
+    if (!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC) || !ret)
     {
         errno = EINVAL;
         return -1;
@@ -212,8 +220,9 @@ int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *ret)
 
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate)
 {
-    if((!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC)) ||
-        (detachstate != PTHREAD_CREATE_DETACHED && detachstate != PTHREAD_CREATE_JOINABLE))
+    if ((!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC)) ||
+        (detachstate != PTHREAD_CREATE_DETACHED &&
+         detachstate != PTHREAD_CREATE_JOINABLE))
     {
         errno = EINVAL;
         return -1;
@@ -225,7 +234,7 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate)
 
 int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *sz)
 {
-    if(!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC) || !sz)
+    if (!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC) || !sz)
     {
         errno = EINVAL;
         return -1;
@@ -238,7 +247,7 @@ int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *sz)
 
 int pthread_attr_setstacksize(pthread_attr_t *attr, size_t stacksize)
 {
-    if(!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC) ||
+    if (!attr || (attr->__internal.magic != _PTHREAD_ATTR_MAGIC) ||
         (stacksize < PTHREAD_STACK_MIN) || (stacksize > (1 << 24)))
     {
         errno = EINVAL;
@@ -250,12 +259,14 @@ int pthread_attr_setstacksize(pthread_attr_t *attr, size_t stacksize)
     return 0;
 }
 
-int pthread_attr_getschedparam(const pthread_attr_t *attr, struct sched_param *param)
+int pthread_attr_getschedparam(
+    const pthread_attr_t *attr, struct sched_param *param)
 {
     return 0;
 }
 
-int pthread_attr_setschedparam(pthread_attr_t *attr, const struct sched_param *param)
+int pthread_attr_setschedparam(
+    pthread_attr_t *attr, const struct sched_param *param)
 {
     return 0;
 }
@@ -266,7 +277,7 @@ int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
     syslog(LOG_NOTICE, "pthread_mutex_init(%x)", mutex);
 #endif
 
-    if(!mutex)
+    if (!mutex)
     {
         errno = EINVAL;
         return -1;
@@ -292,7 +303,7 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
     syslog(LOG_NOTICE, "pthread_mutex_destroy(%x)", mutex);
 #endif
 
-    if(!mutex)
+    if (!mutex)
     {
         errno = EINVAL;
         return -1;
@@ -309,7 +320,9 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
 int pthread_mutex_lock(pthread_mutex_t *mutex)
 {
 #if PTHREAD_DEBUG
-    syslog(LOG_NOTICE, "pthread_mutex_lock(%p) [return: %p]", mutex, __builtin_return_address(0));
+    syslog(
+        LOG_NOTICE, "pthread_mutex_lock(%p) [return: %p]", mutex,
+        __builtin_return_address(0));
 #endif
 
     /**
@@ -319,13 +332,13 @@ int pthread_mutex_lock(pthread_mutex_t *mutex)
      * The lock can only be taken if the counter is non-zero.
      */
 
-    if(!mutex)
+    if (!mutex)
     {
         errno = EINVAL;
         return -1;
     }
 
-    while(1)
+    while (1)
     {
         int r = pthread_mutex_trylock(mutex);
         if ((r < 0) && (errno != EBUSY))
@@ -356,16 +369,17 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex)
     syslog(LOG_NOTICE, "pthread_mutex_trylock(%p)", mutex);
 #endif
 
-    if(!mutex)
+    if (!mutex)
     {
         errno = EINVAL;
         return -1;
     }
 
     int32_t val = mutex->__internal.value;
-    if((val - 1) >= 0)
+    if ((val - 1) >= 0)
     {
-        if(__sync_bool_compare_and_swap(&mutex->__internal.value, val, val - 1))
+        if (__sync_bool_compare_and_swap(
+                &mutex->__internal.value, val, val - 1))
             goto locked;
     }
 
@@ -374,7 +388,8 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex)
         if (pthread_equal(pthread_self(), mutex->__internal.owner))
         {
             // Recurse.
-            if(__sync_bool_compare_and_swap(&mutex->__internal.value, val, val - 1))
+            if (__sync_bool_compare_and_swap(
+                    &mutex->__internal.value, val, val - 1))
                 goto locked;
         }
     }
@@ -395,7 +410,7 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex)
     syslog(LOG_NOTICE, "pthread_mutex_unlock(%x)", mutex);
 #endif
 
-    if(!mutex)
+    if (!mutex)
     {
         errno = EINVAL;
         return -1;
@@ -461,7 +476,6 @@ int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int type)
     return 0;
 }
 
-
 /**
  * Some background on how I've decided to handle condvars...
  *
@@ -479,7 +493,7 @@ int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr)
     syslog(LOG_NOTICE, "pthread_cond_init(%x)", cond);
 #endif
 
-    if(!cond)
+    if (!cond)
     {
         errno = EINVAL;
         return -1;
@@ -487,7 +501,9 @@ int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr)
 
     int ret = pthread_mutex_init(cond, 0);
 #if PTHREAD_DEBUG
-    syslog(LOG_NOTICE, "pthread_cond_init: returning %d from mutex init [%s]\n", ret, strerror(errno));
+    syslog(
+        LOG_NOTICE, "pthread_cond_init: returning %d from mutex init [%s]\n",
+        ret, strerror(errno));
 #endif
 
     return ret;
@@ -499,7 +515,7 @@ int pthread_cond_destroy(pthread_cond_t *cond)
     syslog(LOG_NOTICE, "pthread_cond_destroy(%x)", cond);
 #endif
 
-    if(!cond)
+    if (!cond)
     {
         errno = EINVAL;
         return -1;
@@ -514,7 +530,7 @@ int pthread_cond_broadcast(pthread_cond_t *cond)
     syslog(LOG_NOTICE, "pthread_cond_broadcast(%x)", cond);
 #endif
 
-    if(!cond)
+    if (!cond)
     {
         errno = EINVAL;
         return -1;
@@ -523,8 +539,7 @@ int pthread_cond_broadcast(pthread_cond_t *cond)
     do
     {
         __sync_fetch_and_sub(&cond->__internal.value, 1);
-    }
-    while(_pedigree_thread_trigger(cond->__internal.waiter) > 0);
+    } while (_pedigree_thread_trigger(cond->__internal.waiter) > 0);
 
     return 0;
 }
@@ -538,7 +553,8 @@ int pthread_cond_signal(pthread_cond_t *cond)
     return pthread_mutex_unlock(cond);
 }
 
-int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex, const struct timespec *tm)
+int pthread_cond_timedwait(
+    pthread_cond_t *cond, pthread_mutex_t *mutex, const struct timespec *tm)
 {
 #if PTHREAD_DEBUG
     syslog(LOG_NOTICE, "pthread_cond_timedwait(%x)", cond);
@@ -554,7 +570,7 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
     syslog(LOG_NOTICE, "pthread_cond_wait(%x, %x)", cond, mutex);
 #endif
 
-    if((!cond) || (!mutex))
+    if ((!cond) || (!mutex))
     {
         errno = EINVAL;
         return -1;
@@ -562,7 +578,7 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
 
     int e = 0;
     e = pthread_mutex_unlock(mutex);
-    if(e)
+    if (e)
         return e;
     e = pthread_mutex_lock(cond);
     pthread_mutex_lock(mutex);
@@ -581,7 +597,8 @@ int pthread_condattr_init(pthread_condattr_t *attr)
     return 0;
 }
 
-int pthread_condattr_getclock(const pthread_condattr_t *restrict attr, clockid_t *restrict clock_id)
+int pthread_condattr_getclock(
+    const pthread_condattr_t *restrict attr, clockid_t *restrict clock_id)
 {
     *clock_id = attr->__internal.clock_id;
     return 0;
@@ -593,7 +610,7 @@ int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock_id)
     return 0;
 }
 
-void* pthread_getspecific(pthread_key_t key)
+void *pthread_getspecific(pthread_key_t key)
 {
     uintptr_t result = syscall1(POSIX_PTHREAD_GETSPECIFIC, (long) &key);
     return (void *) result;
@@ -609,7 +626,7 @@ int pthread_key_create(pthread_key_t *key, void (*destructor)(void *))
     return syscall2(POSIX_PTHREAD_KEY_CREATE, (long) key, (long) destructor);
 }
 
-typedef void (*key_destructor)(void*);
+typedef void (*key_destructor)(void *);
 
 key_destructor pthread_key_destructor(pthread_key_t key)
 {
@@ -625,7 +642,7 @@ int pthread_key_delete(pthread_key_t key)
     void *buff = pthread_getspecific(key);
     pthread_setspecific(key, 0);
     key_destructor a = pthread_key_destructor(key);
-    if(a)
+    if (a)
         a(buff);
     return syscall1(POSIX_PTHREAD_KEY_DELETE, (long) &key);
 }
@@ -644,7 +661,8 @@ int pthread_rwlock_destroy(pthread_rwlock_t *lock)
     return pthread_mutex_destroy(&lock->mutex);
 }
 
-int pthread_rwlock_init(pthread_rwlock_t *lock, const pthread_rwlockattr_t *attr)
+int pthread_rwlock_init(
+    pthread_rwlock_t *lock, const pthread_rwlockattr_t *attr)
 {
 #if PTHREAD_DEBUG
     syslog(LOG_NOTICE, "pthread_rwlock_init(%x)", lock);
@@ -705,7 +723,7 @@ int pthread_rwlockattr_destroy(pthread_rwlockattr_t *attr)
 
 int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
 {
-    if(!lock)
+    if (!lock)
     {
         errno = EINVAL;
         return -1;
@@ -719,13 +737,13 @@ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
 
 int pthread_spin_destroy(pthread_spinlock_t *lock)
 {
-    if(!lock)
+    if (!lock)
     {
         errno = EINVAL;
         return -1;
     }
 
-    if(_pthread_is_valid(lock->__internal.locker))
+    if (_pthread_is_valid(lock->__internal.locker))
     {
         errno = EBUSY;
         return -1;
@@ -738,16 +756,16 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
 
 int pthread_spin_lock(pthread_spinlock_t *lock)
 {
-    if(!lock)
+    if (!lock)
     {
         errno = EINVAL;
         return -1;
     }
 
     int r = 0;
-    while(!(r = pthread_spin_trylock(lock)))
+    while (!(r = pthread_spin_trylock(lock)))
     {
-        if(pthread_equal(lock->__internal.locker, pthread_self()))
+        if (pthread_equal(lock->__internal.locker, pthread_self()))
         {
             // Attempt to lock the lock... but we've already acquired it!
             errno = EDEADLK;
@@ -765,13 +783,13 @@ int pthread_spin_lock(pthread_spinlock_t *lock)
 
 int pthread_spin_trylock(pthread_spinlock_t *lock)
 {
-    if(!lock)
+    if (!lock)
     {
         errno = EINVAL;
         return -1;
     }
 
-    if(!__sync_bool_compare_and_swap(&lock->__internal.atom, 1, 0))
+    if (!__sync_bool_compare_and_swap(&lock->__internal.atom, 1, 0))
     {
         errno = EBUSY;
         return -1;
@@ -784,14 +802,14 @@ int pthread_spin_trylock(pthread_spinlock_t *lock)
 
 int pthread_spin_unlock(pthread_spinlock_t *lock)
 {
-    if(!lock)
+    if (!lock)
     {
         errno = EINVAL;
         return -1;
     }
 
     // No locker.
-    if(!_pthread_is_valid(lock->__internal.locker))
+    if (!_pthread_is_valid(lock->__internal.locker))
     {
         errno = EPERM;
         return -1;

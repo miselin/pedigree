@@ -17,21 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Endpoint.h"
 #include "ConnectionBasedEndpoint.h"
+#include "Endpoint.h"
 
-ConnectionBasedEndpoint::ConnectionBasedEndpoint() :
-    Endpoint()
+ConnectionBasedEndpoint::ConnectionBasedEndpoint() : Endpoint()
 {
 }
 
-ConnectionBasedEndpoint::ConnectionBasedEndpoint(uint16_t local, uint16_t remote) :
-    Endpoint(local, remote)
+ConnectionBasedEndpoint::ConnectionBasedEndpoint(
+    uint16_t local, uint16_t remote)
+    : Endpoint(local, remote)
 {
 }
 
-ConnectionBasedEndpoint::ConnectionBasedEndpoint(IpAddress remoteIp, uint16_t local, uint16_t remote) :
-    Endpoint(remoteIp, local, remote)
+ConnectionBasedEndpoint::ConnectionBasedEndpoint(
+    IpAddress remoteIp, uint16_t local, uint16_t remote)
+    : Endpoint(remoteIp, local, remote)
 {
 }
 
@@ -55,7 +56,8 @@ bool ConnectionBasedEndpoint::isConnected() const
     return (currState == TRANSFER) || (currState == CLOSING);
 }
 
-bool ConnectionBasedEndpoint::connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock)
+bool ConnectionBasedEndpoint::connect(
+    const Endpoint::RemoteEndpoint &remoteHost, bool bBlock)
 {
     return false;
 }
@@ -69,7 +71,7 @@ bool ConnectionBasedEndpoint::listen()
     return false;
 }
 
-Endpoint* ConnectionBasedEndpoint::accept()
+Endpoint *ConnectionBasedEndpoint::accept()
 {
     return 0;
 }
@@ -79,7 +81,8 @@ int ConnectionBasedEndpoint::send(size_t nBytes, uintptr_t buffer)
     return -1;
 }
 
-int ConnectionBasedEndpoint::recv(uintptr_t buffer, size_t maxSize, bool block, bool bPeek)
+int ConnectionBasedEndpoint::recv(
+    uintptr_t buffer, size_t maxSize, bool block, bool bPeek)
 {
     return -1;
 }

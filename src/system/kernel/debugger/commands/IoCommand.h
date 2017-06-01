@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -31,35 +30,36 @@
  */
 class IoCommand : public DebuggerCommand
 {
-public:
-  /**
-   * Default constructor - zero's stuff.
-   */
-  IoCommand();
+    public:
+    /**
+     * Default constructor - zero's stuff.
+     */
+    IoCommand();
 
-  /**
-   * Default destructor - does nothing.
-   */
-  ~IoCommand();
+    /**
+     * Default destructor - does nothing.
+     */
+    ~IoCommand();
 
-  /**
-   * Return an autocomplete string, given an input string.
-   */
-  void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+    /**
+     * Return an autocomplete string, given an input string.
+     */
+    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
 
-  /**
-   * Execute the command with the given screen.
-   */
-  bool execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen);
-  
-  /**
-   * Returns the string representation of this command.
-   */
-  const NormalStaticString getString()
-  {
-    return NormalStaticString("io");
-  }
-  
+    /**
+     * Execute the command with the given screen.
+     */
+    bool execute(
+        const HugeStaticString &input, HugeStaticString &output,
+        InterruptState &state, DebuggerIO *screen);
+
+    /**
+     * Returns the string representation of this command.
+     */
+    const NormalStaticString getString()
+    {
+        return NormalStaticString("io");
+    }
 };
 
 /** @} */

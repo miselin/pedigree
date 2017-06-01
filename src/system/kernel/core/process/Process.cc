@@ -19,14 +19,14 @@
 
 #if defined(THREADS)
 
-#include <processor/types.h>
-#include <process/Process.h>
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
-#include <processor/VirtualAddressSpace.h>
-#include <linker/Elf.h>
-#include <processor/PhysicalMemoryManager.h>
 #include <Log.h>
+#include <linker/Elf.h>
+#include <process/Process.h>
+#include <process/Scheduler.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <processor/Processor.h>
+#include <processor/VirtualAddressSpace.h>
+#include <processor/types.h>
 #include <utilities/ZombieQueue.h>
 
 #include <process/SignalEvent.h>
@@ -37,230 +37,244 @@
 
 Process *Process::m_pInitProcess = 0;
 
-Process::Process() :
-  m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(0), m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
-  m_ExitStatus(0), m_Cwd(0), m_Ctty(0), m_SpaceAllocator(false), m_DynamicSpaceAllocator(false),
-  m_pUser(0), m_pGroup(0), m_pEffectiveUser(0), m_pEffectiveGroup(0), m_pDynamicLinker(0),
-  m_pSubsystem(0), m_Waiters(), m_bUnreportedSuspend(false), m_bUnreportedResume(false),
-  m_State(Active), m_BeforeSuspendState(Thread::Ready), m_Lock(false),
-  m_Metadata(), m_LastKernelEntry(0), m_LastUserspaceEntry(0), m_pRootFile(0),
-  m_bSharedAddressSpace(false), m_DeadThreads(0)
+Process::Process()
+    : m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(0),
+      m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
+      m_ExitStatus(0), m_Cwd(0), m_Ctty(0), m_SpaceAllocator(false),
+      m_DynamicSpaceAllocator(false), m_pUser(0), m_pGroup(0),
+      m_pEffectiveUser(0), m_pEffectiveGroup(0), m_pDynamicLinker(0),
+      m_pSubsystem(0), m_Waiters(), m_bUnreportedSuspend(false),
+      m_bUnreportedResume(false), m_State(Active),
+      m_BeforeSuspendState(Thread::Ready), m_Lock(false), m_Metadata(),
+      m_LastKernelEntry(0), m_LastUserspaceEntry(0), m_pRootFile(0),
+      m_bSharedAddressSpace(false), m_DeadThreads(0)
 {
-  resetCounts();
-  m_Metadata.startTime = Time::getTimeNanoseconds();
+    resetCounts();
+    m_Metadata.startTime = Time::getTimeNanoseconds();
 
-  m_Id = Scheduler::instance().addProcess(this);
-  getSpaceAllocator().free(
-      getAddressSpace()->getUserStart(),
-      getAddressSpace()->getUserReservedStart() - getAddressSpace()->getUserStart());
-  if(getAddressSpace()->getDynamicStart())
-  {
-    getDynamicSpaceAllocator().free(
-        getAddressSpace()->getDynamicStart(),
-        getAddressSpace()->getDynamicEnd() - getAddressSpace()->getDynamicStart());
-  }
+    m_Id = Scheduler::instance().addProcess(this);
+    getSpaceAllocator().free(
+        getAddressSpace()->getUserStart(),
+        getAddressSpace()->getUserReservedStart() -
+            getAddressSpace()->getUserStart());
+    if (getAddressSpace()->getDynamicStart())
+    {
+        getDynamicSpaceAllocator().free(
+            getAddressSpace()->getDynamicStart(),
+            getAddressSpace()->getDynamicEnd() -
+                getAddressSpace()->getDynamicStart());
+    }
 }
 
-Process::Process(Process *pParent, bool bCopyOnWrite) :
-  m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(pParent), m_pAddressSpace(0),
-  m_ExitStatus(0), m_Cwd(pParent->m_Cwd), m_Ctty(pParent->m_Ctty),
-  m_SpaceAllocator(pParent->m_SpaceAllocator), m_DynamicSpaceAllocator(pParent->m_DynamicSpaceAllocator),
-  m_pUser(pParent->m_pUser), m_pGroup(pParent->m_pGroup), m_pEffectiveUser(pParent->m_pEffectiveUser),
-  m_pEffectiveGroup(pParent->m_pEffectiveGroup), m_pDynamicLinker(pParent->m_pDynamicLinker),
-  m_pSubsystem(0), m_Waiters(), m_bUnreportedSuspend(false), m_bUnreportedResume(false),
-  m_State(pParent->getState()), m_BeforeSuspendState(Thread::Ready), m_Lock(false),
-  m_Metadata(pParent->m_Metadata), m_LastKernelEntry(0), m_LastUserspaceEntry(0),
-  m_pRootFile(pParent->m_pRootFile), m_bSharedAddressSpace(!bCopyOnWrite), m_DeadThreads(0)
+Process::Process(Process *pParent, bool bCopyOnWrite)
+    : m_Threads(), m_NextTid(0), m_Id(0), str(), m_pParent(pParent),
+      m_pAddressSpace(0), m_ExitStatus(0), m_Cwd(pParent->m_Cwd),
+      m_Ctty(pParent->m_Ctty), m_SpaceAllocator(pParent->m_SpaceAllocator),
+      m_DynamicSpaceAllocator(pParent->m_DynamicSpaceAllocator),
+      m_pUser(pParent->m_pUser), m_pGroup(pParent->m_pGroup),
+      m_pEffectiveUser(pParent->m_pEffectiveUser),
+      m_pEffectiveGroup(pParent->m_pEffectiveGroup),
+      m_pDynamicLinker(pParent->m_pDynamicLinker), m_pSubsystem(0), m_Waiters(),
+      m_bUnreportedSuspend(false), m_bUnreportedResume(false),
+      m_State(pParent->getState()), m_BeforeSuspendState(Thread::Ready),
+      m_Lock(false), m_Metadata(pParent->m_Metadata), m_LastKernelEntry(0),
+      m_LastUserspaceEntry(0), m_pRootFile(pParent->m_pRootFile),
+      m_bSharedAddressSpace(!bCopyOnWrite), m_DeadThreads(0)
 {
-   m_pAddressSpace = pParent->m_pAddressSpace->clone(bCopyOnWrite);
+    m_pAddressSpace = pParent->m_pAddressSpace->clone(bCopyOnWrite);
 
-  m_Id = Scheduler::instance().addProcess(this);
- 
-  // Set a temporary description.
-  str = m_pParent->str;
-  if (m_bSharedAddressSpace)
-  {
-    str += "<C>";  // C for cloned (i.e. shared address space)
-  }
-  else
-  {
-    str += "<F>"; // F for forked.
-  }
+    m_Id = Scheduler::instance().addProcess(this);
+
+    // Set a temporary description.
+    str = m_pParent->str;
+    if (m_bSharedAddressSpace)
+    {
+        str += "<C>";  // C for cloned (i.e. shared address space)
+    }
+    else
+    {
+        str += "<F>";  // F for forked.
+    }
 }
 
 Process::~Process()
 {
-  // Make sure we have full mutual exclusion on the Subsystem before we lock
-  // here. This ensures we have full access to the subsystem and avoids a case
-  // where we lock here but the subsystem destruction needs to reschedule to
-  // acquire the subsystem locks.
-  if (m_pSubsystem)
-  {
-    m_pSubsystem->acquire();
-  }
-
-  bool isSelf = Processor::information().getCurrentThread()->getParent() == this;
-
-  for(Vector<Thread*>::Iterator it = m_Threads.begin();
-      it != m_Threads.end();
-      ++it)
-  {
-    Thread *pThread = (*it);
-
-    // Clean up thread if not actually us.
-    if (pThread != Processor::information().getCurrentThread())
+    // Make sure we have full mutual exclusion on the Subsystem before we lock
+    // here. This ensures we have full access to the subsystem and avoids a case
+    // where we lock here but the subsystem destruction needs to reschedule to
+    // acquire the subsystem locks.
+    if (m_pSubsystem)
     {
-      // Child thread is not current thread - terminate the child properly.
-      pThread->setStatus(Thread::Zombie);
-      pThread->shutdown();
+        m_pSubsystem->acquire();
     }
-  }
 
-  // Block until we are the only one touching this Process object.
-  LockGuard<Spinlock> guard(m_Lock);
+    bool isSelf =
+        Processor::information().getCurrentThread()->getParent() == this;
 
-  // Guards things like removeThread.
-  m_State = Terminating;
-
-  // Now that all threads are shut down and marked as zombies, and we have
-  // taken the main process Spinlock, we can clean up the detached threads.
-  for(Vector<Thread*>::Iterator it = m_Threads.begin();
-      it != m_Threads.end();
-      ++it)
-  {
-    Thread *t = (*it);
-    if (t != Processor::information().getCurrentThread())
+    for (Vector<Thread *>::Iterator it = m_Threads.begin();
+         it != m_Threads.end(); ++it)
     {
-      if (t->detached())
-      {
-        delete t;
-      }
+        Thread *pThread = (*it);
+
+        // Clean up thread if not actually us.
+        if (pThread != Processor::information().getCurrentThread())
+        {
+            // Child thread is not current thread - terminate the child
+            // properly.
+            pThread->setStatus(Thread::Zombie);
+            pThread->shutdown();
+        }
     }
-  }
 
-  Scheduler::instance().removeProcess(this);
+    // Block until we are the only one touching this Process object.
+    LockGuard<Spinlock> guard(m_Lock);
 
-  if(m_pSubsystem)
-    delete m_pSubsystem;
+    // Guards things like removeThread.
+    m_State = Terminating;
 
-  VirtualAddressSpace &VAddressSpace = Processor::information().getVirtualAddressSpace();
+    // Now that all threads are shut down and marked as zombies, and we have
+    // taken the main process Spinlock, we can clean up the detached threads.
+    for (Vector<Thread *>::Iterator it = m_Threads.begin();
+         it != m_Threads.end(); ++it)
+    {
+        Thread *t = (*it);
+        if (t != Processor::information().getCurrentThread())
+        {
+            if (t->detached())
+            {
+                delete t;
+            }
+        }
+    }
 
-  bool bInterrupts = Processor::getInterrupts();
-  Processor::setInterrupts(false);
+    Scheduler::instance().removeProcess(this);
 
-  Processor::switchAddressSpace(*m_pAddressSpace);
-  m_pAddressSpace->revertToKernelAddressSpace();
-  Processor::switchAddressSpace(VAddressSpace);
+    if (m_pSubsystem)
+        delete m_pSubsystem;
 
-  delete m_pAddressSpace;
+    VirtualAddressSpace &VAddressSpace =
+        Processor::information().getVirtualAddressSpace();
 
-  Processor::setInterrupts(bInterrupts);
+    bool bInterrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
 
-  if (isSelf)
-  {
-      // Killed current process, so kill off the thread too.
-      // NOTE: this DOES NOT RETURN. Anything critical to process shutdown must
-      // be completed by this point.
-      Processor::information().getScheduler().killCurrentThread(&m_Lock);
-  }
+    Processor::switchAddressSpace(*m_pAddressSpace);
+    m_pAddressSpace->revertToKernelAddressSpace();
+    Processor::switchAddressSpace(VAddressSpace);
+
+    delete m_pAddressSpace;
+
+    Processor::setInterrupts(bInterrupts);
+
+    if (isSelf)
+    {
+        // Killed current process, so kill off the thread too.
+        // NOTE: this DOES NOT RETURN. Anything critical to process shutdown
+        // must be completed by this point.
+        Processor::information().getScheduler().killCurrentThread(&m_Lock);
+    }
 }
 
 size_t Process::addThread(Thread *pThread)
 {
-  LockGuard<Spinlock> guard(m_Lock);
-  if (!pThread)
-    return ~0;
-  m_Threads.pushBack(pThread);
-  return m_NextTid += 1;
+    LockGuard<Spinlock> guard(m_Lock);
+    if (!pThread)
+        return ~0;
+    m_Threads.pushBack(pThread);
+    return m_NextTid += 1;
 }
 
 void Process::removeThread(Thread *pThread)
 {
-  // Don't bother in these states: already done, or is about to be done.
-  if (m_State == Terminating || m_State == Terminated)
-    return;
+    // Don't bother in these states: already done, or is about to be done.
+    if (m_State == Terminating || m_State == Terminated)
+        return;
 
-  LockGuard<Spinlock> guard(m_Lock);
-  for(Vector<Thread*>::Iterator it = m_Threads.begin();
-      it != m_Threads.end();
-      it++)
-  {
-    if (*it == pThread)
+    LockGuard<Spinlock> guard(m_Lock);
+    for (Vector<Thread *>::Iterator it = m_Threads.begin();
+         it != m_Threads.end(); it++)
     {
-      m_Threads.erase(it);
-      break;
+        if (*it == pThread)
+        {
+            m_Threads.erase(it);
+            break;
+        }
     }
-  }
 
-  if (m_pSubsystem)
-    m_pSubsystem->threadRemoved(pThread);
+    if (m_pSubsystem)
+        m_pSubsystem->threadRemoved(pThread);
 }
 
 size_t Process::getNumThreads()
 {
-  LockGuard<Spinlock> guard(m_Lock);
-  return m_Threads.count();
+    LockGuard<Spinlock> guard(m_Lock);
+    return m_Threads.count();
 }
 
 Thread *Process::getThread(size_t n)
 {
-  LockGuard<Spinlock> guard(m_Lock);
-  if (n >= m_Threads.count())
-  {
-    m_Lock.release();
-    FATAL("Process::getThread(" << Dec << n << Hex << ") - Parameter out of bounds.");
-    return 0;
-  }
-  return m_Threads[n];
+    LockGuard<Spinlock> guard(m_Lock);
+    if (n >= m_Threads.count())
+    {
+        m_Lock.release();
+        FATAL(
+            "Process::getThread(" << Dec << n << Hex
+                                  << ") - Parameter out of bounds.");
+        return 0;
+    }
+    return m_Threads[n];
 }
 
 void Process::kill()
 {
-  m_Lock.acquire();
+    m_Lock.acquire();
 
-  if(m_pParent)
-	  NOTICE("Kill: " << m_Id << " (parent: " << m_pParent->getId() << ")");
-  else
-	  NOTICE("Kill: " << m_Id << " (parent: <orphan>)");
+    if (m_pParent)
+        NOTICE("Kill: " << m_Id << " (parent: " << m_pParent->getId() << ")");
+    else
+        NOTICE("Kill: " << m_Id << " (parent: <orphan>)");
 
-  // Bye bye process - have we got any zombie children?
-  for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
-  {
-    Process *pProcess = Scheduler::instance().getProcess(i);
-
-    if (pProcess && (pProcess->m_pParent == this))
+    // Bye bye process - have we got any zombie children?
+    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
     {
-      if (pProcess->getThread(0)->getStatus() == Thread::Zombie)
-      {
-        // Kill 'em all!
-        delete pProcess;
-      }
-      else
-      {
-        pProcess->m_pParent = Process::getInit();
-      }
+        Process *pProcess = Scheduler::instance().getProcess(i);
+
+        if (pProcess && (pProcess->m_pParent == this))
+        {
+            if (pProcess->getThread(0)->getStatus() == Thread::Zombie)
+            {
+                // Kill 'em all!
+                delete pProcess;
+            }
+            else
+            {
+                pProcess->m_pParent = Process::getInit();
+            }
+        }
     }
-  }
 
-  m_State = Terminated;
+    m_State = Terminated;
 
-  // Add to the zombie queue if the process is an orphan.
-  if (!m_pParent)
-  {
-      NOTICE("Process::kill() - process is an orphan, adding to ZombieQueue.");
-      
-      ZombieQueue::instance().addObject(new ZombieProcess(this));
-      Processor::information().getScheduler().killCurrentThread(&m_Lock);
-      
-      // Should never get here.
-      FATAL("Process: should never get here");
-  }
+    // Add to the zombie queue if the process is an orphan.
+    if (!m_pParent)
+    {
+        NOTICE(
+            "Process::kill() - process is an orphan, adding to ZombieQueue.");
 
-  // We'll get reaped elsewhere
-  NOTICE("Process::kill() - not adding to ZombieQueue, process has a parent.");
-  Processor::information().getScheduler().schedule(Thread::Zombie, nullptr, &m_Lock);
+        ZombieQueue::instance().addObject(new ZombieProcess(this));
+        Processor::information().getScheduler().killCurrentThread(&m_Lock);
 
-  FATAL("Should never get here");
+        // Should never get here.
+        FATAL("Process: should never get here");
+    }
+
+    // We'll get reaped elsewhere
+    NOTICE(
+        "Process::kill() - not adding to ZombieQueue, process has a parent.");
+    Processor::information().getScheduler().schedule(
+        Thread::Zombie, nullptr, &m_Lock);
+
+    FATAL("Should never get here");
 }
 
 void Process::suspend()
@@ -271,8 +285,9 @@ void Process::suspend()
     m_State = Suspended;
     notifyWaiters();
     // Notify parent that we're suspending.
-    if(m_pParent && m_pParent->getSubsystem())
-        m_pParent->getSubsystem()->threadException(m_pParent->getThread(0), Subsystem::Child);
+    if (m_pParent && m_pParent->getSubsystem())
+        m_pParent->getSubsystem()->threadException(
+            m_pParent->getThread(0), Subsystem::Child);
     Processor::information().getScheduler().schedule(Thread::Suspended);
 }
 
@@ -292,11 +307,10 @@ void Process::addWaiter(Semaphore *pWaiter)
 
 void Process::removeWaiter(Semaphore *pWaiter)
 {
-    for(List<Semaphore *>::Iterator it = m_Waiters.begin();
-        it != m_Waiters.end();
-        )
+    for (List<Semaphore *>::Iterator it = m_Waiters.begin();
+         it != m_Waiters.end();)
     {
-        if((*it) == pWaiter)
+        if ((*it) == pWaiter)
         {
             it = m_Waiters.erase(it);
         }
@@ -307,14 +321,13 @@ void Process::removeWaiter(Semaphore *pWaiter)
 
 size_t Process::waiterCount() const
 {
-  return m_Waiters.count();
+    return m_Waiters.count();
 }
 
 void Process::notifyWaiters()
 {
-    for(List<Semaphore *>::Iterator it = m_Waiters.begin();
-        it != m_Waiters.end();
-        ++it)
+    for (List<Semaphore *>::Iterator it = m_Waiters.begin();
+         it != m_Waiters.end(); ++it)
     {
         (*it)->release();
     }
@@ -322,16 +335,16 @@ void Process::notifyWaiters()
 
 Process *Process::getInit()
 {
-  return m_pInitProcess;
+    return m_pInitProcess;
 }
 
 void Process::setInit(Process *pProcess)
 {
-  if (m_pInitProcess)
-  {
-    return;
-  }
-  m_pInitProcess = pProcess;
+    if (m_pInitProcess)
+    {
+        return;
+    }
+    m_pInitProcess = pProcess;
 }
 
 #endif  // defined(THREADS)

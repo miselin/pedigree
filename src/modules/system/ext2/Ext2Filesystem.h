@@ -20,12 +20,12 @@
 #ifndef EXT2FILESYSTEM_H
 #define EXT2FILESYSTEM_H
 
-#include <vfs/VFS.h>
-#include <vfs/Filesystem.h>
-#include <utilities/List.h>
 #include <process/Mutex.h>
+#include <utilities/List.h>
 #include <utilities/Tree.h>
 #include <utilities/Vector.h>
+#include <vfs/Filesystem.h>
+#include <vfs/VFS.h>
 
 #include "ext2.h"
 
@@ -36,7 +36,8 @@ class Ext2Filesystem : public Filesystem
     friend class Ext2Node;
     friend class Ext2Directory;
     friend class Ext2Symlink;
-public:
+
+    public:
     Ext2Filesystem();
 
     virtual ~Ext2Filesystem();
@@ -46,22 +47,24 @@ public:
     //
     virtual bool initialise(Disk *pDisk);
     static Filesystem *probe(Disk *pDisk);
-    virtual File* getRoot();
+    virtual File *getRoot();
     virtual String getVolumeLabel();
 
-protected:
-    virtual bool createFile(File* parent, String filename, uint32_t mask);
-    virtual bool createDirectory(File* parent, String filename, uint32_t mask);
-    virtual bool createSymlink(File* parent, String filename, String value);
-    virtual bool createLink(File* parent, String filename, File *target);
-    virtual bool remove(File* parent, File* file);
+    protected:
+    virtual bool createFile(File *parent, String filename, uint32_t mask);
+    virtual bool createDirectory(File *parent, String filename, uint32_t mask);
+    virtual bool createSymlink(File *parent, String filename, String value);
+    virtual bool createLink(File *parent, String filename, File *target);
+    virtual bool remove(File *parent, File *file);
 
-private:
-    virtual bool createNode(File* parent, String filename, uint32_t mask, String value, size_t type, uint32_t inodeOverride = 0);
+    private:
+    virtual bool createNode(
+        File *parent, String filename, uint32_t mask, String value, size_t type,
+        uint32_t inodeOverride = 0);
 
     /** Inaccessible copy constructor and operator= */
-    Ext2Filesystem(const Ext2Filesystem&);
-    void operator =(const Ext2Filesystem&);
+    Ext2Filesystem(const Ext2Filesystem &);
+    void operator=(const Ext2Filesystem &);
 
     /** Reads a block of data from the disk. */
     uintptr_t readBlock(uint32_t block);
@@ -75,11 +78,13 @@ private:
 
     uint32_t findFreeBlock(uint32_t inode);
     bool findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t> &blocks);
-    size_t findFreeBlocksInGroup(uint32_t group, size_t maxCount, Vector<uint32_t> &blocks);
+    size_t findFreeBlocksInGroup(
+        uint32_t group, size_t maxCount, Vector<uint32_t> &blocks);
     uint32_t findFreeInode();
 
     void releaseBlock(uint32_t block);
-    /** Releases the given inode, returns true if the inode had no more links. */
+    /** Releases the given inode, returns true if the inode had no more links.
+     */
     bool releaseInode(uint32_t inode);
 
     Inode *getInode(uint32_t num);
@@ -99,7 +104,8 @@ private:
     /** Our superblock. */
     Superblock *m_pSuperblock;
 
-    /** Group descriptors, in a tree because each GroupDesc* may be in a different block. */
+    /** Group descriptors, in a tree because each GroupDesc* may be in a
+     * different block. */
     GroupDesc **m_pGroupDescriptors;
 
     /** Inode tables, indexed by group descriptor. */
@@ -119,7 +125,8 @@ private:
     size_t m_nGroupDescriptors;
 
 #ifdef THREADS
-    /** Write lock - we're finding some inodes and updating the superblock and block group structures. */
+    /** Write lock - we're finding some inodes and updating the superblock and
+     * block group structures. */
     Mutex m_WriteLock;
 #endif
 

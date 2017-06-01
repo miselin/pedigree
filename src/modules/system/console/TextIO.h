@@ -20,10 +20,10 @@
 #ifndef TEXTIO_H
 #define TEXTIO_H
 
+#include <machine/InputManager.h>
+#include <process/Mutex.h>
 #include <processor/types.h>
 #include <utilities/Buffer.h>
-#include <process/Mutex.h>
-#include <machine/InputManager.h>
 
 #include <vfs/File.h>
 
@@ -43,32 +43,32 @@ class Vga;
  */
 class TextIO : public File
 {
-private:
+    private:
     static const int COLOUR_BRIGHT_ADDEND = 8;
 
     enum VgaColour
     {
-        Black       =0,
-        Blue        =1,
-        Green       =2,
-        Cyan        =3,
-        Red         =4,
-        Magenta     =5,
-        Orange      =6,
-        LightGrey   =7,
-        DarkGrey    =8,
-        LightBlue   =9,
-        LightGreen  =10,
-        LightCyan   =11,
-        LightRed    =12,
-        LightMagenta=13,
-        Yellow      =14,
-        White       =15
+        Black = 0,
+        Blue = 1,
+        Green = 2,
+        Cyan = 3,
+        Red = 4,
+        Magenta = 5,
+        Orange = 6,
+        LightGrey = 7,
+        DarkGrey = 8,
+        LightBlue = 9,
+        LightGreen = 10,
+        LightCyan = 11,
+        LightRed = 12,
+        LightMagenta = 13,
+        Yellow = 14,
+        White = 15
     };
 
     VgaColour adjustColour(int colour, bool up)
     {
-        if(up)
+        if (up)
         {
             return static_cast<VgaColour>(colour + COLOUR_BRIGHT_ADDEND);
         }
@@ -81,30 +81,30 @@ private:
     enum TerminalModes
     {
         LineFeedNewLine = 0x1,
-        CursorKey       = 0x2,
-        AnsiVt52        = 0x4,
-        Column          = 0x8,
-        Scrolling       = 0x10,
-        Screen          = 0x20,
-        Origin          = 0x40,
-        AutoWrap        = 0x80,
-        AutoRepeat      = 0x100,
-        Interlace       = 0x200,
+        CursorKey = 0x2,
+        AnsiVt52 = 0x4,
+        Column = 0x8,
+        Scrolling = 0x10,
+        Screen = 0x20,
+        Origin = 0x40,
+        AutoWrap = 0x80,
+        AutoRepeat = 0x100,
+        Interlace = 0x200,
 
         /// AKA: 'Negative'
-        Inverse         = 0x100000,
+        Inverse = 0x100000,
 
         /// AKA: 'Bold'
-        Bright          = 0x200000,
+        Bright = 0x200000,
 
-        Blink           = 0x400000,
+        Blink = 0x400000,
 
         // Character sets.
-        CharacterSetG0  = 0x1000000,
-        CharacterSetG1  = 0x2000000,
+        CharacterSetG0 = 0x1000000,
+        CharacterSetG1 = 0x2000000,
     };
 
-public:
+    public:
     TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent);
     virtual ~TextIO();
 
@@ -115,7 +115,7 @@ public:
      * \return True if we can now write, false otherwise.
      */
     bool initialise(bool bClear = true);
-  
+
     /**
      * Write a string to the screen, handling any VT100 control sequences
      * embedded in the string along the way.
@@ -126,8 +126,12 @@ public:
     /**
      * VFS File interface.
      */
-    virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-    virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    virtual uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
     virtual int select(bool bWriting = false, int timeout = 0);
 
     virtual void flipThread();
@@ -152,7 +156,7 @@ public:
      */
     bool isPrimary() const;
 
-private:
+    private:
     static const ssize_t BACKBUFFER_COLS_WIDE = 132;
     static const ssize_t BACKBUFFER_COLS_NORMAL = 80;
     static const ssize_t BACKBUFFER_ROWS = 25;

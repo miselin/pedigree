@@ -20,28 +20,29 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
+#include <Atomic.h>
+#include <Spinlock.h>
 #include <processor/types.h>
 #include <utilities/List.h>
 #include <utilities/Tree.h>
-#include <Spinlock.h>
-#include <Atomic.h>
 
 class Thread;
 class Process;
 class Processor;
 class PerProcessorScheduler;
 
-/** \brief This class manages how processes and threads are scheduled across processors.
- * 
- * This is the "long term" scheduler - it load balances between processors and provides
- * the interface for adding, listing and removing threads.
+/** \brief This class manages how processes and threads are scheduled across
+ * processors.
  *
- * The load balancing is "lazy" in that the algorithm only runs on thread addition
- * and removal.
+ * This is the "long term" scheduler - it load balances between processors and
+ * provides the interface for adding, listing and removing threads.
+ *
+ * The load balancing is "lazy" in that the algorithm only runs on thread
+ * addition and removal.
  */
 class Scheduler
 {
-public:
+    public:
     /** Get the instance of the scheduler */
     static Scheduler &instance()
     {
@@ -61,7 +62,7 @@ public:
 
     /** Whether a thread is entered into the scheduler at all. */
     bool threadInSchedule(Thread *pThread);
-  
+
     /** Adds a process.
      *  \note This is purely for enumeration purposes.
      *  \return The ID that should be applied to this Process. */
@@ -70,13 +71,13 @@ public:
      *  \note This is purely for enumeration purposes. */
     void removeProcess(Process *pProcess);
 #endif  // THREADS
-  
+
     /** Causes a manual reschedule. */
     void yield();
 
     /** Returns the number of processes currently in operation. */
     size_t getNumProcesses();
-  
+
 #ifdef THREADS
     /** Returns the n'th process currently in operation. */
     Process *getProcess(size_t n);
@@ -94,25 +95,25 @@ public:
     }
 #endif  // THREADS
 
-private:
+    private:
     Scheduler();
     NOT_COPYABLE_OR_ASSIGNABLE(Scheduler);
-  
+
     /** The Scheduler instance. */
     static Scheduler m_Instance;
-  
+
 #ifdef THREADS
     /** All the processes currently in operation, for enumeration purposes. */
-    List<Process*, 0> m_Processes;
+    List<Process *, 0> m_Processes;
 
     /** The next available process ID. */
     Atomic<size_t> m_NextPid;
 
     /** Map of processor->thread mappings, for load-balance accounting. */
-    Tree<PerProcessorScheduler*, List<Thread*>*> m_PTMap;
+    Tree<PerProcessorScheduler *, List<Thread *> *> m_PTMap;
 
     /** Map of thread->processor mappings. */
-    Tree<Thread*, PerProcessorScheduler*> m_TPMap;
+    Tree<Thread *, PerProcessorScheduler *> m_TPMap;
 
     /** Pointer to the kernel process. */
     Process *m_pKernelProcess;

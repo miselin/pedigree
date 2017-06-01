@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,105 +20,104 @@
 #ifndef NIC_3C90X_H
 #define NIC_3C90X_H
 
-#include <processor/types.h>
 #include <machine/Device.h>
+#include <machine/IrqHandler.h>
 #include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <process/Thread.h>
 #include <processor/IoBase.h>
 #include <processor/IoPort.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
-#include <machine/IrqHandler.h>
-#include <process/Thread.h>
-#include <process/Semaphore.h>
+#include <processor/types.h>
 #include <utilities/List.h>
 
 /** Device driver for the Nic3C90x class of network device */
 class Nic3C90x : public Network, public IrqHandler
 {
     public:
-        Nic3C90x(Network* pDev);
-        ~Nic3C90x();
+    Nic3C90x(Network *pDev);
+    ~Nic3C90x();
 
-        virtual void getName(String &str)
-        {
-            str = "3C90x";
-        }
+    virtual void getName(String &str)
+    {
+        str = "3C90x";
+    }
 
-        virtual bool send(size_t nBytes, uintptr_t buffer);
+    virtual bool send(size_t nBytes, uintptr_t buffer);
 
-        virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(StationInfo info);
 
-        virtual StationInfo getStationInfo();
+    virtual StationInfo getStationInfo();
 
-        // IRQ handler callback.
-        virtual bool irq(irq_id_t number, InterruptState &state);
+    // IRQ handler callback.
+    virtual bool irq(irq_id_t number, InterruptState &state);
 
-        IoBase *m_pBase;
+    IoBase *m_pBase;
 
     private:
+    int issueCommand(int cmd, int param);
 
-        int issueCommand(int cmd, int param);
+    int setWindow(int window);
 
-        int setWindow(int window);
+    uint16_t readEeprom(int address);
 
-        uint16_t readEeprom(int address);
+    int writeEepromWord(int address, uint16_t value);
+    int writeEeprom(int address, uint16_t value);
 
-        int writeEepromWord(int address, uint16_t value);
-        int writeEeprom(int address, uint16_t value);
+    static int trampoline(void *p);
 
-        static int trampoline(void* p);
+    void receiveThread();
 
-        void receiveThread();
+    void reset();
 
-        void reset();
+    /** Local NIC information */
+    uint8_t m_isBrev;
+    uint8_t m_CurrentWindow;
 
-        /** Local NIC information */
-        uint8_t m_isBrev;
-        uint8_t m_CurrentWindow;
+    uint8_t *m_pRxBuffVirt;
+    uint8_t *m_pTxBuffVirt;
+    uintptr_t m_pRxBuffPhys;
+    uintptr_t m_pTxBuffPhys;
+    MemoryRegion m_RxBuffMR;
+    MemoryRegion m_TxBuffMR;
 
-        uint8_t *m_pRxBuffVirt;
-        uint8_t *m_pTxBuffVirt;
-        uintptr_t m_pRxBuffPhys;
-        uintptr_t m_pTxBuffPhys;
-        MemoryRegion m_RxBuffMR;
-        MemoryRegion m_TxBuffMR;
+    uintptr_t m_pDPD;
+    MemoryRegion m_DPDMR;
 
-        uintptr_t m_pDPD;
-        MemoryRegion m_DPDMR;
+    uintptr_t m_pUPD;
+    MemoryRegion m_UPDMR;
 
-        uintptr_t m_pUPD;
-        MemoryRegion m_UPDMR;
+    /** TX Descriptor */
+    struct TXD
+    {
+        uint32_t DnNextPtr;
+        uint32_t FrameStartHeader;
+        // uint32_t HdrAddr;
+        // uint32_t HdrLength;
+        uint32_t DataAddr;
+        uint32_t DataLength;
+    } __attribute__((aligned(8)));
 
-        /** TX Descriptor */
-        struct TXD
-        {
-          uint32_t DnNextPtr;
-          uint32_t FrameStartHeader;
-          // uint32_t HdrAddr;
-          // uint32_t HdrLength;
-          uint32_t DataAddr;
-          uint32_t DataLength;
-        } __attribute__((aligned(8)));
+    /** RX Descriptor */
+    struct RXD
+    {
+        uint32_t UpNextPtr;
+        uint32_t UpPktStatus;
+        uint32_t DataAddr;
+        uint32_t DataLength;
+    } __attribute__((aligned(8)));
 
-        /** RX Descriptor */
-        struct RXD
-        {
-          uint32_t UpNextPtr;
-          uint32_t UpPktStatus;
-          uint32_t DataAddr;
-          uint32_t DataLength;
-        } __attribute__((aligned(8)));
+    TXD *m_TransmitDPD;
+    RXD *m_ReceiveUPD;
 
-        TXD *m_TransmitDPD;
-        RXD *m_ReceiveUPD;
+    Nic3C90x(const Nic3C90x &);
+    void operator=(const Nic3C90x &);
 
-        Nic3C90x(const Nic3C90x&);
-        void operator =(const Nic3C90x&);
+    Semaphore m_RxMutex;
+    Semaphore m_TxMutex;
 
-        Semaphore m_RxMutex;
-        Semaphore m_TxMutex;
-
-        List<void*> m_PendingPackets;
+    List<void *> m_PendingPackets;
 };
 
 #endif

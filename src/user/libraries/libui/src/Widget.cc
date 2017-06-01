@@ -25,16 +25,16 @@
 #include <unistd.h>
 
 /// \todo GTFO libc!
-#include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <syslog.h>
-#include <sys/socket.h>
-#include <sys/select.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/socket.h>
 #include <sys/un.h>
+#include <syslog.h>
 
 #ifdef TARGET_LINUX
 #include <bsd/string.h>  // strlcpy
@@ -52,7 +52,8 @@ using namespace LibUiProtocol;
 #define PEDIGREE_WINMAN_ENDPOINT "pedigree-winman"
 
 /// Default event handler for new widgets.
-static bool defaultEventHandler(WidgetMessages message, size_t dataSize, const void *dataBuffer)
+static bool defaultEventHandler(
+    WidgetMessages message, size_t dataSize, const void *dataBuffer)
 {
     return false;
 }
@@ -61,10 +62,9 @@ std::map<uint64_t, Widget *> Widget::s_KnownWidgets;
 std::queue<char *> Widget::s_PendingMessages;
 size_t Widget::s_NumWidgets;
 
-Widget::Widget() :
-    m_bConstructed(false), m_pFramebuffer(0), m_Handle(0),
-    m_EventCallback(defaultEventHandler),
-    m_Socket(-1), m_SharedFramebuffer(0)
+Widget::Widget()
+    : m_bConstructed(false), m_pFramebuffer(0), m_Handle(0),
+      m_EventCallback(defaultEventHandler), m_Socket(-1), m_SharedFramebuffer(0)
 {
     ++s_NumWidgets;
 }
@@ -81,22 +81,24 @@ Widget::~Widget()
         while (!Widget::s_PendingMessages.empty())
         {
             char *p = Widget::s_PendingMessages.front();
-            delete [] p;
+            delete[] p;
             Widget::s_PendingMessages.pop();
         }
     }
 }
 
-bool Widget::construct(const char *endpoint, const char *title, widgetCallback_t cb, PedigreeGraphics::Rect &dimensions)
+bool Widget::construct(
+    const char *endpoint, const char *title, widgetCallback_t cb,
+    PedigreeGraphics::Rect &dimensions)
 {
-    if(m_Handle)
+    if (m_Handle)
     {
         // Already constructed!
         return false;
     }
 
     /// \todo Maybe we can get a decent way of having a default handler?
-    if(!cb)
+    if (!cb)
         return false;
 
     struct sockaddr_un meaddr;
@@ -111,18 +113,18 @@ bool Widget::construct(const char *endpoint, const char *title, widgetCallback_t
 
     // Create socket for window manager communication.
     m_Socket = socket(AF_UNIX, SOCK_DGRAM, 0);
-    if(m_Socket < 0)
+    if (m_Socket < 0)
         return false;
 
     // Connect to window manager.
-    if(bind(m_Socket, (struct sockaddr *) &meaddr, sizeof(meaddr)) != 0)
+    if (bind(m_Socket, (struct sockaddr *) &meaddr, sizeof(meaddr)) != 0)
     {
         syslog(LOG_ALERT, "widget bind failed: %s", strerror(errno));
         close(m_Socket);
         m_Socket = -1;
         return false;
     }
-    if(connect(m_Socket, (struct sockaddr *) &saddr, sizeof(saddr)) != 0)
+    if (connect(m_Socket, (struct sockaddr *) &saddr, sizeof(saddr)) != 0)
     {
         syslog(LOG_ALERT, "widget connection failed: %s", strerror(errno));
         close(m_Socket);
@@ -134,7 +136,9 @@ bool Widget::construct(const char *endpoint, const char *title, widgetCallback_t
     uint64_t pid = getpid();
     uintptr_t widgetPointer = reinterpret_cast<uintptr_t>(this);
 #ifdef BITS_64
-    m_Handle = (pid << 32) | (((widgetPointer >> 32) | (widgetPointer & 0xFFFFFFFF)) & 0xFFFFFFFF);
+    m_Handle =
+        (pid << 32) |
+        (((widgetPointer >> 32) | (widgetPointer & 0xFFFFFFFF)) & 0xFFFFFFFF);
 #else
     m_Handle = (pid << 32) | (widgetPointer);
 #endif
@@ -143,8 +147,10 @@ bool Widget::construct(const char *endpoint, const char *title, widgetCallback_t
     size_t totalSize = sizeof(WindowManagerMessage) + sizeof(CreateMessage);
     char *messageData = new char[totalSize];
     memset(messageData, 0, totalSize);
-    WindowManagerMessage *pWinMan = reinterpret_cast<WindowManagerMessage*>(messageData);
-    CreateMessage *pCreate = reinterpret_cast<CreateMessage*>(messageData + sizeof(WindowManagerMessage));
+    WindowManagerMessage *pWinMan =
+        reinterpret_cast<WindowManagerMessage *>(messageData);
+    CreateMessage *pCreate = reinterpret_cast<CreateMessage *>(
+        messageData + sizeof(WindowManagerMessage));
 
     // Fill.
     pWinMan->messageCode = Create;
@@ -161,7 +167,7 @@ bool Widget::construct(const char *endpoint, const char *title, widgetCallback_t
     // response will contain a shared memory region we can use as our window
     // framebuffer.
     send(m_Socket, messageData, totalSize, 0);
-    delete [] messageData;
+    delete[] messageData;
 
     s_KnownWidgets.insert(std::make_pair(m_Handle, this));
 
@@ -183,19 +189,21 @@ bool Widget::construct(const char *endpoint, const char *title, widgetCallback_t
 bool Widget::setTitle(const std::string &newTitle)
 {
     // Constructed yet?
-    if(!m_Handle)
+    if (!m_Handle)
         return false;
 
     size_t titleLength = newTitle.length();
-    if(titleLength > 511)
+    if (titleLength > 511)
         titleLength = 511;
 
     // Allocate the message.
     ssize_t totalSize = sizeof(WindowManagerMessage) + sizeof(SetTitleMessage);
     char *messageData = new char[totalSize];
     memset(messageData, 0, totalSize);
-    WindowManagerMessage *pWinMan = reinterpret_cast<WindowManagerMessage*>(messageData);
-    SetTitleMessage *pMessage = reinterpret_cast<SetTitleMessage*>(messageData + sizeof(WindowManagerMessage));
+    WindowManagerMessage *pWinMan =
+        reinterpret_cast<WindowManagerMessage *>(messageData);
+    SetTitleMessage *pMessage = reinterpret_cast<SetTitleMessage *>(
+        messageData + sizeof(WindowManagerMessage));
 
     // Fill the message.
     pWinMan->messageCode = SetTitle;
@@ -209,7 +217,7 @@ bool Widget::setTitle(const std::string &newTitle)
     bool result = send(m_Socket, messageData, totalSize, 0) == totalSize;
 
     // Clean up.
-    delete [] messageData;
+    delete[] messageData;
 
     return result;
 }
@@ -217,14 +225,17 @@ bool Widget::setTitle(const std::string &newTitle)
 bool Widget::redraw(PedigreeGraphics::Rect &rt)
 {
     // Constructed yet?
-    if(!m_Handle)
+    if (!m_Handle)
         return false;
 
-    ssize_t totalSize = sizeof(WindowManagerMessage) + sizeof(RequestRedrawMessage);
+    ssize_t totalSize =
+        sizeof(WindowManagerMessage) + sizeof(RequestRedrawMessage);
     char *messageData = new char[totalSize];
     memset(messageData, 0, totalSize);
-    WindowManagerMessage *pWinMan = reinterpret_cast<WindowManagerMessage*>(messageData);
-    RequestRedrawMessage *pMessage = reinterpret_cast<RequestRedrawMessage*>(messageData + sizeof(WindowManagerMessage));
+    WindowManagerMessage *pWinMan =
+        reinterpret_cast<WindowManagerMessage *>(messageData);
+    RequestRedrawMessage *pMessage = reinterpret_cast<RequestRedrawMessage *>(
+        messageData + sizeof(WindowManagerMessage));
 
     // Fill the message.
     pWinMan->messageCode = RequestRedraw;
@@ -239,7 +250,7 @@ bool Widget::redraw(PedigreeGraphics::Rect &rt)
     // Transmit.
     bool bRet = false;
     bRet = send(m_Socket, messageData, totalSize, 0) == totalSize;
-    delete [] messageData;
+    delete[] messageData;
 
     // Wait for an ACK message.
     Widget::checkForMessage(LibUiProtocol::RequestRedraw, true);
@@ -258,15 +269,18 @@ bool Widget::redraw(PedigreeGraphics::Rect &rt)
 bool Widget::visibility(bool vis)
 {
     // Constructed yet?
-    if(!m_Handle)
+    if (!m_Handle)
         return false;
 
     // Allocate the message.
-    ssize_t totalSize = sizeof(WindowManagerMessage) + sizeof(SetVisibilityMessage);
+    ssize_t totalSize =
+        sizeof(WindowManagerMessage) + sizeof(SetVisibilityMessage);
     char *messageData = new char[totalSize];
     memset(messageData, 0, totalSize);
-    WindowManagerMessage *pWinMan = reinterpret_cast<WindowManagerMessage*>(messageData);
-    SetVisibilityMessage *pMessage = reinterpret_cast<SetVisibilityMessage*>(messageData + sizeof(WindowManagerMessage));
+    WindowManagerMessage *pWinMan =
+        reinterpret_cast<WindowManagerMessage *>(messageData);
+    SetVisibilityMessage *pMessage = reinterpret_cast<SetVisibilityMessage *>(
+        messageData + sizeof(WindowManagerMessage));
 
     // Fill the message.
     pWinMan->messageCode = SetVisibility;
@@ -279,7 +293,7 @@ bool Widget::visibility(bool vis)
     bool result = send(m_Socket, messageData, totalSize, 0) == totalSize;
 
     // Clean up.
-    delete [] messageData;
+    delete[] messageData;
 
     return result;
 }
@@ -287,14 +301,15 @@ bool Widget::visibility(bool vis)
 void Widget::destroy()
 {
     // Constructed yet (or already destroyed)?
-    if(!m_Handle)
+    if (!m_Handle)
         return;
 
     // Allocate the message.
     ssize_t totalSize = sizeof(WindowManagerMessage) + sizeof(DestroyMessage);
     char *messageData = new char[totalSize];
     memset(messageData, 0, totalSize);
-    WindowManagerMessage *pWinMan = reinterpret_cast<WindowManagerMessage*>(messageData);
+    WindowManagerMessage *pWinMan =
+        reinterpret_cast<WindowManagerMessage *>(messageData);
 
     // Fill the message.
     pWinMan->messageCode = Destroy;
@@ -307,7 +322,7 @@ void Widget::destroy()
     send(m_Socket, messageData, totalSize, 0);
 
     // Clean up.
-    delete [] messageData;
+    delete[] messageData;
 
     // Wait for an ACK message, before we return.
     // At this point, we will be completely without a framebuffer.
@@ -329,7 +344,7 @@ void Widget::checkForEvents(bool bAsync)
     fd_set fds;
     FD_ZERO(&fds);
 
-    while(bContinue)
+    while (bContinue)
     {
         // Check for pending messages that we could handle easily.
         if (Widget::handlePendingMessages())
@@ -338,8 +353,7 @@ void Widget::checkForEvents(bool bAsync)
         char *buffer = new char[4096];
 
         for (std::map<uint64_t, Widget *>::iterator it = s_KnownWidgets.begin();
-             it != s_KnownWidgets.end();
-             ++it)
+             it != s_KnownWidgets.end(); ++it)
         {
             Widget *pWidget = it->second;
             max_fd = std::max(max_fd, pWidget->getSocket());
@@ -351,7 +365,7 @@ void Widget::checkForEvents(bool bAsync)
 
         // Async - check and don't do anything if no message found.
         int nready = select(max_fd + 1, &fds, 0, 0, bAsync ? &tv : 0);
-        if(nready)
+        if (nready)
         {
             for (int i = 0; i <= max_fd; ++i)
             {
@@ -363,14 +377,14 @@ void Widget::checkForEvents(bool bAsync)
                 }
             }
         }
-        else if(bAsync)
+        else if (bAsync)
         {
-            delete [] buffer;
+            delete[] buffer;
             break;
         }
 
         Widget::handleMessage(buffer);
-        delete [] buffer;
+        delete[] buffer;
     }
 }
 
@@ -386,11 +400,11 @@ void Widget::checkForMessage(size_t which, bool bResponse)
         s_PendingMessages.pop();
 
         LibUiProtocol::WindowManagerMessage *pHeader =
-            reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(buffer);
+            reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(buffer);
         if (pHeader->messageCode == which && pHeader->isResponse == bResponse)
         {
             handleMessage(buffer);
-            delete [] buffer;
+            delete[] buffer;
             return;
         }
 
@@ -406,8 +420,7 @@ void Widget::checkForMessage(size_t which, bool bResponse)
         char *buffer = new char[4096];
 
         for (std::map<uint64_t, Widget *>::iterator it = s_KnownWidgets.begin();
-             it != s_KnownWidgets.end();
-             ++it)
+             it != s_KnownWidgets.end(); ++it)
         {
             Widget *pWidget = it->second;
             max_fd = std::max(max_fd, pWidget->getSocket());
@@ -418,7 +431,7 @@ void Widget::checkForMessage(size_t which, bool bResponse)
         tv.tv_sec = tv.tv_usec = 0;
 
         int nready = select(max_fd + 1, &fds, 0, 0, 0);
-        if(nready)
+        if (nready)
         {
             bool gotMessage = false;
             for (int i = 0; i <= max_fd; ++i)
@@ -433,24 +446,24 @@ void Widget::checkForMessage(size_t which, bool bResponse)
 
             if (!gotMessage)
             {
-                delete [] buffer;
+                delete[] buffer;
                 continue;
             }
         }
         else
         {
-            delete [] buffer;
+            delete[] buffer;
             continue;
         }
 
         LibUiProtocol::WindowManagerMessage *pHeader =
-            reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(buffer);
+            reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(buffer);
 
         if (pHeader->messageCode == which && pHeader->isResponse == bResponse)
         {
             handleMessage(buffer);
             bContinue = false;
-            delete [] buffer;
+            delete[] buffer;
         }
         else
         {
@@ -463,12 +476,16 @@ void Widget::checkForMessage(size_t which, bool bResponse)
 void Widget::handleMessage(const char *pMessageBuffer)
 {
     const LibUiProtocol::WindowManagerMessage *pMessage =
-        reinterpret_cast<const LibUiProtocol::WindowManagerMessage*>(pMessageBuffer);
+        reinterpret_cast<const LibUiProtocol::WindowManagerMessage *>(
+            pMessageBuffer);
 
     std::map<uint64_t, Widget *>::iterator it;
-    if ((it = s_KnownWidgets.find(pMessage->widgetHandle)) == s_KnownWidgets.end())
+    if ((it = s_KnownWidgets.find(pMessage->widgetHandle)) ==
+        s_KnownWidgets.end())
     {
-        syslog(LOG_ALERT, "no widget known for handle %lx", pMessage->widgetHandle);
+        syslog(
+            LOG_ALERT, "no widget known for handle %lx",
+            pMessage->widgetHandle);
         return;
     }
 
@@ -479,45 +496,52 @@ void Widget::handleMessage(const char *pMessageBuffer)
         return;
     }
 
-    switch(pMessage->messageCode)
+    switch (pMessage->messageCode)
     {
         case LibUiProtocol::Reposition:
-            {
-                const LibUiProtocol::RepositionMessage *pReposition =
-                    reinterpret_cast<const LibUiProtocol::RepositionMessage*>(pMessageBuffer + sizeof(LibUiProtocol::WindowManagerMessage));
-                delete pWidget->m_SharedFramebuffer;
+        {
+            const LibUiProtocol::RepositionMessage *pReposition =
+                reinterpret_cast<const LibUiProtocol::RepositionMessage *>(
+                    pMessageBuffer +
+                    sizeof(LibUiProtocol::WindowManagerMessage));
+            delete pWidget->m_SharedFramebuffer;
 #ifdef TARGET_LINUX
-                pWidget->m_SharedFramebuffer = new SharedBuffer(pReposition->shmem_size, pReposition->shmem_handle);
+            pWidget->m_SharedFramebuffer = new SharedBuffer(
+                pReposition->shmem_size, pReposition->shmem_handle);
 #else
-                pWidget->m_SharedFramebuffer =
-                    new PedigreeIpc::SharedIpcMessage(pReposition->shmem_size, pReposition->shmem_handle);
-                pWidget->m_SharedFramebuffer->initialise();
+            pWidget->m_SharedFramebuffer = new PedigreeIpc::SharedIpcMessage(
+                pReposition->shmem_size, pReposition->shmem_handle);
+            pWidget->m_SharedFramebuffer->initialise();
 #endif
 
-                // Run the callback now that the framebuffer is re-created.
-                cb(::Reposition, sizeof(pReposition->rt), &pReposition->rt);
-                break;
-            }
-        case LibUiProtocol::KeyEvent:
-            {
-                const LibUiProtocol::KeyEventMessage *pKeyEvent =
-                    reinterpret_cast<const LibUiProtocol::KeyEventMessage*>(pMessageBuffer + sizeof(LibUiProtocol::WindowManagerMessage));
-
-                cb(::KeyUp, sizeof(pKeyEvent->key), &pKeyEvent->key);
-                break;
-            }
-        case LibUiProtocol::RawKeyEvent:
-            {
-                const LibUiProtocol::RawKeyEventMessage *pKeyEvent =
-                    reinterpret_cast<const LibUiProtocol::RawKeyEventMessage*>(pMessageBuffer + sizeof(LibUiProtocol::WindowManagerMessage));
-
-                WidgetMessages msg = ::RawKeyUp;
-                if(pKeyEvent->state == LibUiProtocol::Down)
-                    msg = ::RawKeyDown;
-
-                cb(msg, sizeof(pKeyEvent->scancode), &pKeyEvent->scancode);
-            }
+            // Run the callback now that the framebuffer is re-created.
+            cb(::Reposition, sizeof(pReposition->rt), &pReposition->rt);
             break;
+        }
+        case LibUiProtocol::KeyEvent:
+        {
+            const LibUiProtocol::KeyEventMessage *pKeyEvent =
+                reinterpret_cast<const LibUiProtocol::KeyEventMessage *>(
+                    pMessageBuffer +
+                    sizeof(LibUiProtocol::WindowManagerMessage));
+
+            cb(::KeyUp, sizeof(pKeyEvent->key), &pKeyEvent->key);
+            break;
+        }
+        case LibUiProtocol::RawKeyEvent:
+        {
+            const LibUiProtocol::RawKeyEventMessage *pKeyEvent =
+                reinterpret_cast<const LibUiProtocol::RawKeyEventMessage *>(
+                    pMessageBuffer +
+                    sizeof(LibUiProtocol::WindowManagerMessage));
+
+            WidgetMessages msg = ::RawKeyUp;
+            if (pKeyEvent->state == LibUiProtocol::Down)
+                msg = ::RawKeyDown;
+
+            cb(msg, sizeof(pKeyEvent->scancode), &pKeyEvent->scancode);
+        }
+        break;
         case LibUiProtocol::Focus:
             cb(::Focus, 0, 0);
             break;
@@ -538,13 +562,13 @@ void Widget::handleMessage(const char *pMessageBuffer)
 bool Widget::handlePendingMessages()
 {
     bool bHandled = !s_PendingMessages.empty();
-    while(!s_PendingMessages.empty())
+    while (!s_PendingMessages.empty())
     {
         char *buffer = s_PendingMessages.front();
         s_PendingMessages.pop();
 
         Widget::handleMessage(buffer);
-        delete [] buffer;
+        delete[] buffer;
     }
     return bHandled;
 }

@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef _PEDIGREEC_SYSCALL_H
 #define _PEDIGREEC_SYSCALL_H
 
-// If you change this, ensure you change src/system/include/processor/Syscalls.h !
+// If you change this, ensure you change src/system/include/processor/Syscalls.h
+// !
 #define SERVICE 4
 #define SERVICE_INIT int ign = 0
 #define SERVICE_ERROR ign

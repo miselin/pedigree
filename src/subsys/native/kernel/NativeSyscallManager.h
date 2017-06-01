@@ -20,8 +20,8 @@
 #ifndef NATIVE_SYSCALL_MANAGER_H
 #define NATIVE_SYSCALL_MANAGER_H
 
-#include <processor/types.h>
 #include <processor/SyscallHandler.h>
+#include <processor/types.h>
 
 #include <native-base.h>
 
@@ -29,33 +29,35 @@
 
 class NativeSyscallManager : public SyscallHandler
 {
-public:
-  void initialise();
+    public:
+    void initialise();
 
-  /** Calls a syscall. */
-  uintptr_t call(uintptr_t function, uintptr_t p1=0, uintptr_t p2=0, uintptr_t p3=0, uintptr_t p4=0, uintptr_t p5=0);
+    /** Calls a syscall. */
+    uintptr_t call(
+        uintptr_t function, uintptr_t p1 = 0, uintptr_t p2 = 0,
+        uintptr_t p3 = 0, uintptr_t p4 = 0, uintptr_t p5 = 0);
 
-  /** Called when a syscall arrives. */
-  virtual uintptr_t syscall(SyscallState &state);
+    /** Called when a syscall arrives. */
+    virtual uintptr_t syscall(SyscallState &state);
 
-  /** The constructor */
-  NativeSyscallManager();
-  /** The destructor */
-  virtual ~NativeSyscallManager();
+    /** The constructor */
+    NativeSyscallManager();
+    /** The destructor */
+    virtual ~NativeSyscallManager();
 
-private:
-  /** The copy-constructor
-   *\note Not implemented (singleton) */
-  NativeSyscallManager(const NativeSyscallManager &);
-  /** The copy-constructor
-   *\note Not implemented (singleton) */
-  NativeSyscallManager &operator = (const NativeSyscallManager &);
+    private:
+    /** The copy-constructor
+     *\note Not implemented (singleton) */
+    NativeSyscallManager(const NativeSyscallManager &);
+    /** The copy-constructor
+     *\note Not implemented (singleton) */
+    NativeSyscallManager &operator=(const NativeSyscallManager &);
 
-  /** Creates native subsystem objects from global unique IDs. */
-  NativeBase *factory(uint64_t guid);
+    /** Creates native subsystem objects from global unique IDs. */
+    NativeBase *factory(uint64_t guid);
 
-  /** Maps userspace object pointers to their respective kernel object. */
-  Tree<void *, NativeBase *> m_NativeObjects;
+    /** Maps userspace object pointers to their respective kernel object. */
+    Tree<void *, NativeBase *> m_NativeObjects;
 };
 
 #endif

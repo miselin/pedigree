@@ -20,19 +20,22 @@
 #include "Console.h"
 #include <vfs/VFS.h>
 
-#include <processor/Processor.h>
 #include <process/Scheduler.h>
+#include <processor/Processor.h>
 
 extern const char defaultControl[MAX_CONTROL_CHAR];
 
-ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
-    ConsoleFile(consoleNumber, consoleName, pFs)
+ConsoleSlaveFile::ConsoleSlaveFile(
+    size_t consoleNumber, String consoleName, Filesystem *pFs)
+    : ConsoleFile(consoleNumber, consoleName, pFs)
 {
 }
 
-uint64_t ConsoleSlaveFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConsoleSlaveFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+    uint64_t nBytes =
+        m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
     if (!nBytes)
     {
         return 0;
@@ -43,7 +46,8 @@ uint64_t ConsoleSlaveFile::read(uint64_t location, uint64_t size, uintptr_t buff
     return endSize;
 }
 
-uint64_t ConsoleSlaveFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConsoleSlaveFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // Send straight to the master.
     m_pOther->inject(reinterpret_cast<char *>(buffer), size, bCanBlock);

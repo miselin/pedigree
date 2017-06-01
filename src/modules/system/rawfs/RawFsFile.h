@@ -20,27 +20,33 @@
 #ifndef RAWFS_FILE_H
 #define RAWFS_FILE_H
 
-#include <vfs/File.h>
-#include <utilities/String.h>
 #include <machine/Disk.h>
+#include <utilities/String.h>
+#include <vfs/File.h>
 
 class RawFsFile : public File
 {
-private:
+    private:
     /** Copy constructors are hidden - unused! */
     RawFsFile(const RawFsFile &file);
-    RawFsFile& operator =(const RawFsFile&);
-public:
+    RawFsFile &operator=(const RawFsFile &);
+
+    public:
     /** Constructor, should only be called by RawFs. */
     RawFsFile(String name, class RawFs *pFs, File *pParent, Disk *pDisk);
-    ~RawFsFile() {}
-    
+    ~RawFsFile()
+    {
+    }
+
     virtual uintptr_t readBlock(uint64_t location);
 
     virtual size_t getBlockSize() const;
 
-    virtual void fileAttributeChanged() {}
-private:
+    virtual void fileAttributeChanged()
+    {
+    }
+
+    private:
     Disk *m_pDisk;
 };
 

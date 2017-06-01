@@ -20,8 +20,8 @@
 #define _NATIVE_IPC_API_H
 #define _NATIVE_IPC_API_H
 
-#include <native/types.h>
 #include <native/ipc/Ipc.h>
+#include <native/types.h>
 
 /**
  * This file defines the system calls for IPC for the Native subsystem's
@@ -30,7 +30,8 @@
 
 /**
  * Creates a standard, < 4 KB IPC message and returns the address of its buffer.
- * \param pMessage Userspace message pointer to link to the created kernel message.
+ * \param pMessage Userspace message pointer to link to the created kernel
+ * message.
  */
 extern uintptr_t createStandardMessage(PedigreeIpc::IpcMessage *pMessage);
 
@@ -39,9 +40,11 @@ extern uintptr_t createStandardMessage(PedigreeIpc::IpcMessage *pMessage);
  * buffer. Can either create a new region or copy an existing one.
  * \param pMessage Userspace message pointer to link to the created kernel one.
  * \param nBytes Size of the region to allocate.
- * \param handle A handle to an existing region to map into the current address space.
+ * \param handle A handle to an existing region to map into the current address
+ * space.
  */
-extern uintptr_t createSharedMessage(PedigreeIpc::IpcMessage *pMessage, size_t nBytes, uintptr_t handle);
+extern uintptr_t createSharedMessage(
+    PedigreeIpc::IpcMessage *pMessage, size_t nBytes, uintptr_t handle);
 
 /**
  * Obtains the region handle for the given message, if one exists. Returns null
@@ -58,7 +61,9 @@ extern void destroyMessage(PedigreeIpc::IpcMessage *pMessage);
 /**
  * Sends the given message to the given endpoint, optionally asynchronously.
  */
-extern bool sendIpc(PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMessage, bool bAsync);
+extern bool sendIpc(
+    PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMessage,
+    bool bAsync);
 
 /**
  * First phase of receiving a message. Will return 0 if an error occurred or no
@@ -70,10 +75,11 @@ extern void *recvIpcPhase1(PedigreeIpc::IpcEndpoint *pEndpoint, bool bAsync);
 /**
  * Second phase of receiving a message. To be called within the
  * PedigreeIpc::SharedIpcMessage::SharedIpcMessage(void*) constructor.
- * Takes a userspace pointer and a kernel message pointer (returned by recvPhase1)
- * and links them, then returns the buffer address for the message.
+ * Takes a userspace pointer and a kernel message pointer (returned by
+ * recvPhase1) and links them, then returns the buffer address for the message.
  */
-extern uintptr_t recvIpcPhase2(PedigreeIpc::IpcMessage *pUserMessage, void *pMessage);
+extern uintptr_t
+recvIpcPhase2(PedigreeIpc::IpcMessage *pUserMessage, void *pMessage);
 
 /**
  * Creates an endpoint with the given name, if one doesn't exist already.

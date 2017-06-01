@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,46 +20,45 @@
 #ifndef LOOPBACK_H
 #define LOOPBACK_H
 
-#include <processor/types.h>
 #include <machine/Device.h>
+#include <machine/IrqHandler.h>
 #include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <process/Thread.h>
 #include <processor/IoBase.h>
 #include <processor/IoPort.h>
+#include <processor/types.h>
 #include <utilities/List.h>
-#include <machine/IrqHandler.h>
-#include <process/Thread.h>
-#include <process/Semaphore.h>
 
 /** Device driver for the loopback network device */
 class Loopback : public Network
 {
-public:
-  Loopback();
-  Loopback(Network* pDev);
-  ~Loopback();
+    public:
+    Loopback();
+    Loopback(Network *pDev);
+    ~Loopback();
 
-  Loopback& instance()
-  {
-    return m_Instance;
-  }
+    Loopback &instance()
+    {
+        return m_Instance;
+    }
 
-  virtual void getName(String &str)
-  {
-    str = "Loopback";
-  }
+    virtual void getName(String &str)
+    {
+        str = "Loopback";
+    }
 
-  virtual bool send(size_t nBytes, uintptr_t buffer);
+    virtual bool send(size_t nBytes, uintptr_t buffer);
 
-  virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(StationInfo info);
 
-  virtual StationInfo getStationInfo();
+    virtual StationInfo getStationInfo();
 
-private:
+    private:
+    static Loopback m_Instance;
 
-  static Loopback m_Instance;
-
-  Loopback(const Loopback&);
-  void operator =(const Loopback&);
+    Loopback(const Loopback &);
+    void operator=(const Loopback &);
 };
 
 #endif

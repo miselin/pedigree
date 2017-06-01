@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,8 @@
 #ifndef KERNEL_PROCESSOR_MIPS_COMMON_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_MIPS_COMMON_PROCESSORINFORMATION_H
 
-#include <processor/types.h>
 #include <processor/VirtualAddressSpace.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessormipscommon
  * @{ */
@@ -30,26 +29,36 @@
 /** Common mips processor information structure */
 class MIPSCommonProcessorInformation
 {
-  friend class Processor;
-  public:
+    friend class Processor;
+
+    public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
     inline VirtualAddressSpace &getVirtualAddressSpace() const
-      {return *m_VirtualAddressSpace;}
+    {
+        return *m_VirtualAddressSpace;
+    }
     /** Set the current processor's VirtualAddressSpace
      *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
     inline void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace)
-      {m_VirtualAddressSpace = &virtualAddressSpace;}
+    {
+        m_VirtualAddressSpace = &virtualAddressSpace;
+    }
 
-  protected:
+    protected:
     /** Construct a MIPSCommonProcessorInformation object
      *\param[in] processorId Identifier of the processor */
     inline MIPSCommonProcessorInformation(ProcessorId processorId)
-      : m_ProcessorId(processorId), m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()){}
+        : m_ProcessorId(processorId),
+          m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace())
+    {
+    }
     /** The destructor does nothing */
-    inline virtual ~MIPSCommonProcessorInformation(){}
+    inline virtual ~MIPSCommonProcessorInformation()
+    {
+    }
 
-  private:
+    private:
     /** Default constructor
      *\note NOT implemented */
     MIPSCommonProcessorInformation();
@@ -58,7 +67,8 @@ class MIPSCommonProcessorInformation
     MIPSCommonProcessorInformation(const MIPSCommonProcessorInformation &);
     /** Assignment operator
      *\note NOT implemented */
-    MIPSCommonProcessorInformation &operator = (const MIPSCommonProcessorInformation &);
+    MIPSCommonProcessorInformation &
+    operator=(const MIPSCommonProcessorInformation &);
 
     /** Identifier of that processor */
     ProcessorId m_ProcessorId;

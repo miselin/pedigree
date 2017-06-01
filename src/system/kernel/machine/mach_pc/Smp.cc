@@ -24,59 +24,68 @@
 #include <utilities/utility.h>
 
 #if !defined(SMP_NOTICE)
-  #undef NOTICE
-  #define NOTICE(x)
+#undef NOTICE
+#define NOTICE(x)
 #endif
 #if !defined(SMP_ERROR)
-  #undef ERROR
-  #define ERROR(x)
+#undef ERROR
+#define ERROR(x)
 #endif
 
 Smp Smp::m_Instance;
 
 void Smp::initialise()
 {
-  // Search for the multiprocessor floating pointer structure
-  if (find() == false)
-  {
-    ERROR("smp: not compliant to the Intel Multiprocessor Specification");
-    return;
-  }
+    // Search for the multiprocessor floating pointer structure
+    if (find() == false)
+    {
+        ERROR("smp: not compliant to the Intel Multiprocessor Specification");
+        return;
+    }
 
-  NOTICE("Intel Multiprocessor Specification 1." << Dec << m_pFloatingPointer->revision);
-  NOTICE(" floating pointer at " << Hex << reinterpret_cast<uintptr_t>(m_pFloatingPointer));
+    NOTICE(
+        "Intel Multiprocessor Specification 1."
+        << Dec << m_pFloatingPointer->revision);
+    NOTICE(
+        " floating pointer at "
+        << Hex << reinterpret_cast<uintptr_t>(m_pFloatingPointer));
 
-  // One of the default configurations?
-  if (m_pFloatingPointer->features[0] != 0)
-  {
-    ERROR("smp: default configurations (#" << Dec << m_pFloatingPointer->features[0] << ") not supported");
-    return;
-  }
+    // One of the default configurations?
+    if (m_pFloatingPointer->features[0] != 0)
+    {
+        ERROR(
+            "smp: default configurations (#"
+            << Dec << m_pFloatingPointer->features[0] << ") not supported");
+        return;
+    }
 
-  // Check the configuration table
-  m_pConfigTable = reinterpret_cast<ConfigTableHeader*>(m_pFloatingPointer->physicalAddress);
-  if (m_pConfigTable == 0)
-  {
-    ERROR("smp: configuration table not present");
-    return;
-  }
-  if (reinterpret_cast<uintptr_t>(m_pConfigTable) >= 0x100000)
-  {
-    ERROR("smp: configuration table above 1MB");
-    return;
-  }
+    // Check the configuration table
+    m_pConfigTable = reinterpret_cast<ConfigTableHeader *>(
+        m_pFloatingPointer->physicalAddress);
+    if (m_pConfigTable == 0)
+    {
+        ERROR("smp: configuration table not present");
+        return;
+    }
+    if (reinterpret_cast<uintptr_t>(m_pConfigTable) >= 0x100000)
+    {
+        ERROR("smp: configuration table above 1MB");
+        return;
+    }
 
-  NOTICE(" configuration table at " << Hex << reinterpret_cast<uintptr_t>(m_pConfigTable));
+    NOTICE(
+        " configuration table at "
+        << Hex << reinterpret_cast<uintptr_t>(m_pConfigTable));
 
-  if (m_pConfigTable->signature != 0x504D4350 ||
-      checksum(m_pConfigTable) != true ||
-      m_pConfigTable->revision != m_pFloatingPointer->revision)
-  {
-    ERROR("smp: configuration table invalid");
-    return;
-  }
+    if (m_pConfigTable->signature != 0x504D4350 ||
+        checksum(m_pConfigTable) != true ||
+        m_pConfigTable->revision != m_pFloatingPointer->revision)
+    {
+        ERROR("smp: configuration table invalid");
+        return;
+    }
 
-  #if defined(APIC)
+#if defined(APIC)
 
     // PIC-Mode implemented?
     m_bPICMode = ((m_pFloatingPointer->features[1] & 0x80) == 0x80);
@@ -84,156 +93,183 @@ void Smp::initialise()
     // Local APIC address
     m_LocalApicAddress = m_pConfigTable->localApicAddress;
 
-  #endif
+#endif
 
-  // Loop through the configuration table base entries
-  uint8_t *pType = reinterpret_cast<uint8_t*>(adjust_pointer(m_pConfigTable, sizeof(ConfigTableHeader)));
-  for (size_t i = 0;i < m_pConfigTable->entryCount;i++)
-  {
-    // Size of this table entry
-    size_t sEntry = 8;
-
-    // Processor entry?
-    if (*pType == 0)
+    // Loop through the configuration table base entries
+    uint8_t *pType = reinterpret_cast<uint8_t *>(
+        adjust_pointer(m_pConfigTable, sizeof(ConfigTableHeader)));
+    for (size_t i = 0; i < m_pConfigTable->entryCount; i++)
     {
-      Processor *pProcessor = reinterpret_cast<Processor*>(pType);
+        // Size of this table entry
+        size_t sEntry = 8;
 
-      bool bUsable = ((pProcessor->flags & 0x01) == 0x01);
-
-      NOTICE("  Processor #" << Dec << pProcessor->localApicId << (bUsable ? " usable" : " unusable"));
-
-      #if defined(MULTIPROCESSOR)
-        // Is the processor usable?
-        if (bUsable)
+        // Processor entry?
+        if (*pType == 0)
         {
-          // Add the processor to the list
-          Multiprocessor::ProcessorInformation *pProcessorInfo = new Multiprocessor::ProcessorInformation(pProcessor->localApicId,
-                                                                                                          pProcessor->localApicId);
-          m_Processors.pushBack(pProcessorInfo);
+            Processor *pProcessor = reinterpret_cast<Processor *>(pType);
+
+            bool bUsable = ((pProcessor->flags & 0x01) == 0x01);
+
+            NOTICE(
+                "  Processor #" << Dec << pProcessor->localApicId
+                                << (bUsable ? " usable" : " unusable"));
+
+#if defined(MULTIPROCESSOR)
+            // Is the processor usable?
+            if (bUsable)
+            {
+                // Add the processor to the list
+                Multiprocessor::ProcessorInformation *pProcessorInfo =
+                    new Multiprocessor::ProcessorInformation(
+                        pProcessor->localApicId, pProcessor->localApicId);
+                m_Processors.pushBack(pProcessorInfo);
+            }
+#endif
+
+            sEntry = sizeof(Processor);
         }
-      #endif
-
-      sEntry = sizeof(Processor);
-    }
-    // Bus entry?
-    else if (*pType == 1)
-    {
-      Bus *pBus = reinterpret_cast<Bus*>(pType);
-
-      char name[7];
-      StringCopyN(name, pBus->name, 6);
-      name[6] = '\0';
-
-      NOTICE("  Bus #" << Dec << pBus->busId << " \"" << name << "\"");
-
-      // TODO: Figure out how to pass these entries to the calling function
-    }
-    // I/O APIC entry?
-    else if (*pType == 2)
-    {
-      IoApic *pIoApic = reinterpret_cast<IoApic*>(pType);
-
-      bool bUsable = ((pIoApic->flags & 0x01) == 0x01);
-
-      NOTICE("  I/O APIC #" << Dec << pIoApic->id << (bUsable ? " usable" : "") << " at " << Hex << pIoApic->address);
-
-      #if defined(APIC)
-        // Is the I/O APIC usable?
-        if (bUsable)
+        // Bus entry?
+        else if (*pType == 1)
         {
-          // Add the I/O APIC to the list
-          Multiprocessor::IoApicInformation *pIoApicInfo = new Multiprocessor::IoApicInformation(pIoApic->id, pIoApic->address);
-          m_IoApics.pushBack(pIoApicInfo);
+            Bus *pBus = reinterpret_cast<Bus *>(pType);
+
+            char name[7];
+            StringCopyN(name, pBus->name, 6);
+            name[6] = '\0';
+
+            NOTICE("  Bus #" << Dec << pBus->busId << " \"" << name << "\"");
+
+            // TODO: Figure out how to pass these entries to the calling
+            // function
         }
-      #endif
+        // I/O APIC entry?
+        else if (*pType == 2)
+        {
+            IoApic *pIoApic = reinterpret_cast<IoApic *>(pType);
+
+            bool bUsable = ((pIoApic->flags & 0x01) == 0x01);
+
+            NOTICE(
+                "  I/O APIC #" << Dec << pIoApic->id
+                               << (bUsable ? " usable" : "") << " at " << Hex
+                               << pIoApic->address);
+
+#if defined(APIC)
+            // Is the I/O APIC usable?
+            if (bUsable)
+            {
+                // Add the I/O APIC to the list
+                Multiprocessor::IoApicInformation *pIoApicInfo =
+                    new Multiprocessor::IoApicInformation(
+                        pIoApic->id, pIoApic->address);
+                m_IoApics.pushBack(pIoApicInfo);
+            }
+#endif
+        }
+        // I/O interrupt assignment?
+        else if (*pType == 3)
+        {
+            // IoInterruptAssignment *pIoInterruptAssignment =
+            // reinterpret_cast<IoInterruptAssignment*>(pType);
+
+            // TODO: Figure out how to pass these entries to the calling
+            // function
+        }
+        // Local interrupt assignment?
+        else if (*pType == 4)
+        {
+            // LocalInterruptAssignment *pLocalInterruptAssignment =
+            // reinterpret_cast<LocalInterruptAssignment*>(pType);
+
+            // TODO: Figure out how to pass these entries to the calling
+            // function
+        }
+
+        pType = adjust_pointer(pType, sEntry);
     }
-    // I/O interrupt assignment?
-    else if (*pType == 3)
-    {
-      // IoInterruptAssignment *pIoInterruptAssignment = reinterpret_cast<IoInterruptAssignment*>(pType);
 
-      // TODO: Figure out how to pass these entries to the calling function
-    }
-    // Local interrupt assignment?
-    else if (*pType == 4)
-    {
-      // LocalInterruptAssignment *pLocalInterruptAssignment = reinterpret_cast<LocalInterruptAssignment*>(pType);
+    // TODO: Parse the extended table entries
 
-      // TODO: Figure out how to pass these entries to the calling function
-    }
-
-    pType = adjust_pointer(pType, sEntry);
-  }
-
-  // TODO: Parse the extended table entries
-
-  m_bValid = true;
+    m_bValid = true;
 }
 
 Smp::Smp()
-  : m_bValid(false), m_pFloatingPointer(0), m_pConfigTable(0)
-  #if defined(APIC)
-    ,m_bPICMode(false), m_LocalApicAddress(0), m_IoApics()
-    #if defined(MULTIPROCESSOR)
-      ,m_Processors()
-    #endif
-  #endif
+    : m_bValid(false), m_pFloatingPointer(0), m_pConfigTable(0)
+#if defined(APIC)
+      ,
+      m_bPICMode(false), m_LocalApicAddress(0), m_IoApics()
+#if defined(MULTIPROCESSOR)
+      ,
+      m_Processors()
+#endif
+#endif
 {
 }
 
 bool Smp::find()
 {
-  // Search in the first kilobyte of the EBDA
-  uint16_t *ebdaSegment = reinterpret_cast<uint16_t*>(0x40E);
-  m_pFloatingPointer = find(reinterpret_cast<void*>((*ebdaSegment) * 16), 0x400);
-
-  if (m_pFloatingPointer == 0)
-  {
-    // Search in the last kilobyte of the base memory
-    uint16_t *baseSize = reinterpret_cast<uint16_t*>(0x413);
-    m_pFloatingPointer = find(reinterpret_cast<void*>((*baseSize - 1) * 1024), 0x400);
+    // Search in the first kilobyte of the EBDA
+    uint16_t *ebdaSegment = reinterpret_cast<uint16_t *>(0x40E);
+    m_pFloatingPointer =
+        find(reinterpret_cast<void *>((*ebdaSegment) * 16), 0x400);
 
     if (m_pFloatingPointer == 0)
     {
-      // Search in the BIOS ROM address space
-      m_pFloatingPointer = find(reinterpret_cast<void*>(0xF0000), 0x10000);
-    }
-  }
+        // Search in the last kilobyte of the base memory
+        uint16_t *baseSize = reinterpret_cast<uint16_t *>(0x413);
+        m_pFloatingPointer =
+            find(reinterpret_cast<void *>((*baseSize - 1) * 1024), 0x400);
 
-  return (m_pFloatingPointer != 0);
+        if (m_pFloatingPointer == 0)
+        {
+            // Search in the BIOS ROM address space
+            m_pFloatingPointer =
+                find(reinterpret_cast<void *>(0xF0000), 0x10000);
+        }
+    }
+
+    return (m_pFloatingPointer != 0);
 }
 
 Smp::FloatingPointer *Smp::find(void *pMemory, size_t sMemory)
 {
-  FloatingPointer *pFloatingPointer = reinterpret_cast<FloatingPointer*>(pMemory);
-  while (reinterpret_cast<uintptr_t>(pFloatingPointer) < (reinterpret_cast<uintptr_t>(pMemory) + sMemory))
-  {
-    if (pFloatingPointer->signature == 0x5F504D5F &&
-        checksum(pFloatingPointer) == true)
-      return pFloatingPointer;
-    pFloatingPointer = adjust_pointer(pFloatingPointer, 16);
-  }
-  return 0;
+    FloatingPointer *pFloatingPointer =
+        reinterpret_cast<FloatingPointer *>(pMemory);
+    while (reinterpret_cast<uintptr_t>(pFloatingPointer) <
+           (reinterpret_cast<uintptr_t>(pMemory) + sMemory))
+    {
+        if (pFloatingPointer->signature == 0x5F504D5F &&
+            checksum(pFloatingPointer) == true)
+            return pFloatingPointer;
+        pFloatingPointer = adjust_pointer(pFloatingPointer, 16);
+    }
+    return 0;
 }
 
 bool Smp::checksum(const FloatingPointer *pFloatingPointer)
 {
-  return ::checksum(reinterpret_cast<const uint8_t*>(pFloatingPointer), pFloatingPointer->length * 16);
+    return ::checksum(
+        reinterpret_cast<const uint8_t *>(pFloatingPointer),
+        pFloatingPointer->length * 16);
 }
 
 bool Smp::checksum(const ConfigTableHeader *pConfigTable)
 {
-  // Base table checksum
-  if (::checksum(reinterpret_cast<const uint8_t*>(pConfigTable), pConfigTable->baseTableLength) == false)
-    return false;
+    // Base table checksum
+    if (::checksum(
+            reinterpret_cast<const uint8_t *>(pConfigTable),
+            pConfigTable->baseTableLength) == false)
+        return false;
 
-  // Extended table checksum
-  uint8_t sum = pConfigTable->extendedChecksum;
-  for (size_t i = 0;i < pConfigTable->extendedTableLength;i++)
-    sum += reinterpret_cast<const uint8_t*>(pConfigTable)[pConfigTable->baseTableLength + i];
-  if (sum != 0)return false;
+    // Extended table checksum
+    uint8_t sum = pConfigTable->extendedChecksum;
+    for (size_t i = 0; i < pConfigTable->extendedTableLength; i++)
+        sum += reinterpret_cast<const uint8_t *>(
+            pConfigTable)[pConfigTable->baseTableLength + i];
+    if (sum != 0)
+        return false;
 
-  return true;
+    return true;
 }
 
 #endif

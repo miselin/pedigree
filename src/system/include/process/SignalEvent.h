@@ -24,8 +24,10 @@
 
 class SignalEvent : public Event
 {
-public:
-    SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel=~0UL);
+    public:
+    SignalEvent(
+        uintptr_t handlerAddress, size_t signalNum,
+        size_t specificNestingLevel = ~0UL);
 
     virtual size_t serialize(uint8_t *pBuffer);
     static bool unserialize(uint8_t *pBuffer, Event &event);
@@ -35,7 +37,7 @@ public:
         return m_SignalNumber;
     }
 
-private:
+    private:
     /** This keeps track of the actual signal this SignalEvent is linked to */
     size_t m_SignalNumber;
 };

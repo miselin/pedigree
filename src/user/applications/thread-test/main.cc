@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <pthread.h>
-#include <unistd.h>
 #include <errno.h>
+#include <pthread.h>
+#include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
 #include <sys/klog.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <list>
 
-#define LOOPS 1024 // 10000000
+#define LOOPS 1024  // 10000000
 
 // Modified from http://www.alexonlinux.com/do-you-need-mutex-to-protect-int
 // Uses mutexes or spinlocks
@@ -132,7 +132,8 @@ int main()
     i = pthread_mutex_lock(&deadlock_mutex);
     printf("First lock: %d (%s)\n", i, strerror(errno));
     i = pthread_mutex_lock(&deadlock_mutex);
-    if (errno != EDEADLK) printf("Didn't get EDEADLK!\n");
+    if (errno != EDEADLK)
+        printf("Didn't get EDEADLK!\n");
     printf("Second lock: %d (%s)\n", i, strerror(errno));
     pthread_mutex_unlock(&deadlock_mutex);
 
@@ -160,7 +161,8 @@ int main()
         tv2.tv_usec += 1000000;
     }
 
-    printf("Result - %ld.%ld\n", tv2.tv_sec - tv1.tv_sec,
+    printf(
+        "Result - %ld.%ld\n", tv2.tv_sec - tv1.tv_sec,
         tv2.tv_usec - tv1.tv_usec);
 
 #ifdef USE_SPINLOCK

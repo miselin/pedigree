@@ -23,8 +23,7 @@
 
 #ifndef STATIC_DRIVERS
 
-extern "C"
-{
+extern "C" {
 
 typedef void (*__cxa_atexit_func_type)(void *);
 

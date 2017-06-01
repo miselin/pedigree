@@ -21,8 +21,8 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/Vector.h>
 #include <utilities/SharedPointer.h>
+#include <utilities/Vector.h>
 
 TEST(PedigreeVector, Construction)
 {

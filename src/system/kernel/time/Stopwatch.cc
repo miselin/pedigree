@@ -17,16 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time/Time.h>
-#include <time/Stopwatch.h>
-#include <utilities/assert.h>
 #include <Log.h>
+#include <time/Stopwatch.h>
+#include <time/Time.h>
+#include <utilities/assert.h>
 
 namespace Time
 {
-
-Stopwatch::Stopwatch(bool startRunning) :
-    m_Value(0), m_StartValue(), m_bRunning(startRunning)
+Stopwatch::Stopwatch(bool startRunning)
+    : m_Value(0), m_StartValue(), m_bRunning(startRunning)
 {
     reset();
 
@@ -65,5 +64,4 @@ Timestamp Stopwatch::value()
 {
     return m_Value;
 }
-
 }

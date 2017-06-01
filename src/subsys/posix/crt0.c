@@ -17,61 +17,66 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <fcntl.h>
 #include <newlib.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <fcntl.h>
 
-extern int main(int, char**, char**);
+extern int main(int, char **, char **);
 extern void _init_signals(void);
 
-void _start(char **argv, char **env)  _ATTRIBUTE((noreturn)) __attribute__((section(".text.crt0")));
+void _start(char **argv, char **env) _ATTRIBUTE((noreturn))
+    __attribute__((section(".text.crt0")));
 void _start(char **argv, char **env)
 {
-  _init_signals();
+    _init_signals();
 
-  if (write(2,0,0) == -1)
-  {
-    open("/dev/tty", O_RDONLY, 0);
-    open("/dev/tty", O_WRONLY, 0);
-    open("/dev/tty", O_WRONLY, 0);
-  }
-
-  // Count how many args we have.
-  int argc;
-  if (argv == 0)
-  {
-    char *p = 0;
-    argv = &p;
-    argc = 0;
-    environ = &p;
-  }
-  else
-  {
-    char **i = argv;
-    argc = 0;
-    while (*i++)
-      argc++;
-    if(!env)
-      env = environ;
-    i  = env;
-    while (env && (*i))
+    if (write(2, 0, 0) == -1)
     {
-      // Save the key.
-      char *key = *i;
-      char *value = *i;
-      // Iterate until we see the end of the string or an '='.
-      while (*value && *value != '=') value++;
-      // If we found a '=', change it to a NULL terminator (for the key) and increment position.
-      if (*value == '=') *value++ = '\0';
-      // Set the env var.
-      setenv(key, value, 1);
-      i++;
+        open("/dev/tty", O_RDONLY, 0);
+        open("/dev/tty", O_WRONLY, 0);
+        open("/dev/tty", O_WRONLY, 0);
     }
-  }
 
-  exit(main(argc, argv, env));
+    // Count how many args we have.
+    int argc;
+    if (argv == 0)
+    {
+        char *p = 0;
+        argv = &p;
+        argc = 0;
+        environ = &p;
+    }
+    else
+    {
+        char **i = argv;
+        argc = 0;
+        while (*i++)
+            argc++;
+        if (!env)
+            env = environ;
+        i = env;
+        while (env && (*i))
+        {
+            // Save the key.
+            char *key = *i;
+            char *value = *i;
+            // Iterate until we see the end of the string or an '='.
+            while (*value && *value != '=')
+                value++;
+            // If we found a '=', change it to a NULL terminator (for the key)
+            // and increment position.
+            if (*value == '=')
+                *value++ = '\0';
+            // Set the env var.
+            setenv(key, value, 1);
+            i++;
+        }
+    }
 
-  // Unreachable.
-  for (;;);
+    exit(main(argc, argv, env));
+
+    // Unreachable.
+    for (;;)
+        ;
 }

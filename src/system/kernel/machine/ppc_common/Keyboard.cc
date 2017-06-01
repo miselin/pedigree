@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,8 +19,7 @@
 
 #include "Keyboard.h"
 
-PPCKeyboard::PPCKeyboard() :
-  m_Dev(0)
+PPCKeyboard::PPCKeyboard() : m_Dev(0)
 {
 }
 
@@ -31,76 +29,78 @@ PPCKeyboard::~PPCKeyboard()
 
 void PPCKeyboard::initialise()
 {
-//   m_Dev = OFDevice(OpenFirmware::instance().findDevice("/keyboard"));
-  OFDevice chosen(OpenFirmware::instance().findDevice("/chosen"));
-  m_Dev = chosen.getProperty("stdin");
-//   for(;;);
+    //   m_Dev = OFDevice(OpenFirmware::instance().findDevice("/keyboard"));
+    OFDevice chosen(OpenFirmware::instance().findDevice("/chosen"));
+    m_Dev = chosen.getProperty("stdin");
+    //   for(;;);
 }
 
 char PPCKeyboard::getChar()
 {
-  //  if (m_bDebugState)
-  //{
+    //  if (m_bDebugState)
+    //{
     char c[4];
-    while (OpenFirmware::instance().call("read", 3, m_Dev,
-					 reinterpret_cast<OFParam> (c),
-					 reinterpret_cast<OFParam> (4)) != 0)
-      ;
-    if ((c[0] < ' ' || c[0] > '~') && c[0] != '\r' && c[0] != 0x08 && c[0] != 0x09)
-      return 0;
+    while (OpenFirmware::instance().call(
+               "read", 3, m_Dev, reinterpret_cast<OFParam>(c),
+               reinterpret_cast<OFParam>(4)) != 0)
+        ;
+    if ((c[0] < ' ' || c[0] > '~') && c[0] != '\r' && c[0] != 0x08 &&
+        c[0] != 0x09)
+        return 0;
     else
-      return c[0];
+        return c[0];
     //}
-    //else
+    // else
     // {
-    //FATAL("KEYBOARD: getChar() should not be called in normal mode!");
-    //return 0;
+    // FATAL("KEYBOARD: getChar() should not be called in normal mode!");
+    // return 0;
     // }
 }
 
 char PPCKeyboard::getCharNonBlock()
 {
-  //if (m_bDebugState)
-  //{
-    char c[4];
-    if (OpenFirmware::instance().call("read", 3, m_Dev,
-				      reinterpret_cast<OFParam> (c),
-				      reinterpret_cast<OFParam> (4)) != 0)
-      return 0;
-    if ((c[0] < ' ' || c[0] > '~') && c[0] != '\r' && c[0] != 0x08 && c[0] != 0x09)
-      return 0;
-    if (c[0] == '\r')
-      return '\n';
-    else
-      return c[0];
-    //}
-    //else
+    // if (m_bDebugState)
     //{
-    //FATAL("KEYBOARD: getCharNonBlock() should not be called in normal mode!");
-    //return 0;
+    char c[4];
+    if (OpenFirmware::instance().call(
+            "read", 3, m_Dev, reinterpret_cast<OFParam>(c),
+            reinterpret_cast<OFParam>(4)) != 0)
+        return 0;
+    if ((c[0] < ' ' || c[0] > '~') && c[0] != '\r' && c[0] != 0x08 &&
+        c[0] != 0x09)
+        return 0;
+    if (c[0] == '\r')
+        return '\n';
+    else
+        return c[0];
+    //}
+    // else
+    //{
+    // FATAL("KEYBOARD: getCharNonBlock() should not be called in normal
+    // mode!");  return 0;
     // }
 }
 
 Keyboard::Character PPCKeyboard::getCharacter()
 {
-  Character c;
-  c.valid = 1;
-  c.ctrl = c.alt = c.shift = c.caps_lock = 0;
-  c.num_lock = c.is_special = c.reserved = 0;
-  c.value = getChar();
+    Character c;
+    c.valid = 1;
+    c.ctrl = c.alt = c.shift = c.caps_lock = 0;
+    c.num_lock = c.is_special = c.reserved = 0;
+    c.value = getChar();
 
-  return c;
+    return c;
 }
 
 Keyboard::Character PPCKeyboard::getCharacterNonBlock()
 {
-  Character c;
-  c.valid = 1;
-  c.ctrl = c.alt = c.shift = c.caps_lock = 0;
-  c.num_lock = c.is_special = c.reserved = 0;
-  c.value = getCharNonBlock();
+    Character c;
+    c.valid = 1;
+    c.ctrl = c.alt = c.shift = c.caps_lock = 0;
+    c.num_lock = c.is_special = c.reserved = 0;
+    c.value = getCharNonBlock();
 
-  return c;
+    return c;
 }
 
 void PPCKeyboard::setDebugState(bool enableDebugMode)

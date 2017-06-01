@@ -30,10 +30,11 @@
  */
 class ConnectionBasedEndpoint : public Endpoint
 {
-public:
+    public:
     ConnectionBasedEndpoint();
     ConnectionBasedEndpoint(uint16_t local, uint16_t remote);
-    ConnectionBasedEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
+    ConnectionBasedEndpoint(
+        IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
     virtual ~ConnectionBasedEndpoint();
 
     enum EndpointState
@@ -55,7 +56,8 @@ public:
     virtual bool isConnected() const;
 
     /** Connects to the given remote host */
-    virtual bool connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock = true);
+    virtual bool
+    connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock = true);
 
     /** Closes the connection */
     virtual void close();
@@ -70,7 +72,7 @@ public:
      * Blocks until an incoming connection is available, then accepts it
      * and returns an Endpoint for that connection.
      */
-    virtual Endpoint* accept();
+    virtual Endpoint *accept();
 
     /**
      * Sends nBytes of buffer
@@ -100,7 +102,7 @@ public:
      */
     virtual void setRemoteHost(const RemoteEndpoint &host);
 
-private:
+    private:
     NOT_COPYABLE_OR_ASSIGNABLE(ConnectionBasedEndpoint);
 };
 

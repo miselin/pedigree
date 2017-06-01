@@ -20,12 +20,12 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_PHYSICALMEMORYMANAGER_H
 
-#include <compiler.h>
 #include <BootstrapInfo.h>
-#include <utilities/RangeList.h>
-#include <utilities/HashTable.h>
-#include <processor/PhysicalMemoryManager.h>
 #include <Spinlock.h>
+#include <compiler.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <utilities/HashTable.h>
+#include <utilities/RangeList.h>
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -36,16 +36,17 @@
  *\brief Implementation of the PhysicalMemoryManager for common x86 */
 class HostedPhysicalMemoryManager : public PhysicalMemoryManager
 {
-  friend class CacheManager;
-  friend class Cache;
-  /** For getBackingFile() */
-  friend class HostedVirtualAddressSpace;
-  public:
+    friend class CacheManager;
+    friend class Cache;
+    /** For getBackingFile() */
+    friend class HostedVirtualAddressSpace;
+
+    public:
     /** Get the HostedPhysicalMemoryManager instance
      *\return instance of the HostedPhysicalMemoryManager */
     inline static HostedPhysicalMemoryManager &instance()
     {
-      return m_Instance;
+        return m_Instance;
     }
 
     //
@@ -53,11 +54,9 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     //
     virtual physical_uintptr_t allocatePage();
     virtual void freePage(physical_uintptr_t page);
-    virtual bool allocateRegion(MemoryRegion &Region,
-                                size_t cPages,
-                                size_t pageConstraints,
-                                size_t Flags,
-                                physical_uintptr_t start = -1);
+    virtual bool allocateRegion(
+        MemoryRegion &Region, size_t cPages, size_t pageConstraints,
+        size_t Flags, physical_uintptr_t start = -1);
 
     virtual void pin(physical_uintptr_t page);
 
@@ -68,42 +67,45 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     /** Unmap & free the .init section */
     void initialisationDone();
 
-    #if defined(ACPI)
-      inline const RangeList<uint64_t> &getAcpiRanges() const
-          {return m_AcpiRanges;}
-    #endif
+#if defined(ACPI)
+    inline const RangeList<uint64_t> &getAcpiRanges() const
+    {
+        return m_AcpiRanges;
+    }
+#endif
 
-  protected:
+    protected:
     /** The constructor */
     HostedPhysicalMemoryManager() INITIALISATION_ONLY;
     /** The destructor */
     virtual ~HostedPhysicalMemoryManager();
 
-  private:
+    private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     HostedPhysicalMemoryManager(const HostedPhysicalMemoryManager &);
     /** The copy-constructor
      *\note Not implemented (singleton) */
-    HostedPhysicalMemoryManager &operator = (const HostedPhysicalMemoryManager &);
+    HostedPhysicalMemoryManager &operator=(const HostedPhysicalMemoryManager &);
 
     inline int getBackingFile() const
     {
-      return m_BackingFile;
+        return m_BackingFile;
     }
 
     void unmapRegion(MemoryRegion *pRegion);
-    
-    /** Same as freePage, but without the lock. Will panic if the lock is unlocked.
-      * \note Use in the wrong place and you die. */
+
+    /** Same as freePage, but without the lock. Will panic if the lock is
+     * unlocked. \note Use in the wrong place and you die. */
     virtual void freePageUnlocked(physical_uintptr_t page);
 
-    /** The actual page stack contains is a Stack of the pages with the constraints
-     *  below4GB and below64GB and those pages without address size constraints.
-     *\brief The Stack of pages (below4GB, below64GB, no constraint). */
+    /** The actual page stack contains is a Stack of the pages with the
+     *constraints below4GB and below64GB and those pages without address size
+     *constraints. \brief The Stack of pages (below4GB, below64GB, no
+     *constraint). */
     class PageStack
     {
-      public:
+        public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
         /** Allocate a page with certain constraints
@@ -114,22 +116,28 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
          *\param[in] physicalAddress physical address of the page */
         void free(uint64_t physicalAddress);
         /** The destructor does nothing */
-        inline ~PageStack(){}
+        inline ~PageStack()
+        {
+        }
 
-        inline size_t freePages() const { return m_FreePages; }
+        inline size_t freePages() const
+        {
+            return m_FreePages;
+        }
 
-      private:
+        private:
         /** The copy-constructor
          *\note Not implemented */
         PageStack(const PageStack &);
         /** The copy-constructor
          *\note Not implemented */
-        PageStack &operator = (const PageStack &);
+        PageStack &operator=(const PageStack &);
 
         /** The number of Stacks */
         static const size_t StackCount = 1;
 
-        /** Pointer to the base address of the stack. The stack grows upwards. */
+        /** Pointer to the base address of the stack. The stack grows upwards.
+         */
         void *m_Stack[StackCount];
         /** Size of the currently mapped stack */
         size_t m_StackMax[StackCount];
@@ -146,39 +154,46 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     RangeList<uint64_t> m_PhysicalRanges;
 
     /** Virtual-memory available for MemoryRegions
-     *\todo rename this member (conflicts with PhysicalMemoryManager::m_MemoryRegions) */
+     *\todo rename this member (conflicts with
+     *PhysicalMemoryManager::m_MemoryRegions) */
     RangeList<uintptr_t> m_MemoryRegions;
 
     /** To guard against multiprocessor reentrancy. */
     Spinlock m_Lock, m_RegionLock;
 
     /** Utility to wrap a physical address and hash it. */
-    class PageHashable {
+    class PageHashable
+    {
         public:
-            PageHashable() {
-                m_Hash = m_Page = 0;
-            }
+        PageHashable()
+        {
+            m_Hash = m_Page = 0;
+        }
 
-            PageHashable(physical_uintptr_t p) {
-                m_Hash = p / getPageSize();
-                m_Page = p;
-            }
+        PageHashable(physical_uintptr_t p)
+        {
+            m_Hash = p / getPageSize();
+            m_Page = p;
+        }
 
-            size_t hash() const {
-                return m_Hash;
-            }
+        size_t hash() const
+        {
+            return m_Hash;
+        }
 
-            bool operator == (const PageHashable &p) const {
-                return p.m_Page == m_Page;
-            }
+        bool operator==(const PageHashable &p) const
+        {
+            return p.m_Page == m_Page;
+        }
 
         private:
-            size_t m_Hash;
-            physical_uintptr_t m_Page;
+        size_t m_Hash;
+        physical_uintptr_t m_Page;
     };
 
     /** Physical page metadata. */
-    struct page {
+    struct page
+    {
         page() : active(false), refcount(0)
         {
         }

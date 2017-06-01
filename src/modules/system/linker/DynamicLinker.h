@@ -20,13 +20,13 @@
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
 
-#include <processor/types.h>
 #include <linker/Elf.h>
 #include <process/Process.h>
-#include <utilities/Tree.h>
+#include <processor/state.h>
+#include <processor/types.h>
 #include <utilities/List.h>
 #include <utilities/RadixTree.h>
-#include <processor/state.h>
+#include <utilities/Tree.h>
 #include <vfs/File.h>
 #include <vfs/MemoryMappedFile.h>
 
@@ -34,7 +34,7 @@
     an address space. */
 class DynamicLinker
 {
-public:
+    public:
     /** Creates a new DynamicLinker object. */
     DynamicLinker();
 
@@ -61,7 +61,9 @@ public:
         linker will also load all library dependencies. If any of
         these loads fails, false is returned.
         \param pFile The ELF file. */
-    bool loadProgram(File *pFile, bool bDryRun = false, bool bInterpreter = false, String *sInterpreter = 0);
+    bool loadProgram(
+        File *pFile, bool bDryRun = false, bool bInterpreter = false,
+        String *sInterpreter = 0);
 
     /** Loads a shared object into this address space (along with
         any dependencies.
@@ -69,7 +71,8 @@ public:
         \return True if the ELF and all dependencies was loaded successfully. */
     bool loadObject(File *pFile, bool bDryRun = false);
 
-    /** Callback given to KernelCoreSyscallManager to resolve PLT relocations lazily. */
+    /** Callback given to KernelCoreSyscallManager to resolve PLT relocations
+     * lazily. */
     static uintptr_t resolvePlt(SyscallState &state);
 
     /** Called when a trap is handled by the DLTrapHandler.
@@ -79,26 +82,30 @@ public:
 
     /** Returns the program ELF. */
     Elf *getProgramElf()
-        {return m_pProgramElf;}
+    {
+        return m_pProgramElf;
+    }
 
     /** Manually resolves a given symbol name. */
     uintptr_t resolve(String name);
 
-private:
+    private:
     /** Operator= is unused and is therefore private. */
-    DynamicLinker &operator=(const DynamicLinker&);
+    DynamicLinker &operator=(const DynamicLinker &);
 
     /** A shared object/library. */
     struct SharedObject
     {
-        SharedObject(Elf *e, MemoryMappedObject *f, uintptr_t b, uintptr_t a, size_t s) :
-            elf(e), file(f), buffer(b), address(a), size(s)
-        {}
-        Elf                 *elf;
-        MemoryMappedObject    *file;
-        uintptr_t           buffer;
-        uintptr_t           address;
-        size_t              size;
+        SharedObject(
+            Elf *e, MemoryMappedObject *f, uintptr_t b, uintptr_t a, size_t s)
+            : elf(e), file(f), buffer(b), address(a), size(s)
+        {
+        }
+        Elf *elf;
+        MemoryMappedObject *file;
+        uintptr_t buffer;
+        uintptr_t address;
+        size_t size;
     };
 
     uintptr_t resolvePltSymbol(uintptr_t libraryId, uintptr_t symIdx);
@@ -109,9 +116,9 @@ private:
     uintptr_t m_ProgramStart;
     size_t m_ProgramSize;
     uintptr_t m_ProgramBuffer;
-    RadixTree<void*> m_LoadedObjects;
+    RadixTree<void *> m_LoadedObjects;
 
-    Tree<uintptr_t, SharedObject*> m_Objects;
+    Tree<uintptr_t, SharedObject *> m_Objects;
 };
 
 /** Tiny class for dispatching MemoryTrap events to DynamicLinkers.
@@ -119,16 +126,19 @@ private:
     be loaded. */
 class DLTrapHandler : public MemoryTrapHandler
 {
-public:
+    public:
     /** Retrieve the singleton DLTrapHandler instance. */
-    static DLTrapHandler &instance() {return m_Instance;}
+    static DLTrapHandler &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // MemoryTrapHandler interface.
     //
     virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite);
 
-private:
+    private:
     /** Private constructor - does nothing. */
     DLTrapHandler();
     /** Private destructor - does nothing, not expected to be called. */

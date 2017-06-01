@@ -17,35 +17,40 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "../Module.h"
 #include "LoDisk.h"
+#include "../Module.h"
 #include <utilities/assert.h>
 
 #include <ServiceManager.h>
 
-FileDisk::FileDisk(String file, AccessType mode) :
-    m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),
-    m_ReqMutex(false), m_nAlignPoints(0)
+FileDisk::FileDisk(String file, AccessType mode)
+    : m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),
+      m_ReqMutex(false), m_nAlignPoints(0)
 {
     m_pFile = VFS::instance().find(file);
-    if(!m_pFile)
+    if (!m_pFile)
         WARNING("FileDisk: '" << file << "' doesn't exist...");
     else
     {
         m_pFile->increaseRefCount(false);
 
-        // Chat to the partition service and let it pick up that we're around now
-        ServiceFeatures *pFeatures = ServiceManager::instance().enumerateOperations(String("partition"));
-        Service         *pService  = ServiceManager::instance().getService(String("partition"));
+        // Chat to the partition service and let it pick up that we're around
+        // now
+        ServiceFeatures *pFeatures =
+            ServiceManager::instance().enumerateOperations(String("partition"));
+        Service *pService =
+            ServiceManager::instance().getService(String("partition"));
         NOTICE("Asking if the partition provider supports touch");
-        if(pFeatures->provides(ServiceFeatures::touch))
+        if (pFeatures->provides(ServiceFeatures::touch))
         {
-            NOTICE("It does, attempting to inform the partitioner of our presence...");
-            if(pService)
+            NOTICE("It does, attempting to inform the partitioner of our "
+                   "presence...");
+            if (pService)
             {
-                if(pService->serve(ServiceFeatures::touch,
-                                   reinterpret_cast<void*>(static_cast<Disk*>(this)),
-                                   sizeof(*static_cast<Disk*>(this))))
+                if (pService->serve(
+                        ServiceFeatures::touch,
+                        reinterpret_cast<void *>(static_cast<Disk *>(this)),
+                        sizeof(*static_cast<Disk *>(this))))
                 {
                     NOTICE("Successful.");
                 }
@@ -53,10 +58,12 @@ FileDisk::FileDisk(String file, AccessType mode) :
                     ERROR("Failed.");
             }
             else
-                ERROR("FileDisk: Couldn't tell the partition service about the new disk presence");
+                ERROR("FileDisk: Couldn't tell the partition service about the "
+                      "new disk presence");
         }
         else
-            ERROR("FileDisk: Partition service doesn't appear to support touch");
+            ERROR(
+                "FileDisk: Partition service doesn't appear to support touch");
     }
 }
 
@@ -77,7 +84,7 @@ uintptr_t FileDisk::read(uint64_t location)
     if (location % 512)
         FATAL("Read with location % 512.");
 
-    if(!m_pFile)
+    if (!m_pFile)
         return 0;
 
     // Look through the align points.
@@ -109,7 +116,7 @@ uintptr_t FileDisk::read(uint64_t location)
 void FileDisk::write(uint64_t location)
 {
     LockGuard<Mutex> guard(m_ReqMutex);
-    if(!m_pFile)
+    if (!m_pFile)
         return;
 
     /// \todo implement this
@@ -117,7 +124,7 @@ void FileDisk::write(uint64_t location)
 
 void FileDisk::align(uint64_t location)
 {
-    assert (m_nAlignPoints < 8);
+    assert(m_nAlignPoints < 8);
     m_AlignPoints[m_nAlignPoints++] = location;
 }
 

@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <memory.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <sys/stat.h>
 #include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <memory.h>
+#include <stdio.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <elf.h>
 
@@ -32,8 +32,7 @@
 
 extern "C" void _main(BootstrapStruct_t &bs);
 
-extern "C"
-int main(int argc, char *argv[])
+extern "C" int main(int argc, char *argv[])
 {
     struct stat st;
     int r = 0;
@@ -56,7 +55,7 @@ int main(int argc, char *argv[])
     BootstrapStruct_t bs;
     memset(&bs, 0, sizeof(bs));
 
-    if(argc < 3)
+    if (argc < 3)
     {
         fprintf(stderr, "Usage: kernel initrd config_database [diskimage]\n");
         goto fail;
@@ -66,13 +65,13 @@ int main(int argc, char *argv[])
 
     // Load initrd and config database into RAM.
     initrd = open(argv[1], O_RDONLY);
-    if(initrd < 0)
+    if (initrd < 0)
     {
         fprintf(stderr, "Can't open initrd: %s\n", strerror(errno));
         goto fail;
     }
     configdb = open(argv[2], O_RDONLY);
-    if(configdb < 0)
+    if (configdb < 0)
     {
         fprintf(stderr, "Can't open config database: %s\n", strerror(errno));
         goto fail;
@@ -80,7 +79,7 @@ int main(int argc, char *argv[])
 
     // Open ourselves to find section headers.
     kernel = open(argv[0], O_RDONLY);
-    if(kernel < 0)
+    if (kernel < 0)
     {
         fprintf(stderr, "Can't open kernel: %s\n", strerror(errno));
         goto fail;
@@ -88,14 +87,14 @@ int main(int argc, char *argv[])
 
     // Load initrd and configuration database.
     r = fstat(initrd, &st);
-    if(r != 0)
+    if (r != 0)
     {
         fprintf(stderr, "Can't stat initrd: %s\n", strerror(errno));
         goto fail;
     }
     initrd_length = st.st_size;
     initrd_mapping = mmap(0, initrd_length, PROT_READ, MAP_PRIVATE, initrd, 0);
-    if(initrd_mapping == MAP_FAILED)
+    if (initrd_mapping == MAP_FAILED)
     {
         fprintf(stderr, "Can't map initrd: %s\n", strerror(errno));
         goto fail;
@@ -103,14 +102,15 @@ int main(int argc, char *argv[])
     fprintf(stderr, "initrd is at %p\n", initrd_mapping);
 
     r = fstat(configdb, &st);
-    if(r != 0)
+    if (r != 0)
     {
         fprintf(stderr, "Can't stat config database: %s\n", strerror(errno));
         goto fail;
     }
     configdb_length = st.st_size;
-    configdb_mapping = mmap(0, configdb_length, PROT_READ, MAP_PRIVATE, configdb, 0);
-    if(configdb_mapping == MAP_FAILED)
+    configdb_mapping =
+        mmap(0, configdb_length, PROT_READ, MAP_PRIVATE, configdb, 0);
+    if (configdb_mapping == MAP_FAILED)
     {
         fprintf(stderr, "Can't map config database: %s\n", strerror(errno));
         goto fail;
@@ -118,14 +118,15 @@ int main(int argc, char *argv[])
     fprintf(stderr, "configuration database is at %p\n", configdb_mapping);
 
     r = fstat(kernel, &st);
-    if(r != 0)
+    if (r != 0)
     {
         fprintf(stderr, "Can't stat kernel: %s\n", strerror(errno));
         goto fail;
     }
     kernel_length = st.st_size;
-    kernel_mapping = mmap(0, kernel_length, PROT_READ | PROT_WRITE, MAP_PRIVATE, kernel, 0);
-    if(kernel_mapping == MAP_FAILED)
+    kernel_mapping =
+        mmap(0, kernel_length, PROT_READ | PROT_WRITE, MAP_PRIVATE, kernel, 0);
+    if (kernel_mapping == MAP_FAILED)
     {
         fprintf(stderr, "Can't map kernel: %s\n", strerror(errno));
         goto fail;
@@ -133,10 +134,13 @@ int main(int argc, char *argv[])
     fprintf(stderr, "kernel is at %p\n", kernel_mapping);
 
     // Make the module locations available to the kernel.
-    module_region = (uintptr_t *) mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-    if(module_region == MAP_FAILED)
+    module_region = (uintptr_t *) mmap(
+        0, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (module_region == MAP_FAILED)
     {
-        fprintf(stderr, "Can't map module information region: %s\n", strerror(errno));
+        fprintf(
+            stderr, "Can't map module information region: %s\n",
+            strerror(errno));
         goto fail;
     }
     fprintf(stderr, "module region is at %p\n", module_region);
@@ -144,11 +148,13 @@ int main(int argc, char *argv[])
 
     // initrd
     module_region[0] = reinterpret_cast<uintptr_t>(initrd_mapping);
-    module_region[1] = reinterpret_cast<uintptr_t>(initrd_mapping) + initrd_length;
+    module_region[1] =
+        reinterpret_cast<uintptr_t>(initrd_mapping) + initrd_length;
 
     // config database
     module_region[4] = reinterpret_cast<uintptr_t>(configdb_mapping);
-    module_region[5] = reinterpret_cast<uintptr_t>(configdb_mapping) + configdb_length;
+    module_region[5] =
+        reinterpret_cast<uintptr_t>(configdb_mapping) + configdb_length;
 
     bs.mods_addr = reinterpret_cast<uintptr_t>(module_region);
     bs.mods_count = 2;
@@ -156,23 +162,24 @@ int main(int argc, char *argv[])
     if (argc > 3)
     {
         diskimage = open(argv[3], O_RDWR);
-        if(diskimage < 0)
+        if (diskimage < 0)
         {
             fprintf(stderr, "Can't open disk image: %s\n", strerror(errno));
             goto fail;
         }
 
         r = fstat(diskimage, &st);
-        if(r != 0)
+        if (r != 0)
         {
             fprintf(stderr, "Can't stat disk image: %s\n", strerror(errno));
             goto fail;
         }
 
         diskimage_length = st.st_size;
-        diskimage_mapping = mmap(0, diskimage_length, PROT_READ | PROT_WRITE,
-                                 MAP_PRIVATE | MAP_NORESERVE, diskimage, 0);
-        if(diskimage_mapping == MAP_FAILED)
+        diskimage_mapping = mmap(
+            0, diskimage_length, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_NORESERVE, diskimage, 0);
+        if (diskimage_mapping == MAP_FAILED)
         {
             fprintf(stderr, "Can't map disk image: %s\n", strerror(errno));
             goto fail;
@@ -182,11 +189,12 @@ int main(int argc, char *argv[])
         // Add to the multiboot info.
         bs.mods_count++;
         module_region[8] = reinterpret_cast<uintptr_t>(diskimage_mapping);
-        module_region[9] = reinterpret_cast<uintptr_t>(diskimage_mapping) + diskimage_length;
+        module_region[9] =
+            reinterpret_cast<uintptr_t>(diskimage_mapping) + diskimage_length;
     }
 
     // Load ELF header to add ELF information.
-    ehdr = reinterpret_cast<Elf64_Ehdr*>(kernel_mapping);
+    ehdr = reinterpret_cast<Elf64_Ehdr *>(kernel_mapping);
     bs.shndx = ehdr->e_shstrndx;
     bs.num = ehdr->e_shnum;
     bs.size = ehdr->e_shentsize;
@@ -194,12 +202,13 @@ int main(int argc, char *argv[])
 
     // Fix up section headers with no addresses.
     shdrs = reinterpret_cast<Elf64_Shdr *>(bs.addr);
-    for(uint32_t i = 1; i < bs.num; ++i)
+    for (uint32_t i = 1; i < bs.num; ++i)
     {
-        if(shdrs[i].sh_addr)
+        if (shdrs[i].sh_addr)
             continue;
 
-        shdrs[i].sh_addr = shdrs[i].sh_offset + reinterpret_cast<uintptr_t>(kernel_mapping);
+        shdrs[i].sh_addr =
+            shdrs[i].sh_offset + reinterpret_cast<uintptr_t>(kernel_mapping);
     }
 
     // Kernel uses flags to know what it can and can't use.
@@ -210,15 +219,15 @@ int main(int argc, char *argv[])
 fail:
     s = 1;
 cleanup:
-    if(module_region != MAP_FAILED)
+    if (module_region != MAP_FAILED)
         munmap(module_region, 0x1000);
-    if(diskimage_mapping != MAP_FAILED)
+    if (diskimage_mapping != MAP_FAILED)
         munmap(diskimage_mapping, diskimage_length);
-    if(kernel_mapping != MAP_FAILED)
+    if (kernel_mapping != MAP_FAILED)
         munmap(kernel_mapping, kernel_length);
-    if(configdb_mapping != MAP_FAILED)
+    if (configdb_mapping != MAP_FAILED)
         munmap(configdb_mapping, kernel_length);
-    if(initrd_mapping != MAP_FAILED)
+    if (initrd_mapping != MAP_FAILED)
         munmap(initrd_mapping, initrd_length);
     close(diskimage);
     close(kernel);

@@ -23,7 +23,7 @@
 
 #include "errno.h"
 #define errno (*__errno())
-extern int *__errno (void);
+extern int *__errno(void);
 
 #include "posix-syscall.h"
 
@@ -37,7 +37,9 @@ extern int *__errno (void);
 static struct InfoBlock *infoBlock = 0;
 static int hasInfoBlock = 0;
 
-#define CHECK_INFO_BLOCK  if (UNLIKELY(!infoBlock)) getInfoBlock()
+#define CHECK_INFO_BLOCK      \
+    if (UNLIKELY(!infoBlock)) \
+    getInfoBlock()
 
 static void getInfoBlock()
 {
@@ -60,7 +62,7 @@ int gettimeofday(struct timeval *tv, void *tz)
 {
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
-        return syscall2(POSIX_GETTIMEOFDAY, (long)tv, (long)tz);
+        return syscall2(POSIX_GETTIMEOFDAY, (long) tv, (long) tz);
 
     if (!tv)
     {
@@ -83,7 +85,7 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
     if (!hasInfoBlock)
         return syscall2(POSIX_CLOCK_GETTIME, clock_id, (long) tp);
 
-    if(!tp)
+    if (!tp)
     {
         errno = EINVAL;
         return -1;
@@ -101,7 +103,7 @@ int getpid()
 {
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
-        return (long)syscall0(POSIX_GETPID);
+        return (long) syscall0(POSIX_GETPID);
 
     /// \todo this would make more sense on a process-specific infoblock, but
     ///       we don't have that yet.

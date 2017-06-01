@@ -18,9 +18,9 @@
  */
 
 /** Ported 3c90x driver from Etherboot.
-  * I've changed it around to fit into our structure, and
-  * to be a little more portable - Matt
-  */
+ * I've changed it around to fit into our structure, and
+ * to be a little more portable - Matt
+ */
 
 /*
  * 3c90x.c -- This file implements the 3c90x driver for etherboot.  Written
@@ -64,12 +64,12 @@
 #include "3Com90x.h"
 #include "3Com90xConstants.h"
 #include <Log.h>
+#include <machine/IrqManager.h>
 #include <machine/Machine.h>
 #include <machine/Network.h>
 #include <network-stack/NetworkStack.h>
-#include <processor/Processor.h>
 #include <process/Scheduler.h>
-#include <machine/IrqManager.h>
+#include <processor/Processor.h>
 
 #include <network-stack/Ethernet.h>
 
@@ -86,7 +86,8 @@ int Nic3C90x::issueCommand(int cmd, int param)
     m_pBase->write16(val, regCommandIntStatus_w);
 
     /** Wait for the cmd to complete, if necessary **/
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
 
     return 0;
 }
@@ -94,7 +95,8 @@ int Nic3C90x::issueCommand(int cmd, int param)
 int Nic3C90x::setWindow(int window)
 {
     /** Window already as set? **/
-    if (m_CurrentWindow == window) return 0;
+    if (m_CurrentWindow == window)
+        return 0;
 
     /** Issue the window command **/
     issueCommand(cmdSelectRegisterWindow, window);
@@ -111,11 +113,13 @@ uint16_t Nic3C90x::readEeprom(int address)
     setWindow(winEepromBios0);
 
     /** Make sure the eeprom isn't busy **/
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
 
     /** Read the value */
     m_pBase->write16(address + (0x02 << 6), regEepromCommand_0_w);
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
     val = m_pBase->read16(regEepromData_0_w);
 
     return val;
@@ -127,24 +131,29 @@ int Nic3C90x::writeEepromWord(int address, uint16_t value)
     setWindow(winEepromBios0);
 
     /** Verify Eeprom not busy **/
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
 
     /** Issue WriteEnable, and wait for completion **/
     m_pBase->write16(0x30, regEepromCommand_0_w);
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
 
     /** Issue EraseReigster, and wait for completion **/
     m_pBase->write16(address + (0x03 << 6), regEepromCommand_0_w);
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
 
     /** Send the new data to the eeprom, and wait for completion **/
     m_pBase->write16(value, regEepromData_0_w);
     m_pBase->write16(0x30, regEepromCommand_0_w);
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
 
     /** Burn the new data into the eeprom, and wait for completion **/
     m_pBase->write16(address + (0x01 << 6), regEepromCommand_0_w);
-    while ((1<<15) & m_pBase->read16(regEepromCommand_0_w));
+    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
+        ;
 
     return 0;
 }
@@ -187,7 +196,7 @@ int Nic3C90x::writeEeprom(int address, uint16_t value)
 
 void Nic3C90x::reset()
 {
-#ifdef	CFG_3C90X_PRESERVE_XCVR
+#ifdef CFG_3C90X_PRESERVE_XCVR
     int cfg;
 
     /** Read the current InternalConfig value **/
@@ -200,17 +209,18 @@ void Nic3C90x::reset()
     issueCommand(cmdGlobalReset, 0);
 
     /** Wait for reset command to complete **/
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
 
     /** Global reset command resets station mask, non-B revision cards
-      * require explicit reset of values
-      */
+     * require explicit reset of values
+     */
     setWindow(winAddressing2);
     m_pBase->write16(0, regStationAddress_2_3w + 0);
     m_pBase->write16(0, regStationAddress_2_3w + 2);
     m_pBase->write16(0, regStationAddress_2_3w + 4);
 
-#ifdef	CFG_3C90X_PRESERVE_XCVR
+#ifdef CFG_3C90X_PRESERVE_XCVR
     /** Reset the original InternalConfig value from before reset **/
     setWindow(winTxRxOptions3);
     m_pBase->write32(cfg, regInternalConfig_3_l);
@@ -222,28 +232,29 @@ void Nic3C90x::reset()
 
     /** Issue transmit reset, wait for command completion **/
     issueCommand(cmdTxReset, 0);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
 
     if (!m_isBrev)
         m_pBase->write8(0x01, regTxFreeThresh_b);
     issueCommand(cmdTxEnable, 0);
 
     /** Reset of the receiver on B-revision cards re-negotiates the link
-      * Takes several seconds
-      */
+     * Takes several seconds
+     */
     if (m_isBrev)
         issueCommand(cmdRxReset, 0x04);
     else
         issueCommand(cmdRxReset, 0x00);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
 
     issueCommand(cmdRxEnable, 0);
 
     /** Set indication and interrupt flags, ack any IRQs **/
     issueCommand(cmdSetInterruptEnable, ENABLED_INTS);
-    issueCommand(cmdSetIndicationEnable, ENABLED_INTS); //0x0014);
-    issueCommand(cmdAcknowledgeInterrupt, 0xff); //0x661);
-
+    issueCommand(cmdSetIndicationEnable, ENABLED_INTS);  // 0x0014);
+    issueCommand(cmdAcknowledgeInterrupt, 0xff);         // 0x661);
 }
 
 bool Nic3C90x::send(size_t nBytes, uintptr_t buffer)
@@ -258,13 +269,16 @@ bool Nic3C90x::send(size_t nBytes, uintptr_t buffer)
         /** Make sure the card is not waiting on us **/
         m_pBase->read16(regCommandIntStatus_w);
         m_pBase->read16(regCommandIntStatus_w);
-        while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+        while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+            ;
 
         physical_uintptr_t destPtr = m_pTxBuffPhys;
         size_t dud = 0;
-        if (Processor::information().getVirtualAddressSpace().isMapped(reinterpret_cast<void*>(buffer)))
+        if (Processor::information().getVirtualAddressSpace().isMapped(
+                reinterpret_cast<void *>(buffer)))
         {
-            Processor::information().getVirtualAddressSpace().getMapping(reinterpret_cast<void*>(buffer), destPtr, dud);
+            Processor::information().getVirtualAddressSpace().getMapping(
+                reinterpret_cast<void *>(buffer), destPtr, dud);
             destPtr += buffer & 0xFFF;
         }
         else
@@ -277,32 +291,36 @@ bool Nic3C90x::send(size_t nBytes, uintptr_t buffer)
         m_TransmitDPD->FrameStartHeader = nBytes | 0x8000;
         // m_TransmitDPD->HdrAddr = m_pTxBuffPhys;
         // m_TransmitDPD->HdrLength = Ethernet::instance().ethHeaderSize();
-        m_TransmitDPD->DataAddr = static_cast<uint32_t>(destPtr); //m_pTxBuffPhys; // + m_TransmitDPD->HdrLength;
-        m_TransmitDPD->DataLength = (nBytes /* - m_TransmitDPD->HdrLength */) + (1U << 31U);
+        m_TransmitDPD->DataAddr = static_cast<uint32_t>(
+            destPtr);  // m_pTxBuffPhys; // + m_TransmitDPD->HdrLength;
+        m_TransmitDPD->DataLength =
+            (nBytes /* - m_TransmitDPD->HdrLength */) + (1U << 31U);
 
         /** Send the packet **/
         m_pBase->write32(m_pDPD, regDnListPtr_l);
 
         /** End Stall and Wait for upload to complete. **/
         issueCommand(cmdStallCtl, 3);
-        while (m_pBase->read32(regDnListPtr_l) != 0);
+        while (m_pBase->read32(regDnListPtr_l) != 0)
+            ;
 
         m_TxMutex.acquire();
 
         return true;
     }
 
-    ERROR("3C90x: Failed to send after " << Dec << retries << Hex << " retries!");
+    ERROR(
+        "3C90x: Failed to send after " << Dec << retries << Hex << " retries!");
 
     return false;
 }
 
-Nic3C90x::Nic3C90x(Network* pDev) :
-        Network(pDev), m_pBase(0), m_isBrev(0), m_CurrentWindow(0),
-        m_pRxBuffVirt(0), m_pTxBuffVirt(0), m_pRxBuffPhys(0), m_pTxBuffPhys(0),
-        m_RxBuffMR("3c90x-rxbuffer"), m_TxBuffMR("3c90x-txbuffer"),
-        m_pDPD(0), m_DPDMR("3c90x-dpd"), m_pUPD(0), m_UPDMR("3c90x-upd"),
-        m_TransmitDPD(0), m_ReceiveUPD(0), m_RxMutex(0), m_TxMutex(0), m_PendingPackets()
+Nic3C90x::Nic3C90x(Network *pDev)
+    : Network(pDev), m_pBase(0), m_isBrev(0), m_CurrentWindow(0),
+      m_pRxBuffVirt(0), m_pTxBuffVirt(0), m_pRxBuffPhys(0), m_pTxBuffPhys(0),
+      m_RxBuffMR("3c90x-rxbuffer"), m_TxBuffMR("3c90x-txbuffer"), m_pDPD(0),
+      m_DPDMR("3c90x-dpd"), m_pUPD(0), m_UPDMR("3c90x-upd"), m_TransmitDPD(0),
+      m_ReceiveUPD(0), m_RxMutex(0), m_TxMutex(0), m_PendingPackets()
 {
     setSpecificType(String("3c90x-card"));
 
@@ -315,12 +333,16 @@ Nic3C90x::Nic3C90x(Network* pDev) :
 #define HWADDR_OFFSET 10
 
     // allocate the rx and tx buffers
-    if (!PhysicalMemoryManager::instance().allocateRegion(m_RxBuffMR, (MAX_PACKET_SIZE / 0x1000) + 1, PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_RxBuffMR, (MAX_PACKET_SIZE / 0x1000) + 1,
+            PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1))
     {
         ERROR("3C90x: Couldn't allocate Rx Buffer!");
         return;
     }
-    if (!PhysicalMemoryManager::instance().allocateRegion(m_TxBuffMR, (MAX_PACKET_SIZE / 0x1000) + 1, PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_TxBuffMR, (MAX_PACKET_SIZE / 0x1000) + 1,
+            PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1))
     {
         ERROR("3C90x: Couldn't allocate Tx Buffer!");
         return;
@@ -330,22 +352,27 @@ Nic3C90x::Nic3C90x(Network* pDev) :
     m_pRxBuffPhys = m_RxBuffMR.physicalAddress();
     m_pTxBuffPhys = m_TxBuffMR.physicalAddress();
 
-    if (!PhysicalMemoryManager::instance().allocateRegion(m_DPDMR, 2, PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_DPDMR, 2, PhysicalMemoryManager::continuous,
+            VirtualAddressSpace::Write, -1))
     {
         ERROR("3C90x: Couldn't allocated buffer for DPD\n");
         return;
     }
-    if (!PhysicalMemoryManager::instance().allocateRegion(m_UPDMR, 2, PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_UPDMR, 2, PhysicalMemoryManager::continuous,
+            VirtualAddressSpace::Write, -1))
     {
         ERROR("3C90x: Couldn't allocated buffer for UPD\n");
         return;
     }
     m_pDPD = m_DPDMR.physicalAddress();
     m_pUPD = m_UPDMR.physicalAddress();
-    m_TransmitDPD = reinterpret_cast<TXD*>(m_DPDMR.virtualAddress());
-    m_ReceiveUPD = reinterpret_cast<RXD*>(m_UPDMR.virtualAddress());
+    m_TransmitDPD = reinterpret_cast<TXD *>(m_DPDMR.virtualAddress());
+    m_ReceiveUPD = reinterpret_cast<RXD *>(m_UPDMR.virtualAddress());
 
-    // configure the UPD... turn it into a list with a well-defined beginning and end
+    // configure the UPD... turn it into a list with a well-defined beginning
+    // and end
     for (size_t iUpd = 0; iUpd < NUM_UPDS; iUpd++)
     {
         if ((iUpd + 1) == NUM_UPDS)
@@ -366,23 +393,23 @@ Nic3C90x::Nic3C90x(Network* pDev) :
 
     switch (readEeprom(0x03))
     {
-    case 0x9000: /** 10 Base TPO **/
-    case 0x9001: /** 10/100 T4 **/
-    case 0x9050: /** 10/100 TPO **/
-    case 0x9051: /** 10 Base Combo **/
-        m_isBrev = 0;
-        break;
+        case 0x9000: /** 10 Base TPO **/
+        case 0x9001: /** 10/100 T4 **/
+        case 0x9050: /** 10/100 TPO **/
+        case 0x9051: /** 10 Base Combo **/
+            m_isBrev = 0;
+            break;
 
-    case 0x9004: /** 10 Base TPO **/
-    case 0x9005: /** 10 Base Combo **/
-    case 0x9006: /** 10 Base TPO and Base2 **/
-    case 0x900A: /** 10 Base FL **/
-    case 0x9055: /** 10/100 TPO **/
-    case 0x9056: /** 10/100 T4 **/
-    case 0x905A: /** 10 Base FX **/
-    default:
-        m_isBrev = 1;
-        break;
+        case 0x9004: /** 10 Base TPO **/
+        case 0x9005: /** 10 Base Combo **/
+        case 0x9006: /** 10 Base TPO and Base2 **/
+        case 0x900A: /** 10 Base FL **/
+        case 0x9055: /** 10/100 TPO **/
+        case 0x9056: /** 10/100 T4 **/
+        case 0x905A: /** 10 Base FX **/
+        default:
+            m_isBrev = 1;
+            break;
     }
 
     /** Load EEPROM contents **/
@@ -397,7 +424,7 @@ Nic3C90x::Nic3C90x(Network* pDev) :
         writeEeprom(0x13, 0x0160);
 #endif
 
-#ifdef	CFG_3C90X_XCVR
+#ifdef CFG_3C90X_XCVR
         /** Clear the LanWorks register **/
         if (CFG_3C90X_XCVR == 255)
             writeEeprom(0x16, 0);
@@ -406,9 +433,8 @@ Nic3C90x::Nic3C90x(Network* pDev) :
          ** LanWorks register
          **/
         else
-            writeEeprom(0x16, XCVR_MAGIC + ((CFG_3C90X_XCVR) & 0x000F));
+            writeEeprom(0x16, XCVR_MAGIC + ((CFG_3C90X_XCVR) &0x000F));
 #endif
-
     }
     else
     {
@@ -418,13 +444,11 @@ Nic3C90x::Nic3C90x(Network* pDev) :
 
     /** Get the hardware address */
     m_StationInfo.mac.setMac(eeprom, true);
-    NOTICE("3C90x MAC: " <<
-           m_StationInfo.mac[0] << ":" <<
-           m_StationInfo.mac[1] << ":" <<
-           m_StationInfo.mac[2] << ":" <<
-           m_StationInfo.mac[3] << ":" <<
-           m_StationInfo.mac[4] << ":" <<
-           m_StationInfo.mac[5] << ".");
+    NOTICE(
+        "3C90x MAC: " << m_StationInfo.mac[0] << ":" << m_StationInfo.mac[1]
+                      << ":" << m_StationInfo.mac[2] << ":"
+                      << m_StationInfo.mac[3] << ":" << m_StationInfo.mac[4]
+                      << ":" << m_StationInfo.mac[5] << ".");
 
     /* Test if the link is good, if so continue */
     setWindow(winDiagnostics4);
@@ -437,19 +461,22 @@ Nic3C90x::Nic3C90x(Network* pDev) :
 
     /** Program the MAC address into the station address registers */
     setWindow(winAddressing2);
-    m_pBase->write16(HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 0]), regStationAddress_2_3w);
-    m_pBase->write16(HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 1]), regStationAddress_2_3w + 2);
-    m_pBase->write16(HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 2]), regStationAddress_2_3w + 4);
+    m_pBase->write16(
+        HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 0]), regStationAddress_2_3w);
+    m_pBase->write16(
+        HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 1]), regStationAddress_2_3w + 2);
+    m_pBase->write16(
+        HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 2]), regStationAddress_2_3w + 4);
     m_pBase->write16(0, regStationMask_2_3w);
     m_pBase->write16(0, regStationMask_2_3w + 2);
     m_pBase->write16(0, regStationMask_2_3w + 4);
 
     /** Read the media options register, print a message and set default
-      * xcvr.
-      *
-      * Uses Media Option command on B revision, Reset Option on non-B
-      * revision cards -- same register address
-      */
+     * xcvr.
+     *
+     * Uses Media Option command on B revision, Reset Option on non-B
+     * revision cards -- same register address
+     */
     setWindow(winTxRxOptions3);
     mopt = m_pBase->read16(regResetMediaOptions_3_w);
 
@@ -502,8 +529,8 @@ Nic3C90x::Nic3C90x(Network* pDev) :
     }
 
     /** Determine transceiver type to use, depending on value stored in
-      * eeprom 0x16
-      */
+     * eeprom 0x16
+     */
     if (m_isBrev)
     {
         if ((eeprom[0x16] & 0xff00) == XCVR_MAGIC)
@@ -519,7 +546,8 @@ Nic3C90x::Nic3C90x(Network* pDev) :
         if (linktype == 0x0009)
         {
             if (m_isBrev)
-                WARNING("3C90x: MII External MAC mode only supported on B-revision cards! Falling back to MII mode.");
+                WARNING("3C90x: MII External MAC mode only supported on "
+                        "B-revision cards! Falling back to MII mode.");
             linktype = 0x0006;
         }
     }
@@ -537,42 +565,47 @@ Nic3C90x::Nic3C90x(Network* pDev) :
 
     /** Now that we've set the xcvr type, reset TX and RX, re-enable **/
     issueCommand(cmdTxReset, 0);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
 
     if (!m_isBrev)
         m_pBase->write8(0x01, regTxFreeThresh_b);
     issueCommand(cmdTxEnable, 0);
 
     /** reset of the receiver on B-revision cards re-negotiates the link
-      * takes several seconds
-      */
+     * takes several seconds
+     */
     if (m_isBrev)
         issueCommand(cmdRxReset, 0x04);
     else
         issueCommand(cmdRxReset, 0x00);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
 
-    /** Set the RX filter = receive only individual packets & multicast & broadcast **/
+    /** Set the RX filter = receive only individual packets & multicast &
+     * broadcast **/
     issueCommand(cmdSetRxFilter, 0x01 + 0x02 + 0x04);
     issueCommand(cmdRxEnable, 0);
 
     /** Set indication and interrupt flags, ack any IRQs **/
     issueCommand(cmdSetInterruptEnable, ENABLED_INTS);
-    issueCommand(cmdSetIndicationEnable, ENABLED_INTS); //0x0014);
-    issueCommand(cmdAcknowledgeInterrupt, 0xff); //0x661);
+    issueCommand(cmdSetIndicationEnable, ENABLED_INTS);  // 0x0014);
+    issueCommand(cmdAcknowledgeInterrupt, 0xff);         // 0x661);
 
     // Set the location for the UPD
     m_pBase->write32(m_pUPD, regUpListPtr_l);
 
-    // register the packet queue handler
+// register the packet queue handler
 #ifdef THREADS
-    Thread *pThread = new Thread(Processor::information().getCurrentThread()->getParent(),
-                                 &trampoline, reinterpret_cast<void*>(this));
+    Thread *pThread = new Thread(
+        Processor::information().getCurrentThread()->getParent(), &trampoline,
+        reinterpret_cast<void *>(this));
     pThread->detach();
 #endif
 
     // install the IRQ
-    Machine::instance().getIrqManager()->registerIsaIrqHandler(getInterruptNumber(), static_cast<IrqHandler*>(this));
+    Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        getInterruptNumber(), static_cast<IrqHandler *>(this));
     NetworkStack::instance().registerDevice(this);
 }
 
@@ -582,7 +615,7 @@ Nic3C90x::~Nic3C90x()
 
 int Nic3C90x::trampoline(void *p)
 {
-    Nic3C90x *pNic = reinterpret_cast<Nic3C90x*> (p);
+    Nic3C90x *pNic = reinterpret_cast<Nic3C90x *>(p);
     pNic->receiveThread();
     return 0;
 }
@@ -596,9 +629,10 @@ void Nic3C90x::receiveThread()
         // When we come here, the UpListPtr register will hold the *next* UPD...
         // What we want is the one that it used! That's ok, it's not difficult
         // to find that out...
-        // However, if the next is zero, the IRQ notified us of the *last* UPD in
-        // the list. That needs to be handled properly too.
-        uintptr_t currUpdPhys = reinterpret_cast<uintptr_t>(m_PendingPackets.popFront());
+        // However, if the next is zero, the IRQ notified us of the *last* UPD
+        // in the list. That needs to be handled properly too.
+        uintptr_t currUpdPhys =
+            reinterpret_cast<uintptr_t>(m_PendingPackets.popFront());
         uintptr_t myNum;
         if (currUpdPhys != 0)
         {
@@ -612,13 +646,17 @@ void Nic3C90x::receiveThread()
         if (usedUpd->UpPktStatus & (1 << 14))
         {
             // an error occurred
-            ERROR("3C90x: error, UpPktStatus = " << usedUpd->UpPktStatus << ".");
+            ERROR(
+                "3C90x: error, UpPktStatus = " << usedUpd->UpPktStatus << ".");
             return;
         }
 
         size_t packLen = usedUpd->UpPktStatus & 0x1FFF;
 
-        NetworkStack::instance().receive(packLen, reinterpret_cast<uintptr_t>(m_pRxBuffVirt + (myNum * 1536)), this, 0);
+        NetworkStack::instance().receive(
+            packLen,
+            reinterpret_cast<uintptr_t>(m_pRxBuffVirt + (myNum * 1536)), this,
+            0);
 
         // reset the UPD's status so it can be used again
         usedUpd->UpPktStatus = 0;
@@ -628,7 +666,6 @@ void Nic3C90x::receiveThread()
             m_pBase->write32(m_pUPD, regUpListPtr_l);
     }
 }
-
 
 bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
 {
@@ -649,7 +686,8 @@ bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
         // handle...
         if (status & INT_UPCOMPLETE)
         {
-            void *currPhys = reinterpret_cast<void*>(m_pBase->read32(regUpListPtr_l));
+            void *currPhys =
+                reinterpret_cast<void *>(m_pBase->read32(regUpListPtr_l));
             m_PendingPackets.pushBack(currPhys);
             m_RxMutex.release();
         }
@@ -717,7 +755,7 @@ bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
     XL_SEL_WIN(7);
 
       if (ifp->if_snd.ifq_head != NULL)
-      	xl_start(ifp);
+        xl_start(ifp);
     */
 
     return true;
@@ -727,22 +765,32 @@ bool Nic3C90x::setStationInfo(StationInfo info)
 {
     // free the old DNS servers list, if there is one
     if (m_StationInfo.dnsServers)
-        delete [] m_StationInfo.dnsServers;
+        delete[] m_StationInfo.dnsServers;
 
     // MAC isn't changeable, so set it all manually
     m_StationInfo.ipv4 = info.ipv4;
-    NOTICE("3C90x: Setting ipv4, " << info.ipv4.toString() << ", " << m_StationInfo.ipv4.toString() << "...");
+    NOTICE(
+        "3C90x: Setting ipv4, " << info.ipv4.toString() << ", "
+                                << m_StationInfo.ipv4.toString() << "...");
     m_StationInfo.ipv6 = info.ipv6;
 
     m_StationInfo.subnetMask = info.subnetMask;
-    NOTICE("3C90x: Setting subnet mask, " << info.subnetMask.toString() << ", " << m_StationInfo.subnetMask.toString() << "...");
+    NOTICE(
+        "3C90x: Setting subnet mask, " << info.subnetMask.toString() << ", "
+                                       << m_StationInfo.subnetMask.toString()
+                                       << "...");
     m_StationInfo.gateway = info.gateway;
-    NOTICE("3C90x: Setting gateway, " << info.gateway.toString() << ", " << m_StationInfo.gateway.toString() << "...");
+    NOTICE(
+        "3C90x: Setting gateway, " << info.gateway.toString() << ", "
+                                   << m_StationInfo.gateway.toString()
+                                   << "...");
 
     // Callers do not free their dnsServers memory
     m_StationInfo.dnsServers = info.dnsServers;
     m_StationInfo.nDnsServers = info.nDnsServers;
-    NOTICE("3C90x: Setting DNS servers [" << Dec << m_StationInfo.nDnsServers << Hex << " servers being set]...");
+    NOTICE(
+        "3C90x: Setting DNS servers [" << Dec << m_StationInfo.nDnsServers
+                                       << Hex << " servers being set]...");
 
     return true;
 }

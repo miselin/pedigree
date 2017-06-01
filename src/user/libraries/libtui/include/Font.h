@@ -20,9 +20,9 @@
 #ifndef FONT_H
 #define FONT_H
 
-#include <stdlib.h>
-#include <stdint.h>
 #include "environment.h"
+#include <stdint.h>
+#include <stdlib.h>
 
 #include <native/graphics/Graphics.h>
 
@@ -32,32 +32,42 @@
 
 class Font
 {
-public:
-    Font(cairo_t *pCairo, size_t requestedSize, const char *pFilename, bool bCache, size_t nWidth);
+    public:
+    Font(
+        cairo_t *pCairo, size_t requestedSize, const char *pFilename,
+        bool bCache, size_t nWidth);
     virtual ~Font();
 
-    virtual size_t render(PedigreeGraphics::Framebuffer *pFb, uint32_t c,
-        size_t x, size_t y, uint32_t f, uint32_t b, bool bBack = true,
-        bool bBold = false, bool bItalic = false, bool bUnderline = false);
+    virtual size_t render(
+        PedigreeGraphics::Framebuffer *pFb, uint32_t c, size_t x, size_t y,
+        uint32_t f, uint32_t b, bool bBack = true, bool bBold = false,
+        bool bItalic = false, bool bUnderline = false);
 
-    virtual size_t render(const char *s, size_t x, size_t y, uint32_t f, uint32_t b,
-        bool bBack = true, bool bBold = false, bool bItalic = false, bool bUnderline = false);
+    virtual size_t render(
+        const char *s, size_t x, size_t y, uint32_t f, uint32_t b,
+        bool bBack = true, bool bBold = false, bool bItalic = false,
+        bool bUnderline = false);
 
     size_t getWidth()
-    {return m_CellWidth;}
+    {
+        return m_CellWidth;
+    }
     size_t getHeight()
-    {return m_CellHeight;}
+    {
+        return m_CellHeight;
+    }
     size_t getBaseline()
-    {return m_Baseline;}
+    {
+        return m_Baseline;
+    }
 
     const char *precache(uint32_t c);
 
     void updateCairo(cairo_t *pCairo);
 
-private:
-
-    Font(const Font&);
-    Font &operator = (const Font&);
+    private:
+    Font(const Font &);
+    Font &operator=(const Font &);
 
     size_t m_CellWidth;
     size_t m_CellHeight;

@@ -29,64 +29,65 @@ template <class T>
 class BloomFilter
 {
     public:
-        BloomFilter(size_t length, size_t hashcount) : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
+    BloomFilter(size_t length, size_t hashcount)
+        : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
+    {
+    }
+    virtual ~BloomFilter() = default;
+
+    void add(const T &data)
+    {
+        add(&data, sizeof(T));
+    }
+
+    void add(const T *data, size_t length)
+    {
+        return;
+        uint64_t baseHash[2];
+        MurmurHash3_x64_128(data, length, 0, baseHash);
+
+        for (size_t i = 0; i < m_nHashCount; ++i)
         {
+            uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
+            m_Bitmap.set(n);
         }
-        virtual ~BloomFilter() = default;
+    }
 
-        void add(const T &data)
+    bool contains(const T &data)
+    {
+        return contains(&data, sizeof(T));
+    }
+
+    bool contains(const T *data, size_t length)
+    {
+        return true;
+        uint64_t baseHash[2];
+        MurmurHash3_x64_128(data, length, 0, baseHash);
+
+        for (size_t i = 0; i < m_nHashCount; ++i)
         {
-            add(&data, sizeof(T));
-        }
-
-        void add(const T *data, size_t length)
-        {
-            return;
-            uint64_t baseHash[2];
-            MurmurHash3_x64_128(data, length, 0, baseHash);
-
-            for (size_t i = 0; i < m_nHashCount; ++i)
+            uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
+            if (!m_Bitmap.test(n))
             {
-                uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
-                m_Bitmap.set(n);
+                return false;
             }
         }
 
-        bool contains(const T &data)
+        return true;
+    }
+
+    void clear()
+    {
+        for (size_t i = 0; i < m_nLength; ++i)
         {
-            return contains(&data, sizeof(T));
+            m_Bitmap.clear(i);
         }
-
-        bool contains(const T *data, size_t length)
-        {
-            return true;
-            uint64_t baseHash[2];
-            MurmurHash3_x64_128(data, length, 0, baseHash);
-
-            for (size_t i = 0; i < m_nHashCount; ++i)
-            {
-                uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
-                if (!m_Bitmap.test(n))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        void clear()
-        {
-            for (size_t i = 0; i < m_nLength; ++i)
-            {
-                m_Bitmap.clear(i);
-            }
-        }
+    }
 
     private:
-        ExtensibleBitmap m_Bitmap;
-        size_t m_nLength;
-        size_t m_nHashCount;
+    ExtensibleBitmap m_Bitmap;
+    size_t m_nLength;
+    size_t m_nHashCount;
 };
 
 extern template class BloomFilter<void *>;

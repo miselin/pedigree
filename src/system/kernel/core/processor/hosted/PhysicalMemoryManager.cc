@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <panic.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
-#include <processor/MemoryRegion.h>
-#include <processor/Processor.h>
 #include "PhysicalMemoryManager.h"
 #include <LockGuard.h>
+#include <Log.h>
+#include <panic.h>
+#include <processor/MemoryRegion.h>
+#include <processor/Processor.h>
 #include <utilities/Cache.h>
+#include <utilities/assert.h>
+#include <utilities/utility.h>
 
 #if defined(TRACK_PAGE_ALLOCATIONS)
 #include <commands/AllocationCommand.h>
@@ -36,12 +36,14 @@
 #include <SlamAllocator.h>
 #include <process/MemoryPressureManager.h>
 
-namespace __pedigree_hosted {};
+namespace __pedigree_hosted
+{
+};
 using namespace __pedigree_hosted;
 
-#include <unistd.h>
-#include <stdio.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #define USE_BITMAP
 
@@ -67,17 +69,18 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
 
     // Some methods of handling memory pressure require allocating pages, so
     // we need to not end up recursively trying to release the pressure.
-    if(!bHandlingPressure)
+    if (!bHandlingPressure)
     {
-        if(m_PageStack.freePages() < MemoryPressureManager::getHighWatermark())
+        if (m_PageStack.freePages() < MemoryPressureManager::getHighWatermark())
         {
             bHandlingPressure = true;
 
             // Make sure the compact can trigger frees.
             m_Lock.release();
 
-            WARNING_NOLOCK("Memory pressure encountered, performing a compact...");
-            if(!MemoryPressureManager::instance().compact())
+            WARNING_NOLOCK(
+                "Memory pressure encountered, performing a compact...");
+            if (!MemoryPressureManager::instance().compact())
                 ERROR_NOLOCK("Compact did not alleviate any memory pressure.");
             else
                 NOTICE_NOLOCK("Compact was successful.");
@@ -87,7 +90,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
             bDidHitWatermark = true;
             bHandlingPressure = false;
         }
-        else if(bDidHitWatermark)
+        else if (bDidHitWatermark)
         {
             ERROR_NOLOCK("<pressure was hit, but is no longer being hit>");
             bDidHitWatermark = false;
@@ -95,7 +98,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
     }
 
     ptr = m_PageStack.allocate(0);
-    if(!ptr)
+    if (!ptr)
     {
         panic("Out of memory.");
     }
@@ -104,17 +107,17 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
     physical_uintptr_t ptr_bitmap = ptr / 0x1000;
     size_t idx = ptr_bitmap / 32;
     size_t bit = ptr_bitmap % 32;
-    if(g_PageBitmap[idx] & (1 << bit))
+    if (g_PageBitmap[idx] & (1 << bit))
     {
         m_Lock.release();
         FATAL_NOLOCK("PhysicalMemoryManager allocate()d a page twice");
     }
     g_PageBitmap[idx] |= (1 << bit);
 #endif
-    
+
     m_Lock.release();
 
-#if defined(TRACK_PAGE_ALLOCATIONS)             
+#if defined(TRACK_PAGE_ALLOCATIONS)
     if (Processor::m_Initialised == 2)
     {
         if (!g_AllocationCommand.isMallocing())
@@ -134,8 +137,9 @@ void HostedPhysicalMemoryManager::freePage(physical_uintptr_t page)
 }
 void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
 {
-    if(!m_Lock.acquired())
-        FATAL("HostedPhysicalMemoryManager::freePageUnlocked called without an acquired lock");
+    if (!m_Lock.acquired())
+        FATAL("HostedPhysicalMemoryManager::freePageUnlocked called without an "
+              "acquired lock");
 
     // Check for pinned page.
     size_t index = page >> 12;
@@ -157,7 +161,7 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
     physical_uintptr_t ptr_bitmap = page / 0x1000;
     size_t idx = ptr_bitmap / 32;
     size_t bit = ptr_bitmap % 32;
-    if(!(g_PageBitmap[idx] & (1 << bit)))
+    if (!(g_PageBitmap[idx] & (1 << bit)))
     {
         m_Lock.release();
         FATAL_NOLOCK("PhysicalMemoryManager DOUBLE FREE");
@@ -169,7 +173,8 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
     m_PageStack.free(page);
 }
 
-void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {
+void HostedPhysicalMemoryManager::pin(physical_uintptr_t page)
+{
     RecursingLockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageMetadata)
@@ -190,11 +195,9 @@ void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {
     }
 }
 
-bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
-                                                    size_t cPages,
-                                                    size_t pageConstraints,
-                                                    size_t Flags,
-                                                    physical_uintptr_t start)
+bool HostedPhysicalMemoryManager::allocateRegion(
+    MemoryRegion &Region, size_t cPages, size_t pageConstraints, size_t Flags,
+    physical_uintptr_t start)
 {
     LockGuard<Spinlock> guard(m_RegionLock);
 
@@ -211,7 +214,8 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
         if ((pageConstraints & nonRamMemory) == nonRamMemory)
         {
             Region.setNonRamMemory(true);
-            if (m_PhysicalRanges.allocateSpecific(start, cPages * getPageSize()) == false)
+            if (m_PhysicalRanges.allocateSpecific(
+                    start, cPages * getPageSize()) == false)
             {
                 if ((pageConstraints & force) != force)
                     return false;
@@ -229,32 +233,36 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
         // Allocate the virtual address space
         uintptr_t vAddress;
 
-        if (m_MemoryRegions.allocate(cPages * PhysicalMemoryManager::getPageSize(),
-                                     vAddress)
-            == false)
+        if (m_MemoryRegions.allocate(
+                cPages * PhysicalMemoryManager::getPageSize(), vAddress) ==
+            false)
         {
             WARNING("AllocateRegion: MemoryRegion allocation failed.");
             return false;
         }
 
         // Map the physical memory into the allocated space
-        VirtualAddressSpace &virtualAddressSpace =  Processor::information().getVirtualAddressSpace();
-        for (size_t i = 0;i < cPages;i++)
-            if (virtualAddressSpace.map(start + i * PhysicalMemoryManager::getPageSize(),
-                                        reinterpret_cast<void*>(vAddress + i * PhysicalMemoryManager::getPageSize()),
-                                        Flags)
-                == false)
+        VirtualAddressSpace &virtualAddressSpace =
+            Processor::information().getVirtualAddressSpace();
+        for (size_t i = 0; i < cPages; i++)
+            if (virtualAddressSpace.map(
+                    start + i * PhysicalMemoryManager::getPageSize(),
+                    reinterpret_cast<void *>(
+                        vAddress + i * PhysicalMemoryManager::getPageSize()),
+                    Flags) == false)
             {
-                m_MemoryRegions.free(vAddress, cPages * PhysicalMemoryManager::getPageSize());
+                m_MemoryRegions.free(
+                    vAddress, cPages * PhysicalMemoryManager::getPageSize());
                 WARNING("AllocateRegion: VirtualAddressSpace::map failed.");
                 return false;
             }
 
         // Set the memory-region's members
-        Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
+        Region.m_VirtualAddress = reinterpret_cast<void *>(vAddress);
         Region.m_PhysicalAddress = start;
         Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
-//       NOTICE("MR: Allocated " << Hex << vAddress << " (phys " << static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
+        //       NOTICE("MR: Allocated " << Hex << vAddress << " (phys " <<
+        //       static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
 
         // Add to the list of memory-regions
         PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
@@ -264,26 +272,27 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
     {
         // Allocate the virtual address space
         uintptr_t vAddress;
-        if (m_MemoryRegions.allocate(cPages * PhysicalMemoryManager::getPageSize(),
-                                     vAddress)
-            == false)
+        if (m_MemoryRegions.allocate(
+                cPages * PhysicalMemoryManager::getPageSize(), vAddress) ==
+            false)
         {
             WARNING("AllocateRegion: MemoryRegion allocation failed.");
             return false;
         }
 
-
         uint32_t start = 0;
-        VirtualAddressSpace &virtualAddressSpace = Processor::information().getVirtualAddressSpace();
+        VirtualAddressSpace &virtualAddressSpace =
+            Processor::information().getVirtualAddressSpace();
 
         // Map the physical memory into the allocated space
-        for (size_t i = 0;i < cPages;i++)
+        for (size_t i = 0; i < cPages; i++)
         {
             physical_uintptr_t page = m_PageStack.allocate(pageConstraints);
-            if (virtualAddressSpace.map(page,
-                                        reinterpret_cast<void*>(vAddress + i * PhysicalMemoryManager::getPageSize()),
-                                        Flags)
-                == false)
+            if (virtualAddressSpace.map(
+                    page,
+                    reinterpret_cast<void *>(
+                        vAddress + i * PhysicalMemoryManager::getPageSize()),
+                    Flags) == false)
             {
                 WARNING("AllocateRegion: VirtualAddressSpace::map failed.");
                 return false;
@@ -291,7 +300,7 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
         }
 
         // Set the memory-region's members
-        Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
+        Region.m_VirtualAddress = reinterpret_cast<void *>(vAddress);
         Region.m_PhysicalAddress = start;
         Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
 
@@ -307,8 +316,7 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     NOTICE("memory-map:");
 
     // Free pages into the page stack first.
-    for (physical_uintptr_t p = 0;
-         p < HOSTED_PHYSICAL_MEMORY_SIZE;
+    for (physical_uintptr_t p = 0; p < HOSTED_PHYSICAL_MEMORY_SIZE;
          p += getPageSize())
     {
         m_PageStack.free(p);
@@ -319,18 +327,22 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     m_PhysicalRanges.free(0, 0x100000000ULL);
     m_PhysicalRanges.allocateSpecific(0, HOSTED_PHYSICAL_MEMORY_SIZE);
 
-    // Print the ranges
-#if defined(VERBOSE_MEMORY_MANAGER)             
+// Print the ranges
+#if defined(VERBOSE_MEMORY_MANAGER)
     NOTICE("physical memory ranges:");
-    for (size_t i = 0;i < m_PhysicalRanges.size();i++)
+    for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
     {
-        NOTICE(" " << Hex << m_PhysicalRanges.getRange(i).address << " - " << (m_PhysicalRanges.getRange(i).address + m_PhysicalRanges.getRange(i).length));
+        NOTICE(
+            " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
+                << (m_PhysicalRanges.getRange(i).address +
+                    m_PhysicalRanges.getRange(i).length));
     }
 #endif
 
     // Initialise the range of virtual space for MemoryRegions
-    m_MemoryRegions.free(reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_MEMORYREGION_ADDRESS),
-                         KERNEL_VIRTUAL_MEMORYREGION_SIZE);
+    m_MemoryRegions.free(
+        reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_MEMORYREGION_ADDRESS),
+        KERNEL_VIRTUAL_MEMORYREGION_SIZE);
 }
 
 void HostedPhysicalMemoryManager::initialisationDone()
@@ -351,7 +363,7 @@ HostedPhysicalMemoryManager::HostedPhysicalMemoryManager()
 HostedPhysicalMemoryManager::~HostedPhysicalMemoryManager()
 {
     PhysicalMemoryManager::m_MemoryRegions.clear();
-    delete [] m_PageMetadata;
+    delete[] m_PageMetadata;
     m_PageMetadata = 0;
 
     close(m_BackingFile);
@@ -362,17 +374,19 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 {
     LockGuard<Spinlock> guard(m_RegionLock);
 
-    for (Vector<MemoryRegion*>::Iterator it = PhysicalMemoryManager::m_MemoryRegions.begin();
-         it != PhysicalMemoryManager::m_MemoryRegions.end();
-         it++)
+    for (Vector<MemoryRegion *>::Iterator it =
+             PhysicalMemoryManager::m_MemoryRegions.begin();
+         it != PhysicalMemoryManager::m_MemoryRegions.end(); it++)
     {
         if (*it == pRegion)
         {
-
-            size_t cPages = pRegion->size() / PhysicalMemoryManager::getPageSize();
-            uintptr_t start = reinterpret_cast<uintptr_t> (pRegion->virtualAddress());
+            size_t cPages =
+                pRegion->size() / PhysicalMemoryManager::getPageSize();
+            uintptr_t start =
+                reinterpret_cast<uintptr_t>(pRegion->virtualAddress());
             physical_uintptr_t phys = pRegion->physicalAddress();
-            VirtualAddressSpace &virtualAddressSpace = VirtualAddressSpace::getKernelAddressSpace();
+            VirtualAddressSpace &virtualAddressSpace =
+                VirtualAddressSpace::getKernelAddressSpace();
 
             if (pRegion->getNonRamMemory())
             {
@@ -380,12 +394,14 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
                     m_PhysicalRanges.free(phys, pRegion->size());
             }
 
-            for (size_t i = 0;i < cPages;i++)
+            for (size_t i = 0; i < cPages; i++)
             {
-                void *vAddr = reinterpret_cast<void*> (start + i * PhysicalMemoryManager::getPageSize());
+                void *vAddr = reinterpret_cast<void *>(
+                    start + i * PhysicalMemoryManager::getPageSize());
                 if (!virtualAddressSpace.isMapped(vAddr))
                 {
-                    FATAL("Algorithmic error in PhysicalMemoryManager::unmapRegion");
+                    FATAL("Algorithmic error in "
+                          "PhysicalMemoryManager::unmapRegion");
                 }
                 physical_uintptr_t pAddr;
                 size_t flags;
@@ -393,7 +409,7 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 
                 if (!pRegion->getNonRamMemory() && pAddr > 0x1000000)
                     m_PageStack.free(pAddr);
-                
+
                 virtualAddressSpace.unmap(vAddr);
             }
             m_MemoryRegions.free(start, pRegion->size());
@@ -405,33 +421,37 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 
 size_t g_FreePages = 0;
 size_t g_AllocedPages = 0;
-physical_uintptr_t HostedPhysicalMemoryManager::PageStack::allocate(size_t constraints)
+physical_uintptr_t
+HostedPhysicalMemoryManager::PageStack::allocate(size_t constraints)
 {
     size_t index = 0;
 
     physical_uintptr_t result = 0;
-    if ( (m_StackMax[index] != m_StackSize[index]) && m_StackSize[index])
+    if ((m_StackMax[index] != m_StackSize[index]) && m_StackSize[index])
     {
         if (index == 0)
         {
             m_StackSize[0] -= 4;
-            result = *(reinterpret_cast<uint32_t*>(m_Stack[0]) + m_StackSize[0] / 4);
+            result = *(
+                reinterpret_cast<uint32_t *>(m_Stack[0]) + m_StackSize[0] / 4);
         }
         else
         {
             m_StackSize[index] -= 8;
-            result = *(reinterpret_cast<uint64_t*>(m_Stack[index]) + m_StackSize[index] / 8);
+            result =
+                *(reinterpret_cast<uint64_t *>(m_Stack[index]) +
+                  m_StackSize[index] / 8);
         }
     }
 
-    if(result)
+    if (result)
     {
         /// \note Testing.
-        if(g_FreePages)
-            g_FreePages --;
-        g_AllocedPages ++;
+        if (g_FreePages)
+            g_FreePages--;
+        g_AllocedPages++;
 
-        if(m_FreePages)
+        if (m_FreePages)
             --m_FreePages;
     }
     return result;
@@ -440,7 +460,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::PageStack::allocate(size_t const
 void HostedPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress)
 {
     // Don't attempt to map address zero.
-    if(!m_Stack[0])
+    if (!m_Stack[0])
         return;
 
     // Expand the stack if necessary
@@ -449,20 +469,23 @@ void HostedPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress)
         // Map the next increment of the stack to the page we are freeing.
         // The next free will actually move StackMax, and write to the newly
         // allocated page.
-        if(VirtualAddressSpace::getKernelAddressSpace().map(physicalAddress, adjust_pointer(m_Stack[0], m_StackMax[0]), VirtualAddressSpace::Write))
+        if (VirtualAddressSpace::getKernelAddressSpace().map(
+                physicalAddress, adjust_pointer(m_Stack[0], m_StackMax[0]),
+                VirtualAddressSpace::Write))
         {
             return;
         }
         m_StackMax[0] += getPageSize();
     }
 
-    *(reinterpret_cast<uint32_t*>(m_Stack[0]) + m_StackSize[0] / 4) = static_cast<uint32_t>(physicalAddress);
+    *(reinterpret_cast<uint32_t *>(m_Stack[0]) + m_StackSize[0] / 4) =
+        static_cast<uint32_t>(physicalAddress);
     m_StackSize[0] += 4;
 
     /// \note Testing.
-    g_FreePages ++;
+    g_FreePages++;
     if (g_AllocedPages > 0)
-        g_AllocedPages --;
+        g_AllocedPages--;
 
     ++m_FreePages;
 }

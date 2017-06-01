@@ -20,9 +20,9 @@
 #ifndef KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 #define KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 
-#include <processor/IoPort.h>
-#include <processor/InterruptManager.h>
 #include <machine/IrqManager.h>
+#include <processor/InterruptManager.h>
+#include <processor/IoPort.h>
 #include <utilities/List.h>
 
 /** @addtogroup kernelmachinehosted
@@ -30,16 +30,21 @@
 
 class HostedIrqManager : public IrqManager, private InterruptHandler
 {
-  public:
+    public:
     /** Get the HostedIrqManager class instance
      *\return the HostedIrqManager class instance */
-    inline static HostedIrqManager &instance(){return m_Instance;}
+    inline static HostedIrqManager &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // IrqManager interface
     //
-    virtual irq_id_t registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
-    virtual irq_id_t registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
+    virtual irq_id_t
+    registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t
+    registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
     virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
 
@@ -50,23 +55,27 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** Called every millisecond, typically handles IRQ mitigation. */
     virtual void tick();
-    
+
     /** Controls specific elements of a given IRQ */
     virtual bool control(uint8_t irq, ControlCode code, size_t argument);
 
     virtual void enable(uint8_t irq, bool enable)
-    {}
-  private:
+    {
+    }
+
+    private:
     /** The default constructor */
     HostedIrqManager() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~HostedIrqManager(){}
+    inline virtual ~HostedIrqManager()
+    {
+    }
     /** The copy-constructor
      *\note NOT implemented */
     HostedIrqManager(const HostedIrqManager &);
     /** The assignment operator
      *\note NOT implemented */
-    HostedIrqManager &operator = (const HostedIrqManager &);
+    HostedIrqManager &operator=(const HostedIrqManager &);
 
     //
     // InterruptHandler interface
@@ -74,10 +83,10 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
     /** The IRQ handler */
-    List<IrqHandler*> m_Handler[2];
+    List<IrqHandler *> m_Handler[2];
 
     /** Main lock for all modifications */
-    Spinlock    m_Lock;
+    Spinlock m_Lock;
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;

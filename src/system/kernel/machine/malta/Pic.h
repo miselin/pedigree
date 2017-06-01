@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,21 +20,23 @@
 #ifndef KERNEL_MACHINE_MIPS_COMMON_PIC_H
 #define KERNEL_MACHINE_MIPS_COMMON_PIC_H
 
-#include <processor/IoPort.h>
-#include <processor/InterruptManager.h>
 #include <machine/IrqManager.h>
+#include <processor/InterruptManager.h>
+#include <processor/IoPort.h>
 
 /** @addtogroup kernelmachinex86common
  * @{ */
 
 /** The x86/x64 programmable interrupt controller as IrqManager */
-class Pic : public IrqManager,
-            private InterruptHandler
+class Pic : public IrqManager, private InterruptHandler
 {
-  public:
+    public:
     /** Get the Pic class instance
      *\return the Pic class instance */
-    inline static Pic &instance(){return m_Instance;}
+    inline static Pic &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // IrqManager interface
@@ -50,17 +51,19 @@ class Pic : public IrqManager,
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
-  private:
+    private:
     /** The default constructor */
     Pic() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~Pic(){}
+    inline virtual ~Pic()
+    {
+    }
     /** The copy-constructor
      *\note NOT implemented */
     Pic(const Pic &);
     /** The assignment operator
      *\note NOT implemented */
-    Pic &operator = (const Pic &);
+    Pic &operator=(const Pic &);
 
     //
     // InterruptHandler interface
@@ -72,9 +75,9 @@ class Pic : public IrqManager,
     void enableAll(bool enable);
 
     /** The slave PIC I/O Port range */
-//    IoPort m_SlavePort;
+    //    IoPort m_SlavePort;
     /** The master PIC I/O Port range */
-//    IoPort m_MasterPort;
+    //    IoPort m_MasterPort;
 
     /** The IRQ handler */
     IrqHandler *m_Handler[16];

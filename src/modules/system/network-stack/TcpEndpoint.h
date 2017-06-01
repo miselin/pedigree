@@ -20,17 +20,17 @@
 #ifndef TCPENDPOINT_H
 #define TCPENDPOINT_H
 
+#include <machine/Network.h>
+#include <process/Semaphore.h>
 #include <processor/types.h>
 #include <utilities/List.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
 
 #include <Log.h>
 
 #include "ConnectionBasedEndpoint.h"
 #include "Endpoint.h"
-#include "TcpMisc.h"
 #include "Tcp.h"
+#include "TcpMisc.h"
 
 class TcpManager;
 class StateBlock;
@@ -43,54 +43,61 @@ class StateBlock;
  */
 class TcpEndpoint : public ConnectionBasedEndpoint
 {
-  friend class StateBlock;
-  friend class TcpManager;
-  public:
+    friend class StateBlock;
+    friend class TcpManager;
 
+    public:
     /** Constructors and destructors */
     TcpEndpoint();
     TcpEndpoint(uint16_t local, uint16_t remote);
     TcpEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
-    TcpEndpoint(size_t connId, IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0);
+    TcpEndpoint(
+        size_t connId, IpAddress remoteIp, uint16_t local = 0,
+        uint16_t remote = 0);
     virtual ~TcpEndpoint();
 
     /** Application interface */
     virtual ConnectionBasedEndpoint::EndpointState state() const;
     virtual int send(size_t nBytes, uintptr_t buffer);
-    virtual int recv(uintptr_t buffer, size_t maxSize, bool bBlock = false, bool bPeek = false);
+    virtual int recv(
+        uintptr_t buffer, size_t maxSize, bool bBlock = false,
+        bool bPeek = false);
     virtual bool dataReady(bool block = false, uint32_t tmout = 30);
 
-    virtual bool connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock = true);
+    virtual bool
+    connect(const Endpoint::RemoteEndpoint &remoteHost, bool bBlock = true);
     virtual void close();
 
-    virtual Endpoint* accept();
+    virtual Endpoint *accept();
     virtual bool listen();
 
     virtual void setRemoteHost(const Endpoint::RemoteEndpoint &host);
 
     virtual uint32_t getConnId() const;
 
-    /** TcpManager functionality - called to deposit data into our local buffer */
-    virtual size_t depositTcpPayload(size_t nBytes, uintptr_t payload, uint32_t sequenceNumber, bool push);
+    /** TcpManager functionality - called to deposit data into our local buffer
+     */
+    virtual size_t depositTcpPayload(
+        size_t nBytes, uintptr_t payload, uint32_t sequenceNumber, bool push);
 
     /** Setters */
-    void setCard(Network* pCard);
+    void setCard(Network *pCard);
 
-    void addIncomingConnection(TcpEndpoint* conn);
+    void addIncomingConnection(TcpEndpoint *conn);
 
     /** Shuts down halves of the connection */
     virtual bool shutdown(ShutdownType what);
 
-    /** Notifies sockets on this Endpoint that the connection state has changed. */
+    /** Notifies sockets on this Endpoint that the connection state has changed.
+     */
     void stateChanged(Tcp::TcpState newState);
 
-  private:
-
+    private:
     /** Copy constructors */
     NOT_COPYABLE_OR_ASSIGNABLE(TcpEndpoint);
 
     /** The network device to use */
-    Network* m_Card;
+    Network *m_Card;
 
     /** TcpManager connection ID */
     size_t m_ConnId;
@@ -98,14 +105,15 @@ class TcpEndpoint : public ConnectionBasedEndpoint
     /** The host we're connected to at the moment */
     RemoteEndpoint m_RemoteHost;
 
-    /** Number of bytes we've removed off the front of the (shadow) data stream */
+    /** Number of bytes we've removed off the front of the (shadow) data stream
+     */
     size_t nBytesRemoved;
 
     /** Listen endpoint? */
     bool m_Listening;
 
     /** Incoming connection queue (to be handled by accept) */
-    List<Endpoint*> m_IncomingConnections;
+    List<Endpoint *> m_IncomingConnections;
     size_t m_IncomingConnectionCount;
     ConditionVariable cond;
 
@@ -115,14 +123,14 @@ class TcpEndpoint : public ConnectionBasedEndpoint
     /** Adding an incoming connection must be an atomic operation. */
     Mutex m_IncomingConnectionLock;
 
-  protected:
-
+    protected:
     /** The incoming data stream */
     TcpBuffer m_DataStream;
 
-    /** Shadow incoming data stream - actually receives the bytes from the stack until PUSH flag is set
-      * or the buffer fills up, or the connection starts closing.
-      */
+    /** Shadow incoming data stream - actually receives the bytes from the stack
+     * until PUSH flag is set or the buffer fills up, or the connection starts
+     * closing.
+     */
     TcpBuffer m_ShadowDataStream;
 };
 

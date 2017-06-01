@@ -65,11 +65,11 @@ static char sccsid[] = "@(#)scandir.c	5.10 (Berkeley) 2/23/91";
 
 #include <newlib.h>
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <dirent.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 /*
  * The DIRSIZ macro gives the minimum record length which will hold
@@ -79,93 +79,93 @@ static char sccsid[] = "@(#)scandir.c	5.10 (Berkeley) 2/23/91";
  */
 #undef DIRSIZ
 #ifdef _DIRENT_HAVE_D_NAMLEN
-#define DIRSIZ(dp) \
-    ((sizeof (struct dirent) - (MAXNAMLEN+1)) + (((dp)->d_namlen+1 + 3) &~ 3))
+#define DIRSIZ(dp)                               \
+    ((sizeof(struct dirent) - (MAXNAMLEN + 1)) + \
+     (((dp)->d_namlen + 1 + 3) & ~3))
 #else
-#define DIRSIZ(dp) \
-    ((sizeof (struct dirent) - (MAXNAMLEN+1)) + ((strlen((dp)->d_name)+1 + 3) &~ 3))
+#define DIRSIZ(dp)                               \
+    ((sizeof(struct dirent) - (MAXNAMLEN + 1)) + \
+     ((strlen((dp)->d_name) + 1 + 3) & ~3))
 #endif
 
 #ifndef __P
 #define __P(args) ()
 #endif
 
-int
-scandir(dirname, namelist, select, dcomp)
-	const char *dirname;
-	struct dirent ***namelist;
-	int (*select) __P((struct dirent *));
-	int (*dcomp) __P((const void *, const void *));
+int scandir(dirname, namelist, select, dcomp) const char *dirname;
+struct dirent ***namelist;
+int(*select) __P((struct dirent *) );
+int(*dcomp) __P((const void *, const void *) );
 {
-	register struct dirent *d, *p, **names;
-	register size_t nitems;
-	struct stat stb;
-	size_t arraysz;
-	DIR *dirp;
+    register struct dirent *d, *p, **names;
+    register size_t nitems;
+    struct stat stb;
+    size_t arraysz;
+    DIR *dirp;
 
-	if ((dirp = opendir(dirname)) == NULL)
-		return(-1);
-	if (fstat(dirp->fd, &stb) < 0)
-		return(-1);
+    if ((dirp = opendir(dirname)) == NULL)
+        return (-1);
+    if (fstat(dirp->fd, &stb) < 0)
+        return (-1);
 
-	/*
-	 * estimate the array size by taking the size of the directory file
-	 * and dividing it by a multiple of the minimum size entry. 
-	 */
-	arraysz = (stb.st_size / 24);
-	names = (struct dirent **)malloc(arraysz * sizeof(struct dirent *));
-	if (names == NULL)
-		return(-1);
+    /*
+     * estimate the array size by taking the size of the directory file
+     * and dividing it by a multiple of the minimum size entry.
+     */
+    arraysz = (stb.st_size / 24);
+    names = (struct dirent **) malloc(arraysz * sizeof(struct dirent *));
+    if (names == NULL)
+        return (-1);
 
-	nitems = 0;
-	while ((d = readdir(dirp)) != NULL) {
-		if (select != NULL && !(*select)(d))
-			continue;	/* just selected names */
-		/*
-		 * Make a minimum size copy of the data
-		 */
-		p = (struct dirent *)malloc(DIRSIZ(d));
-		if (p == NULL)
-			return(-1);
-		p->d_ino = d->d_ino;
-		// p->d_reclen = d->d_reclen;
+    nitems = 0;
+    while ((d = readdir(dirp)) != NULL)
+    {
+        if (select != NULL && !(*select)(d))
+            continue; /* just selected names */
+        /*
+         * Make a minimum size copy of the data
+         */
+        p = (struct dirent *) malloc(DIRSIZ(d));
+        if (p == NULL)
+            return (-1);
+        p->d_ino = d->d_ino;
+// p->d_reclen = d->d_reclen;
 #ifdef _DIRENT_HAVE_D_NAMLEN
-		p->d_namlen = d->d_namlen;
-		bcopy(d->d_name, p->d_name, p->d_namlen + 1);
+        p->d_namlen = d->d_namlen;
+        bcopy(d->d_name, p->d_name, p->d_namlen + 1);
 #else
-               strcpy(p->d_name, d->d_name);
+        strcpy(p->d_name, d->d_name);
 #endif
-		/*
-		 * Check to make sure the array has space left and
-		 * realloc the maximum size.
-		 */
-		if (++nitems >= arraysz) {
-			if (fstat(dirp->fd, &stb) < 0)
-				return(-1);	/* just might have grown */
-			arraysz = stb.st_size / 12;
-			names = (struct dirent **)realloc((char *)names,
-				arraysz * sizeof(struct dirent *));
-			if (names == NULL)
-				return(-1);
-		}
-		names[nitems-1] = p;
-	}
-	closedir(dirp);
-	if (nitems && dcomp != NULL)
-		qsort(names, nitems, sizeof(struct dirent *), dcomp);
-	*namelist = names;
-	return(nitems);
+        /*
+         * Check to make sure the array has space left and
+         * realloc the maximum size.
+         */
+        if (++nitems >= arraysz)
+        {
+            if (fstat(dirp->fd, &stb) < 0)
+                return (-1); /* just might have grown */
+            arraysz = stb.st_size / 12;
+            names = (struct dirent **) realloc(
+                (char *) names, arraysz * sizeof(struct dirent *));
+            if (names == NULL)
+                return (-1);
+        }
+        names[nitems - 1] = p;
+    }
+    closedir(dirp);
+    if (nitems && dcomp != NULL)
+        qsort(names, nitems, sizeof(struct dirent *), dcomp);
+    *namelist = names;
+    return (nitems);
 }
 
 /*
  * Alphabetic order comparison routine for those who want it.
  */
-int
-alphasort(d1, d2)
-       const struct dirent **d1;
-       const struct dirent **d2;
+int alphasort(d1, d2) const struct dirent **d1;
+const struct dirent **d2;
 {
-       return(strcmp((*d1)->d_name, (*d2)->d_name));
+    return (strcmp((*d1)->d_name, (*d2)->d_name));
 }
 
 #endif /* ! HAVE_OPENDIR */

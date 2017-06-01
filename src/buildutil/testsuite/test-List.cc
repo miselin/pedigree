@@ -26,11 +26,13 @@
 struct Foo
 {
     Foo() : x(-1)
-    {}
+    {
+    }
 
     // Must use explicit here to avoid the implicit conversion.
     explicit Foo(int x) : x(x)
-    {}
+    {
+    }
 
     int x;
 };
@@ -185,7 +187,9 @@ TEST(PedigreeList, ErasingEnd)
     x.pushBack(8);
 
     auto it = x.begin();
-    ++it; ++it; ++it;
+    ++it;
+    ++it;
+    ++it;
     it = x.erase(it);
 
     EXPECT_EQ(x.popFront(), 2);

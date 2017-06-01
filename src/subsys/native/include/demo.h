@@ -28,23 +28,23 @@
 class Demo : public Object
 {
     public:
-        Demo();
-        virtual ~Demo();
+    Demo();
+    virtual ~Demo();
 
-        void something();
+    void something();
 
-        /**
-         * Retrieves the global unique identifier for this class.
-         *
-         * The global unique identifier is used when creating a new object to
-         * register the application object with the kernel. This identifier
-         * must match with the kernel's mapping of identifiers to kernel classes
-         * otherwise the system calls will fail in unexpected ways.
-         */
-        virtual uint64_t guid() const
-        {
-            return 0xdeadbeef;
-        }
+    /**
+     * Retrieves the global unique identifier for this class.
+     *
+     * The global unique identifier is used when creating a new object to
+     * register the application object with the kernel. This identifier
+     * must match with the kernel's mapping of identifiers to kernel classes
+     * otherwise the system calls will fail in unexpected ways.
+     */
+    virtual uint64_t guid() const
+    {
+        return 0xdeadbeef;
+    }
 };
 
 #endif

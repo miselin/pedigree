@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/utility.h>
-#include <utilities/assert.h>
 #include <compiler.h>
+#include <utilities/assert.h>
+#include <utilities/utility.h>
 
 #include <panic.h>
 
@@ -55,14 +55,14 @@ EXPORT void *memmove(void *s1, const void *s2, size_t n);
 
 EXPORT int memcmp(const void *p1, const void *p2, size_t len)
 {
-    const char* a = (const char*) p1;
-    const char* b = (const char*) p2;
+    const char *a = (const char *) p1;
+    const char *b = (const char *) p2;
     size_t i = 0;
     int r = 0;
-    for(; i < len; i++)
+    for (; i < len; i++)
     {
         if ((r = a[i] - b[i]) != 0)
-          break;
+            break;
     }
     return r;
 }
@@ -71,13 +71,16 @@ EXPORT void *memset(void *buf, int c, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b;
-    __asm__ __volatile__("rep stosb" : "=&D" (a), "=&c" (b) : "0" (buf), "a" (c), "1" (n) : "memory");
+    __asm__ __volatile__("rep stosb"
+                         : "=&D"(a), "=&c"(b)
+                         : "0"(buf), "a"(c), "1"(n)
+                         : "memory");
     return buf;
 #else
-    unsigned char *tmp = (unsigned char *)buf;
-    for(size_t i = 0; i < n; ++i)
+    unsigned char *tmp = (unsigned char *) buf;
+    for (size_t i = 0; i < n; ++i)
     {
-      *tmp++ = c;
+        *tmp++ = c;
     }
     return buf;
 #endif
@@ -87,12 +90,16 @@ EXPORT void *memcpy(void *restrict s1, const void *restrict s2, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b, c;
-    __asm__ __volatile__("rep movsb" : "=&c" (a), "=&D" (b), "=&S" (c): "1" (s1), "2" (s2), "0" (n) : "memory");
+    __asm__ __volatile__("rep movsb"
+                         : "=&c"(a), "=&D"(b), "=&S"(c)
+                         : "1"(s1), "2"(s2), "0"(n)
+                         : "memory");
     return s1;
 #else
-    const unsigned char *restrict sp = (const unsigned char *restrict)s2;
-    unsigned char *restrict dp = (unsigned char *restrict)s1;
-    for (; n != 0; n--) *dp++ = *sp++;
+    const unsigned char *restrict sp = (const unsigned char *restrict) s2;
+    unsigned char *restrict dp = (unsigned char *restrict) s1;
+    for (; n != 0; n--)
+        *dp++ = *sp++;
     return s1;
 #endif
 }
@@ -105,53 +112,59 @@ static inline void *memmove_x86(void *s1, const void *s2, size_t n)
     unsigned char *dp = (unsigned char *) s1 + (n - 1);
 
     int a, b, c;
-    __asm__ __volatile__("std; rep movsb; cld" : "=&c" (a), "=&D" (b), "=&S" (c): "1" (dp), "2" (sp), "0" (n) : "memory");
+    __asm__ __volatile__("std; rep movsb; cld"
+                         : "=&c"(a), "=&D"(b), "=&S"(c)
+                         : "1"(dp), "2"(sp), "0"(n)
+                         : "memory");
     return s1;
 }
 #endif
 
-static int overlaps(const void *restrict s1, const void *restrict s2, size_t n) PURE;
+static int
+overlaps(const void *restrict s1, const void *restrict s2, size_t n) PURE;
 static int overlaps(const void *restrict s1, const void *restrict s2, size_t n)
 {
-  uintptr_t a = (uintptr_t) s1;
-  uintptr_t a_end = (uintptr_t) s1 + n;
-  uintptr_t b = (uintptr_t) s2;
-  uintptr_t b_end = (uintptr_t) s2 + n;
+    uintptr_t a = (uintptr_t) s1;
+    uintptr_t a_end = (uintptr_t) s1 + n;
+    uintptr_t b = (uintptr_t) s2;
+    uintptr_t b_end = (uintptr_t) s2 + n;
 
-  return (a <= b_end) && (b <= a_end) ? 1 : 0;
+    return (a <= b_end) && (b <= a_end) ? 1 : 0;
 }
 
 EXPORT void *memmove(void *s1, const void *s2, size_t n)
 {
-  if (UNLIKELY(!n)) return s1;
+    if (UNLIKELY(!n))
+        return s1;
 
-  const size_t orig_n = n;
-  if (LIKELY((s1 < s2) || !overlaps(s1, s2, n)))
-  {
-    // No overlap, or there's overlap but we can copy forwards.
-    memcpy(s1, s2, n);
-  }
-  else
-  {
+    const size_t orig_n = n;
+    if (LIKELY((s1 < s2) || !overlaps(s1, s2, n)))
+    {
+        // No overlap, or there's overlap but we can copy forwards.
+        memcpy(s1, s2, n);
+    }
+    else
+    {
 #ifdef TARGET_IS_X86
-    memmove_x86(s1, s2, n);
+        memmove_x86(s1, s2, n);
 #else
-    // Writing bytes from s2 into s1 cannot be done forwards, use memmove.
-    const unsigned char *sp = (const unsigned char *) s2 + (n - 1);
-    unsigned char *dp = (unsigned char *) s1 + (n - 1);
-    for (; n != 0; n--) *dp-- = *sp--;
+        // Writing bytes from s2 into s1 cannot be done forwards, use memmove.
+        const unsigned char *sp = (const unsigned char *) s2 + (n - 1);
+        unsigned char *dp = (unsigned char *) s1 + (n - 1);
+        for (; n != 0; n--)
+            *dp-- = *sp--;
 #endif
-  }
+    }
 
 #ifdef ADDITIONAL_CHECKS
     // We can't memcmp if the regions overlap at all.
     if (LIKELY(!overlaps(s1, s2, orig_n)))
     {
-      assert(!memcmp(s1, s2, orig_n));
+        assert(!memcmp(s1, s2, orig_n));
     }
 #endif
 
-  return s1;
+    return s1;
 }
 
 #endif  // HAS_ADDRESS_SANITIZER
@@ -162,13 +175,16 @@ void *WordSet(void *buf, int c, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b;
-    __asm__ __volatile__("rep stosw" : "=&D" (a), "=&c" (b) : "0" (buf), "a" (c), "1" (n) : "memory");
+    __asm__ __volatile__("rep stosw"
+                         : "=&D"(a), "=&c"(b)
+                         : "0"(buf), "a"(c), "1"(n)
+                         : "memory");
     return buf;
 #else
-    unsigned short *tmp = (unsigned short *)buf;
-    while(n--)
+    unsigned short *tmp = (unsigned short *) buf;
+    while (n--)
     {
-      *tmp++ = c;
+        *tmp++ = c;
     }
     return buf;
 #endif
@@ -178,13 +194,16 @@ void *DoubleWordSet(void *buf, unsigned int c, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b;
-    __asm__ __volatile__("rep stosl" : "=&D" (a), "=&c" (b) : "0" (buf), "a" (c), "1" (n) : "memory");
+    __asm__ __volatile__("rep stosl"
+                         : "=&D"(a), "=&c"(b)
+                         : "0"(buf), "a"(c), "1"(n)
+                         : "memory");
     return buf;
 #else
-    unsigned int *tmp = (unsigned int *)buf;
-    while(n--)
+    unsigned int *tmp = (unsigned int *) buf;
+    while (n--)
     {
-      *tmp++ = c;
+        *tmp++ = c;
     }
     return buf;
 #endif
@@ -194,12 +213,15 @@ void *QuadWordSet(void *buf, unsigned long long c, size_t n)
 {
 #ifdef TARGET_IS_X86
     int a, b;
-    __asm__ __volatile__("rep stosq" : "=&D" (a), "=&c" (b) : "0" (buf), "a" (c), "1" (n) : "memory");
+    __asm__ __volatile__("rep stosq"
+                         : "=&D"(a), "=&c"(b)
+                         : "0"(buf), "a"(c), "1"(n)
+                         : "memory");
     return buf;
 #else
-    unsigned long long *p = (unsigned long long*) buf;
-    while(n--)
-      *p++ = c;
+    unsigned long long *p = (unsigned long long *) buf;
+    while (n--)
+        *p++ = c;
     return buf;
 #endif
 }
@@ -209,20 +231,20 @@ void *QuadWordSet(void *buf, unsigned long long c, size_t n)
 // main functions in terms of the base calls.
 void *ForwardMemoryCopy(void *a, const void *b, size_t c)
 {
-  return memcpy(a, b, c);
+    return memcpy(a, b, c);
 }
 
 void *MemoryCopy(void *a, const void *b, size_t c)
 {
-  return memmove(a, b, c);
+    return memmove(a, b, c);
 }
 
 void *ByteSet(void *a, int b, size_t c)
 {
-  return memset(a, b, c);
+    return memset(a, b, c);
 }
 
 int MemoryCompare(const void *a, const void *b, size_t c)
 {
-  return memcmp(a, b, c);
+    return memcmp(a, b, c);
 }

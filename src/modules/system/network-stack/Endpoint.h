@@ -20,11 +20,11 @@
 #ifndef MACHINE_ENDPOINT_H
 #define MACHINE_ENDPOINT_H
 
+#include <errors.h>
+#include <machine/Network.h>
+#include <processor/types.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <processor/types.h>
-#include <machine/Network.h>
-#include <errors.h>
 
 class Socket;
 
@@ -40,11 +40,11 @@ class ProtocolManager;
  */
 class Endpoint
 {
-private:
+    private:
     Endpoint(const Endpoint &e);
-    const Endpoint& operator = (const Endpoint& e);
-public:
+    const Endpoint &operator=(const Endpoint &e);
 
+    public:
     /** Type of this endpoint */
     enum EndpointType
     {
@@ -94,9 +94,9 @@ public:
      */
     struct RemoteEndpoint
     {
-        RemoteEndpoint() :
-            type(INET), ip(), remotePort(0), localPath()
-        {}
+        RemoteEndpoint() : type(INET), ip(), remotePort(0), localPath()
+        {
+        }
 
         /// Remote endpoint type.
         enum RemoteType
@@ -121,16 +121,18 @@ public:
     virtual bool dataReady(bool block = false, uint32_t timeout = 30);
 
     /** <Protocol>Manager functionality */
-    virtual size_t depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost);
+    virtual size_t
+    depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost);
 
-    /** All endpoint types must provide a shutdown() method that shuts part of the socket */
+    /** All endpoint types must provide a shutdown() method that shuts part of
+     * the socket */
     virtual bool shutdown(ShutdownType what) = 0;
 
     /**
      * This would allow an Endpoint to switch cards to utilise the best route
      * for a return packet. I'm not sure if it's used or not.
      */
-    virtual void setCard(Network* pCard);
+    virtual void setCard(Network *pCard);
 
     /** Protocol management */
     ProtocolManager *getManager() const;
@@ -139,7 +141,7 @@ public:
 
     /** Connection type */
     bool isConnectionless() const;
-    
+
     /** Adds a socket to the internal list */
     void AddSocket(Socket *s);
 
@@ -155,13 +157,11 @@ public:
     /** Report an error. */
     void reportError(Error::PosixError e);
 
-protected:
-
+    protected:
     /** List of sockets linked to this Endpoint */
     List<Socket *> m_Sockets;
 
-private:
-
+    private:
     /** Our local port (sourcePort in the UDP header) */
     uint16_t m_LocalPort;
 
@@ -180,13 +180,12 @@ private:
     /** Error status of the endpoint. */
     Error::PosixError m_Error;
 
-protected:
-
+    protected:
     /** Connection-based?
-      * Because the initialisation for any recv/send action on either type
-      * of Endpoint (connected or connectionless) is the same across protocols
-      * this can reduce the amount of repeated code.
-      */
+     * Because the initialisation for any recv/send action on either type
+     * of Endpoint (connected or connectionless) is the same across protocols
+     * this can reduce the amount of repeated code.
+     */
     bool m_bConnection;
 };
 

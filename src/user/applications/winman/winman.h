@@ -24,8 +24,8 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #include <native/graphics/Graphics.h>
 #include <native/input/Input.h>
@@ -48,8 +48,8 @@ class SharedBuffer;
 #define WINDOW_CLIENT_START_Y (WINDOW_BORDER_Y + WINDOW_TITLE_H)
 
 // Insets from the end of the client area.
-#define WINDOW_CLIENT_END_X   (WINDOW_BORDER_X)
-#define WINDOW_CLIENT_END_Y   (WINDOW_BORDER_Y)
+#define WINDOW_CLIENT_END_X (WINDOW_BORDER_X)
+#define WINDOW_CLIENT_END_Y (WINDOW_BORDER_Y)
 
 // Total space from the W/H that the window manager has used and taken from the
 // client area for rendering decorations etc...
@@ -65,25 +65,46 @@ class SharedBuffer;
  */
 class DirtyRectangle
 {
-public:
+    public:
     DirtyRectangle();
     ~DirtyRectangle();
 
     void point(size_t x, size_t y);
 
-    size_t getX() const {return m_X;}
-    size_t getY() const {return m_Y;}
-    size_t getX2() const {return m_X2;}
-    size_t getY2() const {return m_Y2;}
-    size_t getWidth() const {return m_X2-m_X+1;}
-    size_t getHeight() const {return m_Y2-m_Y+1;}
+    size_t getX() const
+    {
+        return m_X;
+    }
+    size_t getY() const
+    {
+        return m_Y;
+    }
+    size_t getX2() const
+    {
+        return m_X2;
+    }
+    size_t getY2() const
+    {
+        return m_Y2;
+    }
+    size_t getWidth() const
+    {
+        return m_X2 - m_X + 1;
+    }
+    size_t getHeight() const
+    {
+        return m_Y2 - m_Y + 1;
+    }
 
     void reset()
     {
-        m_X = 0; m_Y = 0; m_X2 = 0; m_X2 = 0;
+        m_X = 0;
+        m_Y = 0;
+        m_X2 = 0;
+        m_X2 = 0;
     }
 
-private:
+    private:
     size_t m_X, m_Y, m_X2, m_Y2;
 };
 
@@ -98,71 +119,73 @@ class Window;
 class WObject
 {
     public:
-        enum Type
-        {
-            Container,
-            Window,
-            Root,
-        };
+    enum Type
+    {
+        Container,
+        Window,
+        Root,
+    };
 
-        WObject() : m_Dimensions(0, 0, 0, 0)
-        {
-        }
+    WObject() : m_Dimensions(0, 0, 0, 0)
+    {
+    }
 
-        virtual ~WObject()
-        {
-        }
+    virtual ~WObject()
+    {
+    }
 
-        virtual Type getType() const = 0;
+    virtual Type getType() const = 0;
 
-        virtual void resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0) = 0;
+    virtual void resize(
+        ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0) = 0;
 
-        void reposition(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
+    void reposition(
+        size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
 
-        void bump(ssize_t bumpX = 0, ssize_t bumpY = 0);
+    void bump(ssize_t bumpX = 0, ssize_t bumpY = 0);
 
-        virtual void resized()
-        {
-        }
+    virtual void resized()
+    {
+    }
 
-        PedigreeGraphics::Rect getCopyDimensions() const
-        {
-            return m_Dimensions;
-        }
+    PedigreeGraphics::Rect getCopyDimensions() const
+    {
+        return m_Dimensions;
+    }
 
-        /// Don't refresh the context on every reposition.
-        virtual void norefresh()
-        {
-        }
+    /// Don't refresh the context on every reposition.
+    virtual void norefresh()
+    {
+    }
 
-        /// Refresh context on every reposition.
-        virtual void yesrefresh()
-        {
-        }
+    /// Refresh context on every reposition.
+    virtual void yesrefresh()
+    {
+    }
 
-        //// Render.
-        virtual void render(cairo_t *cr)
-        {
-        }
+    //// Render.
+    virtual void render(cairo_t *cr)
+    {
+    }
 
     protected:
-        void setDimensions(PedigreeGraphics::Rect &rt)
-        {
-            m_Dimensions = rt;
-        }
+    void setDimensions(PedigreeGraphics::Rect &rt)
+    {
+        m_Dimensions = rt;
+    }
 
-        PedigreeGraphics::Rect &getDimensions()
-        {
-            return m_Dimensions;
-        }
+    PedigreeGraphics::Rect &getDimensions()
+    {
+        return m_Dimensions;
+    }
 
-        /// Refresh our graphical context, called after reposition.
-        virtual void refreshContext()
-        {
-        }
+    /// Refresh our graphical context, called after reposition.
+    virtual void refreshContext()
+    {
+    }
 
     private:
-        PedigreeGraphics::Rect m_Dimensions;
+    PedigreeGraphics::Rect m_Dimensions;
 };
 
 /**
@@ -172,116 +195,116 @@ class WObject
 class Window : public WObject
 {
     public:
-        Window(uint64_t handle, int sock, struct sockaddr *sa, size_t sa_len,
-            ::Container *pParent);
-        Window();
+    Window(
+        uint64_t handle, int sock, struct sockaddr *sa, size_t sa_len,
+        ::Container *pParent);
+    Window();
 
-        virtual ~Window();
+    virtual ~Window();
 
-        virtual Type getType() const
+    virtual Type getType() const
+    {
+        return WObject::Window;
+    }
+
+    virtual void setTitle(const std::string &s)
+    {
+        m_sWindowTitle = s;
+        m_bPendingDecoration = true;
+    }
+
+    virtual void render(cairo_t *cr);
+
+    virtual void
+    resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0);
+
+    virtual void focus();
+    virtual void nofocus();
+
+    /// Don't refresh the context on every reposition.
+    virtual void norefresh()
+    {
+        m_bRefresh = false;
+    }
+
+    /// Refresh context on every reposition.
+    virtual void yesrefresh()
+    {
+        m_bRefresh = true;
+        refreshContext();
+    }
+
+    virtual void refreshContext();
+
+    void *getFramebuffer() const;
+
+    virtual void sendMessage(const char *msg, size_t len);
+
+    uint64_t getHandle() const
+    {
+        return m_Handle;
+    }
+
+    ::Container *getParent() const
+    {
+        return m_pParent;
+    }
+
+    void setParent(::Container *p)
+    {
+        m_pParent = p;
+    }
+
+    void setDirty(PedigreeGraphics::Rect &dirty);
+
+    PedigreeGraphics::Rect getDirty() const
+    {
+        // Different behaviour if we are waiting on a window redecoration
+        if (m_bPendingDecoration)
         {
-            return WObject::Window;
+            // Redraw ALL the things.
+            PedigreeGraphics::Rect rt = getCopyDimensions();
+            rt.update(0, 0, rt.getW(), rt.getH());
+            return rt;
         }
+        return m_Dirty;
+    }
 
-        virtual void setTitle(const std::string &s)
-        {
-            m_sWindowTitle = s;
-            m_bPendingDecoration = true;
-        }
-
-        virtual void render(cairo_t *cr);
-
-        virtual void resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0);
-
-        virtual void focus();
-        virtual void nofocus();
-
-        /// Don't refresh the context on every reposition.
-        virtual void norefresh()
-        {
-            m_bRefresh = false;
-        }
-
-        /// Refresh context on every reposition.
-        virtual void yesrefresh()
-        {
-            m_bRefresh = true;
-            refreshContext();
-        }
-
-        virtual void refreshContext();
-
-        void *getFramebuffer() const;
-
-        virtual void sendMessage(const char *msg, size_t len);
-
-        uint64_t getHandle() const
-        {
-            return m_Handle;
-        }
-
-        ::Container *getParent() const
-        {
-            return m_pParent;
-        }
-
-        void setParent(::Container *p)
-        {
-            m_pParent = p;
-        }
-
-        void setDirty(PedigreeGraphics::Rect &dirty);
-
-        PedigreeGraphics::Rect getDirty() const
-        {
-            // Different behaviour if we are waiting on a window redecoration
-            if(m_bPendingDecoration)
-            {
-                // Redraw ALL the things.
-                PedigreeGraphics::Rect rt = getCopyDimensions();
-                rt.update(0, 0, rt.getW(), rt.getH());
-                return rt;
-            }
-            return m_Dirty;
-        }
-
-        bool isDirty() const
-        {
-            return m_bPendingDecoration || isClientDirty();
-        }
+    bool isDirty() const
+    {
+        return m_bPendingDecoration || isClientDirty();
+    }
 
     private:
-        bool isClientDirty() const
-        {
-            return !(
-                m_Dirty.getX() == 0 &&
-                m_Dirty.getY() == 0 &&
-                m_Dirty.getW() == 0 &&
-                m_Dirty.getH() == 0);
-        }
+    bool isClientDirty() const
+    {
+        return !(
+            m_Dirty.getX() == 0 && m_Dirty.getY() == 0 && m_Dirty.getW() == 0 &&
+            m_Dirty.getH() == 0);
+    }
 
-        uint64_t m_Handle;
+    uint64_t m_Handle;
 
-        ::Container *m_pParent;
+    ::Container *m_pParent;
 
-        SharedBuffer *m_Framebuffer;
+    SharedBuffer *m_Framebuffer;
 
-        std::string m_sWindowTitle;
+    std::string m_sWindowTitle;
 
-        PedigreeGraphics::Rect m_Dirty;
+    PedigreeGraphics::Rect m_Dirty;
 
-        bool m_bPendingDecoration;
+    bool m_bPendingDecoration;
 
-        bool m_bFocus;
+    bool m_bFocus;
 
-        bool m_bRefresh;
+    bool m_bRefresh;
 
-        size_t m_nRegionWidth;
-        size_t m_nRegionHeight;
+    size_t m_nRegionWidth;
+    size_t m_nRegionHeight;
 
-        int m_Socket;
-        struct sockaddr *m_Sa;
-        size_t m_SaLen;
+    int m_Socket;
+    struct sockaddr *m_Sa;
+    size_t m_SaLen;
 };
 
 /**
@@ -291,255 +314,256 @@ class Window : public WObject
 class Container : public WObject
 {
     protected:
-        typedef std::vector<WObject*> WObjectList_t;
+    typedef std::vector<WObject *> WObjectList_t;
 
     public:
-        enum Layout
-        {
-            SideBySide, // Subwindows are tiled side-by-side
-            Stacked, // Subwindows are tiled each above the other
-        };
+    enum Layout
+    {
+        SideBySide,  // Subwindows are tiled side-by-side
+        Stacked,     // Subwindows are tiled each above the other
+    };
 
-        Container(WObject *pParent) :
-            m_Children(), m_pParent(pParent), m_Layout(SideBySide),
-            m_pFocusWindow(NULL)
+    Container(WObject *pParent)
+        : m_Children(), m_pParent(pParent), m_Layout(SideBySide),
+          m_pFocusWindow(NULL)
+    {
+    }
+
+    virtual ~Container()
+    {
+    }
+
+    virtual Type getType() const
+    {
+        return WObject::Container;
+    }
+
+    Layout getLayout() const
+    {
+        return m_Layout;
+    }
+
+    void setLayout(Layout newLayout)
+    {
+        m_Layout = newLayout;
+        retile();
+    }
+
+    ::Window *getFocusWindow() const
+    {
+        return m_pFocusWindow;
+    }
+
+    void setFocusWindow(::Window *w)
+    {
+        m_pFocusWindow = w;
+    }
+
+    /**
+     * Add a new child.
+     */
+    void addChild(WObject *pChild, bool bNoRetile = false)
+    {
+        // insertion breaks retile() somehow.
+        // insertChild(m_pFocusWindow, pChild);
+        m_Children.push_back(pChild);
+        if ((pChild->getType() == WObject::Window) && (m_pFocusWindow == NULL))
         {
+            m_pFocusWindow = static_cast<::Window *>(pChild);
         }
 
-        virtual ~Container()
+        if (!bNoRetile)
         {
-        }
-
-        virtual Type getType() const
-        {
-            return WObject::Container;
-        }
-
-        Layout getLayout() const
-        {
-            return m_Layout;
-        }
-
-        void setLayout(Layout newLayout)
-        {
-            m_Layout = newLayout;
             retile();
         }
+    }
 
-        ::Window *getFocusWindow() const
+    /**
+     * Replaces a child.
+     */
+    void replaceChild(WObject *pChild, WObject *pNewChild)
+    {
+        WObjectList_t::iterator it = m_Children.begin();
+        for (; it != m_Children.end(); ++it)
         {
-            return m_pFocusWindow;
-        }
-
-        void setFocusWindow(::Window *w)
-        {
-            m_pFocusWindow = w;
-        }
-
-        /**
-         * Add a new child.
-         */
-        void addChild(WObject *pChild, bool bNoRetile = false)
-        {
-            // insertion breaks retile() somehow.
-            //insertChild(m_pFocusWindow, pChild);
-            m_Children.push_back(pChild);
-            if((pChild->getType() == WObject::Window) && (m_pFocusWindow == NULL))
+            if ((*it) == pChild)
             {
-                m_pFocusWindow = static_cast< ::Window*>(pChild);
-            }
-
-            if(!bNoRetile)
-            {
-                retile();
+                it = m_Children.erase(it);
+                m_Children.insert(it, pNewChild);
+                break;
             }
         }
+    }
 
-        /**
-         * Replaces a child.
-         */
-        void replaceChild(WObject *pChild, WObject *pNewChild)
+    /**
+     * Inserts a child after the given child, or at the end if
+     * pCurrent is null.
+     */
+    void insertChild(WObject *pCurrent, WObject *pNewChild)
+    {
+        WObjectList_t::iterator it = m_Children.begin();
+        for (; it != m_Children.end(); ++it)
         {
-            WObjectList_t::iterator it = m_Children.begin();
-            for(; it != m_Children.end(); ++it)
+            if ((*it) == pCurrent)
             {
-                if((*it) == pChild)
-                {
-                    it = m_Children.erase(it);
-                    m_Children.insert(it, pNewChild);
-                    break;
-                }
+                ++it;
+                it = m_Children.insert(it, pNewChild);
+                break;
             }
         }
 
-        /**
-         * Inserts a child after the given child, or at the end if
-         * pCurrent is null.
-         */
-        void insertChild(WObject *pCurrent, WObject *pNewChild)
+        if (it == m_Children.end())
         {
-            WObjectList_t::iterator it = m_Children.begin();
-            for(; it != m_Children.end(); ++it)
-            {
-                if((*it) == pCurrent)
-                {
-                    ++it;
-                    it = m_Children.insert(it, pNewChild);
-                    break;
-                }
-            }
+            m_Children.push_back(pNewChild);
+        }
 
-            if(it == m_Children.end())
-            {
-                m_Children.push_back(pNewChild);
-            }
+        retile();
+    }
 
+    /**
+     * Removes the given child.
+     */
+    void removeChild(WObject *pChild)
+    {
+        WObjectList_t::iterator it = m_Children.begin();
+        for (; it != m_Children.end(); ++it)
+        {
+            if ((*it) == pChild)
+            {
+                m_Children.erase(it);
+                break;
+            }
+        }
+
+        // Did we actually erase something?
+        if (it != m_Children.end())
+        {
             retile();
         }
+    }
 
-        /**
-         * Removes the given child.
-         */
-        void removeChild(WObject *pChild)
+    /**
+     * Gets the number of children in the container.
+     */
+    size_t getChildCount() const
+    {
+        return m_Children.size();
+    }
+
+    /**
+     * Gets the nth child in the container.
+     */
+    WObject *getChild(size_t n) const
+    {
+        if (n > m_Children.size())
         {
-            WObjectList_t::iterator it = m_Children.begin();
-            for(; it != m_Children.end(); ++it)
-            {
-                if((*it) == pChild)
-                {
-                    m_Children.erase(it);
-                    break;
-                }
-            }
-
-            // Did we actually erase something?
-            if(it != m_Children.end())
-            {
-                retile();
-            }
+            return 0;
         }
 
-        /**
-         * Gets the number of children in the container.
-         */
-        size_t getChildCount() const
-        {
-            return m_Children.size();
-        }
+        return m_Children[n];
+    }
 
-        /**
-         * Gets the nth child in the container.
-         */
-        WObject *getChild(size_t n) const
-        {
-            if(n > m_Children.size())
-            {
-                return 0;
-            }
+    /**
+     * Finds the left sibling of the given child.
+     * Note that in the 'Stacked' layout, this is the container above the
+     * child, not the container to its left.
+     */
+    WObject *getLeftSibling(const WObject *pChild) const;
 
-            return m_Children[n];
-        }
+    /**
+     * Finds the right sibling of the given child.
+     * Note that in the 'Stacked' layout, this is the container below the
+     * child, not the container to its right.
+     */
+    WObject *getRightSibling(const WObject *pChild) const;
 
-        /**
-         * Finds the left sibling of the given child.
-         * Note that in the 'Stacked' layout, this is the container above the
-         * child, not the container to its left.
-         */
-        WObject *getLeftSibling(const WObject *pChild) const;
+    /**
+     * Finds any object to our left, other than the root container.
+     * This is the left of the container itself.
+     */
+    WObject *getLeftObject() const;
 
-        /**
-         * Finds the right sibling of the given child.
-         * Note that in the 'Stacked' layout, this is the container below the
-         * child, not the container to its right.
-         */
-        WObject *getRightSibling(const WObject *pChild) const;
+    /**
+     * Finds any object to our right, other than the root container.
+     * This is the right of the container itself.
+     */
+    WObject *getRightObject() const;
 
-        /**
-         * Finds any object to our left, other than the root container.
-         * This is the left of the container itself.
-         */
-        WObject *getLeftObject() const;
+    /**
+     * Gets the object to the left of the given child, or 0 if no
+     * object is to the left of the given child.
+     * This is a VISUAL left.
+     */
+    WObject *getLeft(const WObject *obj) const;
 
-        /**
-         * Finds any object to our right, other than the root container.
-         * This is the right of the container itself.
-         */
-        WObject *getRightObject() const;
+    /**
+     * Gets the object to the right of the given child, or 0 if no
+     * object is to the right of the given child.
+     * This is a VISUAL right.
+     */
+    WObject *getRight(const WObject *obj) const;
 
-        /**
-         * Gets the object to the left of the given child, or 0 if no
-         * object is to the left of the given child.
-         * This is a VISUAL left.
-         */
-        WObject *getLeft(const WObject *obj) const;
+    /**
+     * Gets the object above the given child, or 0 if no object is
+     * above the given child.
+     * This is a VISUAL above.
+     */
+    WObject *getUp(const WObject *obj) const;
 
-        /**
-         * Gets the object to the right of the given child, or 0 if no
-         * object is to the right of the given child.
-         * This is a VISUAL right.
-         */
-        WObject *getRight(const WObject *obj) const;
+    /**
+     * Gets the object below the given child, or 0 if no object is
+     * below the given child.
+     * This is a VISUAL below.
+     */
+    WObject *getDown(const WObject *obj) const;
 
-        /**
-         * Gets the object above the given child, or 0 if no object is
-         * above the given child.
-         * This is a VISUAL above.
-         */
-        WObject *getUp(const WObject *obj) const;
+    /**
+     * Taking our dimensions and layout into account, retile our children.
+     * This will resize and reposition children, which may cause them to
+     * retile also.
+     */
+    void retile();
 
-        /**
-         * Gets the object below the given child, or 0 if no object is
-         * below the given child.
-         * This is a VISUAL below.
-         */
-        WObject *getDown(const WObject *obj) const;
+    /**
+     * Parent of this container.
+     */
+    WObject *getParent() const
+    {
+        return m_pParent;
+    }
 
-        /**
-         * Taking our dimensions and layout into account, retile our children.
-         * This will resize and reposition children, which may cause them to
-         * retile also.
-         */
-        void retile();
+    /**
+     * Resize the entire container.
+     * A child might ask us to do this if it is resized horizontally and
+     * we are tiling Stacked, as it no longer fits inside our container.
+     */
+    virtual void
+    resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0);
 
-        /**
-         * Parent of this container.
-         */
-        WObject *getParent() const
-        {
-            return m_pParent;
-        }
+    /**
+     * Render children
+     */
+    void render(cairo_t *cr);
 
-        /**
-         * Resize the entire container.
-         * A child might ask us to do this if it is resized horizontally and
-         * we are tiling Stacked, as it no longer fits inside our container.
-         */
-        virtual void resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0);
+    /// Don't refresh the context on every reposition.
+    virtual void norefresh();
 
-        /**
-         * Render children
-         */
-        void render(cairo_t *cr);
-
-        /// Don't refresh the context on every reposition.
-        virtual void norefresh();
-
-        /// Refresh context on every reposition.
-        virtual void yesrefresh();
+    /// Refresh context on every reposition.
+    virtual void yesrefresh();
 
     protected:
-        std::vector<WObject*> m_Children;
+    std::vector<WObject *> m_Children;
 
-        Container() : Container(0)
-        {
-        }
+    Container() : Container(0)
+    {
+    }
 
     private:
-        WObject *m_pParent;
+    WObject *m_pParent;
 
-        Layout m_Layout;
+    Layout m_Layout;
 
-        ::Window *m_pFocusWindow;
+    ::Window *m_pFocusWindow;
 };
 
 /**
@@ -548,18 +572,18 @@ class Container : public WObject
 class RootContainer : public Container
 {
     public:
-        RootContainer(size_t w, size_t h) :
-            Container()
-        {
-            reposition(0, 0, w, h);
-        }
+    RootContainer(size_t w, size_t h) : Container()
+    {
+        reposition(0, 0, w, h);
+    }
 
-        virtual Type getType() const
-        {
-            return WObject::Root;
-        }
+    virtual Type getType() const
+    {
+        return WObject::Root;
+    }
 
-        virtual void resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0);
+    virtual void
+    resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild = 0);
 };
 
 /** @} */

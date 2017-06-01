@@ -20,14 +20,15 @@
 #ifndef KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 
-#include <processor/IoPort.h>
 #include <machine/IrqManager.h>
 #include <machine/SchedulerTimer.h>
+#include <processor/IoPort.h>
 #include <processor/state.h>
 
-namespace __pedigree_hosted {
-    #include <time.h>
-    #include <signal.h>
+namespace __pedigree_hosted
+{
+#include <signal.h>
+#include <time.h>
 }
 
 /** @addtogroup kernelmachinehosted
@@ -35,9 +36,12 @@ namespace __pedigree_hosted {
 
 class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
 {
-  public:
+    public:
     /** Get the HostedSchedulerTimer class instance */
-    inline static HostedSchedulerTimer &instance(){return m_Instance;}
+    inline static HostedSchedulerTimer &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // SchedulerTimer interface
@@ -47,22 +51,24 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     /** Initialises the class
      *\return true, if successful, false otherwise */
     bool initialise() INITIALISATION_ONLY;
-     /** Uninitialises the class */
+    /** Uninitialises the class */
     void uninitialise();
 
-  protected:
+    protected:
     /** The default constructor */
     HostedSchedulerTimer() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~HostedSchedulerTimer(){}
+    inline virtual ~HostedSchedulerTimer()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     HostedSchedulerTimer(const HostedSchedulerTimer &);
     /** The assignment operator
      *\note NOT implemented */
-    HostedSchedulerTimer &operator = (const HostedSchedulerTimer &);
+    HostedSchedulerTimer &operator=(const HostedSchedulerTimer &);
 
     //
     // IrqHandler interface

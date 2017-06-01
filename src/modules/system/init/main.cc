@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
 #include <Log.h>
 #include <Module.h>
-#include <vfs/VFS.h>
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
-#include <subsys/posix/PosixSubsystem.h>
-#include <subsys/posix/PosixProcess.h>
+#include <compiler.h>
 #include <core/BootIO.h>
 #include <linker/DynamicLinker.h>
+#include <process/Scheduler.h>
+#include <processor/Processor.h>
+#include <subsys/posix/PosixProcess.h>
+#include <subsys/posix/PosixSubsystem.h>
 #include <users/UserManager.h>
+#include <vfs/VFS.h>
 
 static void error(const char *s)
 {
@@ -53,7 +53,9 @@ static int init_stage2(void *param)
     String init_path("root»/applications/init");
     if (!VFS::instance().find(init_path))
     {
-        WARNING("Did not find " << init_path << ", trying for a Linux userspace...");
+        WARNING(
+            "Did not find " << init_path
+                            << ", trying for a Linux userspace...");
         init_path = "root»/sbin/init";
         tryingLinux = true;
     }
@@ -68,7 +70,8 @@ static int init_stage2(void *param)
         argv.pushBack(SharedPointer<String>::allocate(String("S")));
     }
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     if (!pProcess->getSubsystem()->invoke(init_path, argv, env))
     {
         error("failed to load init program");
@@ -83,7 +86,8 @@ static bool init()
 {
 #ifdef THREADS
     // Create a new process for the init process.
-    Process *pProcess = new PosixProcess(Processor::information().getCurrentThread()->getParent());
+    Process *pProcess = new PosixProcess(
+        Processor::information().getCurrentThread()->getParent());
     pProcess->setUser(UserManager::instance().getUser(0));
     pProcess->setGroup(UserManager::instance().getUser(0)->getDefaultGroup());
     pProcess->setEffectiveUser(pProcess->getUser());

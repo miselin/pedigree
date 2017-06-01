@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef _SUPPORT_H
 #define _SUPPORT_H
 
@@ -27,14 +26,12 @@ typedef unsigned int uint32_t;
 typedef int int32_t;
 typedef unsigned int size_t;
 
-extern "C"
-{
+extern "C" {
 
 int StringCopyN(char *dest, const char *src, int len);
 int ByteSet(void *buf, int c, size_t len);
 void MemoryCopy(void *dest, const void *src, size_t len);
 int StringCompare(const char *p1, const char *p2);
-
 }
 
 #endif

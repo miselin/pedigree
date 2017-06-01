@@ -38,10 +38,11 @@ static void BM_StringLength(benchmark::State &state)
         benchmark::DoNotOptimize(StringLength(buf));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] buf;
+    delete[] buf;
 }
 
 static void BM_StringLengthConstant(benchmark::State &state)
@@ -54,7 +55,8 @@ static void BM_StringLengthConstant(benchmark::State &state)
         benchmark::DoNotOptimize(result);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * strlen(CONSTANT_MESSAGE));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * strlen(CONSTANT_MESSAGE));
 }
 
 static void BM_StringCopy(benchmark::State &state)
@@ -69,11 +71,12 @@ static void BM_StringCopy(benchmark::State &state)
         StringCopy(dest, buf);
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] dest;
-    delete [] buf;
+    delete[] dest;
+    delete[] buf;
 }
 
 static void BM_StringCopyN(benchmark::State &state)
@@ -88,11 +91,12 @@ static void BM_StringCopyN(benchmark::State &state)
         StringCopyN(dest, buf, state.range_x());
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] dest;
-    delete [] buf;
+    delete[] dest;
+    delete[] buf;
 }
 
 static void BM_StringCompare(benchmark::State &state)
@@ -109,11 +113,12 @@ static void BM_StringCompare(benchmark::State &state)
         benchmark::DoNotOptimize(StringCompare(buf1, buf2));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] buf2;
-    delete [] buf1;
+    delete[] buf2;
+    delete[] buf1;
 }
 
 static void BM_StringCompareN(benchmark::State &state)
@@ -130,11 +135,12 @@ static void BM_StringCompareN(benchmark::State &state)
         benchmark::DoNotOptimize(StringCopyN(buf1, buf2, state.range_x()));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] buf2;
-    delete [] buf1;
+    delete[] buf2;
+    delete[] buf1;
 }
 
 static void BM_StringCompareCaseSensitive(benchmark::State &state)
@@ -148,14 +154,16 @@ static void BM_StringCompareCaseSensitive(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(StringCompareCase(buf1, buf2, 1, state.range_x(), 0));
+        benchmark::DoNotOptimize(
+            StringCompareCase(buf1, buf2, 1, state.range_x(), 0));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] buf2;
-    delete [] buf1;
+    delete[] buf2;
+    delete[] buf1;
 }
 
 static void BM_StringCompareCaseInsensitive(benchmark::State &state)
@@ -169,14 +177,16 @@ static void BM_StringCompareCaseInsensitive(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(StringCompareCase(buf1, buf2, 0, state.range_x(), 0));
+        benchmark::DoNotOptimize(
+            StringCompareCase(buf1, buf2, 0, state.range_x(), 0));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 
-    delete [] buf2;
-    delete [] buf1;
+    delete[] buf2;
+    delete[] buf1;
 }
 
 static void BM_StringFind(benchmark::State &state)
@@ -191,7 +201,8 @@ static void BM_StringFind(benchmark::State &state)
         benchmark::DoNotOptimize(StringFind(buf, 'b'));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 }
 
@@ -207,17 +218,18 @@ static void BM_StringReverseFind(benchmark::State &state)
         benchmark::DoNotOptimize(StringReverseFind(buf, 'b'));
     }
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
     state.SetComplexityN(state.range_x());
 }
 
-BENCHMARK(BM_StringLength)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringLength)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringLengthConstant);
-BENCHMARK(BM_StringCopy)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringCopyN)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringCompare)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringCompareCaseSensitive)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringCompareCaseInsensitive)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringCompareN)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringFind)->Range(8, 8<<16)->Complexity();
-BENCHMARK(BM_StringReverseFind)->Range(8, 8<<16)->Complexity();
+BENCHMARK(BM_StringCopy)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringCopyN)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringCompare)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringCompareCaseSensitive)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringCompareCaseInsensitive)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringCompareN)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringFind)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringReverseFind)->Range(8, 8 << 16)->Complexity();

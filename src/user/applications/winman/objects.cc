@@ -18,11 +18,11 @@
  */
 
 #include "winman.h"
+#include <errno.h>
 #include <string.h>
+#include <sys/klog.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/klog.h>
-#include <errno.h>
 
 #include <protocol.h>
 
@@ -32,8 +32,7 @@
 
 static size_t g_nextContextId = 1;
 
-DirtyRectangle::DirtyRectangle() :
-    m_X(~0), m_Y(~0), m_X2(0), m_Y2(0)
+DirtyRectangle::DirtyRectangle() : m_X(~0), m_Y(~0), m_X2(0), m_Y2(0)
 {
 }
 
@@ -56,13 +55,13 @@ void DirtyRectangle::point(size_t x, size_t y)
 
 void WObject::reposition(size_t x, size_t y, size_t w, size_t h)
 {
-    if(x == ~0UL)
+    if (x == ~0UL)
         x = m_Dimensions.getX();
-    if(y == ~0UL)
+    if (y == ~0UL)
         y = m_Dimensions.getY();
-    if(w == ~0UL)
+    if (w == ~0UL)
         w = m_Dimensions.getW();
-    if(h == ~0UL)
+    if (h == ~0UL)
         h = m_Dimensions.getH();
 
     m_Dimensions.update(x, y, w, h);
@@ -79,12 +78,13 @@ void WObject::bump(ssize_t bumpX, ssize_t bumpY)
     m_Dimensions.update(x, y, w, h);
 }
 
-Window::Window(uint64_t handle, int sock, struct sockaddr *sa, size_t sa_len,
-               ::Container *pParent) :
-    m_Handle(handle), m_pParent(pParent), m_Framebuffer(0), m_Dirty(),
-    m_bPendingDecoration(false), m_bFocus(false), m_bRefresh(true),
-    m_nRegionWidth(0), m_nRegionHeight(0), m_Socket(sock), m_Sa(sa),
-    m_SaLen(sa_len)
+Window::Window(
+    uint64_t handle, int sock, struct sockaddr *sa, size_t sa_len,
+    ::Container *pParent)
+    : m_Handle(handle), m_pParent(pParent), m_Framebuffer(0), m_Dirty(),
+      m_bPendingDecoration(false), m_bFocus(false), m_bRefresh(true),
+      m_nRegionWidth(0), m_nRegionHeight(0), m_Socket(sock), m_Sa(sa),
+      m_SaLen(sa_len)
 {
     refreshContext();
     m_pParent->addChild(this);
@@ -92,8 +92,8 @@ Window::Window(uint64_t handle, int sock, struct sockaddr *sa, size_t sa_len,
 
 Window::~Window()
 {
-    /// \todo Need a way to destroy the old framebuffer without breaking
-    ///       the other side's reference to the same region... Refcount?
+/// \todo Need a way to destroy the old framebuffer without breaking
+///       the other side's reference to the same region... Refcount?
 #ifdef TARGET_LINUX
     delete m_Framebuffer;
 #endif
@@ -103,7 +103,7 @@ Window::~Window()
 void Window::refreshContext()
 {
     PedigreeGraphics::Rect &me = getDimensions();
-    if(!m_bRefresh)
+    if (!m_bRefresh)
     {
         // Not refreshing context currently.
         m_bPendingDecoration = true;
@@ -111,11 +111,13 @@ void Window::refreshContext()
         return;
     }
 
-    if((me.getW() < WINDOW_CLIENT_LOST_W) || (me.getH() < WINDOW_CLIENT_LOST_H))
+    if ((me.getW() < WINDOW_CLIENT_LOST_W) ||
+        (me.getH() < WINDOW_CLIENT_LOST_H))
     {
         // We have some basic requirements for window sizes.
-        klog(LOG_DEBUG, "extents %ux%u are too small for a new context",
-               me.getW(), me.getH());
+        klog(
+            LOG_DEBUG, "extents %ux%u are too small for a new context",
+            me.getW(), me.getH());
         return;
     }
 
@@ -127,34 +129,36 @@ void Window::refreshContext()
     // Size of the IPC region we need to allocate.
     size_t regionWidth = me.getW() - WINDOW_CLIENT_LOST_W;
     size_t regionHeight = me.getH() - WINDOW_CLIENT_LOST_H;
-    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, regionWidth);
+    int stride =
+        cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, regionWidth);
     size_t regionSize = regionHeight * stride;
     m_Framebuffer = new SharedBuffer(regionSize);
     memset(m_Framebuffer->getBuffer(), 0, regionSize);
 
-    klog(LOG_DEBUG, "new framebuffer created: %zd bytes @%p", regionSize,
-           m_Framebuffer->getBuffer());
+    klog(
+        LOG_DEBUG, "new framebuffer created: %zd bytes @%p", regionSize,
+        m_Framebuffer->getBuffer());
 
     m_nRegionWidth = regionWidth;
     m_nRegionHeight = regionHeight;
 
-    if((m_Socket >= 0) && m_Framebuffer)
+    if ((m_Socket >= 0) && m_Framebuffer)
     {
-        size_t totalSize =
-                sizeof(LibUiProtocol::WindowManagerMessage) +
-                sizeof(LibUiProtocol::RepositionMessage);
+        size_t totalSize = sizeof(LibUiProtocol::WindowManagerMessage) +
+                           sizeof(LibUiProtocol::RepositionMessage);
         char *buffer = new char[totalSize];
         memset(buffer, 0, totalSize);
 
         LibUiProtocol::WindowManagerMessage *pHeader =
-            reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(buffer);
+            reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(buffer);
         pHeader->messageCode = LibUiProtocol::Reposition;
         pHeader->widgetHandle = m_Handle;
         pHeader->messageSize = sizeof(LibUiProtocol::RepositionMessage);
         pHeader->isResponse = false;
 
         LibUiProtocol::RepositionMessage *pReposition =
-            reinterpret_cast<LibUiProtocol::RepositionMessage*>(buffer + sizeof(LibUiProtocol::WindowManagerMessage));
+            reinterpret_cast<LibUiProtocol::RepositionMessage *>(
+                buffer + sizeof(LibUiProtocol::WindowManagerMessage));
         pReposition->rt.update(0, 0, regionWidth, regionHeight);
         pReposition->shmem_handle = m_Framebuffer->getHandle();
         pReposition->shmem_size = regionSize;
@@ -162,7 +166,7 @@ void Window::refreshContext()
         // Transmit to the client.
         sendMessage(buffer, totalSize);
 
-        delete [] buffer;
+        delete[] buffer;
     }
 
     m_bPendingDecoration = true;
@@ -190,22 +194,24 @@ void Window::setDirty(PedigreeGraphics::Rect &dirty)
     size_t clientW = me.getW() - WINDOW_CLIENT_LOST_W;
     size_t clientH = me.getH() - WINDOW_CLIENT_LOST_H;
 
-    if(realX > clientW || realY > clientH)
+    if (realX > clientW || realY > clientH)
     {
         return;
     }
 
-    if((realX + realW) > clientW)
+    if ((realX + realW) > clientW)
     {
         realW = clientW - realX;
     }
 
-    if((realY + realH) > clientH)
+    if ((realY + realH) > clientH)
     {
         realH = clientH - realY;
     }
 
-    m_Dirty.update(realX + WINDOW_CLIENT_START_X, realY + WINDOW_CLIENT_START_Y, realW, realH);
+    m_Dirty.update(
+        realX + WINDOW_CLIENT_START_X, realY + WINDOW_CLIENT_START_Y, realW,
+        realH);
 }
 
 void Window::render(cairo_t *cr)
@@ -219,19 +225,17 @@ void Window::render(cairo_t *cr)
 
     // Draw the child framebuffer before window decorations.
     void *pBuffer = getFramebuffer();
-    if(pBuffer && (isDirty() && m_bRefresh))
+    if (pBuffer && (isDirty() && m_bRefresh))
     {
         cairo_save(cr);
         size_t regionWidth = m_nRegionWidth;
         size_t regionHeight = m_nRegionHeight;
-        int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, regionWidth);
+        int stride =
+            cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, regionWidth);
 
         cairo_surface_t *surface = cairo_image_surface_create_for_data(
-                (uint8_t *) pBuffer,
-                CAIRO_FORMAT_ARGB32,
-                regionWidth,
-                regionHeight,
-                stride);
+            (uint8_t *) pBuffer, CAIRO_FORMAT_ARGB32, regionWidth, regionHeight,
+            stride);
 
         PedigreeGraphics::Rect realDirty = getDirty();
         size_t dirtyX = realDirty.getX();
@@ -240,19 +244,19 @@ void Window::render(cairo_t *cr)
         size_t dirtyHeight = realDirty.getH();
 
         // Adjust if the dirty rectangle is outside of the window area.
-        if(dirtyX < WINDOW_CLIENT_START_X)
+        if (dirtyX < WINDOW_CLIENT_START_X)
         {
             dirtyX = WINDOW_CLIENT_START_X;
         }
-        if(dirtyY < WINDOW_CLIENT_START_Y)
+        if (dirtyY < WINDOW_CLIENT_START_Y)
         {
             dirtyY = WINDOW_CLIENT_START_Y;
         }
-        if((dirtyX + dirtyWidth) > regionWidth)
+        if ((dirtyX + dirtyWidth) > regionWidth)
         {
             dirtyWidth = regionWidth;
         }
-        if((dirtyY + dirtyHeight) > regionHeight)
+        if ((dirtyY + dirtyHeight) > regionHeight)
         {
             dirtyHeight = regionHeight;
         }
@@ -260,24 +264,21 @@ void Window::render(cairo_t *cr)
         // Fix the dirty rectangle after adjustments.
         realDirty.update(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
-        cairo_set_source_surface(cr, surface, me.getX() + WINDOW_CLIENT_START_X, me.getY() + WINDOW_CLIENT_START_Y);
+        cairo_set_source_surface(
+            cr, surface, me.getX() + WINDOW_CLIENT_START_X,
+            me.getY() + WINDOW_CLIENT_START_Y);
 
         // Clip to the dirty rectangle (don't update anything more)
         cairo_rectangle(
-                cr,
-                me.getX() + realDirty.getX(),
-                me.getY() + realDirty.getY(),
-                realDirty.getW(),
-                realDirty.getH());
+            cr, me.getX() + realDirty.getX(), me.getY() + realDirty.getY(),
+            realDirty.getW(), realDirty.getH());
         cairo_clip(cr);
 
         // Clip to the window only (fixes rendering glitches during resize)
         cairo_rectangle(
-                cr,
-                me.getX() + WINDOW_CLIENT_START_X,
-                me.getY() + WINDOW_CLIENT_START_Y,
-                me.getW() - WINDOW_CLIENT_LOST_W,
-                me.getH() - WINDOW_CLIENT_LOST_H);
+            cr, me.getX() + WINDOW_CLIENT_START_X,
+            me.getY() + WINDOW_CLIENT_START_Y, me.getW() - WINDOW_CLIENT_LOST_W,
+            me.getH() - WINDOW_CLIENT_LOST_H);
         cairo_clip(cr);
 
         // cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -302,12 +303,12 @@ void Window::render(cairo_t *cr)
         sendMessage((const char *) &ackmsg, sizeof(ackmsg));
     }
 
-    if(m_bPendingDecoration)
+    if (m_bPendingDecoration)
     {
         double r = 0.0, g = 0.0, b = 0.0;
-        if(m_bFocus)
+        if (m_bFocus)
             r = 1.0;
-        else if(m_pParent->getFocusWindow() == this)
+        else if (m_pParent->getFocusWindow() == this)
             r = 0.5;
         else
             r = g = b = 1.0;
@@ -315,7 +316,8 @@ void Window::render(cairo_t *cr)
         cairo_save(cr);
 
         PangoLayout *layout = pango_cairo_create_layout(cr);
-        PangoFontDescription *desc = pango_font_description_from_string(WINMAN_PANGO_FONT);
+        PangoFontDescription *desc =
+            pango_font_description_from_string(WINMAN_PANGO_FONT);
         pango_layout_set_font_description(layout, desc);
         pango_font_description_free(desc);
 
@@ -334,9 +336,7 @@ void Window::render(cairo_t *cr)
         // Window title.
         int width = 0, height = 0;
         pango_layout_get_size(layout, &width, &height);
-        cairo_move_to(cr,
-            x + ((w / 2) - ((width / PANGO_SCALE) / 2)),
-            y);
+        cairo_move_to(cr, x + ((w / 2) - ((width / PANGO_SCALE) / 2)), y);
         pango_cairo_show_layout(cr, layout);
 
         // Window border.
@@ -393,15 +393,16 @@ void Window::nofocus()
     delete pHeader;
 }
 
-void Window::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild)
+void Window::resize(
+    ssize_t horizDistance, ssize_t vertDistance, WObject *pChild)
 {
     PedigreeGraphics::Rect &me = getDimensions();
     size_t currentWidth = me.getW();
     size_t currentHeight = me.getH();
 
     reposition(
-        me.getX(), me.getY(),
-        currentWidth + horizDistance, currentHeight + vertDistance);
+        me.getX(), me.getY(), currentWidth + horizDistance,
+        currentHeight + vertDistance);
 
     // Pass resize up to parent to arrange other tiles to resize around this
     // one, as necessary.
@@ -412,7 +413,7 @@ void Window::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild
 
 void Container::retile()
 {
-    if(m_Children.size() == 0)
+    if (m_Children.size() == 0)
     {
         klog(LOG_INFO, "winman: no children in container, no retile");
         return;
@@ -422,27 +423,27 @@ void Container::retile()
     size_t currentWidth = me.getW();
     size_t currentHeight = me.getH();
 
-    if(m_Layout == SideBySide)
+    if (m_Layout == SideBySide)
     {
         size_t dividedW = currentWidth / m_Children.size();
         size_t newX = me.getX();
         size_t newY = me.getY();
 
         WObjectList_t::iterator it = m_Children.begin();
-        for(; it != m_Children.end(); ++it)
+        for (; it != m_Children.end(); ++it)
         {
             (*it)->reposition(newX, newY, dividedW, currentHeight);
             newX += dividedW;
         }
     }
-    else if(m_Layout == Stacked)
+    else if (m_Layout == Stacked)
     {
         size_t dividedH = currentHeight / m_Children.size();
         size_t newX = me.getX();
         size_t newY = me.getY();
 
         WObjectList_t::iterator it = m_Children.begin();
-        for(; it != m_Children.end(); ++it)
+        for (; it != m_Children.end(); ++it)
         {
             (*it)->reposition(newX, newY, currentWidth, dividedH);
             newY += dividedH;
@@ -451,24 +452,25 @@ void Container::retile()
 
     // Retile child containers (reposition does not do that)
     WObjectList_t::iterator it = m_Children.begin();
-    for(; it != m_Children.end(); ++it)
+    for (; it != m_Children.end(); ++it)
     {
-        if((*it)->getType() == WObject::Container ||
+        if ((*it)->getType() == WObject::Container ||
             (*it)->getType() == WObject::Root)
         {
-            Container *pContainer = static_cast<Container*>(*it);
+            Container *pContainer = static_cast<Container *>(*it);
             pContainer->retile();
         }
     }
 }
 
-void Container::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild)
+void Container::resize(
+    ssize_t horizDistance, ssize_t vertDistance, WObject *pChild)
 {
     PedigreeGraphics::Rect &me = getDimensions();
     size_t currentWidth = me.getW();
     size_t currentHeight = me.getH();
 
-    if(pChild)
+    if (pChild)
     {
         ssize_t bumpX = horizDistance;
         ssize_t bumpY = vertDistance;
@@ -478,50 +480,52 @@ void Container::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pCh
 
         WObjectList_t::iterator it = m_Children.begin();
         bool bResize = false;
-        for(; it != m_Children.end(); ++it)
+        for (; it != m_Children.end(); ++it)
         {
-            if(bResize)
+            if (bResize)
             {
-                (*it)->bump(bumpX, bumpY); // Bump X/Y co-ords.
+                (*it)->bump(bumpX, bumpY);  // Bump X/Y co-ords.
                 (*it)->resize(horizDistance, vertDistance);
-                return; // Resize will cascade.
+                return;  // Resize will cascade.
             }
 
-            if((*it) == pChild)
+            if ((*it) == pChild)
             {
                 bResize = true;
             }
         }
 
-        if(!bResize)
+        if (!bResize)
             klog(LOG_INFO, "winman: didn't find children for resize???");
     }
     else
     {
         reposition(
-            me.getX(), me.getY(),
-            currentWidth + horizDistance, currentHeight + vertDistance);
+            me.getX(), me.getY(), currentWidth + horizDistance,
+            currentHeight + vertDistance);
 
-        if(m_Children.size())
+        if (m_Children.size())
         {
             // We need tiles to fill the space created by resizing.
             // For most resizes, we'll be going one direction, but if
             // we get resized vertically and horizontally, this handles
             // that nicely.
             // Is this right?
-            ssize_t extendW = horizDistance / static_cast<ssize_t>(m_Children.size());
-            ssize_t extendH = vertDistance / static_cast<ssize_t>(m_Children.size());
+            ssize_t extendW =
+                horizDistance / static_cast<ssize_t>(m_Children.size());
+            ssize_t extendH =
+                vertDistance / static_cast<ssize_t>(m_Children.size());
 
             // Resize children in the relevant direction for them.
             WObjectList_t::iterator it = m_Children.begin();
             size_t bumpX = 0;
-            for(; it != m_Children.end(); ++it)
+            for (; it != m_Children.end(); ++it)
             {
-                if(m_Layout == Stacked)
+                if (m_Layout == Stacked)
                 {
                     (*it)->resize(horizDistance, extendH);
                 }
-                else if(m_Layout == SideBySide)
+                else if (m_Layout == SideBySide)
                 {
                     (*it)->bump(bumpX, 0);
                     (*it)->resize(extendW, vertDistance);
@@ -533,28 +537,29 @@ void Container::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pCh
     }
 
     // Resize siblings.
-    if(m_pParent && ((m_pParent->getType() == WObject::Container) ||
-        m_pParent->getType() == WObject::Root))
+    if (m_pParent && ((m_pParent->getType() == WObject::Container) ||
+                      m_pParent->getType() == WObject::Root))
     {
-        Container *pContainer = static_cast<Container*>(m_pParent);
+        Container *pContainer = static_cast<Container *>(m_pParent);
 
-        pContainer->resize(horizDistance, vertDistance, static_cast<WObject*>(this));
+        pContainer->resize(
+            horizDistance, vertDistance, static_cast<WObject *>(this));
     }
 }
 
 void Container::render(cairo_t *cr)
 {
     WObjectList_t::iterator it = m_Children.begin();
-    for(; it != m_Children.end(); ++it)
+    for (; it != m_Children.end(); ++it)
     {
-        if((*it)->getType() == WObject::Container)
+        if ((*it)->getType() == WObject::Container)
         {
-            Container *pContainer = static_cast<Container*>(*it);
+            Container *pContainer = static_cast<Container *>(*it);
             pContainer->render(cr);
         }
-        else if((*it)->getType() == WObject::Window)
+        else if ((*it)->getType() == WObject::Window)
         {
-            ::Window *pWindow = static_cast< ::Window*>(*it);
+            ::Window *pWindow = static_cast<::Window *>(*it);
             pWindow->render(cr);
         }
     }
@@ -563,11 +568,11 @@ void Container::render(cairo_t *cr)
 WObject *Container::getLeftSibling(const WObject *pChild) const
 {
     WObjectList_t::const_iterator it = m_Children.begin();
-    for(; it != m_Children.end(); ++it)
+    for (; it != m_Children.end(); ++it)
     {
-        if((*it) == pChild)
+        if ((*it) == pChild)
         {
-            if(it == m_Children.begin())
+            if (it == m_Children.begin())
             {
                 break;
             }
@@ -583,13 +588,13 @@ WObject *Container::getLeftSibling(const WObject *pChild) const
 WObject *Container::getRightSibling(const WObject *pChild) const
 {
     WObjectList_t::const_iterator it = m_Children.begin();
-    for(; it != m_Children.end(); ++it)
+    for (; it != m_Children.end(); ++it)
     {
-        if((*it) == pChild)
+        if ((*it) == pChild)
         {
             ++it;
 
-            if(it == m_Children.end())
+            if (it == m_Children.end())
             {
                 break;
             }
@@ -614,10 +619,10 @@ WObject *Container::getRightObject() const
 WObject *Container::getLeft(const WObject *obj) const
 {
     WObject *sibling = 0;
-    if(m_Layout == SideBySide)
+    if (m_Layout == SideBySide)
     {
         WObject *sibling = getLeftSibling(obj);
-        if(sibling)
+        if (sibling)
         {
             return sibling;
         }
@@ -625,13 +630,13 @@ WObject *Container::getLeft(const WObject *obj) const
 
     // No sibling to the child. If we are inside a side-by-side layout,
     // this could be trivial.
-    if(m_pParent && (m_pParent->getType() == WObject::Container))
+    if (m_pParent && (m_pParent->getType() == WObject::Container))
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
-        if(pContainer->getLayout() == SideBySide)
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
+        if (pContainer->getLayout() == SideBySide)
         {
             sibling = getLeftObject();
-            if(sibling)
+            if (sibling)
             {
                 return sibling;
             }
@@ -639,9 +644,9 @@ WObject *Container::getLeft(const WObject *obj) const
     }
 
     // Root has no parent.
-    if(getType() != WObject::Root)
+    if (getType() != WObject::Root)
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
         return pContainer->getLeft(this);
     }
 
@@ -651,10 +656,10 @@ WObject *Container::getLeft(const WObject *obj) const
 WObject *Container::getRight(const WObject *obj) const
 {
     WObject *sibling = 0;
-    if(m_Layout == SideBySide)
+    if (m_Layout == SideBySide)
     {
         WObject *sibling = getRightSibling(obj);
-        if(sibling)
+        if (sibling)
         {
             return sibling;
         }
@@ -662,13 +667,13 @@ WObject *Container::getRight(const WObject *obj) const
 
     // No sibling to the child. If we are inside a side-by-side layout,
     // this could be trivial.
-    if(m_pParent && (m_pParent->getType() == WObject::Container))
+    if (m_pParent && (m_pParent->getType() == WObject::Container))
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
-        if(pContainer->getLayout() == SideBySide)
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
+        if (pContainer->getLayout() == SideBySide)
         {
             sibling = getRightObject();
-            if(sibling)
+            if (sibling)
             {
                 return sibling;
             }
@@ -676,9 +681,9 @@ WObject *Container::getRight(const WObject *obj) const
     }
 
     // Root has no parent.
-    if(getType() != WObject::Root)
+    if (getType() != WObject::Root)
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
         return pContainer->getRight(this);
     }
 
@@ -688,10 +693,10 @@ WObject *Container::getRight(const WObject *obj) const
 WObject *Container::getUp(const WObject *obj) const
 {
     WObject *sibling = 0;
-    if(m_Layout == Stacked)
+    if (m_Layout == Stacked)
     {
         WObject *sibling = getLeftSibling(obj);
-        if(sibling)
+        if (sibling)
         {
             return sibling;
         }
@@ -699,13 +704,13 @@ WObject *Container::getUp(const WObject *obj) const
 
     // No sibling to the child. If we are inside a stacked layout,
     // this could be trivial.
-    if(m_pParent && (m_pParent->getType() == WObject::Container))
+    if (m_pParent && (m_pParent->getType() == WObject::Container))
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
-        if(pContainer->getLayout() == Stacked)
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
+        if (pContainer->getLayout() == Stacked)
         {
             sibling = getLeftObject();
-            if(sibling)
+            if (sibling)
             {
                 return sibling;
             }
@@ -713,9 +718,9 @@ WObject *Container::getUp(const WObject *obj) const
     }
 
     // Root has no parent.
-    if(getType() != WObject::Root)
+    if (getType() != WObject::Root)
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
         return pContainer->getUp(this);
     }
 
@@ -725,10 +730,10 @@ WObject *Container::getUp(const WObject *obj) const
 WObject *Container::getDown(const WObject *obj) const
 {
     WObject *sibling = 0;
-    if(m_Layout == Stacked)
+    if (m_Layout == Stacked)
     {
         WObject *sibling = getRightSibling(obj);
-        if(sibling)
+        if (sibling)
         {
             return sibling;
         }
@@ -736,13 +741,13 @@ WObject *Container::getDown(const WObject *obj) const
 
     // No sibling to the child. If we are inside a stacked layout,
     // this could be trivial.
-    if(m_pParent && (m_pParent->getType() == WObject::Container))
+    if (m_pParent && (m_pParent->getType() == WObject::Container))
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
-        if(pContainer->getLayout() == Stacked)
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
+        if (pContainer->getLayout() == Stacked)
         {
             sibling = getRightObject();
-            if(sibling)
+            if (sibling)
             {
                 return sibling;
             }
@@ -750,18 +755,19 @@ WObject *Container::getDown(const WObject *obj) const
     }
 
     // Root has no parent.
-    if(getType() != WObject::Root)
+    if (getType() != WObject::Root)
     {
-        const Container *pContainer = static_cast<const Container*>(m_pParent);
+        const Container *pContainer = static_cast<const Container *>(m_pParent);
         return pContainer->getDown(this);
     }
 
     return 0;
 }
 
-void RootContainer::resize(ssize_t horizDistance, ssize_t vertDistance, WObject *pChild)
+void RootContainer::resize(
+    ssize_t horizDistance, ssize_t vertDistance, WObject *pChild)
 {
-    if(pChild)
+    if (pChild)
     {
         // Use the Container implementation to resize siblings of the
         // child that we've been passed.
@@ -773,7 +779,7 @@ void RootContainer::resize(ssize_t horizDistance, ssize_t vertDistance, WObject 
 void Container::norefresh()
 {
     WObjectList_t::const_iterator it = m_Children.begin();
-    for(; it != m_Children.end(); ++it)
+    for (; it != m_Children.end(); ++it)
     {
         (*it)->norefresh();
     }
@@ -783,7 +789,7 @@ void Container::norefresh()
 void Container::yesrefresh()
 {
     WObjectList_t::const_iterator it = m_Children.begin();
-    for(; it != m_Children.end(); ++it)
+    for (; it != m_Children.end(); ++it)
     {
         (*it)->yesrefresh();
     }

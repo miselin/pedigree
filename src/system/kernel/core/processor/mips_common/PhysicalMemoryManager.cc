@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,29 +23,27 @@ MipsCommonPhysicalMemoryManager MipsCommonPhysicalMemoryManager::m_Instance;
 
 PhysicalMemoryManager &PhysicalMemoryManager::instance()
 {
-  return MipsCommonPhysicalMemoryManager::instance();
+    return MipsCommonPhysicalMemoryManager::instance();
 }
 
 physical_uintptr_t MipsCommonPhysicalMemoryManager::allocatePage()
 {
-  return (m_NextPage += 0x1000);
+    return (m_NextPage += 0x1000);
 }
 void MipsCommonPhysicalMemoryManager::freePage(physical_uintptr_t page)
 {
-  // TODO
+    // TODO
 }
-bool MipsCommonPhysicalMemoryManager::allocateRegion(MemoryRegion &Region,
-                                                     size_t cPages,
-                                                     size_t pageConstraints,
-                                                     size_t Flags,
-                                                     physical_uintptr_t start)
+bool MipsCommonPhysicalMemoryManager::allocateRegion(
+    MemoryRegion &Region, size_t cPages, size_t pageConstraints, size_t Flags,
+    physical_uintptr_t start)
 {
-  // TODO
-  return false;
+    // TODO
+    return false;
 }
 
-MipsCommonPhysicalMemoryManager::MipsCommonPhysicalMemoryManager() :
-  m_NextPage(0x00400000) // Start 4MB in.
+MipsCommonPhysicalMemoryManager::MipsCommonPhysicalMemoryManager()
+    : m_NextPage(0x00400000)  // Start 4MB in.
 {
 }
 MipsCommonPhysicalMemoryManager::~MipsCommonPhysicalMemoryManager()

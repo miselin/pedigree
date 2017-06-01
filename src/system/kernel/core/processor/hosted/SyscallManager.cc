@@ -17,67 +17,76 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
-#include <LockGuard.h>
-#include <processor/Processor.h>
 #include "SyscallManager.h"
+#include <LockGuard.h>
+#include <compiler.h>
+#include <processor/Processor.h>
 
 HostedSyscallManager HostedSyscallManager::m_Instance;
 
 SyscallManager &SyscallManager::instance()
 {
-  return HostedSyscallManager::instance();
+    return HostedSyscallManager::instance();
 }
 
-bool HostedSyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler *pHandler)
+bool HostedSyscallManager::registerSyscallHandler(
+    Service_t Service, SyscallHandler *pHandler)
 {
-  // Lock the class until the end of the function
-  LockGuard<Spinlock> lock(m_Lock);
+    // Lock the class until the end of the function
+    LockGuard<Spinlock> lock(m_Lock);
 
-  if (UNLIKELY(Service >= serviceEnd))
-    return false;
-  if (UNLIKELY(pHandler != 0 && m_pHandler[Service] != 0))
-    return false;
-  if (UNLIKELY(pHandler == 0 && m_pHandler[Service] == 0))
-    return false;
+    if (UNLIKELY(Service >= serviceEnd))
+        return false;
+    if (UNLIKELY(pHandler != 0 && m_pHandler[Service] != 0))
+        return false;
+    if (UNLIKELY(pHandler == 0 && m_pHandler[Service] == 0))
+        return false;
 
-  m_pHandler[Service] = pHandler;
-  return true;
+    m_pHandler[Service] = pHandler;
+    return true;
 }
 
 void HostedSyscallManager::syscall(SyscallState &syscallState)
 {
-  SyscallHandler *pHandler;
-  size_t serviceNumber = syscallState.getSyscallService();
+    SyscallHandler *pHandler;
+    size_t serviceNumber = syscallState.getSyscallService();
 
-  if (UNLIKELY(serviceNumber >= serviceEnd))
-  {
-    // TODO: We should return an error here
-    return;
-  }
-
-  // Get the syscall handler
-  {
-    LockGuard<Spinlock> lock(m_Instance.m_Lock);
-    pHandler = m_Instance.m_pHandler[serviceNumber];
-  }
-  
-  if (LIKELY(pHandler != 0))
-  {
-    syscallState.setSyscallReturnValue(pHandler->syscall(syscallState));
-    syscallState.setSyscallErrno(Processor::information().getCurrentThread()->getErrno());
-
-    if (Processor::information().getCurrentThread()->getUnwindState() == Thread::Exit)
+    if (UNLIKELY(serviceNumber >= serviceEnd))
     {
-      NOTICE("Unwind state exit, in interrupt handler");
-      Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(0);
+        // TODO: We should return an error here
+        return;
     }
-  }
+
+    // Get the syscall handler
+    {
+        LockGuard<Spinlock> lock(m_Instance.m_Lock);
+        pHandler = m_Instance.m_pHandler[serviceNumber];
+    }
+
+    if (LIKELY(pHandler != 0))
+    {
+        syscallState.setSyscallReturnValue(pHandler->syscall(syscallState));
+        syscallState.setSyscallErrno(
+            Processor::information().getCurrentThread()->getErrno());
+
+        if (Processor::information().getCurrentThread()->getUnwindState() ==
+            Thread::Exit)
+        {
+            NOTICE("Unwind state exit, in interrupt handler");
+            Processor::information()
+                .getCurrentThread()
+                ->getParent()
+                ->getSubsystem()
+                ->exit(0);
+        }
+    }
 }
 
-uintptr_t HostedSyscallManager::syscall(Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5)
+uintptr_t HostedSyscallManager::syscall(
+    Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2,
+    uintptr_t p3, uintptr_t p4, uintptr_t p5)
 {
-  return 0;
+    return 0;
 }
 
 //
@@ -88,12 +97,11 @@ void HostedSyscallManager::initialiseProcessor()
 {
 }
 
-HostedSyscallManager::HostedSyscallManager()
-  : m_Lock()
+HostedSyscallManager::HostedSyscallManager() : m_Lock()
 {
-  // Initialise the pointers to the handler
-  for (size_t i = 0;i < serviceEnd;i++)
-    m_pHandler[i] = 0;
+    // Initialise the pointers to the handler
+    for (size_t i = 0; i < serviceEnd; i++)
+        m_pHandler[i] = 0;
 }
 
 HostedSyscallManager::~HostedSyscallManager()

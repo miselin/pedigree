@@ -30,7 +30,7 @@
 template <class T>
 class SharedPointer
 {
-public:
+    public:
     /**
      * Default instantiation, without an associated pointer object.
      */
@@ -76,18 +76,18 @@ public:
     /**
      * Dereference the internal pointer (null if no object is held).
      */
-    T *operator ->() const;
+    T *operator->() const;
 
     /**
      * Dereference the internal pointer (dangerous if no object held).
      */
-    T &operator *() const;
+    T &operator*() const;
 
     /**
      * Release any currently held object, and then reference that held by the
      * given SharedPointer.
      */
-    SharedPointer<T> &operator =(const SharedPointer<T> &p);
+    SharedPointer<T> &operator=(const SharedPointer<T> &p);
 
     /**
      * Whether or not this pointer is valid.
@@ -107,21 +107,21 @@ public:
     /**
      * Creates a SharedPointer with a default allocation.
      */
-    template<class... Args>
+    template <class... Args>
     static SharedPointer<T> allocate(Args...);
 
     /// \note No operator is provided for comparison with raw pointer types:
     ///       if that comparison were to ever succeed, it would indicate that
     ///       the SharedPointer could not safely free memory after the refcount
     ///       falls to zero.
-    bool operator == (const SharedPointer &p) const;
-    bool operator != (const SharedPointer &p) const;
-    bool operator < (const SharedPointer &p) const;
-    bool operator <= (const SharedPointer &p) const;
-    bool operator > (const SharedPointer &p) const;
-    bool operator >= (const SharedPointer &p) const;
+    bool operator==(const SharedPointer &p) const;
+    bool operator!=(const SharedPointer &p) const;
+    bool operator<(const SharedPointer &p) const;
+    bool operator<=(const SharedPointer &p) const;
+    bool operator>(const SharedPointer &p) const;
+    bool operator>=(const SharedPointer &p) const;
 
-private:
+    private:
     /**
      * Internal do-er to release a reference to the held object.
      */
@@ -135,7 +135,7 @@ private:
     {
         T *ptr;
         size_t refcount;
-    } *m_Control;
+    } * m_Control;
 };
 
 template <class T>
@@ -202,19 +202,19 @@ T *SharedPointer<T>::get() const
 }
 
 template <class T>
-T *SharedPointer<T>::operator ->() const
+T *SharedPointer<T>::operator->() const
 {
     return get();
 }
 
 template <class T>
-T &SharedPointer<T>::operator *() const
+T &SharedPointer<T>::operator*() const
 {
     return *(get());
 }
 
 template <class T>
-SharedPointer<T> &SharedPointer<T>::operator =(const SharedPointer<T> &p)
+SharedPointer<T> &SharedPointer<T>::operator=(const SharedPointer<T> &p)
 {
     // If the other is assigned, boost its refcount before we release. If it
     // happens that the other is in fact pointing to the same place, the counts
@@ -284,37 +284,37 @@ void SharedPointer<T>::release()
 }
 
 template <class T>
-bool SharedPointer<T>::operator == (const SharedPointer &p) const
+bool SharedPointer<T>::operator==(const SharedPointer &p) const
 {
     return get() == p.get();
 }
 
 template <class T>
-bool SharedPointer<T>::operator != (const SharedPointer &p) const
+bool SharedPointer<T>::operator!=(const SharedPointer &p) const
 {
     return get() != p.get();
 }
 
 template <class T>
-bool SharedPointer<T>::operator < (const SharedPointer &p) const
+bool SharedPointer<T>::operator<(const SharedPointer &p) const
 {
     return get() < p.get();
 }
 
 template <class T>
-bool SharedPointer<T>::operator <= (const SharedPointer &p) const
+bool SharedPointer<T>::operator<=(const SharedPointer &p) const
 {
     return get() <= p.get();
 }
 
 template <class T>
-bool SharedPointer<T>::operator > (const SharedPointer &p) const
+bool SharedPointer<T>::operator>(const SharedPointer &p) const
 {
     return get() > p.get();
 }
 
 template <class T>
-bool SharedPointer<T>::operator >= (const SharedPointer &p) const
+bool SharedPointer<T>::operator>=(const SharedPointer &p) const
 {
     return get() >= p.get();
 }

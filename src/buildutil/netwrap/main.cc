@@ -19,43 +19,43 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 
 #include <fcntl.h>
 #include <getopt.h>
-#include <sys/ioctl.h>
-#include <signal.h>
 #include <setjmp.h>
+#include <signal.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 #include "TunWrapper.h"
 #include "config-shim.h"
 
+#include <Log.h>
+#include <machine/DeviceHashTree.h>
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
 #include <network-stack/TcpManager.h>
-#include <machine/DeviceHashTree.h>
-#include <Log.h>
 
 static jmp_buf g_jb;
 
 class StreamingStderrLogger : public Log::LogCallback
 {
     public:
-        void callback(const char *str)
-        {
-            std::cerr << str;
-        }
+    void callback(const char *str)
+    {
+        std::cerr << str;
+    }
 };
 
 static void sigint(int signo)
@@ -125,7 +125,8 @@ static void mainloop(int fd)
 
     IpAddress empty;
     RoutingTable::instance().initialise();
-    RoutingTable::instance().Add(RoutingTable::Named, empty, empty, String("default"), wrapper);
+    RoutingTable::instance().Add(
+        RoutingTable::Named, empty, empty, String("default"), wrapper);
 
     if (sigsetjmp(g_jb, 0))
     {
@@ -153,26 +154,31 @@ static void mainloop(int fd)
 static void usage()
 {
     std::cerr << "Usage: netwrap [options]" << std::endl;
-    std::cerr << "Run an instance of the Pedigree network stack on a tun/tap interface." << std::endl;
+    std::cerr << "Run an instance of the Pedigree network stack on a tun/tap "
+                 "interface."
+              << std::endl;
     std::cerr << std::endl;
-    std::cerr << "  --version, -[vV] Print version and exit successfully." << std::endl;
-    std::cerr << "  --help,          Print this help and exit successfully." << std::endl;
-    std::cerr << "  --tap, -t        Device name to open (e.g. tun0)." << std::endl;
+    std::cerr << "  --version, -[vV] Print version and exit successfully."
+              << std::endl;
+    std::cerr << "  --help,          Print this help and exit successfully."
+              << std::endl;
+    std::cerr << "  --tap, -t        Device name to open (e.g. tun0)."
+              << std::endl;
     std::cerr << "  --quiet, -q      Don't print logs to stderr." << std::endl;
     std::cerr << std::endl;
 }
 
 static void version()
 {
-    std::cerr << "netwrap v1.0, Copyright (C) 2014, Pedigree Developers" << std::endl;
+    std::cerr << "netwrap v1.0, Copyright (C) 2014, Pedigree Developers"
+              << std::endl;
 }
 
 int main(int argc, char *argv[])
 {
     const char *interface = nullptr;
     bool quiet = false;
-    const struct option long_options[] =
-    {
+    const struct option long_options[] = {
         {"tap", required_argument, 0, 't'},
         {"version", no_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
@@ -201,7 +207,8 @@ int main(int argc, char *argv[])
                 return 0;
 
             case ':':
-                std::cerr << "At least one required option was missing." << std::endl;
+                std::cerr << "At least one required option was missing."
+                          << std::endl;
             case 'h':
                 usage();
                 return 0;
@@ -241,7 +248,8 @@ int main(int argc, char *argv[])
     int fd = open_tun(interface);
     if (fd < 0)
     {
-        std::cerr << "Failed to open interface '" << interface << "'." << std::endl;
+        std::cerr << "Failed to open interface '" << interface << "'."
+                  << std::endl;
         return 1;
     }
 

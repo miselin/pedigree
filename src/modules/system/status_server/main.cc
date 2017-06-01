@@ -20,42 +20,46 @@
 #include <Log.h>
 #include <Module.h>
 #include <Version.h>
-#include <machine/Network.h>
-#include <processor/Processor.h>
-#include <process/Scheduler.h>
-#include <network-stack/Endpoint.h>
-#include <network-stack/TcpManager.h>
-#include <network-stack/RoutingTable.h>
-#include <network-stack/NetworkStack.h>
-#include <network-stack/ConnectionBasedEndpoint.h>
-#include <vfs/VFS.h>
-#include <vfs/Filesystem.h>
-#include <core/lib/SlamAllocator.h>
 #include <compiler.h>
+#include <core/lib/SlamAllocator.h>
+#include <machine/Network.h>
+#include <network-stack/ConnectionBasedEndpoint.h>
+#include <network-stack/Endpoint.h>
+#include <network-stack/NetworkStack.h>
+#include <network-stack/RoutingTable.h>
+#include <network-stack/TcpManager.h>
+#include <process/Scheduler.h>
+#include <processor/Processor.h>
+#include <vfs/Filesystem.h>
+#include <vfs/VFS.h>
 
-#define LISTEN_PORT     1234
+#define LISTEN_PORT 1234
 
 static ConnectionBasedEndpoint *pEndpoint = 0;
 
 static int clientThread(void *p)
 {
-    if(!p)
+    if (!p)
         return 0;
 
-    ConnectionBasedEndpoint *pClient = reinterpret_cast<ConnectionBasedEndpoint*>(p);
+    ConnectionBasedEndpoint *pClient =
+        reinterpret_cast<ConnectionBasedEndpoint *>(p);
 
     // Wait for data from the client - block.
-    if(!pClient->dataReady(true))
+    if (!pClient->dataReady(true))
     {
-        WARNING("Client from IP: " << pClient->getRemoteIp().toString() << " wasn't a proper HTTP client.");
+        WARNING(
+            "Client from IP: " << pClient->getRemoteIp().toString()
+                               << " wasn't a proper HTTP client.");
         pClient->close();
         return 0;
     }
 
     // Read all incoming data from the client. Assume no nulls.
-    /// \todo Wait until last 4 bytes are \r\n\r\n - that's the end of the HTTP header.
+    /// \todo Wait until last 4 bytes are \r\n\r\n - that's the end of the HTTP
+    /// header.
     String inputData("");
-    while(pClient->dataReady(false))
+    while (pClient->dataReady(false))
     {
         char buff[512];
         pClient->recv(reinterpret_cast<uintptr_t>(buff), 512, true, false);
@@ -69,9 +73,9 @@ static int clientThread(void *p)
 
     List<SharedPointer<String>> firstLine = inputData.tokenise(' ');
     String operation = *firstLine.popFront();
-    if(!(operation == String("GET")))
+    if (!(operation == String("GET")))
     {
-        if(operation == String("HEAD"))
+        if (operation == String("HEAD"))
             bHeadRequest = true;
         else
         {
@@ -84,7 +88,7 @@ static int clientThread(void *p)
     bool bNotFound = false;
 
     String path = *firstLine.popFront();
-    if(!(path == String("/")))
+    if (!(path == String("/")))
         bNotFound = true;
 
     // Got a heap of information now - prepare to return
@@ -103,18 +107,20 @@ static int clientThread(void *p)
     response += "\r\n\r\n";
 
     // Do we need data there?
-    if(!bHeadRequest)
+    if (!bHeadRequest)
     {
         // Formulate data itself
-        if(bNotFound)
+        if (bNotFound)
         {
             response += "Error 404: Page not found.";
         }
         else
         {
-            response += "<html><head><title>Pedigree - Live System Status Report</title></head><body>";
+            response += "<html><head><title>Pedigree - Live System Status "
+                        "Report</title></head><body>";
             response += "<h1>Pedigree Live Status Report</h1>";
-            response += "<p>This is a live status report from a running Pedigree system.</p>";
+            response += "<p>This is a live status report from a running "
+                        "Pedigree system.</p>";
             response += "<h3>Current Build</h3><pre>";
 
             {
@@ -136,10 +142,15 @@ static int clientThread(void *p)
             response += "</pre>";
 
             response += "<h3>Network Interfaces</h3>";
-            response += "<table border='1'><tr><th>Interface #</th><th>IP Address</th><th>Subnet Mask</th><th>Gateway</th><th>DNS Servers</th><th>Driver Name</th><th>MAC address</th><th>Statistics</th></tr>";
-            for (size_t i = 0; i < NetworkStack::instance().getNumDevices(); i++)
+            response += "<table border='1'><tr><th>Interface #</th><th>IP "
+                        "Address</th><th>Subnet "
+                        "Mask</th><th>Gateway</th><th>DNS "
+                        "Servers</th><th>Driver Name</th><th>MAC "
+                        "address</th><th>Statistics</th></tr>";
+            for (size_t i = 0; i < NetworkStack::instance().getNumDevices();
+                 i++)
             {
-                Network* card = NetworkStack::instance().getDevice(i);
+                Network *card = NetworkStack::instance().getDevice(i);
                 StationInfo info = card->getStationInfo();
 
                 // Interface number
@@ -147,16 +158,17 @@ static int clientThread(void *p)
                 NormalStaticString s;
                 s.append(i);
                 response += s;
-                if(card == RoutingTable::instance().DefaultRoute())
+                if (card == RoutingTable::instance().DefaultRoute())
                     response += " <b>(default route)</b>";
                 response += "</td>";
 
                 // IP address
                 response += "<td>";
                 response += info.ipv4.toString();
-                if(info.nIpv6Addresses)
+                if (info.nIpv6Addresses)
                 {
-                    for(size_t nAddress = 0; nAddress < info.nIpv6Addresses; nAddress++)
+                    for (size_t nAddress = 0; nAddress < info.nIpv6Addresses;
+                         nAddress++)
                     {
                         response += "<br />";
                         response += info.ipv6[nAddress].toString();
@@ -176,14 +188,14 @@ static int clientThread(void *p)
 
                 // DNS servers
                 response += "<td>";
-                if(!info.nDnsServers)
+                if (!info.nDnsServers)
                     response += "(none)";
                 else
                 {
-                    for(size_t j = 0; j < info.nDnsServers; j++)
+                    for (size_t j = 0; j < info.nDnsServers; j++)
                     {
                         response += info.dnsServers[j].toString();
-                        if((j + 1) < info.nDnsServers)
+                        if ((j + 1) < info.nDnsServers)
                             response += "<br />";
                     }
                 }
@@ -191,7 +203,8 @@ static int clientThread(void *p)
 
                 // Driver name
                 response += "<td>";
-                String cardName; card->getName(cardName);
+                String cardName;
+                card->getName(cardName);
                 response += cardName;
                 response += "</td>";
 
@@ -217,29 +230,28 @@ static int clientThread(void *p)
             response += "</table>";
 
             response += "<h3>VFS</h3>";
-            response += "<table border='1'><tr><th>VFS Alias</th><th>Disk</th></tr>";
+            response +=
+                "<table border='1'><tr><th>VFS Alias</th><th>Disk</th></tr>";
 
-            typedef List<String*> StringList;
-            typedef Tree<Filesystem*, List<String*>*> VFSMountTree;
+            typedef List<String *> StringList;
+            typedef Tree<Filesystem *, List<String *> *> VFSMountTree;
 
             VFSMountTree &mounts = VFS::instance().getMounts();
 
-            for(VFSMountTree::Iterator it = mounts.begin();
-                it != mounts.end();
-                it++)
+            for (VFSMountTree::Iterator it = mounts.begin(); it != mounts.end();
+                 it++)
             {
                 Filesystem *pFs = it.key();
                 StringList *pList = it.value();
                 Disk *pDisk = pFs->getDisk();
 
-                for(StringList::Iterator j = pList->begin();
-                    j != pList->end();
-                    j++)
+                for (StringList::Iterator j = pList->begin(); j != pList->end();
+                     j++)
                 {
                     String mount = **j;
                     String diskInfo, temp;
 
-                    if(pDisk)
+                    if (pDisk)
                     {
                         pDisk->getName(temp);
                         pDisk->getParent()->getName(diskInfo);
@@ -262,7 +274,9 @@ static int clientThread(void *p)
 
 #ifdef X86_COMMON
             response += "<h3>Memory Usage (KiB)</h3>";
-            response += "<table border='1'><tr><th>Heap</th><th>Used</th><th>Free</th></tr>";
+            response += "<table "
+                        "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"
+                        "th></tr>";
             {
                 extern size_t g_FreePages;
                 extern size_t g_AllocedPages;
@@ -281,15 +295,20 @@ static int clientThread(void *p)
 #endif
 
             response += "<h3>Processes</h3>";
-            response += "<table border='1'><tr><th>PID</th><th>Description</th><th>Virtual Memory (KiB)</th><th>Physical Memory (KiB)</th><th>Shared Memory (KiB)</th>";
-            for(size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
+            response += "<table "
+                        "border='1'><tr><th>PID</th><th>Description</"
+                        "th><th>Virtual Memory (KiB)</th><th>Physical Memory "
+                        "(KiB)</th><th>Shared Memory (KiB)</th>";
+            for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
             {
                 response += "<tr>";
                 Process *pProcess = Scheduler::instance().getProcess(i);
                 HugeStaticString str;
 
-                ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
-                ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
+                ssize_t virtK =
+                    (pProcess->getVirtualPageCount() * 0x1000) / 1024;
+                ssize_t physK =
+                    (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
                 ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
 
                 /// \todo add timing
@@ -315,12 +334,15 @@ static int clientThread(void *p)
     }
 
     // Send to the client
-    pClient->send(response.length(), reinterpret_cast<uintptr_t>(static_cast<const char*>(response)));
+    pClient->send(
+        response.length(),
+        reinterpret_cast<uintptr_t>(static_cast<const char *>(response)));
 
     // Nothing more to send, bring down our side of the connection
     pClient->shutdown(Endpoint::ShutSending);
 
-    // Leave the endpoint to be cleaned up when the connection is shut down cleanly
+    // Leave the endpoint to be cleaned up when the connection is shut down
+    // cleanly
     /// \todo Does it get cleaned up if we do this?
     return 0;
 }
@@ -330,26 +352,33 @@ int mainThread(void *)
 {
     pEndpoint->listen();
 
-    while(1)
+    while (1)
     {
-        ConnectionBasedEndpoint *pClient = static_cast<ConnectionBasedEndpoint*>(pEndpoint->accept());
-        if(!pClient)
+        ConnectionBasedEndpoint *pClient =
+            static_cast<ConnectionBasedEndpoint *>(pEndpoint->accept());
+        if (!pClient)
             continue;
-        Thread *pThread = new Thread(Processor::information().getCurrentThread()->getParent(), clientThread, pClient);
+        Thread *pThread = new Thread(
+            Processor::information().getCurrentThread()->getParent(),
+            clientThread, pClient);
         pThread->detach();
     }
 }
 
 static bool init()
 {
-    pEndpoint = static_cast<ConnectionBasedEndpoint*>(TcpManager::instance().getEndpoint(LISTEN_PORT, RoutingTable::instance().DefaultRoute()));
-    if(!pEndpoint)
+    pEndpoint = static_cast<ConnectionBasedEndpoint *>(
+        TcpManager::instance().getEndpoint(
+            LISTEN_PORT, RoutingTable::instance().DefaultRoute()));
+    if (!pEndpoint)
     {
         WARNING("Status server can't start, couldn't get a TCP endpoint.");
         return false;
     }
 
-    Thread *pThread = new Thread(Processor::information().getCurrentThread()->getParent(), mainThread, pEndpoint);
+    Thread *pThread = new Thread(
+        Processor::information().getCurrentThread()->getParent(), mainThread,
+        pEndpoint);
     pThread->detach();
     return true;
 }

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,8 +19,8 @@
 
 #include "Partition.h"
 
-Partition::Partition(String type, uint64_t start, uint64_t length) :
-    m_Type(type), m_Start(start), m_Length(length), m_bAligned(false)
+Partition::Partition(String type, uint64_t start, uint64_t length)
+    : m_Type(type), m_Start(start), m_Length(length), m_bAligned(false)
 {
 }
 

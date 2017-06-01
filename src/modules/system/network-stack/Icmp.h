@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,16 +20,16 @@
 #ifndef MACHINE_ICMP_H
 #define MACHINE_ICMP_H
 
+#include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <processor/types.h>
 #include <utilities/String.h>
 #include <utilities/Vector.h>
-#include <processor/types.h>
-#include <process/Semaphore.h>
-#include <machine/Network.h>
 
 class IpBase;
 
 /// \todo Implement more!
-#define ICMP_ECHO_REPLY   0x00
+#define ICMP_ECHO_REPLY 0x00
 #define ICMP_ECHO_REQUEST 0x08
 
 /**
@@ -38,35 +37,37 @@ class IpBase;
  */
 class Icmp
 {
-public:
-  Icmp();
-  virtual ~Icmp();
-  
-  /** For access to the stack without declaring an instance of it */
-  static Icmp& instance()
-  {
-    return icmpInstance;
-  }
-  
-  /** Packet arrival callback */
-  void receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes, IpBase *pIp, Network* pCard);
-  
-  /** Sends an ICMP packet */
-  static void send(IpAddress dest, uint8_t type, uint8_t code, uint16_t id, uint16_t seq, size_t nBytes, uintptr_t payload, Network *pCard = 0);
-  
-private:
+    public:
+    Icmp();
+    virtual ~Icmp();
 
-  static Icmp icmpInstance;
+    /** For access to the stack without declaring an instance of it */
+    static Icmp &instance()
+    {
+        return icmpInstance;
+    }
 
-  struct icmpHeader
-  {
-    uint8_t   type;
-    uint8_t   code;
-    uint16_t  checksum;
-    uint16_t  id;
-    uint16_t  seq;
-  } __attribute__ ((packed));
+    /** Packet arrival callback */
+    void receive(
+        IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
+        IpBase *pIp, Network *pCard);
 
+    /** Sends an ICMP packet */
+    static void send(
+        IpAddress dest, uint8_t type, uint8_t code, uint16_t id, uint16_t seq,
+        size_t nBytes, uintptr_t payload, Network *pCard = 0);
+
+    private:
+    static Icmp icmpInstance;
+
+    struct icmpHeader
+    {
+        uint8_t type;
+        uint8_t code;
+        uint16_t checksum;
+        uint16_t id;
+        uint16_t seq;
+    } __attribute__((packed));
 };
 
 #endif

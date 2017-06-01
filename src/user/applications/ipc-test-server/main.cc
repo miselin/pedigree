@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
 #include <native/ipc/Ipc.h>
+#include <stdio.h>
 
-#include <unistd.h>
 #include <sys/klog.h>
+#include <unistd.h>
 
 using namespace PedigreeIpc;
 
@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
         printf("Forking failed.");
         return 1;
     }
-    else if(id == 0)
+    else if (id == 0)
     {
         // Grab an endpoint to use.
         createEndpoint("ipc-test");
@@ -43,36 +43,43 @@ int main(int argc, char *argv[])
 
         klog(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
 
-        while(true)
+        while (true)
         {
             // Wait for an incoming message.
             IpcMessage *pRecv = 0;
-            if(!recv(pEndpoint, &pRecv, false))
+            if (!recv(pEndpoint, &pRecv, false))
             {
-                klog(LOG_WARNING, "IPC Test: Server failed to receive a message.");
+                klog(
+                    LOG_WARNING,
+                    "IPC Test: Server failed to receive a message.");
                 continue;
             }
 
             // Log it.
-            klog(LOG_NOTICE, "IPC Test: Server got message '%s'.", pRecv->getBuffer());
+            klog(
+                LOG_NOTICE, "IPC Test: Server got message '%s'.",
+                pRecv->getBuffer());
             delete pRecv;
 
             // Send a response.
             IpcMessage *pResponse = new IpcMessage();
             pResponse->initialise();
             char *pBuffer = reinterpret_cast<char *>(pResponse->getBuffer());
-            if(!pBuffer)
+            if (!pBuffer)
             {
                 klog(LOG_WARNING, "IPC Test: Server message creation failed.");
                 continue;
             }
             else
-                klog(LOG_NOTICE, "IPC Test: Server is writing into message %x", pBuffer);
+                klog(
+                    LOG_NOTICE, "IPC Test: Server is writing into message %x",
+                    pBuffer);
 
             sprintf(pBuffer, "Server received message successfully!\n");
 
-            if(!send(pEndpoint, pResponse, false))
-                klog(LOG_WARNING, "IPC Test: Server failed to send a response.");
+            if (!send(pEndpoint, pResponse, false))
+                klog(
+                    LOG_WARNING, "IPC Test: Server failed to send a response.");
 
             // Clean up.
             delete pResponse;

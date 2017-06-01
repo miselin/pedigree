@@ -25,48 +25,50 @@
 
 namespace Config
 {
-    class Result
+class Result
+{
+    public:
+    Result(size_t nResultIdx) : m_nResultIdx(nResultIdx)
     {
-        public:
-            Result(size_t nResultIdx) : m_nResultIdx(nResultIdx) {}
-            ~Result();
+    }
+    ~Result();
 
-            /// Returns true if the result is valid, false if there was an error
-            bool succeeded();
-            /// Returns the error message
-            std::string errorMessage(size_t buffSz = 256);
+    /// Returns true if the result is valid, false if there was an error
+    bool succeeded();
+    /// Returns the error message
+    std::string errorMessage(size_t buffSz = 256);
 
-            /// Returns the number of rows
-            size_t rows();
-            /// Returns the number of columns
-            size_t cols();
+    /// Returns the number of rows
+    size_t rows();
+    /// Returns the number of columns
+    size_t cols();
 
-            /// Returns the name of the col'th column
-            std::string getColumnName(size_t col, size_t buffSz = 256);
+    /// Returns the name of the col'th column
+    std::string getColumnName(size_t col, size_t buffSz = 256);
 
-            /// Returns the value in column 'col' of the result, in string form
-            std::string getStr(size_t row, size_t col, size_t buffSz = 256);
-            /// Returns the value in column 'col' of the result, in number form
-            size_t getNum(size_t row, size_t col);
-            /// Returns the value in column 'col' of the result, in boolean form
-            bool getBool(size_t row, size_t col);
+    /// Returns the value in column 'col' of the result, in string form
+    std::string getStr(size_t row, size_t col, size_t buffSz = 256);
+    /// Returns the value in column 'col' of the result, in number form
+    size_t getNum(size_t row, size_t col);
+    /// Returns the value in column 'col' of the result, in boolean form
+    bool getBool(size_t row, size_t col);
 
-            /// Returns the value in the column called 'col', in string form
-            std::string getStr(size_t row, const char *col, size_t buffSz = 256);
-            /// Returns the value in the column called 'col', in number form
-            size_t getNum(size_t row, const char *col);
-            /// Returns the value in the column called 'col', in boolean form
-            bool getBool(size_t row, const char *col);
+    /// Returns the value in the column called 'col', in string form
+    std::string getStr(size_t row, const char *col, size_t buffSz = 256);
+    /// Returns the value in the column called 'col', in number form
+    size_t getNum(size_t row, const char *col);
+    /// Returns the value in the column called 'col', in boolean form
+    bool getBool(size_t row, const char *col);
 
-        private:
-            Result(const Result &);
-            Result &operator = (const Result &);
+    private:
+    Result(const Result &);
+    Result &operator=(const Result &);
 
-            size_t m_nResultIdx;
-    };
+    size_t m_nResultIdx;
+};
 
-    /// Performs a select/update/insert/whatever query on the database
-    Result *query(const char *sql);
+/// Performs a select/update/insert/whatever query on the database
+Result *query(const char *sql);
 };
 
 #endif

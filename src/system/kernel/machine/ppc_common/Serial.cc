@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,14 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/ppc_common/Serial.h>
-#include <machine/types.h>
 #include <Log.h>
 #include <machine/Machine.h>
+#include <machine/ppc_common/Serial.h>
+#include <machine/types.h>
 #include <utilities/StaticString.h>
 
-PPCSerial::PPCSerial() :
-  m_pBuffer(0)
+PPCSerial::PPCSerial() : m_pBuffer(0)
 {
 }
 
@@ -43,15 +41,15 @@ void PPCSerial::write(char c)
 
 char PPCSerial::read()
 {
-  return '\0';
+    return '\0';
 }
 
 char PPCSerial::readNonBlock()
 {
-  return '\0';
+    return '\0';
 }
 
 bool PPCSerial::isConnected()
 {
-  return true;
+    return true;
 }

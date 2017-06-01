@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,55 +20,55 @@
 #ifndef MACHINE_ARM_BEAGLE_H
 #define MACHINE_ARM_BEAGLE_H
 
-#include <machine/Machine.h>
+#include "GPTimer.h"
+#include "Keyboard.h"
 #include "Serial.h"
 #include "Vga.h"
-#include "Keyboard.h"
-#include "GPTimer.h"
+#include <machine/Machine.h>
 
 /**
  * Concretion of the abstract Machine class for an ArmBeagle board.
  */
 class ArmBeagle : public Machine
 {
-public:
-  inline static Machine &instance()
-  {
-    return m_Instance;
-  }
+    public:
+    inline static Machine &instance()
+    {
+        return m_Instance;
+    }
 
-  virtual void initialise();
-  virtual void initialise2();
-  virtual Serial *getSerial(size_t n);
-  virtual size_t getNumSerial();
-  virtual Vga *getVga(size_t n);
-  virtual size_t getNumVga();
-  virtual IrqManager *getIrqManager();
-  virtual SchedulerTimer *getSchedulerTimer();
-  virtual Timer *getTimer();
-  virtual Keyboard *getKeyboard();
-  virtual void setKeyboard(Keyboard *kb) {};
+    virtual void initialise();
+    virtual void initialise2();
+    virtual Serial *getSerial(size_t n);
+    virtual size_t getNumSerial();
+    virtual Vga *getVga(size_t n);
+    virtual size_t getNumVga();
+    virtual IrqManager *getIrqManager();
+    virtual SchedulerTimer *getSchedulerTimer();
+    virtual Timer *getTimer();
+    virtual Keyboard *getKeyboard();
+    virtual void setKeyboard(Keyboard *kb){};
 
-  virtual void initialiseDeviceTree();
+    virtual void initialiseDeviceTree();
 
-private:
-  /**
-   * Default constructor, does nothing.
-   */
-  ArmBeagle();
-  ArmBeagle(const ArmBeagle &);
-  ArmBeagle &operator = (const ArmBeagle &);
-  /**
-   * Virtual destructor, does nothing.
-   */
-  virtual ~ArmBeagle();
+    private:
+    /**
+     * Default constructor, does nothing.
+     */
+    ArmBeagle();
+    ArmBeagle(const ArmBeagle &);
+    ArmBeagle &operator=(const ArmBeagle &);
+    /**
+     * Virtual destructor, does nothing.
+     */
+    virtual ~ArmBeagle();
 
-  ArmBeagleSerial m_Serial[3];
-  GPTimer m_Timers[11];
-  ArmBeagleVga m_Vga;
-  ArmBeagleKeyboard m_Keyboard;
+    ArmBeagleSerial m_Serial[3];
+    GPTimer m_Timers[11];
+    ArmBeagleVga m_Vga;
+    ArmBeagleKeyboard m_Keyboard;
 
-  static ArmBeagle m_Instance;
+    static ArmBeagle m_Instance;
 };
 
 #endif

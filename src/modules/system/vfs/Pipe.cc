@@ -25,31 +25,37 @@
 class ZombiePipe : public ZombieObject
 {
     public:
-        ZombiePipe(Pipe *pPipe) : m_pPipe(pPipe)
-        {
-        }
-        virtual ~ZombiePipe()
-        {
-            NOTICE("ZombiePipe: freeing " << m_pPipe);
-            delete m_pPipe;
-        }
+    ZombiePipe(Pipe *pPipe) : m_pPipe(pPipe)
+    {
+    }
+    virtual ~ZombiePipe()
+    {
+        NOTICE("ZombiePipe: freeing " << m_pPipe);
+        delete m_pPipe;
+    }
+
     private:
-        Pipe *m_pPipe;
+    Pipe *m_pPipe;
 };
 
-Pipe::Pipe() :
-    File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
+Pipe::Pipe()
+    : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
 }
 
-Pipe::Pipe(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-           uintptr_t inode, Filesystem *pFs, size_t size, File *pParent,
-           bool bIsAnonymous) :
-    File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
+Pipe::Pipe(
+    const String &name, Time::Timestamp accessedTime,
+    Time::Timestamp modifiedTime, Time::Timestamp creationTime, uintptr_t inode,
+    Filesystem *pFs, size_t size, File *pParent, bool bIsAnonymous)
+    : File(
+          name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
+          pParent),
+      m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
-    NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << Hex << this);
+    NOTICE(
+        "Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe "
+                     << Hex << this);
 }
 
 Pipe::~Pipe()
@@ -73,15 +79,17 @@ int Pipe::select(bool bWriting, int timeout)
     }
 }
 
-uint64_t Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t
+Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    uint8_t *pBuf = reinterpret_cast<uint8_t*>(buffer);
+    uint8_t *pBuf = reinterpret_cast<uint8_t *>(buffer);
     return m_Buffer.read(pBuf, size, bCanBlock);
 }
 
-uint64_t Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t
+Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    uint8_t *pBuf = reinterpret_cast<uint8_t*>(buffer);
+    uint8_t *pBuf = reinterpret_cast<uint8_t *>(buffer);
     uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
     if (result)
     {
@@ -141,7 +149,7 @@ void Pipe::decreaseRefCount(bool bIsWriter)
 
         if (bIsWriter)
         {
-            m_nWriters --;
+            m_nWriters--;
             if (m_nWriters == 0)
             {
                 // Wakes up readers waiting as they won't be able to be woken
@@ -152,7 +160,7 @@ void Pipe::decreaseRefCount(bool bIsWriter)
         }
         else
         {
-            m_nReaders --;
+            m_nReaders--;
             if (m_nReaders == 0)
             {
                 // Wake up any writers that were waiting for space - no more
@@ -167,8 +175,13 @@ void Pipe::decreaseRefCount(bool bIsWriter)
             // If we're anonymous, die completely.
             if (m_bIsAnonymous)
             {
-                size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
-                NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
+                size_t pid = Processor::information()
+                                 .getCurrentThread()
+                                 ->getParent()
+                                 ->getId();
+                NOTICE(
+                    "Adding pipe [" << pid << "] " << this
+                                    << " to ZombieQueue");
                 ZombieQueue::instance().addObject(new ZombiePipe(this));
                 bDataChanged = false;
             }

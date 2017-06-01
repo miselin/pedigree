@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,62 +20,65 @@
 #ifndef PCI_COMMON_H
 #define PCI_COMMON_H
 
-#include <processor/types.h>
 #include <machine/Device.h>
+#include <processor/types.h>
 
 /** Architecture-independent interface to a PCI bus */
 class PciBus
 {
     public:
-        PciBus();
-        virtual ~PciBus();
+    PciBus();
+    virtual ~PciBus();
 
-        static PciBus &instance()
-        {
-            return m_Instance;
-        }
+    static PciBus &instance()
+    {
+        return m_Instance;
+    }
 
-        /**
-         * Initialises the object for use.
-         */
-        void initialise();
+    /**
+     * Initialises the object for use.
+     */
+    void initialise();
 
-        /**
-         * Reads from the configuration space
-         * \param pDev the device to read configuration space for
-         * \param offset the offset into the configuration space to read
-         */
-        uint32_t readConfigSpace(Device *pDev, uint8_t offset);
+    /**
+     * Reads from the configuration space
+     * \param pDev the device to read configuration space for
+     * \param offset the offset into the configuration space to read
+     */
+    uint32_t readConfigSpace(Device *pDev, uint8_t offset);
 
-        /**
-         * Reads from the configuration space
-         * \param bus bus number for the read address
-         * \param device device number for the read address
-         * \param function function number for the read address
-         * \param offset the offset into the configuration space to read
-         */
-        uint32_t readConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
+    /**
+     * Reads from the configuration space
+     * \param bus bus number for the read address
+     * \param device device number for the read address
+     * \param function function number for the read address
+     * \param offset the offset into the configuration space to read
+     */
+    uint32_t readConfigSpace(
+        uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 
-        /**
-         * Writes to the configuration space
-         * \param pDev the device to write configuration space for
-         * \param offset the offset into the configuration space to write
-         * \param data the data to write
-         */
-        void writeConfigSpace(Device *pDev, uint8_t offset, uint32_t data);
+    /**
+     * Writes to the configuration space
+     * \param pDev the device to write configuration space for
+     * \param offset the offset into the configuration space to write
+     * \param data the data to write
+     */
+    void writeConfigSpace(Device *pDev, uint8_t offset, uint32_t data);
 
-        /**
-         * Writes to the configuration space
-         * \param bus bus number for the write address
-         * \param device device number for the write address
-         * \param function function number for the write address
-         * \param offset the offset into the configuration space to write
-         * \param data the data to write
-         */
-        void writeConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t data);
+    /**
+     * Writes to the configuration space
+     * \param bus bus number for the write address
+     * \param device device number for the write address
+     * \param function function number for the write address
+     * \param offset the offset into the configuration space to write
+     * \param data the data to write
+     */
+    void writeConfigSpace(
+        uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
+        uint32_t data);
 
     private:
-        static PciBus m_Instance;
+    static PciBus m_Instance;
 };
 
 #endif

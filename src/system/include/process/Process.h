@@ -22,20 +22,20 @@
 
 #ifdef THREADS
 
+#include <Atomic.h>
+#include <LockGuard.h>
+#include <Spinlock.h>
 #include <compiler.h>
+#include <process/Mutex.h>
+#include <process/Semaphore.h>
 #include <process/Thread.h>
 #include <processor/state.h>
-#include <utilities/Vector.h>
+#include <time/Time.h>
+#include <utilities/MemoryAllocator.h>
 #include <utilities/StaticString.h>
 #include <utilities/String.h>
-#include <Atomic.h>
-#include <Spinlock.h>
-#include <LockGuard.h>
-#include <process/Semaphore.h>
-#include <process/Mutex.h>
 #include <utilities/Tree.h>
-#include <utilities/MemoryAllocator.h>
-#include <time/Time.h>
+#include <utilities/Vector.h>
 
 #include <Subsystem.h>
 
@@ -47,18 +47,19 @@ class Group;
 class DynamicLinker;
 
 /**
- * An abstraction of a Process - a container for one or more threads all running in
- * the same address space.
+ * An abstraction of a Process - a container for one or more threads all running
+ * in the same address space.
  */
 class Process
 {
     friend class Thread;
-public:
-    /** Subsystems may inherit Process to provide custom functionality. However, they need
-     *  to know whether a Process pointer is subsystem-specific. This enumeration is designed
-     *  to allow functions using Process objects in subsystems with inherited Process objects
-     *  to be able to figure out what type the Process is without depending on any external
-     *  accounting.
+
+    public:
+    /** Subsystems may inherit Process to provide custom functionality. However,
+     * they need to know whether a Process pointer is subsystem-specific. This
+     * enumeration is designed to allow functions using Process objects in
+     * subsystems with inherited Process objects to be able to figure out what
+     * type the Process is without depending on any external accounting.
      */
     enum ProcessType
     {
@@ -77,7 +78,7 @@ public:
         Suspended,
         Terminating,
         Terminated,
-        Reaped, /// Reaped means the process has had a status retrieved.
+        Reaped,  /// Reaped means the process has had a status retrieved.
     };
 
     /** Default constructor. */
@@ -87,10 +88,10 @@ public:
      * a UNIX fork() would, from the given parent process. This constructor
      * does not create any threads.
      * \param pParent The parent process.
-     * \param bCopyOnWrite Whether to mark the address space copy-on-write (default)
-                           or to share it read/write with the new child.
+     * \param bCopyOnWrite Whether to mark the address space copy-on-write
+     (default) or to share it read/write with the new child.
      */
-    Process(Process *pParent, bool bCopyOnWrite=true);
+    Process(Process *pParent, bool bCopyOnWrite = true);
 
     /** Destructor. */
     virtual ~Process();
@@ -176,7 +177,6 @@ public:
         m_Ctty = f;
     }
 
-
     /** Returns the memory space allocator for primary address space. */
     MemoryAllocator &getSpaceAllocator()
     {
@@ -198,7 +198,7 @@ public:
     {
         m_pUser = pUser;
     }
-    
+
     /** Gets the effective user. */
     User *getEffectiveUser()
     {
@@ -220,7 +220,7 @@ public:
     {
         m_pGroup = pGroup;
     }
-    
+
     /** Gets the current effective group. */
     Group *getEffectiveGroup()
     {
@@ -397,14 +397,14 @@ public:
     /** Set the init process. */
     static void setInit(Process *pProcess);
 
-private:
+    private:
     Process(const Process &);
-    Process &operator = (const Process &);
+    Process &operator=(const Process &);
 
     /**
      * Our list of threads.
      */
-    Vector<Thread*> m_Threads;
+    Vector<Thread *> m_Threads;
     /**
      * The next available thread ID.
      */
@@ -487,10 +487,11 @@ private:
     /** Stores metadata about this process. */
     struct ProcessMetadata
     {
-        ProcessMetadata() :
-            virtualPages(0), physicalPages(0), sharedPages(0), userTime(0),
-            kernelTime(0), startTime(0)
-        {}
+        ProcessMetadata()
+            : virtualPages(0), physicalPages(0), sharedPages(0), userTime(0),
+              kernelTime(0), startTime(0)
+        {
+        }
 
         /// Virtual address space consumed, including that which would trigger
         /// a successful trap to page data in.
@@ -524,7 +525,7 @@ private:
     /** Init process (terminated processes' children will reparent to this). */
     static Process *m_pInitProcess;
 
-public:
+    public:
     Semaphore m_DeadThreads;
 };
 

@@ -18,14 +18,14 @@
  */
 
 #include "UdpLogger.h"
-#include <network/IpAddress.h>
 #include "NetworkStack.h"
-#include "UdpManager.h"
 #include "RoutingTable.h"
+#include "UdpManager.h"
+#include <network/IpAddress.h>
 
 UdpLogger::~UdpLogger()
 {
-    if(m_pEndpoint)
+    if (m_pEndpoint)
     {
         UdpManager::instance().returnEndpoint(m_pEndpoint);
         m_pEndpoint = 0;
@@ -34,30 +34,32 @@ UdpLogger::~UdpLogger()
 
 bool UdpLogger::initialise(IpAddress remote, uint16_t port)
 {
-    if(m_pEndpoint)
+    if (m_pEndpoint)
         return true;
-        
+
     m_LoggingServer.ip = remote;
     m_LoggingServer.remotePort = port;
-    
-    m_pEndpoint = static_cast<ConnectionlessEndpoint*>(UdpManager::instance().getEndpoint(remote, 0, port));
-    
-    if(!m_pEndpoint)
+
+    m_pEndpoint = static_cast<ConnectionlessEndpoint *>(
+        UdpManager::instance().getEndpoint(remote, 0, port));
+
+    if (!m_pEndpoint)
         return false;
-    
+
     // Will perform an ARP lookup, which will fill the ARP cache. This is done
     // before the callback is actually installed (after we return) because ARP
     // writes to the log, which calls the callback (and then hangs on ARP)
     callback("UDP logger now active");
-    
+
     return true;
 }
 
 void UdpLogger::callback(const char *str)
 {
-    if(!m_pEndpoint)
+    if (!m_pEndpoint)
         return;
-    
-    m_pEndpoint->send(StringLength(str), reinterpret_cast<uintptr_t>(str), m_LoggingServer, false);
-}
 
+    m_pEndpoint->send(
+        StringLength(str), reinterpret_cast<uintptr_t>(str), m_LoggingServer,
+        false);
+}

@@ -24,14 +24,14 @@
 
 #include <Log.h>
 
-#include <processor/state.h>
-#include <processor/types.h>
 #include <process/Event.h>
 #include <process/Uninterruptible.h>
+#include <processor/state.h>
+#include <processor/types.h>
 
+#include <utilities/ExtensibleBitmap.h>
 #include <utilities/List.h>
 #include <utilities/RequestQueue.h>
-#include <utilities/ExtensibleBitmap.h>
 #include <utilities/SharedPointer.h>
 
 #include <processor/MemoryRegion.h>
@@ -46,7 +46,7 @@ class Processor;
 class Process;
 
 /** Thread TLS area size */
-#define THREAD_TLS_SIZE     0x1000
+#define THREAD_TLS_SIZE 0x1000
 
 /**
  * An abstraction of a thread of execution.
@@ -55,15 +55,16 @@ class Process;
  * stack of them, along with a stack of masks for inhibiting event dispatch.
  *
  * This enables event dispatch at any time without affecting the previous state,
- * as well as changing the event mask from nested event handlers without affecting
- * the state of any other running handler.
+ * as well as changing the event mask from nested event handlers without
+ * affecting the state of any other running handler.
  */
 class Thread
 {
     friend class PerProcessorScheduler;
     // To set uninterruptible state.
     friend class Uninterruptible;
-public:
+
+    public:
     /** The state that a thread can possibly have. */
     enum Status
     {
@@ -72,7 +73,7 @@ public:
         Sleeping,
         Zombie,
         AwaitingJoin,
-        Suspended, /// Suspended (eg, POSIX SIGSTOP)
+        Suspended,  /// Suspended (eg, POSIX SIGSTOP)
     };
 
     /** "Debug state" - higher level state of the thread. */
@@ -85,42 +86,44 @@ public:
     };
 
     /** Thread start function type. */
-    typedef int (*ThreadStartFunc)(void*);
+    typedef int (*ThreadStartFunc)(void *);
 
-    /** Creates a new Thread belonging to the given Process. It shares the Process'
-     * virtual address space.
+    /** Creates a new Thread belonging to the given Process. It shares the
+     Process' * virtual address space.
      *
-     * The constructor registers itself with the Scheduler and parent process - this
-     * does not need to be done manually.
+     * The constructor registers itself with the Scheduler and parent process -
+     this * does not need to be done manually.
      *
      * If kernelMode is true, and pStack is NULL, no stack space is assigned.
      *
      * \param pParent The parent process. Can never be NULL.
-     * \param kernelMode Is the thread going to be operating in kernel space only?
-     * \param pStartFunction The function to be run when the thread starts.
-     * \param pParam A parameter to give the startFunction.
-     * \param pStack (Optional) A (user mode) stack to give the thread - applicable for user mode threads
-     *               only.
-     * \param semiUser (Optional) Whether to start the thread as if it was a user mode thread, but begin
-                     in kernel mode (to do setup and jump to usermode manually).
-     * \param delayedStart (Optional) Start the thread in a halted state.
+     * \param kernelMode Is the thread going to be operating in kernel space
+     only? * \param pStartFunction The function to be run when the thread
+     starts. * \param pParam A parameter to give the startFunction. * \param
+     pStack (Optional) A (user mode) stack to give the thread - applicable for
+     user mode threads *               only. * \param semiUser (Optional)
+     Whether to start the thread as if it was a user mode thread, but begin in
+     kernel mode (to do setup and jump to usermode manually). * \param
+     delayedStart (Optional) Start the thread in a halted state.
      */
-    Thread(Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
-           void *pStack=0, bool semiUser = false, bool bDontPickCore = false,
-           bool delayedStart = false);
+    Thread(
+        Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
+        void *pStack = 0, bool semiUser = false, bool bDontPickCore = false,
+        bool delayedStart = false);
 
-    /** Alternative constructor - this should be used only by initialiseMultitasking() to
-     * define the first kernel thread. */
+    /** Alternative constructor - this should be used only by
+     * initialiseMultitasking() to define the first kernel thread. */
     Thread(Process *pParent);
 
-    /** Constructor for when forking a process. Assumes pParent has already been set up with a clone
-     * of the current address space and sets up the new thread to return to the caller in that address space. */
+    /** Constructor for when forking a process. Assumes pParent has already been
+     * set up with a clone of the current address space and sets up the new
+     * thread to return to the caller in that address space. */
     Thread(Process *pParent, SyscallState &state, bool delayedStart = false);
 
     /** Destroys the Thread.
      *
-     * The destructor unregisters itself with the Scheduler and parent process - this
-     * does not need to be done manually. */
+     * The destructor unregisters itself with the Scheduler and parent process -
+     * this does not need to be done manually. */
     virtual ~Thread();
 
     /**
@@ -134,19 +137,19 @@ public:
     /* Forces the thread to run on the bootstrap processor. */
     void forceToStartupProcessor();
 
-    /** Returns a reference to the Thread's saved context. This function is intended only
-     * for use by the Scheduler. */
+    /** Returns a reference to the Thread's saved context. This function is
+     * intended only for use by the Scheduler. */
     SchedulerState &state();
 
-    /** Increases the state nesting level by one - pushes a new state to the top of the state stack.
-        This also pushes to the top of the inhibited events stack, copying the current inhibit mask.
-        \todo This should also push errno and m_bInterrupted, so syscalls can be
-              used safely in interrupt handlers.
-        \return A reference to the previous state. */
+    /** Increases the state nesting level by one - pushes a new state to the top
+       of the state stack. This also pushes to the top of the inhibited events
+       stack, copying the current inhibit mask. \todo This should also push
+       errno and m_bInterrupted, so syscalls can be used safely in interrupt
+       handlers. \return A reference to the previous state. */
     SchedulerState &pushState();
 
-    /** Decreases the state nesting level by one, popping both the state stack and the inhibit mask
-        stack.*/
+    /** Decreases the state nesting level by one, popping both the state stack
+       and the inhibit mask stack.*/
     void popState();
 
     VirtualAddressSpace::Stack *getStateUserStack();
@@ -231,23 +234,24 @@ public:
     /** Enum used by the following function. */
     enum UnwindType
     {
-        Continue = 0,              ///< No unwind necessary, carry on as normal.
-        ReleaseBlockingThread, ///< (a) below.
-        Exit                   ///< (b) below.
-    };  
+        Continue = 0,           ///< No unwind necessary, carry on as normal.
+        ReleaseBlockingThread,  ///< (a) below.
+        Exit                    ///< (b) below.
+    };
 
     /** Returns nonzero if the thread has been asked to unwind quickly.
-        
-        This happens if this thread (or a thread blocking on this thread) is scheduled for deletion.
-        The intended behaviour is that the stack is unwound as quickly as possible with all semaphores
-        and buffers deleted to a point where
+
+        This happens if this thread (or a thread blocking on this thread) is
+       scheduled for deletion. The intended behaviour is that the stack is
+       unwound as quickly as possible with all semaphores and buffers deleted to
+       a point where
 
           (a) no threads can possibly be blocking on this or
-          (b) The thread has no more locks taken and is ready to be destroyed, at which point it should
-              call the subsys exit() function.
-        
-        Whether to adopt option A or B depends on whether this thread or not has been asked to terminate,
-        given by the return value. **/
+          (b) The thread has no more locks taken and is ready to be destroyed,
+       at which point it should call the subsys exit() function.
+
+        Whether to adopt option A or B depends on whether this thread or not has
+       been asked to terminate, given by the return value. **/
     UnwindType getUnwindState()
     {
         return m_UnwindState;
@@ -262,9 +266,10 @@ public:
     {
         m_StateLevels[getStateLevel()].m_pBlockingThread = pT;
     }
-    Thread *getBlockingThread(size_t level=~0UL)
+    Thread *getBlockingThread(size_t level = ~0UL)
     {
-        if (level == ~0UL) level = getStateLevel();
+        if (level == ~0UL)
+            level = getStateLevel();
         return m_StateLevels[level].m_pBlockingThread;
     }
 
@@ -283,21 +288,26 @@ public:
 
     /** Returns the thread's scheduler lock. */
     Spinlock &getLock()
-    {return m_Lock;}
+    {
+        return m_Lock;
+    }
 
     /** Sends the asynchronous event pEvent to this thread.
 
-        If the thread ID is greater than or equal to EVENT_TID_MAX, the event will be ignored. */
+        If the thread ID is greater than or equal to EVENT_TID_MAX, the event
+       will be ignored. */
     void sendEvent(Event *pEvent);
 
     /** Sets the given event number as inhibited.
-        \param bInhibit True if the event is to be inhibited, false if the event is to be allowed. */
+        \param bInhibit True if the event is to be inhibited, false if the event
+       is to be allowed. */
     void inhibitEvent(size_t eventNumber, bool bInhibit);
 
     /** Walks the event queue, removing the event \p pEvent , if found. */
     void cullEvent(Event *pEvent);
 
-    /** Walks the event queue, removing the event with number \p eventNumber , if found. */
+    /** Walks the event queue, removing the event with number \p eventNumber ,
+     * if found. */
     void cullEvent(size_t eventNumber);
 
     /** Grabs the first available unmasked event and pops it off the queue.
@@ -309,9 +319,13 @@ public:
     bool hasEvents();
 
     void setPriority(size_t p)
-    {m_Priority = p;}
+    {
+        m_Priority = p;
+    }
     size_t getPriority()
-    {return m_Priority;}
+    {
+        return m_Priority;
+    }
 
     /** Adds a request to the Thread's pending request list */
     void addRequest(RequestQueue::Request *req);
@@ -321,7 +335,7 @@ public:
 
     /** An unexpected exit has occurred, perform cleanup */
     void unexpectedExit();
-    
+
     /** Gets the TLS base address for this thread. */
     uintptr_t getTlsBase();
 
@@ -338,27 +352,27 @@ public:
      * for userspace TLS segments.
      */
     void setTlsBase(uintptr_t base);
-    
+
     /** Gets this thread's CPU ID */
     inline
 #ifdef MULTIPROCESSOR
-    ProcessorId
+        ProcessorId
 #else
-    size_t
+        size_t
 #endif
-    getCpuId()
+        getCpuId()
     {
         return m_ProcId;
     }
-    
+
     /** Sets this thread's CPU ID */
     inline void setCpuId(
 #ifdef MULTIPROCESSOR
-    ProcessorId
+        ProcessorId
 #else
-    size_t
+        size_t
 #endif
-    id)
+            id)
     {
         m_ProcId = id;
     }
@@ -385,22 +399,23 @@ public:
     /**
      * Checks detached state of the thread.
      */
-    bool detached() const {
+    bool detached() const
+    {
         return m_bDetached;
     }
 
     /**
-     * Sets the exit code of the Thread and sets the state to Zombie, if it is being waited on;
-     * if it is not being waited on the Thread is destroyed.
-     * \note This is meant to be called only by the thread trampoline - this is the only reason it
-     *       is public. It should NOT be called by anyone else!
+     * Sets the exit code of the Thread and sets the state to Zombie, if it is
+     * being waited on; if it is not being waited on the Thread is destroyed.
+     * \note This is meant to be called only by the thread trampoline - this is
+     * the only reason it is public. It should NOT be called by anyone else!
      */
     static void threadExited() NORETURN;
 
     /** Gets whether this thread is interruptible or not. */
     bool isInterruptible();
 
-protected:
+    protected:
     /** Sets the scheduler for the Thread. */
     void setScheduler(class PerProcessorScheduler *pScheduler)
     {
@@ -409,11 +424,12 @@ protected:
 
     /** Sets or unsets the interruptible state of the Thread. */
     void setInterruptible(bool state);
-private:
+
+    private:
     /** Copy-constructor */
     Thread(const Thread &);
     /** Assignment operator */
-    Thread &operator = (const Thread &);
+    Thread &operator=(const Thread &);
 
     /** A level of thread state */
     struct StateLevel
@@ -422,7 +438,7 @@ private:
         ~StateLevel();
 
         StateLevel(const StateLevel &s);
-        StateLevel &operator = (const StateLevel &s);
+        StateLevel &operator=(const StateLevel &s);
 
         /** The processor state for this level. */
         SchedulerState *m_State;
@@ -438,10 +454,11 @@ private:
          */
         VirtualAddressSpace::Stack *m_pAuxillaryStack;
 
-        /** Stack of inhibited Event masks, gets pushed with a new value when an Event handler is run, and
-            popped when one completes.
+        /** Stack of inhibited Event masks, gets pushed with a new value when an
+           Event handler is run, and popped when one completes.
 
-            \note A '1' here means the event is inhibited, '0' means it can be fired. */
+            \note A '1' here means the event is inhibited, '0' means it can be
+           fired. */
         SharedPointer<ExtensibleBitmap> m_InhibitMask;
 
         Thread *m_pBlockingThread;
@@ -481,9 +498,10 @@ private:
     Spinlock m_ConcurrencyLock;
 
     /** Queue of Events ready to run. */
-    List<Event*> m_EventQueue;
+    List<Event *> m_EventQueue;
 
-    /** Debug state - a higher level state information for display in the debugger for debugging races and deadlocks. */
+    /** Debug state - a higher level state information for display in the
+     * debugger for debugging races and deadlocks. */
     DebugState m_DebugState;
     /** Address to supplement the DebugState information */
     uintptr_t m_DebugStateAddress;
@@ -496,22 +514,23 @@ private:
     size_t m_Priority;
 
     /** List of requests pending on this Thread */
-    List<RequestQueue::Request*> m_PendingRequests;
-    
+    List<RequestQueue::Request *> m_PendingRequests;
+
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase;
 
     /** Whether or not userspace has overridden its TLS base. */
     bool m_bTlsBaseOverride;
-    
+
 #ifdef MULTIPROCESSOR
     ProcessorId
 #else
     size_t
 #endif
-    m_ProcId;
+        m_ProcId;
 
-    /** Are we in the process of removing tracked RequestQueue::Request objects? */
+    /** Are we in the process of removing tracked RequestQueue::Request objects?
+     */
     bool m_bRemovingRequests;
 
     /** Waiters on this thread. */

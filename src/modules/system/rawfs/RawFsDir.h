@@ -20,31 +20,48 @@
 #ifndef RAWFS_DIRECTORY_H
 #define RAWFS_DIRECTORY_H
 
-#include <vfs/Directory.h>
 #include <utilities/String.h>
+#include <vfs/Directory.h>
 
 class RawFsDir : public Directory
 {
-private:
+    private:
     /** Copy constructors are hidden - unused! */
     RawFsDir(const RawFsDir &file);
-    RawFsDir& operator =(const RawFsDir&);
-public:
+    RawFsDir &operator=(const RawFsDir &);
+
+    public:
     /** Constructor, should only be called by RawFs. */
     RawFsDir(String name, class RawFs *pFs, File *pParent);
-    ~RawFsDir() {}
+    ~RawFsDir()
+    {
+    }
     /** Reads directory contents into File* cache. */
-    virtual void cacheDirectoryContents() {}
+    virtual void cacheDirectoryContents()
+    {
+    }
 
-    virtual void fileAttributeChanged() {}
+    virtual void fileAttributeChanged()
+    {
+    }
 
-    virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true) {return 0;}
-    virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true) {return 0;}
+    virtual uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true)
+    {
+        return 0;
+    }
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true)
+    {
+        return 0;
+    }
 
     /** Adds an entry to this directory.
-	\note To be called by RawFS only. */
+        \note To be called by RawFS only. */
     void addEntry(File *pEntry);
-    
+
     void removeRecursive();
 };
 

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,12 +18,11 @@
  */
 
 #include "LookupCommand.h"
-#include <utilities/utility.h>
-#include <processor/Processor.h>
 #include <linker/KernelElf.h>
+#include <processor/Processor.h>
+#include <utilities/utility.h>
 
-LookupCommand::LookupCommand()
- : DebuggerCommand()
+LookupCommand::LookupCommand() : DebuggerCommand()
 {
 }
 
@@ -32,16 +30,20 @@ LookupCommand::~LookupCommand()
 {
 }
 
-void LookupCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void LookupCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool LookupCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool LookupCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
     intptr_t n = input.intValue();
     if (n == -1)
     {
-        uintptr_t addr = KernelElf::instance().lookupSymbol(static_cast<const char*>(input));
+        uintptr_t addr = KernelElf::instance().lookupSymbol(
+            static_cast<const char *>(input));
         if (addr)
             output.append(addr, 16);
         else
@@ -51,7 +53,8 @@ bool LookupCommand::execute(const HugeStaticString &input, HugeStaticString &out
     else
     {
         uintptr_t symStart;
-        const char *pSym = KernelElf::instance().globalLookupSymbol(static_cast<uintptr_t>(n), &symStart);
+        const char *pSym = KernelElf::instance().globalLookupSymbol(
+            static_cast<uintptr_t>(n), &symStart);
         if (!pSym)
         {
             output += "No symbol corresponding to given address.";

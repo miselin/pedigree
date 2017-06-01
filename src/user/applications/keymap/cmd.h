@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,9 +22,9 @@
 
 #define MAX_CMDS 2048
 
-#define CTRL_I  1
+#define CTRL_I 1
 #define SHIFT_I 2
-#define ALT_I   4
+#define ALT_I 4
 #define ALTGR_I 8
 
 typedef struct cmd

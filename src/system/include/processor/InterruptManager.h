@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,18 +20,19 @@
 #ifndef KERNEL_PROCESSOR_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_INTERRUPTMANAGER_H
 
-#include <processor/types.h>
-#include <processor/state.h>
 #include <processor/InterruptHandler.h>
+#include <processor/state.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessor
  * @{ */
 
-/** The interrupt manager allows interrupt handler registrations and handles interrupts.
- *\brief Handles interrupts and interrupt registrations from kernel components */
+/** The interrupt manager allows interrupt handler registrations and handles
+ *interrupts. \brief Handles interrupts and interrupt registrations from kernel
+ *components */
 class InterruptManager
 {
-  public:
+    public:
     /** Get the interrupt manager instance
      *\return instance of the interrupt manager */
     static InterruptManager &instance();
@@ -40,37 +40,37 @@ class InterruptManager
      *\param[in] nInterruptNumber the interrupt's number
      *\param[in] pHandler the interrupt handler
      *\return true, if successfully registered, false otherwise */
-    virtual bool registerInterruptHandler(size_t nInterruptNumber,
-                                          InterruptHandler *pHandler) = 0;
+    virtual bool registerInterruptHandler(
+        size_t nInterruptNumber, InterruptHandler *pHandler) = 0;
 
-    #if defined(DEBUGGER)
-      /** Register an interrupt handler (for the kernel debugger)
-       *\param[in] nInterruptNumber the interrupt's number
-       *\param[in] pHandler the interrupt handler
-       *\return true, if successfully registered, false otherwise */
-      virtual bool registerInterruptHandlerDebugger(size_t nInterruptNumber,
-                                                    InterruptHandler *pHandler) = 0;
-      /** Get the interrupt number of the breakpoint exception
-       *\return the interrupt number of the breakpoint exception */
-      virtual size_t getBreakpointInterruptNumber() PURE = 0;
-      /** Get the interrupt number of the debug exception
-       *\return the interrupt number of the debug exception */
-      virtual size_t getDebugInterruptNumber() PURE = 0;
-    #endif
+#if defined(DEBUGGER)
+    /** Register an interrupt handler (for the kernel debugger)
+     *\param[in] nInterruptNumber the interrupt's number
+     *\param[in] pHandler the interrupt handler
+     *\return true, if successfully registered, false otherwise */
+    virtual bool registerInterruptHandlerDebugger(
+        size_t nInterruptNumber, InterruptHandler *pHandler) = 0;
+    /** Get the interrupt number of the breakpoint exception
+     *\return the interrupt number of the breakpoint exception */
+    virtual size_t getBreakpointInterruptNumber() PURE = 0;
+    /** Get the interrupt number of the debug exception
+     *\return the interrupt number of the debug exception */
+    virtual size_t getDebugInterruptNumber() PURE = 0;
+#endif
 
-  protected:
+    protected:
     /** The constructor */
     inline InterruptManager();
     /** The destructor */
     inline virtual ~InterruptManager();
 
-  private:
+    private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     InterruptManager(const InterruptManager &);
     /** The copy-constructor
      *\note Not implemented (singleton) */
-    InterruptManager &operator = (const InterruptManager &);
+    InterruptManager &operator=(const InterruptManager &);
 };
 
 /** @} */

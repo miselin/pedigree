@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,28 +29,30 @@
 
 class DwarfUnwinder
 {
-  public:
+    public:
     /**
      * Creates a DwarfUnwinder object defined by frame definitions at nData,
      * which has a maximum size of nLength.
      */
     DwarfUnwinder(uintptr_t nData, size_t nLength);
     ~DwarfUnwinder();
-    
+
     /**
-     * Populates outState with the result of unwinding one stack frame from inState.
-     * \param[in] inState The starting state.
-     * \param[out] outState The state after one stack frame has been unwound.
-     * \return False if the frame could not be unwound, true otherwise.
+     * Populates outState with the result of unwinding one stack frame from
+     * inState. \param[in] inState The starting state. \param[out] outState The
+     * state after one stack frame has been unwound. \return False if the frame
+     * could not be unwound, true otherwise.
      */
-    bool unwind(const ProcessorState &inState, ProcessorState &outState, uintptr_t &frameBase);
-    
+    bool unwind(
+        const ProcessorState &inState, ProcessorState &outState,
+        uintptr_t &frameBase);
+
     /**
      * Decodes a ULEB128 encoded number.
-     * \param[in] pBase A pointer, to which nOffset is added to find the ULEB string.
-     * \param[in,out] nOffset An offset to add to pBase to find the ULEB string. This is incremented
-     *                        by the function, and the function ends with it pointing to the byte after
-     *                        the ULEB number.
+     * \param[in] pBase A pointer, to which nOffset is added to find the ULEB
+     * string. \param[in,out] nOffset An offset to add to pBase to find the ULEB
+     * string. This is incremented by the function, and the function ends with
+     * it pointing to the byte after the ULEB number.
      * \return An integer representation of the ULEB128 number.
      * \see DWARF specification v3.0, Appendix C.
      */
@@ -59,21 +60,21 @@ class DwarfUnwinder
 
     /**
      * Decodes a SLEB128 encoded number.
-     * \param[in] pBase A pointer, to which nOffset is added to find the SLEB string.
-     * \param[in,out] nOffset An offset to add to pBase to find the SLEB string. This is incremented
-     *                        by the function, and the function ends with it pointing to the byte after
-     *                        the SLEB number.
+     * \param[in] pBase A pointer, to which nOffset is added to find the SLEB
+     * string. \param[in,out] nOffset An offset to add to pBase to find the SLEB
+     * string. This is incremented by the function, and the function ends with
+     * it pointing to the byte after the SLEB number.
      * \return An integer representation of the SLEB128 number.
      * \see DWARF specification v3.0, Appendix C.
      */
     static int32_t decodeSleb128(uint8_t *pBase, uint32_t &nOffset);
-    
-  private:
+
+    private:
     /**
      * Address of our frame data.
      */
     uintptr_t m_nData;
-    
+
     /**
      * Length of our frame data..
      */

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,13 +22,12 @@
 
 class EventManager
 {
-public:
-    
+    public:
     void dispatch(Event *pEvent, Thread *pThread);
 
-    void 
+    void
 
-private:
+        private:
 };
 
 #endif

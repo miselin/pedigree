@@ -29,13 +29,13 @@
 /** A MAC address */
 class MacAddress
 {
-  public:
+    public:
     MacAddress();
     MacAddress(const MacAddress &other);
 
     bool valid() const
     {
-      return m_Valid;
+        return m_Valid;
     }
 
     void setMac(uint8_t byte, size_t element);
@@ -43,29 +43,28 @@ class MacAddress
     /** Useful for setting a broadcast MAC */
     void setMac(uint8_t element);
 
-    void setMac(const uint16_t* data, bool bSwap = false);
+    void setMac(const uint16_t *data, bool bSwap = false);
 
     uint8_t getMac(size_t element) const;
 
-    const uint16_t* getMac() const;
+    const uint16_t *getMac() const;
 
-    uint8_t operator [] (size_t offset) const;
+    uint8_t operator[](size_t offset) const;
 
-    MacAddress& operator = (const MacAddress &a);
+    MacAddress &operator=(const MacAddress &a);
 
-    MacAddress& operator = (const uint16_t* a);
+    MacAddress &operator=(const uint16_t *a);
 
-    operator const uint16_t* () const
+    operator const uint16_t *() const
     {
-      return getMac();
+        return getMac();
     }
 
     String toString();
 
-  private:
-    uint16_t  m_Mac[3];
-    bool      m_Valid;
+    private:
+    uint16_t m_Mac[3];
+    bool m_Valid;
 };
 
 #endif
-

@@ -20,28 +20,32 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_PIC_H
 #define KERNEL_MACHINE_X86_COMMON_PIC_H
 
-#include <processor/IoPort.h>
-#include <processor/InterruptManager.h>
 #include <machine/IrqManager.h>
+#include <processor/InterruptManager.h>
+#include <processor/IoPort.h>
 #include <utilities/List.h>
 
 /** @addtogroup kernelmachinex86common
  * @{ */
 
 /** The x86/x64 programmable interrupt controller as IrqManager */
-class Pic : public IrqManager,
-            private InterruptHandler
+class Pic : public IrqManager, private InterruptHandler
 {
-  public:
+    public:
     /** Get the Pic class instance
      *\return the Pic class instance */
-    inline static Pic &instance(){return m_Instance;}
+    inline static Pic &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // IrqManager interface
     //
-    virtual irq_id_t registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
-    virtual irq_id_t registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
+    virtual irq_id_t
+    registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t
+    registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
     virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
 
@@ -52,21 +56,23 @@ class Pic : public IrqManager,
 
     /** Called every millisecond, typically handles IRQ mitigation. */
     virtual void tick();
-    
+
     /** Controls specific elements of a given IRQ */
     virtual bool control(uint8_t irq, ControlCode code, size_t argument);
 
-  private:
+    private:
     /** The default constructor */
     Pic() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~Pic(){}
+    inline virtual ~Pic()
+    {
+    }
     /** The copy-constructor
      *\note NOT implemented */
     Pic(const Pic &);
     /** The assignment operator
      *\note NOT implemented */
-    Pic &operator = (const Pic &);
+    Pic &operator=(const Pic &);
 
     //
     // InterruptHandler interface
@@ -86,20 +92,20 @@ class Pic : public IrqManager,
     IoPort m_MasterPort;
 
     /** The IRQ handler */
-    List<IrqHandler*> m_Handler[16];
+    List<IrqHandler *> m_Handler[16];
     /** Whether the IRQs are edge or level triggered */
-    bool        m_HandlerEdge[16];
+    bool m_HandlerEdge[16];
     /** IRQ counts for given handlers */
-    size_t      m_IrqCount[16];
+    size_t m_IrqCount[16];
     /** Mitigated IRQs */
-    bool        m_MitigatedIrqs[16];
+    bool m_MitigatedIrqs[16];
     /** Mitigation thresholds */
-    size_t      m_MitigationThreshold[16];
+    size_t m_MitigationThreshold[16];
     /** Interrupt enable mask. */
-    uint8_t     m_InterruptMask;
-    
+    uint8_t m_InterruptMask;
+
     /** Main lock for all modifications */
-    Spinlock    m_Lock;
+    Spinlock m_Lock;
 
     /** The Pic instance */
     static Pic m_Instance;

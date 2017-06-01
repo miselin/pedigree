@@ -24,19 +24,20 @@
 class NeighbourDiscovery
 {
     public:
-        NeighbourDiscovery()
-        {}
-        virtual ~NeighbourDiscovery()
-        {}
-        
-        static NeighbourDiscovery &instance()
-        {
-            return m_Instance;
-        }
-        
+    NeighbourDiscovery()
+    {
+    }
+    virtual ~NeighbourDiscovery()
+    {
+    }
+
+    static NeighbourDiscovery &instance()
+    {
+        return m_Instance;
+    }
+
     private:
-        static NeighbourDiscovery m_Instance;
+    static NeighbourDiscovery m_Instance;
 };
 
 #endif
-

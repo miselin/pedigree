@@ -19,27 +19,27 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <fstream>
-#include <sstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
-#include <vfs/VFS.h>
-#include <vfs/File.h>
-#include <vfs/Directory.h>
-#include <vfs/Symlink.h>
+#include <Log.h>
 #include <ext2/Ext2Filesystem.h>
 #include <machine/Disk.h>
 #include <utilities/String.h>
-#include <Log.h>
+#include <vfs/Directory.h>
+#include <vfs/File.h>
+#include <vfs/Symlink.h>
+#include <vfs/VFS.h>
 
 #include "DiskImage.h"
 
@@ -84,7 +84,7 @@ enum CommandType
 
 struct Command
 {
-    Command() : what(InvalidCommand), params() {};
+    Command() : what(InvalidCommand), params(){};
 
     CommandType what;
     std::vector<std::string> params;
@@ -97,12 +97,12 @@ extern bool appleProbeDisk(Disk *pDisk);
 class StreamingStderrLogger : public Log::LogCallback
 {
     public:
-        /// printString is used directly as well as in this callback object,
-        /// therefore we simply redirect to it.
-        void callback(const char *str)
-        {
-            fprintf(stderr, "%s", str);
-        }
+    /// printString is used directly as well as in this callback object,
+    /// therefore we simply redirect to it.
+    void callback(const char *str)
+    {
+        fprintf(stderr, "%s", str);
+    }
 };
 
 uint32_t getUnixTimestamp()
@@ -113,15 +113,24 @@ uint32_t getUnixTimestamp()
 static uint32_t modeToPermissions(uint32_t mode)
 {
     uint32_t permissions = 0;
-    if (mode & S_IRUSR) permissions |= FILE_UR;
-    if (mode & S_IWUSR) permissions |= FILE_UW;
-    if (mode & S_IXUSR) permissions |= FILE_UX;
-    if (mode & S_IRGRP) permissions |= FILE_GR;
-    if (mode & S_IWGRP) permissions |= FILE_GW;
-    if (mode & S_IXGRP) permissions |= FILE_GX;
-    if (mode & S_IROTH) permissions |= FILE_OR;
-    if (mode & S_IWOTH) permissions |= FILE_OW;
-    if (mode & S_IXOTH) permissions |= FILE_OX;
+    if (mode & S_IRUSR)
+        permissions |= FILE_UR;
+    if (mode & S_IWUSR)
+        permissions |= FILE_UW;
+    if (mode & S_IXUSR)
+        permissions |= FILE_UX;
+    if (mode & S_IRGRP)
+        permissions |= FILE_GR;
+    if (mode & S_IWGRP)
+        permissions |= FILE_GW;
+    if (mode & S_IXGRP)
+        permissions |= FILE_GX;
+    if (mode & S_IROTH)
+        permissions |= FILE_OR;
+    if (mode & S_IWOTH)
+        permissions |= FILE_OW;
+    if (mode & S_IXOTH)
+        permissions |= FILE_OX;
     return permissions;
 }
 
@@ -130,28 +139,33 @@ bool writeFile(const std::string &source, const std::string &dest)
     struct stat st;
     if (stat(source.c_str(), &st) < 0)
     {
-        std::cerr << "Could not open source file '" << source << "': " << strerror(errno) << "." << std::endl;
+        std::cerr << "Could not open source file '" << source
+                  << "': " << strerror(errno) << "." << std::endl;
         return false;
     }
 
     std::ifstream ifs(source, std::ios::binary);
     if (ifs.bad() || ifs.fail())
     {
-        std::cerr << "Could not open source file '" << source << "'." << std::endl;
+        std::cerr << "Could not open source file '" << source << "'."
+                  << std::endl;
         return false;
     }
 
-    bool result = VFS::instance().createFile(TO_FS_PATH(dest), defaultPermissions[0]);
+    bool result =
+        VFS::instance().createFile(TO_FS_PATH(dest), defaultPermissions[0]);
     if (!result)
     {
-        std::cerr << "Could not create destination file '" << dest << "'." << std::endl;
+        std::cerr << "Could not create destination file '" << dest << "'."
+                  << std::endl;
         return false;
     }
 
     File *pFile = VFS::instance().find(TO_FS_PATH(dest));
     if (!pFile)
     {
-        std::cerr << "Couldn't open created destination file: '" << dest << "'." << std::endl;
+        std::cerr << "Couldn't open created destination file: '" << dest << "'."
+                  << std::endl;
         return false;
     }
 
@@ -170,10 +184,12 @@ bool writeFile(const std::string &source, const std::string &dest)
         uint64_t count = 0;
         if (readCount)
         {
-            count = pFile->write(offset, readCount, reinterpret_cast<uintptr_t>(buffer));
+            count = pFile->write(
+                offset, readCount, reinterpret_cast<uintptr_t>(buffer));
             if (!count || (count < readCount))
             {
-                std::cerr << "Empty or short write to file '" << dest << "'." << std::endl;
+                std::cerr << "Empty or short write to file '" << dest << "'."
+                          << std::endl;
                 if (!ignoreErrors)
                     return false;
             }
@@ -182,7 +198,7 @@ bool writeFile(const std::string &source, const std::string &dest)
         }
     }
 
-    delete [] buffer;
+    delete[] buffer;
 
     pFile->setUid(defaultOwner[0]);
     pFile->setGid(defaultOwner[1]);
@@ -192,10 +208,12 @@ bool writeFile(const std::string &source, const std::string &dest)
 
 bool createSymlink(const std::string &name, const std::string &target)
 {
-    bool result = VFS::instance().createSymlink(TO_FS_PATH(name), String(target.c_str()));
+    bool result =
+        VFS::instance().createSymlink(TO_FS_PATH(name), String(target.c_str()));
     if (!result)
     {
-        std::cerr << "Could not create symlink '" << name << "' -> '" << target << "'." << std::endl;
+        std::cerr << "Could not create symlink '" << name << "' -> '" << target
+                  << "'." << std::endl;
         return false;
     }
 
@@ -215,14 +233,16 @@ bool createHardlink(const std::string &name, const std::string &target)
     File *pTarget = VFS::instance().find(TO_FS_PATH(target));
     if (!pTarget)
     {
-        std::cerr << "Couldn't open hard link target file: '" << target << "'." << std::endl;
+        std::cerr << "Couldn't open hard link target file: '" << target << "'."
+                  << std::endl;
         return false;
     }
 
     bool result = VFS::instance().createLink(TO_FS_PATH(name), pTarget);
     if (!result)
     {
-        std::cerr << "Could not create hard link '" << name << "' -> '" << target << "'." << std::endl;
+        std::cerr << "Could not create hard link '" << name << "' -> '"
+                  << target << "'." << std::endl;
         return false;
     }
 
@@ -231,10 +251,12 @@ bool createHardlink(const std::string &name, const std::string &target)
 
 bool createDirectory(const std::string &dest)
 {
-    bool result = VFS::instance().createDirectory(TO_FS_PATH(dest), defaultPermissions[1]);
+    bool result = VFS::instance().createDirectory(
+        TO_FS_PATH(dest), defaultPermissions[1]);
     if (!result)
     {
-        std::cerr << "Could not create directory '" << dest << "'." << std::endl;
+        std::cerr << "Could not create directory '" << dest << "'."
+                  << std::endl;
         return false;
     }
 
@@ -265,14 +287,16 @@ bool verifyFile(const std::string &source, const std::string &target)
     std::ifstream ifs(source, std::ios::binary);
     if (ifs.bad() || ifs.fail())
     {
-        std::cerr << "Could not open verify source file '" << source << "'." << std::endl;
+        std::cerr << "Could not open verify source file '" << source << "'."
+                  << std::endl;
         return false;
     }
 
     File *pFile = VFS::instance().find(TO_FS_PATH(target));
     if (!pFile)
     {
-        std::cerr << "Couldn't open verify target file: '" << target << "'." << std::endl;
+        std::cerr << "Couldn't open verify target file: '" << target << "'."
+                  << std::endl;
         return false;
     }
 
@@ -292,23 +316,28 @@ bool verifyFile(const std::string &source, const std::string &target)
         uint64_t count = 0;
         if (readCount)
         {
-            count = pFile->read(offset, blockSize, reinterpret_cast<uintptr_t>(bufferB));
+            count = pFile->read(
+                offset, blockSize, reinterpret_cast<uintptr_t>(bufferB));
             if (!count || (count < readCount))
             {
-                std::cerr << "Empty or short read from file '" << target << "'." << std::endl;
+                std::cerr << "Empty or short read from file '" << target << "'."
+                          << std::endl;
                 if (!ignoreErrors)
                     return false;
             }
 
             if (memcmp(bufferA, bufferB, count) != 0)
             {
-                std::cerr << "Files do not match at block starting at offset " << offset << "." << std::endl;
+                std::cerr << "Files do not match at block starting at offset "
+                          << offset << "." << std::endl;
                 for (size_t i = 0; i < count; ++i)
                 {
                     if (bufferA[i] == bufferB[i])
                         continue;
-                    std::cerr << "First difference at offset " << offset + i << ": ";
-                    std::cerr << (int) bufferA[i] << " vs " << (int) bufferB[i] << std::endl;
+                    std::cerr << "First difference at offset " << offset + i
+                              << ": ";
+                    std::cerr << (int) bufferA[i] << " vs " << (int) bufferB[i]
+                              << std::endl;
                     break;
                 }
                 if (!ignoreErrors)
@@ -319,13 +348,14 @@ bool verifyFile(const std::string &source, const std::string &target)
         }
     }
 
-    delete [] bufferA;
-    delete [] bufferB;
+    delete[] bufferA;
+    delete[] bufferB;
 
     return true;
 }
 
-bool changePermissions(const std::string &filename, const std::string &permissions)
+bool changePermissions(
+    const std::string &filename, const std::string &permissions)
 {
     int intPerms = 0;
     try
@@ -334,14 +364,16 @@ bool changePermissions(const std::string &filename, const std::string &permissio
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Bad permissions value '" << permissions << "' passed: " << e.what() << std::endl;
+        std::cerr << "Bad permissions value '" << permissions
+                  << "' passed: " << e.what() << std::endl;
         return false;
     }
 
     File *pFile = VFS::instance().find(TO_FS_PATH(filename));
     if (!pFile)
     {
-        std::cerr << "Couldn't open file to change permissions: '" << filename << "'." << std::endl;
+        std::cerr << "Couldn't open file to change permissions: '" << filename
+                  << "'." << std::endl;
         return false;
     }
 
@@ -350,7 +382,8 @@ bool changePermissions(const std::string &filename, const std::string &permissio
     return true;
 }
 
-bool changeOwner(const std::string &filename, const std::string &uid, const std::string &gid)
+bool changeOwner(
+    const std::string &filename, const std::string &uid, const std::string &gid)
 {
     int intUid = 0, intGid = 0;
     try
@@ -360,14 +393,16 @@ bool changeOwner(const std::string &filename, const std::string &uid, const std:
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Bad uid/gid value '" << uid << "' or '" << gid << "' passed: " << e.what() << std::endl;
+        std::cerr << "Bad uid/gid value '" << uid << "' or '" << gid
+                  << "' passed: " << e.what() << std::endl;
         return false;
     }
 
     File *pFile = VFS::instance().find(TO_FS_PATH(filename));
     if (!pFile)
     {
-        std::cerr << "Couldn't open file to change permissions: '" << filename << "'." << std::endl;
+        std::cerr << "Couldn't open file to change permissions: '" << filename
+                  << "'." << std::endl;
         return false;
     }
 
@@ -377,7 +412,9 @@ bool changeOwner(const std::string &filename, const std::string &uid, const std:
     return true;
 }
 
-bool setDefaultPermissions(const std::string &file_perms, const std::string &dir_perms, const std::string &link_perms)
+bool setDefaultPermissions(
+    const std::string &file_perms, const std::string &dir_perms,
+    const std::string &link_perms)
 {
     int intFile = 0, intDir = 0, intLink = 0;
     try
@@ -388,7 +425,8 @@ bool setDefaultPermissions(const std::string &file_perms, const std::string &dir
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Bad default permissions passed: " << e.what() << std::endl;
+        std::cerr << "Bad default permissions passed: " << e.what()
+                  << std::endl;
         return false;
     }
 
@@ -409,7 +447,8 @@ bool setDefaultOwner(const std::string &uid, const std::string &gid)
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Bad uid/gid value '" << uid << "' or '" << gid << "' passed for defaults: " << e.what() << std::endl;
+        std::cerr << "Bad uid/gid value '" << uid << "' or '" << gid
+                  << "' passed for defaults: " << e.what() << std::endl;
         return false;
     }
 
@@ -434,10 +473,14 @@ bool probeAndMount(const char *image, size_t part)
     bool isFullFilesystem = false;
     if (!msdosProbeDisk(&mainImage))
     {
-        std::cerr << "No MSDOS partition table found, trying an Apple partition table." << std::endl;
+        std::cerr << "No MSDOS partition table found, trying an Apple "
+                     "partition table."
+                  << std::endl;
         if (!appleProbeDisk(&mainImage))
         {
-            std::cerr << "No partition table found, assuming this is an ext2 filesystem." << std::endl;
+            std::cerr << "No partition table found, assuming this is an ext2 "
+                         "filesystem."
+                      << std::endl;
             isFullFilesystem = true;
         }
     }
@@ -453,7 +496,8 @@ bool probeAndMount(const char *image, size_t part)
         // Find the nth partition.
         if (desiredPartition > mainImage.getNumChildren())
         {
-            std::cerr << "Desired partition does not exist in this image." << std::endl;
+            std::cerr << "Desired partition does not exist in this image."
+                      << std::endl;
             return false;
         }
 
@@ -464,7 +508,8 @@ bool probeAndMount(const char *image, size_t part)
     String alias("fs");
     if (!VFS::instance().mount(pDisk, alias))
     {
-        std::cerr << "This partition does not appear to be an ext2 filesystem." << std::endl;
+        std::cerr << "This partition does not appear to be an ext2 filesystem."
+                  << std::endl;
         return false;
     }
 
@@ -486,7 +531,8 @@ void checksumFile(File *pFile)
     while (offset < pFile->getSize())
     {
         // Read the file and hash it.
-        size_t numBytes = pFile->read(offset, blockSize, reinterpret_cast<uintptr_t>(buffer));
+        size_t numBytes =
+            pFile->read(offset, blockSize, reinterpret_cast<uintptr_t>(buffer));
         if (!numBytes)
         {
             break;
@@ -502,20 +548,21 @@ void checksumFile(File *pFile)
         offset += numBytes;
     }
 
-    delete [] buffer;
+    delete[] buffer;
 
     SHA256_Final(hash, &ctx);
 
     std::cout << pFile->getFullPath() << ": ";
     for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
     {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                  << static_cast<int>(hash[i]);
     }
     std::cout << std::endl;
 }
 #endif
 
-int imageChecksums(const char *image, size_t part=0)
+int imageChecksums(const char *image, size_t part = 0)
 {
     if (!probeAndMount(image, part))
     {
@@ -560,13 +607,15 @@ int imageChecksums(const char *image, size_t part=0)
         checksumFile(pFile);
     }
 #else
-    std::cerr << "ext2img was built without any support for sha256." << std::endl;
+    std::cerr << "ext2img was built without any support for sha256."
+              << std::endl;
 #endif
 
     return 0;
 }
 
-int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
+int handleImage(
+    const char *image, std::vector<Command> &cmdlist, size_t part = 0)
 {
     if (!probeAndMount(image, part))
     {
@@ -586,13 +635,15 @@ int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
                 }
                 break;
             case CreateSymlink:
-                if ((!createSymlink(it->params[0], it->params[1])) && !ignoreErrors)
+                if ((!createSymlink(it->params[0], it->params[1])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
                 break;
             case CreateHardlink:
-                if ((!createHardlink(it->params[0], it->params[1])) && !ignoreErrors)
+                if ((!createHardlink(it->params[0], it->params[1])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
@@ -610,31 +661,38 @@ int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
                 }
                 break;
             case VerifyFile:
-                if ((!verifyFile(it->params[0], it->params[1])) && !ignoreErrors)
+                if ((!verifyFile(it->params[0], it->params[1])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
                 break;
             case ChangePermissions:
-                if ((!changePermissions(it->params[0], it->params[1])) && !ignoreErrors)
+                if ((!changePermissions(it->params[0], it->params[1])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
                 break;
             case ChangeOwner:
-                if ((!changeOwner(it->params[0], it->params[1], it->params[2])) && !ignoreErrors)
+                if ((!changeOwner(
+                        it->params[0], it->params[1], it->params[2])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
                 break;
             case SetDefaultPermissions:
-                if ((!setDefaultPermissions(it->params[0], it->params[1], it->params[2])) && !ignoreErrors)
+                if ((!setDefaultPermissions(
+                        it->params[0], it->params[1], it->params[2])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
                 break;
             case SetDefaultOwners:
-                if ((!setDefaultOwner(it->params[0], it->params[1])) && !ignoreErrors)
+                if ((!setDefaultOwner(it->params[0], it->params[1])) &&
+                    !ignoreErrors)
                 {
                     return 1;
                 }
@@ -647,13 +705,15 @@ int handleImage(const char *image, std::vector<Command> &cmdlist, size_t part=0)
         if ((nth % 10) == 0)
         {
             double progress = nth / (double) cmdlist.size();
-            std::cout << "Progress: " << std::setprecision(4) << (progress * 100.0) << "%      \r" << std::flush;
+            std::cout << "Progress: " << std::setprecision(4)
+                      << (progress * 100.0) << "%      \r" << std::flush;
         }
     }
 
     std::cout << "\rProgress: 100.0%" << std::endl;
 
-    std::cout << "Completed command list for image " << image << "." << std::endl;
+    std::cout << "Completed command list for image " << image << "."
+              << std::endl;
 
     return 0;
 }
@@ -663,7 +723,8 @@ bool parseCommandFile(const char *cmdFile, std::vector<Command> &output)
     std::ifstream f(cmdFile);
     if (f.bad() || f.fail())
     {
-        std::cerr << "Command file '" << cmdFile << "' could not be read." << std::endl;
+        std::cerr << "Command file '" << cmdFile << "' could not be read."
+                  << std::endl;
         return false;
     }
 
@@ -757,13 +818,15 @@ bool parseCommandFile(const char *cmdFile, std::vector<Command> &output)
         }
         else
         {
-            std::cerr << "Unknown command '" << cmd << "' at line " << lineno << ": '" << line << "'" << std::endl;
+            std::cerr << "Unknown command '" << cmd << "' at line " << lineno
+                      << ": '" << line << "'" << std::endl;
             ok = false;
         }
 
         if (c.params.size() < requiredParamCount)
         {
-            std::cerr << "Not enough parameters for '" << cmd << "' at line " << lineno << ": '" << line << "'" << std::endl;
+            std::cerr << "Not enough parameters for '" << cmd << "' at line "
+                      << lineno << ": '" << line << "'" << std::endl;
             ok = false;
         }
 
@@ -819,17 +882,20 @@ int main(int argc, char *argv[])
                 blocksPerRead = atoi(optarg);
                 break;
             case 's':
-                // Do checksums of every file on the disk instead of running a list.
+                // Do checksums of every file on the disk instead of running a
+                // list.
                 sums = true;
                 break;
             case '?':
                 if (optopt == 'c' || optopt == 'p')
                 {
-                    std::cerr << "Option -" << optopt << " requires an argument." << std::endl;
+                    std::cerr << "Option -" << optopt
+                              << " requires an argument." << std::endl;
                 }
                 else
                 {
-                    std::cerr << "Option -" << optopt << " is unknown." << std::endl;
+                    std::cerr << "Option -" << optopt << " is unknown."
+                              << std::endl;
                 }
                 break;
             default:
@@ -837,10 +903,10 @@ int main(int argc, char *argv[])
         }
     }
 
-
     if (sums && cmdFile)
     {
-        std::cerr << "Checksums cannot be performed with a command list." << std::endl;
+        std::cerr << "Checksums cannot be performed with a command list."
+                  << std::endl;
         return 1;
     }
 

@@ -32,13 +32,15 @@
 
 #include <lib/instrument.h>
 
-#define RECORDS_PER_READ        128
+#define RECORDS_PER_READ 128
 
 struct InstrumentedFunction;
 
 // Dataset helper types.
-typedef std::unordered_map<uintptr_t, std::shared_ptr<InstrumentedFunction>> dataset_t;
-typedef std::pair<uintptr_t, std::shared_ptr<InstrumentedFunction>> dataset_pair_t;
+typedef std::unordered_map<uintptr_t, std::shared_ptr<InstrumentedFunction>>
+    dataset_t;
+typedef std::pair<uintptr_t, std::shared_ptr<InstrumentedFunction>>
+    dataset_pair_t;
 
 // Caller count helper types.
 typedef std::unordered_map<uintptr_t, size_t> counter_t;
@@ -79,7 +81,8 @@ struct InstrumentedFunction
     size_t totalCalls;
 
     /** Comparer for the given InstrumentedFunction objects. */
-    static bool comparer(const dataset_pair_t &left, const dataset_pair_t &right)
+    static bool
+    comparer(const dataset_pair_t &left, const dataset_pair_t &right)
     {
         return left.second->totalCalls > right.second->totalCalls;
     }
@@ -195,7 +198,7 @@ int processRecords(FILE *fp, const char *kernel, int max_records)
 
     // Read several records at a time.
     T *records = new T[RECORDS_PER_READ];
-    while(!feof(fp))
+    while (!feof(fp))
     {
         bool err = false;
         ssize_t record_count = fread(records, sizeof(T), RECORDS_PER_READ, fp);
@@ -211,7 +214,7 @@ int processRecords(FILE *fp, const char *kernel, int max_records)
         if (err)
             break;
     }
-    delete [] records;
+    delete[] records;
 
     // Sort by call count (std::unordered_map is not sortable).
     std::vector<dataset_pair_t> vec(dataset.begin(), dataset.end());
@@ -221,22 +224,25 @@ int processRecords(FILE *fp, const char *kernel, int max_records)
     int i = 0;
     for (auto it = vec.begin(); it != vec.end() && i < max_records; ++it, ++i)
     {
-        std::cout << "Called " << it->second->totalCalls << " times:" << std::endl;
-        std::cout << "    " << symbolToName(it->second->address, kernel) << std::endl;
+        std::cout << "Called " << it->second->totalCalls
+                  << " times:" << std::endl;
+        std::cout << "    " << symbolToName(it->second->address, kernel)
+                  << std::endl;
 
         // Show top 10 callers.
         if (has_caller_data<T>::value)
         {
             counter_t &counts = it->second->callerCounts;
             std::vector<counter_pair_t> count_vec(counts.begin(), counts.end());
-            std::sort(count_vec.begin(), count_vec.end(),
-                [](const counter_pair_t &left, const counter_pair_t &right)
-                {
+            std::sort(
+                count_vec.begin(), count_vec.end(),
+                [](const counter_pair_t &left, const counter_pair_t &right) {
                     return left.second > right.second;
                 });
 
             int j = 0;
-            for (auto it2 = count_vec.begin(); it2 != count_vec.end() && j < max_records; ++it2, ++j)
+            for (auto it2 = count_vec.begin();
+                 it2 != count_vec.end() && j < max_records; ++it2, ++j)
             {
                 std::cout << "        -> " << it2->second << "x ";
                 std::cout << symbolToName(it2->first, kernel) << std::endl;
@@ -247,12 +253,13 @@ int processRecords(FILE *fp, const char *kernel, int max_records)
     return true;
 }
 
-int handleFile(const char *filename, const char* kernel, int max_records)
+int handleFile(const char *filename, const char *kernel, int max_records)
 {
     FILE *fp = fopen(filename, "rb");
     if (!fp)
     {
-        std::cerr << "Can't open '" << filename << "': " << strerror(errno) << std::endl;
+        std::cerr << "Can't open '" << filename << "': " << strerror(errno)
+                  << std::endl;
         return 1;
     }
 
@@ -261,7 +268,8 @@ int handleFile(const char *filename, const char* kernel, int max_records)
     ssize_t n = fread(&global_flags, sizeof(uint8_t), 1, fp);
     if (n != 1)
     {
-        std::cerr << "Failed to read global flags: " << strerror(errno) << std::endl;
+        std::cerr << "Failed to read global flags: " << strerror(errno)
+                  << std::endl;
         fclose(fp);
         return 1;
     }
@@ -277,7 +285,6 @@ int handleFile(const char *filename, const char* kernel, int max_records)
         rc = processRecords<InstrumentationRecord>(fp, kernel, max_records);
     }
 
-
     fclose(fp);
     return rc;
 }
@@ -286,20 +293,27 @@ void usage()
 {
     /// \todo add path to serial port output and use scripts/addr2line.py
     std::cerr << "Usage: instrument [options]" << std::endl;
-    std::cerr << "Parse a given instrumentation data file and present findings." << std::endl;
+    std::cerr << "Parse a given instrumentation data file and present findings."
+              << std::endl;
     std::cerr << std::endl;
-    std::cerr << "  --version, -[vV] Print version and exit successfully." << std::endl;
-    std::cerr << "  --help,          Print this help and exit successfully." << std::endl;
-    std::cerr << "  --input-file, -i Path to the input data file to parse." << std::endl;
-    std::cerr << "  --kernel-file, -k Path to the kernel file to use for symbol resolution (default: build/kernel/kernel.debug)." << std::endl;
-    std::cerr << "  --max-rows, -m   Maximum rows to output (default is 10)." << std::endl;
+    std::cerr << "  --version, -[vV] Print version and exit successfully."
+              << std::endl;
+    std::cerr << "  --help,          Print this help and exit successfully."
+              << std::endl;
+    std::cerr << "  --input-file, -i Path to the input data file to parse."
+              << std::endl;
+    std::cerr << "  --kernel-file, -k Path to the kernel file to use for "
+                 "symbol resolution (default: build/kernel/kernel.debug)."
+              << std::endl;
+    std::cerr << "  --max-rows, -m   Maximum rows to output (default is 10)."
+              << std::endl;
     std::cerr << std::endl;
-
 }
 
 void version()
 {
-    std::cerr << "instrument v1.0, Copyright (C) 2014, Pedigree Developers" << std::endl;
+    std::cerr << "instrument v1.0, Copyright (C) 2014, Pedigree Developers"
+              << std::endl;
 }
 
 int main(int argc, char *argv[])
@@ -307,8 +321,7 @@ int main(int argc, char *argv[])
     const char *input_file = 0;
     const char *kernel_file = 0;
     int maximum = 10;
-    const struct option long_options[] =
-    {
+    const struct option long_options[] = {
         {"input-file", required_argument, 0, 'i'},
         {"kernel-path", required_argument, 0, 'k'},
         {"max-rows", optional_argument, 0, 'm'},
@@ -333,21 +346,22 @@ int main(int argc, char *argv[])
                 break;
 
             case 'm':
+            {
+                // Perform conversion and handle errors.
+                char *end = 0;
+                int possible_max = strtol(optarg, &end, 10);
+                if (end != optarg)
                 {
-                    // Perform conversion and handle errors.
-                    char *end = 0;
-                    int possible_max = strtol(optarg, &end, 10);
-                    if (end != optarg)
-                    {
-                        maximum = possible_max;
-                    }
-                    else
-                    {
-                        std::cerr << "Could not convert maximum row '" << optarg << "' to a number." << std::endl;
-                        return 1;
-                    }
+                    maximum = possible_max;
                 }
-                break;
+                else
+                {
+                    std::cerr << "Could not convert maximum row '" << optarg
+                              << "' to a number." << std::endl;
+                    return 1;
+                }
+            }
+            break;
 
             case 'v':
             case 'V':
@@ -355,7 +369,8 @@ int main(int argc, char *argv[])
                 return 0;
 
             case ':':
-                std::cerr << "At least one required option was missing." << std::endl;
+                std::cerr << "At least one required option was missing."
+                          << std::endl;
             case 'h':
                 usage();
                 return 0;

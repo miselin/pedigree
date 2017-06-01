@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,7 +29,7 @@
 /** MIPS64 Interrupt State */
 class MIPS64InterruptState
 {
-  public:
+    public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -57,16 +56,16 @@ class MIPS64InterruptState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -79,7 +78,7 @@ class MIPS64InterruptState
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
 
-  private:
+    private:
     /** The default constructor
      *\note NOT implemented */
     MIPS64InterruptState();
@@ -88,7 +87,7 @@ class MIPS64InterruptState
     MIPS64InterruptState(const MIPS64InterruptState &);
     /** The assignement operator
      *\note NOT implemented */
-    MIPS64InterruptState &operator = (const MIPS64InterruptState &);
+    MIPS64InterruptState &operator=(const MIPS64InterruptState &);
     /** The destructor
      *\note NOT implemented */
     ~MIPS64InterruptState();
@@ -96,7 +95,7 @@ class MIPS64InterruptState
 
 class MIPS64SyscallState
 {
-  public:
+    public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -123,16 +122,16 @@ class MIPS64SyscallState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -145,7 +144,7 @@ class MIPS64SyscallState
      *\return the syscall function number */
     inline size_t getSyscallNumber() const;
 
-  private:
+    private:
 } PACKED;
 
 /** @} */
@@ -155,72 +154,72 @@ class MIPS64SyscallState
 //
 uintptr_t MIPS64InterruptState::getStackPointer() const
 {
-  return 0;
+    return 0;
 }
 void MIPS64InterruptState::setStackPointer(uintptr_t stackPointer)
 {
 }
 uintptr_t MIPS64InterruptState::getInstructionPointer() const
 {
-  return 0;
+    return 0;
 }
 void MIPS64InterruptState::setInstructionPointer(uintptr_t instructionPointer)
 {
 }
 uintptr_t MIPS64InterruptState::getBasePointer() const
 {
-  return 0;
+    return 0;
 }
 void MIPS64InterruptState::setBasePointer(uintptr_t basePointer)
 {
 }
 size_t MIPS64InterruptState::getRegisterSize(size_t index) const
 {
-  return 4;
+    return 4;
 }
 
 bool MIPS64InterruptState::kernelMode() const
 {
-  return false;
+    return false;
 }
 size_t MIPS64InterruptState::getInterruptNumber() const
 {
-  return 0;
+    return 0;
 }
 
 uintptr_t MIPS64SyscallState::getStackPointer() const
 {
-  return 0;
+    return 0;
 }
 void MIPS64SyscallState::setStackPointer(uintptr_t stackPointer)
 {
 }
 uintptr_t MIPS64SyscallState::getInstructionPointer() const
 {
-  return 0;
+    return 0;
 }
 void MIPS64SyscallState::setInstructionPointer(uintptr_t instructionPointer)
 {
 }
 uintptr_t MIPS64SyscallState::getBasePointer() const
 {
-  return 0;
+    return 0;
 }
 void MIPS64SyscallState::setBasePointer(uintptr_t basePointer)
 {
 }
 size_t MIPS64SyscallState::getRegisterSize(size_t index) const
 {
-  return 4;
+    return 4;
 }
 
 size_t MIPS64SyscallState::getSyscallService() const
 {
-  return 0;
+    return 0;
 }
 size_t MIPS64SyscallState::getSyscallNumber() const
 {
-  return 0;
+    return 0;
 }
 
 #endif

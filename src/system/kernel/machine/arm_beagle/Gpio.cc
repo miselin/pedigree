@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,9 +27,11 @@ void Gpio::clearpin(int pin)
     // Grab the GPIO MMIO range for the pin
     int base = 0;
     volatile uint32_t *gpio = getGpioForPin(pin, &base);
-    if(!gpio)
+    if (!gpio)
     {
-        NOTICE("GPIO::clearpin - no GPIO found for pin " << Dec << pin << Hex << ".");
+        NOTICE(
+            "GPIO::clearpin - no GPIO found for pin " << Dec << pin << Hex
+                                                      << ".");
         return;
     }
 
@@ -43,9 +44,11 @@ void Gpio::drivepin(int pin)
     // Grab the GPIO MMIO range for the pin
     int base = 0;
     volatile uint32_t *gpio = getGpioForPin(pin, &base);
-    if(!gpio)
+    if (!gpio)
     {
-        NOTICE("GPIO::drivepin - no GPIO found for pin " << Dec << pin << Hex << ".");
+        NOTICE(
+            "GPIO::drivepin - no GPIO found for pin " << Dec << pin << Hex
+                                                      << ".");
         return;
     }
 
@@ -60,9 +63,11 @@ bool Gpio::pinstate(int pin)
     // Grab the GPIO MMIO range for the pin
     int base = 0;
     volatile uint32_t *gpio = getGpioForPin(pin, &base);
-    if(!gpio)
+    if (!gpio)
     {
-        NOTICE("GPIO::pinstate - no GPIO found for pin " << Dec << pin << Hex << ".");
+        NOTICE(
+            "GPIO::pinstate - no GPIO found for pin " << Dec << pin << Hex
+                                                      << ".");
         return false;
     }
 
@@ -74,9 +79,11 @@ int Gpio::capturepin(int pin)
     // Grab the GPIO MMIO range for the pin
     int base = 0;
     volatile uint32_t *gpio = getGpioForPin(pin, &base);
-    if(!gpio)
+    if (!gpio)
     {
-        NOTICE("GPIO::capturepin - no GPIO found for pin " << Dec << pin << Hex << ".");
+        NOTICE(
+            "GPIO::capturepin - no GPIO found for pin " << Dec << pin << Hex
+                                                        << ".");
         return 0;
     }
 
@@ -89,33 +96,39 @@ void Gpio::enableoutput(int pin)
     // Grab the GPIO MMIO range for the pin
     int base = 0;
     volatile uint32_t *gpio = getGpioForPin(pin, &base);
-    if(!gpio)
+    if (!gpio)
     {
-        NOTICE("GPIO::enableoutput - no GPIO found for pin " << Dec << pin << Hex << ".");
+        NOTICE(
+            "GPIO::enableoutput - no GPIO found for pin " << Dec << pin << Hex
+                                                          << ".");
         return;
     }
 
     // Set the pin as an output (if it's an input, the bit is set)
-    if(gpio[0xD] & (1 << base))
+    if (gpio[0xD] & (1 << base))
         gpio[0xD] ^= (1 << base);
 }
 
 void Gpio::initspecific(int n, volatile uint32_t *gpio)
 {
-    if(!gpio)
+    if (!gpio)
         return;
 
     // Write information about it
     unsigned int rev = gpio[0];
-    NOTICE("GPIO" << Dec << n << Hex << " at " << reinterpret_cast<uintptr_t>(gpio) << ": revision " << Dec << ((rev & 0xF0) >> 4) << "." << (rev & 0xF) << Hex << ".");
+    NOTICE(
+        "GPIO" << Dec << n << Hex << " at " << reinterpret_cast<uintptr_t>(gpio)
+               << ": revision " << Dec << ((rev & 0xF0) >> 4) << "."
+               << (rev & 0xF) << Hex << ".");
 
     // 1. Perform a software reset of the GPIO.
     gpio[0x4] = 2;
-    while(!(gpio[0x5] & 1)); // Poll GPIO_SYSSTATUS, bit 0
+    while (!(gpio[0x5] & 1))
+        ;  // Poll GPIO_SYSSTATUS, bit 0
 
     // 2. Disable all IRQs
-    gpio[0x7] = 0; // GPIO_IRQENABLE1
-    gpio[0xB] = 0; // GPIO_IRQENABLE2
+    gpio[0x7] = 0;  // GPIO_IRQENABLE1
+    gpio[0xB] = 0;  // GPIO_IRQENABLE2
 
     // 3. Enable the module
     gpio[0xC] = 0;
@@ -124,35 +137,35 @@ void Gpio::initspecific(int n, volatile uint32_t *gpio)
 volatile uint32_t *Gpio::getGpioForPin(int pin, int *bit)
 {
     volatile uint32_t *gpio = 0;
-    if(pin < 32)
+    if (pin < 32)
     {
         *bit = pin;
-        gpio = reinterpret_cast<volatile uint32_t*>(m_Gpio1.virtualAddress());
+        gpio = reinterpret_cast<volatile uint32_t *>(m_Gpio1.virtualAddress());
     }
-    else if((pin >= 34) && (pin < 64))
+    else if ((pin >= 34) && (pin < 64))
     {
         *bit = pin - 34;
-        gpio = reinterpret_cast<volatile uint32_t*>(m_Gpio2.virtualAddress());
+        gpio = reinterpret_cast<volatile uint32_t *>(m_Gpio2.virtualAddress());
     }
-    else if((pin >= 64) && (pin < 96))
+    else if ((pin >= 64) && (pin < 96))
     {
         *bit = pin - 64;
-        gpio = reinterpret_cast<volatile uint32_t*>(m_Gpio3.virtualAddress());
+        gpio = reinterpret_cast<volatile uint32_t *>(m_Gpio3.virtualAddress());
     }
-    else if((pin >= 96) && (pin < 128))
+    else if ((pin >= 96) && (pin < 128))
     {
         *bit = pin - 96;
-        gpio = reinterpret_cast<volatile uint32_t*>(m_Gpio4.virtualAddress());
+        gpio = reinterpret_cast<volatile uint32_t *>(m_Gpio4.virtualAddress());
     }
-    else if((pin >= 128) && (pin < 160))
+    else if ((pin >= 128) && (pin < 160))
     {
         *bit = pin - 128;
-        gpio = reinterpret_cast<volatile uint32_t*>(m_Gpio5.virtualAddress());
+        gpio = reinterpret_cast<volatile uint32_t *>(m_Gpio5.virtualAddress());
     }
-    else if((pin >= 160) && (pin < 192))
+    else if ((pin >= 160) && (pin < 192))
     {
         *bit = pin - 160;
-        gpio = reinterpret_cast<volatile uint32_t*>(m_Gpio6.virtualAddress());
+        gpio = reinterpret_cast<volatile uint32_t *>(m_Gpio6.virtualAddress());
     }
     else
         gpio = 0;

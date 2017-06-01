@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -30,40 +29,42 @@
  */
 class Translations
 {
-public:
-  struct Translation
-  {
-    uint32_t virt;
-    uint32_t size;
-    uint32_t phys;
-    uint32_t mode;
-  };
+    public:
+    struct Translation
+    {
+        uint32_t virt;
+        uint32_t size;
+        uint32_t phys;
+        uint32_t mode;
+    };
 
-  Translations();
-  ~Translations();
+    Translations();
+    ~Translations();
 
-  /** Obtains the n'th translation. */
-  Translation getTranslation(size_t n);
+    /** Obtains the n'th translation. */
+    Translation getTranslation(size_t n);
 
-  /** Returns the number of valid translations. */
-  size_t getNumTranslations();
+    /** Returns the number of valid translations. */
+    size_t getNumTranslations();
 
-  /** Adds a translation to the end of our array.  */
-  void addTranslation(uint32_t virt, uint32_t phys, uint32_t size, uint32_t mode);
+    /** Adds a translation to the end of our array.  */
+    void
+    addTranslation(uint32_t virt, uint32_t phys, uint32_t size, uint32_t mode);
 
-  /** Attempts to find a free section of physical memory.
-      \param size The size of memory to look for, in bytes.
-      \return 0 on failure. */
-  uint32_t findFreePhysicalMemory(uint32_t size, uint32_t align=0x100000);
+    /** Attempts to find a free section of physical memory.
+        \param size The size of memory to look for, in bytes.
+        \return 0 on failure. */
+    uint32_t findFreePhysicalMemory(uint32_t size, uint32_t align = 0x100000);
 
-  /** Removes any translations with virtual addresses in the range of start..end. */
-  void removeRange(uintptr_t start, uintptr_t end);
+    /** Removes any translations with virtual addresses in the range of
+     * start..end. */
+    void removeRange(uintptr_t start, uintptr_t end);
 
-private:
-  /** The main translations array */
-  Translation m_pTranslations[NUM_TRANSLATIONS];
-  
-  /** The current number of valid translations. */
-  size_t m_nTranslations;
+    private:
+    /** The main translations array */
+    Translation m_pTranslations[NUM_TRANSLATIONS];
+
+    /** The current number of valid translations. */
+    size_t m_nTranslations;
 };
 #endif

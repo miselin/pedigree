@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,79 +21,78 @@
 #define MACHINE_ARM_BEAGLE_SERIAL_H
 
 #include <machine/Serial.h>
-#include <processor/MemoryRegion.h>
 #include <processor/InterruptManager.h>
+#include <processor/MemoryRegion.h>
 
 /// Implements the UART interface on the BeagleBoard
 class ArmBeagleSerial : public Serial, public InterruptHandler
 {
     public:
-      ArmBeagleSerial();
-      virtual ~ArmBeagleSerial();
-  
-      virtual void setBase(uintptr_t nBaseAddr);
-      virtual char read();
-      virtual char readNonBlock();
-      virtual void write(char c);
+    ArmBeagleSerial();
+    virtual ~ArmBeagleSerial();
 
-      virtual void interrupt(size_t nInterruptNumber, InterruptState &state);
+    virtual void setBase(uintptr_t nBaseAddr);
+    virtual char read();
+    virtual char readNonBlock();
+    virtual void write(char c);
+
+    virtual void interrupt(size_t nInterruptNumber, InterruptState &state);
 
     private:
+    /// Perform a software reset of this UART
+    void softReset();
 
-        /// Perform a software reset of this UART
-        void softReset();
+    /// Reset the FIFOs and DMA to default values
+    bool setFifoDefaults();
 
-        /// Reset the FIFOs and DMA to default values
-        bool setFifoDefaults();
+    /// Configure the UART protocol to defaults - 115200 baud, 8 character
+    /// bits, no parity, 1 stop bit. Enables the UART for output as a side
+    /// effect.
+    bool configureProtocol();
 
-        /// Configure the UART protocol to defaults - 115200 baud, 8 character
-        /// bits, no parity, 1 stop bit. Enables the UART for output as a side
-        /// effect.
-        bool configureProtocol();
+    /// Disables hardware flow control on the UART
+    bool disableFlowControl();
 
-        /// Disables hardware flow control on the UART
-        bool disableFlowControl();
+    enum RegisterOffsets
+    {
+        DLL_REG = 0x00,         // R/W
+        RHR_REG = 0x00,         // R
+        THR_REG = 0x00,         // W
+        DLH_REG = 0x04,         // R/W
+        IER_REG = 0x04,         // R/W
+        IIR_REG = 0x08,         // R
+        FCR_REG = 0x08,         // W
+        EFR_REG = 0x08,         // RW
+        LCR_REG = 0x0C,         // RW
+        MCR_REG = 0x10,         // RW
+        XON1_ADDR1_REG = 0x10,  // RW
+        LSR_REG = 0x14,         // R
+        XON2_ADDR2_REG = 0x14,  // RW
+        MSR_REG = 0x18,         // R
+        TCR_REG = 0x18,         // RW
+        XOFF1_REG = 0x18,       // RW
+        SPR_REG = 0x1C,         // RW
+        TLR_REG = 0x1C,         // RW
+        XOFF2_REG = 0x1C,       // RW
+        MDR1_REG = 0x20,        // RW
+        MDR2_REG = 0x24,        // RW
 
-        enum RegisterOffsets
-        {
-            DLL_REG        = 0x00, // R/W
-            RHR_REG        = 0x00, // R
-            THR_REG        = 0x00, // W
-            DLH_REG        = 0x04, // R/W
-            IER_REG        = 0x04, // R/W
-            IIR_REG        = 0x08, // R
-            FCR_REG        = 0x08, // W
-            EFR_REG        = 0x08, // RW
-            LCR_REG        = 0x0C, // RW
-            MCR_REG        = 0x10, // RW
-            XON1_ADDR1_REG = 0x10, // RW
-            LSR_REG        = 0x14, // R
-            XON2_ADDR2_REG = 0x14, // RW
-            MSR_REG        = 0x18, // R
-            TCR_REG        = 0x18, // RW
-            XOFF1_REG      = 0x18, // RW
-            SPR_REG        = 0x1C, // RW
-            TLR_REG        = 0x1C, // RW
-            XOFF2_REG      = 0x1C, // RW
-            MDR1_REG       = 0x20, // RW
-            MDR2_REG       = 0x24, // RW
+        USAR_REG = 0x38,  // R
 
-            USAR_REG       = 0x38, // R
+        SCR_REG = 0x40,  // RW
+        SSR_REG = 0x44,  // R
 
-            SCR_REG        = 0x40, // RW
-            SSR_REG        = 0x44, // R
+        MVR_REG = 0x50,   // R
+        SYSC_REG = 0x54,  // RW
+        SYSS_REG = 0x58,  // R
+        WER_REG = 0x5C,   // RW
+    };
 
-            MVR_REG        = 0x50, // R
-            SYSC_REG       = 0x54, // RW
-            SYSS_REG       = 0x58, // R
-            WER_REG        = 0x5C, // RW
-        };
+    /** Base address for MMIO */
+    volatile uint8_t *m_Base;
 
-        /** Base address for MMIO */
-        volatile uint8_t *m_Base;
-
-        /** MemoryRegion for the MMIO base */
-        MemoryRegion m_BaseRegion;
+    /** MemoryRegion for the MMIO base */
+    MemoryRegion m_BaseRegion;
 };
 
 #endif

@@ -30,12 +30,12 @@
 
 using namespace Ipc;
 
-#define MEMPOOL_BUFF_SIZE       4096
-#define MEMPOOL_BASE_SIZE       1024 /// \todo Tune.
+#define MEMPOOL_BUFF_SIZE 4096
+#define MEMPOOL_BASE_SIZE 1024  /// \todo Tune.
 
 static MemoryPool __ipc_mempool("IPC Message Pool");
 
-static RadixTree<IpcEndpoint*> __endpoints;
+static RadixTree<IpcEndpoint *> __endpoints;
 
 IpcEndpoint *Ipc::getEndpoint(String &name)
 {
@@ -44,29 +44,29 @@ IpcEndpoint *Ipc::getEndpoint(String &name)
 
 void Ipc::createEndpoint(String &name)
 {
-    if(__endpoints.lookup(name))
+    if (__endpoints.lookup(name))
         return;
     __endpoints.insert(name, new IpcEndpoint(name));
 }
 
 void Ipc::removeEndpoint(String &name)
 {
-    if(!__endpoints.lookup(name))
+    if (!__endpoints.lookup(name))
         return;
     __endpoints.remove(name);
 }
 
 bool Ipc::send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync)
 {
-    if(!(pEndpoint && pMessage))
+    if (!(pEndpoint && pMessage))
         return false;
 
     Mutex *pMutex = pEndpoint->pushMessage(pMessage, bAsync);
-    if(!pMutex)
+    if (!pMutex)
         return false;
 
     // Block if we're allowed to.
-    if(!bAsync)
+    if (!bAsync)
     {
         pMutex->acquire();
         delete pMutex;
@@ -77,11 +77,11 @@ bool Ipc::send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync)
 
 bool Ipc::recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync)
 {
-    if(!(pEndpoint && pMessage))
+    if (!(pEndpoint && pMessage))
         return false;
 
     IpcMessage *pMsg = pEndpoint->getMessage(!bAsync);
-    if(pMsg)
+    if (pMsg)
     {
         /// > 4 KB messages only use this form of IPC as a synchronisation
         /// method, they actually communicate via reads and writes to their
@@ -94,7 +94,7 @@ bool Ipc::recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync)
     return false;
 }
 
-Mutex *IpcEndpoint::pushMessage(IpcMessage* pMessage, bool bAsync)
+Mutex *IpcEndpoint::pushMessage(IpcMessage *pMessage, bool bAsync)
 {
     LockGuard<Mutex> guard(m_QueueLock);
 
@@ -114,11 +114,12 @@ IpcMessage *IpcEndpoint::getMessage(bool bBlock)
     // Handle the case where m_QueueSize acquire() returns but the queue is
     // already emptied by the time we acquire the Mutex.
     QueuedMessage *p = 0;
-    while(p == 0) {
+    while (p == 0)
+    {
         bool b = m_QueueSize.tryAcquire();
-        if(!b)
+        if (!b)
         {
-            if(!bBlock)
+            if (!bBlock)
                 return 0;
             else
             {
@@ -134,7 +135,7 @@ IpcMessage *IpcEndpoint::getMessage(bool bBlock)
     IpcMessage *pReturn = p->pMessage;
 
     p->pMutex->release();
-    if(p->bAsync)
+    if (p->bAsync)
     {
         delete p->pMutex;
     }
@@ -145,9 +146,9 @@ IpcMessage *IpcEndpoint::getMessage(bool bBlock)
 
 Ipc::IpcMessage::IpcMessage() : nPages(1), m_vAddr(0), m_pMemRegion(0)
 {
-    if(!__ipc_mempool.initialised())
+    if (!__ipc_mempool.initialised())
     {
-        if(!__ipc_mempool.initialise(MEMPOOL_BASE_SIZE, MEMPOOL_BUFF_SIZE))
+        if (!__ipc_mempool.initialise(MEMPOOL_BASE_SIZE, MEMPOOL_BUFF_SIZE))
         {
             ERROR("IpcMessage: memory pool could not be initialised.");
             return;
@@ -156,10 +157,11 @@ Ipc::IpcMessage::IpcMessage() : nPages(1), m_vAddr(0), m_pMemRegion(0)
 
     // Allocate the message.
     uintptr_t msg = __ipc_mempool.allocate();
-    if(msg)
+    if (msg)
     {
         // Remap to user read/write.
-        Processor::information().getVirtualAddressSpace().setFlags(reinterpret_cast<void*>(msg), VirtualAddressSpace::Write);
+        Processor::information().getVirtualAddressSpace().setFlags(
+            reinterpret_cast<void *>(msg), VirtualAddressSpace::Write);
 
         m_vAddr = msg;
     }
@@ -170,25 +172,25 @@ Ipc::IpcMessage::IpcMessage() : nPages(1), m_vAddr(0), m_pMemRegion(0)
     }
 }
 
-Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle) : nPages(0), m_vAddr(0), m_pMemRegion(0)
+Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle)
+    : nPages(0), m_vAddr(0), m_pMemRegion(0)
 {
     nPages = (nBytes / 4096) + 1;
 
-    if(nPages == 1) // Don't be silly with memory regions and such when the pool
-                    // is adequate.
+    if (nPages ==
+        1)  // Don't be silly with memory regions and such when the pool
+            // is adequate.
         IpcMessage();
     else
     {
-        MemoryRegion *pRegion = reinterpret_cast<MemoryRegion*>(regionHandle);
-        if(!pRegion)
+        MemoryRegion *pRegion = reinterpret_cast<MemoryRegion *>(regionHandle);
+        if (!pRegion)
         {
             // Need to allocate RAM for this space.
             m_pMemRegion = new MemoryRegion("IPC Message");
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                                        *m_pMemRegion,
-                                        nPages,
-                                        PhysicalMemoryManager::continuous,
-                                        VirtualAddressSpace::Write))
+            if (!PhysicalMemoryManager::instance().allocateRegion(
+                    *m_pMemRegion, nPages, PhysicalMemoryManager::continuous,
+                    VirtualAddressSpace::Write))
             {
                 delete m_pMemRegion;
                 m_pMemRegion = 0;
@@ -198,22 +200,24 @@ Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle) : nPages(0), 
         }
         else
         {
-            // Need to remap the given region into this address space, if it isn't
-            // mapped in already.
+            // Need to remap the given region into this address space, if it
+            // isn't mapped in already.
             void *pAddress = pRegion->virtualAddress();
             physical_uintptr_t phys = pRegion->physicalAddress();
 
-            VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-            if(va.isMapped(pAddress))
+            VirtualAddressSpace &va =
+                Processor::information().getVirtualAddressSpace();
+            if (va.isMapped(pAddress))
             {
                 size_t ignore = 0;
                 physical_uintptr_t map_phys = 0;
                 va.getMapping(pAddress, map_phys, ignore);
 
                 // This works because we ask for continuous physical memory.
-                // Even if we didn't, it would still be a valid check. We would just
-                // have to verify a few more physical pages to be 100% certain.
-                if(phys == map_phys)
+                // Even if we didn't, it would still be a valid check. We would
+                // just have to verify a few more physical pages to be 100%
+                // certain.
+                if (phys == map_phys)
                 {
                     m_pMemRegion = pRegion;
                     return;
@@ -222,12 +226,9 @@ Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle) : nPages(0), 
 
             // Create the region.
             m_pMemRegion = new MemoryRegion("IPC Message");
-            if(!PhysicalMemoryManager::instance().allocateRegion(
-                                        *m_pMemRegion,
-                                        nPages,
-                                        PhysicalMemoryManager::continuous,
-                                        VirtualAddressSpace::Write,
-                                        phys))
+            if (!PhysicalMemoryManager::instance().allocateRegion(
+                    *m_pMemRegion, nPages, PhysicalMemoryManager::continuous,
+                    VirtualAddressSpace::Write, phys))
             {
                 delete m_pMemRegion;
                 m_pMemRegion = 0;
@@ -242,11 +243,11 @@ Ipc::IpcMessage::~IpcMessage()
 {
     /// \todo Problem: an endpoint might still have this message in a queue.
     /// We should notify it that we're now dead.
-    if(m_pMemRegion)
+    if (m_pMemRegion)
     {
         delete m_pMemRegion;
     }
-    else if(m_vAddr)
+    else if (m_vAddr)
     {
         __ipc_mempool.free(m_vAddr);
     }
@@ -254,9 +255,9 @@ Ipc::IpcMessage::~IpcMessage()
 
 void *Ipc::IpcMessage::getBuffer()
 {
-    if(m_vAddr)
-        return reinterpret_cast<void*>(m_vAddr);
-    else if(m_pMemRegion)
+    if (m_vAddr)
+        return reinterpret_cast<void *>(m_vAddr);
+    else if (m_pMemRegion)
         return m_pMemRegion->virtualAddress();
     else
         return 0;
@@ -264,7 +265,7 @@ void *Ipc::IpcMessage::getBuffer()
 
 void *Ipc::IpcMessage::getHandle()
 {
-    if(nPages > 1)
+    if (nPages > 1)
         return m_pMemRegion;
     else
         return 0;

@@ -17,39 +17,41 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <syscallError.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
-#include <process/Process.h>
-#include <utilities/Tree.h>
-#include <vfs/File.h>
-#include <vfs/VFS.h>
 #include <machine/Network.h>
 #include <network-stack/NetManager.h>
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
 #include <network-stack/Tcp.h>
 #include <network-stack/UdpManager.h>
+#include <process/Process.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
+#include <syscallError.h>
+#include <utilities/Tree.h>
+#include <vfs/File.h>
+#include <vfs/VFS.h>
 
-#include <Subsystem.h>
 #include <PosixSubsystem.h>
+#include <Subsystem.h>
 #include <UnixFilesystem.h>
 
 #include "file-syscalls.h"
 #include "net-syscalls.h"
 
 #include <fcntl.h>
+#include <netdb.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <netdb.h>
 
 int posix_socket(int domain, int type, int protocol)
 {
     N_NOTICE("socket(" << domain << ", " << type << ", " << protocol << ")");
 
     // Lookup this process.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -58,17 +60,23 @@ int posix_socket(int domain, int type, int protocol)
 
     size_t fd = pSubsystem->getFd();
 
-    File* file = 0;
+    File *file = 0;
     bool valid = true;
     if (domain == AF_INET)
     {
-        if ((type == SOCK_DGRAM && protocol == 0) || (type == SOCK_DGRAM && protocol == IPPROTO_UDP))
-            file = NetManager::instance().newEndpoint(NETMAN_TYPE_UDP, protocol);
-        else if ((type == SOCK_STREAM && protocol == 0) || (type == SOCK_STREAM && protocol == IPPROTO_TCP))
-            file = NetManager::instance().newEndpoint(NETMAN_TYPE_TCP, protocol);
+        if ((type == SOCK_DGRAM && protocol == 0) ||
+            (type == SOCK_DGRAM && protocol == IPPROTO_UDP))
+            file =
+                NetManager::instance().newEndpoint(NETMAN_TYPE_UDP, protocol);
+        else if (
+            (type == SOCK_STREAM && protocol == 0) ||
+            (type == SOCK_STREAM && protocol == IPPROTO_TCP))
+            file =
+                NetManager::instance().newEndpoint(NETMAN_TYPE_TCP, protocol);
         else if (type == SOCK_RAW)
         {
-            file = NetManager::instance().newEndpoint(NETMAN_TYPE_RAW, protocol);
+            file =
+                NetManager::instance().newEndpoint(NETMAN_TYPE_RAW, protocol);
         }
         else
         {
@@ -109,24 +117,30 @@ int posix_socket(int domain, int type, int protocol)
     pSubsystem->addFileDescriptor(fd, f);
 
     N_NOTICE("  -> " << Dec << fd << Hex);
-    return static_cast<int> (fd);
+    return static_cast<int>(fd);
 }
 
-int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
+int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
 {
     N_NOTICE("connect");
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(address), addrlen,
+            PosixSubsystem::SafeRead))
     {
         N_NOTICE("connect -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address) << ", " << addrlen << ")");
+    N_NOTICE(
+        "posix_connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address)
+                         << ", " << addrlen << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -136,9 +150,10 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
     if (!f || !f->file || (f->so_domain == AF_UNIX))
     {
-        if(f && ((!f->file) || (f->file == f->so_local)) && (f->so_domain == AF_UNIX))
+        if (f && ((!f->file) || (f->file == f->so_local)) &&
+            (f->so_domain == AF_UNIX))
         {
-            if(address->sa_family != AF_UNIX)
+            if (address->sa_family != AF_UNIX)
             {
                 // EAFNOSUPPORT
                 N_NOTICE(" -> address family unsupported");
@@ -146,14 +161,15 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
             }
 
             // Valid state. But no socket, so do the magic here.
-            struct sockaddr_un *un = reinterpret_cast<struct sockaddr_un *>(address);
+            struct sockaddr_un *un =
+                reinterpret_cast<struct sockaddr_un *>(address);
             String pathname;
             normalisePath(pathname, un->sun_path);
 
             N_NOTICE(" -> unix connect: '" << pathname << "'");
 
             f->file = VFS::instance().find(pathname);
-            if(!f->file)
+            if (!f->file)
             {
                 SYSCALL_ERROR(DoesNotExist);
                 N_NOTICE(" -> unix socket '" << pathname << "' doesn't exist");
@@ -164,7 +180,8 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
             {
                 /// \todo wrong error
                 SYSCALL_ERROR(DoesNotExist);
-                N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
+                N_NOTICE(
+                    " -> target '" << pathname << "' is not a unix socket");
                 return -1;
             }
 
@@ -178,17 +195,17 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
         return -1;
     }
     Socket *s = static_cast<Socket *>(f->file);
-    if(f->so_domain != address->sa_family)
+    if (f->so_domain != address->sa_family)
     {
         // EAFNOSUPPORT
         N_NOTICE(" -> address family unsupported");
         return -1;
     }
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
 
     // Sanity check connection-based endpoints for EALREADY, EISCONN.
-    if(p->getType() == Endpoint::ConnectionBased)
+    if (p->getType() == Endpoint::ConnectionBased)
     {
         ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
         auto endpointState = ce->state();
@@ -220,10 +237,11 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
     {
         Endpoint::RemoteEndpoint remoteHost;
 
-        struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+        struct sockaddr_in *sin =
+            reinterpret_cast<struct sockaddr_in *>(address);
         IpAddress dest(sin->sin_addr.s_addr);
         Network *iface = RoutingTable::instance().DetermineRoute(&dest);
-        if(!iface || !iface->isConnected())
+        if (!iface || !iface->isConnected())
         {
             // Can't use this interface...
             N_NOTICE(" -> interface not connected");
@@ -234,11 +252,14 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
         remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
         remoteHost.ip.setIp(sin->sin_addr.s_addr);
 
-        N_NOTICE(" -> connecting to " << dest.toString() << ":" << Dec << remoteHost.remotePort);
+        N_NOTICE(
+            " -> connecting to " << dest.toString() << ":" << Dec
+                                 << remoteHost.remotePort);
 
-        if(p->getType() == Endpoint::ConnectionBased)
+        if (p->getType() == Endpoint::ConnectionBased)
         {
-            ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
+            ConnectionBasedEndpoint *ce =
+                static_cast<ConnectionBasedEndpoint *>(p);
 
             success = ce->connect(remoteHost, blocking);
 
@@ -255,15 +276,16 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
         }
         else if (p->getType() == Endpoint::Connectionless)
         {
-            // connect on a UDP socket sets a remote address and port for send/recv
-            // to send to multiple addresses and receive from multiple clients
-            // sendto and recvfrom must be used
+            // connect on a UDP socket sets a remote address and port for
+            // send/recv to send to multiple addresses and receive from multiple
+            // clients sendto and recvfrom must be used
 
-            ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
+            ConnectionlessEndpoint *ce =
+                static_cast<ConnectionlessEndpoint *>(p);
 
             // If no bind has been done, allocate a port and bind.
             ce->setLocalIp(iface_info.ipv4);
-            if(!ce->getLocalPort())
+            if (!ce->getLocalPort())
                 ce->setLocalPort(0);
             ce->setRemotePort(remoteHost.remotePort);
             ce->setRemoteIp(remoteHost.ip);
@@ -280,21 +302,27 @@ int posix_connect(int sock, struct sockaddr* address, socklen_t addrlen)
     return success ? 0 : -1;
 }
 
-ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
+ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
 {
     N_NOTICE("posix_send");
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buff), bufflen,
+            PosixSubsystem::SafeRead))
     {
         N_NOTICE("send -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_send(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ")");
+    N_NOTICE(
+        "posix_send(" << sock << ", " << buff << ", " << bufflen << ", "
+                      << flags << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -307,14 +335,18 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    else if(f->so_domain == AF_UNIX)
+    else if (f->so_domain == AF_UNIX)
     {
-        return f->file->write(reinterpret_cast<uintptr_t>(static_cast<const char *>(f->so_localPath)), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
+        return f->file->write(
+            reinterpret_cast<uintptr_t>(
+                static_cast<const char *>(f->so_localPath)),
+            bufflen, reinterpret_cast<uintptr_t>(buff),
+            (f->flflags & O_NONBLOCK) == 0);
     }
 
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
 
     bool success = false;
     if (s->getProtocol() == NETMAN_TYPE_TCP)
@@ -333,7 +365,8 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
             Endpoint::RemoteEndpoint remoteHost;
             remoteHost.remotePort = p->getRemotePort();
             remoteHost.ip = remoteIp;
-            int num = ce->send(bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
+            int num = ce->send(
+                bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
 
             success = num >= 0;
         }
@@ -342,21 +375,29 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags)
     return success ? bufflen : -1;
 }
 
-ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t addrlen)
+ssize_t posix_sendto(
+    int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address,
+    socklen_t addrlen)
 {
     N_NOTICE("posix_sendto");
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buff), bufflen,
+            PosixSubsystem::SafeRead))
     {
         N_NOTICE("sendto -> invalid address for transmission buffer");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address << ", " << addrlen << ")");
+    N_NOTICE(
+        "posix_sendto(" << sock << ", " << buff << ", " << bufflen << ", "
+                        << flags << ", " << address << ", " << addrlen << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -370,30 +411,34 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         return -1;
     }
 
-    if(address && (f->so_domain != address->sa_family))
+    if (address && (f->so_domain != address->sa_family))
     {
         // EAFNOSUPPORT
         return -1;
     }
 
-    if(f->so_domain == AF_UNIX)
+    if (f->so_domain == AF_UNIX)
     {
         File *pFile = 0;
         if (address)
         {
-            if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_un), PosixSubsystem::SafeRead))
+            if (!PosixSubsystem::checkAddress(
+                    reinterpret_cast<uintptr_t>(address),
+                    sizeof(struct sockaddr_un), PosixSubsystem::SafeRead))
             {
-                N_NOTICE("sendto -> invalid address for AF_UNIX struct sockaddr_un");
+                N_NOTICE(
+                    "sendto -> invalid address for AF_UNIX struct sockaddr_un");
                 SYSCALL_ERROR(InvalidArgument);
                 return -1;
             }
 
-            const struct sockaddr_un *un = reinterpret_cast<const struct sockaddr_un *>(address);
+            const struct sockaddr_un *un =
+                reinterpret_cast<const struct sockaddr_un *>(address);
             String pathname;
             normalisePath(pathname, un->sun_path);
 
             pFile = VFS::instance().find(pathname);
-            if(!pFile)
+            if (!pFile)
             {
                 SYSCALL_ERROR(DoesNotExist);
                 N_NOTICE(" -> sendto path '" << pathname << "' does not exist");
@@ -409,7 +454,11 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         /// \todo sanity check pFile?
         String s(reinterpret_cast<const char *>(buff), bufflen);
         N_NOTICE(" -> send '" << s << "'");
-        ssize_t result = pFile->write(reinterpret_cast<uintptr_t>(static_cast<const char *>(f->so_localPath)), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
+        ssize_t result = pFile->write(
+            reinterpret_cast<uintptr_t>(
+                static_cast<const char *>(f->so_localPath)),
+            bufflen, reinterpret_cast<uintptr_t>(buff),
+            (f->flflags & O_NONBLOCK) == 0);
         N_NOTICE(" -> " << result);
     }
 
@@ -419,7 +468,7 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         return -1;
     }
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
     if (!p)
     {
         return -1;
@@ -434,7 +483,9 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
         return ce->send(bufflen, reinterpret_cast<uintptr_t>(buff));
     }
-    else if (s->getProtocol() == NETMAN_TYPE_UDP || s->getProtocol() == NETMAN_TYPE_RAW)
+    else if (
+        s->getProtocol() == NETMAN_TYPE_UDP ||
+        s->getProtocol() == NETMAN_TYPE_RAW)
     {
         ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
 
@@ -442,7 +493,8 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
         bool remoteOk = false;
         if (address)
         {
-            const struct sockaddr_in* sin = reinterpret_cast<const struct sockaddr_in*>(address);
+            const struct sockaddr_in *sin =
+                reinterpret_cast<const struct sockaddr_in *>(address);
             remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
             remoteHost.ip.setIp(sin->sin_addr.s_addr);
             remoteOk = true;
@@ -461,28 +513,35 @@ ssize_t posix_sendto(int sock, void *buff, size_t bufflen, int flags, struct soc
 
         if (remoteOk)
         {
-            return ce->send(bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
+            return ce->send(
+                bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
         }
     }
 
     return -1;
 }
 
-ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
+ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
 {
     N_NOTICE("posix_recv");
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buff), bufflen,
+            PosixSubsystem::SafeWrite))
     {
         N_NOTICE("recv -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_recv(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ")");
+    N_NOTICE(
+        "posix_recv(" << sock << ", " << buff << ", " << bufflen << ", "
+                      << flags << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -495,13 +554,15 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    else if(f->so_domain == AF_UNIX)
+    else if (f->so_domain == AF_UNIX)
     {
-        return f->so_local->read(0, bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
+        return f->so_local->read(
+            0, bufflen, reinterpret_cast<uintptr_t>(buff),
+            (f->flflags & O_NONBLOCK) == 0);
     }
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
 
     bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
 
@@ -509,37 +570,53 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags)
     if (s->getProtocol() == NETMAN_TYPE_TCP)
     {
         ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-        ret = ce->recv(reinterpret_cast<uintptr_t>(buff), bufflen, blocking, flags & MSG_PEEK);
+        ret = ce->recv(
+            reinterpret_cast<uintptr_t>(buff), bufflen, blocking,
+            flags & MSG_PEEK);
     }
     else if (s->getProtocol() == NETMAN_TYPE_UDP)
     {
-        /// \todo Actually, we only should read this data if it's from the IP specified
-        ///       during connect - otherwise we fail (UDP should use sendto/recvfrom)
-        ///       However, to do that we need to tell recv not to remove from the queue
-        ///       and instead peek at the message (in other words, we need flags)
+        /// \todo Actually, we only should read this data if it's from the IP
+        /// specified
+        ///       during connect - otherwise we fail (UDP should use
+        ///       sendto/recvfrom) However, to do that we need to tell recv not
+        ///       to remove from the queue and instead peek at the message (in
+        ///       other words, we need flags)
         ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
         Endpoint::RemoteEndpoint remoteHost;
-        ret = ce->recv(reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
+        ret = ce->recv(
+            reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
     }
     return ret;
 }
 
-ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address, socklen_t *addrlen)
+ssize_t posix_recvfrom(
+    int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address,
+    socklen_t *addrlen)
 {
     N_NOTICE("recvfrom");
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen, PosixSubsystem::SafeWrite) &&
-        ((!address) || PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t), PosixSubsystem::SafeWrite))))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(buff), bufflen,
+              PosixSubsystem::SafeWrite) &&
+          ((!address) || PosixSubsystem::checkAddress(
+                             reinterpret_cast<uintptr_t>(addrlen),
+                             sizeof(socklen_t), PosixSubsystem::SafeWrite))))
     {
-        N_NOTICE("recvfrom -> invalid address for receive buffer or addrlen parameter");
+        N_NOTICE("recvfrom -> invalid address for receive buffer or addrlen "
+                 "parameter");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_recvfrom(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address << ", " << addrlen);
+    N_NOTICE(
+        "posix_recvfrom(" << sock << ", " << buff << ", " << bufflen << ", "
+                          << flags << ", " << address << ", " << addrlen);
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -553,7 +630,7 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
         return -1;
     }
 
-    if(f->so_domain == AF_UNIX)
+    if (f->so_domain == AF_UNIX)
     {
         File *pFile = f->so_local;
         struct sockaddr_un un_temp;
@@ -569,9 +646,11 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
 
         // this will load sun_path into sun_path automatically
         un->sun_family = AF_UNIX;
-        ssize_t r = pFile->read(reinterpret_cast<uintptr_t>(un->sun_path), bufflen, reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
+        ssize_t r = pFile->read(
+            reinterpret_cast<uintptr_t>(un->sun_path), bufflen,
+            reinterpret_cast<uintptr_t>(buff), (f->flflags & O_NONBLOCK) == 0);
 
-        if((r > 0) && address && addrlen)
+        if ((r > 0) && address && addrlen)
         {
             *addrlen = sizeof(struct sockaddr_un);
         }
@@ -582,7 +661,7 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
 
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
 
     bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
 
@@ -591,11 +670,14 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
     {
         ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
 
-        ret = ce->recv(reinterpret_cast<uintptr_t>(buff), bufflen, blocking, flags & MSG_PEEK);
+        ret = ce->recv(
+            reinterpret_cast<uintptr_t>(buff), bufflen, blocking,
+            flags & MSG_PEEK);
 
         if (address)
         {
-            struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+            struct sockaddr_in *sin =
+                reinterpret_cast<struct sockaddr_in *>(address);
             sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
             sin->sin_addr.s_addr = p->getRemoteIp().getIp();
             if (addrlen)
@@ -604,16 +686,20 @@ ssize_t posix_recvfrom(int sock, void *buff, size_t bufflen, int flags, struct s
             }
         }
     }
-    else if (s->getProtocol() == NETMAN_TYPE_UDP || s->getProtocol() == NETMAN_TYPE_RAW)
+    else if (
+        s->getProtocol() == NETMAN_TYPE_UDP ||
+        s->getProtocol() == NETMAN_TYPE_RAW)
     {
         ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
 
         Endpoint::RemoteEndpoint remoteHost;
-        ret = ce->recv(reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
+        ret = ce->recv(
+            reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
 
         if (address)
         {
-            struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+            struct sockaddr_in *sin =
+                reinterpret_cast<struct sockaddr_in *>(address);
             sin->sin_port = HOST_TO_BIG16(remoteHost.remotePort);
             sin->sin_addr.s_addr = remoteHost.ip.getIp();
             sin->sin_family = AF_INET;
@@ -632,17 +718,22 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 {
     N_NOTICE("posix_bind");
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(address), addrlen,
+            PosixSubsystem::SafeRead))
     {
         N_NOTICE("bind -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_bind(" << sock << ", " << address << ", " << addrlen << ")");
+    N_NOTICE(
+        "posix_bind(" << sock << ", " << address << ", " << addrlen << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -652,23 +743,27 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
     if (!f || !f->file)
     {
-        if(f && (!f->file) && (f->so_domain == AF_UNIX))
+        if (f && (!f->file) && (f->so_domain == AF_UNIX))
         {
-            if(address->sa_family != AF_UNIX)
+            if (address->sa_family != AF_UNIX)
             {
                 // EAFNOSUPPORT
                 return -1;
             }
 
             // Valid state. But no socket, so do the magic here.
-            const struct sockaddr_un *un = reinterpret_cast<const struct sockaddr_un *>(address);
+            const struct sockaddr_un *un =
+                reinterpret_cast<const struct sockaddr_un *>(address);
 
             String adjusted_pathname;
             normalisePath(adjusted_pathname, un->sun_path);
 
             N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
 
-            File *cwd = Processor::information().getCurrentThread()->getParent()->getCwd();
+            File *cwd = Processor::information()
+                            .getCurrentThread()
+                            ->getParent()
+                            ->getCwd();
             if (adjusted_pathname.endswith('/'))
             {
                 // uh, that's a directory
@@ -678,24 +773,28 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
             File *parentDirectory = cwd;
 
-            const char *pDirname = DirectoryName(static_cast<const char *>(adjusted_pathname));
-            const char *pBasename = BaseName(static_cast<const char *>(adjusted_pathname));
+            const char *pDirname =
+                DirectoryName(static_cast<const char *>(adjusted_pathname));
+            const char *pBasename =
+                BaseName(static_cast<const char *>(adjusted_pathname));
 
             String basename(pBasename);
-            delete [] pBasename;
+            delete[] pBasename;
 
             if (pDirname)
             {
                 // Reorder rfind result to be from beginning of string.
                 String dirname(pDirname);
-                delete [] pDirname;
+                delete[] pDirname;
 
                 N_NOTICE(" -> dirname=" << dirname);
 
                 parentDirectory = VFS::instance().find(dirname);
                 if (!parentDirectory)
                 {
-                    N_NOTICE(" -> parent directory '" << dirname << "' doesn't exist");
+                    N_NOTICE(
+                        " -> parent directory '" << dirname
+                                                 << "' doesn't exist");
                     SYSCALL_ERROR(DoesNotExist);
                     return -1;
                 }
@@ -709,7 +808,8 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
             Directory *pDir = Directory::fromFile(parentDirectory);
 
-            UnixSocket *socket = new UnixSocket(basename, parentDirectory->getFilesystem(), parentDirectory);
+            UnixSocket *socket = new UnixSocket(
+                basename, parentDirectory->getFilesystem(), parentDirectory);
             if (!pDir->addEphemeralFile(socket))
             {
                 /// \todo errno?
@@ -733,13 +833,15 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
     }
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
     if (p)
     {
         int ret = -1;
-        if (s->getProtocol() == NETMAN_TYPE_TCP || s->getProtocol() == NETMAN_TYPE_UDP)
+        if (s->getProtocol() == NETMAN_TYPE_TCP ||
+            s->getProtocol() == NETMAN_TYPE_UDP)
         {
-            const struct sockaddr_in* sin = reinterpret_cast<const struct sockaddr_in*>(address);
+            const struct sockaddr_in *sin =
+                reinterpret_cast<const struct sockaddr_in *>(address);
 
             p->setLocalPort(BIG_TO_HOST16(sin->sin_port));
 
@@ -756,8 +858,10 @@ int posix_listen(int sock, int backlog)
 {
     N_NOTICE("posix_listen(" << sock << ", " << backlog << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -765,7 +869,7 @@ int posix_listen(int sock, int backlog)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if(!(f && f->file))
+    if (!(f && f->file))
     {
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
@@ -776,7 +880,7 @@ int posix_listen(int sock, int backlog)
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    if(f->so_type != SOCK_STREAM)
+    if (f->so_type != SOCK_STREAM)
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
@@ -791,8 +895,8 @@ int posix_listen(int sock, int backlog)
 
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
-    if(p->getType() != Endpoint::ConnectionBased)
+    Endpoint *p = s->getEndpoint();
+    if (p->getType() != Endpoint::ConnectionBased)
     {
         SYSCALL_ERROR(OperationNotSupported);
         return -1;
@@ -808,22 +912,29 @@ int posix_listen(int sock, int backlog)
     return 0;
 }
 
-int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
+int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
 {
     N_NOTICE("posix_accept");
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(address),
+              sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t),
+              PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("accept -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_accept(" << sock << ", " << address << ", " << addrlen << ")");
+    N_NOTICE(
+        "posix_accept(" << sock << ", " << address << ", " << addrlen << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -842,13 +953,15 @@ int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
     // add into the descriptor table
     size_t fd = pSubsystem->getFd();
 
-    Endpoint* e = s->getEndpoint(); // NetManager::instance().getEndpoint(f);
+    Endpoint *e = s->getEndpoint();  // NetManager::instance().getEndpoint(f);
 
     if (address && addrlen)
     {
-        if (s->getProtocol() == NETMAN_TYPE_TCP || s->getProtocol() == NETMAN_TYPE_UDP)
+        if (s->getProtocol() == NETMAN_TYPE_TCP ||
+            s->getProtocol() == NETMAN_TYPE_UDP)
         {
-            struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+            struct sockaddr_in *sin =
+                reinterpret_cast<struct sockaddr_in *>(address);
             sin->sin_port = HOST_TO_BIG16(e->getRemotePort());
             sin->sin_addr.s_addr = e->getRemoteIp().getIp();
 
@@ -863,15 +976,17 @@ int posix_accept(int sock, struct sockaddr* address, socklen_t* addrlen)
         pSubsystem->addFileDescriptor(fd, desc);
     }
 
-    return static_cast<int> (fd);
+    return static_cast<int>(fd);
 }
 
 int posix_shutdown(int socket, int how)
 {
     N_NOTICE("posix_shutdown(" << socket << ", " << how << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -888,11 +1003,11 @@ int posix_shutdown(int socket, int how)
 
     Endpoint *e = s->getEndpoint();
     Endpoint::ShutdownType howType;
-    if(how == SHUT_RD)
+    if (how == SHUT_RD)
         howType = Endpoint::ShutReceiving;
-    else if(how == SHUT_WR)
+    else if (how == SHUT_WR)
         howType = Endpoint::ShutSending;
-    else if(how == SHUT_RDWR)
+    else if (how == SHUT_RDWR)
         howType = Endpoint::ShutBoth;
     else
     {
@@ -900,28 +1015,37 @@ int posix_shutdown(int socket, int how)
         return -1;
     }
 
-    if(e->shutdown(howType))
+    if (e->shutdown(howType))
         return 0;
     else
         return -1;
 }
 
-int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_len)
+int posix_getpeername(
+    int socket, struct sockaddr *address, socklen_t *address_len)
 {
     N_NOTICE("posix_getpeername");
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(address),
+              sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t),
+              PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getpeername -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_getpeername(" << socket << ", " << address << ", " << address_len << ")");
+    N_NOTICE(
+        "posix_getpeername(" << socket << ", " << address << ", " << address_len
+                             << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -937,18 +1061,21 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
     }
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
     if (s->getProtocol() == NETMAN_TYPE_TCP)
     {
         /// \todo this may not be accurate.
         /// \todo IPv6?
-        struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+        struct sockaddr_in *sin =
+            reinterpret_cast<struct sockaddr_in *>(address);
         sin->sin_family = AF_INET;
         sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
         sin->sin_addr.s_addr = p->getRemoteIp().getIp();
         *address_len = sizeof(struct sockaddr_in);
 
-        N_NOTICE(" -> remote peer is " << p->getRemoteIp().toString() << ":" << Dec << p->getRemotePort());
+        N_NOTICE(
+            " -> remote peer is " << p->getRemoteIp().toString() << ":" << Dec
+                                  << p->getRemotePort());
     }
     else
     {
@@ -962,22 +1089,31 @@ int posix_getpeername(int socket, struct sockaddr *address, socklen_t *address_l
     return 0;
 }
 
-int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_len)
+int posix_getsockname(
+    int socket, struct sockaddr *address, socklen_t *address_len)
 {
     N_NOTICE("posix_getsockname");
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(address),
+              sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t),
+              PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getsockname -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("posix_getsockname(" << socket << ", " << address << ", " << address_len << ")");
+    N_NOTICE(
+        "posix_getsockname(" << socket << ", " << address << ", " << address_len
+                             << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -992,10 +1128,10 @@ int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_l
     }
     Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint* p = s->getEndpoint();
+    Endpoint *p = s->getEndpoint();
     /// \todo this may not be accurate.
     /// \todo IPv6?
-    struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(address);
+    struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(address);
     sin->sin_family = AF_INET;
     sin->sin_port = HOST_TO_BIG16(p->getLocalPort());
     sin->sin_addr.s_addr = p->getLocalIp().getIp();
@@ -1004,19 +1140,26 @@ int posix_getsockname(int socket, struct sockaddr *address, socklen_t *address_l
     return 0;
 }
 
-int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t *optlen)
+int posix_getsockopt(
+    int sock, int level, int optname, void *optvalue, socklen_t *optlen)
 {
     N_NOTICE("getsockopt");
 
     // Check optlen first, then use it to check optvalue.
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t), PosixSubsystem::SafeRead) &&
-         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t),
+              PosixSubsystem::SafeRead) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t),
+              PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getsockopt -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optvalue), *optlen, PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(optvalue), *optlen,
+            PosixSubsystem::SafeWrite)))
     {
         N_NOTICE("getsockopt -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -1024,8 +1167,10 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t
     }
 
     // Valid socket?
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
@@ -1053,7 +1198,7 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t
     {
         case SO_ERROR:
         {
-            Endpoint* p = s->getEndpoint();
+            Endpoint *p = s->getEndpoint();
             int err = static_cast<int>(p->getError());
             N_NOTICE(" -> getting error [" << err << "]");
             /// \todo handle optlen < sizeof(socklen_t)!
@@ -1079,7 +1224,8 @@ int posix_sethostname(const char *name, size_t len)
 {
     N_NOTICE("sethostname");
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), len, PosixSubsystem::SafeRead)))
+    if (!(PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(name), len, PosixSubsystem::SafeRead)))
     {
         N_NOTICE(" -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -1092,4 +1238,3 @@ int posix_sethostname(const char *name, size_t len)
 
     return 0;
 }
-

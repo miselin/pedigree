@@ -18,15 +18,14 @@
  */
 
 #if defined(THREADS)
+#include <LockGuard.h>
+#include <Log.h>
 #include <process/RoundRobin.h>
 #include <process/Thread.h>
 #include <processor/Processor.h>
-#include <Log.h>
-#include <LockGuard.h>
 #include <utilities/assert.h>
 
-RoundRobin::RoundRobin() :
-  m_Lock(false)
+RoundRobin::RoundRobin() : m_Lock(false)
 {
 }
 
@@ -40,21 +39,20 @@ void RoundRobin::addThread(Thread *pThread)
 
 void RoundRobin::removeThread(Thread *pThread)
 {
-  LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
-  for (size_t i = 0; i < MAX_PRIORITIES; i++)
-  {
-      for(ThreadList::Iterator it = m_pReadyQueues[i].begin();
-          it != m_pReadyQueues[i].end();
-          it++)
-      {
-          if (*it == pThread)
-          {
-              m_pReadyQueues[i].erase (it);
-              return;
-          }
-      }
-  }
+    for (size_t i = 0; i < MAX_PRIORITIES; i++)
+    {
+        for (ThreadList::Iterator it = m_pReadyQueues[i].begin();
+             it != m_pReadyQueues[i].end(); it++)
+        {
+            if (*it == pThread)
+            {
+                m_pReadyQueues[i].erase(it);
+                return;
+            }
+        }
+    }
 }
 
 Thread *RoundRobin::getNext(Thread *pCurrentThread)
@@ -67,7 +65,7 @@ Thread *RoundRobin::getNext(Thread *pCurrentThread)
         if (m_pReadyQueues[i].size())
         {
             pThread = m_pReadyQueues[i].popFront();
-            if(pThread == pCurrentThread)
+            if (pThread == pCurrentThread)
                 continue;
 
             if (pThread)
@@ -83,13 +81,16 @@ void RoundRobin::threadStatusChanged(Thread *pThread)
 {
     if (RoundRobin::isReady(pThread))
     {
-        assert (pThread->getPriority() < MAX_PRIORITIES);
-        
-        for(List<Thread*>::Iterator it = m_pReadyQueues[pThread->getPriority()].begin(); it != m_pReadyQueues[pThread->getPriority()].end(); ++it)
+        assert(pThread->getPriority() < MAX_PRIORITIES);
+
+        for (List<Thread *>::Iterator it =
+                 m_pReadyQueues[pThread->getPriority()].begin();
+             it != m_pReadyQueues[pThread->getPriority()].end(); ++it)
         {
-            if((*it) == pThread)
+            if ((*it) == pThread)
             {
-                // WARNING("RoundRobin: A thread was already in this priority queue");
+                // WARNING("RoundRobin: A thread was already in this priority
+                // queue");
                 return;
             }
         }

@@ -20,16 +20,12 @@
 #include "RawFsFile.h"
 #include "RawFs.h"
 
-RawFsFile::RawFsFile(String name, RawFs *pFs, File *pParent, Disk *pDisk) :
-    File(name,
-	      0 /* Accessed time */,
-	      0 /* Modified time */,
-	      0 /* Creation time */,
-	      0 /* Inode number */,
-	      static_cast<Filesystem*>(pFs),
-	      0 /* Size */,
-	      pParent),
-    m_pDisk(pDisk)
+RawFsFile::RawFsFile(String name, RawFs *pFs, File *pParent, Disk *pDisk)
+    : File(
+          name, 0 /* Accessed time */, 0 /* Modified time */,
+          0 /* Creation time */, 0 /* Inode number */,
+          static_cast<Filesystem *>(pFs), 0 /* Size */, pParent),
+      m_pDisk(pDisk)
 {
     // Owned by root:root
     setUid(0);
@@ -52,4 +48,3 @@ uintptr_t RawFsFile::readBlock(uint64_t location)
 {
     return m_pDisk->read(location);
 }
-

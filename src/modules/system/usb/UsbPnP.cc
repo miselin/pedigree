@@ -18,63 +18,69 @@
  */
 
 #include <processor/Processor.h>
-#include <usb/UsbPnP.h>
 #include <usb/UsbDevice.h>
+#include <usb/UsbPnP.h>
 
 UsbPnP UsbPnP::m_Instance;
 
 bool UsbPnP::probeDevice(Device *pDeviceBase)
 {
     // Sanity check.
-    if(!(pDeviceBase->getType() == Device::UsbContainer))
+    if (!(pDeviceBase->getType() == Device::UsbContainer))
         return false;
 
-    UsbDevice *pDevice = static_cast<UsbDeviceContainer *>(pDeviceBase)->getUsbDevice();
+    UsbDevice *pDevice =
+        static_cast<UsbDeviceContainer *>(pDeviceBase)->getUsbDevice();
 
     // Is this device already handled by a driver?
-    if(pDevice->getUsbState() == UsbDevice::HasDriver)
+    if (pDevice->getUsbState() == UsbDevice::HasDriver)
         return false;
-    else if(!m_Callbacks.count())
+    else if (!m_Callbacks.count())
         return false;
 
     UsbDevice::DeviceDescriptor *pDes = pDevice->getDescriptor();
     UsbDevice::Interface *pIface = pDevice->getInterface();
 
-    for(List<CallbackItem*>::Iterator it = m_Callbacks.begin();
-        it != m_Callbacks.end();
-        it++)
+    for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
+         it != m_Callbacks.end(); it++)
     {
         CallbackItem *item = *it;
-        if(!item)
+        if (!item)
             continue;
 
-        if((item->nVendorId != VendorIdNone) && (item->nVendorId != pDes->nVendorId))
+        if ((item->nVendorId != VendorIdNone) &&
+            (item->nVendorId != pDes->nVendorId))
             continue;
-        if((item->nProductId != ProductIdNone) && (item->nProductId != pDes->nProductId))
+        if ((item->nProductId != ProductIdNone) &&
+            (item->nProductId != pDes->nProductId))
             continue;
-        if((item->nClass != ClassNone) && (item->nClass != pIface->nClass))
+        if ((item->nClass != ClassNone) && (item->nClass != pIface->nClass))
             continue;
-        if((item->nSubclass != SubclassNone) && (item->nSubclass != pIface->nSubclass))
+        if ((item->nSubclass != SubclassNone) &&
+            (item->nSubclass != pIface->nSubclass))
             continue;
-        if((item->nProtocol != ProtocolNone) && (item->nProtocol != pIface->nProtocol))
+        if ((item->nProtocol != ProtocolNone) &&
+            (item->nProtocol != pIface->nProtocol))
             continue;
 
-        // Call the callback, which will give us (hopefully) a copy of pDevice, in the form of a driver class
+        // Call the callback, which will give us (hopefully) a copy of pDevice,
+        // in the form of a driver class
         UsbDevice *pNewDevice = item->callback(pDevice);
 
         // Was this device rejected by the driver?
-        if(!pNewDevice)
+        if (!pNewDevice)
             continue;
 
         // Initialise the driver
         pNewDevice->initialiseDriver();
 
         // Did the device go into the driver state?
-        if(pNewDevice->getUsbState() == UsbDevice::HasDriver)
+        if (pNewDevice->getUsbState() == UsbDevice::HasDriver)
         {
             // Replace the old device with the new one
             UsbDeviceContainer *pContainer = pDevice->getContainer();
-            pContainer->getParent()->replaceChild(pContainer, new UsbDeviceContainer(pNewDevice));
+            pContainer->getParent()->replaceChild(
+                pContainer, new UsbDeviceContainer(pNewDevice));
             delete pContainer;
             delete pDevice;
             return true;
@@ -90,10 +96,10 @@ void UsbPnP::reprobeDevices(Device *pParent)
     if (!pParent)
         return;
 
-    for(size_t i = 0; i < pParent->getNumChildren(); i++)
+    for (size_t i = 0; i < pParent->getNumChildren(); i++)
     {
         Device *pDevice = pParent->getChild(i);
-        if(pDevice && (pDevice->getType() == Device::UsbContainer))
+        if (pDevice && (pDevice->getType() == Device::UsbContainer))
         {
             probeDevice(pDevice);
         }
@@ -102,7 +108,8 @@ void UsbPnP::reprobeDevices(Device *pParent)
     }
 }
 
-void UsbPnP::registerCallback(uint16_t nVendorId, uint16_t nProductId, callback_t callback)
+void UsbPnP::registerCallback(
+    uint16_t nVendorId, uint16_t nProductId, callback_t callback)
 {
     CallbackItem *item = new CallbackItem;
     item->callback = callback;
@@ -117,7 +124,8 @@ void UsbPnP::registerCallback(uint16_t nVendorId, uint16_t nProductId, callback_
     // reprobeDevices(&Device::root());
 }
 
-void UsbPnP::registerCallback(uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol, callback_t callback)
+void UsbPnP::registerCallback(
+    uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol, callback_t callback)
 {
     CallbackItem *item = new CallbackItem;
     item->callback = callback;

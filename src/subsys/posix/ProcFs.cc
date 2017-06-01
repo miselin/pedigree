@@ -20,12 +20,12 @@
 #include "ProcFs.h"
 
 #include <BootstrapInfo.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
 #include <LockGuard.h>
 #include <Version.h>
-#include <users/User.h>
+#include <processor/Processor.h>
+#include <time/Time.h>
 #include <users/Group.h>
+#include <users/User.h>
 
 #include "file-syscalls.h"
 
@@ -35,16 +35,17 @@
 extern size_t g_FreePages;
 extern size_t g_AllocedPages;
 
-MeminfoFile::MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent) :
-    File(String("meminfo"), 0, 0, 0, inode, pParentFS, 0, pParent),
-    m_pUpdateThread(0), m_bRunning(false), m_Contents(), m_Lock(false)
+MeminfoFile::MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent)
+    : File(String("meminfo"), 0, 0, 0, inode, pParentFS, 0, pParent),
+      m_pUpdateThread(0), m_bRunning(false), m_Contents(), m_Lock(false)
 {
     setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
     setUidOnly(0);
     setGidOnly(0);
 
     m_bRunning = true;
-    m_pUpdateThread = new Thread(Processor::information().getCurrentThread()->getParent(), run, this);
+    m_pUpdateThread = new Thread(
+        Processor::information().getCurrentThread()->getParent(), run, this);
 }
 
 MeminfoFile::~MeminfoFile()
@@ -71,16 +72,19 @@ void MeminfoFile::updateThread()
     while (m_bRunning)
     {
         m_Lock.acquire();
-        uint64_t freeKb = (g_FreePages * 4096) / 1024;  // each page is 4K
+        uint64_t freeKb = (g_FreePages * 4096) / 1024;      // each page is 4K
         uint64_t allocKb = (g_AllocedPages * 4096) / 1024;  // each page is 4K
-        m_Contents.Format("MemTotal: %ld kB\nMemFree: %ld kB\nMemAvailable: %ld kB\n", freeKb + allocKb, freeKb, freeKb);
+        m_Contents.Format(
+            "MemTotal: %ld kB\nMemFree: %ld kB\nMemAvailable: %ld kB\n",
+            freeKb + allocKb, freeKb, freeKb);
         m_Lock.release();
 
         Time::delay(1 * Time::Multiplier::SECOND);
     }
 }
 
-uint64_t MeminfoFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t MeminfoFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     LockGuard<Mutex> guard(m_Lock);
 
@@ -101,13 +105,14 @@ uint64_t MeminfoFile::read(uint64_t location, uint64_t size, uintptr_t buffer, b
     return size;
 }
 
-uint64_t MeminfoFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t MeminfoFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent) :
-    File(String("mounts"), 0, 0, 0, inode, pParentFS, 0, pParent)
+MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent)
+    : File(String("mounts"), 0, 0, 0, inode, pParentFS, 0, pParent)
 {
     setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
     setUidOnly(0);
@@ -116,7 +121,8 @@ MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent) :
 
 MountFile::~MountFile() = default;
 
-uint64_t MountFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t MountFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     String mounts;
     generate_mtab(mounts);
@@ -133,12 +139,14 @@ uint64_t MountFile::read(uint64_t location, uint64_t size, uintptr_t buffer, boo
     }
 
     char *destination = reinterpret_cast<char *>(buffer);
-    StringCopyN(destination, static_cast<const char *>(mounts) + location, size);
+    StringCopyN(
+        destination, static_cast<const char *>(mounts) + location, size);
 
     return size;
 }
 
-uint64_t MountFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t MountFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
@@ -150,8 +158,8 @@ size_t MountFile::getSize()
     return mounts.length();
 }
 
-UptimeFile::UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent) :
-    File(String("uptime"), 0, 0, 0, inode, pParentFS, 0, pParent)
+UptimeFile::UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent)
+    : File(String("uptime"), 0, 0, 0, inode, pParentFS, 0, pParent)
 {
     setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
     setUidOnly(0);
@@ -160,7 +168,8 @@ UptimeFile::UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent) :
 
 UptimeFile::~UptimeFile() = default;
 
-uint64_t UptimeFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t UptimeFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     String f = generateString();
 
@@ -181,7 +190,8 @@ uint64_t UptimeFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bo
     return size;
 }
 
-uint64_t UptimeFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t UptimeFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
@@ -203,8 +213,10 @@ String UptimeFile::generateString()
     return f;
 }
 
-ConstantFile::ConstantFile(String name, String value, size_t inode, Filesystem *pParentFS, File *pParent) :
-    File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents(value)
+ConstantFile::ConstantFile(
+    String name, String value, size_t inode, Filesystem *pParentFS,
+    File *pParent)
+    : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents(value)
 {
     setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
     setUidOnly(0);
@@ -212,9 +224,11 @@ ConstantFile::ConstantFile(String name, String value, size_t inode, Filesystem *
 }
 
 ConstantFile::~ConstantFile()
-{}
+{
+}
 
-uint64_t ConstantFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConstantFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (location >= m_Contents.length())
     {
@@ -233,7 +247,8 @@ uint64_t ConstantFile::read(uint64_t location, uint64_t size, uintptr_t buffer, 
     return size;
 }
 
-uint64_t ConstantFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConstantFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
@@ -258,14 +273,18 @@ bool ProcFs::initialise(Disk *pDisk)
         delete m_pRoot;
     }
 
-    m_pRoot = new ProcFsDirectory(String(""), 0, 0, 0, getNextInode(), this, 0, 0);
+    m_pRoot =
+        new ProcFsDirectory(String(""), 0, 0, 0, getNextInode(), this, 0, 0);
     // Allow user/group to read and write, but disallow all others anything
     // other than the ability to list and access files.
-    m_pRoot->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OX);
+    m_pRoot->setPermissions(
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+        FILE_OX);
 
     // dot entry
     /// \todo need to know parent (if any) so we can add dotdot too
-    Directory *dot = new ProcFsDirectory(String("."), 0, 0, 0, m_pRoot->getInode(), this, 0, 0);
+    Directory *dot = new ProcFsDirectory(
+        String("."), 0, 0, 0, m_pRoot->getInode(), this, 0, 0);
     dot->setPermissions(m_pRoot->getPermissions());
     m_pRoot->addEntry(dot->getName(), dot);
 
@@ -279,19 +298,26 @@ bool ProcFs::initialise(Disk *pDisk)
     UptimeFile *uptime = new UptimeFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(uptime->getName(), uptime);
 
-    ConstantFile *pFilesystems = new ConstantFile(String("filesystems"), String("\text2\nnodev\tproc\nnodev\ttmpfs\n"), getNextInode(), this, m_pRoot);
+    ConstantFile *pFilesystems = new ConstantFile(
+        String("filesystems"), String("\text2\nnodev\tproc\nnodev\ttmpfs\n"),
+        getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
     // Kernel command line
     String cmdline(g_pBootstrapInfo->getCommandLine());
-    cmdline += " noswap quiet";  // ensure we get into single user mode in Linux userspaces
-    ConstantFile *pCmdline = new ConstantFile(String("cmdline"), cmdline, getNextInode(), this, m_pRoot);
+    cmdline += " noswap quiet";  // ensure we get into single user mode in Linux
+                                 // userspaces
+    ConstantFile *pCmdline = new ConstantFile(
+        String("cmdline"), cmdline, getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
     // /proc/version contains some extra version info (not same as uname)
     String version;
-    version.Format("Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser, g_pBuildMachine, g_pBuildTime);
-    ConstantFile *pVersion = new ConstantFile(String("version"), version, getNextInode(), this, m_pRoot);
+    version.Format(
+        "Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser,
+        g_pBuildMachine, g_pBuildTime);
+    ConstantFile *pVersion = new ConstantFile(
+        String("version"), version, getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pVersion->getName(), pVersion);
 
     return true;
@@ -317,7 +343,8 @@ void ProcFs::addProcess(PosixProcess *proc)
     s.Format("%d", pid);
 
     auto procDir = new ProcFsDirectory(s, 0, 0, 0, getNextInode(), this, 0, 0);
-    procDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+    procDir->setPermissions(
+        FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
 
     /// \todo is this correct? or should it be effective user/group?
     if (proc->getUser())

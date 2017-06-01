@@ -22,8 +22,8 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include <vector>
 #include <fstream>
+#include <vector>
 
 #include <benchmark/benchmark.h>
 
@@ -79,7 +79,8 @@ static void BM_RadixTreeInsert(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(words.size()));
 }
 
 static void BM_RadixTreeInsertSame(benchmark::State &state)
@@ -114,7 +115,8 @@ static void BM_RadixTreeLookupHit(benchmark::State &state)
     String key;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+        benchmark::DoNotOptimize(
+            tree.lookup(words[RandomNumber(words.size())]));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -138,7 +140,8 @@ static void BM_RadixTreeLookupMiss(benchmark::State &state)
     String key;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+        benchmark::DoNotOptimize(
+            tree.lookup(words[RandomNumber(words.size())]));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -164,7 +167,8 @@ static void BM_RadixTreeCaseInsensitiveInsert(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(words.size()));
 }
 
 static void BM_RadixTreeCaseInsensitiveInsertSame(benchmark::State &state)
@@ -199,7 +203,8 @@ static void BM_RadixTreeCaseInsensitiveLookupHit(benchmark::State &state)
     String key;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+        benchmark::DoNotOptimize(
+            tree.lookup(words[RandomNumber(words.size())]));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -223,7 +228,8 @@ static void BM_RadixTreeCaseInsensitiveLookupMiss(benchmark::State &state)
     String key;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+        benchmark::DoNotOptimize(
+            tree.lookup(words[RandomNumber(words.size())]));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,12 +18,11 @@
  */
 
 #include "QuitCommand.h"
+#include <DebuggerIO.h>
 #include <Log.h>
 #include <utilities/utility.h>
-#include <DebuggerIO.h>
 
-QuitCommand::QuitCommand()
- : DebuggerCommand()
+QuitCommand::QuitCommand() : DebuggerCommand()
 {
 }
 
@@ -32,12 +30,14 @@ QuitCommand::~QuitCommand()
 {
 }
 
-void QuitCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void QuitCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool QuitCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool QuitCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
-  return false; // Return control to the kernel.
+    return false;  // Return control to the kernel.
 }
-

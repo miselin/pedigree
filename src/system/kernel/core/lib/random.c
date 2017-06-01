@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,12 +23,12 @@ static uint64_t g_Seed = 1;
 
 void random_seed(uint64_t seed)
 {
-	g_Seed = seed;
+    g_Seed = seed;
 }
 
 uint64_t random_next()
 {
-	// This is a http://en.wikipedia.org/wiki/Linear_congruential_generator.
-	g_Seed = (g_Seed * 6364136223846793005ULL) + 1442695040888963407ULL;
-	return g_Seed;
+    // This is a http://en.wikipedia.org/wiki/Linear_congruential_generator.
+    g_Seed = (g_Seed * 6364136223846793005ULL) + 1442695040888963407ULL;
+    return g_Seed;
 }

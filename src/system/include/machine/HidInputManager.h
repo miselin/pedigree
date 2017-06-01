@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,11 +20,11 @@
 #ifndef MACHINE_HID_INPUT_MANAGER_H
 #define MACHINE_HID_INPUT_MANAGER_H
 
+#include <Spinlock.h>
+#include <machine/Timer.h>
 #include <processor/Processor.h>
 #include <processor/types.h>
 #include <utilities/Tree.h>
-#include <machine/Timer.h>
-#include <Spinlock.h>
 
 /**
  * Global manager for all input from HID devices.
@@ -33,55 +32,54 @@
 class HidInputManager : public TimerHandler
 {
     public:
+    /// Default constructor
+    HidInputManager();
 
-        /// Default constructor
-        HidInputManager();
+    /// Default destructor
+    virtual ~HidInputManager();
 
-        /// Default destructor
-        virtual ~HidInputManager();
+    /// Singleton design
+    static HidInputManager &instance()
+    {
+        return m_Instance;
+    }
 
-        /// Singleton design
-        static HidInputManager& instance()
-        {
-            return m_Instance;
-        }
+    /// Called when a key transitions to the "down" state
+    void keyDown(uint8_t keyCode);
 
-        /// Called when a key transitions to the "down" state
-        void keyDown(uint8_t keyCode);
+    /// Called when a key transitions to the "up" state
+    void keyUp(uint8_t keyCode);
 
-        /// Called when a key transitions to the "up" state
-        void keyUp(uint8_t keyCode);
+    /// Apply modifier or keymap changes to all keys in down state
+    void updateKeys();
 
-        /// Apply modifier or keymap changes to all keys in down state
-        void updateKeys();
-
-        /// Timer callback to handle repeating key press states
-        /// when a key is held in the down state.
-        void timer(uint64_t delta, InterruptState &state);
+    /// Timer callback to handle repeating key press states
+    /// when a key is held in the down state.
+    void timer(uint64_t delta, InterruptState &state);
 
     private:
-        /// Static instance
-        static HidInputManager m_Instance;
+    /// Static instance
+    static HidInputManager m_Instance;
 
-        /// Item in the key state list. This stores information needed
-        /// for periodic callbacks and applying modifiers.
-        struct KeyState
-        {
-            /// The resolved key
-            uint64_t key;
+    /// Item in the key state list. This stores information needed
+    /// for periodic callbacks and applying modifiers.
+    struct KeyState
+    {
+        /// The resolved key
+        uint64_t key;
 
-            /// The time left until the next key repeat
-            uint64_t nLeftTicks;
-        };
+        /// The time left until the next key repeat
+        uint64_t nLeftTicks;
+    };
 
-        /// Current key states (for periodic callbacks while a key is down)
-        Tree<uint8_t, KeyState*> m_KeyStates;
+    /// Current key states (for periodic callbacks while a key is down)
+    Tree<uint8_t, KeyState *> m_KeyStates;
 
-        /// Spinlock for work on keys.
-        /// \note Using a Spinlock here because a lot of our work will happen
-        ///       in the middle of an IRQ where it's potentially dangerous to
-        ///       reschedule (which may happen with a Mutex or Semaphore).
-        Spinlock m_KeyLock;
+    /// Spinlock for work on keys.
+    /// \note Using a Spinlock here because a lot of our work will happen
+    ///       in the middle of an IRQ where it's potentially dangerous to
+    ///       reschedule (which may happen with a Mutex or Semaphore).
+    Spinlock m_KeyLock;
 };
 
 #endif

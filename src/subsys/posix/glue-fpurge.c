@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,15 +22,15 @@ FUNCTION
 <<fpurge>>---discard pending file I/O
 
 INDEX
-	fpurge
+        fpurge
 INDEX
-	_fpurge_r
+        _fpurge_r
 
 ANSI_SYNOPSIS
-	#include <stdio.h>
-	int fpurge(FILE *<[fp]>);
+        #include <stdio.h>
+        int fpurge(FILE *<[fp]>);
 
-	int _fpurge_r(struct _reent *<[reent]>, FILE *<[fp]>);
+        int _fpurge_r(struct _reent *<[reent]>, FILE *<[fp]>);
 
 DESCRIPTION
 Use <<fpurge>> to clear all buffers of the given stream.  For output
@@ -59,43 +58,42 @@ No supporting OS subroutines are required.
 
 #include <newlib.h>
 
-#include <_ansi.h>
-#include <stdio.h>
-#include <errno.h>
 #include "local.h"
+#include <_ansi.h>
+#include <errno.h>
+#include <stdio.h>
 
 /* Discard I/O from a single file.  */
 
-int _fpurge_r(struct _reent *ptr, register FILE * fp)
+int _fpurge_r(struct _reent *ptr, register FILE *fp)
 {
-  int t;
+    int t;
 
-  CHECK_INIT (ptr, fp);
+    CHECK_INIT(ptr, fp);
 
-  _flockfile (fp);
+    _flockfile(fp);
 
-  t = fp->_flags;
-  if (!t)
+    t = fp->_flags;
+    if (!t)
     {
-      ptr->_errno = EBADF;
-      _funlockfile (fp);
-      return EOF;
+        ptr->_errno = EBADF;
+        _funlockfile(fp);
+        return EOF;
     }
-  fp->_p = fp->_bf._base;
-  if ((t & __SWR) == 0)
+    fp->_p = fp->_bf._base;
+    if ((t & __SWR) == 0)
     {
-      fp->_r = 0;
-      if (HASUB (fp))
-	FREEUB (ptr, fp);
+        fp->_r = 0;
+        if (HASUB(fp))
+            FREEUB(ptr, fp);
     }
-  else
-    fp->_w = t & (__SLBF | __SNBF) ? 0 : fp->_bf._size;
-  _funlockfile (fp);
-  return 0;
+    else
+        fp->_w = t & (__SLBF | __SNBF) ? 0 : fp->_bf._size;
+    _funlockfile(fp);
+    return 0;
 }
 
 int fpurge(register FILE *fp)
 {
-  return _fpurge_r (_REENT, fp);
+    return _fpurge_r(_REENT, fp);
 }
-

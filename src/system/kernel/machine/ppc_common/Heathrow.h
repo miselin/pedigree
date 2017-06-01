@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,21 +20,23 @@
 #ifndef KERNEL_MACHINE_PPC_COMMON_HEATHROW_H
 #define KERNEL_MACHINE_PPC_COMMON_HEATHROW_H
 
-#include <processor/MemoryMappedIo.h>
-#include <processor/InterruptManager.h>
 #include <machine/IrqManager.h>
+#include <processor/InterruptManager.h>
+#include <processor/MemoryMappedIo.h>
 
 /** @addtogroup kernelmachineppccommon
  * @{ */
 
 /** The PPC's programmable interrupt controller as IrqManager */
-class Heathrow : public IrqManager,
-                 private InterruptHandler
+class Heathrow : public IrqManager, private InterruptHandler
 {
-  public:
+    public:
     /** Get the Pic class instance
      *\return the Pic class instance */
-    inline static Heathrow &instance(){return m_Instance;}
+    inline static Heathrow &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // IrqManager interface
@@ -50,17 +51,19 @@ class Heathrow : public IrqManager,
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
-  private:
+    private:
     /** The default constructor */
     Heathrow() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~Heathrow(){}
+    inline virtual ~Heathrow()
+    {
+    }
     /** The copy-constructor
      *\note NOT implemented */
     Heathrow(const Heathrow &);
     /** The assignment operator
      *\note NOT implemented */
-    Heathrow &operator = (const Heathrow &);
+    Heathrow &operator=(const Heathrow &);
 
     void searchNode(class Device *pDev);
 
@@ -85,8 +88,8 @@ class Heathrow : public IrqManager,
     /** The Pic instance */
     static Heathrow m_Instance;
 
-  uint32_t m_LowMask;
-  uint32_t m_HighMask;
+    uint32_t m_LowMask;
+    uint32_t m_HighMask;
 };
 
 /** @} */

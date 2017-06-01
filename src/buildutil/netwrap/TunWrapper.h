@@ -21,12 +21,12 @@
 #define TUNWRAPPER_H
 
 #include <machine/Network.h>
-#include <process/Mutex.h>
 #include <process/ConditionVariable.h>
+#include <process/Mutex.h>
 
 class TunWrapper : public Network
 {
-public:
+    public:
     TunWrapper();
     TunWrapper(Network *pDev);
     virtual ~TunWrapper();
@@ -36,12 +36,12 @@ public:
     virtual void dump(String &str);
 
     /** Sends a given packet through the device.
-    * \param nBytes The number of bytes to send.
-    * \param buffer A buffer with the packet to send */
+     * \param nBytes The number of bytes to send.
+     * \param buffer A buffer with the packet to send */
     virtual bool send(size_t nBytes, uintptr_t buffer);
 
     /** Sets station information (such as IP addresses)
-    * \param info The information to set as the station info */
+     * \param info The information to set as the station info */
     virtual bool setStationInfo(StationInfo info);
 
     /** Gets station information (such as IP addresses) */
@@ -50,7 +50,7 @@ public:
     /** Runs the wrapper's main loop with the given descriptor. */
     void run(int fd);
 
-protected:
+    protected:
     static int packetPusherThread(void *param);
     void packetPusher();
 

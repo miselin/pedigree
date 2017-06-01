@@ -19,8 +19,8 @@
 
 #include <machine/Display.h>
 
-Display::ScreenMode::ScreenMode() :
-    id(0), width(0), height(0), refresh(0), framebuffer(0), pf(), pf2(),
-    bytesPerLine(0), bytesPerPixel(0), textMode(false)
+Display::ScreenMode::ScreenMode()
+    : id(0), width(0), height(0), refresh(0), framebuffer(0), pf(), pf2(),
+      bytesPerLine(0), bytesPerPixel(0), textMode(false)
 {
 }

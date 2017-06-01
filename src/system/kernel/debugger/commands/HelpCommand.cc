@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,11 +18,10 @@
  */
 
 #include "HelpCommand.h"
-#include <utilities/utility.h>
 #include <processor/Processor.h>
+#include <utilities/utility.h>
 
-HelpCommand::HelpCommand()
- : DebuggerCommand()
+HelpCommand::HelpCommand() : DebuggerCommand()
 {
 }
 
@@ -31,11 +29,14 @@ HelpCommand::~HelpCommand()
 {
 }
 
-void HelpCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void HelpCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool HelpCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool HelpCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
     output += "page-allocations - Inspect page allocations.\n";
     output += "backtrace        - Obtain a backtrace.\n";
@@ -44,9 +45,11 @@ bool HelpCommand::execute(const HugeStaticString &input, HugeStaticString &outpu
     output += "disassemble      - Disassemble contents at given address.\n";
     output += "dump             - Dump machine state (registers etc).\n";
     output += "help             - Display this text.\n";
-    output += "io               - List allocated IO ports and memory regions.\n";
+    output +=
+        "io               - List allocated IO ports and memory regions.\n";
     output += "log              - View the kernel log.\n";
-    output += "lookup           - Lookup the symbol corresponding to an address.\n";
+    output +=
+        "lookup           - Lookup the symbol corresponding to an address.\n";
     output += "memory           - Inspect the contents of (virtual) memory.\n";
     output += "panic            - Cause a system panic.\n";
     output += "quit             - Leave and continue execution.\n";
@@ -55,6 +58,7 @@ bool HelpCommand::execute(const HugeStaticString &input, HugeStaticString &outpu
     output += "threads          - Inspect what each thread is doing.\n";
     output += "trace            - Graphical execution tracer.\n";
     output += "locks            - Show spinlock information.\n";
-    output += "mapping          - Show V->P information for an effective addr.\n";
+    output +=
+        "mapping          - Show V->P information for an effective addr.\n";
     return true;
 }

@@ -20,8 +20,8 @@
 #ifndef KERNEL_UTILITIES_LIB_H
 #define KERNEL_UTILITIES_LIB_H
 
-#include <stdarg.h>
 #include <compiler.h>
+#include <stdarg.h>
 
 // Condense X86-ish systems into one define for utilities.
 /// \note this will break testsuite/hosted builds on non-x86 hosts.
@@ -34,8 +34,8 @@ extern "C" {
 #endif
 
 // String functions.
-#define StringLength(x) (IS_CONSTANT(x) \
-    ? __builtin_strlen((x)) : _StringLength(x))
+#define StringLength(x) \
+    (IS_CONSTANT(x) ? __builtin_strlen((x)) : _StringLength(x))
 size_t _StringLength(const char *buf) PURE;
 char *StringCopy(char *dest, const char *src);
 char *StringCopyN(char *dest, const char *src, size_t len);
@@ -47,12 +47,15 @@ const char *StringFind(const char *str, int target) PURE;
 const char *StringReverseFind(const char *str, int target) PURE;
 int VStringFormat(char *buf, const char *fmt, va_list arg);
 int StringFormat(char *buf, const char *fmt, ...) FORMAT(printf, 2, 3);
-unsigned long StringToUnsignedLong(const char *nptr, char const **endptr, int base);
+unsigned long
+StringToUnsignedLong(const char *nptr, char const **endptr, int base);
 
 // Compares the two strings with optional case-sensitivity. The offset out
 // parameter holds the offset of a failed match in the case of a non-zero
 // return, or the length of the string otherwise.
-int StringCompareCase(const char *s1, const char *s2, int sensitive, size_t length, size_t *offset);
+int StringCompareCase(
+    const char *s1, const char *s2, int sensitive, size_t length,
+    size_t *offset);
 
 // Memory functions.
 void *ByteSet(void *buf, int c, size_t len);
@@ -84,7 +87,7 @@ inline char toUpper(char c) PURE;
 inline char toUpper(char c)
 {
     if (c < 'a' || c > 'z')
-        return c; // special chars
+        return c;  // special chars
     c += ('A' - 'a');
     return c;
 }
@@ -93,7 +96,7 @@ inline char toLower(char c) PURE;
 inline char toLower(char c)
 {
     if (c < 'A' || c > 'Z')
-        return c; // special chars
+        return c;  // special chars
     c -= ('A' - 'a');
     return c;
 }

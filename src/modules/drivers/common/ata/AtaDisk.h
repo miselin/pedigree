@@ -20,16 +20,16 @@
 #ifndef ATA_ATA_DISK_H
 #define ATA_ATA_DISK_H
 
-#include <processor/types.h>
+#include "BusMasterIde.h"
+#include <machine/Controller.h>
 #include <machine/Device.h>
 #include <machine/Disk.h>
-#include <machine/Controller.h>
-#include <process/Mutex.h>
 #include <process/ConditionVariable.h>
-#include <utilities/Cache.h>
+#include <process/Mutex.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
-#include "BusMasterIde.h"
+#include <processor/types.h>
+#include <utilities/Cache.h>
 
 #include <scsi/ScsiDisk.h>
 
@@ -44,7 +44,7 @@
  */
 class AtaDisk : public ScsiDisk
 {
-private:
+    private:
     enum AtaDiskType
     {
         Block = 0x00,
@@ -61,9 +61,10 @@ private:
         NotPacket = 0xFF,
     };
 
-public:
-    AtaDisk(class AtaController *pDev, bool isMaster, IoBase *commandRegs,
-            IoBase *controlRegs, BusMasterIde *busMaster = 0);
+    public:
+    AtaDisk(
+        class AtaController *pDev, bool isMaster, IoBase *commandRegs,
+        IoBase *controlRegs, BusMasterIde *busMaster = 0);
     virtual ~AtaDisk();
 
     virtual void getName(String &str)
@@ -98,8 +99,11 @@ public:
     virtual size_t getBlockCount() const;
 
     // SCSI controller interface calls this to send a PACKET command.
-    virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
-private:
+    virtual bool sendCommand(
+        size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
+
+    private:
     /** Sets the drive up for reading from address 'n' in LBA28 mode. */
     void setupLBA28(uint64_t n, uint32_t nSectors);
     /** Sets the drive up for reading from address 'n' in LBA48 mode. */
@@ -108,7 +112,7 @@ private:
     /** Default block size for this device. */
     virtual size_t defaultBlockSize()
     {
-        if(m_AtaDiskType == CdDvd)
+        if (m_AtaDiskType == CdDvd)
         {
             return 2048;
         }
@@ -165,7 +169,9 @@ private:
     bool m_Removable;
 
     /** Performs the SET FEATURES command. */
-    void setFeatures(uint8_t command, uint8_t countreg, uint8_t lowreg, uint8_t midreg, uint8_t hireg);
+    void setFeatures(
+        uint8_t command, uint8_t countreg, uint8_t lowreg, uint8_t midreg,
+        uint8_t hireg);
 
     /** Command & control registers, and DMA access for this disk */
     IoBase *m_CommandRegs;
@@ -178,7 +184,8 @@ private:
     /** PRD table (virtual) */
     PhysicalRegionDescriptor *m_PrdTable;
 
-    /** Last used offset into the PRD table (so we can run multiple ops at once) */
+    /** Last used offset into the PRD table (so we can run multiple ops at once)
+     */
     size_t m_LastPrdTableOffset;
 
     /** PRD table (physical) */

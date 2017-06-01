@@ -21,8 +21,8 @@
 
 #include <benchmark/benchmark.h>
 
-#include <memory>
 #include <iostream>
+#include <memory>
 
 #include <lib/SlamAllocator.h>
 
@@ -60,4 +60,6 @@ static void BM_SlamAllocatorAllocations(benchmark::State &state)
 }
 
 BENCHMARK(BM_SlamAllocatorBackForth);
-BENCHMARK(BM_SlamAllocatorAllocations)->RangePair(OBJECT_MINIMUM_SIZE, 0x20000, 8, 1024)->Complexity();
+BENCHMARK(BM_SlamAllocatorAllocations)
+    ->RangePair(OBJECT_MINIMUM_SIZE, 0x20000, 8, 1024)
+    ->Complexity();

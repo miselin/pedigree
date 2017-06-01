@@ -20,34 +20,34 @@
 #ifndef ROUND_ROBIN_H
 #define ROUND_ROBIN_H
 
+#include <Spinlock.h>
 #include <process/SchedulingAlgorithm.h>
 #include <utilities/List.h>
-#include <Spinlock.h>
 
 class RoundRobin : public SchedulingAlgorithm
 {
-public:
-  /** Constructor. */
-  RoundRobin();
-  
-  /** Destructor. */
-  virtual ~RoundRobin();
-  
-  virtual void addThread(Thread *pThread);
-  
-  virtual void removeThread(Thread *pThread);
+    public:
+    /** Constructor. */
+    RoundRobin();
 
-  virtual Thread *getNext(Thread *pCurrentThread);
-  
-  virtual void threadStatusChanged(Thread *pThread);
-  
-private:
-  static bool isReady(Thread *pThread);
+    /** Destructor. */
+    virtual ~RoundRobin();
 
-  typedef List<Thread*> ThreadList;
-  ThreadList m_pReadyQueues[MAX_PRIORITIES];
+    virtual void addThread(Thread *pThread);
 
-  Spinlock m_Lock;
+    virtual void removeThread(Thread *pThread);
+
+    virtual Thread *getNext(Thread *pCurrentThread);
+
+    virtual void threadStatusChanged(Thread *pThread);
+
+    private:
+    static bool isReady(Thread *pThread);
+
+    typedef List<Thread *> ThreadList;
+    ThreadList m_pReadyQueues[MAX_PRIORITIES];
+
+    Spinlock m_Lock;
 };
 
 #endif

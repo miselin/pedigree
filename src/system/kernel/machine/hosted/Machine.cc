@@ -22,29 +22,29 @@
 #include <Log.h>
 #include <panic.h>
 
-#include <machine/Device.h>
 #include <machine/Bus.h>
-#include <machine/Disk.h>
 #include <machine/Controller.h>
+#include <machine/Device.h>
+#include <machine/Disk.h>
 
 HostedMachine HostedMachine::m_Instance;
 
 Machine &Machine::instance()
 {
-  return HostedMachine::instance();
+    return HostedMachine::instance();
 }
 
 void HostedMachine::initialise()
 {
-  HostedIrqManager::instance().initialise();
-  m_Serial[0].setBase(0);
-  m_Serial[1].setBase(1);
-  m_Vga.initialise();
-  HostedTimer::instance().initialise();
-  HostedSchedulerTimer::instance().initialise();
-  m_Keyboard = new HostedKeyboard();
-  m_Keyboard->initialise();
-  m_bInitialised = true;
+    HostedIrqManager::instance().initialise();
+    m_Serial[0].setBase(0);
+    m_Serial[1].setBase(1);
+    m_Vga.initialise();
+    HostedTimer::instance().initialise();
+    HostedSchedulerTimer::instance().initialise();
+    m_Keyboard = new HostedKeyboard();
+    m_Keyboard->initialise();
+    m_bInitialised = true;
 }
 
 void HostedMachine::initialiseDeviceTree()
@@ -53,52 +53,52 @@ void HostedMachine::initialiseDeviceTree()
 
 Serial *HostedMachine::getSerial(size_t n)
 {
-  return &m_Serial[n];
+    return &m_Serial[n];
 }
 
 size_t HostedMachine::getNumSerial()
 {
-  return 2;
+    return 2;
 }
 
 Vga *HostedMachine::getVga(size_t n)
 {
-  return &m_Vga;
+    return &m_Vga;
 }
 
 size_t HostedMachine::getNumVga()
 {
-  return 1;
+    return 1;
 }
 
 IrqManager *HostedMachine::getIrqManager()
 {
-  return &HostedIrqManager::instance();
+    return &HostedIrqManager::instance();
 }
 
 SchedulerTimer *HostedMachine::getSchedulerTimer()
 {
-  return &HostedSchedulerTimer::instance();
+    return &HostedSchedulerTimer::instance();
 }
 
 Timer *HostedMachine::getTimer()
 {
-  return &HostedTimer::instance();
+    return &HostedTimer::instance();
 }
 
 Keyboard *HostedMachine::getKeyboard()
 {
-  return m_Keyboard;
+    return m_Keyboard;
 }
 
 void HostedMachine::setKeyboard(Keyboard *kb)
 {
-  m_Keyboard = kb;
+    m_Keyboard = kb;
 }
 
 void HostedMachine::stopAllOtherProcessors()
 {
-  // no-op
+    // no-op
 }
 
 HostedMachine::HostedMachine()

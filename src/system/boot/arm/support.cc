@@ -17,63 +17,61 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #include "support.h"
 
-#pragma GCC optimize ("no-tree-loop-distribute-patterns")
+#pragma GCC optimize("no-tree-loop-distribute-patterns")
 
-extern "C"
-{
+extern "C" {
 
 int StringCopyN(char *dest, const char *src, int len)
 {
-  int i = 0;
-  while (*src && len)
-  {
-    *dest++ = *src++;
-    len--;
-    i++;
-  }
-  *dest = '\0';
-  return i;
+    int i = 0;
+    while (*src && len)
+    {
+        *dest++ = *src++;
+        len--;
+        i++;
+    }
+    *dest = '\0';
+    return i;
 }
 
 int ByteSet(void *buf, int c, size_t len)
 {
-  size_t count = len;
-  char *tmp = (char *) buf;
-  while(len--)
-  {
-    *tmp++ = (char) c;
-  }
-  return count;
+    size_t count = len;
+    char *tmp = (char *) buf;
+    while (len--)
+    {
+        *tmp++ = (char) c;
+    }
+    return count;
 }
 
 void MemoryCopy(void *dest, const void *src, size_t len)
 {
-  const unsigned char *sp = (const unsigned char *)src;
-  unsigned char *dp = (unsigned char *)dest;
-  for (; len != 0; len--) *dp++ = *sp++;
+    const unsigned char *sp = (const unsigned char *) src;
+    unsigned char *dp = (unsigned char *) dest;
+    for (; len != 0; len--)
+        *dp++ = *sp++;
 }
 
 int StringCompare(const char *p1, const char *p2)
 {
-  int i = 0;
-  int failed = 0;
-  while(p1[i] != '\0' && p2[i] != '\0')
-  {
-    if(p1[i] != p2[i])
+    int i = 0;
+    int failed = 0;
+    while (p1[i] != '\0' && p2[i] != '\0')
     {
-      failed = 1;
-      break;
+        if (p1[i] != p2[i])
+        {
+            failed = 1;
+            break;
+        }
+        i++;
     }
-    i++;
-  }
-  // why did the loop exit?
-  if( (p1[i] == '\0' && p2[i] != '\0') || (p1[i] != '\0' && p2[i] == '\0') )
-    failed = 1;
+    // why did the loop exit?
+    if ((p1[i] == '\0' && p2[i] != '\0') || (p1[i] != '\0' && p2[i] == '\0'))
+        failed = 1;
 
-  return failed;
+    return failed;
 }
-
 }

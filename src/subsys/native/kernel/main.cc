@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
 #include "NativeSyscallManager.h"
+#include <Module.h>
 
 static NativeSyscallManager g_NativeSyscallManager;
 
@@ -33,4 +33,3 @@ static void destroy()
 }
 
 MODULE_INFO("native", &init, &destroy);
-

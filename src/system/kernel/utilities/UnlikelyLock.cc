@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/UnlikelyLock.h>
 #include <LockGuard.h>
+#include <utilities/UnlikelyLock.h>
 
-UnlikelyLock::UnlikelyLock() :
-    m_Lock(false), m_Condition(), m_nReaders(0), m_bActiveWriter(false)
+UnlikelyLock::UnlikelyLock()
+    : m_Lock(false), m_Condition(), m_nReaders(0), m_bActiveWriter(false)
 {
 }
 

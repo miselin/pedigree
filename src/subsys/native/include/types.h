@@ -24,12 +24,11 @@
 
 #define _POSIX_C_SOURCE 200112L
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 /// \todo hardcoded
 #define PAGE_SIZE 4096
 
 #endif
-

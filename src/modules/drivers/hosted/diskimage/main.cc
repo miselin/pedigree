@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
 #include "DiskImage.h"
+#include <Module.h>
 
 bool entry()
 {
     DiskImage *pDiskImage = new DiskImage();
-    if(!pDiskImage->initialise())
+    if (!pDiskImage->initialise())
     {
         delete pDiskImage;
 

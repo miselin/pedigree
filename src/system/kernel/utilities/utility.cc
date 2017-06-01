@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/utility.h>
 #include <processor/PhysicalMemoryManager.h>
+#include <utilities/utility.h>
 
 #include <stdio.h>
 
@@ -67,8 +67,8 @@ const char *BaseName(const char *path)
 uint8_t checksum(const uint8_t *pMemory, size_t sMemory)
 {
     uint8_t sum = 0;
-    for (size_t i = 0;i < sMemory;i++)
-      sum += pMemory[i];
+    for (size_t i = 0; i < sMemory; i++)
+        sum += pMemory[i];
     return (sum == 0);
 }
 
@@ -116,7 +116,9 @@ uint32_t checksum32_naive(const uint8_t *pMemory, size_t sMemory)
 uint32_t checksumPage(uintptr_t address)
 {
     // may be able to be inlined with the knowledge of the constant size
-    return checksum32(reinterpret_cast<const uint8_t *>(address), PhysicalMemoryManager::getPageSize());
+    return checksum32(
+        reinterpret_cast<const uint8_t *>(address),
+        PhysicalMemoryManager::getPageSize());
 }
 
 uint32_t elfHash(const char *buffer, size_t length)
@@ -136,7 +138,7 @@ uint32_t elfHash(const char *buffer, size_t length)
 uint32_t jenkinsHash(const char *buffer, size_t length)
 {
     uint32_t h = 0;
-    for(size_t i = 0; i < length; ++i)
+    for (size_t i = 0; i < length; ++i)
     {
         h += buffer[i];
         h += h << 10;

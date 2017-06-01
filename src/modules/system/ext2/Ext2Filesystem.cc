@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "Ext2Filesystem.h"
 #include "Ext2Directory.h"
 #include "Ext2File.h"
-#include "Ext2Filesystem.h"
 #include "Ext2Symlink.h"
 #include <Log.h>
 #include <machine/Machine.h>
@@ -38,8 +38,8 @@
 #include <Module.h>
 #endif
 
-// The sparse block page. This is zeroed and made read-only. A handler is set and if
-// written, it traps.
+// The sparse block page. This is zeroed and made read-only. A handler is set
+// and if written, it traps.
 /// \todo Set CR0.WP bit else this will never happen.
 /// \todo Work out what to do when it traps.
 static uint8_t g_pSparseBlock[4096] ALIGN(4096) SECTION(".bss");
@@ -54,24 +54,23 @@ static uint32_t getUnixTimestamp()
 }
 #endif
 
-
-Ext2Filesystem::Ext2Filesystem() :
-    m_pSuperblock(0), m_pGroupDescriptors(0), m_pInodeTables(0),
-    m_pInodeBitmaps(0), m_pBlockBitmaps(0), m_BlockSize(0), m_InodeSize(0),
-    m_nGroupDescriptors(0),
+Ext2Filesystem::Ext2Filesystem()
+    : m_pSuperblock(0), m_pGroupDescriptors(0), m_pInodeTables(0),
+      m_pInodeBitmaps(0), m_pBlockBitmaps(0), m_BlockSize(0), m_InodeSize(0),
+      m_nGroupDescriptors(0),
 #ifdef THREADS
-    m_WriteLock(false),
+      m_WriteLock(false),
 #endif
-    m_pRoot(0)
+      m_pRoot(0)
 {
 }
 
 Ext2Filesystem::~Ext2Filesystem()
 {
-    delete [] m_pBlockBitmaps;
-    delete [] m_pInodeBitmaps;
-    delete [] m_pInodeTables;
-    delete [] m_pGroupDescriptors;
+    delete[] m_pBlockBitmaps;
+    delete[] m_pInodeBitmaps;
+    delete[] m_pInodeTables;
+    delete[] m_pGroupDescriptors;
     delete m_pRoot;
 }
 
@@ -89,7 +88,7 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
         return false;
     }
     m_pDisk->pin(1024ULL);
-    m_pSuperblock = reinterpret_cast<Superblock*>(block);
+    m_pSuperblock = reinterpret_cast<Superblock *>(block);
 
     // Read correctly?
     if (LITTLE_TO_HOST16(m_pSuperblock->s_magic) != 0xEF53)
@@ -108,29 +107,45 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
     // Compressed filesystem?
     if (checkRequiredFeature(1))
     {
-        WARNING("Ext2: filesystem on device " << devName << " requires compression, some files may fail to read.");
+        WARNING(
+            "Ext2: filesystem on device "
+            << devName
+            << " requires compression, some files may fail to read.");
 
         // Compression type.
         uint32_t algo_bitmap = LITTLE_TO_HOST32(m_pSuperblock->s_algo_bitmap);
-        switch(algo_bitmap)
+        switch (algo_bitmap)
         {
             case EXT2_LZV1_ALG:
-                NOTICE("Ext2: filesystem on device '" << devName << "' uses compression algorithm LZV1.");
+                NOTICE(
+                    "Ext2: filesystem on device '"
+                    << devName << "' uses compression algorithm LZV1.");
                 break;
             case EXT2_LZRW3A_ALG:
-                NOTICE("Ext2: filesystem on device '" << devName << "' uses compression algorithm LZRW3A.");
+                NOTICE(
+                    "Ext2: filesystem on device '"
+                    << devName << "' uses compression algorithm LZRW3A.");
                 break;
             case EXT2_GZIP_ALG:
-                NOTICE("Ext2: filesystem on device '" << devName << "' uses compression algorithm gzip.");
+                NOTICE(
+                    "Ext2: filesystem on device '"
+                    << devName << "' uses compression algorithm gzip.");
                 break;
             case EXT2_BZIP2_ALG:
-                NOTICE("Ext2: filesystem on device '" << devName << "' uses compression algorithm bzip2.");
+                NOTICE(
+                    "Ext2: filesystem on device '"
+                    << devName << "' uses compression algorithm bzip2.");
                 break;
             case EXT2_LZO_ALG:
-                NOTICE("Ext2: filesystem on device '" << devName << "' uses compression algorithm LZO.");
+                NOTICE(
+                    "Ext2: filesystem on device '"
+                    << devName << "' uses compression algorithm LZO.");
                 break;
             default:
-                ERROR("Ext2: unknown compression algorithm " << algo_bitmap << " on device '" << devName << "' -- cannot mount!");
+                ERROR(
+                    "Ext2: unknown compression algorithm "
+                    << algo_bitmap << " on device '" << devName
+                    << "' -- cannot mount!");
                 return false;
         }
     }
@@ -160,22 +175,25 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
 
     // How many group descriptors do we have? Round up the result.
     uint32_t inodeCount = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_count);
-    uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-    m_nGroupDescriptors = (inodeCount / inodesPerGroup) + (inodeCount % inodesPerGroup);
+    uint32_t inodesPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    m_nGroupDescriptors =
+        (inodeCount / inodesPerGroup) + (inodeCount % inodesPerGroup);
 
     // Add an entry to the group descriptor tree for each GD.
-    m_pGroupDescriptors = new GroupDesc*[m_nGroupDescriptors];
+    m_pGroupDescriptors = new GroupDesc *[m_nGroupDescriptors];
     for (size_t i = 0; i < m_nGroupDescriptors; i++)
     {
         uintptr_t idx = (i * sizeof(GroupDesc)) / m_BlockSize;
         uintptr_t off = (i * sizeof(GroupDesc)) % m_BlockSize;
 
-        uintptr_t groupBlock = readBlock(gdBlock+idx);
-        m_pGroupDescriptors[i] = reinterpret_cast<GroupDesc*>(groupBlock+off);
+        uintptr_t groupBlock = readBlock(gdBlock + idx);
+        m_pGroupDescriptors[i] =
+            reinterpret_cast<GroupDesc *>(groupBlock + off);
     }
 
     // Create our bitmap arrays and tables.
-    m_pInodeTables  = new Vector<size_t>[m_nGroupDescriptors];
+    m_pInodeTables = new Vector<size_t>[m_nGroupDescriptors];
     m_pInodeBitmaps = new Vector<size_t>[m_nGroupDescriptors];
     m_pBlockBitmaps = new Vector<size_t>[m_nGroupDescriptors];
 
@@ -197,7 +215,7 @@ Filesystem *Ext2Filesystem::probe(Disk *pDisk)
         return pFs;
 }
 
-File* Ext2Filesystem::getRoot()
+File *Ext2Filesystem::getRoot()
 {
     if (!m_pRoot)
     {
@@ -215,7 +233,7 @@ String Ext2Filesystem::getVolumeLabel()
         NormalStaticString str;
         str += "no-volume-label@";
         str.append(reinterpret_cast<uintptr_t>(this), 16);
-        return String(static_cast<const char*>(str));
+        return String(static_cast<const char *>(str));
     }
     else
     {
@@ -226,7 +244,9 @@ String Ext2Filesystem::getVolumeLabel()
     }
 }
 
-bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, String value, size_t type, uint32_t inodeOverride)
+bool Ext2Filesystem::createNode(
+    File *parent, String filename, uint32_t mask, String value, size_t type,
+    uint32_t inodeOverride)
 {
     NOTICE("CREATE: " << filename);
 
@@ -238,7 +258,8 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     }
 
     // The filename cannot be the special entries "." or "..".
-    if (filename.length() == 0 || !StringCompare(filename, ".") || !StringCompare(filename, ".."))
+    if (filename.length() == 0 || !StringCompare(filename, ".") ||
+        !StringCompare(filename, ".."))
     {
         SYSCALL_ERROR(InvalidArgument);
         return false;
@@ -260,8 +281,16 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     size_t uid = 0;
     size_t gid = 0;
 #else
-    size_t uid = Processor::information().getCurrentThread()->getParent()->getUser()->getId();
-    size_t gid = Processor::information().getCurrentThread()->getParent()->getGroup()->getId();
+    size_t uid = Processor::information()
+                     .getCurrentThread()
+                     ->getParent()
+                     ->getUser()
+                     ->getId();
+    size_t gid = Processor::information()
+                     .getCurrentThread()
+                     ->getParent()
+                     ->getGroup()
+                     ->getId();
 #endif
 
     uint32_t timestamp = getUnixTimestamp();
@@ -271,22 +300,25 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     Inode *newInode = getInode(inode_num);
     if (!inodeOverride)
     {
-        ByteSet(reinterpret_cast<uint8_t*>(newInode), 0, m_InodeSize);
+        ByteSet(reinterpret_cast<uint8_t *>(newInode), 0, m_InodeSize);
         newInode->i_mode = HOST_TO_LITTLE16(mask | type);
         newInode->i_uid = HOST_TO_LITTLE16(uid);
-        newInode->i_atime = newInode->i_ctime = newInode->i_mtime = HOST_TO_LITTLE32(timestamp);
+        newInode->i_atime = newInode->i_ctime = newInode->i_mtime =
+            HOST_TO_LITTLE32(timestamp);
         newInode->i_gid = HOST_TO_LITTLE16(gid);
     }
 
-    // If we have a value to store, and it's small enough, use the block indices.
-    if (value.length() && value.length() < 4*15)
+    // If we have a value to store, and it's small enough, use the block
+    // indices.
+    if (value.length() && value.length() < 4 * 15)
     {
-        MemoryCopy(reinterpret_cast<void*>(newInode->i_block), value, value.length());
+        MemoryCopy(
+            reinterpret_cast<void *>(newInode->i_block), value, value.length());
         newInode->i_size = HOST_TO_LITTLE32(value.length());
     }
     // Else case comes later, after pFile is created.
 
-    Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
+    Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory *>(parent);
     Ext2Node *pNewNode = 0;
 
     // Create the new File object.
@@ -295,14 +327,16 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     {
         case EXT2_S_IFREG:
         {
-            Ext2File *pNewFile = new Ext2File(filename, inode_num, newInode, this, parent);
+            Ext2File *pNewFile =
+                new Ext2File(filename, inode_num, newInode, this, parent);
             pFile = pNewFile;
             pNewNode = pNewFile;
             break;
         }
         case EXT2_S_IFDIR:
         {
-            Ext2Directory *pE2Dir = new Ext2Directory(filename, inode_num, newInode, this, parent);
+            Ext2Directory *pE2Dir =
+                new Ext2Directory(filename, inode_num, newInode, this, parent);
             pFile = pE2Dir;
             pNewNode = pE2Dir;
 
@@ -313,8 +347,11 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
                 Inode *parentInode = getInode(pE2Parent->getInodeNumber());
 
                 // Create dot and dotdot entries.
-                Ext2Directory *pDot = new Ext2Directory(String("."), inode_num, newInode, this, pE2Dir);
-                Ext2Directory *pDotDot = new Ext2Directory(String(".."), pE2Parent->getInodeNumber(), parentInode, this, pE2Dir);
+                Ext2Directory *pDot = new Ext2Directory(
+                    String("."), inode_num, newInode, this, pE2Dir);
+                Ext2Directory *pDotDot = new Ext2Directory(
+                    String(".."), pE2Parent->getInodeNumber(), parentInode,
+                    this, pE2Dir);
 
                 // Add created dot/dotdot entries to the new directory.
                 pE2Dir->addEntry(String("."), pDot, EXT2_S_IFDIR);
@@ -324,7 +361,8 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
         }
         case EXT2_S_IFLNK:
         {
-            Ext2Symlink *pNewSymlink = new Ext2Symlink(filename, inode_num, newInode, this, parent);
+            Ext2Symlink *pNewSymlink =
+                new Ext2Symlink(filename, inode_num, newInode, this, parent);
             pFile = pNewSymlink;
             pNewNode = pNewSymlink;
             break;
@@ -335,7 +373,7 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     }
 
     // Else case from earlier.
-    if (value.length() && value.length() >= 4*15)
+    if (value.length() && value.length() >= 4 * 15)
     {
         const char *pStr = value;
         pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(pStr));
@@ -360,27 +398,32 @@ bool Ext2Filesystem::createNode(File* parent, String filename, uint32_t mask, St
     // Update directory count in the group descriptor.
     if (type == EXT2_S_IFDIR)
     {
-        uint32_t group = (inode_num - 1) / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+        uint32_t group = (inode_num - 1) /
+                         LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
         GroupDesc *pDesc = m_pGroupDescriptors[group];
 
         pDesc->bg_used_dirs_count++;
 
         // Update group descriptor on disk.
         /// \todo save group descriptor block number elsewhere
-        uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+        uint32_t gdBlock =
+            LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
         uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
         writeBlock(gdBlock + groupBlock);
     }
 
     // OK, now we can preallocate blocks if desired.
     // Note: don't preallocate symlinks, which can store data in i_blocks.
-    if (m_pSuperblock->s_prealloc_blocks && !(pFile->isDirectory() || pFile->isSymlink()))
+    if (m_pSuperblock->s_prealloc_blocks &&
+        !(pFile->isDirectory() || pFile->isSymlink()))
     {
-        pNewNode->ensureLargeEnough(m_pSuperblock->s_prealloc_blocks * m_BlockSize, true);
+        pNewNode->ensureLargeEnough(
+            m_pSuperblock->s_prealloc_blocks * m_BlockSize, true);
     }
     else if (m_pSuperblock->s_prealloc_dir_blocks && pFile->isDirectory())
     {
-        pNewNode->ensureLargeEnough(m_pSuperblock->s_prealloc_dir_blocks * m_BlockSize, true);
+        pNewNode->ensureLargeEnough(
+            m_pSuperblock->s_prealloc_dir_blocks * m_BlockSize, true);
     }
 
     return true;
@@ -391,21 +434,22 @@ bool Ext2Filesystem::createFile(File *parent, String filename, uint32_t mask)
     return createNode(parent, filename, mask, String(""), EXT2_S_IFREG);
 }
 
-bool Ext2Filesystem::createDirectory(File* parent, String filename, uint32_t mask)
+bool Ext2Filesystem::createDirectory(
+    File *parent, String filename, uint32_t mask)
 {
     if (!createNode(parent, filename, mask, String(""), EXT2_S_IFDIR))
         return false;
     return true;
 }
 
-bool Ext2Filesystem::createSymlink(File* parent, String filename, String value)
+bool Ext2Filesystem::createSymlink(File *parent, String filename, String value)
 {
     return createNode(parent, filename, 0777, value, EXT2_S_IFLNK);
 }
 
-bool Ext2Filesystem::createLink(File* parent, String filename, File *target)
+bool Ext2Filesystem::createLink(File *parent, String filename, File *target)
 {
-    Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
+    Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory *>(parent);
 
     Ext2Node *pNode = 0;
     if (target->isDirectory())
@@ -434,10 +478,11 @@ bool Ext2Filesystem::createLink(File* parent, String filename, File *target)
     uint32_t mask = LITTLE_TO_HOST16(inode->i_mode) & 0x0FFF;
     size_t type = LITTLE_TO_HOST16(inode->i_mode) & 0xF000;
 
-    return createNode(parent, filename, mask, String(""), type, pNode->getInodeNumber());
+    return createNode(
+        parent, filename, mask, String(""), type, pNode->getInodeNumber());
 }
 
-bool Ext2Filesystem::remove(File* parent, File* file)
+bool Ext2Filesystem::remove(File *parent, File *file)
 {
     // Quick sanity check.
     if (!parent->isDirectory())
@@ -469,7 +514,7 @@ bool Ext2Filesystem::remove(File* parent, File* file)
 
     NOTICE("REMOVE: " << filename);
 
-    Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
+    Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory *>(parent);
     bool result = pE2Parent->removeEntry(filename, pNode);
 
     // Update the group descriptor directory count to reflect the deletion.
@@ -477,14 +522,16 @@ bool Ext2Filesystem::remove(File* parent, File* file)
     {
         uint32_t inode_num = pNode->getInodeNumber();
 
-        uint32_t group = (inode_num - 1) / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+        uint32_t group = (inode_num - 1) /
+                         LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
         GroupDesc *pDesc = m_pGroupDescriptors[group];
 
         pDesc->bg_used_dirs_count--;
 
         // Update group descriptor on disk.
         /// \todo save group descriptor block number elsewhere
-        uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+        uint32_t gdBlock =
+            LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
         uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
         writeBlock(gdBlock + groupBlock);
     }
@@ -497,7 +544,8 @@ uintptr_t Ext2Filesystem::readBlock(uint32_t block)
     if (block == 0)
         return reinterpret_cast<uintptr_t>(g_pSparseBlock);
 
-    return m_pDisk->read(static_cast<uint64_t>(m_BlockSize)*static_cast<uint64_t>(block));
+    return m_pDisk->read(
+        static_cast<uint64_t>(m_BlockSize) * static_cast<uint64_t>(block));
 }
 
 void Ext2Filesystem::writeBlock(uint32_t block)
@@ -505,7 +553,8 @@ void Ext2Filesystem::writeBlock(uint32_t block)
     if (block == 0)
         return;
 
-    m_pDisk->write(static_cast<uint64_t>(m_BlockSize) * static_cast<uint64_t>(block));
+    m_pDisk->write(
+        static_cast<uint64_t>(m_BlockSize) * static_cast<uint64_t>(block));
 }
 
 void Ext2Filesystem::pinBlock(uint64_t location)
@@ -537,14 +586,16 @@ uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode)
     return 0;
 }
 
-bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t> &blocks)
+bool Ext2Filesystem::findFreeBlocks(
+    uint32_t inode, size_t count, Vector<uint32_t> &blocks)
 {
     // Inode zero is invalid, so make sure we are getting local blocks.
     --inode;
 
     // Try to allocate near the inode's group (but we can fall back to a
     // different group if needed).
-    uint32_t group = inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t group =
+        inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     uint32_t startGroup = group;
 
     for (; count && group < m_nGroupDescriptors; ++group)
@@ -566,14 +617,16 @@ bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_
     return count == 0;
 }
 
-size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Vector<uint32_t> &blocks)
+size_t Ext2Filesystem::findFreeBlocksInGroup(
+    uint32_t group, size_t maxCount, Vector<uint32_t> &blocks)
 {
     if (!maxCount)
     {
         return 0;
     }
 
-    const uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+    const uint32_t blocksPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
     const size_t bitmapBlockBytes = m_BlockSize;
     size_t currentCount = 0;
 
@@ -611,7 +664,8 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Ve
         if (tmp != static_cast<searchType>(-1))
         {
             // Check each bit in this field.
-            for (size_t j = 0; j < (sizeof(searchType) * 8); j++, tmp >>= static_cast<searchType>(1))
+            for (size_t j = 0; j < (sizeof(searchType) * 8);
+                 j++, tmp >>= static_cast<searchType>(1))
             {
                 // Free?
                 if ((tmp & 1) == 0)
@@ -627,11 +681,16 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Ve
                     m_pSuperblock->s_free_blocks_count--;
 
                     // First block of this group...
-                    uint32_t result = group * LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+                    uint32_t result =
+                        group *
+                        LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
                     // Add the data block offset for this filesystem.
-                    result += LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
+                    result +=
+                        LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
                     // Blocks skipped so far (i == offset in bytes)...
-                    result += ((idx * bitmapBlockBytes) + (reinterpret_cast<uintptr_t>(ptr) - base)) << 3;
+                    result += ((idx * bitmapBlockBytes) +
+                               (reinterpret_cast<uintptr_t>(ptr) - base))
+                              << 3;
                     // Blocks skipped so far (j == bits ie blocks)...
                     result += j;
                     // Return block.
@@ -639,7 +698,8 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Ve
 
                     // Check if we're done - we have nothing left to do if
                     // there's no more blocks free in this bitmap.
-                    if ((++currentCount >= maxCount) || (!pDesc->bg_free_blocks_count))
+                    if ((++currentCount >= maxCount) ||
+                        (!pDesc->bg_free_blocks_count))
                     {
                         break;
                     }
@@ -653,7 +713,9 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Ve
         if (changedBitmap)
         {
             // Update bitmap on disk.
-            uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + idx;
+            uint32_t desc_block =
+                LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) +
+                idx;
             writeBlock(desc_block);
 
             changedBitmap = false;
@@ -684,7 +746,8 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount, Ve
 
         // Update group descriptor on disk.
         /// \todo save group descriptor block number elsewhere
-        uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+        uint32_t gdBlock =
+            LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
         uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
         writeBlock(gdBlock + groupBlock);
     }
@@ -721,7 +784,7 @@ uint32_t Ext2Filesystem::findFreeInode()
             /// \todo Endianness - to ensure correct operation, must ptr be
             /// little endian?
             uintptr_t block = list[idx];
-            uint32_t *ptr = reinterpret_cast<uint32_t*> (block + off);
+            uint32_t *ptr = reinterpret_cast<uint32_t *>(block + off);
             uint32_t tmp = *ptr;
 
             // If all bits set, avoid searching the bitmap.
@@ -743,17 +806,23 @@ uint32_t Ext2Filesystem::findFreeInode()
                     m_pDisk->write(1024ULL);
 
                     // Update bitmap on disk.
-                    uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + idx;
+                    uint32_t desc_block =
+                        LITTLE_TO_HOST32(
+                            m_pGroupDescriptors[group]->bg_inode_bitmap) +
+                        idx;
                     writeBlock(desc_block);
 
                     // Update group descriptor count on disk.
                     /// \todo save group descriptor block number elsewhere
-                    uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+                    uint32_t gdBlock =
+                        LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
                     uint32_t result = (group * sizeof(GroupDesc)) / m_BlockSize;
                     writeBlock(gdBlock + result);
 
                     // First inode of this group...
-                    uint32_t inode = group * LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+                    uint32_t inode =
+                        group *
+                        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
                     // Inodes skipped so far (i == offset in bytes)...
                     inode += i * 8;
                     // Inodes skipped so far (j == bits ie inodes)...
@@ -764,8 +833,8 @@ uint32_t Ext2Filesystem::findFreeInode()
                 }
             }
 
-            // Shouldn't get here - if there were no available blocks here it should
-            // have hit the "continue" above!
+            // Shouldn't get here - if there were no available blocks here it
+            // should have hit the "continue" above!
             assert(false);
         }
     }
@@ -781,7 +850,8 @@ void Ext2Filesystem::releaseBlock(uint32_t block)
     // for those that do, not doing this messes up the bit offsets below.
     block -= LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
 
-    uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+    uint32_t blocksPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
     uint32_t group = block / blocksPerGroup;
     uint32_t index = block % blocksPerGroup;
 
@@ -803,7 +873,7 @@ void Ext2Filesystem::releaseBlock(uint32_t block)
 
     Vector<size_t> &list = m_pBlockBitmaps[group];
     uintptr_t diskBlock = list[bitmapField];
-    uint8_t *ptr = reinterpret_cast<uint8_t*> (diskBlock + bitmapOffset);
+    uint8_t *ptr = reinterpret_cast<uint8_t *>(diskBlock + bitmapOffset);
     uint8_t bit = (index % 8);
     if ((*ptr & (1 << bit)) == 0)
         ERROR("bit already freed for block " << Dec << block << Hex);
@@ -817,7 +887,9 @@ void Ext2Filesystem::releaseBlock(uint32_t block)
     m_pDisk->write(1024ULL);
 
     // Update bitmap on disk.
-    uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + bitmapField;
+    uint32_t desc_block =
+        LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) +
+        bitmapField;
     writeBlock(desc_block);
 
     // Update group descriptor on disk.
@@ -830,9 +902,10 @@ void Ext2Filesystem::releaseBlock(uint32_t block)
 bool Ext2Filesystem::releaseInode(uint32_t inode)
 {
     Inode *pInode = getInode(inode);
-    --inode; // Inode zero is undefined, so it's not used.
+    --inode;  // Inode zero is undefined, so it's not used.
 
-    uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t inodesPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     uint32_t group = inode / inodesPerGroup;
     uint32_t index = inode % inodesPerGroup;
 
@@ -857,19 +930,22 @@ bool Ext2Filesystem::releaseInode(uint32_t inode)
 
         Vector<size_t> &list = m_pInodeBitmaps[group];
         uintptr_t block = list[bitmapField];
-        uint8_t *ptr = reinterpret_cast<uint8_t*> (block + bitmapOffset);
+        uint8_t *ptr = reinterpret_cast<uint8_t *>(block + bitmapOffset);
         *ptr &= ~(1 << (index % 8));
 
         // Update superblock.
         m_pDisk->write(1024ULL);
 
         // Update on disk.
-        uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + bitmapField;
+        uint32_t desc_block =
+            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) +
+            bitmapField;
         writeBlock(desc_block);
 
         // Update group descriptor on disk.
         /// \todo save group descriptor block number elsewhere
-        uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+        uint32_t gdBlock =
+            LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
         uint32_t groupBlock = (group * sizeof(GroupDesc)) / m_BlockSize;
         writeBlock(gdBlock + groupBlock);
     }
@@ -880,9 +956,10 @@ bool Ext2Filesystem::releaseInode(uint32_t inode)
 
 Inode *Ext2Filesystem::getInode(uint32_t inode)
 {
-    inode--; // Inode zero is undefined, so it's not used.
+    inode--;  // Inode zero is undefined, so it's not used.
 
-    uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t inodesPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     uint32_t group = inode / inodesPerGroup;
     uint32_t index = inode % inodesPerGroup;
 
@@ -894,26 +971,30 @@ Inode *Ext2Filesystem::getInode(uint32_t inode)
 
     uintptr_t block = list[blockNum];
 
-    Inode *pInode = reinterpret_cast<Inode*> (block+blockOff);
+    Inode *pInode = reinterpret_cast<Inode *>(block + blockOff);
     if (pInode->i_flags & EXT2_COMPRBLK_FL)
     {
-        WARNING("Ext2: inode " << inode << " has compressed blocks - not yet supported!");
+        WARNING(
+            "Ext2: inode " << inode
+                           << " has compressed blocks - not yet supported!");
     }
     return pInode;
 }
 
 void Ext2Filesystem::writeInode(uint32_t inode)
 {
-    inode--; // Inode zero is undefined, so it's not used.
+    inode--;  // Inode zero is undefined, so it's not used.
 
-    uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t inodesPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     uint32_t group = inode / inodesPerGroup;
     uint32_t index = inode % inodesPerGroup;
 
     ensureInodeTableLoaded(group);
 
     size_t blockNum = (index * m_InodeSize) / m_BlockSize;
-    uint64_t diskBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + blockNum;
+    uint64_t diskBlock =
+        LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + blockNum;
     writeBlock(diskBlock);
 }
 
@@ -938,7 +1019,6 @@ bool Ext2Filesystem::checkReadOnlyFeature(size_t feature)
     return m_pSuperblock->s_feature_ro_compat & feature;
 }
 
-
 void Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
 {
     assert(group < m_nGroupDescriptors);
@@ -950,14 +1030,16 @@ void Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
 
     // Determine how many blocks to load to bring in the full block bitmap.
     // The bitmap works so that 8 blocks fit into one byte.
-    uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+    uint32_t blocksPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
     size_t nBlocks = blocksPerGroup / (m_BlockSize * 8);
     if (blocksPerGroup % (m_BlockSize * 8))
-        nBlocks ++;
+        nBlocks++;
 
     for (size_t i = 0; i < nBlocks; i++)
     {
-        uint32_t blockNumber = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + i;
+        uint32_t blockNumber =
+            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + i;
         list.pushBack(readBlock(blockNumber));
     }
 }
@@ -973,14 +1055,16 @@ void Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group)
 
     // Determine how many blocks to load to bring in the full inode bitmap.
     // The bitmap works so that 8 inodes fit into one byte.
-    uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t inodesPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     size_t nBlocks = inodesPerGroup / (m_BlockSize * 8);
     if (inodesPerGroup % (m_BlockSize * 8))
-        nBlocks ++;
+        nBlocks++;
 
     for (size_t i = 0; i < nBlocks; i++)
     {
-        uint32_t blockNumber = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + i;
+        uint32_t blockNumber =
+            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + i;
         list.pushBack(readBlock(blockNumber));
     }
 }
@@ -995,15 +1079,17 @@ void Ext2Filesystem::ensureInodeTableLoaded(size_t group)
         return;
 
     // Determine how many blocks to load to bring in the full inode table.
-    uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    uint32_t inodesPerGroup =
+        LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     size_t nBlocks = (inodesPerGroup * m_InodeSize) / m_BlockSize;
     if ((inodesPerGroup * m_InodeSize) / m_BlockSize)
-        nBlocks ++;
+        nBlocks++;
 
     // Load each block in the inode table.
     for (size_t i = 0; i < nBlocks; i++)
     {
-        uint32_t blockNumber = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + i;
+        uint32_t blockNumber =
+            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + i;
         uintptr_t buffer = readBlock(blockNumber);
         // Avoid callbacks allowing the  wipeout of our inode.
         pinBlock(blockNumber);

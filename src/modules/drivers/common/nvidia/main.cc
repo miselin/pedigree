@@ -19,13 +19,13 @@
 
 #include <Log.h>
 #include <Module.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
-#include <utilities/StaticString.h>
-#include <utilities/List.h>
-#include <machine/Machine.h>
 #include <machine/Display.h>
+#include <machine/Machine.h>
 #include <processor/MemoryMappedIo.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
+#include <utilities/List.h>
+#include <utilities/StaticString.h>
 
 #include "Dma.h"
 
@@ -49,28 +49,36 @@ void probeDevice(Device *pDev)
     /// \todo Fix this driver.
     return;
     uint32_t strapinfo = pRegs->read32(NV32_NV10STRAPINFO);
-    NOTICE("Strapinfo: " << Hex << strapinfo << ", ram: " << ((strapinfo&0x3ff00000) >> 20));
+    NOTICE(
+        "Strapinfo: " << Hex << strapinfo
+                      << ", ram: " << ((strapinfo & 0x3ff00000) >> 20));
     // Processor::breakpoint();
-    // Pink background to make sure we see any effects - engine may accidentally blit black pixels for example, and we won't pick that
-    // up on a black background.
+    // Pink background to make sure we see any effects - engine may accidentally
+    // blit black pixels for example, and we won't pick that up on a black
+    // background.
     for (int x = 0; x < 512; x++)
         for (int y = 0; y < 512; y++)
             pFb->write16(0xF00F, (y * 1024 + x) * 2);
 
     // Draw an image.
     for (int x = 0; x < 128; x++)
-        for (int y = 256; y < 128+256; y++)
+        for (int y = 256; y < 128 + 256; y++)
             pFb->write16(0xFFFF, (y * 1024 + x) * 2);
 
-    // Card detection is done but not coded yet - hardcoded to the device class in my testbed.
-    Dma *pDma = new Dma(pRegs, pFb, NV40A, NV40/*NV30A, NV34*/, 0x300000 /* Card RAM - hardcoded for now */);
+    // Card detection is done but not coded yet - hardcoded to the device class
+    // in my testbed.
+    Dma *pDma = new Dma(
+        pRegs, pFb, NV40A, NV40 /*NV30A, NV34*/,
+        0x300000 /* Card RAM - hardcoded for now */);
     pDma->init();
-    for(;;);
+    for (;;)
+        ;
     pDma->screenToScreenBlit(0, 256, 400, 100, 100, 100);
 
     pDma->fillRectangle(600, 600, 100, 100);
 
-    for(;;);
+    for (;;)
+        ;
 
     bFound = true;
 }

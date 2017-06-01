@@ -20,9 +20,9 @@
 #ifndef REQUEST_QUEUE_H
 #define REQUEST_QUEUE_H
 
-#include <processor/types.h>
 #include <process/ConditionVariable.h>
 #include <process/Mutex.h>
+#include <processor/types.h>
 
 class Thread;
 
@@ -35,7 +35,8 @@ class Thread;
 class RequestQueue
 {
     friend class Thread;
-public:
+
+    public:
     /** Creates a new RequestQueue. */
     RequestQueue();
     virtual ~RequestQueue();
@@ -57,18 +58,26 @@ public:
     /** Destroys the queue, killing the worker thread (safely) */
     virtual void destroy();
 
-    /** Adds a request to the queue. Blocks until it finishes and returns the result.
-        \param priority The priority to attach to this request. Lower number is higher priority. */
-    MUST_USE_RESULT uint64_t addRequest(size_t priority, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
-                                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
+    /** Adds a request to the queue. Blocks until it finishes and returns the
+       result. \param priority The priority to attach to this request. Lower
+       number is higher priority. */
+    MUST_USE_RESULT uint64_t addRequest(
+        size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
+        uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
+        uint64_t p8 = 0);
 
-    /** Adds a request to the queue with optional behavior on duplicate detection. */
-    MUST_USE_RESULT uint64_t addRequest(size_t priority, ActionOnDuplicate action, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
-                                        uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
+    /** Adds a request to the queue with optional behavior on duplicate
+     * detection. */
+    MUST_USE_RESULT uint64_t addRequest(
+        size_t priority, ActionOnDuplicate action, uint64_t p1 = 0,
+        uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
+        uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
     /** Adds an asynchronous request to the queue. Will not block. */
-    uint64_t addAsyncRequest(size_t priority, uint64_t p1=0, uint64_t p2=0, uint64_t p3=0, uint64_t p4=0, uint64_t p5=0,
-                             uint64_t p6=0, uint64_t p7=0, uint64_t p8=0);
+    uint64_t addAsyncRequest(
+        size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
+        uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
+        uint64_t p8 = 0);
 
     /**
      * Halt RequestQueue operations, but do not terminate the worker thread.
@@ -80,27 +89,34 @@ public:
      */
     void resume();
 
-protected:
-    /** Callback - classes are expected to inherit and override this function. It's called when a
-        request needs to be executed (by the worker thread). */
-    virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                    uint64_t p6, uint64_t p7, uint64_t p8) = 0;
+    protected:
+    /** Callback - classes are expected to inherit and override this function.
+       It's called when a request needs to be executed (by the worker thread).
+     */
+    virtual uint64_t executeRequest(
+        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+        uint64_t p6, uint64_t p7, uint64_t p8) = 0;
 
-    RequestQueue(const RequestQueue&);
-    void operator =(const RequestQueue&);
+    RequestQueue(const RequestQueue &);
+    void operator=(const RequestQueue &);
 
     /** Request structure */
     class Request
     {
-    public:
-        Request() : p1(0),p2(0),p3(0),p4(0),p5(0),p6(0),p7(0),p8(0),ret(0),
+        public:
+        Request()
+            : p1(0), p2(0), p3(0), p4(0), p5(0), p6(0), p7(0), p8(0), ret(0),
 #ifdef THREADS
-                    mutex(true),pThread(0),
+              mutex(true), pThread(0),
 #endif
-                    bReject(false),bCompleted(false),next(0),refcnt(0),
-                    owner(0),priority(0) {}
-        ~Request() {}
-        uint64_t p1,p2,p3,p4,p5,p6,p7,p8;
+              bReject(false), bCompleted(false), next(0), refcnt(0), owner(0),
+              priority(0)
+        {
+        }
+        ~Request()
+        {
+        }
+        uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
         uint64_t ret;
 #ifdef THREADS
         Mutex mutex;
@@ -112,9 +128,10 @@ protected:
         size_t refcnt;
         RequestQueue *owner;
         size_t priority;
-    private:
-        Request(const Request&);
-        void operator =(const Request&);
+
+        private:
+        Request(const Request &);
+        void operator=(const Request &);
     };
 
     /**
@@ -127,7 +144,8 @@ protected:
     }
 
     /**
-     * Check whether the given request is still valid in terms of this RequestQueue.
+     * Check whether the given request is still valid in terms of this
+     * RequestQueue.
      */
     bool isRequestValid(const Request *r);
 
@@ -158,7 +176,7 @@ protected:
 
     /** Condition variable for verifying if we can do an async request. */
     ConditionVariable m_AsyncRequestQueueCondition;
-    
+
     Thread *m_pThread;
 
     bool m_Halted;

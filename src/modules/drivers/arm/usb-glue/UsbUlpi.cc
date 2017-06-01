@@ -18,16 +18,16 @@
  */
 
 #include "UsbUlpi.h"
+#include <Log.h>
+#include <process/Semaphore.h>
 #include <processor/PhysicalMemoryManager.h>
 #include <processor/VirtualAddressSpace.h>
-#include <process/Semaphore.h>
-#include <Log.h>
 #include <time/Time.h>
 
 /// \todo super specific to a machine
-#include <Prcm.h>
-#include <I2C.h>
 #include <Gpio.h>
+#include <I2C.h>
+#include <Prcm.h>
 
 UsbUlpi UsbUlpi::m_Instance;
 
@@ -59,13 +59,13 @@ bool usbClearBits(uint8_t reg, uint8_t bits)
 void enablePhyAccess(bool which)
 {
     uint8_t clock = usbReadTwl4030(0xFE);
-    if(clock)
+    if (clock)
     {
-        if(which)
+        if (which)
         {
-            clock |= 1; // Request DPLL clock
+            clock |= 1;  // Request DPLL clock
             usbWriteTwl4030(0xFE, clock);
-            while(!(usbReadTwl4030(0xFF) & 1))
+            while (!(usbReadTwl4030(0xFF) & 1))
                 Time::delay(10 * Time::Multiplier::MILLISECOND);
         }
         else
@@ -79,32 +79,29 @@ void enablePhyAccess(bool which)
 void UsbUlpi::initialise()
 {
     // Allocate the pages we need
-    if(!PhysicalMemoryManager::instance().allocateRegion(
-                            m_MemRegionUHH,
-                            1,
-                            PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                            0x48064000))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_MemRegionUHH, 1,
+            PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+            0x48064000))
     {
         ERROR("USB UHH_CONFIG: Couldn't get a memory region!");
         return;
     }
-    if(!PhysicalMemoryManager::instance().allocateRegion(
-                            m_MemRegionTLL,
-                            1,
-                            PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                            0x48062000))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_MemRegionTLL, 1,
+            PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+            0x48062000))
     {
         ERROR("USB TLL: Couldn't get a memory region!");
         return;
     }
-    if(!PhysicalMemoryManager::instance().allocateRegion(
-                            m_MemRegionPCtl,
-                            2,
-                            PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
-                            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-                            0x48005000))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_MemRegionPCtl, 2,
+            PhysicalMemoryManager::continuous | PhysicalMemoryManager::force,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+            0x48005000))
     {
         ERROR("USB Power Control: Couldn't get a memory region!");
         return;
@@ -120,7 +117,7 @@ void UsbUlpi::initialise()
 
     // Enable the power configuration registers, so we can enable the voltage
     // regulators for USB.
-    I2C::instance(0).write(0x4b, 0x44, 0xC0); // PROTECT_KEY
+    I2C::instance(0).write(0x4b, 0x44, 0xC0);  // PROTECT_KEY
     I2C::instance(0).write(0x4b, 0x44, 0x0C);
 
     // VUSB3V1 = active
@@ -128,7 +125,7 @@ void UsbUlpi::initialise()
 
     // VUSB3V1 input = VBAT
     I2C::instance(0).write(0x4b, VUSB_DEDICATED1, 0x14);
-    
+
     // Turn on the 3.1 volt regulator
     I2C::instance(0).write(0x4b, VUSB3V1_DEV_GRP, 0x20);
     I2C::instance(0).write(0x4b, VUSB3V1_TYPE, 0);
@@ -152,33 +149,38 @@ void UsbUlpi::initialise()
 
     // Setup ULPI
     enablePhyAccess(true);
-    usbClearBits(InterfaceControl, 1 << 2); // Disable carkit mode
+    usbClearBits(InterfaceControl, 1 << 2);  // Disable carkit mode
 
     // Set the controller as active
     /// \todo OtgControl is invalid on Linaro's beaglexm qemu emulation.
     // usbClearBits(OtgControl, 2); // Disable the D+ pull-down resistor
-    usbSetBits(0xAC, 1 << 5); // Enable OTG - 0xAC = POWER_CTRL
-    usbSetBits(FunctionControl, 4); // FS termination enabled
-    usbClearBits(FunctionControl, 0x1B); // Enable the HS transceiver
+    usbSetBits(0xAC, 1 << 5);             // Enable OTG - 0xAC = POWER_CTRL
+    usbSetBits(FunctionControl, 4);       // FS termination enabled
+    usbClearBits(FunctionControl, 0x1B);  // Enable the HS transceiver
     enablePhyAccess(false);
 
     // Configure the DPLL5 clock
     Prcm::instance().SelectClockPLL(4, (12 << 0) | (120 << 8));
     Prcm::instance().SelectClockPLL(5, 1);
     Prcm::instance().SetClockPLL(2, (7 << 4) | 7);
-    Prcm::instance().WaitPllIdleStatus(2, 0, true); // Waiting for the bit to go to one
+    Prcm::instance().WaitPllIdleStatus(
+        2, 0, true);  // Waiting for the bit to go to one
 
     // Configure the L3 and L4 clocks
     Prcm::instance().SelectClockCORE(0, Prcm::L3_CLK_DIV2);
     Prcm::instance().SelectClockCORE(2, Prcm::L3_CLK_DIV2);
 
-    volatile uint32_t *pctl_base = reinterpret_cast<volatile uint32_t*>(m_MemRegionPCtl.virtualAddress());
-    pctl_base[(0x400) / 4] = 3; // Both functional clocks enabled
-    pctl_base[(0x400 + 0x10) / 4] = 1; // Interface clock enabled
-    pctl_base[(0x400 + 0x30) / 4] = 0; // Disable automatic control of the interface clock enabled
+    volatile uint32_t *pctl_base =
+        reinterpret_cast<volatile uint32_t *>(m_MemRegionPCtl.virtualAddress());
+    pctl_base[(0x400) / 4] = 3;         // Both functional clocks enabled
+    pctl_base[(0x400 + 0x10) / 4] = 1;  // Interface clock enabled
+    pctl_base[(0x400 + 0x30) / 4] =
+        0;  // Disable automatic control of the interface clock enabled
 
-    volatile uint32_t *tll_base = reinterpret_cast<volatile uint32_t*>(m_MemRegionTLL.virtualAddress());
-    volatile uint8_t *ulpi_base = reinterpret_cast<volatile uint8_t*>(reinterpret_cast<uintptr_t>(m_MemRegionTLL.virtualAddress()) + 0x800);
+    volatile uint32_t *tll_base =
+        reinterpret_cast<volatile uint32_t *>(m_MemRegionTLL.virtualAddress());
+    volatile uint8_t *ulpi_base = reinterpret_cast<volatile uint8_t *>(
+        reinterpret_cast<uintptr_t>(m_MemRegionTLL.virtualAddress()) + 0x800);
 
     // Perform a PHY reset
     Gpio::instance().enableoutput(147);
@@ -195,29 +197,35 @@ void UsbUlpi::initialise()
 
     // Reset TLL
     uint32_t rev = tll_base[0];
-    NOTICE("USB TLL: Revision " << Dec << ((rev >> 4) & 0xF) << "." << (rev & 0xF) << Hex << ".");
+    NOTICE(
+        "USB TLL: Revision " << Dec << ((rev >> 4) & 0xF) << "." << (rev & 0xF)
+                             << Hex << ".");
     tll_base[0x10 / 4] = 2;
-    while(!(tll_base[0x14 / 4]))
+    while (!(tll_base[0x14 / 4]))
         Time::delay(5 * Time::Multiplier::MILLISECOND);
 
     // Disable all IDLE modes
     tll_base[0x10 / 4] = (1 << 2) | (1 << 3) | (1 << 8);
 
-    volatile uint32_t *uhh_base = reinterpret_cast<volatile uint32_t*>(m_MemRegionUHH.virtualAddress());
+    volatile uint32_t *uhh_base =
+        reinterpret_cast<volatile uint32_t *>(m_MemRegionUHH.virtualAddress());
     uint32_t uhh_version = uhh_base[0];
-    NOTICE("USB UHH: Revision " << Dec << ((uhh_version >> 4) & 0xF) << "." << (uhh_version & 0xF) << Hex << ".");
+    NOTICE(
+        "USB UHH: Revision " << Dec << ((uhh_version >> 4) & 0xF) << "."
+                             << (uhh_version & 0xF) << Hex << ".");
 
     // Reset the entire USB module
     uhh_base[0x10 / 4] = 2;
-    while(!(uhh_base[0x14 / 4]))
+    while (!(uhh_base[0x14 / 4]))
         Time::delay(5 * Time::Multiplier::MILLISECOND);
 
     // Set up idle mode
-    uint32_t cfg = (1 << 2) | (1 << 3) | (1 << 8) | (1 << 12); // No idle
+    uint32_t cfg = (1 << 2) | (1 << 3) | (1 << 8) | (1 << 12);  // No idle
     uhh_base[0x10 / 4] = cfg;
 
     // Configure ULPI bypass configuration
-    cfg = (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 8) | (1 << 9) | (1 << 10); // Connect all three ports, ULPI not UTMI
+    cfg = (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 8) | (1 << 9) |
+          (1 << 10);  // Connect all three ports, ULPI not UTMI
     uhh_base[0x40 / 4] = cfg;
 
     // Restore the PHY

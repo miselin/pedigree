@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <signal.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/klog.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sched.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/klog.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 const char *g_FilesToPreload[] = {
     "/applications/bash",
@@ -50,46 +50,45 @@ const char *g_FilesToPreload[] = {
     "/libraries/libgmp.so",
     "/libraries/libmpfr.so",
     "/libraries/libmpc.so",
-    0
-};
+    0};
 
-#define BLOCK_READ_SIZE     0x100000
+#define BLOCK_READ_SIZE 0x100000
 
 int main(int argc, char **argv)
 {
-  pid_t f = fork();
-  if (f != 0)
-  {
-    klog(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
+    pid_t f = fork();
+    if (f != 0)
+    {
+        klog(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
+        return 0;
+    }
+
+    klog(LOG_INFO, "preloadd: daemon starting...");
+
+    size_t n = 0;
+    const char *s = g_FilesToPreload[n++];
+    char *buf = (char *) malloc(BLOCK_READ_SIZE);
+    do
+    {
+        struct stat st;
+        int e = stat(s, &st);
+        if (e == 0)
+        {
+            klog(LOG_INFO, "preloadd: preloading %s...", s);
+            FILE *fp = fopen(s, "rb");
+            for (off_t off = 0; off < st.st_size; off += BLOCK_READ_SIZE)
+                fread(buf, BLOCK_READ_SIZE, 1, fp);
+            fclose(fp);
+            klog(LOG_INFO, "preloadd: preloading %s complete!", s);
+        }
+        else
+        {
+            klog(LOG_INFO, "preloadd: %s probably does not exist", s);
+        }
+        s = g_FilesToPreload[n++];
+    } while (s);
+
+    free(buf);
+
     return 0;
-  }
-
-  klog(LOG_INFO, "preloadd: daemon starting...");
-
-  size_t n = 0;
-  const char *s = g_FilesToPreload[n++];
-  char *buf = (char *) malloc(BLOCK_READ_SIZE);
-  do
-  {
-    struct stat st;
-    int e = stat(s, &st);
-    if(e == 0)
-    {
-      klog(LOG_INFO, "preloadd: preloading %s...", s);
-      FILE *fp = fopen(s, "rb");
-      for(off_t off = 0; off < st.st_size; off += BLOCK_READ_SIZE)
-        fread(buf, BLOCK_READ_SIZE, 1, fp);
-      fclose(fp);
-      klog(LOG_INFO, "preloadd: preloading %s complete!", s);
-    }
-    else
-    {
-      klog(LOG_INFO, "preloadd: %s probably does not exist", s);
-    }
-    s = g_FilesToPreload[n++];
-  } while(s);
-
-  free(buf);
-
-  return 0;
 }

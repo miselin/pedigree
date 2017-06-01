@@ -17,32 +17,36 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "AtaDisk.h"
+#include "AtaController.h"
+#include "ata-common.h"
+#include <Log.h>
 #include <compiler.h>
-#include <processor/types.h>
+#include <machine/Controller.h>
 #include <machine/Device.h>
 #include <machine/Disk.h>
-#include <machine/Controller.h>
-#include <Log.h>
-#include <processor/Processor.h>
-#include <panic.h>
 #include <machine/Machine.h>
-#include <utilities/assert.h>
+#include <panic.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
 #include <utilities/PointerGuard.h>
+#include <utilities/assert.h>
 #include <utilities/utility.h>
-#include "AtaController.h"
-#include "AtaDisk.h"
-#include "ata-common.h"
 
 // #define ATA_DEFAULT_BLOCK_SIZE 0x1000
 #define ATA_DEFAULT_BLOCK_SIZE 0x10000 * 2
 
 // Note the IrqReceived mutex is deliberately started in the locked state.
-AtaDisk::AtaDisk(AtaController *pDev, bool isMaster, IoBase *commandRegs, IoBase *controlRegs, BusMasterIde *busMaster) :
-    ScsiDisk(), m_IsMaster(isMaster), m_SupportsLBA28(true), m_SupportsLBA48(false),
-    m_BlockSize(ATA_DEFAULT_BLOCK_SIZE), m_IrqReceived(0), m_AtaDiskType(NotPacket), m_PacketSize(0),
-    m_Removable(false), m_CommandRegs(commandRegs), m_ControlRegs(controlRegs),
-    m_BusMaster(busMaster), m_PrdTableLock(false), m_PrdTable(0), m_LastPrdTableOffset(0),
-    m_PrdTablePhys(0), m_PrdTableMemRegion("ata-prdtable"), m_bDma(true)
+AtaDisk::AtaDisk(
+    AtaController *pDev, bool isMaster, IoBase *commandRegs,
+    IoBase *controlRegs, BusMasterIde *busMaster)
+    : ScsiDisk(), m_IsMaster(isMaster), m_SupportsLBA28(true),
+      m_SupportsLBA48(false), m_BlockSize(ATA_DEFAULT_BLOCK_SIZE),
+      m_IrqReceived(0), m_AtaDiskType(NotPacket), m_PacketSize(0),
+      m_Removable(false), m_CommandRegs(commandRegs),
+      m_ControlRegs(controlRegs), m_BusMaster(busMaster), m_PrdTableLock(false),
+      m_PrdTable(0), m_LastPrdTableOffset(0), m_PrdTablePhys(0),
+      m_PrdTableMemRegion("ata-prdtable"), m_bDma(true)
 {
     m_pParent = pDev;
 }
@@ -54,7 +58,7 @@ AtaDisk::~AtaDisk()
 bool AtaDisk::initialise(size_t nUnit)
 {
     // Grab our parent.
-    AtaController *pParent = static_cast<AtaController*> (m_pParent);
+    AtaController *pParent = static_cast<AtaController *>(m_pParent);
 
     // Grab our parent's IoPorts for command and control accesses.
     IoBase *commandRegs = m_CommandRegs;
@@ -67,7 +71,7 @@ bool AtaDisk::initialise(size_t nUnit)
     uint8_t devSelect = (m_IsMaster) ? 0xA0 : 0xB0;
     commandRegs->write8(devSelect, 6);
     commandRegs->write8(0xEC, 7);
-    if(commandRegs->read8(7) == 0)
+    if (commandRegs->read8(7) == 0)
     {
         NOTICE("ATA: No device present here");
         return false;
@@ -111,11 +115,11 @@ bool AtaDisk::initialise(size_t nUnit)
     uint8_t m2 = commandRegs->read8(3);
     uint8_t m3 = commandRegs->read8(4);
     uint8_t m4 = commandRegs->read8(5);
-// #ifdef DEBUG
+    // #ifdef DEBUG
     NOTICE("ATA signature: " << m1 << ", " << m2 << ", " << m3 << ", " << m4);
-// #endif
+    // #endif
     m_AtaDiskType = None;
-    if(m3 == 0x14 && m4 == 0xeb)
+    if (m3 == 0x14 && m4 == 0xeb)
     {
         // Run IDENTIFY PACKET DEVICE instead
         commandRegs->write8(devSelect, 6);
@@ -142,9 +146,10 @@ bool AtaDisk::initialise(size_t nUnit)
     }
 
     // Check for late error - final sanity check.
-    if(commandRegs->read8(7) & 1)
+    if (commandRegs->read8(7) & 1)
     {
-        WARNING("ATA drive now has an error status after reading IDENTIFY data.");
+        WARNING(
+            "ATA drive now has an error status after reading IDENTIFY data.");
         return false;
     }
 
@@ -173,7 +178,8 @@ bool AtaDisk::initialise(size_t nUnit)
         ERROR("ATA: Device does not conform to the ATA specification.");
         return false;
     }
-    else if ((m_AtaDiskType != NotPacket) && (!m_pIdent.data.general_config.not_ata))
+    else if (
+        (m_AtaDiskType != NotPacket) && (!m_pIdent.data.general_config.not_ata))
     {
         ERROR("ATA: PACKET device does not conform to the ATA specification.");
         return false;
@@ -181,13 +187,15 @@ bool AtaDisk::initialise(size_t nUnit)
 
     if (m_AtaDiskType != NotPacket)
     {
-        m_AtaDiskType = static_cast<AtaDiskType>(m_pIdent.data.general_config.packet_cmdset);
+        m_AtaDiskType = static_cast<AtaDiskType>(
+            m_pIdent.data.general_config.packet_cmdset);
     }
 
     // Get the device name.
     ataLoadSwapped(m_pName, m_pIdent.data.model_number, 20);
 
-    // The device name is padded by spaces. Backtrack through converting spaces into NULL bytes.
+    // The device name is padded by spaces. Backtrack through converting spaces
+    // into NULL bytes.
     for (int i = 39; i > 0; i--)
     {
         if (m_pName[i] != ' ')
@@ -199,7 +207,8 @@ bool AtaDisk::initialise(size_t nUnit)
     // Get the serial number.
     ataLoadSwapped(m_pSerialNumber, m_pIdent.data.serial_number, 10);
 
-    // The serial number is padded by spaces. Backtrack through converting spaces into NULL bytes.
+    // The serial number is padded by spaces. Backtrack through converting
+    // spaces into NULL bytes.
     for (int i = 19; i > 0; i--)
     {
         if (m_pSerialNumber[i] != ' ')
@@ -211,7 +220,8 @@ bool AtaDisk::initialise(size_t nUnit)
     // Get the firmware revision.
     ataLoadSwapped(m_pFirmwareRevision, m_pIdent.data.firmware_revision, 4);
 
-    // The device name is padded by spaces. Backtrack through converting spaces into NULL bytes.
+    // The device name is padded by spaces. Backtrack through converting spaces
+    // into NULL bytes.
     for (int i = 7; i > 0; i--)
     {
         if (m_pFirmwareRevision[i] != ' ')
@@ -263,7 +273,9 @@ bool AtaDisk::initialise(size_t nUnit)
 
             if (highest_mode != ~0U)
             {
-                NOTICE("ATA: Device Multiword DMA: supports up to mode" << Dec << highest_mode << Hex);
+                NOTICE(
+                    "ATA: Device Multiword DMA: supports up to mode"
+                    << Dec << highest_mode << Hex);
             }
             else
             {
@@ -272,7 +284,9 @@ bool AtaDisk::initialise(size_t nUnit)
 
             if (sel_mode != ~0U)
             {
-                NOTICE("ATA: Device Multiword DMA: mode" << Dec << sel_mode << Hex << " is selected");
+                NOTICE(
+                    "ATA: Device Multiword DMA: mode" << Dec << sel_mode << Hex
+                                                      << " is selected");
             }
         }
 
@@ -312,7 +326,9 @@ bool AtaDisk::initialise(size_t nUnit)
 
             if (highest_mode != ~0U)
             {
-                NOTICE("ATA: Device Ultra DMA: supports up to mode" << Dec << highest_mode << Hex);
+                NOTICE(
+                    "ATA: Device Ultra DMA: supports up to mode"
+                    << Dec << highest_mode << Hex);
             }
             else
             {
@@ -321,14 +337,16 @@ bool AtaDisk::initialise(size_t nUnit)
 
             if (sel_mode != ~0U)
             {
-                NOTICE("ATA: Device Ultra DMA: mode" << Dec << sel_mode << Hex << " is enabled");
+                NOTICE(
+                    "ATA: Device Ultra DMA: mode" << Dec << sel_mode << Hex
+                                                  << " is enabled");
             }
         }
     }
 
     // Do we have a bus master with which to work with?
     // ISA ATA does not.
-    if(!m_BusMaster)
+    if (!m_BusMaster)
     {
         WARNING("ATA: Controller does not support DMA");
         m_bDma = false;
@@ -343,11 +361,16 @@ bool AtaDisk::initialise(size_t nUnit)
             logical_size = m_pIdent.data.words_per_logical * sizeof(uint16_t);
 
         // Logical sectors per physical sector.
-        size_t log_per_phys = 1 << m_pIdent.data.sector_size.logical_per_physical;
+        size_t log_per_phys = 1
+                              << m_pIdent.data.sector_size.logical_per_physical;
         size_t physical_size = log_per_phys * logical_size;
 
-        NOTICE("ATA: Physical sector size is " << Dec << physical_size << Hex << " bytes.");
-        NOTICE("ATA: Logical sector size is " << Dec << logical_size << Hex << " bytes.");
+        NOTICE(
+            "ATA: Physical sector size is " << Dec << physical_size << Hex
+                                            << " bytes.");
+        NOTICE(
+            "ATA: Logical sector size is " << Dec << logical_size << Hex
+                                           << " bytes.");
 
         if (physical_size > 512)
         {
@@ -355,7 +378,8 @@ bool AtaDisk::initialise(size_t nUnit)
             if (m_BlockSize % physical_size)
             {
                 // Default block size doesn't map to physical sectors well.
-                WARNING("ATA: Default block size doesn't map well to physical sectors, performance may be degraded.");
+                WARNING("ATA: Default block size doesn't map well to physical "
+                        "sectors, performance may be degraded.");
             }
 
             // Always make sure our blocks are bigger than physical sectors.
@@ -375,25 +399,27 @@ bool AtaDisk::initialise(size_t nUnit)
     {
         // Packet size?
         m_PacketSize = m_pIdent.data.general_config.packet_sz ? 16 : 12;
-        NOTICE("ATAPI: packet size is " << Dec << m_PacketSize << " bytes" << Hex);
+        NOTICE(
+            "ATAPI: packet size is " << Dec << m_PacketSize << " bytes" << Hex);
 
         commandRegs->write8(devSelect, 6);
-        commandRegs->write8(0xDA, 7); // GET MEDIA STATUS
+        commandRegs->write8(0xDA, 7);  // GET MEDIA STATUS
         status = ataWait(commandRegs, controlRegs);
-        if(status.reg.err)
+        if (status.reg.err)
         {
             // We have information in the error register
             uint8_t err = commandRegs->read8(1);
 
             // ABORT?
-            if(err & 0x4)
+            if (err & 0x4)
             {
                 WARNING("ATAPI: device does not support GET MEDIA STATUS.");
             }
-            else if(err & 2)
+            else if (err & 2)
             {
                 WARNING("ATAPI: No media present in the drive - aborting.");
-                WARNING("       TODO: handle media changes/insertions/removal properly");
+                WARNING("       TODO: handle media changes/insertions/removal "
+                        "properly");
                 return false;
             }
             else
@@ -403,7 +429,7 @@ bool AtaDisk::initialise(size_t nUnit)
         }
 
         // Initialise SCSI disk interface.
-        if(!ScsiDisk::initialise(pParent, nUnit))
+        if (!ScsiDisk::initialise(pParent, nUnit))
         {
             ERROR("ATAPI: ScsiDisk init failed.");
             return false;
@@ -412,28 +438,36 @@ bool AtaDisk::initialise(size_t nUnit)
         // Grab Inquiry data to figure out what we're working with.
         const ScsiDisk::Inquiry *pInquiry = getInquiry();
         m_Removable = ((pInquiry->Removable & (1 << 7)) != 0);
-        AtaDiskType inquiryType = static_cast<AtaDiskType>(pInquiry->Peripheral);
+        AtaDiskType inquiryType =
+            static_cast<AtaDiskType>(pInquiry->Peripheral);
         if (inquiryType != m_AtaDiskType)
         {
-            ERROR("ATAPI: IDENTIY PACKET DEVICE and SCSI INQUIRY disagree on device type.");
+            ERROR("ATAPI: IDENTIY PACKET DEVICE and SCSI INQUIRY disagree on "
+                  "device type.");
             return false;
         }
 
         // Supported device?
-        if(m_AtaDiskType != CdDvd && m_AtaDiskType != Block)
+        if (m_AtaDiskType != CdDvd && m_AtaDiskType != Block)
         {
-            /// \todo Testing needs to be done on more than just CD/DVD and block devices...
-            WARNING("Pedigree currently only supports CD/DVD and block ATAPI devices.");
+            /// \todo Testing needs to be done on more than just CD/DVD and
+            /// block devices...
+            WARNING("Pedigree currently only supports CD/DVD and block ATAPI "
+                    "devices.");
             return false;
         }
     }
 
-    NOTICE("Detected ATA device '" << m_pName << "', '" << m_pSerialNumber << "', '" << m_pFirmwareRevision << "'");
+    NOTICE(
+        "Detected ATA device '" << m_pName << "', '" << m_pSerialNumber
+                                << "', '" << m_pFirmwareRevision << "'");
 
     return true;
 }
 
-bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite)
+bool AtaDisk::sendCommand(
+    size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+    uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite)
 {
     if (m_AtaDiskType == NotPacket)
     {
@@ -441,7 +475,7 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
         return false;
     }
 
-    if(!m_PacketSize)
+    if (!m_PacketSize)
     {
         ERROR("sendCommand called but the packet size is not known!");
         return false;
@@ -454,7 +488,7 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
 
     uint16_t *tmpPacket = new uint16_t[m_PacketSize / 2];
     PointerGuard<uint16_t> tmpGuard(tmpPacket, true);
-    MemoryCopy(tmpPacket, reinterpret_cast<void*>(pCommand), nCommandSize);
+    MemoryCopy(tmpPacket, reinterpret_cast<void *>(pCommand), nCommandSize);
     ByteSet(tmpPacket + (nCommandSize / 2), 0, m_PacketSize - nCommandSize);
 
     // Set nIEN as we poll in sendCommand().
@@ -469,51 +503,55 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
     ataWait(commandRegs, controlRegs);
 
     // Verify that it's the correct device
-    if((commandRegs->read8(6) & devSelect) != devSelect)
+    if ((commandRegs->read8(6) & devSelect) != devSelect)
     {
         WARNING("ATAPI: Device was not selected");
         return false;
     }
 
     bool bDmaSetup = false;
-    if(m_bDma && nRespBytes)
+    if (m_bDma && nRespBytes)
     {
         bDmaSetup = m_BusMaster->add(pRespBuffer, nRespBytes);
     }
 
     // PACKET command
-    if((m_pIdent.__raw[62] & (1 << 15)) && bDmaSetup)  // Device requires DMADIR for Packet DMA commands
-        commandRegs->write8((bWrite ? 1 : 5), 1); // Transfer to host, DMA
-    else if(bDmaSetup)
-        commandRegs->write8(1, 1); // No overlap, DMA
+    if ((m_pIdent.__raw[62] & (1 << 15)) &&
+        bDmaSetup)  // Device requires DMADIR for Packet DMA commands
+        commandRegs->write8((bWrite ? 1 : 5), 1);  // Transfer to host, DMA
+    else if (bDmaSetup)
+        commandRegs->write8(1, 1);  // No overlap, DMA
     else
-        commandRegs->write8(0, 1); // No overlap, no DMA
-    commandRegs->write8(0, 2); // Tag = 0
-    commandRegs->write8(0, 3); // N/A for PACKET command
-    commandRegs->write8(nRespBytes & 0xFF, 4); // Byte count limit
+        commandRegs->write8(0, 1);              // No overlap, no DMA
+    commandRegs->write8(0, 2);                  // Tag = 0
+    commandRegs->write8(0, 3);                  // N/A for PACKET command
+    commandRegs->write8(nRespBytes & 0xFF, 4);  // Byte count limit
     commandRegs->write8(((nRespBytes >> 8) & 0xFF), 5);
 
-    // Transmit the PACKET command, wait for the device to be ready for the command.
+    // Transmit the PACKET command, wait for the device to be ready for the
+    // command.
     commandRegs->write8(0xA0, 7);
 
     // Wait for sensible status before writing command packet.
     status = ataWait(commandRegs, controlRegs);
 
     // Error?
-    if(status.reg.err)
+    if (status.reg.err)
     {
-        ERROR("ATAPI Packet command error [status=" << status.__reg_contents << "]!");
+        ERROR(
+            "ATAPI Packet command error [status=" << status.__reg_contents
+                                                  << "]!");
         return false;
     }
 
     // If DMA is set up, begin that now, before sending the SCSI command.
-    if(m_bDma && nRespBytes && bDmaSetup)
+    if (m_bDma && nRespBytes && bDmaSetup)
     {
         bDmaSetup = m_BusMaster->begin(bWrite);
     }
 
     // Transmit the command (padded as needed)
-    for(size_t i = 0; i < (m_PacketSize / 2); i++)
+    for (size_t i = 0; i < (m_PacketSize / 2); i++)
     {
         commandRegs->write16(tmpPacket[i], 0);
     }
@@ -525,17 +563,19 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
     // Check for errors...
     // Note: not using ataWait as we don't want to block here.
     uint8_t statusreg = commandRegs->read8(7);
-    if((statusreg & 1) && !(statusreg & 0x80))
+    if ((statusreg & 1) && !(statusreg & 0x80))
     {
         // CHK = 1, BSY = 0
         uint8_t error = commandRegs->read8(1);
-        if(error & 0x4)
+        if (error & 0x4)
         {
             WARNING("ATAPI command failed (ABORT)");
         }
         else
         {
-            WARNING("ATAPI error with status " << statusreg << " [error=" << error << "]");
+            WARNING(
+                "ATAPI error with status " << statusreg << " [error=" << error
+                                           << "]");
         }
 
         return false;
@@ -549,14 +589,14 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
         return !status.reg.err;
     }
 
-    while(true)
+    while (true)
     {
         // Ensure we are not busy before continuing handling.
         status = ataWait(commandRegs, controlRegs);
-        if(status.reg.err)
+        if (status.reg.err)
         {
             /// \todo What's the best way to handle this?
-            if(m_bDma && bDmaSetup)
+            if (m_bDma && bDmaSetup)
             {
                 m_BusMaster->commandComplete();
                 WARNING("ATAPI: read failed during DMA data transfer");
@@ -565,15 +605,15 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
         }
 
         // Poll for completion.
-        if(m_bDma && bDmaSetup)
+        if (m_bDma && bDmaSetup)
         {
-            if(m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
+            if (m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
             {
                 // commandComplete effectively resets the device state, so we
                 // need to get the error register first.
                 bool bError = m_BusMaster->hasError();
                 m_BusMaster->commandComplete();
-                if(bError)
+                if (bError)
                     return false;
                 else
                     break;
@@ -586,7 +626,7 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
     }
 
     status = ataWait(commandRegs, controlRegs);
-    if(status.reg.err)
+    if (status.reg.err)
     {
         WARNING("ATAPI sendCommand failed after sending command packet");
         logAtaStatus(status);
@@ -594,33 +634,36 @@ bool AtaDisk::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize
     }
 
     // Check for DRQ, if not set, there's nothing to read
-    if(!status.reg.drq)
+    if (!status.reg.drq)
         return true;
 
     // Read in the data, if we need to
-    if(!m_bDma && !bDmaSetup)
+    if (!m_bDma && !bDmaSetup)
     {
         size_t realSz = commandRegs->read8(4) | (commandRegs->read8(5) << 8);
-        uint16_t *dest = reinterpret_cast<uint16_t*>(pRespBuffer);
-        if(nRespBytes)
+        uint16_t *dest = reinterpret_cast<uint16_t *>(pRespBuffer);
+        if (nRespBytes)
         {
-            size_t sizeToRead = ((realSz > nRespBytes) ? nRespBytes : realSz) / 2;
-            for(size_t i = 0; i < sizeToRead; i++)
+            size_t sizeToRead =
+                ((realSz > nRespBytes) ? nRespBytes : realSz) / 2;
+            for (size_t i = 0; i < sizeToRead; i++)
             {
-              if(bWrite)
+                if (bWrite)
                     commandRegs->write16(dest[i], 0);
-              else
+                else
                     dest[i] = commandRegs->read16(0);
             }
         }
 
         // Discard unread data (or write pretend data)
-        if(realSz > nRespBytes)
+        if (realSz > nRespBytes)
         {
-            NOTICE("sendCommand has to read beyond provided buffer [" << realSz << " is bigger than " << nRespBytes << "]");
-            for(size_t i = nRespBytes; i < realSz; i += 2)
+            NOTICE(
+                "sendCommand has to read beyond provided buffer ["
+                << realSz << " is bigger than " << nRespBytes << "]");
+            for (size_t i = nRespBytes; i < realSz; i += 2)
             {
-                if(bWrite)
+                if (bWrite)
                     commandRegs->write16(0xFFFF, 0);
                 else
                     commandRegs->read16(0);
@@ -713,7 +756,8 @@ uint64_t AtaDisk::doRead(uint64_t location)
             ;
 
         // Send out sector count.
-        uint8_t nSectorsToRead = min(m_pIdent.data.max_sectors_per_irq, nSectors);
+        uint8_t nSectorsToRead =
+            min(m_pIdent.data.max_sectors_per_irq, nSectors);
         nSectors -= nSectorsToRead;
 
         // Buffers are 4K each, so calculate the number of buffers used for
@@ -721,11 +765,12 @@ uint64_t AtaDisk::doRead(uint64_t location)
         size_t buffersThisRead = (nSectorsToRead * 512) / 0x1000;
 
         bool bDmaSetup = false;
-        if(m_bDma)
+        if (m_bDma)
         {
             for (size_t i = 0; i < buffersThisRead; ++i)
             {
-                bDmaSetup = m_BusMaster->add(buffers[buffersConsumed + i].buffer, 0x1000);
+                bDmaSetup = m_BusMaster->add(
+                    buffers[buffersConsumed + i].buffer, 0x1000);
                 if (!bDmaSetup)
                 {
                     ERROR("DMA setup failed!");
@@ -742,7 +787,8 @@ uint64_t AtaDisk::doRead(uint64_t location)
         {
             if (location >= 0x2000000000ULL)
             {
-                WARNING("Ata: Sector > 128GB requested but LBA48 addressing not supported!");
+                WARNING("Ata: Sector > 128GB requested but LBA48 addressing "
+                        "not supported!");
             }
             setupLBA28(location, nSectorsToRead);
         }
@@ -752,17 +798,17 @@ uint64_t AtaDisk::doRead(uint64_t location)
 
         if (getInterruptNumber() != 0xFF)
         {
-            // Enable IRQs so we can avoid spinning if possible.
+// Enable IRQs so we can avoid spinning if possible.
 #ifndef PPC_COMMON
             controlRegs->write8(0, 2);
 #endif
 
             bool oldInterrupts = Processor::getInterrupts();
-            if(!oldInterrupts)
+            if (!oldInterrupts)
                 Processor::setInterrupts(true);
         }
 
-        if(m_bDma && bDmaSetup)
+        if (m_bDma && bDmaSetup)
         {
             // Prepare DMA before we send the command.
             bDmaSetup = m_BusMaster->begin(false);
@@ -793,7 +839,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
         }
 
         // Acquire the 'outstanding IRQ' mutex, or use other means if no IRQ.
-        while(true)
+        while (true)
         {
             if (getInterruptNumber() != 0xFF)
             {
@@ -807,10 +853,10 @@ uint64_t AtaDisk::doRead(uint64_t location)
 
             // Ensure we are not busy before continuing handling.
             status = ataWait(commandRegs, controlRegs);
-            if(status.reg.err)
+            if (status.reg.err)
             {
                 /// \todo What's the best way to handle this?
-                if(m_bDma && bDmaSetup)
+                if (m_bDma && bDmaSetup)
                 {
                     m_BusMaster->commandComplete();
                     WARNING("ATA: read failed during DMA data transfer");
@@ -818,15 +864,15 @@ uint64_t AtaDisk::doRead(uint64_t location)
                 return false;
             }
 
-            if(m_bDma && bDmaSetup)
+            if (m_bDma && bDmaSetup)
             {
-                if(m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
+                if (m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
                 {
-                    // commandComplete effectively resets the device state, so we need
-                    // to get the error register first.
+                    // commandComplete effectively resets the device state, so
+                    // we need to get the error register first.
                     bool bError = m_BusMaster->hasError();
                     m_BusMaster->commandComplete();
-                    if(bError)
+                    if (bError)
                     {
                         return 0;
                     }
@@ -842,14 +888,14 @@ uint64_t AtaDisk::doRead(uint64_t location)
             }
         }
 
-        if(!m_bDma && !bDmaSetup)
+        if (!m_bDma && !bDmaSetup)
         {
             size_t byteOffset = buffersConsumed * 0x1000;
             for (int i = 0; i < nSectorsToRead; i++)
             {
                 // Wait until !BUSY
                 status = ataWait(commandRegs, controlRegs);
-                if(status.reg.err)
+                if (status.reg.err)
                 {
                     // Ka-boom! Something went wrong :(
                     /// \todo What's the best way to handle this?
@@ -862,7 +908,8 @@ uint64_t AtaDisk::doRead(uint64_t location)
                 size_t offset = byteOffset % 0x1000;
 
                 // Read the sector.
-                uint16_t *target = reinterpret_cast<uint16_t *>(buffers[nBuffer].buffer + offset);
+                uint16_t *target = reinterpret_cast<uint16_t *>(
+                    buffers[nBuffer].buffer + offset);
                 for (int j = 0; j < 256; j++)
                 {
                     *target++ = commandRegs->read16(0);
@@ -896,7 +943,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     if (location % 512)
         panic("AtaDisk: write request not on a sector boundary!");
 
-    // Safety check
+// Safety check
 #ifdef CRIPPLE_HDD
     return 0;
 #endif
@@ -914,7 +961,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     // because we're writing only a specific page that we already know exists.
     uintptr_t nBytes = 0x1000;
     uintptr_t buffer = getCache().lookup(location);
-    if(!buffer)
+    if (!buffer)
     {
         FATAL("AtaDisk::doWrite - no buffer (completely misused method)");
     }
@@ -941,7 +988,8 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     // How many sectors do we need to read?
     /// \todo logical sector size here
     uint32_t nSectors = nBytes / 512;
-    if (nBytes%512) nSectors++;
+    if (nBytes % 512)
+        nSectors++;
 
     // Wait for BSY and DRQ to be zero before selecting the device
     AtaStatus status;
@@ -958,7 +1006,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     // Wait for it to be selected
     ataWait(commandRegs, controlRegs);
 
-    uint16_t *tmp = reinterpret_cast<uint16_t*>(buffer);
+    uint16_t *tmp = reinterpret_cast<uint16_t *>(buffer);
 
     while (nSectors > 0)
     {
@@ -967,11 +1015,12 @@ uint64_t AtaDisk::doWrite(uint64_t location)
             ;
 
         // Send out sector count.
-        uint8_t nSectorsToWrite = min(m_pIdent.data.max_sectors_per_irq, nSectors);
+        uint8_t nSectorsToWrite =
+            min(m_pIdent.data.max_sectors_per_irq, nSectors);
         nSectors -= nSectorsToWrite;
 
         bool bDmaSetup = false;
-        if(m_bDma)
+        if (m_bDma)
         {
             bDmaSetup = m_BusMaster->add(buffer, nSectorsToWrite * 512);
         }
@@ -982,12 +1031,13 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         {
             if (location >= 0x2000000000ULL)
             {
-                WARNING("Ata: Sector > 128GB requested but LBA48 addressing not supported!");
+                WARNING("Ata: Sector > 128GB requested but LBA48 addressing "
+                        "not supported!");
             }
             setupLBA28(location, nSectorsToWrite);
         }
 
-        // Enable IRQs so we can avoid spinning if possible.
+// Enable IRQs so we can avoid spinning if possible.
 #ifndef PPC_COMMON
         controlRegs->write8(0, 2);
 #endif
@@ -998,10 +1048,10 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         PointerGuard<Mutex> guardReceivedMutex(&m_IrqReceived);
 
         bool oldInterrupts = Processor::getInterrupts();
-        if(!oldInterrupts)
+        if (!oldInterrupts)
             Processor::setInterrupts(true);
 
-        if(m_bDma && bDmaSetup)
+        if (m_bDma && bDmaSetup)
         {
             // Start DMA before we send the command.
             bDmaSetup = m_BusMaster->begin(true);
@@ -1032,7 +1082,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         }
 
         // Wait for completion.
-        while(true)
+        while (true)
         {
             if (getInterruptNumber() != 0xFF)
             {
@@ -1045,10 +1095,10 @@ uint64_t AtaDisk::doWrite(uint64_t location)
 
             // Ensure we are not busy before continuing handling.
             status = ataWait(commandRegs, controlRegs);
-            if(status.reg.err)
+            if (status.reg.err)
             {
                 /// \todo What's the best way to handle this?
-                if(m_bDma && bDmaSetup)
+                if (m_bDma && bDmaSetup)
                 {
                     m_BusMaster->commandComplete();
                     WARNING("ATA: read failed during DMA data transfer");
@@ -1056,15 +1106,15 @@ uint64_t AtaDisk::doWrite(uint64_t location)
                 return false;
             }
 
-            if(m_bDma && bDmaSetup)
+            if (m_bDma && bDmaSetup)
             {
-                if(m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
+                if (m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
                 {
-                    // commandComplete effectively resets the device state, so we need
-                    // to get the error register first.
+                    // commandComplete effectively resets the device state, so
+                    // we need to get the error register first.
                     bool bError = m_BusMaster->hasError();
                     m_BusMaster->commandComplete();
-                    if(bError)
+                    if (bError)
                         return 0;
                     else
                         break;
@@ -1074,13 +1124,13 @@ uint64_t AtaDisk::doWrite(uint64_t location)
                 break;
         }
 
-        if(!m_bDma && !bDmaSetup)
+        if (!m_bDma && !bDmaSetup)
         {
             for (int i = 0; i < nSectorsToWrite; i++)
             {
                 // Wait until !BUSY
                 status = ataWait(commandRegs, controlRegs);
-                if(status.reg.err)
+                if (status.reg.err)
                 {
                     // Ka-boom! Something went wrong :(
                     /// \todo What's the best way to handle this?
@@ -1111,17 +1161,19 @@ void AtaDisk::setupLBA28(uint64_t n, uint32_t nSectors)
 {
     IoBase *commandRegs = m_CommandRegs;
 
-    commandRegs->write8(static_cast<uint8_t>(nSectors&0xFF), 2);
+    commandRegs->write8(static_cast<uint8_t>(nSectors & 0xFF), 2);
 
     // Get the sector number of the address.
     n /= 512;
 
-    uint8_t sector = static_cast<uint8_t> (n&0xFF);
-    uint8_t cLow = static_cast<uint8_t> ((n>>8) & 0xFF);
-    uint8_t cHigh = static_cast<uint8_t> ((n>>16) & 0xFF);
-    uint8_t head = static_cast<uint8_t> ((n>>24) & 0x0F);
-    if (m_IsMaster) head |= 0xE0;
-    else head |= 0xF0;
+    uint8_t sector = static_cast<uint8_t>(n & 0xFF);
+    uint8_t cLow = static_cast<uint8_t>((n >> 8) & 0xFF);
+    uint8_t cHigh = static_cast<uint8_t>((n >> 16) & 0xFF);
+    uint8_t head = static_cast<uint8_t>((n >> 24) & 0x0F);
+    if (m_IsMaster)
+        head |= 0xE0;
+    else
+        head |= 0xF0;
 
     commandRegs->write8(head, 6);
     commandRegs->write8(sector, 3);
@@ -1136,24 +1188,26 @@ void AtaDisk::setupLBA48(uint64_t n, uint32_t nSectors)
     // Get the sector number of the address.
     n /= 512;
 
-    uint8_t lba1 = static_cast<uint8_t> (n&0xFF);
-    uint8_t lba2 = static_cast<uint8_t> ((n>>8) & 0xFF);
-    uint8_t lba3 = static_cast<uint8_t> ((n>>16) & 0xFF);
-    uint8_t lba4 = static_cast<uint8_t> ((n>>24) & 0xFF);
-    uint8_t lba5 = static_cast<uint8_t> ((n>>32) & 0xFF);
-    uint8_t lba6 = static_cast<uint8_t> ((n>>40) & 0xFF);
+    uint8_t lba1 = static_cast<uint8_t>(n & 0xFF);
+    uint8_t lba2 = static_cast<uint8_t>((n >> 8) & 0xFF);
+    uint8_t lba3 = static_cast<uint8_t>((n >> 16) & 0xFF);
+    uint8_t lba4 = static_cast<uint8_t>((n >> 24) & 0xFF);
+    uint8_t lba5 = static_cast<uint8_t>((n >> 32) & 0xFF);
+    uint8_t lba6 = static_cast<uint8_t>((n >> 40) & 0xFF);
 
-    commandRegs->write8((nSectors&0xFFFF)>>8, 2);
+    commandRegs->write8((nSectors & 0xFFFF) >> 8, 2);
     commandRegs->write8(lba4, 3);
     commandRegs->write8(lba5, 4);
     commandRegs->write8(lba6, 5);
-    commandRegs->write8((nSectors&0xFF), 2);
+    commandRegs->write8((nSectors & 0xFF), 2);
     commandRegs->write8(lba1, 3);
     commandRegs->write8(lba2, 4);
     commandRegs->write8(lba3, 5);
 }
 
-void AtaDisk::setFeatures(uint8_t command, uint8_t countreg, uint8_t lowreg, uint8_t midreg, uint8_t hireg)
+void AtaDisk::setFeatures(
+    uint8_t command, uint8_t countreg, uint8_t lowreg, uint8_t midreg,
+    uint8_t hireg)
 {
     // Grab our parent's IoPorts for command and control accesses.
     IoBase *commandRegs = m_CommandRegs;

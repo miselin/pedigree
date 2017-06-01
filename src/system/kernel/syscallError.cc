@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <syscallError.h>
 #include <process/Thread.h>
 #include <processor/Processor.h>
+#include <syscallError.h>
 
 void syscallError(int errno)
 {

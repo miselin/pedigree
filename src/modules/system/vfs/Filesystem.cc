@@ -17,26 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "VFS.h"
 #include "Filesystem.h"
+#include "VFS.h"
 #include <Log.h>
-#include <utilities/utility.h>
 #include <processor/Processor.h>
 #include <syscallError.h>
+#include <utilities/utility.h>
 
-#include "File.h"
 #include "Directory.h"
+#include "File.h"
 #include "Symlink.h"
 
-Filesystem::Filesystem() :
-    m_bReadOnly(false), m_pDisk(0), m_nAliases(0)
+Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0), m_nAliases(0)
 {
 }
 
 File *Filesystem::getTrueRoot()
 {
 #ifdef THREADS
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     File *maybeRoot = pProcess->getRootFile();
     if (maybeRoot)
         return maybeRoot;
@@ -46,14 +46,16 @@ File *Filesystem::getTrueRoot()
 
 File *Filesystem::find(const String &path, File *pStartNode)
 {
-    if (!pStartNode) pStartNode = getTrueRoot();
+    if (!pStartNode)
+        pStartNode = getTrueRoot();
     File *a = findNode(pStartNode, path);
     return a;
 }
 
 bool Filesystem::createFile(String path, uint32_t mask, File *pStartNode)
 {
-    if (!pStartNode) pStartNode = getTrueRoot();
+    if (!pStartNode)
+        pStartNode = getTrueRoot();
     File *pFile = findNode(pStartNode, path);
 
     if (pFile)
@@ -89,7 +91,8 @@ bool Filesystem::createFile(String path, uint32_t mask, File *pStartNode)
 
 bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
 {
-    if (!pStartNode) pStartNode = getTrueRoot();
+    if (!pStartNode)
+        pStartNode = getTrueRoot();
     File *pFile = findNode(pStartNode, path);
 
     if (pFile)
@@ -126,7 +129,8 @@ bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
 
 bool Filesystem::createSymlink(String path, String value, File *pStartNode)
 {
-    if (!pStartNode) pStartNode = getTrueRoot();
+    if (!pStartNode)
+        pStartNode = getTrueRoot();
     File *pFile = findNode(pStartNode, path);
 
     if (pFile)
@@ -163,7 +167,8 @@ bool Filesystem::createSymlink(String path, String value, File *pStartNode)
 
 bool Filesystem::createLink(String path, File *target, File *pStartNode)
 {
-    if (!pStartNode) pStartNode = getTrueRoot();
+    if (!pStartNode)
+        pStartNode = getTrueRoot();
     File *pFile = findNode(pStartNode, path);
 
     if (pFile)
@@ -207,7 +212,8 @@ bool Filesystem::createLink(String path, File *target, File *pStartNode)
 
 bool Filesystem::remove(String path, File *pStartNode)
 {
-    if (!pStartNode) pStartNode = getTrueRoot();
+    if (!pStartNode)
+        pStartNode = getTrueRoot();
 
     File *pFile = findNode(pStartNode, path);
 
@@ -313,8 +319,9 @@ File *Filesystem::findNode(File *pNode, String path)
     if (path[i] != '\0')
     {
         path.split(path.nextCharacter(i), restOfPath);
-        // restOfPath is now 'path', but starting at the next token, and with no leading slash.
-        // Unfortunately 'path' now has a trailing slash, so chomp it off.
+        // restOfPath is now 'path', but starting at the next token, and with no
+        // leading slash. Unfortunately 'path' now has a trailing slash, so
+        // chomp it off.
         path.chomp();
 
         // Remove any extra slashes, for example in a '/a//b' path.
@@ -322,7 +329,8 @@ File *Filesystem::findNode(File *pNode, String path)
             path.chomp();
     }
 
-    // At this point 'path' contains the token to search for. 'restOfPath' contains the path for the next recursion (or nil).
+    // At this point 'path' contains the token to search for. 'restOfPath'
+    // contains the path for the next recursion (or nil).
 
     // If 'path' is zero-lengthed, ignore and recurse.
     if (path.length() == 0)
@@ -344,7 +352,8 @@ File *Filesystem::findNode(File *pNode, String path)
     bool dotdot = !StringCompare(path, "..");
 
     // '.' section, or '..' with no parent, or '..' and we're at the root.
-    if (dot || (dotdot && pNode->m_pParent == 0) || (dotdot && pNode == getTrueRoot()))
+    if (dot || (dotdot && pNode->m_pParent == 0) ||
+        (dotdot && pNode == getTrueRoot()))
     {
         return findNode(pNode, restOfPath);
     }
@@ -354,7 +363,7 @@ File *Filesystem::findNode(File *pNode, String path)
     }
 
     Directory *pDir = Directory::fromFile(pNode);
-    if(!pDir)
+    if (!pDir)
     {
         SYSCALL_ERROR(NotADirectory);
         return 0;
@@ -365,7 +374,9 @@ File *Filesystem::findNode(File *pNode, String path)
     Directory *reparse = pDir->getReparsePoint();
     if (reparse)
     {
-        WARNING("VFS: found reparse point at '" << pDir->getName() << "', following it");
+        WARNING(
+            "VFS: found reparse point at '" << pDir->getName()
+                                            << "', following it");
         pDir = reparse;
     }
 
@@ -406,7 +417,8 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
         path.chomp();
     }
 
-    // Work forwards to the end of the path string, attempting to find the last '/'.
+    // Work forwards to the end of the path string, attempting to find the last
+    // '/'.
     ssize_t lastSlash = -1;
     for (ssize_t i = path.length() - 1; i >= 0; i = path.prevCharacter(i))
     {
@@ -438,7 +450,8 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     {
         if (parentNode->isDirectory())
         {
-            File *reparseNode = Directory::fromFile(parentNode)->getReparsePoint();
+            File *reparseNode =
+                Directory::fromFile(parentNode)->getReparsePoint();
             if (reparseNode)
             {
                 parentNode = reparseNode;
@@ -449,7 +462,7 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     return parentNode;
 }
 
-bool Filesystem::createLink(File* parent, String filename, File *target)
+bool Filesystem::createLink(File *parent, String filename, File *target)
 {
     // Default stubbed implementation, works for filesystems that can't handle
     // hard links.

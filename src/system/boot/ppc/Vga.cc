@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -19,60 +18,65 @@
  */
 
 #include "Vga.h"
-#include "prom.h"
 #include "ppc_font.c"
+#include "prom.h"
 
 const int width = 800;
 const int height = 600;
 const int bytes_per_pixel = 4;
-//extern char *ppc_font;
+// extern char *ppc_font;
 
-extern void* prom_screen;
+extern void *prom_screen;
 
-#define MAKE_16(r,g,b)  ( ((r&0x1f)<<11) | ((g&0x1f)<<6) | (b&0x1f) )
+#define MAKE_16(r, g, b) (((r & 0x1f) << 11) | ((g & 0x1f) << 6) | (b & 0x1f))
 
-void vga_putchar(char c, int x, int y, unsigned short f, unsigned short b, unsigned short *buf);
+void vga_putchar(
+    char c, int x, int y, unsigned short f, unsigned short b,
+    unsigned short *buf);
 
 void vga_init()
 {
-  unsigned int addr;
-  prom_getprop(prom_screen, "address", (void*)&addr, 4);
-//  writeHex(addr);
+    unsigned int addr;
+    prom_getprop(prom_screen, "address", (void *) &addr, 4);
+    //  writeHex(addr);
 
-  // Set device depth here!
+    // Set device depth here!
 
-  prom_map(addr, 0xb0000000, 0x01000000);
-  unsigned short *p = (unsigned short *)0xb0000000;
-  for(int i = 0; i < width*height; i ++)
-  {
-    p[i] = MAKE_16(0,0,0);
-  }
-  for (int i = 0; i < 0x7f; i++)
-  {
-    vga_putchar((char)i, (i*8)%width, 16*((i*8)/width), MAKE_16(i, 0xff, 0x7f-i), MAKE_16(0x00, 0x00, 0x00), p);
-  }
+    prom_map(addr, 0xb0000000, 0x01000000);
+    unsigned short *p = (unsigned short *) 0xb0000000;
+    for (int i = 0; i < width * height; i++)
+    {
+        p[i] = MAKE_16(0, 0, 0);
+    }
+    for (int i = 0; i < 0x7f; i++)
+    {
+        vga_putchar(
+            (char) i, (i * 8) % width, 16 * ((i * 8) / width),
+            MAKE_16(i, 0xff, 0x7f - i), MAKE_16(0x00, 0x00, 0x00), p);
+    }
 }
 
 #define FONT_HEIGHT 16
-void vga_putchar(char c, int x, int y, unsigned short f, unsigned short b, unsigned short *buf)
+void vga_putchar(
+    char c, int x, int y, unsigned short f, unsigned short b,
+    unsigned short *buf)
 {
-  int idx = ((int)c) * 16;
-  for (int i = 0; i < 16; i++)
-  {
-    unsigned char row = ppc_font[idx+i];
-    for (int j = 0; j < 8; j++)
+    int idx = ((int) c) * 16;
+    for (int i = 0; i < 16; i++)
     {
-      unsigned short col;
-      if ( (row & (0x80 >> j)) != 0 )
-      {
-        col = f;
-      }
-      else
-      {
-        col = b;
-      }
-      buf[y*width + i*width + x + j] = col;
+        unsigned char row = ppc_font[idx + i];
+        for (int j = 0; j < 8; j++)
+        {
+            unsigned short col;
+            if ((row & (0x80 >> j)) != 0)
+            {
+                col = f;
+            }
+            else
+            {
+                col = b;
+            }
+            buf[y * width + i * width + x + j] = col;
+        }
     }
-  }
-
 }

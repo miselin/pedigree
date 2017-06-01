@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <setjmp.h>
 
 extern void test_mprotect();
 extern void test_fs();
@@ -35,7 +35,7 @@ void fail()
 
 int main(int argc, char *argv[])
 {
-    if(setjmp(buf) == 1)
+    if (setjmp(buf) == 1)
     {
         printf("FAILED\n");
         return 1;

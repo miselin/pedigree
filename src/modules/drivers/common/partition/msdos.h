@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,7 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/// \file msdos.h Declares functions for probing Disk devices for MS-DOS partition tables.
+/// \file msdos.h Declares functions for probing Disk devices for MS-DOS
+/// partition tables.
 
 #ifndef MSDOS_H
 #define MSDOS_H
@@ -31,34 +31,33 @@
 #define MSDOS_IDENT_2 0xAA
 
 // Start of partition table in the first sector.
-#define MSDOS_PARTTAB_START     0x1BE
+#define MSDOS_PARTTAB_START 0x1BE
 // Number of partition entries in one table.
-#define MSDOS_PARTTAB_NUM       0x4
-#define MSDOS_EXT_PARTTAB_NUM   0x2
+#define MSDOS_PARTTAB_NUM 0x4
+#define MSDOS_EXT_PARTTAB_NUM 0x2
 
 /** An MS-DOS partition table entry. */
 typedef struct
 {
-  uint8_t active;
-  uint8_t start_head;
-  uint8_t start_cylinder_low;
-  uint8_t start_cylinder_high;
-  uint8_t type;
-  uint8_t end_head;
-  uint8_t end_cylinder_low;
-  uint8_t end_cylinder_high;
-  uint32_t start_lba;
-  uint32_t size;
+    uint8_t active;
+    uint8_t start_head;
+    uint8_t start_cylinder_low;
+    uint8_t start_cylinder_high;
+    uint8_t type;
+    uint8_t end_head;
+    uint8_t end_cylinder_low;
+    uint8_t end_cylinder_high;
+    uint32_t start_lba;
+    uint32_t size;
 } __attribute__((packed)) MsdosPartitionInfo;
 
-/** Attempts to find a MS-DOS partition table on pDisk. If found, new Partition objects are created
- * and added as children of pDisk.
- * \return true if a ms-dos partition table was found.
+/** Attempts to find a MS-DOS partition table on pDisk. If found, new Partition
+ * objects are created and added as children of pDisk. \return true if a ms-dos
+ * partition table was found.
  */
 bool msdosProbeDisk(Disk *pDisk);
 
 /** Given a partition table, read and parse the contents. */
 bool msdosReadTable(MsdosPartitionInfo *pPartitions, Disk *pDisk);
-
 
 #endif

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,20 +20,22 @@
 #ifndef KERNEL_MACHINE_MIPS_COMMON_TIMER_H
 #define KERNEL_MACHINE_MIPS_COMMON_TIMER_H
 
-#include <processor/InterruptHandler.h>
 #include <machine/SchedulerTimer.h>
+#include <processor/InterruptHandler.h>
 #include <processor/state.h>
 
 /** @addtogroup kernelmachinex86common
  * @{ */
 
 /** The programmable interval timer implements the SchedulerTimer interface */
-class CountCompareTimer : public SchedulerTimer,
-                          private InterruptHandler
+class CountCompareTimer : public SchedulerTimer, private InterruptHandler
 {
-  public:
+    public:
     /** Get the CountCompareTimer class instance */
-    inline static CountCompareTimer &instance(){return m_Instance;}
+    inline static CountCompareTimer &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // SchedulerTimer interface
@@ -44,22 +45,24 @@ class CountCompareTimer : public SchedulerTimer,
     /** Initialises the class
      *\return true, if successful, false otherwise */
     bool initialise() INITIALISATION_ONLY;
-     /** Uninitialises the class */
+    /** Uninitialises the class */
     void uninitialise();
 
-  protected:
+    protected:
     /** The default constructor */
     CountCompareTimer() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~CountCompareTimer(){}
+    inline virtual ~CountCompareTimer()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     CountCompareTimer(const CountCompareTimer &);
     /** The assignment operator
      *\note NOT implemented */
-    CountCompareTimer &operator = (const CountCompareTimer &);
+    CountCompareTimer &operator=(const CountCompareTimer &);
 
     //
     // InterruptHandler interface

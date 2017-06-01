@@ -18,11 +18,11 @@
  */
 
 #include "Console.h"
-#include <vfs/VFS.h>
 #include <Module.h>
+#include <vfs/VFS.h>
 
-#include <processor/Processor.h>
 #include <process/Scheduler.h>
+#include <processor/Processor.h>
 
 ConsoleManager ConsoleManager::m_Instance;
 
@@ -50,17 +50,16 @@ void ConsoleManager::newConsole(char c, size_t i)
     }
 }
 
-ConsoleManager::ConsoleManager() :
-    m_Consoles(), m_Lock()
+ConsoleManager::ConsoleManager() : m_Consoles(), m_Lock()
 {
     // Create all consoles, so we can look them up easily.
-    for(size_t i = 0; i < 16; ++i)
+    for (size_t i = 0; i < 16; ++i)
     {
-        for(char c = 'p'; c <= 'z'; ++c)
+        for (char c = 'p'; c <= 'z'; ++c)
         {
             newConsole(c, i);
         }
-        for(char c = 'a'; c <= 'e'; ++c)
+        for (char c = 'a'; c <= 'e'; ++c)
         {
             newConsole(c, i);
         }
@@ -80,7 +79,7 @@ ConsoleManager &ConsoleManager::instance()
     return m_Instance;
 }
 
-File* ConsoleManager::getConsole(String consoleName)
+File *ConsoleManager::getConsole(String consoleName)
 {
     LockGuard<Spinlock> guard(m_Lock);
     for (size_t i = 0; i < m_Consoles.count(); i++)
@@ -102,17 +101,18 @@ ConsoleFile *ConsoleManager::getConsoleFile(RequestQueue *pBackend)
 
 bool ConsoleManager::lockConsole(File *file)
 {
-    if(!isConsole(file))
+    if (!isConsole(file))
         return false;
 
     ConsoleMasterFile *pConsole = static_cast<ConsoleMasterFile *>(file);
-    if(!pConsole->isMaster())
+    if (!pConsole->isMaster())
         return false;
 
-    if(pConsole->bLocked)
+    if (pConsole->bLocked)
         return false;
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     pConsole->bLocked = true;
     pConsole->pLocker = pProcess;
 
@@ -121,76 +121,78 @@ bool ConsoleManager::lockConsole(File *file)
 
 void ConsoleManager::unlockConsole(File *file)
 {
-    if(!isConsole(file))
+    if (!isConsole(file))
         return;
 
     ConsoleMasterFile *pConsole = static_cast<ConsoleMasterFile *>(file);
-    if(!pConsole->isMaster())
+    if (!pConsole->isMaster())
         return;
 
     // Make sure we are the owner of the master.
     // Forked children shouldn't be able to close() and steal a master pty.
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    if(pConsole->pLocker != pProcess)
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    if (pConsole->pLocker != pProcess)
         return;
     pConsole->bLocked = false;
 }
 
-bool ConsoleManager::isConsole(File* file)
+bool ConsoleManager::isConsole(File *file)
 {
-    if(!file)
+    if (!file)
         return false;
     return (file->getInode() == 0xdeadbeef);
 }
 
 bool ConsoleManager::isMasterConsole(File *file)
 {
-    if(!isConsole(file))
+    if (!isConsole(file))
         return false;
 
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     return pFile->isMaster();
 }
 
-void ConsoleManager::setAttributes(File* file, size_t flags)
+void ConsoleManager::setAttributes(File *file, size_t flags)
 {
     // \todo Sanity checking of the flags.
-    if(!file)
+    if (!file)
         return;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     pFile->m_Flags = flags;
 }
 
-void ConsoleManager::getAttributes(File* file, size_t *flags)
+void ConsoleManager::getAttributes(File *file, size_t *flags)
 {
-    if(!file || !flags)
+    if (!file || !flags)
         return;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     *flags = pFile->m_Flags;
 }
 
 void ConsoleManager::setControlChars(File *file, void *p)
 {
-    if(!file || !p)
+    if (!file || !p)
         return;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     MemoryCopy(pFile->m_ControlChars, p, MAX_CONTROL_CHAR);
 }
 
 void ConsoleManager::getControlChars(File *file, void *p)
 {
-    if(!file || !p)
+    if (!file || !p)
         return;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     MemoryCopy(p, pFile->m_ControlChars, MAX_CONTROL_CHAR);
 }
 
-int ConsoleManager::getWindowSize(File *file, unsigned short *rows, unsigned short *cols)
+int ConsoleManager::getWindowSize(
+    File *file, unsigned short *rows, unsigned short *cols)
 {
-    if(!file)
+    if (!file)
         return -1;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
-    if(!pFile->isMaster())
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
+    if (!pFile->isMaster())
     {
         if (pFile->m_pOther)
         {
@@ -203,12 +205,13 @@ int ConsoleManager::getWindowSize(File *file, unsigned short *rows, unsigned sho
     return 0;
 }
 
-int ConsoleManager::setWindowSize(File *file, unsigned short rows, unsigned short cols)
+int ConsoleManager::setWindowSize(
+    File *file, unsigned short rows, unsigned short cols)
 {
-    if(!file)
+    if (!file)
         return false;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
-    if((!pFile->isMaster()) && pFile->m_pOther)
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
+    if ((!pFile->isMaster()) && pFile->m_pOther)
     {
         // Ignore. Slave cannot change window size.
         return 0;
@@ -218,11 +221,11 @@ int ConsoleManager::setWindowSize(File *file, unsigned short rows, unsigned shor
     return 0;
 }
 
-bool ConsoleManager::hasDataAvailable(File* file)
+bool ConsoleManager::hasDataAvailable(File *file)
 {
-    if(!file)
+    if (!file)
         return false;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     return pFile->select(false, 0);
 }
 
@@ -232,9 +235,9 @@ void ConsoleManager::flush(File *file)
 
 File *ConsoleManager::getOther(File *file)
 {
-    if(!file)
+    if (!file)
         return 0;
-    ConsoleFile *pFile = reinterpret_cast<ConsoleFile*>(file);
+    ConsoleFile *pFile = reinterpret_cast<ConsoleFile *>(file);
     if (!pFile->m_pOther)
     {
         return file;  // some consoles (e.g. physical) don't have others

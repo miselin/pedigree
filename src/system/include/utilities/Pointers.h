@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,51 +20,50 @@
 #ifndef POINTERS_H
 #define POINTERS_H
 
-#include <processor/types.h>
 #include <Log.h>
+#include <processor/types.h>
 
 /** Provides a wrapper around a single-use pointer. The copy constructor
-  * will invalidate the reference in the object being copied from.
-  */
+ * will invalidate the reference in the object being copied from.
+ */
 template <class T>
 class UniquePointer
 {
     public:
-        UniquePointer(T *p) : m_Pointer(p)
-        {
-        }
+    UniquePointer(T *p) : m_Pointer(p)
+    {
+    }
 
-        virtual ~UniquePointer()
+    virtual ~UniquePointer()
+    {
+        if (m_Pointer)
         {
-            if(m_Pointer)
-            {
-                delete m_Pointer;
-                m_Pointer = 0;
-            }
+            delete m_Pointer;
+            m_Pointer = 0;
         }
+    }
 
-        UniquePointer(UniquePointer<T> &p)
-        {
-            m_Pointer = p.m_Pointer;
-            p.m_Pointer = 0;
-        }
+    UniquePointer(UniquePointer<T> &p)
+    {
+        m_Pointer = p.m_Pointer;
+        p.m_Pointer = 0;
+    }
 
-        UniquePointer<T> &operator = (UniquePointer<T> &p)
-        {
-            m_Pointer = p.m_Pointer;
-            p.m_Pointer = 0;
+    UniquePointer<T> &operator=(UniquePointer<T> &p)
+    {
+        m_Pointer = p.m_Pointer;
+        p.m_Pointer = 0;
 
-            return *this;
-        }
+        return *this;
+    }
 
-        T * operator * ()
-        {
-            return m_Pointer;
-        }
+    T *operator*()
+    {
+        return m_Pointer;
+    }
 
     private:
-
-        T *m_Pointer;
+    T *m_Pointer;
 };
 
 #endif

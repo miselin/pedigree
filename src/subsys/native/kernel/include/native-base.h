@@ -71,7 +71,8 @@
  *
  * Having created this identifier, create the kernel and application classes.
  * The kernel class should inherit from `NativeBase`, and the application class
- * should inherit from `Object`. Override `Object::guid` on the application class.
+ * should inherit from `Object`. Override `Object::guid` on the application
+ * class.
  *
  * Add the creation of an instance of the kernel class to
  * `NativeSyscallManager::factory`
@@ -93,23 +94,24 @@
 class NativeBase
 {
     public:
-        NativeBase()
-        {
-        }
-        virtual ~NativeBase()
-        {
-        }
+    NativeBase()
+    {
+    }
+    virtual ~NativeBase()
+    {
+    }
 
-        /**
-         * System call entry.
-         *
-         * This is where every NATIVE_CALL syscall ends up for each kernel-space
-         * object.
-         * \param subid the method call ID specific to this class
-         * \param params parameter block for this class
-         */
-        /// \todo this definition needs work
-        virtual ReturnState syscall(uint64_t subid, void *params, size_t params_size) = 0;
+    /**
+     * System call entry.
+     *
+     * This is where every NATIVE_CALL syscall ends up for each kernel-space
+     * object.
+     * \param subid the method call ID specific to this class
+     * \param params parameter block for this class
+     */
+    /// \todo this definition needs work
+    virtual ReturnState
+    syscall(uint64_t subid, void *params, size_t params_size) = 0;
 };
 
 #endif

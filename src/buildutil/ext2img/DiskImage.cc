@@ -17,21 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <BootstrapInfo.h>
-#include <utilities/utility.h>
-#include <Log.h>
 #include "DiskImage.h"
+#include <BootstrapInfo.h>
+#include <Log.h>
+#include <utilities/utility.h>
 
-#include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
-#define USE_FILE_IO  0
+#define USE_FILE_IO 0
 
-DiskImage::DiskImage(const char *path) : Disk(), m_pFileName(path), m_nSize(0),
-    m_pFile(0), m_FileNo(-1), m_pBuffer(0)
+DiskImage::DiskImage(const char *path)
+    : Disk(), m_pFileName(path), m_nSize(0), m_pFile(0), m_FileNo(-1),
+      m_pBuffer(0)
 {
 }
 
@@ -41,7 +42,7 @@ DiskImage::~DiskImage()
     {
 #if USE_FILE_IO
         fflush(m_pFile);
-        delete [] (char *) m_pBuffer;
+        delete[](char *) m_pBuffer;
 #elif HAS_ADDRESS_SANITIZER
         for (auto it : m_BufferMap)
         {
@@ -94,7 +95,8 @@ bool DiskImage::initialise()
 #elif HAS_ADDRESS_SANITIZER
     m_BufferMap.clear();
 #else
-    m_pBuffer = mmap(0, m_nSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, 0);
+    m_pBuffer =
+        mmap(0, m_nSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, 0);
     if (m_pBuffer == MAP_FAILED)
     {
         fclose(m_pFile);
@@ -110,9 +112,11 @@ bool DiskImage::initialise()
 
 uintptr_t DiskImage::read(uint64_t location)
 {
-    if((location > m_nSize) || !m_pFile)
+    if ((location > m_nSize) || !m_pFile)
     {
-        fprintf(stderr, "DiskImage::read: read past EOF (%lu vs %lu)\n", location, m_nSize);
+        fprintf(
+            stderr, "DiskImage::read: read past EOF (%lu vs %lu)\n", location,
+            m_nSize);
         return ~0;
     }
 
@@ -132,7 +136,8 @@ uintptr_t DiskImage::read(uint64_t location)
         return reinterpret_cast<uintptr_t>((*it).second) + off;
     }
 
-    void *p = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, location);
+    void *p =
+        mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, location);
     if (p == MAP_FAILED)
     {
         return ~0;
@@ -147,7 +152,7 @@ uintptr_t DiskImage::read(uint64_t location)
 
 void DiskImage::write(uint64_t location)
 {
-    if((location > m_nSize) || !m_pFile)
+    if ((location > m_nSize) || !m_pFile)
     {
         return;
     }

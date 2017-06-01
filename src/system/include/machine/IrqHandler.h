@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -31,17 +30,20 @@
  * be derived from this class */
 class IrqHandler
 {
-  public:
-    /** Called when the handler is registered with the irq manager and the irq occurred
-     *\note If this function returns false you have to call IrqManager::acknowledgeIrq() when
-     *      you removed the interrupt reason.
+    public:
+    /** Called when the handler is registered with the irq manager and the irq
+     *occurred \note If this function returns false you have to call
+     *IrqManager::acknowledgeIrq() when you removed the interrupt reason.
      *\param[in] number the irq number
-     *\return should return true, if the interrupt reason was removed, or false otherwise */
+     *\return should return true, if the interrupt reason was removed, or false
+     *otherwise */
     virtual bool irq(irq_id_t number, InterruptState &state) = 0;
 
-  protected:
+    protected:
     /** Virtual destructor */
-    inline virtual ~IrqHandler(){}
+    inline virtual ~IrqHandler()
+    {
+    }
 };
 
 /** @} */

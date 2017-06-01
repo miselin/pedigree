@@ -22,18 +22,18 @@
 
 #include <network-stack/NetworkStack.h>
 #include <processor/Processor.h>
-#include <usb/UsbHub.h>
-#include <usb/UsbConstants.h>
 #include <time/Time.h>
+#include <usb/UsbConstants.h>
+#include <usb/UsbHub.h>
 
 #include <LockGuard.h>
 
 #include <machine/Network.h>
 
-Dm9601::Dm9601(UsbDevice *pDev) :
-            UsbDevice(pDev), ::Network(), m_pInEndpoint(0), m_pOutEndpoint(0),
-            m_TxLock(false), m_IncomingPackets(false), m_RxPacketQueue(),
-            m_RxPacketQueueLock(), m_TxPacket(0)
+Dm9601::Dm9601(UsbDevice *pDev)
+    : UsbDevice(pDev), ::Network(), m_pInEndpoint(0), m_pOutEndpoint(0),
+      m_TxLock(false), m_IncomingPackets(false), m_RxPacketQueue(),
+      m_RxPacketQueueLock(), m_TxPacket(0)
 {
 }
 
@@ -44,24 +44,26 @@ Dm9601::~Dm9601()
 void Dm9601::initialiseDriver()
 {
     // Grab USB endpoints for the driver to use later
-    for(size_t i = 0; i < m_pInterface->endpointList.count(); i++)
+    for (size_t i = 0; i < m_pInterface->endpointList.count(); i++)
     {
         Endpoint *pEndpoint = m_pInterface->endpointList[i];
-        if(!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bIn)
+        if (!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) &&
+            pEndpoint->bIn)
             m_pInEndpoint = pEndpoint;
-        if(!m_pOutEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bOut)
+        if (!m_pOutEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) &&
+            pEndpoint->bOut)
             m_pOutEndpoint = pEndpoint;
-        if(m_pInEndpoint && m_pOutEndpoint)
+        if (m_pInEndpoint && m_pOutEndpoint)
             break;
     }
 
-    if(!m_pInEndpoint)
+    if (!m_pInEndpoint)
     {
         ERROR("dm9601: no bulk IN endpoint");
         return;
     }
 
-    if(!m_pOutEndpoint)
+    if (!m_pOutEndpoint)
     {
         ERROR("dm9601: no bulk OUT endpoint");
         return;
@@ -72,8 +74,9 @@ void Dm9601::initialiseDriver()
         pMac[i] = readEeprom(i);
     m_StationInfo.mac.setMac(pMac, false);
 
-    NOTICE("DM9601: MAC " << pMac[0] << ":" << pMac[1] << ":" << pMac[2] << ":" <<
-                             pMac[3] << ":" << pMac[4] << ":" << pMac[5]);
+    NOTICE(
+        "DM9601: MAC " << pMac[0] << ":" << pMac[1] << ":" << pMac[2] << ":"
+                       << pMac[3] << ":" << pMac[4] << ":" << pMac[5]);
 
     // Reset the chip
     writeRegister(NetworkControl, 1);
@@ -115,15 +118,19 @@ void Dm9601::initialiseDriver()
     /// \todo Timeout
     uint8_t *p = new uint8_t;
     *p = 0;
-    while(!*p)
+    while (!*p)
     {
         readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
         Time::delay(100 * Time::Multiplier::MILLISECOND);
     }
 
-    Thread *pThread = new Thread(Processor::information().getCurrentThread()->getParent(), trampoline, this);
+    Thread *pThread = new Thread(
+        Processor::information().getCurrentThread()->getParent(), trampoline,
+        this);
     pThread->detach();
-    pThread = new Thread(Processor::information().getCurrentThread()->getParent(), recvTrampoline, this);
+    pThread = new Thread(
+        Processor::information().getCurrentThread()->getParent(),
+        recvTrampoline, this);
     pThread->detach();
 
     NetworkStack::instance().registerDevice(this);
@@ -133,19 +140,19 @@ void Dm9601::initialiseDriver()
 
 int Dm9601::recvTrampoline(void *p)
 {
-    Dm9601 *pDm9601 = reinterpret_cast<Dm9601*>(p);
+    Dm9601 *pDm9601 = reinterpret_cast<Dm9601 *>(p);
     pDm9601->receiveLoop();
 }
 
 int Dm9601::trampoline(void *p)
 {
-    Dm9601 *pDm9601 = reinterpret_cast<Dm9601*>(p);
+    Dm9601 *pDm9601 = reinterpret_cast<Dm9601 *>(p);
     pDm9601->receiveThread();
 }
 
 void Dm9601::receiveThread()
 {
-    while(true)
+    while (true)
     {
         m_IncomingPackets.acquire();
 
@@ -153,7 +160,8 @@ void Dm9601::receiveThread()
         Packet *pPacket = m_RxPacketQueue.popFront();
         m_RxPacketQueueLock.release();
 
-        NetworkStack::instance().receive(pPacket->len, pPacket->buffer + pPacket->offset, this, 0);
+        NetworkStack::instance().receive(
+            pPacket->len, pPacket->buffer + pPacket->offset, this, 0);
 
         uintptr_t buffer = pPacket->buffer;
         delete pPacket;
@@ -164,7 +172,7 @@ void Dm9601::receiveThread()
 
 void Dm9601::receiveLoop()
 {
-    while(true)
+    while (true)
         doReceive();
 }
 
@@ -175,7 +183,7 @@ bool Dm9601::send(size_t nBytes, uintptr_t buffer)
 
     uint8_t *p = new uint8_t;
     readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
-    while(*p & (1 << 4))
+    while (*p & (1 << 4))
     {
         Time::delay(100 * Time::Multiplier::MILLISECOND);
         readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
@@ -183,33 +191,35 @@ bool Dm9601::send(size_t nBytes, uintptr_t buffer)
 
     // Avoid runt packets
     size_t padBytes = 0;
-    if(nBytes < 64)
+    if (nBytes < 64)
     {
         padBytes = nBytes % 64;
-        ByteSet(reinterpret_cast<void*>(buffer + nBytes), 0, padBytes);
+        ByteSet(reinterpret_cast<void *>(buffer + nBytes), 0, padBytes);
 
         nBytes = 64;
     }
 
     size_t txSize = nBytes + 2;
 
-    if(!(txSize % 64))
+    if (!(txSize % 64))
         txSize++;
 
     // Transmit endpoint
     uint16_t *pBuffer = new uint16_t[(txSize / sizeof(uint16_t)) + 1];
     *pBuffer = HOST_TO_LITTLE16(static_cast<uint16_t>(nBytes));
-    MemoryCopy(&pBuffer[1], reinterpret_cast<void*>(buffer), nBytes);
+    MemoryCopy(&pBuffer[1], reinterpret_cast<void *>(buffer), nBytes);
 
-    ssize_t ret = syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pBuffer), txSize);
-    delete [] pBuffer;
+    ssize_t ret =
+        syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pBuffer), txSize);
+    delete[] pBuffer;
 
     // Grab the TX status register so we can find errors
     readRegister(TxStatus1 + m_TxPacket, reinterpret_cast<uintptr_t>(p), 1);
 
     m_TxPacket = (m_TxPacket + 1) % 2;
 
-    // Read and clear the network status (which will contain the "packet complete" indicator)
+    // Read and clear the network status (which will contain the "packet
+    // complete" indicator)
     readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
 
     return ret >= 0;
@@ -220,20 +230,21 @@ bool Dm9601::send(size_t nBytes, uintptr_t buffer)
 void Dm9601::doReceive()
 {
     uintptr_t buff = NetworkStack::instance().getMemPool().allocate();
-    ssize_t ret = syncIn(m_pInEndpoint, buff, MAX_MTU, 0); // Never time out.
+    ssize_t ret = syncIn(m_pInEndpoint, buff, MAX_MTU, 0);  // Never time out.
 
-    if(ret < 0)
+    if (ret < 0)
     {
         WARNING("dm9601: rx failure due to USB error: " << ret);
         NetworkStack::instance().getMemPool().free(buff);
         return;
     }
 
-    uint8_t *pBuffer = reinterpret_cast<uint8_t*>(buff);
+    uint8_t *pBuffer = reinterpret_cast<uint8_t *>(buff);
     uint8_t rxstatus = pBuffer[0];
-    uint16_t len = LITTLE_TO_HOST16(*reinterpret_cast<uint16_t*>(buff + 1)) - 4;
+    uint16_t len =
+        LITTLE_TO_HOST16(*reinterpret_cast<uint16_t *>(buff + 1)) - 4;
 
-    if(rxstatus & 0x3F)
+    if (rxstatus & 0x3F)
     {
         WARNING("dm9601: rx failure: " << rxstatus << ", length was " << len);
         NetworkStack::instance().getMemPool().free(buff);
@@ -256,23 +267,33 @@ void Dm9601::doReceive()
 bool Dm9601::setStationInfo(StationInfo info)
 {
     // Free the old DNS server list, if there is one
-    if(m_StationInfo.dnsServers)
-        delete [] m_StationInfo.dnsServers;
+    if (m_StationInfo.dnsServers)
+        delete[] m_StationInfo.dnsServers;
 
     // MAC isn't changeable, so set it all manually
     m_StationInfo.ipv4 = info.ipv4;
-    NOTICE("DM9601: Setting ipv4, " << info.ipv4.toString() << ", " << m_StationInfo.ipv4.toString() << "...");
+    NOTICE(
+        "DM9601: Setting ipv4, " << info.ipv4.toString() << ", "
+                                 << m_StationInfo.ipv4.toString() << "...");
     m_StationInfo.ipv6 = info.ipv6;
 
     m_StationInfo.subnetMask = info.subnetMask;
-    NOTICE("DM9601: Setting subnet mask, " << info.subnetMask.toString() << ", " << m_StationInfo.subnetMask.toString() << "...");
+    NOTICE(
+        "DM9601: Setting subnet mask, " << info.subnetMask.toString() << ", "
+                                        << m_StationInfo.subnetMask.toString()
+                                        << "...");
     m_StationInfo.gateway = info.gateway;
-    NOTICE("DM9601: Setting gateway, " << info.gateway.toString() << ", " << m_StationInfo.gateway.toString() << "...");
+    NOTICE(
+        "DM9601: Setting gateway, " << info.gateway.toString() << ", "
+                                    << m_StationInfo.gateway.toString()
+                                    << "...");
 
     // Callers do not free their dnsServers memory
     m_StationInfo.dnsServers = info.dnsServers;
     m_StationInfo.nDnsServers = info.nDnsServers;
-    NOTICE("DM9601: Setting DNS servers [" << Dec << m_StationInfo.nDnsServers << Hex << " servers being set]...");
+    NOTICE(
+        "DM9601: Setting DNS servers [" << Dec << m_StationInfo.nDnsServers
+                                        << Hex << " servers being set]...");
 
     return true;
 }
@@ -284,40 +305,52 @@ StationInfo Dm9601::getStationInfo()
 
 ssize_t Dm9601::readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes)
 {
-    if(!buffer || (nBytes > 0xFF))
+    if (!buffer || (nBytes > 0xFF))
         return -1;
-    return controlRequest(UsbRequestType::Vendor | UsbRequestDirection::In, ReadRegister, 0, reg, nBytes, buffer);
+    return controlRequest(
+        UsbRequestType::Vendor | UsbRequestDirection::In, ReadRegister, 0, reg,
+        nBytes, buffer);
 }
 
 ssize_t Dm9601::writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes)
 {
-    if(!buffer || (nBytes > 0xFF))
+    if (!buffer || (nBytes > 0xFF))
         return -1;
-    return controlRequest(UsbRequestType::Vendor | UsbRequestDirection::Out, WriteRegister, 0, reg, nBytes, buffer);
+    return controlRequest(
+        UsbRequestType::Vendor | UsbRequestDirection::Out, WriteRegister, 0,
+        reg, nBytes, buffer);
 }
 
 ssize_t Dm9601::writeRegister(uint8_t reg, uint8_t data)
 {
-    return controlRequest(UsbRequestType::Vendor | UsbRequestDirection::Out, WriteRegister1, data, reg);
+    return controlRequest(
+        UsbRequestType::Vendor | UsbRequestDirection::Out, WriteRegister1, data,
+        reg);
 }
 
 ssize_t Dm9601::readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes)
 {
-    if(!buffer || (nBytes > 0xFF))
+    if (!buffer || (nBytes > 0xFF))
         return -1;
-    return controlRequest(UsbRequestType::Vendor | UsbRequestDirection::In, ReadMemory, 0, offset, nBytes, buffer);
+    return controlRequest(
+        UsbRequestType::Vendor | UsbRequestDirection::In, ReadMemory, 0, offset,
+        nBytes, buffer);
 }
 
 ssize_t Dm9601::writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes)
 {
-    if(!buffer || (nBytes > 0xFF))
+    if (!buffer || (nBytes > 0xFF))
         return -1;
-    return controlRequest(UsbRequestType::Vendor | UsbRequestDirection::Out, WriteMemory, 0, offset, nBytes, buffer);
+    return controlRequest(
+        UsbRequestType::Vendor | UsbRequestDirection::Out, WriteMemory, 0,
+        offset, nBytes, buffer);
 }
 
 ssize_t Dm9601::writeMemory(uint16_t offset, uint8_t data)
 {
-    return controlRequest(UsbRequestType::Vendor | UsbRequestDirection::Out, WriteMemory1, data, offset);
+    return controlRequest(
+        UsbRequestType::Vendor | UsbRequestDirection::Out, WriteMemory1, data,
+        offset);
 }
 
 uint16_t Dm9601::readEeprom(uint8_t offset)
@@ -325,9 +358,9 @@ uint16_t Dm9601::readEeprom(uint8_t offset)
     /// \todo Locking
     uint16_t *ret = new uint16_t;
     writeRegister(PhyAddress, offset);
-    writeRegister(PhyControl, 0x4); // Read from EEPROM
+    writeRegister(PhyControl, 0x4);  // Read from EEPROM
     Time::delay(100 * Time::Multiplier::MILLISECOND);
-    writeRegister(PhyControl, 0); // Stop the transfer
+    writeRegister(PhyControl, 0);  // Stop the transfer
     readRegister(PhyLowByte, reinterpret_cast<uintptr_t>(ret), 2);
 
     uint16_t retVal = *ret;
@@ -343,7 +376,7 @@ void Dm9601::writeEeprom(uint8_t offset, uint16_t data)
     *input = data;
     writeRegister(PhyAddress, offset);
     writeRegister(PhyLowByte, reinterpret_cast<uintptr_t>(input), 2);
-    writeRegister(PhyControl, 0x12); // Write to EEPROM
+    writeRegister(PhyControl, 0x12);  // Write to EEPROM
     Time::delay(100 * Time::Multiplier::MILLISECOND);
     writeRegister(PhyControl, 0);
 
@@ -354,10 +387,10 @@ uint16_t Dm9601::readMii(uint8_t offset)
 {
     /// \todo Locking
     uint16_t *ret = new uint16_t;
-    writeRegister(PhyAddress, offset | 0x40); // External MII starts at 0x40
-    writeRegister(PhyControl, 0xc); // Read from PHY
+    writeRegister(PhyAddress, offset | 0x40);  // External MII starts at 0x40
+    writeRegister(PhyControl, 0xc);            // Read from PHY
     Time::delay(100 * Time::Multiplier::MILLISECOND);
-    writeRegister(PhyControl, 0); // Stop the transfer
+    writeRegister(PhyControl, 0);  // Stop the transfer
     readRegister(PhyLowByte, reinterpret_cast<uintptr_t>(ret), 2);
 
     uint16_t retVal = *ret;
@@ -373,7 +406,7 @@ void Dm9601::writeMii(uint8_t offset, uint16_t data)
     *input = data;
     writeRegister(PhyAddress, offset | 0x40);
     writeRegister(PhyLowByte, reinterpret_cast<uintptr_t>(input), 2);
-    writeRegister(PhyControl, 0xa); // Transfer to PHY
+    writeRegister(PhyControl, 0xa);  // Transfer to PHY
     Time::delay(100 * Time::Multiplier::MILLISECOND);
     writeRegister(PhyControl, 0);
 

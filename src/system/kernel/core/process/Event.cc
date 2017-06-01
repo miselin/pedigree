@@ -23,9 +23,10 @@
 
 #include <Log.h>
 
-Event::Event(uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel) :
-    m_HandlerAddress(handlerAddress), m_bIsDeletable(isDeletable),
-    m_NestingLevel(specificNestingLevel), m_Magic(EVENT_MAGIC)
+Event::Event(
+    uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel)
+    : m_HandlerAddress(handlerAddress), m_bIsDeletable(isDeletable),
+      m_NestingLevel(specificNestingLevel), m_Magic(EVENT_MAGIC)
 {
 }
 
@@ -35,7 +36,8 @@ Event::~Event()
 
 uintptr_t Event::getTrampoline()
 {
-    return VirtualAddressSpace::getKernelAddressSpace().getKernelEventBlockStart();
+    return VirtualAddressSpace::getKernelAddressSpace()
+        .getKernelEventBlockStart();
 }
 
 uintptr_t Event::getSecondaryTrampoline()
@@ -50,7 +52,8 @@ uintptr_t Event::getHandlerBuffer()
 
 uintptr_t Event::getLastHandlerBuffer()
 {
-    return getHandlerBuffer() + ((EVENT_TID_MAX * MAX_NESTED_EVENTS) * EVENT_LIMIT);
+    return getHandlerBuffer() +
+           ((EVENT_TID_MAX * MAX_NESTED_EVENTS) * EVENT_LIMIT);
 }
 
 bool Event::isDeletable()
@@ -67,16 +70,16 @@ bool Event::unserialize(uint8_t *pBuffer, Event &event)
 size_t Event::getEventType(uint8_t *pBuffer)
 {
     void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBufferSize_t = reinterpret_cast<size_t*> (alignedBuffer);
+    size_t *pBufferSize_t = reinterpret_cast<size_t *>(alignedBuffer);
     return pBufferSize_t[0];
 }
 
-Event::Event(const Event &other) :
-    Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel)
+Event::Event(const Event &other)
+    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel)
 {
 }
 
-Event &Event::operator = (const Event &other)
+Event &Event::operator=(const Event &other)
 {
     m_HandlerAddress = other.m_HandlerAddress;
     m_bIsDeletable = other.m_bIsDeletable;

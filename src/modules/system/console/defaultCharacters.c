@@ -22,14 +22,7 @@
 #include "ConsoleDefines.h"
 
 const char defaultControl[MAX_CONTROL_CHAR] = {
-    [VINTR] = 0x03,
-    [VQUIT] = 0x1C,
-    [VERASE] = 0x08,
-    [VKILL] = 0x15,
-    [VEOF] = 0x04,
-    [VSUSP] = 0x1A,
-    [VSTART] = 0x11,
-    [VSTOP] = 0x13,
-    [VWERASE] = 0x17,
-    [VLNEXT] = 0x16,
+        [VINTR] = 0x03,   [VQUIT] = 0x1C,  [VERASE] = 0x08, [VKILL] = 0x15,
+        [VEOF] = 0x04,    [VSUSP] = 0x1A,  [VSTART] = 0x11, [VSTOP] = 0x13,
+        [VWERASE] = 0x17, [VLNEXT] = 0x16,
 };

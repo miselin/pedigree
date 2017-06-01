@@ -30,62 +30,62 @@
 class HashedInteger
 {
     public:
-        HashedInteger() : n_(-1)
-        {
-        }
+    HashedInteger() : n_(-1)
+    {
+    }
 
-        HashedInteger(int n) : n_(n)
-        {
-        }
+    HashedInteger(int n) : n_(n)
+    {
+    }
 
-        int hash() const
-        {
-            return n_;
-        }
+    int hash() const
+    {
+        return n_;
+    }
 
-        bool operator == (HashedInteger &other) const
-        {
-            return n_ == other.n_;
-        }
+    bool operator==(HashedInteger &other) const
+    {
+        return n_ == other.n_;
+    }
 
-        bool operator != (HashedInteger &other) const
-        {
-            return n_ != other.n_;
-        }
+    bool operator!=(HashedInteger &other) const
+    {
+        return n_ != other.n_;
+    }
 
     private:
-        int64_t n_;
+    int64_t n_;
 };
 
 class CollidingHashedInteger
 {
     public:
-        CollidingHashedInteger() : modulus_(0xFFFFFFFFU), n_(-1)
-        {
-        }
+    CollidingHashedInteger() : modulus_(0xFFFFFFFFU), n_(-1)
+    {
+    }
 
-        CollidingHashedInteger(int modulus, int n) : modulus_(modulus), n_(n)
-        {
-        }
+    CollidingHashedInteger(int modulus, int n) : modulus_(modulus), n_(n)
+    {
+    }
 
-        int hash() const
-        {
-            return n_ % modulus_;
-        }
+    int hash() const
+    {
+        return n_ % modulus_;
+    }
 
-        bool operator == (CollidingHashedInteger &other) const
-        {
-            return n_ == other.n_;
-        }
+    bool operator==(CollidingHashedInteger &other) const
+    {
+        return n_ == other.n_;
+    }
 
-        bool operator != (CollidingHashedInteger &other) const
-        {
-            return n_ != other.n_;
-        }
+    bool operator!=(CollidingHashedInteger &other) const
+    {
+        return n_ != other.n_;
+    }
 
     private:
-        int64_t n_;
-        int64_t modulus_;
+    int64_t n_;
+    int64_t modulus_;
 };
 
 static void BM_HashTableInsertPreallocate(benchmark::State &state)
@@ -106,7 +106,8 @@ static void BM_HashTableInsertPreallocate(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_HashTableInsertNoChains(benchmark::State &state)
@@ -126,7 +127,8 @@ static void BM_HashTableInsertNoChains(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_HashTableLookupNoChains(benchmark::State &state)
@@ -148,7 +150,8 @@ static void BM_HashTableLookupNoChains(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_HashTableInsertWithChains(benchmark::State &state)
@@ -168,7 +171,8 @@ static void BM_HashTableInsertWithChains(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_HashTableLookupWithChains(benchmark::State &state)
@@ -190,7 +194,8 @@ static void BM_HashTableLookupWithChains(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 BENCHMARK(BM_HashTableInsertPreallocate)->Range(8, 16384);

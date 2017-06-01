@@ -24,9 +24,9 @@
 #include <syslog.h>
 
 #ifndef NEW_XTERM
-# include "Xterm.h"
+#include "Xterm.h"
 #else
-# include "Vt100.h"
+#include "Vt100.h"
 #endif
 
 #include <native/graphics/Graphics.h>
@@ -37,12 +37,13 @@
     UTF-32 conversion and input queueing. */
 class Terminal
 {
-public:
+    public:
     friend class Xterm;
-    Terminal(char *pName, size_t nWidth, size_t nHeight,
-             size_t offsetLeft, size_t offsetTop, rgb_t *pBackground,
-             cairo_t *pCairo, class Widget *pWidget, class Tui *pTui,
-             class Font *pNormalFont, class Font *pBoldFont);
+    Terminal(
+        char *pName, size_t nWidth, size_t nHeight, size_t offsetLeft,
+        size_t offsetTop, rgb_t *pBackground, cairo_t *pCairo,
+        class Widget *pWidget, class Tui *pTui, class Font *pNormalFont,
+        class Font *pBoldFont);
     ~Terminal();
 
     bool initialise();
@@ -64,11 +65,16 @@ public:
 
     /** Returns the queue length. */
     size_t queueLength()
-    {return m_Len;}
+    {
+        return m_Len;
+    }
 
-    /** Gets descriptor to select() on for readability to see if we have pending output. */
+    /** Gets descriptor to select() on for readability to see if we have pending
+     * output. */
     int getSelectFd() const
-    {return m_MasterPty;}
+    {
+        return m_MasterPty;
+    }
 
     /** Writes the given UTF-8 sequence to the Xterm. */
     void write(const char *pStr, DirtyRectangle &rect);
@@ -107,8 +113,10 @@ public:
     void refresh()
     {
         // Force our buffer to the screen
-        if(m_pFramebuffer)
-            m_pFramebuffer->redraw(0, 0, m_pFramebuffer->getWidth(), m_pFramebuffer->getHeight(), false);
+        if (m_pFramebuffer)
+            m_pFramebuffer->redraw(
+                0, 0, m_pFramebuffer->getWidth(), m_pFramebuffer->getHeight(),
+                false);
     }
 
     rgb_t *getBuffer()
@@ -139,7 +147,7 @@ public:
     /** Cancels the current write operation (used by SIGINT handling) */
     void cancel()
     {
-        if(m_WriteInProgress)
+        if (m_WriteInProgress)
         {
             m_Cancel = 1;
         }
@@ -155,14 +163,14 @@ public:
         m_pXterm->setFonts(pNormalFont, pBoldFont);
     }
 
-private:
+    private:
     Terminal(const Terminal &);
-    Terminal &operator = (const Terminal &);
+    Terminal &operator=(const Terminal &);
 
     void addToQueue(char c, bool bFlush = false);
 
     rgb_t *m_pBuffer;
-    
+
     PedigreeGraphics::Framebuffer *m_pFramebuffer;
 #ifndef NEW_XTERM
     Xterm *m_pXterm;

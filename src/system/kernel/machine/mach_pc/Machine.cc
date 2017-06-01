@@ -21,5 +21,5 @@
 
 Machine &Machine::instance()
 {
-  return Pc::instance();
+    return Pc::instance();
 }

@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
-
 #include "newlib.h"
 
 #include <stdint.h>
@@ -33,24 +31,25 @@
  */
 int strcasecmp(const char *s1, const char *s2)
 {
-    if(!(s1 && s2))
-        return 0; // Same, but NULL.
+    if (!(s1 && s2))
+        return 0;  // Same, but NULL.
 
     int r = 0;
-    while(*s1)
+    while (*s1)
     {
         wchar_t c1, c2;
         int s1_stride = mbtowc(&c1, s1, 6);
         int s2_stride = mbtowc(&c2, s2, 6);
         r = towlower(c1) - towlower(c2);
-        if(r)
+        if (r)
             goto done;
-        s1 += s1_stride; s2 += s2_stride;
+        s1 += s1_stride;
+        s2 += s2_stride;
     }
 
-    if(*s1 && !*s2)
+    if (*s1 && !*s2)
         r = -1;
-    else if(!*s1 && *s2)
+    else if (!*s1 && *s2)
         r = 1;
 
 done:

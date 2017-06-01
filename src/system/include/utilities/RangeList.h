@@ -25,45 +25,50 @@
 /** @addtogroup kernelutilities
  * @{ */
 
-/** This class manages a List of ranges. It automatically merges adjacent entries
- *  in the list.
- *\param[in] T the integer type the range address and length is encoded in */
-template<typename T>
+/** This class manages a List of ranges. It automatically merges adjacent
+ *entries in the list. \param[in] T the integer type the range address and
+ *length is encoded in */
+template <typename T>
 class RangeList
 {
-  public:
+    public:
     /** Default constructor does nothing */
-    inline RangeList()
-      : m_List(), m_bReverse(false), m_bPreferUsed(false) {}
+    inline RangeList() : m_List(), m_bReverse(false), m_bPreferUsed(false)
+    {
+    }
     /** Construct with reverse order, without an initial allocation. */
     inline RangeList(bool reverse, bool preferUsed = false)
-      : m_List(), m_bReverse(reverse), m_bPreferUsed(preferUsed) {}
+        : m_List(), m_bReverse(reverse), m_bPreferUsed(preferUsed)
+    {
+    }
     /** Construct with a preexisting range
      *\param[in] Address beginning of the range
      *\param[in] Length length of the range */
-    RangeList(T Address, T Length, bool bReverse = false, bool preferUsed = false)
-      : m_List(), m_bReverse(bReverse), m_bPreferUsed(preferUsed)
+    RangeList(
+        T Address, T Length, bool bReverse = false, bool preferUsed = false)
+        : m_List(), m_bReverse(bReverse), m_bPreferUsed(preferUsed)
     {
-      Range *range = new Range(Address, Length);
-      m_List.pushBack(range);
+        Range *range = new Range(Address, Length);
+        m_List.pushBack(range);
     }
     /** Destructor frees the list */
     ~RangeList();
 
-    RangeList(const RangeList&);
+    RangeList(const RangeList &);
 
     /** Structure of one range */
     class Range
     {
-    public:
-      /** Construct a Range */
-      inline Range(T Address, T Length)
-          : address(Address), length(Length) {}
+        public:
+        /** Construct a Range */
+        inline Range(T Address, T Length) : address(Address), length(Length)
+        {
+        }
 
-      /** Beginning address of the range */
-      T address;
-      /** Length of the range  */
-      T length;
+        /** Beginning address of the range */
+        T address;
+        /** Length of the range  */
+        T length;
     };
 
     /** Free a range
@@ -73,7 +78,8 @@ class RangeList
     /** Allocate a range of a specific size
      *\param[in] length the requested length
      *\param[in,out] address the beginning address of the allocated range
-     *\return true, if successfully allocated (and address is valid), false otherwise */
+     *\return true, if successfully allocated (and address is valid), false
+     *otherwise */
     bool allocate(T length, T &address);
     /** Allocate a range of specific size and beginning address
      *\param[in] address the beginning address
@@ -84,17 +90,19 @@ class RangeList
 
     /** Get the number of ranges in the list
      *\return the number of ranges in the list */
-    inline size_t size() const{return m_List.size();}
+    inline size_t size() const
+    {
+        return m_List.size();
+    }
     /** Get a range at a specific index */
     Range getRange(size_t index) const;
 
     /** Sweep the RangeList and re-merge items. */
     void sweep();
 
-  private:
-
+    private:
     /** List of ranges */
-    List<Range*> m_List;
+    List<Range *> m_List;
 
     /** Should we allocate in reverse order? */
     bool m_bReverse;
@@ -102,20 +110,19 @@ class RangeList
     /** Should we prefer previously-used ranges where possible? */
     bool m_bPreferUsed;
 
-    RangeList &operator = (const RangeList & l);
+    RangeList &operator=(const RangeList &l);
 
-    typedef typename List<Range*>::Iterator Iterator;
-    typedef typename List<Range*>::ConstIterator ConstIterator;
-    typedef typename List<Range*>::ReverseIterator ReverseIterator;
-    typedef typename List<Range*>::ConstReverseIterator ConstReverseIterator;
+    typedef typename List<Range *>::Iterator Iterator;
+    typedef typename List<Range *>::ConstIterator ConstIterator;
+    typedef typename List<Range *>::ReverseIterator ReverseIterator;
+    typedef typename List<Range *>::ConstReverseIterator ConstReverseIterator;
 };
 
 /** @} */
 
 /** Copy constructor - performs deep copy. */
-template<typename T>
-RangeList<T>::RangeList(const RangeList<T>& other)
-  : m_List()
+template <typename T>
+RangeList<T>::RangeList(const RangeList<T> &other) : m_List()
 {
     m_List.clear();
     m_bReverse = other.m_bReverse;
@@ -127,60 +134,61 @@ RangeList<T>::RangeList(const RangeList<T>& other)
     }
 }
 
-template<typename T>
+template <typename T>
 void RangeList<T>::free(T address, T length)
 {
-  Iterator cur(m_List.begin());
-  ConstIterator end(m_List.end());
+    Iterator cur(m_List.begin());
+    ConstIterator end(m_List.end());
 
-  // Try and find a place to merge immediately.
-  bool needsNew = true;
-  for (; cur != end; ++cur)
-  {
-    // Region ends at our freed address.
-    if (((*cur)->address + (*cur)->length) == address)
+    // Try and find a place to merge immediately.
+    bool needsNew = true;
+    for (; cur != end; ++cur)
     {
-      // Update - all done.
-      (*cur)->length += length;
-      needsNew = false;
-      break;
+        // Region ends at our freed address.
+        if (((*cur)->address + (*cur)->length) == address)
+        {
+            // Update - all done.
+            (*cur)->length += length;
+            needsNew = false;
+            break;
+        }
+        // Region starts after our address.
+        else if ((*cur)->address == (address + length))
+        {
+            // Expand.
+            (*cur)->address -= length;
+            (*cur)->length += length;
+            needsNew = false;
+            break;
+        }
     }
-    // Region starts after our address.
-    else if ((*cur)->address == (address + length))
-    {
-      // Expand.
-      (*cur)->address -= length;
-      (*cur)->length += length;
-      needsNew = false;
-      break;
-    }
-  }
 
-  // Clean up any merges that we may have just created.
-  sweep();
+    // Clean up any merges that we may have just created.
+    sweep();
 
-  if (!needsNew)
-    return;
+    if (!needsNew)
+        return;
 
-  // Couldn't find a merge, so we need to add a new region.
+    // Couldn't find a merge, so we need to add a new region.
 
-  // Add the range back to our list, but in such a way that it is allocated
-  // last rather than first (if another allocation of the same length comes
-  // later).
-  Range *range = new Range(address, length);
+    // Add the range back to our list, but in such a way that it is allocated
+    // last rather than first (if another allocation of the same length comes
+    // later).
+    Range *range = new Range(address, length);
 
-  // Decide which side of the list to push to. If we prefer used ranges over
-  // fresh ranges, we want to invert the push decision.
-  bool front = m_bReverse;
-  if (m_bPreferUsed) front = !front;
+    // Decide which side of the list to push to. If we prefer used ranges over
+    // fresh ranges, we want to invert the push decision.
+    bool front = m_bReverse;
+    if (m_bPreferUsed)
+        front = !front;
 
-  if (front)
-    m_List.pushFront(range);
-  else
-    m_List.pushBack(range);
+    if (front)
+        m_List.pushFront(range);
+    else
+        m_List.pushBack(range);
 }
 
-template<typename T>
+template <typename T>
 bool RangeList<T>::allocate(T length, T &address)
 {
     bool bSuccess = false;
@@ -239,7 +247,7 @@ bool RangeList<T>::allocate(T length, T &address)
     return bSuccess;
 }
 
-template<typename T>
+template <typename T>
 bool RangeList<T>::allocateSpecific(T address, T length)
 {
     bool bSuccess = false;
@@ -255,7 +263,9 @@ bool RangeList<T>::allocateSpecific(T address, T length)
         }
 
         // Match at end.
-        else if ((*cur)->address < address && ((*cur)->address + (*cur)->length) == (address + length))
+        else if (
+            (*cur)->address < address &&
+            ((*cur)->address + (*cur)->length) == (address + length))
         {
             (*cur)->length -= length;
             bSuccess = true;
@@ -272,38 +282,43 @@ bool RangeList<T>::allocateSpecific(T address, T length)
         }
 
         // Match within.
-        else if ((*cur)->address < address && ((*cur)->address + (*cur)->length) > (address + length))
+        else if (
+            (*cur)->address < address &&
+            ((*cur)->address + (*cur)->length) > (address + length))
         {
             // Need to split the range.
-            Range *newRange = new Range(address + length, (*cur)->address + (*cur)->length - address - length);
+            Range *newRange = new Range(
+                address + length,
+                (*cur)->address + (*cur)->length - address - length);
             m_List.pushBack(newRange);
             (*cur)->length = address - (*cur)->address;
             bSuccess = true;
         }
-
     }
 
     sweep();
     return bSuccess;
 }
 
-template<typename T>
+template <typename T>
 typename RangeList<T>::Range RangeList<T>::getRange(size_t index) const
 {
-  if (index >= m_List.size()) return Range(0, 0);
+    if (index >= m_List.size())
+        return Range(0, 0);
 
-  ConstIterator cur(m_List.begin());
-  for (size_t i = 0; i < index; ++i) ++cur;
-  return Range(**cur);
+    ConstIterator cur(m_List.begin());
+    for (size_t i = 0; i < index; ++i)
+        ++cur;
+    return Range(**cur);
 }
 
-template<typename T>
+template <typename T>
 RangeList<T>::~RangeList()
 {
     clear();
 }
 
-template<typename T>
+template <typename T>
 void RangeList<T>::clear()
 {
     for (ConstIterator it = m_List.begin(); it != m_List.end(); ++it)
@@ -311,38 +326,38 @@ void RangeList<T>::clear()
     m_List.clear();
 }
 
-template<typename T>
+template <typename T>
 void RangeList<T>::sweep()
 {
-  // Try and clean up, merging as needed.
-  for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
-  {
-    // Can we merge? (note: preincrement modifies the iterator)
-    Iterator next = cur;
-    ++next;
-    if (next == m_List.end())
-      break;
-
-    uintptr_t cur_address = (*cur)->address;
-    uintptr_t next_address = (*next)->address;
-    size_t cur_len = (*cur)->length;
-    size_t next_len = (*next)->length;
-
-    if ((cur_address + cur_len) == next_address)
+    // Try and clean up, merging as needed.
+    for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
     {
-      // Merge.
-      (*cur)->length += next_len;
-      delete *next;
-      m_List.erase(next);
+        // Can we merge? (note: preincrement modifies the iterator)
+        Iterator next = cur;
+        ++next;
+        if (next == m_List.end())
+            break;
+
+        uintptr_t cur_address = (*cur)->address;
+        uintptr_t next_address = (*next)->address;
+        size_t cur_len = (*cur)->length;
+        size_t next_len = (*next)->length;
+
+        if ((cur_address + cur_len) == next_address)
+        {
+            // Merge.
+            (*cur)->length += next_len;
+            delete *next;
+            m_List.erase(next);
+        }
+        else if ((next_address + next_len) == cur_address)
+        {
+            (*cur)->address -= next_len;
+            (*cur)->length += next_len;
+            delete *next;
+            m_List.erase(next);
+        }
     }
-    else if ((next_address + next_len) == cur_address)
-    {
-      (*cur)->address -= next_len;
-      (*cur)->length += next_len;
-      delete *next;
-      m_List.erase(next);
-    }
-  }
 }
 
 #endif

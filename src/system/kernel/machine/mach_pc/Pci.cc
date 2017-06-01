@@ -18,33 +18,34 @@
  */
 
 #include <Log.h>
-#include <processor/types.h>
-#include <machine/Machine.h>
-#include <machine/Device.h>
 #include <machine/Bus.h>
-#include <processor/IoPort.h>
-#include <utilities/utility.h>
+#include <machine/Device.h>
+#include <machine/Machine.h>
 #include <machine/Pci.h>
+#include <processor/IoPort.h>
+#include <processor/types.h>
+#include <utilities/utility.h>
 
 #define CONFIG_ADDRESS 0
-#define CONFIG_DATA    4
+#define CONFIG_DATA 4
 
 #define MAX_BUS 4
 
 static IoPort configSpace("PCI config space");
 
-union ConfigAddress {
-  struct
-  {
-    uint32_t always0  : 2;
-    uint32_t offset   : 6;
-    uint32_t function : 3;
-    uint32_t device   : 5;
-    uint32_t bus      : 8;
-    uint32_t reserved : 7;
-    uint32_t enable   : 1;
-  } __attribute__((packed));
-  uint32_t raw;
+union ConfigAddress
+{
+    struct
+    {
+        uint32_t always0 : 2;
+        uint32_t offset : 6;
+        uint32_t function : 3;
+        uint32_t device : 5;
+        uint32_t bus : 8;
+        uint32_t reserved : 7;
+        uint32_t enable : 1;
+    } __attribute__((packed));
+    uint32_t raw;
 };
 
 PciBus PciBus::m_Instance;
@@ -87,7 +88,8 @@ uint32_t PciBus::readConfigSpace(Device *pDev, uint8_t offset)
     return configSpace.read32(CONFIG_DATA);
 }
 
-uint32_t PciBus::readConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset)
+uint32_t PciBus::readConfigSpace(
+    uint8_t bus, uint8_t device, uint8_t function, uint8_t offset)
 {
     ConfigAddress addr;
     ByteSet(&addr, 0, sizeof(addr));
@@ -115,7 +117,9 @@ void PciBus::writeConfigSpace(Device *pDev, uint8_t offset, uint32_t data)
     configSpace.write32(data, CONFIG_DATA);
 }
 
-void PciBus::writeConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t data)
+void PciBus::writeConfigSpace(
+    uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
+    uint32_t data)
 {
     ConfigAddress addr;
     ByteSet(&addr, 0, sizeof(addr));

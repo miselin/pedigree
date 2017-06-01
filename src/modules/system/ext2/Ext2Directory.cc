@@ -18,21 +18,21 @@
  */
 
 #include "Ext2Directory.h"
-#include "Ext2Filesystem.h"
-#include <syscallError.h>
 #include "Ext2File.h"
+#include "Ext2Filesystem.h"
 #include "Ext2Symlink.h"
+#include <syscallError.h>
 
-Ext2Directory::Ext2Directory(const String &name, uintptr_t inode_num, Inode *inode,
-                             Ext2Filesystem *pFs, File *pParent) :
-    Directory(name, LITTLE_TO_HOST32(inode->i_atime),
-              LITTLE_TO_HOST32(inode->i_mtime),
-              LITTLE_TO_HOST32(inode->i_ctime),
-              inode_num,
-              static_cast<Filesystem*>(pFs),
-              LITTLE_TO_HOST32(inode->i_size), /// \todo Deal with >4GB files here.
-              pParent),
-    Ext2Node(inode_num, inode, pFs)
+Ext2Directory::Ext2Directory(
+    const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,
+    File *pParent)
+    : Directory(
+          name, LITTLE_TO_HOST32(inode->i_atime),
+          LITTLE_TO_HOST32(inode->i_mtime), LITTLE_TO_HOST32(inode->i_ctime),
+          inode_num, static_cast<Filesystem *>(pFs),
+          LITTLE_TO_HOST32(inode->i_size),  /// \todo Deal with >4GB files here.
+          pParent),
+      Ext2Node(inode_num, inode, pFs)
 {
     uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
     setPermissionsOnly(modeToPermissions(mode));
@@ -50,11 +50,13 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     cacheDirectoryContents();
 
     // Calculate the size of our Dir* entry.
-    size_t length = 4 + /* 32-bit inode number */
+    size_t length =
+        4 + /* 32-bit inode number */
         2 + /* 16-bit record length */
         1 + /* 8-bit name length */
         1 + /* 8-bit file type */
-        filename.length(); /* Don't leave space for NULL-terminator, not needed. */
+        filename
+            .length(); /* Don't leave space for NULL-terminator, not needed. */
 
     bool bFound = false;
 
@@ -67,7 +69,7 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
         ensureBlockLoaded(i);
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
         pLastDir = pDir;
-        pDir = reinterpret_cast<Dir*>(buffer);
+        pDir = reinterpret_cast<Dir *>(buffer);
         pBlockEnd = adjust_pointer(pDir, m_pExt2Fs->m_BlockSize);
         while (pDir < pBlockEnd)
         {
@@ -118,7 +120,8 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
             pLastDir = pDir;
             pDir = adjust_pointer(pDir, entryReclen);
         }
-        if (bFound) break;
+        if (bFound)
+            break;
     }
 
     if (!bFound || !pDir)
@@ -131,7 +134,8 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
             SYSCALL_ERROR(NoSpaceLeftOnDevice);
             return false;
         }
-        if (!addBlock(block)) return false;
+        if (!addBlock(block))
+            return false;
         i = m_Blocks.count() - 1;
 
         m_Size = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
@@ -182,7 +186,8 @@ bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
     }
 
     pDir->d_namelen = filename.length();
-    MemoryCopy(pDir->d_name, static_cast<const char *>(filename), filename.length());
+    MemoryCopy(
+        pDir->d_name, static_cast<const char *>(filename), filename.length());
 
     // We're all good - add the directory to our cache.
     addDirectoryEntry(filename, pFile);
@@ -208,15 +213,18 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
     {
         ensureBlockLoaded(i);
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
-        pDir = reinterpret_cast<Dir*>(buffer);
+        pDir = reinterpret_cast<Dir *>(buffer);
         pLastDir = 0;
-        while (reinterpret_cast<uintptr_t>(pDir) < buffer + m_pExt2Fs->m_BlockSize)
+        while (reinterpret_cast<uintptr_t>(pDir) <
+               buffer + m_pExt2Fs->m_BlockSize)
         {
             if (LITTLE_TO_HOST32(pDir->d_inode) == fileInode)
             {
                 if (pDir->d_namelen == filename.length())
                 {
-                    if (!StringCompareN(pDir->d_name, static_cast<const char *>(filename), pDir->d_namelen))
+                    if (!StringCompareN(
+                            pDir->d_name, static_cast<const char *>(filename),
+                            pDir->d_namelen))
                     {
                         // Wipe out the directory entry.
                         uint16_t old_reclen = LITTLE_TO_HOST16(pDir->d_reclen);
@@ -242,10 +250,13 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
                 break;
             }
 
-            pDir = reinterpret_cast<Dir*> (reinterpret_cast<uintptr_t>(pDir) + LITTLE_TO_HOST16(pDir->d_reclen));
+            pDir = reinterpret_cast<Dir *>(
+                reinterpret_cast<uintptr_t>(pDir) +
+                LITTLE_TO_HOST16(pDir->d_reclen));
         }
 
-        if (bFound) break;
+        if (bFound)
+            break;
     }
 
     m_Size = m_nSize;
@@ -280,11 +291,14 @@ void Ext2Directory::cacheDirectoryContents()
         ensureBlockLoaded(i);
         // Grab the block and pin it while we parse it.
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
-        pDir = reinterpret_cast<Dir*>(buffer);
+        pDir = reinterpret_cast<Dir *>(buffer);
 
-        while (reinterpret_cast<uintptr_t>(pDir) < buffer+m_pExt2Fs->m_BlockSize)
+        while (reinterpret_cast<uintptr_t>(pDir) <
+               buffer + m_pExt2Fs->m_BlockSize)
         {
-            Dir *pNextDir = reinterpret_cast<Dir*> (reinterpret_cast<uintptr_t>(pDir) + LITTLE_TO_HOST16(pDir->d_reclen));
+            Dir *pNextDir = reinterpret_cast<Dir *>(
+                reinterpret_cast<uintptr_t>(pDir) +
+                LITTLE_TO_HOST16(pDir->d_reclen));
 
             if (pDir->d_inode == 0)
             {
@@ -297,7 +311,6 @@ void Ext2Directory::cacheDirectoryContents()
                 // Oops, not a valid entry (possibly deleted file). Skip.
                 pDir = pNextDir;
                 continue;
-
             }
 
             size_t namelen = pDir->d_namelen;
@@ -328,7 +341,9 @@ void Ext2Directory::cacheDirectoryContents()
                         fileType = EXT2_DIRECTORY;
                         break;
                     default:
-                        ERROR("EXT2: Inode has unsupported file type: " << inode_ftype << ".");
+                        ERROR(
+                            "EXT2: Inode has unsupported file type: "
+                            << inode_ftype << ".");
                         break;
                 }
 
@@ -344,16 +359,21 @@ void Ext2Directory::cacheDirectoryContents()
             switch (fileType)
             {
                 case EXT2_FILE:
-                    pFile = new Ext2File(sFilename, inodeNum, inode, m_pExt2Fs, this);
+                    pFile = new Ext2File(
+                        sFilename, inodeNum, inode, m_pExt2Fs, this);
                     break;
                 case EXT2_DIRECTORY:
-                    pFile = new Ext2Directory(sFilename, inodeNum, inode, m_pExt2Fs, this);
+                    pFile = new Ext2Directory(
+                        sFilename, inodeNum, inode, m_pExt2Fs, this);
                     break;
                 case EXT2_SYMLINK:
-                    pFile = new Ext2Symlink(sFilename, inodeNum, inode, m_pExt2Fs, this);
+                    pFile = new Ext2Symlink(
+                        sFilename, inodeNum, inode, m_pExt2Fs, this);
                     break;
                 default:
-                    ERROR("EXT2: Unrecognised file type for '" << sFilename << "': " << pDir->d_file_type);
+                    ERROR(
+                        "EXT2: Unrecognised file type for '"
+                        << sFilename << "': " << pDir->d_file_type);
             }
 
             // Add to cache.
@@ -372,6 +392,8 @@ void Ext2Directory::cacheDirectoryContents()
 
 void Ext2Directory::fileAttributeChanged()
 {
-    static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
-    static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(), permissionsToMode(getPermissions()));
+    static_cast<Ext2Node *>(this)->fileAttributeChanged(
+        m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
+    static_cast<Ext2Node *>(this)->updateMetadata(
+        getUid(), getGid(), permissionsToMode(getPermissions()));
 }

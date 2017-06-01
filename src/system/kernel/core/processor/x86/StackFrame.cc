@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -18,53 +17,52 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Log.h>
 #include <processor/StackFrame.h>
 #include <stdarg.h>
-#include <Log.h>
 
 #ifdef DEBUGGER
 uintptr_t X86StackFrame::getParameter(size_t n)
 {
-  /// Check for borked-ness.
-  /// \todo better way to do this.
-  if (m_BasePointer < 0x2000)
-    return 0;
-  #if defined(OMIT_FRAMEPOINTER)
-    uint32_t *pPtr = reinterpret_cast<uint32_t*>(m_BasePointer + (n + 1) * sizeof(uint32_t));
-  #else
-    uint32_t *pPtr = reinterpret_cast<uint32_t*>(m_BasePointer + (n + 2) * sizeof(uint32_t));
-  #endif
-  return *pPtr;
+    /// Check for borked-ness.
+    /// \todo better way to do this.
+    if (m_BasePointer < 0x2000)
+        return 0;
+#if defined(OMIT_FRAMEPOINTER)
+    uint32_t *pPtr = reinterpret_cast<uint32_t *>(
+        m_BasePointer + (n + 1) * sizeof(uint32_t));
+#else
+    uint32_t *pPtr = reinterpret_cast<uint32_t *>(
+        m_BasePointer + (n + 2) * sizeof(uint32_t));
+#endif
+    return *pPtr;
 }
 #endif
 
-void X86StackFrame::construct(ProcessorState &state,
-                              uintptr_t returnAddress,
-                              unsigned int nParams,
-                              ...)
+void X86StackFrame::construct(
+    ProcessorState &state, uintptr_t returnAddress, unsigned int nParams, ...)
 {
-  // Obtain the stack pointer.
-  uintptr_t *pStack = reinterpret_cast<uintptr_t*> (state.getStackPointer());
+    // Obtain the stack pointer.
+    uintptr_t *pStack = reinterpret_cast<uintptr_t *>(state.getStackPointer());
 
-  // How many parameters do we need to push?
-  // We push in reverse order but must iterate through the va_list in forward order,
-  // so we decrement the stack pointer here.
-  pStack -= nParams+1; // +1 for return address.
-  uintptr_t *pStackLowWaterMark = pStack;
+    // How many parameters do we need to push?
+    // We push in reverse order but must iterate through the va_list in forward
+    // order, so we decrement the stack pointer here.
+    pStack -= nParams + 1;  // +1 for return address.
+    uintptr_t *pStackLowWaterMark = pStack;
 
-  *pStack++ = returnAddress;
+    *pStack++ = returnAddress;
 
-  va_list list;
-  va_start(list, nParams);
+    va_list list;
+    va_start(list, nParams);
 
-  for(int i = nParams-1; i >= 0; i--)
-  {
-    *pStack++ = va_arg(list, uintptr_t);
-  }
+    for (int i = nParams - 1; i >= 0; i--)
+    {
+        *pStack++ = va_arg(list, uintptr_t);
+    }
 
-  va_end(list);
+    va_end(list);
 
-  // Write the new stack pointer back.
-  state.setStackPointer(reinterpret_cast<uintptr_t> (pStackLowWaterMark));
+    // Write the new stack pointer back.
+    state.setStackPointer(reinterpret_cast<uintptr_t>(pStackLowWaterMark));
 }
-

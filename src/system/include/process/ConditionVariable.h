@@ -21,8 +21,8 @@
 #define KERNEL_PROCESS_CONDITIONVARIABLE_H
 
 #include <Spinlock.h>
-#include <utilities/List.h>
 #include <time/Time.h>
+#include <utilities/List.h>
 
 class Mutex;
 class Thread;
@@ -33,30 +33,30 @@ class Thread;
 class ConditionVariable
 {
     public:
-        ConditionVariable();
-        ~ConditionVariable();
+    ConditionVariable();
+    ~ConditionVariable();
 
-        /** Wait for a signal on the condition variable.
-         * \param[in] mutex an acquired mutex protecting the resource.
-         * \param[in] timeout a timeout in nanoseconds to add (or zero for none). */
-        bool wait(Mutex &mutex, Time::Timestamp timeout = 0);
+    /** Wait for a signal on the condition variable.
+     * \param[in] mutex an acquired mutex protecting the resource.
+     * \param[in] timeout a timeout in nanoseconds to add (or zero for none). */
+    bool wait(Mutex &mutex, Time::Timestamp timeout = 0);
 
-        /** Wake up at least one thread that is currently waiting. */
-        void signal();
+    /** Wake up at least one thread that is currently waiting. */
+    void signal();
 
-        /** Wake up all threads currently waiting. */
-        void broadcast();
+    /** Wake up all threads currently waiting. */
+    void broadcast();
 
     private:
-        /// Lock around m_Waiters.
-        Spinlock m_Lock;
+    /// Lock around m_Waiters.
+    Spinlock m_Lock;
 
-        /// Threads waiting for a signal.
-        List<Thread *> m_Waiters;
+    /// Threads waiting for a signal.
+    List<Thread *> m_Waiters;
 
 #ifndef THREADS
-        /// Private data.
-        void *m_Private;
+    /// Private data.
+    void *m_Private;
 #endif
 };
 

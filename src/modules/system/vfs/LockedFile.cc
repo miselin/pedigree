@@ -18,18 +18,22 @@
  */
 
 #include "LockedFile.h"
-#include <processor/Processor.h>
 #include <Log.h>
+#include <processor/Processor.h>
 
-LockedFile::LockedFile(File *pFile) : m_File(pFile), m_bLocked(false), m_LockerPid(0)
+LockedFile::LockedFile(File *pFile)
+    : m_File(pFile), m_bLocked(false), m_LockerPid(0)
 #ifdef THREADS
-    , m_Lock(false)
+      ,
+      m_Lock(false)
 #endif
-{};
+          {};
 
-LockedFile::LockedFile(LockedFile &c) : m_File(0), m_bLocked(false), m_LockerPid(0)
+LockedFile::LockedFile(LockedFile &c)
+    : m_File(0), m_bLocked(false), m_LockerPid(0)
 #ifdef THREADS
-    , m_Lock(false)
+      ,
+      m_Lock(false)
 #endif
 {
     m_File = c.m_File;
@@ -37,7 +41,7 @@ LockedFile::LockedFile(LockedFile &c) : m_File(0), m_bLocked(false), m_LockerPid
     m_LockerPid = c.m_LockerPid;
 
 #ifdef THREADS
-    if(m_bLocked)
+    if (m_bLocked)
     {
         m_Lock.acquire();
     }
@@ -47,9 +51,9 @@ LockedFile::LockedFile(LockedFile &c) : m_File(0), m_bLocked(false), m_LockerPid
 bool LockedFile::lock(bool bBlock)
 {
 #ifdef THREADS
-    if(!bBlock)
+    if (!bBlock)
     {
-        if(!m_Lock.tryAcquire())
+        if (!m_Lock.tryAcquire())
         {
             return false;
         }
@@ -59,7 +63,8 @@ bool LockedFile::lock(bool bBlock)
 
     // Obtained the lock
     m_bLocked = true;
-    m_LockerPid = Processor::information().getCurrentThread()->getParent()->getId();
+    m_LockerPid =
+        Processor::information().getCurrentThread()->getParent()->getId();
 #endif
     return true;
 }
@@ -67,7 +72,7 @@ bool LockedFile::lock(bool bBlock)
 void LockedFile::unlock()
 {
 #ifdef THREADS
-    if(m_bLocked)
+    if (m_bLocked)
     {
         m_bLocked = false;
         m_Lock.release();
@@ -78,9 +83,11 @@ void LockedFile::unlock()
 File *LockedFile::getFile()
 {
 #ifdef THREADS
-    // If we're locked, and we aren't the locking process, we can't access the file
-    // Otherwise, the file is accessible
-    if(m_bLocked == true && Processor::information().getCurrentThread()->getParent()->getId() != m_LockerPid)
+    // If we're locked, and we aren't the locking process, we can't access the
+    // file Otherwise, the file is accessible
+    if (m_bLocked == true &&
+        Processor::information().getCurrentThread()->getParent()->getId() !=
+            m_LockerPid)
         return 0;
     else
 #endif
@@ -90,7 +97,7 @@ File *LockedFile::getFile()
 size_t LockedFile::getLocker()
 {
 #ifdef THREADS
-    if(m_bLocked)
+    if (m_bLocked)
         return m_LockerPid;
     else
 #endif

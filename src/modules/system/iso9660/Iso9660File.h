@@ -20,53 +20,63 @@
 #ifndef ISO9660FILE_H
 #define ISO9660FILE_H
 
-#include <vfs/Filesystem.h>
-#include <utilities/List.h>
-#include <utilities/Vector.h>
-#include <utilities/Tree.h>
-#include <process/Mutex.h>
 #include <LockGuard.h>
+#include <process/Mutex.h>
+#include <utilities/List.h>
+#include <utilities/Tree.h>
+#include <utilities/Vector.h>
+#include <vfs/Filesystem.h>
 
 #include "Iso9660Filesystem.h"
 #include "iso9660.h"
 
 class Iso9660File : public File
 {
-  friend class Iso9660Directory;
+    friend class Iso9660Directory;
 
-private:
-  /** Copy constructors are hidden - unused! */
-  Iso9660File(const Iso9660File &);
-  Iso9660File& operator =(const File&);
-  Iso9660File& operator =(const Iso9660File&);
-public:
-  /** Constructor, should be called only by a Filesystem. */
-  Iso9660File(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-       uintptr_t inode, class Iso9660Filesystem *pFs, size_t size, Iso9660DirRecord &record, File *pParent = 0) :
-    File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_pFs(pFs), m_Dir(record)
-  {}
-  virtual ~Iso9660File() {}
+    private:
+    /** Copy constructors are hidden - unused! */
+    Iso9660File(const Iso9660File &);
+    Iso9660File &operator=(const File &);
+    Iso9660File &operator=(const Iso9660File &);
 
-  inline Iso9660DirRecord &getDirRecord()
-  {
-    return m_Dir;
-  }
+    public:
+    /** Constructor, should be called only by a Filesystem. */
+    Iso9660File(
+        String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+        Time::Timestamp creationTime, uintptr_t inode,
+        class Iso9660Filesystem *pFs, size_t size, Iso9660DirRecord &record,
+        File *pParent = 0)
+        : File(
+              name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
+              pParent),
+          m_pFs(pFs), m_Dir(record)
+    {
+    }
+    virtual ~Iso9660File()
+    {
+    }
 
-protected:
+    inline Iso9660DirRecord &getDirRecord()
+    {
+        return m_Dir;
+    }
+
+    protected:
     virtual uintptr_t readBlock(uint64_t location);
 
     virtual size_t getBlockSize() const
     {
-      return 2048;
+        return 2048;
     }
 
-private:
-  // Filesystem object
-  Iso9660Filesystem *m_pFs;
+    private:
+    // Filesystem object
+    Iso9660Filesystem *m_pFs;
 
-  // Our internal directory information (info about *this* directory, not the child)
-  Iso9660DirRecord m_Dir;
+    // Our internal directory information (info about *this* directory, not the
+    // child)
+    Iso9660DirRecord m_Dir;
 };
 
 #endif

@@ -20,23 +20,25 @@
 #include "FatFile.h"
 #include "FatFilesystem.h"
 
+#include <LockGuard.h>
 #include <process/Mutex.h>
 #include <utilities/MemoryPool.h>
-#include <LockGuard.h>
 
-FatFile::FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-                 uintptr_t inode, class Filesystem *pFs, size_t size, uint32_t dirClus,
-                 uint32_t dirOffset, File *pParent) :
-    File(name,accessedTime,modifiedTime,creationTime,inode,pFs,size,pParent),
-    m_DirClus(dirClus), m_DirOffset(dirOffset), m_FileBlockCache()
+FatFile::FatFile(
+    String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+    Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
+    size_t size, uint32_t dirClus, uint32_t dirOffset, File *pParent)
+    : File(
+          name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
+          pParent),
+      m_DirClus(dirClus), m_DirOffset(dirOffset), m_FileBlockCache()
 {
-    m_FileBlockCache.setCallback(writeCallback, static_cast<File*>(this));
+    m_FileBlockCache.setCallback(writeCallback, static_cast<File *>(this));
 
     // No permissions on FAT - set all to RWX.
     setPermissions(
-            FILE_UR | FILE_UW | FILE_UX |
-            FILE_GR | FILE_GW | FILE_GX |
-            FILE_OR | FILE_OW | FILE_OX);
+        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+        FILE_OW | FILE_OX);
 }
 
 FatFile::~FatFile()
@@ -45,7 +47,7 @@ FatFile::~FatFile()
 
 uintptr_t FatFile::readBlock(uint64_t location)
 {
-    FatFilesystem *pFs = static_cast<FatFilesystem*>(m_pFilesystem);
+    FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);
 
     uintptr_t buffer = m_FileBlockCache.insert(location);
     pFs->read(this, location, getBlockSize(), buffer);
@@ -56,12 +58,12 @@ uintptr_t FatFile::readBlock(uint64_t location)
 
 void FatFile::writeBlock(uint64_t location, uintptr_t addr)
 {
-    FatFilesystem *pFs = static_cast<FatFilesystem*>(m_pFilesystem);
+    FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);
 
     // Don't accidentally extend the file when writing the block.
     size_t sz = getBlockSize();
     uint64_t end = location + sz;
-    if(end > getSize())
+    if (end > getSize())
         sz = getSize() - location;
     pFs->write(this, location, sz, addr);
 }
@@ -83,9 +85,9 @@ void FatFile::unpinBlock(uint64_t location)
 
 void FatFile::extend(size_t newSize)
 {
-    FatFilesystem *pFs = static_cast<FatFilesystem*>(m_pFilesystem);
+    FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);
 
-    if(m_Size < newSize)
+    if (m_Size < newSize)
     {
         pFs->extend(this, newSize);
         m_Size = newSize;

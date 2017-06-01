@@ -17,18 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Machine.h>
+#include "Keyboard.h"
+#include <machine/Device.h>
 #include <machine/HidInputManager.h>
 #include <machine/KeymapManager.h>
-#include <machine/Device.h>
-#include "Keyboard.h"
+#include <machine/Machine.h>
 
 #ifdef DEBUGGER
-  #include <Debugger.h>
+#include <Debugger.h>
 
-  #ifdef TRACK_PAGE_ALLOCATIONS
-    #include <AllocationCommand.h>
-  #endif
+#ifdef TRACK_PAGE_ALLOCATIONS
+#include <AllocationCommand.h>
+#endif
 #endif
 
 #ifdef DEBUGGER
@@ -37,9 +37,9 @@
 
 #include <SlamAllocator.h>
 
-X86Keyboard::X86Keyboard(uint32_t portBase) :
-    m_bDebugState(false), m_Escape(KeymapManager::EscapeNone), m_pBase(0),
-    m_IrqId(0), m_LedState(0)
+X86Keyboard::X86Keyboard(uint32_t portBase)
+    : m_bDebugState(false), m_Escape(KeymapManager::EscapeNone), m_pBase(0),
+      m_IrqId(0), m_LedState(0)
 {
 }
 
@@ -49,15 +49,15 @@ X86Keyboard::~X86Keyboard()
 
 void X86Keyboard::initialise()
 {
-    auto f = [this] (Device *p) {
+    auto f = [this](Device *p) {
         if (m_pBase)
         {
             return p;
         }
 
-        if(p->addresses().count() > 0)
+        if (p->addresses().count() > 0)
         {
-            if(p->addresses()[0]->m_Name == "ps2-base")
+            if (p->addresses()[0]->m_Name == "ps2-base")
             {
                 m_pBase = p->addresses()[0]->m_Io;
             }
@@ -66,78 +66,79 @@ void X86Keyboard::initialise()
         return p;
     };
     auto c = pedigree_std::make_callable(f);
-    Device::foreach(c, 0);
+    Device::foreach (c, 0);
 
-    if(!m_pBase)
+    if (!m_pBase)
     {
         // Handle the impossible case properly
-        FATAL("X86Keyboard: Could not find the PS/2 base ports in the device tree");
+        FATAL("X86Keyboard: Could not find the PS/2 base ports in the device "
+              "tree");
     }
 
     // Register the irq
     IrqManager &irqManager = *Machine::instance().getIrqManager();
     m_IrqId = irqManager.registerIsaIrqHandler(1, this, true);
-    if(m_IrqId == 0)
+    if (m_IrqId == 0)
     {
         ERROR("X86Keyboard: failed to register IRQ handler!");
     }
-    
+
     irqManager.control(1, IrqManager::MitigationThreshold, 100);
 }
 
 bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
 {
-    if(m_bDebugState)
+    if (m_bDebugState)
         return true;
 
     // Get the keyboard's status byte
     uint8_t status = m_pBase->read8(4);
-    if(!(status & 0x01))
+    if (!(status & 0x01))
         return true;
 
     // Get the scancode for the pending keystroke
     uint8_t scancode = m_pBase->read8(0);
 
-    // Check for keys with special functions
+// Check for keys with special functions
 #ifdef DEBUGGER
 #if CRIPPLINGLY_VIGILANT
-    if(scancode == 0x43) // F9
+    if (scancode == 0x43)  // F9
         SlamAllocator::instance().setVigilance(true);
-    if(scancode == 0x44) // F10
+    if (scancode == 0x44)  // F10
         SlamAllocator::instance().setVigilance(false);
 #endif
-    if(scancode == 0x57) // F11
+    if (scancode == 0x57)  // F11
     {
 #ifdef TRACK_PAGE_ALLOCATIONS
         g_AllocationCommand.checkpoint();
 #endif
         g_SlamCommand.clean();
     }
-    if(scancode == 0x58) // F12
+    if (scancode == 0x58)  // F12
     {
         LargeStaticString sError;
         sError += "User-induced breakpoint";
         Debugger::instance().start(state, sError);
     }
 #endif
-    
+
     // Check for LED manipulation
-    if(scancode & 0x80)
+    if (scancode & 0x80)
     {
         uint8_t code = scancode & ~0x80;
-        if(code == 0x3A)
+        if (code == 0x3A)
         {
             DEBUG_LOG("X86Keyboard: Caps Lock toggled");
             m_LedState ^= Keyboard::CapsLock;
             setLedState(m_LedState);
         }
-        else if(code == 0x45)
+        else if (code == 0x45)
         {
             DEBUG_LOG("X86Keyboard: Num Lock toggled");
             m_LedState ^= Keyboard::NumLock;
             setLedState(m_LedState);
         }
-        else if(code == 0x46)
+        else if (code == 0x46)
         {
             DEBUG_LOG("X86Keyboard: Scroll Lock toggled");
             m_LedState ^= Keyboard::ScrollLock;
@@ -146,12 +147,14 @@ bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
     }
 
     // Get the HID keycode corresponding to the scancode
-    uint8_t keyCode = KeymapManager::instance().convertPc102ScancodeToHidKeycode(scancode, m_Escape);
-    if(!keyCode)
+    uint8_t keyCode =
+        KeymapManager::instance().convertPc102ScancodeToHidKeycode(
+            scancode, m_Escape);
+    if (!keyCode)
         return true;
 
     // Send the keycode to the HID input manager
-    if(scancode & 0x80)
+    if (scancode & 0x80)
         HidInputManager::instance().keyUp(keyCode);
     else
         HidInputManager::instance().keyDown(keyCode);
@@ -160,15 +163,14 @@ bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
 
 char X86Keyboard::getChar()
 {
-    if(m_bDebugState)
+    if (m_bDebugState)
     {
         uint8_t scancode, status;
         do
         {
             // Get the keyboard's status byte
             status = m_pBase->read8(4);
-        }
-        while(!(status & 0x01)); // Spin until there's a key ready
+        } while (!(status & 0x01));  // Spin until there's a key ready
 
         // Get the scancode for the pending keystroke
         scancode = m_pBase->read8(0);
@@ -185,12 +187,12 @@ char X86Keyboard::getChar()
 
 char X86Keyboard::getCharNonBlock()
 {
-    if(m_bDebugState)
+    if (m_bDebugState)
     {
         uint8_t scancode, status;
         // Get the keyboard's status byte
         status = m_pBase->read8(4);
-        if(!(status & 0x01))
+        if (!(status & 0x01))
             return 0;
 
         // Get the scancode for the pending keystroke
@@ -201,7 +203,8 @@ char X86Keyboard::getCharNonBlock()
     }
     else
     {
-        ERROR("Keyboard::getCharNonBlock should not be called outside debug mode");
+        ERROR("Keyboard::getCharNonBlock should not be called outside debug "
+              "mode");
         return 0;
     }
 }
@@ -210,7 +213,7 @@ void X86Keyboard::setDebugState(bool enableDebugState)
 {
     m_bDebugState = enableDebugState;
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    if(m_bDebugState)
+    if (m_bDebugState)
     {
         irqManager.enable(1, false);
 
@@ -236,34 +239,40 @@ bool X86Keyboard::getDebugState()
 char X86Keyboard::scancodeToAscii(uint8_t scancode)
 {
     // Get the HID keycode corresponding to the scancode
-    uint8_t keyCode = KeymapManager::instance().convertPc102ScancodeToHidKeycode(scancode, m_Escape);
-    if(!keyCode)
+    uint8_t keyCode =
+        KeymapManager::instance().convertPc102ScancodeToHidKeycode(
+            scancode, m_Escape);
+    if (!keyCode)
         return 0;
 
     uint64_t key = 0;
     // Let KeymapManager handle the modifiers
-    if(!KeymapManager::instance().handleHidModifier(keyCode, !(scancode & 0x80)) && !(scancode & 0x80))
-        key = KeymapManager::instance().resolveHidKeycode(keyCode); // Get the actual key
+    if (!KeymapManager::instance().handleHidModifier(
+            keyCode, !(scancode & 0x80)) &&
+        !(scancode & 0x80))
+        key = KeymapManager::instance().resolveHidKeycode(
+            keyCode);  // Get the actual key
 
     // Check for special keys
-    if(key & Keyboard::Special)
+    if (key & Keyboard::Special)
     {
-        char a = key & 0xFF, b = (key >> 8) & 0xFF, c = (key >> 16) & 0xFF, d = (key >> 24) & 0xFF;
+        char a = key & 0xFF, b = (key >> 8) & 0xFF, c = (key >> 16) & 0xFF,
+             d = (key >> 24) & 0xFF;
         // Up
-        if(a == 'u' && b == 'p')
+        if (a == 'u' && b == 'p')
             return 'j';
         // Down
-        if(a == 'd' && b == 'o' && c == 'w' && d == 'n')
+        if (a == 'd' && b == 'o' && c == 'w' && d == 'n')
             return 'k';
         // PageUp
-        if(a == 'p' && b == 'g' && c == 'u' && d == 'p')
+        if (a == 'p' && b == 'g' && c == 'u' && d == 'p')
             return '\b';
         // PageDown
-        if(a == 'p' && b == 'g' && c == 'd' && d == 'n')
+        if (a == 'p' && b == 'g' && c == 'd' && d == 'n')
             return ' ';
     }
     // Discard non-ASCII keys
-    if((key & Keyboard::Special) || ((key & 0xFFFFFFFF) > 0x7f))
+    if ((key & Keyboard::Special) || ((key & 0xFFFFFFFF) > 0x7f))
         return 0;
     return static_cast<char>(key & 0x7f);
 }
@@ -276,9 +285,11 @@ char X86Keyboard::getLedState()
 void X86Keyboard::setLedState(char state)
 {
     m_LedState = state;
-    
-    while(m_pBase->read8(4) & 2);
+
+    while (m_pBase->read8(4) & 2)
+        ;
     m_pBase->write8(0xED, 0);
-    while(m_pBase->read8(4) & 2);
+    while (m_pBase->read8(4) & 2)
+        ;
     m_pBase->write8(state, 0);
 }

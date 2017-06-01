@@ -34,69 +34,72 @@ class Backtrace
     friend class AllocationCommand;
     friend class LocksCommand;
     friend class SlamAllocator;
-public:
-  /**
-   * Creates a new Backtrace object.
-   */
-  Backtrace();
-  ~Backtrace();
 
-  /**
-   * Performs a backtrace from the given base pointer address, or if none was specified,
-   * the current EBP location.
-   */
-  void performBacktrace(InterruptState &state);
+    public:
+    /**
+     * Creates a new Backtrace object.
+     */
+    Backtrace();
+    ~Backtrace();
 
-  /**
-   * Returns the number of stack frames retrieved.
-   */
-  size_t numStackFrames();
+    /**
+     * Performs a backtrace from the given base pointer address, or if none was
+     * specified, the current EBP location.
+     */
+    void performBacktrace(InterruptState &state);
 
-  /**
-   * Returns the return address of the n'th stack frame.
-   */
-  uintptr_t getReturnAddress(size_t n);
+    /**
+     * Returns the number of stack frames retrieved.
+     */
+    size_t numStackFrames();
 
-  /**
-   * Returns the base pointer of the n'th stack frame.
-   */
-  uintptr_t getBasePointer(size_t n);
+    /**
+     * Returns the return address of the n'th stack frame.
+     */
+    uintptr_t getReturnAddress(size_t n);
 
-  void prettyPrint(HugeStaticString &buf, size_t nFrames=0, size_t nFromFrame=0);
+    /**
+     * Returns the base pointer of the n'th stack frame.
+     */
+    uintptr_t getBasePointer(size_t n);
 
-private:
-  /**
-   * Performs a DWARF backtrace.
-   */
-  void performDwarfBacktrace(InterruptState &state);
+    void prettyPrint(
+        HugeStaticString &buf, size_t nFrames = 0, size_t nFromFrame = 0);
 
-  /**
-   * Performs a "normal" backtrace, based on following a linked list of frame pointers.
-   */
-public:
-  void performBpBacktrace(uintptr_t base, uintptr_t instruction);
+    private:
+    /**
+     * Performs a DWARF backtrace.
+     */
+    void performDwarfBacktrace(InterruptState &state);
+
+    /**
+     * Performs a "normal" backtrace, based on following a linked list of frame
+     * pointers.
+     */
+    public:
+    void performBpBacktrace(uintptr_t base, uintptr_t instruction);
 #ifdef ARM_COMMON
-  void performArmBacktrace(uintptr_t base, uintptr_t instruction);
+    void performArmBacktrace(uintptr_t base, uintptr_t instruction);
 #endif
-private:
-  /**
-   * The return addresses.
-   */
-  uintptr_t m_pReturnAddresses[MAX_STACK_FRAMES];
-  /**
-   * The base pointers.
-   */
-  uintptr_t m_pBasePointers[MAX_STACK_FRAMES];
+    private:
+    /**
+     * The return addresses.
+     */
+    uintptr_t m_pReturnAddresses[MAX_STACK_FRAMES];
+    /**
+     * The base pointers.
+     */
+    uintptr_t m_pBasePointers[MAX_STACK_FRAMES];
 
-  /**
-   * Processor register states.
-   */
-  ProcessorState m_pStates[MAX_STACK_FRAMES];
+    /**
+     * Processor register states.
+     */
+    ProcessorState m_pStates[MAX_STACK_FRAMES];
 
-  /**
-   * The number of stack frames retrieved by a performBacktrace call.
-   */
-  size_t m_nStackFrames;
+    /**
+     * The number of stack frames retrieved by a performBacktrace call.
+     */
+    size_t m_nStackFrames;
 };
 
 /** @} */

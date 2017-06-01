@@ -18,23 +18,23 @@
  */
 
 #include "BusMasterIde.h"
-#include <processor/types.h>
+#include <LockGuard.h>
 #include <processor/IoBase.h>
 #include <processor/IoPort.h>
-#include <processor/Processor.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
-#include <LockGuard.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
 
-BusMasterIde::BusMasterIde() :
-    m_pBase(0), m_PrdTableLock(false), m_PrdTable(0), m_LastPrdTableOffset(0),
-    m_PrdTablePhys(0), m_PrdTableMemRegion("bus-master-ide"), m_bActive(false)
+BusMasterIde::BusMasterIde()
+    : m_pBase(0), m_PrdTableLock(false), m_PrdTable(0), m_LastPrdTableOffset(0),
+      m_PrdTablePhys(0), m_PrdTableMemRegion("bus-master-ide"), m_bActive(false)
 {
 }
 
 BusMasterIde::~BusMasterIde()
 {
-    if(m_pBase)
+    if (m_pBase)
     {
         delete m_pBase;
         m_pBase = 0;
@@ -44,30 +44,32 @@ BusMasterIde::~BusMasterIde()
 bool BusMasterIde::initialise(IoBase *pBase)
 {
     // Firstly verify the incoming ports
-    if(!pBase)
+    if (!pBase)
         return false;
     // Deviation from convention a bit here... The controller creating the
     // IoBase for us to use will split the port range into Primary/Secondary
     // ranges, which simplifies driver code.
-    if(pBase->size() != 8)
+    if (pBase->size() != 8)
         return false;
 
     // Right, it seems the I/O base checks out... Try and allocate some memory
     // for the PRDT now.
-    if(!PhysicalMemoryManager::instance().allocateRegion(m_PrdTableMemRegion,
-                                                       1,
-                                                       PhysicalMemoryManager::continuous,
-                                                       VirtualAddressSpace::Write,
-                                                       -1))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_PrdTableMemRegion, 1, PhysicalMemoryManager::continuous,
+            VirtualAddressSpace::Write, -1))
     {
         ERROR("BusMasterIde: Couldn't allocate the PRD table!");
         return false;
     }
     else
     {
-        m_PrdTable = reinterpret_cast<PhysicalRegionDescriptor *>(m_PrdTableMemRegion.virtualAddress());
+        m_PrdTable = reinterpret_cast<PhysicalRegionDescriptor *>(
+            m_PrdTableMemRegion.virtualAddress());
         m_PrdTablePhys = m_PrdTableMemRegion.physicalAddress();
-        NOTICE("BusMasterIde: PRD table at v=" << reinterpret_cast<uintptr_t>(m_PrdTableMemRegion.virtualAddress()) << ", p=" << m_PrdTablePhys << ".");
+        NOTICE(
+            "BusMasterIde: PRD table at v="
+            << reinterpret_cast<uintptr_t>(m_PrdTableMemRegion.virtualAddress())
+            << ", p=" << m_PrdTablePhys << ".");
     }
 
     // Reset active state.
@@ -80,11 +82,12 @@ bool BusMasterIde::initialise(IoBase *pBase)
 bool BusMasterIde::add(uintptr_t buffer, size_t nBytes)
 {
     // Sanity check
-    if(!buffer || !nBytes || !m_pBase)
+    if (!buffer || !nBytes || !m_pBase)
         return false;
 
     // A couple of useful things to know
-    size_t prdTableEntries = (m_PrdTableMemRegion.size() / sizeof(PhysicalRegionDescriptor));
+    size_t prdTableEntries =
+        (m_PrdTableMemRegion.size() / sizeof(PhysicalRegionDescriptor));
 
     // Firstly check if we need to wait a bit... If an operation
     m_pBase->read8(Status);
@@ -93,69 +96,82 @@ bool BusMasterIde::add(uintptr_t buffer, size_t nBytes)
     // Okay, we're good to go - check that the buffer is mapped in first
     LockGuard<Mutex> guard(m_PrdTableLock);
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if(va.isMapped(reinterpret_cast<void*>(buffer)))
+    if (va.isMapped(reinterpret_cast<void *>(buffer)))
     {
         // Okay, the address is mapped, so we can start inserting PRD table
         // entries.
         size_t nRemainingBytes = nBytes, currOffset = 0, i = 0;
-        while(nRemainingBytes && ((m_LastPrdTableOffset + i) < prdTableEntries))
+        while (nRemainingBytes &&
+               ((m_LastPrdTableOffset + i) < prdTableEntries))
         {
             // Grab the mapping of this specfic portion of the block. Each PRD
             // entry covers a 4096-byte region of memory (it can cover up to
             // 65,536 bytes, but by using only 4096-byte regions it is possible
             // to avoid the contiguous physical RAM requirement).
-            void *loc = reinterpret_cast<void*>(buffer + currOffset);
-            if(va.isMapped(loc))
+            void *loc = reinterpret_cast<void *>(buffer + currOffset);
+            if (va.isMapped(loc))
             {
-                physical_uintptr_t physPage = 0; size_t flags = 0;
-                va.getMapping(reinterpret_cast<void*>(buffer + currOffset), physPage, flags);
+                physical_uintptr_t physPage = 0;
+                size_t flags = 0;
+                va.getMapping(
+                    reinterpret_cast<void *>(buffer + currOffset), physPage,
+                    flags);
                 // NOTICE("v=" << (buffer + currOffset) << ", p=" << physPage);
 
-                // Add in whatever offset into the page we may have in the buffer
-                // parameter.
+                // Add in whatever offset into the page we may have in the
+                // buffer parameter.
                 size_t pageOffset = 0;
-                if(i == 0)
+                if (i == 0)
                     pageOffset = (buffer & 0xFFF);
 
                 // Install into the PRD table now
-                // NOTICE("PRD[" << Dec << m_LastPrdTableOffset + i << Hex << "].addr=" << (physPage + pageOffset) << ".");
-                m_PrdTable[m_LastPrdTableOffset + i].physAddr = physPage + pageOffset;
+                // NOTICE("PRD[" << Dec << m_LastPrdTableOffset + i << Hex <<
+                // "].addr=" << (physPage + pageOffset) << ".");
+                m_PrdTable[m_LastPrdTableOffset + i].physAddr =
+                    physPage + pageOffset;
 
                 // Determine the transfer size we should use
                 size_t transferSize = nRemainingBytes;
-                if(transferSize > 4096)
+                if (transferSize > 4096)
                     transferSize = 4096 - pageOffset;
-                // NOTICE("PRD[" << Dec << m_LastPrdTableOffset + i << Hex << "].size=" << transferSize << ".");
-                m_PrdTable[m_LastPrdTableOffset + i].byteCount = transferSize & 0xFFFF;
+                // NOTICE("PRD[" << Dec << m_LastPrdTableOffset + i << Hex <<
+                // "].size=" << transferSize << ".");
+                m_PrdTable[m_LastPrdTableOffset + i].byteCount =
+                    transferSize & 0xFFFF;
 
                 // Complete the PRD entry after determining the next offset
-                // NOTICE("BEFORE: Current offset = " << currOffset << ", remaining bytes: " << nRemainingBytes);
+                // NOTICE("BEFORE: Current offset = " << currOffset << ",
+                // remaining bytes: " << nRemainingBytes);
                 currOffset += transferSize;
                 nRemainingBytes -= transferSize;
-                // NOTICE("AFTER: Current offset = " << currOffset << ", remaining bytes: " << nRemainingBytes);
-                if(!nRemainingBytes)
-                    m_PrdTable[m_LastPrdTableOffset + i].rsvdEot = 0x8000; // End-of-table?
+                // NOTICE("AFTER: Current offset = " << currOffset << ",
+                // remaining bytes: " << nRemainingBytes);
+                if (!nRemainingBytes)
+                    m_PrdTable[m_LastPrdTableOffset + i].rsvdEot =
+                        0x8000;  // End-of-table?
                 else
                     m_PrdTable[m_LastPrdTableOffset + i].rsvdEot = 0;
                 i++;
             }
             else
-                FATAL("BusMasterIde: Part of the incoming buffer was not mapped (" << loc << ")!");
+                FATAL(
+                    "BusMasterIde: Part of the incoming buffer was not mapped ("
+                    << loc << ")!");
         }
 
         // If we added an entry, remove the EOT from any previous PRD that was
         // present.
-        if(i && m_LastPrdTableOffset)
+        if (i && m_LastPrdTableOffset)
             m_PrdTable[m_LastPrdTableOffset - 1].rsvdEot = 0;
         // If we didn't add an entry, just return failure
-        else if(!i)
+        else if (!i)
             return false;
 
         m_LastPrdTableOffset += i;
         return true;
     }
     else
-        return false; // Buffer not mapped - nothing we can do!
+        return false;  // Buffer not mapped - nothing we can do!
 }
 
 bool BusMasterIde::begin(bool bWrite)
@@ -166,15 +182,16 @@ bool BusMasterIde::begin(bool bWrite)
     // If no other command is running, set the PRD physical address and
     // begin the command.
     uint8_t statusReg = m_pBase->read8(Status);
-    if(!(statusReg & 0x1))
+    if (!(statusReg & 0x1))
     {
         // Write the physical address to the table address register
         m_pBase->write32(m_PrdTablePhys, PrdTableAddr);
 
         // Begin the command
         uint8_t cmdReg = m_pBase->read8(Command);
-        if(cmdReg & 0x1)
-            FATAL("BusMaster IDE status and command registers don't make sense");
+        if (cmdReg & 0x1)
+            FATAL(
+                "BusMaster IDE status and command registers don't make sense");
         cmdReg = (cmdReg & 0xF6) | 0x1 | (bWrite ? 0 : 8);
         m_pBase->write8(cmdReg, BusMasterIde::Command);
     }
@@ -192,7 +209,7 @@ bool BusMasterIde::begin(bool bWrite)
 bool BusMasterIde::hasInterrupt()
 {
     // Sanity check
-    if(!m_pBase)
+    if (!m_pBase)
         return false;
 
     // Easy check here
@@ -203,7 +220,7 @@ bool BusMasterIde::hasInterrupt()
 bool BusMasterIde::hasError()
 {
     // Sanity check
-    if(!m_pBase)
+    if (!m_pBase)
         return false;
 
     // Easy check here
@@ -214,7 +231,7 @@ bool BusMasterIde::hasError()
 bool BusMasterIde::hasCompleted()
 {
     // Sanity check
-    if(!m_pBase)
+    if (!m_pBase)
         return false;
 
     // Easy check here
@@ -225,32 +242,33 @@ bool BusMasterIde::hasCompleted()
 void BusMasterIde::commandComplete()
 {
     // Sanity check
-    if(!m_pBase)
+    if (!m_pBase)
         return;
 
     // Read the status register to dump information about the command completion
     uint8_t statusReg = m_pBase->read8(Status);
 #if BUSMASTER_VERBOSE_LOGGING
-    if((statusReg & 0x1) && (!(statusReg & 0x4)))
+    if ((statusReg & 0x1) && (!(statusReg & 0x4)))
     {
         // DMA transfer in progress. Abort the transfer.
         NOTICE("BusMasterIde: aborting transfer in progress");
     }
-    else if((!(statusReg & 0x1)) && (statusReg & 0x4))
+    else if ((!(statusReg & 0x1)) && (statusReg & 0x4))
     {
         // IDE device triggered an interrupt, successful transfer
         NOTICE("BusMasterIde: successful transfer, exact transfer size");
     }
-    else if((statusReg & 0x1) && (statusReg & 0x4))
+    else if ((statusReg & 0x1) && (statusReg & 0x4))
     {
         // IDE device triggered an interrupt, successful transfer
-        NOTICE("BusMasterIde: successful transfer, more buffer space than needed");
+        NOTICE(
+            "BusMasterIde: successful transfer, more buffer space than needed");
     }
     else
     {
         // Error condition
         NOTICE("Status register = " << statusReg << ".");
-        if(!(statusReg & 0x1))
+        if (!(statusReg & 0x1))
         {
             NOTICE("BusMasterIde: not enough buffer space provided");
         }

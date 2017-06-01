@@ -17,24 +17,25 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/types.h>
-#include <processor/Processor.h>
-#include <machine/Device.h>
-#include <machine/Machine.h>
-#include <utilities/List.h>
-#include <Log.h>
-#include <Module.h>
 #include "Ehci.h"
 #include "Ohci.h"
 #include "Uhci.h"
+#include <Log.h>
+#include <Module.h>
+#include <machine/Device.h>
+#include <machine/Machine.h>
+#include <processor/Processor.h>
+#include <processor/types.h>
+#include <utilities/List.h>
 
-enum HcdConstants {
-    HCI_CLASS = 0x0C,       // Host Controller PCI class
-    HCI_SUBCLASS = 0x03,    // Host Controller PCI subclass
-    HCI_PROGIF_UHCI = 0x00, // UHCI PCI programming interface
-    HCI_PROGIF_OHCI = 0x10, // OHCI PCI programming interface
-    HCI_PROGIF_EHCI = 0x20, // EHCI PCI programming interface
-    HCI_PROGIF_XHCI = 0x30, // xHCI PCI programming interface
+enum HcdConstants
+{
+    HCI_CLASS = 0x0C,        // Host Controller PCI class
+    HCI_SUBCLASS = 0x03,     // Host Controller PCI subclass
+    HCI_PROGIF_UHCI = 0x00,  // UHCI PCI programming interface
+    HCI_PROGIF_OHCI = 0x10,  // OHCI PCI programming interface
+    HCI_PROGIF_EHCI = 0x20,  // EHCI PCI programming interface
+    HCI_PROGIF_XHCI = 0x30,  // xHCI PCI programming interface
 };
 
 static bool bFound = false;
@@ -59,7 +60,7 @@ static void probeEhci(Device *pDev)
     // Create a new Ehci node
     Ehci *pEhci = new Ehci(pDev);
     bool success = pEhci->initialiseController();
-    if(!success)
+    if (!success)
     {
         NOTICE("USB: EHCI failed to initialise");
         return;
@@ -104,13 +105,18 @@ static void probeUhci(Device *pDev)
 
 static bool entry()
 {
-    // Interrupts may get disabled on the way here, so make sure they are enabled
+    // Interrupts may get disabled on the way here, so make sure they are
+    // enabled
     Processor::setInterrupts(true);
-    Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_XHCI, probeXhci);
-    Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_EHCI, probeEhci);
-    Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_OHCI, probeOhci);
+    Device::searchByClassSubclassAndProgInterface(
+        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_XHCI, probeXhci);
+    Device::searchByClassSubclassAndProgInterface(
+        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_EHCI, probeEhci);
+    Device::searchByClassSubclassAndProgInterface(
+        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_OHCI, probeOhci);
 #ifdef X86_COMMON
-    Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_UHCI, probeUhci);
+    Device::searchByClassSubclassAndProgInterface(
+        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_UHCI, probeUhci);
 #endif
 
     return bFound;
@@ -118,7 +124,6 @@ static bool entry()
 
 static void exit()
 {
-
 }
 
 #ifdef X86_COMMON

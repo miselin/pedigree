@@ -22,13 +22,13 @@
 
 #include <processor/types.h>
 #ifdef THREADS
-#include <process/Mutex.h>
 #include <process/ConditionVariable.h>
+#include <process/Mutex.h>
 #endif
-#include <processor/MemoryRegion.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <processor/PhysicalMemoryManager.h>
 #include <process/MemoryPressureManager.h>
+#include <processor/MemoryRegion.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <utilities/ExtensibleBitmap.h>
 
 class MemoryPool;
 
@@ -39,7 +39,7 @@ class MemoryPool;
  */
 class MemoryPoolPressureHandler : public MemoryPressureHandler
 {
-public:
+    public:
     MemoryPoolPressureHandler(MemoryPool *pool);
     virtual ~MemoryPoolPressureHandler();
 
@@ -47,78 +47,78 @@ public:
 
     virtual bool compact();
 
-private:
+    private:
     MemoryPool *m_Pool;
 };
 
 /** MemoryPool - a class which encapsulates a pool of memory with constant
-  * sized buffers that can be allocated around the kernel. Intended to be
-  * used instead of the heap for areas where similar sized buffers are
-  * regularly allocated, such as networking code. */
+ * sized buffers that can be allocated around the kernel. Intended to be
+ * used instead of the heap for areas where similar sized buffers are
+ * regularly allocated, such as networking code. */
 class MemoryPool
 {
     public:
-        MemoryPool();
-        MemoryPool(const char *poolName);
-        virtual ~MemoryPool();
+    MemoryPool();
+    MemoryPool(const char *poolName);
+    virtual ~MemoryPool();
 
-        /// Initialises the pool, preparing it for use
-        /// @param poolSize Number of pages in the pool.
-        /// @param bufferSize Size of each buffer. Will be rounded to the
-        ///                   next power of two.
-        bool initialise(size_t poolSize, size_t bufferSize = 1024);
-        
-        /// Call if you aren't certain that the object has been initialised yet
-        inline bool initialised()
-        {
-            return m_bInitialised;
-        }
+    /// Initialises the pool, preparing it for use
+    /// @param poolSize Number of pages in the pool.
+    /// @param bufferSize Size of each buffer. Will be rounded to the
+    ///                   next power of two.
+    bool initialise(size_t poolSize, size_t bufferSize = 1024);
 
-        /// Allocates a buffer from the pool. Will block if no buffers are
-        /// available yet.
-        uintptr_t allocate();
+    /// Call if you aren't certain that the object has been initialised yet
+    inline bool initialised()
+    {
+        return m_bInitialised;
+    }
 
-        /// Allocates a buffer from the pool. If no buffers are available, this
-        /// function will return straight away.
-        /// @return Zero if a buffer couldn't be allocated.
-        uintptr_t allocateNow();
+    /// Allocates a buffer from the pool. Will block if no buffers are
+    /// available yet.
+    uintptr_t allocate();
 
-        /// Frees an allocated buffer, allowing it to be used elsewhere
-        void free(uintptr_t buffer);
+    /// Allocates a buffer from the pool. If no buffers are available, this
+    /// function will return straight away.
+    /// @return Zero if a buffer couldn't be allocated.
+    uintptr_t allocateNow();
 
-        /// Trims the pool, freeing pages that are not otherwise in use.
-        bool trim();
+    /// Frees an allocated buffer, allowing it to be used elsewhere
+    void free(uintptr_t buffer);
+
+    /// Trims the pool, freeing pages that are not otherwise in use.
+    bool trim();
 
     private:
 #ifdef THREADS
-        ConditionVariable m_Condition;
-        Mutex m_Lock;
+    ConditionVariable m_Condition;
+    Mutex m_Lock;
 #endif
 
-        /// Size of each buffer in this pool
-        size_t m_BufferSize;
+    /// Size of each buffer in this pool
+    size_t m_BufferSize;
 
-        /// Number of buffers we have available.
-        size_t m_BufferCount;
+    /// Number of buffers we have available.
+    size_t m_BufferCount;
 
 #ifndef STANDALONE_MEMPOOL
-        /// MemoryRegion describing the actual pool of memory
-        MemoryRegion m_Pool;
+    /// MemoryRegion describing the actual pool of memory
+    MemoryRegion m_Pool;
 #endif
-        
-        /// Has this instance been initialised yet?
-        bool m_bInitialised;
 
-        /// Allocation bitmap
-        ExtensibleBitmap m_AllocBitmap;
+    /// Has this instance been initialised yet?
+    bool m_bInitialised;
+
+    /// Allocation bitmap
+    ExtensibleBitmap m_AllocBitmap;
 
 #ifndef STANDALONE_MEMPOOL
-        /// Memory pressure handler for this pool.
-        MemoryPoolPressureHandler m_PressureHandler;
+    /// Memory pressure handler for this pool.
+    MemoryPoolPressureHandler m_PressureHandler;
 #endif
 
-        /// Allocation doer
-        uintptr_t allocateDoer(bool canBlock);
+    /// Allocation doer
+    uintptr_t allocateDoer(bool canBlock);
 };
 
 #endif

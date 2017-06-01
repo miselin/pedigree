@@ -17,29 +17,30 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Log.h>
 #include <hid/HidReport.h>
 #include <hid/HidUsages.h>
 #include <hid/HidUtils.h>
 #include <utilities/PointerGuard.h>
-#include <Log.h>
 
 // Handy macro for mixing tag and type in a single value
 #define MIX_TYPE_N_TAG(type, tag) (type | (tag << 2))
 
 // Log macro that also outputs a number of tabs before the text
-#define TABBED_LOG(tabs, text) \
-    do \
-    { \
+#define TABBED_LOG(tabs, text)                  \
+    do                                          \
+    {                                           \
         char *sTabs = new char[(tabs * 4) + 1]; \
-        ByteSet(sTabs, ' ', tabs * 4); \
-        sTabs[tabs * 4] = '\0'; \
-        DEBUG_LOG(sTabs << text); \
-        delete [] sTabs; \
-    } \
-    while (0)
+        ByteSet(sTabs, ' ', tabs * 4);          \
+        sTabs[tabs * 4] = '\0';                 \
+        DEBUG_LOG(sTabs << text);               \
+        delete[] sTabs;                         \
+    } while (0)
 
-#define ITEM_LOG(tabs, type, value) TABBED_LOG(tabs, type << " (" << value << ")" << Hex)
-#define ITEM_LOG_DEC(tabs, type, value) TABBED_LOG(tabs, Dec << type << " (" << value << ")" << Hex)
+#define ITEM_LOG(tabs, type, value) \
+    TABBED_LOG(tabs, type << " (" << value << ")" << Hex)
+#define ITEM_LOG_DEC(tabs, type, value) \
+    TABBED_LOG(tabs, Dec << type << " (" << value << ")" << Hex)
 
 HidReport::HidReport()
 {
@@ -66,7 +67,7 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
     size_t nDepth = 0;
 
     // Parse every item in the descriptor
-    for(size_t i = 0; i < nDescriptorLength; i++)
+    for (size_t i = 0; i < nDescriptorLength; i++)
     {
         // A union and structure used to unpack the item's data
         union
@@ -85,23 +86,25 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
 
         // Get the value
         uint32_t value = 0;
-        if(size == 1)
+        if (size == 1)
             value = pDescriptor[i + 1];
-        else if(size == 2)
+        else if (size == 2)
             value = pDescriptor[i + 1] | (pDescriptor[i + 2] << 8);
-        else if(size == 4)
-            value = pDescriptor[i + 1] | (pDescriptor[i + 2] << 8) | (pDescriptor[i + 3] << 16) | (pDescriptor[i + 4] << 24);
+        else if (size == 4)
+            value = pDescriptor[i + 1] | (pDescriptor[i + 2] << 8) |
+                    (pDescriptor[i + 3] << 16) | (pDescriptor[i + 4] << 24);
 
         // Update the byte counter (we may hit a continue)
         i += size;
 
-        // Don't allow for Main items (Input, Output, Feature, etc.) outside a collection
-        if(!pCurrentCollection)
+        // Don't allow for Main items (Input, Output, Feature, etc.) outside a
+        // collection
+        if (!pCurrentCollection)
             if (item.type == MainItem && item.tag != CollectionItem)
                 continue;
 
         // Check for type and tag to find which item do we have
-        switch(MIX_TYPE_N_TAG(item.type, item.tag))
+        switch (MIX_TYPE_N_TAG(item.type, item.tag))
         {
             // Main items
             case MIX_TYPE_N_TAG(MainItem, InputItem):
@@ -109,24 +112,26 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
                 // Create a new InputBlock and set the state and type
                 InputBlock *pBlock = new InputBlock();
                 pBlock->state = currentState;
-                if(value & InputConstant)
+                if (value & InputConstant)
                 {
                     pBlock->type = InputBlock::Constant;
                     ITEM_LOG(nDepth, "Input", "Constant");
                 }
                 else
                 {
-                    if(value & InputVariable)
+                    if (value & InputVariable)
                     {
-                        if(value & InputRelative)
+                        if (value & InputRelative)
                         {
                             pBlock->type = InputBlock::Relative;
-                            ITEM_LOG(nDepth, "Input", "Data, Variable, Relative");
+                            ITEM_LOG(
+                                nDepth, "Input", "Data, Variable, Relative");
                         }
                         else
                         {
                             pBlock->type = InputBlock::Absolute;
-                            ITEM_LOG(nDepth, "Input", "Data, Variable, Absolute");
+                            ITEM_LOG(
+                                nDepth, "Input", "Data, Variable, Absolute");
                         }
                     }
                     else
@@ -137,7 +142,8 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
                 }
 
                 // Push it into the child vector
-                pCurrentCollection->childs.pushBack(new Collection::Child(pBlock));
+                pCurrentCollection->childs.pushBack(
+                    new Collection::Child(pBlock));
                 break;
             }
             case MIX_TYPE_N_TAG(MainItem, CollectionItem):
@@ -148,21 +154,22 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
                 pCollection->state = currentState;
 
                 // Push it into the child vector
-                if(pCurrentCollection)
-                    pCurrentCollection->childs.pushBack(new Collection::Child(pCollection));
+                if (pCurrentCollection)
+                    pCurrentCollection->childs.pushBack(
+                        new Collection::Child(pCollection));
 
                 // We now entered the collection
                 pCurrentCollection = pCollection;
-                ITEM_LOG(nDepth, "Collection",  value);
+                ITEM_LOG(nDepth, "Collection", value);
                 nDepth++;
                 break;
             }
             case MIX_TYPE_N_TAG(MainItem, EndCollectionItem):
                 // Move up to the parent
-                if(pCurrentCollection)
+                if (pCurrentCollection)
                 {
                     // This must be the root collection
-                    if(!pCurrentCollection->pParent)
+                    if (!pCurrentCollection->pParent)
                         m_pRootCollection = pCurrentCollection;
                     pCurrentCollection = pCurrentCollection->pParent;
                 }
@@ -179,9 +186,10 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
             case MIX_TYPE_N_TAG(GlobalItem, LogMinItem):
                 currentState.nLogMin = value;
 
-                if(currentState.nLogMax != ~0 && !bLogPair)
+                if (currentState.nLogMax != ~0 && !bLogPair)
                 {
-                    HidUtils::fixNegativeMinimum(currentState.nLogMin, currentState.nLogMax);
+                    HidUtils::fixNegativeMinimum(
+                        currentState.nLogMin, currentState.nLogMax);
                     bLogPair = true;
                     ITEM_LOG(nDepth, "Logical Minimum", currentState.nLogMin);
                     ITEM_LOG(nDepth, "Logical Maximum", currentState.nLogMax);
@@ -192,9 +200,10 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
             case MIX_TYPE_N_TAG(GlobalItem, LogMaxItem):
                 currentState.nLogMax = value;
 
-                if(currentState.nLogMin != ~0 && !bLogPair)
+                if (currentState.nLogMin != ~0 && !bLogPair)
                 {
-                    HidUtils::fixNegativeMinimum(currentState.nLogMin, currentState.nLogMax);
+                    HidUtils::fixNegativeMinimum(
+                        currentState.nLogMin, currentState.nLogMax);
                     bLogPair = true;
                     ITEM_LOG(nDepth, "Logical Minimum", currentState.nLogMin);
                     ITEM_LOG(nDepth, "Logical Maximum", currentState.nLogMax);
@@ -205,12 +214,15 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
             case MIX_TYPE_N_TAG(GlobalItem, PhysMinItem):
                 currentState.nPhysMin = value;
 
-                if(currentState.nPhysMax != ~0 && !bPhysPair)
+                if (currentState.nPhysMax != ~0 && !bPhysPair)
                 {
-                    HidUtils::fixNegativeMinimum(currentState.nPhysMin, currentState.nPhysMax);
+                    HidUtils::fixNegativeMinimum(
+                        currentState.nPhysMin, currentState.nPhysMax);
                     bPhysPair = true;
-                    ITEM_LOG_DEC(nDepth, "Physical Minimum", currentState.nPhysMin);
-                    ITEM_LOG_DEC(nDepth, "Physical Maximum", currentState.nPhysMax);
+                    ITEM_LOG_DEC(
+                        nDepth, "Physical Minimum", currentState.nPhysMin);
+                    ITEM_LOG_DEC(
+                        nDepth, "Physical Maximum", currentState.nPhysMax);
                 }
                 else
                     bPhysPair = false;
@@ -218,12 +230,15 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
             case MIX_TYPE_N_TAG(GlobalItem, PhysMaxItem):
                 currentState.nPhysMax = value;
 
-                if(currentState.nPhysMin != ~0 && !bPhysPair)
+                if (currentState.nPhysMin != ~0 && !bPhysPair)
                 {
-                    HidUtils::fixNegativeMinimum(currentState.nPhysMin, currentState.nPhysMax);
+                    HidUtils::fixNegativeMinimum(
+                        currentState.nPhysMin, currentState.nPhysMax);
                     bPhysPair = true;
-                    ITEM_LOG_DEC(nDepth, "Physical Minimum", currentState.nPhysMin);
-                    ITEM_LOG_DEC(nDepth, "Physical Maximum", currentState.nPhysMax);
+                    ITEM_LOG_DEC(
+                        nDepth, "Physical Minimum", currentState.nPhysMin);
+                    ITEM_LOG_DEC(
+                        nDepth, "Physical Maximum", currentState.nPhysMax);
                 }
                 else
                     bPhysPair = false;
@@ -243,7 +258,7 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
 
             // Local items (set various local variables, mostly usage-related)
             case MIX_TYPE_N_TAG(LocalItem, UsageItem):
-                if(!currentState.pUsages)
+                if (!currentState.pUsages)
                     currentState.pUsages = new Vector<size_t>();
                 currentState.pUsages->pushBack(value);
                 ITEM_LOG_DEC(nDepth, "Usage", value);
@@ -257,19 +272,23 @@ void HidReport::parseDescriptor(uint8_t *pDescriptor, size_t nDescriptorLength)
                 ITEM_LOG_DEC(nDepth, "Usage Maximum", value);
                 break;
             default:
-                ITEM_LOG_DEC(nDepth, "Unknown", item.type << " " << item.tag << " " << Hex << value);
+                ITEM_LOG_DEC(
+                    nDepth, "Unknown",
+                    item.type << " " << item.tag << " " << Hex << value);
         }
 
-        // Reset the local values in currentState (will also delete the usage vector if it's not used)
-        if(item.type == MainItem)
+        // Reset the local values in currentState (will also delete the usage
+        // vector if it's not used)
+        if (item.type == MainItem)
             currentState.resetLocalValues();
     }
 }
 
-void HidReport::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize)
+void HidReport::feedInput(
+    uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize)
 {
     // Do we have the root collection?
-    if(!m_pRootCollection)
+    if (!m_pRootCollection)
         return;
 
     // Send the input to the root collection
@@ -280,20 +299,25 @@ void HidReport::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferS
     MemoryCopy(pOldBuffer, pBuffer, nBufferSize);
 }
 
-void HidReport::Collection::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize, size_t &nBitOffset)
+void HidReport::Collection::feedInput(
+    uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize,
+    size_t &nBitOffset)
 {
     // Send input to each child
-    for(size_t i = 0; i < childs.count(); i++)
+    for (size_t i = 0; i < childs.count(); i++)
     {
         Child *pChild = childs[i];
 
         // If it's a collection, just forward the arguments
-        if(pChild->type == CollectionChild)
-            pChild->pCollection->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset);
+        if (pChild->type == CollectionChild)
+            pChild->pCollection->feedInput(
+                pBuffer, pOldBuffer, nBufferSize, nBitOffset);
 
         // If it's an input block, we need to send also a guessed device type
-        if(pChild->type == InputBlockChild)
-            pChild->pInputBlock->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset, guessInputDevice());
+        if (pChild->type == InputBlockChild)
+            pChild->pInputBlock->feedInput(
+                pBuffer, pOldBuffer, nBufferSize, nBitOffset,
+                guessInputDevice());
     }
 }
 
@@ -301,18 +325,18 @@ HidDeviceType HidReport::Collection::guessInputDevice()
 {
     // Go all the way up looking for valid usages
     Collection *pCollection = this;
-    while(pCollection)
+    while (pCollection)
     {
         // Check for Mouse, Joystick, Keyboard and Keypad usages
-        if(pCollection->state.nUsagePage == HidUsagePages::GenericDesktop)
+        if (pCollection->state.nUsagePage == HidUsagePages::GenericDesktop)
         {
-            if(pCollection->state.getUsageByIndex(0) == HidUsages::Mouse)
+            if (pCollection->state.getUsageByIndex(0) == HidUsages::Mouse)
                 return Mouse;
-            if(pCollection->state.getUsageByIndex(0) == HidUsages::Joystick)
+            if (pCollection->state.getUsageByIndex(0) == HidUsages::Joystick)
                 return Joystick;
-            if(pCollection->state.getUsageByIndex(0) == HidUsages::Keyboard)
+            if (pCollection->state.getUsageByIndex(0) == HidUsages::Keyboard)
                 return Keyboard;
-            if(pCollection->state.getUsageByIndex(0) == HidUsages::Keypad)
+            if (pCollection->state.getUsageByIndex(0) == HidUsages::Keypad)
                 return Keyboard;
         }
 
@@ -324,60 +348,75 @@ HidDeviceType HidReport::Collection::guessInputDevice()
     return UnknownDevice;
 }
 
-void HidReport::InputBlock::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize, size_t &nBitOffset, HidDeviceType deviceType)
+void HidReport::InputBlock::feedInput(
+    uint8_t *pBuffer, uint8_t *pOldBuffer, size_t nBufferSize,
+    size_t &nBitOffset, HidDeviceType deviceType)
 {
     // Check for report IDs
-    if(state.nReportID != ~0)
+    if (state.nReportID != ~0)
     {
         /// \todo Do implement support
         /// \note This is harder that just checking the first byte
         /// \note Proper support for old buffer data is needed, too
-        WARNING("HidReport::InputBlock::feedInput: TODO: Implement support for report IDs");
+        WARNING("HidReport::InputBlock::feedInput: TODO: Implement support for "
+                "report IDs");
         return;
     }
 
     // Compute the size of this block
     int64_t nBlockSize = state.nReportCount * state.nReportSize;
 
-    // We don't want to cross the end of the buffer and we can skip constant inputs
-    if((nBitOffset + nBlockSize > nBufferSize * 8) || type == Constant)
+    // We don't want to cross the end of the buffer and we can skip constant
+    // inputs
+    if ((nBitOffset + nBlockSize > nBufferSize * 8) || type == Constant)
     {
         nBitOffset += nBlockSize;
         return;
     }
 
     // Process each field
-    for(int64_t i = 0; i < state.nReportCount; i++)
+    for (int64_t i = 0; i < state.nReportCount; i++)
     {
-        uint64_t nValue = HidUtils::getBufferField(pBuffer, nBitOffset + i * state.nReportSize, state.nReportSize);
+        uint64_t nValue = HidUtils::getBufferField(
+            pBuffer, nBitOffset + i * state.nReportSize, state.nReportSize);
         int64_t nRelativeValue = 0;
-        switch(type)
+        switch (type)
         {
             case Absolute:
                 // Here we have to take the current absolute value and
                 // subtract it by the old value to get a relative value
-                nRelativeValue = nValue - HidUtils::getBufferField(pOldBuffer, nBitOffset + i * state.nReportSize, state.nReportSize);
+                nRelativeValue =
+                    nValue - HidUtils::getBufferField(
+                                 pOldBuffer, nBitOffset + i * state.nReportSize,
+                                 state.nReportSize);
 
-                if(nRelativeValue)
-                    HidUtils::sendInputToManager(deviceType, state.nUsagePage, state.getUsageByIndex(i), nRelativeValue);
+                if (nRelativeValue)
+                    HidUtils::sendInputToManager(
+                        deviceType, state.nUsagePage, state.getUsageByIndex(i),
+                        nRelativeValue);
                 break;
             case Relative:
                 // The actual value is relative
                 nRelativeValue = nValue;
-                HidUtils::fixNegativeValue(state.nLogMin, state.nLogMax, nRelativeValue);
+                HidUtils::fixNegativeValue(
+                    state.nLogMin, state.nLogMax, nRelativeValue);
 
-                if(nRelativeValue)
-                    HidUtils::sendInputToManager(deviceType, state.nUsagePage, state.getUsageByIndex(i), nRelativeValue);
+                if (nRelativeValue)
+                    HidUtils::sendInputToManager(
+                        deviceType, state.nUsagePage, state.getUsageByIndex(i),
+                        nRelativeValue);
                 break;
             case Array:
                 // A non-zero value in an array means a holded key/button
-                if(nValue)
+                if (nValue)
                 {
                     // Check if this array entry is new
                     bool bNew = true;
-                    for(int64_t j = 0; j < state.nReportCount; j++)
+                    for (int64_t j = 0; j < state.nReportCount; j++)
                     {
-                        if(HidUtils::getBufferField(pOldBuffer, nBitOffset + j * state.nReportSize, state.nReportSize) == nValue)
+                        if (HidUtils::getBufferField(
+                                pOldBuffer, nBitOffset + j * state.nReportSize,
+                                state.nReportSize) == nValue)
                         {
                             bNew = false;
                             break;
@@ -385,8 +424,9 @@ void HidReport::InputBlock::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, siz
                     }
 
                     // If it's new, we have a keyDown/buttonDown
-                    if(bNew)
-                        HidUtils::sendInputToManager(deviceType, state.nUsagePage, nValue, 1);
+                    if (bNew)
+                        HidUtils::sendInputToManager(
+                            deviceType, state.nUsagePage, nValue, 1);
                 }
                 break;
             // This is to please GCC
@@ -397,18 +437,22 @@ void HidReport::InputBlock::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, siz
 
     // Special case here: check for array entries that disapeared
     // (keys/buttons that were released since last time)
-    if(type == Array)
+    if (type == Array)
     {
-        for(int64_t i = 0; i < state.nReportCount; i++)
+        for (int64_t i = 0; i < state.nReportCount; i++)
         {
-            uint64_t nOldValue = HidUtils::getBufferField(pOldBuffer, nBitOffset + i * state.nReportSize, state.nReportSize);
-            if(nOldValue)
+            uint64_t nOldValue = HidUtils::getBufferField(
+                pOldBuffer, nBitOffset + i * state.nReportSize,
+                state.nReportSize);
+            if (nOldValue)
             {
                 // Check if this array entry disapeared
                 bool bDisapeared = true;
-                for(int64_t j = 0; j < state.nReportCount; j++)
+                for (int64_t j = 0; j < state.nReportCount; j++)
                 {
-                    if(HidUtils::getBufferField(pBuffer, nBitOffset + j * state.nReportSize, state.nReportSize) == nOldValue)
+                    if (HidUtils::getBufferField(
+                            pBuffer, nBitOffset + j * state.nReportSize,
+                            state.nReportSize) == nOldValue)
                     {
                         bDisapeared = false;
                         break;
@@ -416,8 +460,9 @@ void HidReport::InputBlock::feedInput(uint8_t *pBuffer, uint8_t *pOldBuffer, siz
                 }
 
                 // If it disapeared, we have a keyUp/buttonUp
-                if(bDisapeared)
-                    HidUtils::sendInputToManager(deviceType, state.nUsagePage, nOldValue, -1);
+                if (bDisapeared)
+                    HidUtils::sendInputToManager(
+                        deviceType, state.nUsagePage, nOldValue, -1);
             }
         }
     }

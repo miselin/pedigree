@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
 #include "IsaDma.h"
+#include <Module.h>
 
 #ifdef X86_COMMON
 #include "x86/X86IsaDma.h"

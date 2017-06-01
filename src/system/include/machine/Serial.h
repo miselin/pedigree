@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,19 +27,21 @@
  */
 class Serial
 {
-public:
-  virtual ~Serial() {}
-  
-  /// \todo make this generic for Mmaped and port IO.
-  virtual void setBase(uintptr_t nBaseAddr) =0;
-  virtual char read() =0;
-  virtual char readNonBlock() =0;
-  virtual void write(char c) =0;
-  void write(const char *c)
-  {
-    while (*c)
-      write(*c++);
-  }
+    public:
+    virtual ~Serial()
+    {
+    }
+
+    /// \todo make this generic for Mmaped and port IO.
+    virtual void setBase(uintptr_t nBaseAddr) = 0;
+    virtual char read() = 0;
+    virtual char readNonBlock() = 0;
+    virtual void write(char c) = 0;
+    void write(const char *c)
+    {
+        while (*c)
+            write(*c++);
+    }
 };
 
 #endif

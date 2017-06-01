@@ -27,8 +27,8 @@ static struct
     uint16_t vendor;
     uint16_t product;
 } g_Devices[] = {
-    {0x2630, 0x9601}, // Specification defines these for the chip
-    {0x0fe6, 0x8101}, // Kontron product
+    {0x2630, 0x9601},  // Specification defines these for the chip
+    {0x0fe6, 0x8101},  // Kontron product
 };
 
 #define NUM_DEVICES (sizeof(g_Devices) / sizeof(g_Devices[0]))
@@ -40,8 +40,9 @@ static UsbDevice *dm9601Connected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    for(size_t i = 0; i < NUM_DEVICES; i++)
-        UsbPnP::instance().registerCallback(g_Devices[i].vendor, g_Devices[i].product, dm9601Connected);
+    for (size_t i = 0; i < NUM_DEVICES; i++)
+        UsbPnP::instance().registerCallback(
+            g_Devices[i].vendor, g_Devices[i].product, dm9601Connected);
 
     return true;
 }

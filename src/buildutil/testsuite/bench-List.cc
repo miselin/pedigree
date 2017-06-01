@@ -86,7 +86,8 @@ static void BM_ListPopFront(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 static void BM_ListPopBack(benchmark::State &state)
@@ -110,11 +111,12 @@ static void BM_ListPopBack(benchmark::State &state)
         }
     }
 
-    state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range_x()));
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(state.range_x()));
 }
 
 BENCHMARK(BM_ListPushFront);
 BENCHMARK(BM_ListPushBack);
 BENCHMARK(BM_ListPushPop);
-BENCHMARK(BM_ListPopFront)->Range(8, 8<<16);
-BENCHMARK(BM_ListPopBack)->Range(8, 8<<16);
+BENCHMARK(BM_ListPopFront)->Range(8, 8 << 16);
+BENCHMARK(BM_ListPopBack)->Range(8, 8 << 16);

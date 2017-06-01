@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "SchedulerTimer.h"
+#include <Log.h>
 #include <compiler.h>
 #include <machine/Machine.h>
-#include <Log.h>
-#include "SchedulerTimer.h"
 
 using namespace __pedigree_hosted;
 
@@ -47,7 +47,7 @@ bool HostedSchedulerTimer::initialise()
     sv.sigev_signo = SIGUSR2;
     sv.sigev_value.sival_ptr = this;
     int r = timer_create(CLOCK_REALTIME, &sv, &m_Timer);
-    if(r != 0)
+    if (r != 0)
     {
         /// \todo error message or something
         return false;
@@ -58,7 +58,7 @@ bool HostedSchedulerTimer::initialise()
     interval.it_interval.tv_nsec = ONE_SECOND / HZ;
     interval.it_value.tv_nsec = ONE_SECOND / HZ;
     r = timer_settime(m_Timer, 0, &interval, 0);
-    if(r != 0)
+    if (r != 0)
     {
         timer_delete(m_Timer);
         return false;
@@ -94,13 +94,13 @@ bool HostedSchedulerTimer::irq(irq_id_t number, InterruptState &state)
 {
     // Should we handle this?
     uint64_t opaque = state.getRegister(0);
-    if(opaque != reinterpret_cast<uint64_t>(this))
+    if (opaque != reinterpret_cast<uint64_t>(this))
     {
         return false;
     }
 
     // TODO: Delta is wrong
-    if(LIKELY(m_Handler != 0))
+    if (LIKELY(m_Handler != 0))
         m_Handler->timer(ONE_SECOND / HZ, state);
 
     return true;

@@ -21,15 +21,15 @@
 
 bool IpAddress::isLinkLocal() const
 {
-    if(m_Type == IPv4)
-        return (m_Ipv4 & 0xFFFF) == 0xA9FE; // 169.254/16
+    if (m_Type == IPv4)
+        return (m_Ipv4 & 0xFFFF) == 0xA9FE;  // 169.254/16
     else
         return (m_Ipv6[0] == 0xFE) && (m_Ipv6[1] == 0x80);
 }
 
 String IpAddress::prefixString(size_t override) const
 {
-    if(m_Type == IPv4)
+    if (m_Type == IPv4)
     {
         return String("");
     }
@@ -39,23 +39,24 @@ String IpAddress::prefixString(size_t override) const
         str.clear();
         size_t prefix = override <= 128 ? override : m_Ipv6Prefix;
 
-        for(size_t i = 0; i < prefix / 8; i++)
+        for (size_t i = 0; i < prefix / 8; i++)
         {
-            if(i && ((i % 2) == 0))
+            if (i && ((i % 2) == 0))
                 str += ":";
 
             size_t pad = 1;
-            if(i && m_Ipv6[i - 1]) pad = 2; // Keep internal zeroes (eg f0f).
+            if (i && m_Ipv6[i - 1])
+                pad = 2;  // Keep internal zeroes (eg f0f).
             str.append(m_Ipv6[i], 16, pad);
         }
 
-        return String(static_cast<const char*>(str));
+        return String(static_cast<const char *>(str));
     }
 }
 
 String IpAddress::toString() const
 {
-    if(m_Type == IPv4)
+    if (m_Type == IPv4)
     {
         NormalStaticString str;
         str.clear();
@@ -66,38 +67,39 @@ String IpAddress::toString() const
         str.append((m_Ipv4 >> 16) & 0xff);
         str += ".";
         str.append((m_Ipv4 >> 24) & 0xff);
-        return String(static_cast<const char*>(str));
+        return String(static_cast<const char *>(str));
     }
     else
     {
         NormalStaticString str;
         str.clear();
         bool bZeroComp = false;
-        bool alreadyZeroComp = false; // Compression can only come once.
-                                      // Naive algorithm, compresses first zeroes
-                                      // but not the largest set.
-        for(size_t i = 0; i < 16; i++)
+        bool alreadyZeroComp =
+            false;  // Compression can only come once.
+                    // Naive algorithm, compresses first zeroes
+                    // but not the largest set.
+        for (size_t i = 0; i < 16; i++)
         {
-            if(i && ((i % 2) == 0))
+            if (i && ((i % 2) == 0))
             {
-                if(!bZeroComp)
+                if (!bZeroComp)
                     str += ":";
 
-                if(alreadyZeroComp)
+                if (alreadyZeroComp)
                 {
-                    if(m_Ipv6[i])
+                    if (m_Ipv6[i])
                         str.append(m_Ipv6[i], 16);
                     continue;
                 }
 
                 // Zero-compression
-                if(!m_Ipv6[i] && !m_Ipv6[i+1])
+                if (!m_Ipv6[i] && !m_Ipv6[i + 1])
                 {
                     i++;
                     bZeroComp = true;
                     continue;
                 }
-                else if(bZeroComp)
+                else if (bZeroComp)
                 {
                     str += ":";
                     bZeroComp = false;
@@ -105,10 +107,11 @@ String IpAddress::toString() const
                 }
             }
 
-            if(m_Ipv6[i] || (i && m_Ipv6[i - 1]))
+            if (m_Ipv6[i] || (i && m_Ipv6[i - 1]))
             {
                 size_t pad = 1;
-                if(m_Ipv6[i - 1]) pad = 2; // Keep internal zeroes (eg f0f).
+                if (m_Ipv6[i - 1])
+                    pad = 2;  // Keep internal zeroes (eg f0f).
                 str.append(m_Ipv6[i], 16, pad);
             }
         }
@@ -117,22 +120,23 @@ String IpAddress::toString() const
         str.append("/");
         str.append(m_Ipv6Prefix, 10);
 
-        return String(static_cast<const char*>(str));
+        return String(static_cast<const char *>(str));
     }
 }
 
 bool IpAddress::isMulticast() const
 {
-    if(m_Type == IPv4)
+    if (m_Type == IPv4)
     {
-        // Leading bits of the IP address = 1110? The old class D is all multicast now.
-        if(((m_Ipv4 & 0xFF) & 0xE0) == 0xE0)
+        // Leading bits of the IP address = 1110? The old class D is all
+        // multicast now.
+        if (((m_Ipv4 & 0xFF) & 0xE0) == 0xE0)
             return true;
     }
-    else if(m_Type == IPv6)
+    else if (m_Type == IPv6)
     {
         // FF00::/8 is the multicast range for IPv6.
-        if(m_Ipv6[0] == 0xFF)
+        if (m_Ipv6[0] == 0xFF)
             return true;
     }
 

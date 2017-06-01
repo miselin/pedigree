@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,16 +20,16 @@
 #ifndef RTL8139_H
 #define RTL8139_H
 
-#include <processor/types.h>
 #include <machine/Device.h>
+#include <machine/IrqHandler.h>
 #include <machine/Network.h>
+#include <process/Semaphore.h>
+#include <process/Thread.h>
 #include <processor/IoBase.h>
 #include <processor/IoPort.h>
 #include <processor/MemoryRegion.h>
 #include <processor/PhysicalMemoryManager.h>
-#include <machine/IrqHandler.h>
-#include <process/Thread.h>
-#include <process/Semaphore.h>
+#include <processor/types.h>
 
 #define RTL8139_VENDOR_ID 0x10ec
 #define RTL8139_DEVICE_ID 0x8139
@@ -39,58 +38,57 @@
 class Rtl8139 : public Network, public IrqHandler
 {
     public:
-        Rtl8139(Network* pDev);
-        ~Rtl8139();
+    Rtl8139(Network *pDev);
+    ~Rtl8139();
 
-        virtual void getName(String &str)
-        {
-            str = "rtl8139";
-        }
+    virtual void getName(String &str)
+    {
+        str = "rtl8139";
+    }
 
-        virtual bool send(size_t nBytes, uintptr_t buffer);
+    virtual bool send(size_t nBytes, uintptr_t buffer);
 
-        virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(StationInfo info);
 
-        virtual StationInfo getStationInfo();
+    virtual StationInfo getStationInfo();
 
-        virtual bool isConnected();
+    virtual bool isConnected();
 
-        // IRQ handler callback.
-        virtual bool irq(irq_id_t number, InterruptState &state);
+    // IRQ handler callback.
+    virtual bool irq(irq_id_t number, InterruptState &state);
 
-        IoBase *m_pBase;
+    IoBase *m_pBase;
 
     private:
+    void recv();
 
-        void recv();
+    void reset();
 
-        void reset();
+    struct packet
+    {
+        uintptr_t ptr;
+        size_t len;
+    };
 
-        struct packet
-        {
-            uintptr_t ptr;
-            size_t len;
-        };
+    StationInfo m_StationInfo;
 
-        StationInfo m_StationInfo;
+    uint32_t m_RxCurr;
+    uint8_t m_TxCurr;
 
-        uint32_t m_RxCurr;
-        uint8_t m_TxCurr;
+    volatile bool m_RxLock;
+    Spinlock m_TxLock;
 
-        volatile bool m_RxLock;
-        Spinlock m_TxLock;
+    uint8_t *m_pRxBuffVirt;
+    uint8_t *m_pTxBuffVirt;
 
-        uint8_t *m_pRxBuffVirt;
-        uint8_t *m_pTxBuffVirt;
+    uintptr_t m_pRxBuffPhys;
+    uintptr_t m_pTxBuffPhys;
 
-        uintptr_t m_pRxBuffPhys;
-        uintptr_t m_pTxBuffPhys;
+    MemoryRegion m_RxBuffMR;
+    MemoryRegion m_TxBuffMR;
 
-        MemoryRegion m_RxBuffMR;
-        MemoryRegion m_TxBuffMR;
-
-        Rtl8139(const Rtl8139&);
-        void operator =(const Rtl8139&);
+    Rtl8139(const Rtl8139 &);
+    void operator=(const Rtl8139 &);
 };
 
 #endif

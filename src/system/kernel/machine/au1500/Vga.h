@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,10 +27,10 @@
  */
 class Au1500Vga : public Vga
 {
-  public:
+    public:
     Au1500Vga();
     virtual ~Au1500Vga();
-  
+
     virtual char read();
     virtual void write(char c);
 };

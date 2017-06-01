@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,26 +20,26 @@
 #ifndef KERNEL_PROCESSOR_PPC32_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_PPC32_VIRTUALADDRESSSPACE_H
 
-#include <processor/types.h>
-#include <processor/VirtualAddressSpace.h>
-#include <machine/ppc_common/types.h>
 #include "../ppc_common/VsidManager.h"
 #include "Translation.h"
+#include <machine/ppc_common/types.h>
+#include <processor/VirtualAddressSpace.h>
+#include <processor/types.h>
 
 /// 4K page sizes.
 #ifndef PAGE_SIZE
-  #define PAGE_SIZE 0x1000
+#define PAGE_SIZE 0x1000
 #endif
 
 /** @addtogroup kernelprocessorPPC32
  * @{ */
 
 /**
- * In PPC we have to keep a shadow page table for all address spaces, as 
+ * In PPC we have to keep a shadow page table for all address spaces, as
  * the hashed processor page table is finite in size and thus not all mappings
  * may be able to fit.
  *
- * We use an intel-style two level page table system. These page tables are 
+ * We use an intel-style two level page table system. These page tables are
  * never given verbatim to the processor, however, so we are able to take some
  * shortcuts that aren't possible in the x86 architecture.
  *
@@ -50,67 +49,70 @@
  **/
 class PPC32VirtualAddressSpace : public VirtualAddressSpace
 {
-  /** Processor::switchAddressSpace() needs access to m_PhysicalPageDirectory */
-  friend class Processor;
-  friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
-public:
-  //
-  // VirtualAddressSpace Interface
-  //
-  virtual bool isAddressValid(void *virtualAddress);
-  virtual bool isMapped(void *virtualAddress);
+    /** Processor::switchAddressSpace() needs access to m_PhysicalPageDirectory
+     */
+    friend class Processor;
+    friend VirtualAddressSpace &VirtualAddressSpace::getKernelAddressSpace();
 
-  virtual bool map(physical_uintptr_t physicalAddress,
-                   void *virtualAddress,
-                   size_t flags);
-  virtual void getMapping(void *virtualAddress,
-                          physical_uintptr_t &physicalAddress,
-                          size_t &flags);
-  virtual void setFlags(void *virtualAddress, size_t newFlags);
-  virtual void unmap(void *virtualAddress);
-  virtual void *allocateStack();
-  virtual void freeStack(void *pStack);
+    public:
+    //
+    // VirtualAddressSpace Interface
+    //
+    virtual bool isAddressValid(void *virtualAddress);
+    virtual bool isMapped(void *virtualAddress);
 
-  virtual VirtualAddressSpace *clone();
-  virtual void revertToKernelAddressSpace();
+    virtual bool
+    map(physical_uintptr_t physicalAddress, void *virtualAddress, size_t flags);
+    virtual void getMapping(
+        void *virtualAddress, physical_uintptr_t &physicalAddress,
+        size_t &flags);
+    virtual void setFlags(void *virtualAddress, size_t newFlags);
+    virtual void unmap(void *virtualAddress);
+    virtual void *allocateStack();
+    virtual void freeStack(void *pStack);
 
-protected:
-  /** The destructor does nothing */
-  virtual ~PPC32VirtualAddressSpace();
+    virtual VirtualAddressSpace *clone();
+    virtual void revertToKernelAddressSpace();
 
-private:
-  /** The type of a shadow page table - x86 style */
-  struct ShadowPageTable
-  {
-    uint32_t entries[1024];
-  };
+    protected:
+    /** The destructor does nothing */
+    virtual ~PPC32VirtualAddressSpace();
 
-public:
-  /** The constructor for already present paging structures */
-  PPC32VirtualAddressSpace();
-private:
-  /** The copy-constructor
-   *\note NOT implemented */
-  PPC32VirtualAddressSpace(const PPC32VirtualAddressSpace &);
-  /** The copy-constructor
-   *\note Not implemented */
-  PPC32VirtualAddressSpace &operator = (const PPC32VirtualAddressSpace &);
+    private:
+    /** The type of a shadow page table - x86 style */
+    struct ShadowPageTable
+    {
+        uint32_t entries[1024];
+    };
 
-  /** Initialises the kernel address space, called by Processor. */
-  bool initialise(Translations &translations);
+    public:
+    /** The constructor for already present paging structures */
+    PPC32VirtualAddressSpace();
 
-  /** Adds the given translations into the page table, called by HashedPageTable. */
-  void initialRoster(Translations &translations);
+    private:
+    /** The copy-constructor
+     *\note NOT implemented */
+    PPC32VirtualAddressSpace(const PPC32VirtualAddressSpace &);
+    /** The copy-constructor
+     *\note Not implemented */
+    PPC32VirtualAddressSpace &operator=(const PPC32VirtualAddressSpace &);
 
-  /** The kernel virtual address space */
-  static PPC32VirtualAddressSpace m_KernelSpace;
+    /** Initialises the kernel address space, called by Processor. */
+    bool initialise(Translations &translations);
 
-  /** The x86-style shadow page directory */
-  ShadowPageTable *m_pPageDirectory[1024];
-  
-public:
-  /** The VSIDs - Virtual segment identifiers */
-  VsidManager::Vsid m_Vsid;
+    /** Adds the given translations into the page table, called by
+     * HashedPageTable. */
+    void initialRoster(Translations &translations);
+
+    /** The kernel virtual address space */
+    static PPC32VirtualAddressSpace m_KernelSpace;
+
+    /** The x86-style shadow page directory */
+    ShadowPageTable *m_pPageDirectory[1024];
+
+    public:
+    /** The VSIDs - Virtual segment identifiers */
+    VsidManager::Vsid m_Vsid;
 };
 
 /** @} */
@@ -119,11 +121,11 @@ public:
 // Virtual address space layout
 //
 #define KERNEL_INITIAL_PAGE_TABLES static_cast<uintptr_t>(0xC0000000)
-#define KERNEL_SPACE_START     static_cast<uintptr_t>(0x80000000)
+#define KERNEL_SPACE_START static_cast<uintptr_t>(0x80000000)
 #define USERSPACE_VIRTUAL_HEAP static_cast<uintptr_t>(0x60000000)
-#define KERNEL_VIRTUAL_HEAP    static_cast<uintptr_t>(0xD0000000)
+#define KERNEL_VIRTUAL_HEAP static_cast<uintptr_t>(0xD0000000)
 #define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS static_cast<uintptr_t>(0xA0000000)
 #define KERNEL_VIRTUAL_MEMORYREGION_SIZE static_cast<uintptr_t>(0x20000000)
-#define KERNEL_VIRTUAL_TEMP1   reinterpret_cast<void*>(0xEFFFF000)
+#define KERNEL_VIRTUAL_TEMP1 reinterpret_cast<void *>(0xEFFFF000)
 
 #endif

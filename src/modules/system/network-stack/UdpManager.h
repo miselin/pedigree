@@ -20,14 +20,14 @@
 #ifndef MACHINE_UDPMANAGER_H
 #define MACHINE_UDPMANAGER_H
 
+#include <machine/Network.h>
+#include <process/ConditionVariable.h>
+#include <process/Mutex.h>
+#include <process/Semaphore.h>
+#include <utilities/ExtensibleBitmap.h>
+#include <utilities/List.h>
 #include <utilities/String.h>
 #include <utilities/Tree.h>
-#include <utilities/List.h>
-#include <process/Semaphore.h>
-#include <process/Mutex.h>
-#include <process/ConditionVariable.h>
-#include <machine/Network.h>
-#include <utilities/ExtensibleBitmap.h>
 
 #include "Manager.h"
 
@@ -43,70 +43,89 @@
  */
 class UdpEndpoint : public ConnectionlessEndpoint
 {
-  public:
-
+    public:
     /** Constructors and destructors */
-    UdpEndpoint() :
-      ConnectionlessEndpoint(), m_DataQueue(), m_Lock(false), m_Condition(),
-      m_bAcceptAll(false), m_bCanSend(true), m_bCanRecv(true)
-    {}
-    UdpEndpoint(uint16_t local, uint16_t remote) :
-      ConnectionlessEndpoint(local, remote), m_DataQueue(),
-      m_Lock(false), m_Condition(), m_bAcceptAll(false), m_bCanSend(true),
-      m_bCanRecv(true)
-    {}
-    UdpEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0) :
-      ConnectionlessEndpoint(remoteIp, local, remote), m_DataQueue(),
-      m_Lock(false), m_Condition(), m_bAcceptAll(false), m_bCanSend(true),
-      m_bCanRecv(true)
-    {}
+    UdpEndpoint()
+        : ConnectionlessEndpoint(), m_DataQueue(), m_Lock(false), m_Condition(),
+          m_bAcceptAll(false), m_bCanSend(true), m_bCanRecv(true)
+    {
+    }
+    UdpEndpoint(uint16_t local, uint16_t remote)
+        : ConnectionlessEndpoint(local, remote), m_DataQueue(), m_Lock(false),
+          m_Condition(), m_bAcceptAll(false), m_bCanSend(true), m_bCanRecv(true)
+    {
+    }
+    UdpEndpoint(IpAddress remoteIp, uint16_t local = 0, uint16_t remote = 0)
+        : ConnectionlessEndpoint(remoteIp, local, remote), m_DataQueue(),
+          m_Lock(false), m_Condition(), m_bAcceptAll(false), m_bCanSend(true),
+          m_bCanRecv(true)
+    {
+    }
 
-    virtual ~UdpEndpoint() {}
+    virtual ~UdpEndpoint()
+    {
+    }
 
     /** Application interface */
-    virtual int state() {return 0xff;} // 0xff signifies UDP
-    virtual int send(size_t nBytes, uintptr_t buffer, RemoteEndpoint remoteHost, bool broadcast, Network *pCard = 0);
-    virtual int recv(uintptr_t buffer, size_t maxSize, bool bBlock, RemoteEndpoint* remoteHost, int nTimeout = 30);
+    virtual int state()
+    {
+        return 0xff;
+    }  // 0xff signifies UDP
+    virtual int send(
+        size_t nBytes, uintptr_t buffer, RemoteEndpoint remoteHost,
+        bool broadcast, Network *pCard = 0);
+    virtual int recv(
+        uintptr_t buffer, size_t maxSize, bool bBlock,
+        RemoteEndpoint *remoteHost, int nTimeout = 30);
     virtual bool dataReady(bool block = false, uint32_t tmout = 30);
-    virtual inline bool acceptAnyAddress() { return m_bAcceptAll; }
-    virtual inline void acceptAnyAddress(bool accept) { m_bAcceptAll = accept; }
+    virtual inline bool acceptAnyAddress()
+    {
+        return m_bAcceptAll;
+    }
+    virtual inline void acceptAnyAddress(bool accept)
+    {
+        m_bAcceptAll = accept;
+    }
 
-    /** UdpManager functionality - called to deposit data into our local buffer */
-    virtual size_t depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost);
+    /** UdpManager functionality - called to deposit data into our local buffer
+     */
+    virtual size_t
+    depositPayload(size_t nBytes, uintptr_t payload, RemoteEndpoint remoteHost);
 
-    /** Shutdown on a UDP endpoint merely disables via software the ability to send/recv */
+    /** Shutdown on a UDP endpoint merely disables via software the ability to
+     * send/recv */
     virtual bool shutdown(ShutdownType what)
     {
-        if(what == ShutSending)
+        if (what == ShutSending)
             m_bCanSend = false;
-        else if(what == ShutReceiving)
+        else if (what == ShutReceiving)
             m_bCanRecv = false;
-        else if(what == ShutBoth)
+        else if (what == ShutBoth)
             m_bCanRecv = m_bCanSend = false;
         return true;
     }
 
     virtual void setLocalPort(uint16_t port);
 
-  private:
-
+    private:
     struct DataBlock
     {
-      DataBlock() :
-        magic(0xdeadbeef), size(0), offset(0), ptr(0), remoteHost()
-      {}
+        DataBlock()
+            : magic(0xdeadbeef), size(0), offset(0), ptr(0), remoteHost()
+        {
+        }
 
-      uint32_t magic; // 0xdeadbeef
+        uint32_t magic;  // 0xdeadbeef
 
-      size_t size;
-      size_t offset; // if we only do a partial read, this is filled
-      uintptr_t ptr;
+        size_t size;
+        size_t offset;  // if we only do a partial read, this is filled
+        uintptr_t ptr;
 
-      RemoteEndpoint remoteHost; // who sent it to us - needed for port info!
+        RemoteEndpoint remoteHost;  // who sent it to us - needed for port info!
     };
 
     /** Incoming data queue */
-    List<DataBlock*> m_DataQueue;
+    List<DataBlock *> m_DataQueue;
 
     Mutex m_Lock;
     ConditionVariable m_Condition;
@@ -126,51 +145,52 @@ class UdpEndpoint : public ConnectionlessEndpoint
  */
 class UdpManager : public ProtocolManager
 {
-friend class UdpEndpoint;
+    friend class UdpEndpoint;
 
-public:
-  UdpManager() :
-    m_Endpoints(), m_UdpMutex(false), m_PortsAvailable()
-  {
-    // Never allocate port 0.
-    m_PortsAvailable.set(0);
-  }
-  virtual ~UdpManager()
-  {}
+    public:
+    UdpManager() : m_Endpoints(), m_UdpMutex(false), m_PortsAvailable()
+    {
+        // Never allocate port 0.
+        m_PortsAvailable.set(0);
+    }
+    virtual ~UdpManager()
+    {
+    }
 
-  /** For access to the manager without declaring an instance of it */
-  static UdpManager& instance()
-  {
-    return manager;
-  }
+    /** For access to the manager without declaring an instance of it */
+    static UdpManager &instance()
+    {
+        return manager;
+    }
 
-  /** Gets a new Endpoint */
-  Endpoint* getEndpoint(IpAddress remoteHost, uint16_t localPort, uint16_t remotePort);
+    /** Gets a new Endpoint */
+    Endpoint *
+    getEndpoint(IpAddress remoteHost, uint16_t localPort, uint16_t remotePort);
 
-  /** Returns an Endpoint */
-  void returnEndpoint(Endpoint* e);
+    /** Returns an Endpoint */
+    void returnEndpoint(Endpoint *e);
 
-  /** A new packet has arrived! */
-  void receive(IpAddress from, IpAddress to, uint16_t sourcePort, uint16_t destPort, uintptr_t payload, size_t payloadSize, Network* pCard);
+    /** A new packet has arrived! */
+    void receive(
+        IpAddress from, IpAddress to, uint16_t sourcePort, uint16_t destPort,
+        uintptr_t payload, size_t payloadSize, Network *pCard);
 
-private:
+    private:
+    static UdpManager manager;
 
-  static UdpManager manager;
+    /** Currently known endpoints (all actually UdpEndpoints). */
+    Tree<size_t, Endpoint *> m_Endpoints;
 
-  /** Currently known endpoints (all actually UdpEndpoints). */
-  Tree<size_t, Endpoint*> m_Endpoints;
+    /** Lock to ensure the port bitmap and m_Endpoints are safe. */
+    Mutex m_UdpMutex;
 
-  /** Lock to ensure the port bitmap and m_Endpoints are safe. */
-  Mutex m_UdpMutex;
+    /** Ports. */
+    ExtensibleBitmap m_PortsAvailable;
 
-  /** Ports. */
-  ExtensibleBitmap m_PortsAvailable;
+    protected:
+    uint16_t allocatePort();
 
-protected:
-
-  uint16_t allocatePort();
-
-  void bindEndpoint(Endpoint *p, size_t localPort);
+    void bindEndpoint(Endpoint *p, size_t localPort);
 };
 
 #endif

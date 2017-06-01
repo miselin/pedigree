@@ -26,9 +26,10 @@
 #include <utilities/String.h>
 
 // Output our String objects nicely (not as a list of bytes).
-std::ostream &operator << (::std::ostream& os, const String &s)
+std::ostream &operator<<(::std::ostream &os, const String &s)
 {
-    return os << "\"" << static_cast<const char *>(s) << "\" [" << static_cast<const void *>(s) << "]";
+    return os << "\"" << static_cast<const char *>(s) << "\" ["
+              << static_cast<const void *>(s) << "]";
 }
 
 static const char *bigstring()
@@ -91,7 +92,8 @@ TEST(PedigreeString, LChomp)
 
 TEST(PedigreeString, ChompDynamicToStatic)
 {
-    String s("hello                                                           ");
+    String s(
+        "hello                                                           ");
     s.chomp();
     EXPECT_EQ(s.length(), 63);
     EXPECT_EQ(s.size(), 64);
@@ -99,7 +101,8 @@ TEST(PedigreeString, ChompDynamicToStatic)
 
 TEST(PedigreeString, LChompDynamicToStatic)
 {
-    String s("hello                                                           ");
+    String s(
+        "hello                                                           ");
     s.lchomp();
     EXPECT_EQ(s.length(), 63);
     EXPECT_EQ(s.size(), 64);
@@ -135,7 +138,8 @@ TEST(PedigreeString, UnneededLstrip)
 
 TEST(PedigreeString, LstripSwitchesToStatic)
 {
-    String s("                                                            hello");
+    String s(
+        "                                                            hello");
     s.lstrip();
     EXPECT_EQ(s, "hello");
     EXPECT_EQ(s.size(), 64);
@@ -151,7 +155,8 @@ TEST(PedigreeString, UnneededRstrip)
 
 TEST(PedigreeString, RstripSwitchesToStatic)
 {
-    String s("hello                                                            ");
+    String s(
+        "hello                                                            ");
     s.rstrip();
     EXPECT_EQ(s, "hello");
     EXPECT_EQ(s.size(), 64);

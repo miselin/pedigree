@@ -17,20 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/Buffer.h>
-#include <utilities/utility.h>
 #include <LockGuard.h>
 #include <Log.h>
+#include <utilities/Buffer.h>
+#include <utilities/utility.h>
 
 #ifdef THREADS
 #include <process/Thread.h>
 #endif
 
 template <class T, bool allowShortOperation>
-Buffer<T, allowShortOperation>::Buffer(size_t bufferSize) :
-    m_BufferSize(bufferSize), m_DataSize(0), m_Lock(false), m_WriteCondition(),
-    m_ReadCondition(), m_Segments(), m_MonitorTargets(), m_bCanRead(true),
-    m_bCanWrite(true)
+Buffer<T, allowShortOperation>::Buffer(size_t bufferSize)
+    : m_BufferSize(bufferSize), m_DataSize(0), m_Lock(false),
+      m_WriteCondition(), m_ReadCondition(), m_Segments(), m_MonitorTargets(),
+      m_bCanRead(true), m_bCanWrite(true)
 {
 }
 
@@ -55,7 +55,8 @@ Buffer<T, allowShortOperation>::~Buffer()
 }
 
 template <class T, bool allowShortOperation>
-size_t Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
+size_t
+Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
 {
     m_Lock.acquire();
 
@@ -161,7 +162,9 @@ size_t Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool
                     if (availableSpace < totalCount)
                     {
                         // No, need one more segment.
-                        addSegment(&buffer[availableSpace], totalCount - availableSpace);
+                        addSegment(
+                            &buffer[availableSpace],
+                            totalCount - availableSpace);
                     }
 
                     // Done.
@@ -264,7 +267,8 @@ size_t Buffer<T, allowShortOperation>::read(T *buffer, size_t count, bool block)
             }
 
             // Copy.
-            pedigree_std::copy(buffer, &pSegment->data[pSegment->reader], countToRead);
+            pedigree_std::copy(
+                buffer, &pSegment->data[pSegment->reader], countToRead);
             pSegment->reader += countToRead;
 
             // Do we need to re-add it?
@@ -468,9 +472,8 @@ void Buffer<T, allowShortOperation>::notifyMonitors()
 {
 #ifdef THREADS
     LockGuard<Mutex> guard(m_Lock);
-    for (typename List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
-            it != m_MonitorTargets.end();
-            it++)
+    for (typename List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+         it != m_MonitorTargets.end(); it++)
     {
         MonitorTarget *pMT = *it;
 

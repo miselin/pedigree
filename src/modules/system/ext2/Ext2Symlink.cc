@@ -22,16 +22,16 @@
 #include <syscallError.h>
 #include <utilities/utility.h>
 
-Ext2Symlink::Ext2Symlink(const String &name, uintptr_t inode_num, Inode *inode,
-                         Ext2Filesystem *pFs, File *pParent) :
-    Symlink(name, LITTLE_TO_HOST32(inode->i_atime),
-            LITTLE_TO_HOST32(inode->i_mtime),
-            LITTLE_TO_HOST32(inode->i_ctime),
-            inode_num,
-            static_cast<Filesystem*>(pFs),
-            LITTLE_TO_HOST32(inode->i_size), /// \todo Deal with >4GB files here.
-            pParent),
-    Ext2Node(inode_num, inode, pFs)
+Ext2Symlink::Ext2Symlink(
+    const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,
+    File *pParent)
+    : Symlink(
+          name, LITTLE_TO_HOST32(inode->i_atime),
+          LITTLE_TO_HOST32(inode->i_mtime), LITTLE_TO_HOST32(inode->i_ctime),
+          inode_num, static_cast<Filesystem *>(pFs),
+          LITTLE_TO_HOST32(inode->i_size),  /// \todo Deal with >4GB files here.
+          pParent),
+      Ext2Node(inode_num, inode, pFs)
 {
     uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
     setPermissionsOnly(modeToPermissions(mode));
@@ -43,7 +43,8 @@ Ext2Symlink::~Ext2Symlink()
 {
 }
 
-uint64_t Ext2Symlink::read(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
+uint64_t Ext2Symlink::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
 {
     if (location >= getSize())
         return 0;
@@ -54,7 +55,9 @@ uint64_t Ext2Symlink::read(uint64_t location, uint64_t size, uintptr_t buffer, b
 
     if (getSize() && Ext2Node::getInode()->i_blocks == 0)
     {
-        MemoryCopy(reinterpret_cast<void *>(buffer), adjust_pointer(m_pInode->i_block, location), size);
+        MemoryCopy(
+            reinterpret_cast<void *>(buffer),
+            adjust_pointer(m_pInode->i_block, location), size);
         return size;
     }
 
@@ -66,12 +69,15 @@ uint64_t Ext2Symlink::read(uint64_t location, uint64_t size, uintptr_t buffer, b
 
     uintptr_t block = Ext2Node::readBlock(location);
     size_t offset = location % m_pExt2Fs->m_BlockSize;
-    MemoryCopy(reinterpret_cast<void *>(buffer), reinterpret_cast<void *>(block + offset), size);
+    MemoryCopy(
+        reinterpret_cast<void *>(buffer),
+        reinterpret_cast<void *>(block + offset), size);
     m_Size = m_nSize;
     return size;
 }
 
-uint64_t Ext2Symlink::write(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
+uint64_t Ext2Symlink::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
 {
     Ext2Node::extend(size);
     m_Size = m_nSize;
@@ -84,7 +90,9 @@ uint64_t Ext2Symlink::write(uint64_t location, uint64_t size, uintptr_t buffer, 
 
     uintptr_t block = Ext2Node::readBlock(location);
     size_t offset = location % m_pExt2Fs->m_BlockSize;
-    MemoryCopy(adjust_pointer(reinterpret_cast<void *>(block), offset), reinterpret_cast<void *>(buffer), size);
+    MemoryCopy(
+        adjust_pointer(reinterpret_cast<void *>(block), offset),
+        reinterpret_cast<void *>(buffer), size);
     Ext2Node::writeBlock(location);
     return size;
 }
@@ -97,6 +105,8 @@ void Ext2Symlink::truncate()
 
 void Ext2Symlink::fileAttributeChanged()
 {
-    static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
-    static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(), permissionsToMode(getPermissions()));
+    static_cast<Ext2Node *>(this)->fileAttributeChanged(
+        m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
+    static_cast<Ext2Node *>(this)->updateMetadata(
+        getUid(), getGid(), permissionsToMode(getPermissions()));
 }

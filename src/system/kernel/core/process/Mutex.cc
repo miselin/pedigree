@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,8 +22,7 @@
 #ifdef THREADS
 
 // NOTE, this is in its own file purely so that a vtable can be generated.
-Mutex::Mutex(bool bLocked) :
-    Semaphore(bLocked ? 0 : 1)
+Mutex::Mutex(bool bLocked) : Semaphore(bLocked ? 0 : 1)
 {
 }
 

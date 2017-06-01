@@ -22,9 +22,8 @@
 #include "Ipv4.h"
 #include "Ipv6.h"
 #include "RawManager.h"
-#include <Module.h>
 #include <Log.h>
-
+#include <Module.h>
 
 #include "Filter.h"
 
@@ -32,77 +31,85 @@ Ethernet Ethernet::ethernetInstance;
 
 Ethernet::Ethernet()
 {
-  //
+    //
 }
 
 Ethernet::~Ethernet()
 {
-  //
+    //
 }
 
-void Ethernet::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset)
+void Ethernet::receive(
+    size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
 {
-  if(!packet || !nBytes || !pCard)
-      return;
+    if (!packet || !nBytes || !pCard)
+        return;
 
-  // Check for filtering
-  if(!NetworkFilter::instance().filter(1, packet, nBytes))
-  {
-    pCard->droppedPacket();
-    return; // Drop the packet.
-  }
+    // Check for filtering
+    if (!NetworkFilter::instance().filter(1, packet, nBytes))
+    {
+        pCard->droppedPacket();
+        return;  // Drop the packet.
+    }
 
-  // grab the header
-  ethernetHeader* ethHeader = reinterpret_cast<ethernetHeader*>(packet + offset);
+    // grab the header
+    ethernetHeader *ethHeader =
+        reinterpret_cast<ethernetHeader *>(packet + offset);
 
 #ifndef DISABLE_RAWNET
-  // dump this packet into the RAW sockets
-  RawManager::instance().receive(packet, nBytes, 0, -1, pCard);
+    // dump this packet into the RAW sockets
+    RawManager::instance().receive(packet, nBytes, 0, -1, pCard);
 #endif
 
-  // what type is the packet?
-  switch(BIG_TO_HOST16(ethHeader->type))
-  {
-    case ETH_ARP:
-      // NOTICE("ARP packet!");
+    // what type is the packet?
+    switch (BIG_TO_HOST16(ethHeader->type))
+    {
+        case ETH_ARP:
+            // NOTICE("ARP packet!");
 
-      Arp::instance().receive(nBytes, packet, pCard, sizeof(ethernetHeader));
+            Arp::instance().receive(
+                nBytes, packet, pCard, sizeof(ethernetHeader));
 
-      break;
+            break;
 
-    case ETH_RARP:
-      NOTICE("RARP packet!");
-      break;
+        case ETH_RARP:
+            NOTICE("RARP packet!");
+            break;
 
-    case ETH_IPV4:
-      // NOTICE("IPv4 packet!");
+        case ETH_IPV4:
+            // NOTICE("IPv4 packet!");
 
-      Ipv4::instance().receive(nBytes, packet, pCard, sizeof(ethernetHeader));
+            Ipv4::instance().receive(
+                nBytes, packet, pCard, sizeof(ethernetHeader));
 
-      break;
+            break;
 
-    case ETH_IPV6:
-      // NOTICE("IPv6 packet!");
+        case ETH_IPV6:
+            // NOTICE("IPv6 packet!");
 
-      Ipv6::instance().receive(nBytes, packet, pCard, sizeof(ethernetHeader));
+            Ipv6::instance().receive(
+                nBytes, packet, pCard, sizeof(ethernetHeader));
 
-      break;
+            break;
 
-    default:
-      NOTICE("Unknown ethernet packet - type is " << Hex << BIG_TO_HOST16(ethHeader->type) << "!");
-      pCard->badPacket();
-      break;
-  }
+        default:
+            NOTICE(
+                "Unknown ethernet packet - type is "
+                << Hex << BIG_TO_HOST16(ethHeader->type) << "!");
+            pCard->badPacket();
+            break;
+    }
 }
 
-size_t Ethernet::injectHeader(uintptr_t packet, MacAddress destMac, MacAddress sourceMac, uint16_t type)
+size_t Ethernet::injectHeader(
+    uintptr_t packet, MacAddress destMac, MacAddress sourceMac, uint16_t type)
 {
     // Basic checks for valid input
-    if(!packet || !type)
+    if (!packet || !type)
         return 0;
 
     // Set up an Ethernet header
-    ethernetHeader *pHeader = reinterpret_cast<ethernetHeader*>(packet);
+    ethernetHeader *pHeader = reinterpret_cast<ethernetHeader *>(packet);
 
     // Copy in the two MAC addresses
     MemoryCopy(pHeader->destMac, destMac.getMac(), 6);
@@ -117,42 +124,48 @@ size_t Ethernet::injectHeader(uintptr_t packet, MacAddress destMac, MacAddress s
 
 void Ethernet::getMacFromPacket(uintptr_t packet, MacAddress *mac)
 {
-  if(packet && mac)
-  {
-    // grab the header
-    ethernetHeader* ethHeader = reinterpret_cast<ethernetHeader*>(packet);
-    *mac = ethHeader->sourceMac;
-  }
+    if (packet && mac)
+    {
+        // grab the header
+        ethernetHeader *ethHeader = reinterpret_cast<ethernetHeader *>(packet);
+        *mac = ethHeader->sourceMac;
+    }
 }
 
-void Ethernet::send(size_t nBytes, uintptr_t packet, Network* pCard, MacAddress dest, uint16_t type)
+void Ethernet::send(
+    size_t nBytes, uintptr_t packet, Network *pCard, MacAddress dest,
+    uint16_t type)
 {
-  if(!pCard || !pCard->isConnected())
-    return; // NIC isn't active
+    if (!pCard || !pCard->isConnected())
+        return;  // NIC isn't active
 
-  // Move the payload for the ethernet header to go in
-  MemoryCopy(reinterpret_cast<void*>(packet + sizeof(ethernetHeader)), reinterpret_cast<void*>(packet), nBytes);
+    // Move the payload for the ethernet header to go in
+    MemoryCopy(
+        reinterpret_cast<void *>(packet + sizeof(ethernetHeader)),
+        reinterpret_cast<void *>(packet), nBytes);
 
-  // get the ethernet header pointer
-  ethernetHeader* ethHeader = reinterpret_cast<ethernetHeader*>(packet);
+    // get the ethernet header pointer
+    ethernetHeader *ethHeader = reinterpret_cast<ethernetHeader *>(packet);
 
-  // copy in the data
-  StationInfo me = pCard->getStationInfo();
-  MemoryCopy(ethHeader->destMac, dest.getMac(), 6);
-  MemoryCopy(ethHeader->sourceMac, me.mac, 6);
-  ethHeader->type = HOST_TO_BIG16(type);
+    // copy in the data
+    StationInfo me = pCard->getStationInfo();
+    MemoryCopy(ethHeader->destMac, dest.getMac(), 6);
+    MemoryCopy(ethHeader->sourceMac, me.mac, 6);
+    ethHeader->type = HOST_TO_BIG16(type);
 
-  // Check for filtering
-  /// \todo need to indicate in/out direction in NetworkFilter
-  if(!NetworkFilter::instance().filter(1, packet, nBytes + sizeof(ethernetHeader)))
-  {
-    pCard->droppedPacket();
-    return; // Drop the packet.
-  }
+    // Check for filtering
+    /// \todo need to indicate in/out direction in NetworkFilter
+    if (!NetworkFilter::instance().filter(
+            1, packet, nBytes + sizeof(ethernetHeader)))
+    {
+        pCard->droppedPacket();
+        return;  // Drop the packet.
+    }
 
-  // send it over the network
-  pCard->send(nBytes + sizeof(ethernetHeader), packet);
+    // send it over the network
+    pCard->send(nBytes + sizeof(ethernetHeader), packet);
 
-  // and dump it into any raw sockets (note the -1 for protocol - this means WIRE level endpoints)
-  // RawManager::instance().receive(packAddr, newSize, 0, -1, pCard);
+    // and dump it into any raw sockets (note the -1 for protocol - this means
+    // WIRE level endpoints) RawManager::instance().receive(packAddr, newSize,
+    // 0, -1, pCard);
 }

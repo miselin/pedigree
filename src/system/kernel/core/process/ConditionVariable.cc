@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <Log.h>
 #include <process/ConditionVariable.h>
 #include <process/Mutex.h>
 #include <process/Thread.h>
 #include <processor/Processor.h>
 #include <time/Time.h>
-#include <Log.h>
 
 ConditionVariable::ConditionVariable() : m_Lock(false), m_Waiters()
 {

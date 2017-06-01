@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_PPC32_COMMON_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_PPC32_COMMON_PHYSICALMEMORYMANAGER_H
 
+#include "../ppc32/Translation.h"
 #include <processor/PhysicalMemoryManager.h>
 #include <utilities/RangeList.h>
-#include "../ppc32/Translation.h"
 
 /** @addtogroup kernelprocessorppccommon
  * @{ */
@@ -31,8 +30,8 @@
 /** The common PPC implementation of the PhysicalMemoryManager.
  *
  *  This implementation has two modes - the initial mode and the 'normal' mode.
- *  In the initial mode the PMM will allocate a contiguous set of frames starting
- *  from PMM_INITIAL_START. There is no way to free pages in this mode.
+ *  In the initial mode the PMM will allocate a contiguous set of frames
+ *starting from PMM_INITIAL_START. There is no way to free pages in this mode.
  *
  *  In 'normal' mode the PMM uses a page stack and a rangelist for allocation/
  *  deallocation.
@@ -42,88 +41,94 @@
  *\brief Implementation of the PhysicalMemoryManager for common ppc */
 class PpcCommonPhysicalMemoryManager : public PhysicalMemoryManager
 {
-public:
-  /** Get the PpcCommonPhysicalMemoryManager instance
-   *\return instance of the PpcCommonPhysicalMemoryManager */
-  inline static PpcCommonPhysicalMemoryManager &instance(){return m_Instance;}
+    public:
+    /** Get the PpcCommonPhysicalMemoryManager instance
+     *\return instance of the PpcCommonPhysicalMemoryManager */
+    inline static PpcCommonPhysicalMemoryManager &instance()
+    {
+        return m_Instance;
+    }
 
-  //
-  // PhysicalMemoryManager Interface
-  //
-  virtual physical_uintptr_t allocatePage();
-  virtual void freePage(physical_uintptr_t page);
-  virtual bool allocateRegion(MemoryRegion &Region,
-                              size_t cPages,
-                              size_t pageConstraints,
-                              size_t Flags,
-                              physical_uintptr_t start = -1);
+    //
+    // PhysicalMemoryManager Interface
+    //
+    virtual physical_uintptr_t allocatePage();
+    virtual void freePage(physical_uintptr_t page);
+    virtual bool allocateRegion(
+        MemoryRegion &Region, size_t cPages, size_t pageConstraints,
+        size_t Flags, physical_uintptr_t start = -1);
 
-  void initialise(Translations &translations, uintptr_t ramMax);
+    void initialise(Translations &translations, uintptr_t ramMax);
 
-  void unmapRegion(MemoryRegion *pRegion);
+    void unmapRegion(MemoryRegion *pRegion);
 
-protected:
-  /** The constructor */
-  PpcCommonPhysicalMemoryManager();
-  /** The destructor */
-  virtual ~PpcCommonPhysicalMemoryManager();
+    protected:
+    /** The constructor */
+    PpcCommonPhysicalMemoryManager();
+    /** The destructor */
+    virtual ~PpcCommonPhysicalMemoryManager();
 
-private:
-  /** The copy-constructor
-   *\note Not implemented (singleton) */
-  PpcCommonPhysicalMemoryManager(const PpcCommonPhysicalMemoryManager &);
-  /** The copy-constructor
-   *\note Not implemented (singleton) */
-  PpcCommonPhysicalMemoryManager &operator = (const PpcCommonPhysicalMemoryManager &);
-
-  /** The stack of available pages. */
-  class PageStack
-  {
-  public:
-    /** Default constructor does nothing */
-    PageStack() INITIALISATION_ONLY;
-    /** Allocate a page with certain constraints
-     *\return The physical address of the allocated page or 0 */
-    physical_uintptr_t allocate();
-    /** Free a physical page
-     *\param[in] physicalAddress physical address of the page */
-    void free(uintptr_t physicalAddress);
-    /** The destructor does nothing */
-    inline ~PageStack(){}
-
-  private:
+    private:
     /** The copy-constructor
-     *\note Not implemented */
-    PageStack(const PageStack &);
+     *\note Not implemented (singleton) */
+    PpcCommonPhysicalMemoryManager(const PpcCommonPhysicalMemoryManager &);
     /** The copy-constructor
-     *\note Not implemented */
-    PageStack &operator = (const PageStack &);
+     *\note Not implemented (singleton) */
+    PpcCommonPhysicalMemoryManager &
+    operator=(const PpcCommonPhysicalMemoryManager &);
 
-    /** Pointer to the base address of the stack. The stack grows upwards. */
-    physical_uintptr_t *m_Stack;
-    /** Size of the currently mapped stack */
-    size_t m_StackMax;
-    /** Currently used size of the stack */
-    size_t m_StackSize;
-  };
+    /** The stack of available pages. */
+    class PageStack
+    {
+        public:
+        /** Default constructor does nothing */
+        PageStack() INITIALISATION_ONLY;
+        /** Allocate a page with certain constraints
+         *\return The physical address of the allocated page or 0 */
+        physical_uintptr_t allocate();
+        /** Free a physical page
+         *\param[in] physicalAddress physical address of the page */
+        void free(uintptr_t physicalAddress);
+        /** The destructor does nothing */
+        inline ~PageStack()
+        {
+        }
 
-  /** The page stack */
-  PageStack m_PageStack;
+        private:
+        /** The copy-constructor
+         *\note Not implemented */
+        PageStack(const PageStack &);
+        /** The copy-constructor
+         *\note Not implemented */
+        PageStack &operator=(const PageStack &);
 
-  /** The current operating mode. True for 'initial', false for 'normal'. */
-  bool m_InitialMode;  
+        /** Pointer to the base address of the stack. The stack grows upwards.
+         */
+        physical_uintptr_t *m_Stack;
+        /** Size of the currently mapped stack */
+        size_t m_StackMax;
+        /** Currently used size of the stack */
+        size_t m_StackSize;
+    };
 
-  /** Variable used in initial mode to keep track of where the next page to allocate is. */
-  physical_uintptr_t m_NextPage;
+    /** The page stack */
+    PageStack m_PageStack;
 
-  /** RangeList of free physical memory */
-  RangeList<uint64_t> m_PhysicalRanges;
+    /** The current operating mode. True for 'initial', false for 'normal'. */
+    bool m_InitialMode;
 
-  /** Virtual memory available for MemoryRegions */
-  RangeList<uintptr_t> m_MemoryRegions;
+    /** Variable used in initial mode to keep track of where the next page to
+     * allocate is. */
+    physical_uintptr_t m_NextPage;
 
-  /** The PpcCommonPhysicalMemoryManager class instance */
-  static PpcCommonPhysicalMemoryManager m_Instance;
+    /** RangeList of free physical memory */
+    RangeList<uint64_t> m_PhysicalRanges;
+
+    /** Virtual memory available for MemoryRegions */
+    RangeList<uintptr_t> m_MemoryRegions;
+
+    /** The PpcCommonPhysicalMemoryManager class instance */
+    static PpcCommonPhysicalMemoryManager m_Instance;
 };
 
 //

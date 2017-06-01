@@ -20,7 +20,8 @@
 #ifndef _POSIX_SYSCALL_H
 #define _POSIX_SYSCALL_H
 
-// If you change this, ensure you change src/system/include/processor/Syscalls.h !
+// If you change this, ensure you change src/system/include/processor/Syscalls.h
+// !
 #define SERVICE 1
 #define SERVICE_INIT
 #define SERVICE_ERROR errno

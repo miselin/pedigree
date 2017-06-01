@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,65 +24,71 @@
 
 enum UsbPnPConstants
 {
-    VendorIdNone    = 0xFFFF,
-    ProductIdNone   = 0xFFFF,
-    ClassNone       = 0xFF,
-    SubclassNone    = 0xFF,
-    ProtocolNone    = 0xFF,
+    VendorIdNone = 0xFFFF,
+    ProductIdNone = 0xFFFF,
+    ClassNone = 0xFF,
+    SubclassNone = 0xFF,
+    ProtocolNone = 0xFF,
 };
 
 class UsbPnP
 {
     private:
-        /// Callback function type
-        typedef UsbDevice *(*callback_t)(UsbDevice*);
+    /// Callback function type
+    typedef UsbDevice *(*callback_t)(UsbDevice *);
 
     public:
+    UsbPnP() : m_Callbacks()
+    {
+    }
+    inline virtual ~UsbPnP()
+    {
+    }
 
-        UsbPnP() : m_Callbacks() {}
-        inline virtual ~UsbPnP() {}
+    /// Singleton design
+    static UsbPnP &instance()
+    {
+        return m_Instance;
+    }
 
-        /// Singleton design
-        static UsbPnP& instance()
-        {
-            return m_Instance;
-        }
+    /// Register a callback for the given vendor and product IDs
+    void registerCallback(
+        uint16_t nVendorId, uint16_t nProductId, callback_t callback);
 
-        /// Register a callback for the given vendor and product IDs
-        void registerCallback(uint16_t nVendorId, uint16_t nProductId, callback_t callback);
+    /// Register a callback for the given class, subclass and protocol numbers
+    void registerCallback(
+        uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol,
+        callback_t callback);
 
-        /// Register a callback for the given class, subclass and protocol numbers
-        void registerCallback(uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol, callback_t callback);
-
-        /// Tries to find a suitable driver for the given USB device
-        bool probeDevice(Device *pDeviceBase);
+    /// Tries to find a suitable driver for the given USB device
+    bool probeDevice(Device *pDeviceBase);
 
     private:
-        /// Static instance
-        static UsbPnP m_Instance;
+    /// Static instance
+    static UsbPnP m_Instance;
 
-        /// Goes down the device tree, reprobing every USB device
-        void reprobeDevices(Device *pParent);
+    /// Goes down the device tree, reprobing every USB device
+    void reprobeDevices(Device *pParent);
 
-        /// Item in the callback list. This stores information that's needed
-        /// to choose a specific callback for a device.
-        struct CallbackItem
-        {
-            /// The callback function
-            callback_t callback;
+    /// Item in the callback list. This stores information that's needed
+    /// to choose a specific callback for a device.
+    struct CallbackItem
+    {
+        /// The callback function
+        callback_t callback;
 
-            /// Vendor and product IDs
-            uint16_t nVendorId;
-            uint16_t nProductId;
+        /// Vendor and product IDs
+        uint16_t nVendorId;
+        uint16_t nProductId;
 
-            /// Class, subclass and protocol numbers
-            uint8_t nClass;
-            uint8_t nSubclass;
-            uint8_t nProtocol;
-        };
+        /// Class, subclass and protocol numbers
+        uint8_t nClass;
+        uint8_t nSubclass;
+        uint8_t nProtocol;
+    };
 
-        /// Callback list
-        List<CallbackItem*> m_Callbacks;
+    /// Callback list
+    List<CallbackItem *> m_Callbacks;
 };
 
 #endif

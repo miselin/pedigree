@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,12 +21,12 @@
 #define SERIAL_H
 
 #include <compiler.h>
-#include <processor/types.h>
 #include <machine/Serial.h>
+#include <processor/types.h>
 
 /**
  * Implements a driver for the Serial connection of the malta's UART.
- * 
+ *
  * Base for UART registers: 0x1F000900
  * Register offsets:
  * RXTX:    0x00  Receive/Transmit char register.
@@ -41,49 +40,50 @@
  */
 class PPCSerial : public Serial
 {
-public:
-  /**
-   * Default constructor, does nothing.
-   */
-  PPCSerial();
-  /**
-   * Destructor.
-   */
-  ~PPCSerial();
+    public:
+    /**
+     * Default constructor, does nothing.
+     */
+    PPCSerial();
+    /**
+     * Destructor.
+     */
+    ~PPCSerial();
 
-  virtual void setBase(uintptr_t nBaseAddr);
-  
-  /**
-   * Writes a character out to the serial port.
-   * \note Blocking I/O.
-   */
-  virtual void write(char c);
-  
-  /**
-   * Reads a character in from the serial port.
-   * \note Blocking I/O.
-   * \return Zero on a non-printable character without a hardcoded VT100 string,
-   *         the next character in the buffer otherwise.
-   */
-  virtual char read();
-  virtual char readNonBlock();
-private:
-  PPCSerial(const PPCSerial &);
-  PPCSerial &operator = (const PPCSerial &);
-  
-  /**
-   * If we're returning a VT100 string (more than one char), this buffer pointer can be
-   * set to the current location in the string. If it is NULL, the next character is pulled from
-   * the port.
-   */
-  const char *m_pBuffer;
-  
-  /**
-   * The serial device's registers.
-   */
-//   volatile serial *m_pRegs;
-  
-  bool isConnected();
+    virtual void setBase(uintptr_t nBaseAddr);
+
+    /**
+     * Writes a character out to the serial port.
+     * \note Blocking I/O.
+     */
+    virtual void write(char c);
+
+    /**
+     * Reads a character in from the serial port.
+     * \note Blocking I/O.
+     * \return Zero on a non-printable character without a hardcoded VT100
+     * string, the next character in the buffer otherwise.
+     */
+    virtual char read();
+    virtual char readNonBlock();
+
+    private:
+    PPCSerial(const PPCSerial &);
+    PPCSerial &operator=(const PPCSerial &);
+
+    /**
+     * If we're returning a VT100 string (more than one char), this buffer
+     * pointer can be set to the current location in the string. If it is NULL,
+     * the next character is pulled from the port.
+     */
+    const char *m_pBuffer;
+
+    /**
+     * The serial device's registers.
+     */
+    //   volatile serial *m_pRegs;
+
+    bool isConnected();
 };
 
 #endif

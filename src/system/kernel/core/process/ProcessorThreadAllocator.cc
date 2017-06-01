@@ -27,8 +27,7 @@
 
 ProcessorThreadAllocator ProcessorThreadAllocator::m_Instance;
 
-ProcessorThreadAllocator::ProcessorThreadAllocator() :
-    m_pAlgorithm(0)
+ProcessorThreadAllocator::ProcessorThreadAllocator() : m_pAlgorithm(0)
 {
 }
 
@@ -37,17 +36,18 @@ ProcessorThreadAllocator::~ProcessorThreadAllocator()
     delete m_pAlgorithm;
 }
 
-void ProcessorThreadAllocator::addThread(Thread *pThread, Thread::ThreadStartFunc pStartFunction,
-                   void *pParam, bool bUsermode, void *pStack)
+void ProcessorThreadAllocator::addThread(
+    Thread *pThread, Thread::ThreadStartFunc pStartFunction, void *pParam,
+    bool bUsermode, void *pStack)
 {
-    PerProcessorScheduler* pSchedule = m_pAlgorithm->allocateThread(pThread);
+    PerProcessorScheduler *pSchedule = m_pAlgorithm->allocateThread(pThread);
     Scheduler::instance().addThread(pThread, *pSchedule);
     pSchedule->addThread(pThread, pStartFunction, pParam, bUsermode, pStack);
 }
 
 void ProcessorThreadAllocator::addThread(Thread *pThread, SyscallState &state)
 {
-    PerProcessorScheduler* pSchedule = m_pAlgorithm->allocateThread(pThread);
+    PerProcessorScheduler *pSchedule = m_pAlgorithm->allocateThread(pThread);
     Scheduler::instance().addThread(pThread, *pSchedule);
     pSchedule->addThread(pThread, state);
 }

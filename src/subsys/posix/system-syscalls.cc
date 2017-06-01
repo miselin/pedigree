@@ -17,54 +17,54 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "file-syscalls.h"
 #include "system-syscalls.h"
+#include "file-syscalls.h"
 #include "pipe-syscalls.h"
-#include "signal-syscalls.h"
-#include "pthread-syscalls.h"
 #include "posixSyscallNumbers.h"
-#include <syscallError.h>
-#include <processor/types.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/state.h>
-#include <process/Process.h>
-#include <process/Thread.h>
-#include <process/Scheduler.h>
+#include "pthread-syscalls.h"
+#include "signal-syscalls.h"
 #include <Log.h>
+#include <Version.h>
+#include <linker/DynamicLinker.h>
 #include <linker/Elf.h>
 #include <linker/KernelElf.h>
+#include <panic.h>
+#include <process/Process.h>
+#include <process/Scheduler.h>
+#include <process/Thread.h>
+#include <processor/PhysicalMemoryManager.h>
+#include <processor/Processor.h>
+#include <processor/StackFrame.h>
+#include <processor/VirtualAddressSpace.h>
+#include <processor/state.h>
+#include <processor/types.h>
+#include <syscallError.h>
+#include <utilities/String.h>
+#include <utilities/Vector.h>
 #include <vfs/File.h>
 #include <vfs/Symlink.h>
 #include <vfs/VFS.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/StackFrame.h>
-#include <linker/DynamicLinker.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
-#include <Version.h>
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include <machine/Machine.h>
 #include <machine/Timer.h>
 
-#include <Subsystem.h>
-#include <PosixSubsystem.h>
 #include <PosixProcess.h>
+#include <PosixSubsystem.h>
+#include <Subsystem.h>
 
-#include <users/UserManager.h>
 #include <console/Console.h>
+#include <users/UserManager.h>
 
 #include <grp.h>
 #include <limits.h>
 #include <pwd.h>
+#include <sched.h>
 #include <sys/resource.h>
 #include <sys/times.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 #include <syslog.h>
-#include <sys/utsname.h>
-#include <sched.h>
 
 // arch_prctl
 #define ARCH_SET_FS 0x1002
@@ -74,10 +74,12 @@
 // Syscalls pertaining to system operations.
 //
 
-#define GET_CWD() (Processor::information().getCurrentThread()->getParent()->getCwd())
+#define GET_CWD() \
+    (Processor::information().getCurrentThread()->getParent()->getCwd())
 
 /// Saves a char** array in the Vector of String*s given.
-static size_t save_string_array(const char **array, Vector<SharedPointer<String>> &rArray)
+static size_t
+save_string_array(const char **array, Vector<SharedPointer<String>> &rArray)
 {
     size_t result = 0;
     while (*array)
@@ -92,29 +94,33 @@ static size_t save_string_array(const char **array, Vector<SharedPointer<String>
     return result;
 }
 
-/// Creates a char** array, properly null-terminated, from the Vector of String*s given, at the location "arrayLoc",
-/// returning the end of the char** array created in arrayEndLoc and the start as the function return value.
-static char **load_string_array(Vector<SharedPointer<String>> &rArray, uintptr_t arrayLoc, uintptr_t &arrayEndLoc)
+/// Creates a char** array, properly null-terminated, from the Vector of
+/// String*s given, at the location "arrayLoc", returning the end of the char**
+/// array created in arrayEndLoc and the start as the function return value.
+static char **load_string_array(
+    Vector<SharedPointer<String>> &rArray, uintptr_t arrayLoc,
+    uintptr_t &arrayEndLoc)
 {
-    char **pMasterArray = reinterpret_cast<char**> (arrayLoc);
+    char **pMasterArray = reinterpret_cast<char **>(arrayLoc);
 
-    char *pPtr = reinterpret_cast<char*> (arrayLoc + sizeof(char*) * (rArray.count()+1) );
+    char *pPtr = reinterpret_cast<char *>(
+        arrayLoc + sizeof(char *) * (rArray.count() + 1));
     int i = 0;
     for (auto it = rArray.begin(); it != rArray.end(); it++)
     {
         SharedPointer<String> pStr = *it;
 
         StringCopy(pPtr, *pStr);
-        pPtr[pStr->length()] = '\0'; // Ensure NULL-termination.
+        pPtr[pStr->length()] = '\0';  // Ensure NULL-termination.
 
         pMasterArray[i] = pPtr;
 
-        pPtr += pStr->length()+1;
+        pPtr += pStr->length() + 1;
         i++;
     }
 
-    pMasterArray[i] = 0; // Null terminate.
-    arrayEndLoc = reinterpret_cast<uintptr_t> (pPtr);
+    pMasterArray[i] = 0;  // Null terminate.
+    arrayEndLoc = reinterpret_cast<uintptr_t>(pPtr);
 
     return pMasterArray;
 }
@@ -124,7 +130,8 @@ long posix_sbrk(int delta)
     SC_NOTICE("sbrk(" << delta << ")");
 
     long ret = reinterpret_cast<long>(
-                   Processor::information().getVirtualAddressSpace().expandHeap (delta, VirtualAddressSpace::Write));
+        Processor::information().getVirtualAddressSpace().expandHeap(
+            delta, VirtualAddressSpace::Write));
     SC_NOTICE("    -> " << ret);
     if (ret == 0)
     {
@@ -141,22 +148,24 @@ uintptr_t posix_brk(uintptr_t theBreak)
 
     void *newBreak = reinterpret_cast<void *>(theBreak);
 
-    void *currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
+    void *currentBreak =
+        Processor::information().getVirtualAddressSpace().getEndOfHeap();
     if (newBreak < currentBreak)
     {
         SC_NOTICE(" -> " << currentBreak);
-        return reinterpret_cast<uintptr_t >(currentBreak);
+        return reinterpret_cast<uintptr_t>(currentBreak);
     }
 
     intptr_t difference = pointer_diff(currentBreak, newBreak);
     if (!difference)
     {
         SC_NOTICE(" -> " << currentBreak);
-        return reinterpret_cast<uintptr_t >(currentBreak);
+        return reinterpret_cast<uintptr_t>(currentBreak);
     }
 
     // OK, good to go.
-    void *result = Processor::information().getVirtualAddressSpace().expandHeap(difference, VirtualAddressSpace::Write);
+    void *result = Processor::information().getVirtualAddressSpace().expandHeap(
+        difference, VirtualAddressSpace::Write);
     if (!result)
     {
         SYSCALL_ERROR(OutOfMemory);
@@ -165,15 +174,20 @@ uintptr_t posix_brk(uintptr_t theBreak)
     }
 
     // Return new end of heap.
-    currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
+    currentBreak =
+        Processor::information().getVirtualAddressSpace().getEndOfHeap();
 
     SC_NOTICE(" -> " << currentBreak);
     return reinterpret_cast<uintptr_t>(currentBreak);
 }
 
-long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
+long posix_clone(
+    SyscallState &state, unsigned long flags, void *child_stack, int *ptid,
+    int *ctid, unsigned long newtls)
 {
-    SC_NOTICE("clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", " << ctid << ", " << newtls << ")");
+    SC_NOTICE(
+        "clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", "
+                 << ctid << ", " << newtls << ")");
 
     Processor::setInterrupts(false);
 
@@ -239,7 +253,8 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
         clonedState.setSyscallReturnValue(0);
 
         // pretty much just a thread
-        Process *pParentProcess = Processor::information().getCurrentThread()->getParent();
+        Process *pParentProcess =
+            Processor::information().getCurrentThread()->getParent();
 
         // Create a new thread for the new process. Make sure it's
         // delayed-start so we can ensure the new thread ID gets written to the
@@ -273,11 +288,12 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     }
 
     // Inhibit signals to the parent
-    for(int sig = 0; sig < 32; sig++)
+    for (int sig = 0; sig < 32; sig++)
         Processor::information().getCurrentThread()->inhibitEvent(sig, true);
 
     // Create a new process.
-    Process *pParentProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pParentProcess =
+        Processor::information().getCurrentThread()->getParent();
     PosixProcess *pProcess = new PosixProcess(pParentProcess);
     if (!pProcess)
     {
@@ -286,23 +302,25 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
         return -1;
     }
 
-    PosixSubsystem *pParentSubsystem = reinterpret_cast<PosixSubsystem*>(pParentProcess->getSubsystem());
+    PosixSubsystem *pParentSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pParentProcess->getSubsystem());
     PosixSubsystem *pSubsystem = new PosixSubsystem(*pParentSubsystem);
     if (!pSubsystem || !pParentSubsystem)
     {
         ERROR("No subsystem for one or both of the processes!");
 
-        if(pSubsystem)
+        if (pSubsystem)
             delete pSubsystem;
-        if(pParentSubsystem)
+        if (pParentSubsystem)
             delete pParentSubsystem;
         delete pProcess;
 
         SYSCALL_ERROR(OutOfMemory);
 
         // Allow signals again, something went wrong
-        for(int sig = 0; sig < 32; sig++)
-            Processor::information().getCurrentThread()->inhibitEvent(sig, false);
+        for (int sig = 0; sig < 32; sig++)
+            Processor::information().getCurrentThread()->inhibitEvent(
+                sig, false);
         SC_NOTICE(" -> ENOMEM");
         return -1;
     }
@@ -310,27 +328,29 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     pSubsystem->setProcess(pProcess);
 
     // Copy POSIX Process Group information if needed
-    if(pParentProcess->getType() == Process::Posix)
+    if (pParentProcess->getType() == Process::Posix)
     {
-        PosixProcess *p = static_cast<PosixProcess*>(pParentProcess);
+        PosixProcess *p = static_cast<PosixProcess *>(pParentProcess);
         pProcess->setProcessGroup(p->getProcessGroup());
 
         // Do not adopt leadership status.
-        if(p->getGroupMembership() == PosixProcess::Leader)
+        if (p->getGroupMembership() == PosixProcess::Leader)
         {
             SC_NOTICE("fork parent was a group leader.");
             pProcess->setGroupMembership(PosixProcess::Member);
         }
         else
         {
-            SC_NOTICE("fork parent had status " << static_cast<int>(p->getGroupMembership()) << "...");
+            SC_NOTICE(
+                "fork parent had status "
+                << static_cast<int>(p->getGroupMembership()) << "...");
             pProcess->setGroupMembership(p->getGroupMembership());
         }
     }
 
     // Register with the dynamic linker.
     DynamicLinker *oldLinker = pProcess->getLinker();
-    if(oldLinker)
+    if (oldLinker)
     {
         DynamicLinker *newLinker = new DynamicLinker(*oldLinker);
         pProcess->setLinker(newLinker);
@@ -345,13 +365,14 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     clonedState.setSyscallReturnValue(0);
 
     // Allow signals to the parent again
-    for(int sig = 0; sig < 32; sig++)
+    for (int sig = 0; sig < 32; sig++)
         Processor::information().getCurrentThread()->inhibitEvent(sig, false);
 
     // Set ctid in the new address space if we are required to.
     if (flags & CLONE_CHILD_SETTID)
     {
-        VirtualAddressSpace &curr = Processor::information().getVirtualAddressSpace();
+        VirtualAddressSpace &curr =
+            Processor::information().getVirtualAddressSpace();
         VirtualAddressSpace *va = pProcess->getAddressSpace();
         Processor::switchAddressSpace(*va);
         *ctid = pProcess->getId();
@@ -367,8 +388,8 @@ long posix_clone(SyscallState &state, unsigned long flags, void *child_stack, in
     ///       already! We need a way to have threads start suspended so they
     ///       can be unblocked by callers when they are ready to run.
     pedigree_copy_posix_thread(
-        Processor::information().getCurrentThread(), pParentSubsystem,
-        pThread, pSubsystem);
+        Processor::information().getCurrentThread(), pParentSubsystem, pThread,
+        pSubsystem);
 
     // Parent returns child ID.
     SC_NOTICE(" -> " << pProcess->getId() << " [new process]");
@@ -382,10 +403,13 @@ int posix_fork(SyscallState &state)
     return posix_clone(state, 0, 0, 0, 0, 0);
 }
 
-int posix_execve(const char *name, const char **argv, const char **env, SyscallState &state)
+int posix_execve(
+    const char *name, const char **argv, const char **env, SyscallState &state)
 {
     /// \todo Check argv/env??
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(name), PATH_MAX,
+            PosixSubsystem::SafeRead))
     {
         SC_NOTICE("execve -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -401,8 +425,10 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
         return -1;
     }
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -440,76 +466,82 @@ int posix_execve(const char *name, const char **argv, const char **env, SyscallS
 class WaitCleanup
 {
     public:
-        WaitCleanup(List<Process*> *cleanupList, Semaphore *lock) :
-            m_List(cleanupList), m_Lock(lock), m_pTerminated(0)
-        {}
+    WaitCleanup(List<Process *> *cleanupList, Semaphore *lock)
+        : m_List(cleanupList), m_Lock(lock), m_pTerminated(0)
+    {
+    }
 
-        /**
-         * Call this with the process that terminated most recently, which
-         * is necessary because otherwise upon exit from waitpid() we attempt
-         * to access the (deleted) Process object, which is not safe.
-         */
-        void terminated(Process *pProcess)
+    /**
+     * Call this with the process that terminated most recently, which
+     * is necessary because otherwise upon exit from waitpid() we attempt
+     * to access the (deleted) Process object, which is not safe.
+     */
+    void terminated(Process *pProcess)
+    {
+        m_pTerminated = pProcess;
+        pProcess->removeWaiter(m_Lock);
+    }
+
+    ~WaitCleanup()
+    {
+        for (List<Process *>::Iterator it = m_List->begin();
+             it != m_List->end(); ++it)
         {
-            m_pTerminated = pProcess;
-            pProcess->removeWaiter(m_Lock);
-        }
+            if ((*it) == m_pTerminated)
+                continue;
 
-        ~WaitCleanup()
-        {
-            for(List<Process*>::Iterator it = m_List->begin();
-                it != m_List->end();
-                ++it)
-            {
-                if((*it) == m_pTerminated)
-                    continue;
-
-                (*it)->removeWaiter(m_Lock);
-            }
+            (*it)->removeWaiter(m_Lock);
         }
+    }
 
     private:
-
-        List<Process *> *m_List;
-        Semaphore *m_Lock;
-        Process *m_pTerminated;
+    List<Process *> *m_List;
+    Semaphore *m_Lock;
+    Process *m_pTerminated;
 };
 
 int posix_waitpid(const int pid, int *status, int options)
 {
-    if(status && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(status), sizeof(int), PosixSubsystem::SafeWrite))
+    if (status && !PosixSubsystem::checkAddress(
+                      reinterpret_cast<uintptr_t>(status), sizeof(int),
+                      PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("waitpid -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    SC_NOTICE("waitpid(" << pid << " [" << Dec << pid << Hex << "], " << options << ")");
+    SC_NOTICE(
+        "waitpid(" << pid << " [" << Dec << pid << Hex << "], " << options
+                   << ")");
 
     // Find the set of processes to check.
     List<Process *> processList;
 
-    // Our lock, which we will assign to each process (assuming WNOHANG is not set).
+    // Our lock, which we will assign to each process (assuming WNOHANG is not
+    // set).
     Semaphore waitLock(0);
 
-    // RAII object to clean up when we return (instead of goto or other ugliness).
+    // RAII object to clean up when we return (instead of goto or other
+    // ugliness).
     WaitCleanup cleanup(&processList, &waitLock);
 
     // Metadata about the calling process.
-    PosixProcess *pThisProcess = static_cast<PosixProcess *>(Processor::information().getCurrentThread()->getParent());
+    PosixProcess *pThisProcess = static_cast<PosixProcess *>(
+        Processor::information().getCurrentThread()->getParent());
     ProcessGroup *pThisGroup = pThisProcess->getProcessGroup();
 
     // Check for the process(es) we need to check for.
     size_t i = 0;
     bool bBlock = (options & WNOHANG) != WNOHANG;
-    for(; i < Scheduler::instance().getNumProcesses(); ++i)
+    for (; i < Scheduler::instance().getNumProcesses(); ++i)
     {
         Process *pProcess = Scheduler::instance().getProcess(i);
-        if(pProcess == pThisProcess)
-            continue; // Don't wait for ourselves.
+        if (pProcess == pThisProcess)
+            continue;  // Don't wait for ourselves.
 
         if (pProcess->getState() == Process::Reaped)
-            continue; // Reaped but not yet destroyed.
+            continue;  // Reaped but not yet destroyed.
 
         if ((pid <= 0) && (pProcess->getType() == Process::Posix))
         {
@@ -520,16 +552,16 @@ int posix_waitpid(const int pid, int *status, int options)
                 // Any process in the same process group as the caller.
                 if (!(pGroup && pThisGroup))
                     continue;
-                if(pGroup->processGroupId != pThisGroup->processGroupId)
+                if (pGroup->processGroupId != pThisGroup->processGroupId)
                     continue;
             }
             else if (pid == -1)
             {
                 // Wait for any child.
-                if(pProcess->getParent() != pThisProcess)
+                if (pProcess->getParent() != pThisProcess)
                     continue;
             }
-            else if(pGroup && (pGroup->processGroupId != (pid * -1)))
+            else if (pGroup && (pGroup->processGroupId != (pid * -1)))
             {
                 // Absolute group ID reference
                 continue;
@@ -546,16 +578,17 @@ int posix_waitpid(const int pid, int *status, int options)
         // If not WNOHANG, subscribe our lock to this process' state changes.
         // If the process is in the process of terminating, we can add our
         // lock and hope for the best.
-        if(bBlock || (pProcess->getState() == Process::Terminating))
+        if (bBlock || (pProcess->getState() == Process::Terminating))
         {
-            SC_NOTICE("  -> adding our wait lock to process " << pProcess->getId());
+            SC_NOTICE(
+                "  -> adding our wait lock to process " << pProcess->getId());
             pProcess->addWaiter(&waitLock);
             bBlock = true;
         }
     }
 
     // No children?
-    if(processList.count() == 0)
+    if (processList.count() == 0)
     {
         SYSCALL_ERROR(NoChildren);
         SC_NOTICE("  -> no children");
@@ -563,12 +596,11 @@ int posix_waitpid(const int pid, int *status, int options)
     }
 
     // Main wait loop.
-    while(1)
+    while (1)
     {
         // Check each process for state.
-        for(List<Process *>::Iterator it = processList.begin();
-            it != processList.end();
-            ++it)
+        for (List<Process *>::Iterator it = processList.begin();
+             it != processList.end(); ++it)
         {
             Process *pProcess = *it;
             int this_pid = pProcess->getId();
@@ -580,7 +612,9 @@ int posix_waitpid(const int pid, int *status, int options)
                     *status = pProcess->getExitStatus();
 
                 // Delete the process; it's been reaped good and proper.
-                SC_NOTICE("waitpid: " << this_pid << " reaped [" << pProcess->getExitStatus() << "]");
+                SC_NOTICE(
+                    "waitpid: " << this_pid << " reaped ["
+                                << pProcess->getExitStatus() << "]");
                 cleanup.terminated(pProcess);
                 if (pProcess->waiterCount() < 1)
                     delete pProcess;
@@ -589,18 +623,18 @@ int posix_waitpid(const int pid, int *status, int options)
                 return this_pid;
             }
             // Suspended (and WUNTRACED)?
-            else if((options & 2) && pProcess->hasSuspended())
+            else if ((options & 2) && pProcess->hasSuspended())
             {
-                if(status)
+                if (status)
                     *status = pProcess->getExitStatus();
 
                 SC_NOTICE("waitpid: " << this_pid << " suspended.");
                 return this_pid;
             }
             // Continued (and WCONTINUED)?
-            else if((options & 4) && pProcess->hasResumed())
+            else if ((options & 4) && pProcess->hasResumed())
             {
-                if(status)
+                if (status)
                     *status = pProcess->getExitStatus();
 
                 SC_NOTICE("waitpid: " << this_pid << " resumed.");
@@ -610,7 +644,7 @@ int posix_waitpid(const int pid, int *status, int options)
 
         // Don't wait for any processes to report status if we are not meant
         // to be blocking.
-        if(!bBlock)
+        if (!bBlock)
         {
             return 0;
         }
@@ -619,7 +653,8 @@ int posix_waitpid(const int pid, int *status, int options)
         waitLock.acquire();
 
         // We can get woken up by our process dying. Handle that here.
-        if (Processor::information().getCurrentThread()->getUnwindState() == Thread::Exit)
+        if (Processor::information().getCurrentThread()->getUnwindState() ==
+            Thread::Exit)
         {
             SC_NOTICE("waitpid: unwind state means exit");
             return -1;
@@ -633,10 +668,12 @@ int posix_waitpid(const int pid, int *status, int options)
 
 int posix_exit(int code, bool allthreads)
 {
-    SC_NOTICE("exit(" << Dec << (code&0xFF) << Hex << ")");
+    SC_NOTICE("exit(" << Dec << (code & 0xFF) << Hex << ")");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem = reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem());
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     if (allthreads)
     {
@@ -657,8 +694,9 @@ int posix_exit(int code, bool allthreads)
 int posix_getpid()
 {
     SC_NOTICE("getpid");
-    
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     return pProcess->getId();
 }
 
@@ -666,7 +704,8 @@ int posix_getppid()
 {
     SC_NOTICE("getppid");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     if (!pProcess->getParent())
         return 0;
     return pProcess->getParent()->getId();
@@ -674,7 +713,9 @@ int posix_getppid()
 
 int posix_gettimeofday(timeval *tv, struct timezone *tz)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tv), sizeof(timeval), PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(tv), sizeof(timeval),
+            PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("gettimeofday -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -682,7 +723,7 @@ int posix_gettimeofday(timeval *tv, struct timezone *tz)
     }
 
     SC_NOTICE("gettimeofday");
-    
+
     Timer *pTimer = Machine::instance().getTimer();
 
     // UNIX timestamp + remaining time portion, in microseconds.
@@ -696,7 +737,9 @@ int posix_settimeofday(const timeval *tv, const struct timezone *tz)
 {
     SC_NOTICE("settimeofday");
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tv), sizeof(timeval), PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(tv), sizeof(timeval),
+            PosixSubsystem::SafeRead))
     {
         SC_NOTICE(" -> invalid address");
         SYSCALL_ERROR(BadAddress);
@@ -710,7 +753,9 @@ int posix_settimeofday(const timeval *tv, const struct timezone *tz)
 
 clock_t posix_times(struct tms *tm)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tm), sizeof(struct tms), PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(tm), sizeof(struct tms),
+            PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("posix_times -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -719,13 +764,16 @@ clock_t posix_times(struct tms *tm)
 
     SC_NOTICE("times");
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
 
     ByteSet(tm, 0, sizeof(struct tms));
     tm->tms_utime = pProcess->getUserTime();
     tm->tms_stime = pProcess->getKernelTime();
 
-    NOTICE("times: u=" << pProcess->getUserTime() << ", s=" << pProcess->getKernelTime());
+    NOTICE(
+        "times: u=" << pProcess->getUserTime()
+                    << ", s=" << pProcess->getKernelTime());
 
     return Time::getTimeNanoseconds() - pProcess->getStartTime();
 }
@@ -734,7 +782,9 @@ int posix_getrusage(int who, struct rusage *r)
 {
     SC_NOTICE("getrusage who=" << who);
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(r), sizeof(struct rusage), PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(r), sizeof(struct rusage),
+            PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("posix_getrusage -> invalid address");
         SYSCALL_ERROR(BadAddress);
@@ -749,16 +799,19 @@ int posix_getrusage(int who, struct rusage *r)
         return -1;
     }
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
 
     Time::Timestamp user = pProcess->getUserTime();
     Time::Timestamp kernel = pProcess->getKernelTime();
 
     ByteSet(r, 0, sizeof(struct rusage));
     r->ru_utime.tv_sec = user / Time::Multiplier::SECOND;
-    r->ru_utime.tv_usec = (user % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
+    r->ru_utime.tv_usec =
+        (user % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
     r->ru_stime.tv_sec = kernel / Time::Multiplier::SECOND;
-    r->ru_stime.tv_usec = (kernel % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
+    r->ru_stime.tv_usec =
+        (kernel % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
 
     return 0;
 }
@@ -776,7 +829,9 @@ static char *store_str_to(char *str, char *strend, String s)
 int posix_getpwent(passwd *pw, int n, char *str)
 {
     /// \todo 'str' is not very nice here, can we do this better?
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pw), sizeof(passwd), PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(pw), sizeof(passwd),
+            PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("getpwent -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -787,9 +842,10 @@ int posix_getpwent(passwd *pw, int n, char *str)
 
     // Grab the given user.
     User *pUser = UserManager::instance().getUser(n);
-    if (!pUser) return -1;
+    if (!pUser)
+        return -1;
 
-    char *strend = str + 256; // If we get here, we've gone off the end of str.
+    char *strend = str + 256;  // If we get here, we've gone off the end of str.
 
     pw->pw_name = str;
     str = store_str_to(str, strend, pUser->getUsername());
@@ -815,8 +871,12 @@ int posix_getpwent(passwd *pw, int n, char *str)
 int posix_getpwnam(passwd *pw, const char *name, char *str)
 {
     /// \todo Again, str is not very nice here.
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pw), sizeof(passwd), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(pw), sizeof(passwd),
+              PosixSubsystem::SafeWrite) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(name), PATH_MAX,
+              PosixSubsystem::SafeRead)))
     {
         SC_NOTICE("getpwname -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -824,12 +884,13 @@ int posix_getpwnam(passwd *pw, const char *name, char *str)
     }
 
     SC_NOTICE("getpwname(" << name << ")");
-    
+
     // Grab the given user.
     User *pUser = UserManager::instance().getUser(String(name));
-    if (!pUser) return -1;
+    if (!pUser)
+        return -1;
 
-    char *strend = str + 256; // If we get here, we've gone off the end of str.
+    char *strend = str + 256;  // If we get here, we've gone off the end of str.
 
     pw->pw_name = str;
     str = store_str_to(str, strend, pUser->getUsername());
@@ -855,8 +916,12 @@ int posix_getpwnam(passwd *pw, const char *name, char *str)
 
 int posix_getgrnam(const char *name, struct group *out)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), PATH_MAX, PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(out), sizeof(struct group), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(name), PATH_MAX,
+              PosixSubsystem::SafeRead) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(out), sizeof(struct group),
+              PosixSubsystem::SafeWrite)))
     {
         SC_NOTICE("getgrnam -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -881,7 +946,9 @@ int posix_getgrnam(const char *name, struct group *out)
 
 int posix_getgrgid(gid_t id, struct group *out)
 {
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(out), sizeof(struct group), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(out), sizeof(struct group),
+            PosixSubsystem::SafeWrite)))
     {
         SC_NOTICE("getgrgid( -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -906,35 +973,75 @@ int posix_getgrgid(gid_t id, struct group *out)
 
 uid_t posix_getuid()
 {
-    SC_NOTICE("getuid() -> " << Dec << Processor::information().getCurrentThread()->getParent()->getUser()->getId());
-    return Processor::information().getCurrentThread()->getParent()->getUser()->getId();
+    SC_NOTICE(
+        "getuid() -> " << Dec
+                       << Processor::information()
+                              .getCurrentThread()
+                              ->getParent()
+                              ->getUser()
+                              ->getId());
+    return Processor::information()
+        .getCurrentThread()
+        ->getParent()
+        ->getUser()
+        ->getId();
 }
 
 gid_t posix_getgid()
 {
-    SC_NOTICE("getgid() -> " << Dec << Processor::information().getCurrentThread()->getParent()->getGroup()->getId());
-    return Processor::information().getCurrentThread()->getParent()->getGroup()->getId();
+    SC_NOTICE(
+        "getgid() -> " << Dec
+                       << Processor::information()
+                              .getCurrentThread()
+                              ->getParent()
+                              ->getGroup()
+                              ->getId());
+    return Processor::information()
+        .getCurrentThread()
+        ->getParent()
+        ->getGroup()
+        ->getId();
 }
 
 uid_t posix_geteuid()
 {
-    SC_NOTICE("geteuid() -> " << Dec << Processor::information().getCurrentThread()->getParent()->getEffectiveUser()->getId());
-    return Processor::information().getCurrentThread()->getParent()->getEffectiveUser()->getId();
+    SC_NOTICE(
+        "geteuid() -> " << Dec
+                        << Processor::information()
+                               .getCurrentThread()
+                               ->getParent()
+                               ->getEffectiveUser()
+                               ->getId());
+    return Processor::information()
+        .getCurrentThread()
+        ->getParent()
+        ->getEffectiveUser()
+        ->getId();
 }
 
 gid_t posix_getegid()
 {
-    SC_NOTICE("getegid() -> " << Dec << Processor::information().getCurrentThread()->getParent()->getEffectiveGroup()->getId());
-    return Processor::information().getCurrentThread()->getParent()->getEffectiveGroup()->getId();
+    SC_NOTICE(
+        "getegid() -> " << Dec
+                        << Processor::information()
+                               .getCurrentThread()
+                               ->getParent()
+                               ->getEffectiveGroup()
+                               ->getId());
+    return Processor::information()
+        .getCurrentThread()
+        ->getParent()
+        ->getEffectiveGroup()
+        ->getId();
 }
 
 int posix_setuid(uid_t uid)
 {
     SC_NOTICE("setuid(" << uid << ")");
-    
+
     /// \todo Missing "set user"
     User *user = UserManager::instance().getUser(uid);
-    if(!user)
+    if (!user)
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
@@ -942,18 +1049,19 @@ int posix_setuid(uid_t uid)
 
     /// \todo Make sure we are actually allowed to do this!
     Processor::information().getCurrentThread()->getParent()->setUser(user);
-    Processor::information().getCurrentThread()->getParent()->setEffectiveUser(user);
-    
+    Processor::information().getCurrentThread()->getParent()->setEffectiveUser(
+        user);
+
     return 0;
 }
 
 int posix_setgid(gid_t gid)
 {
     SC_NOTICE("setgid(" << gid << ")");
-    
+
     /// \todo Missing "set user"
-    Group *group= UserManager::instance().getGroup(gid);
-    if(!group)
+    Group *group = UserManager::instance().getGroup(gid);
+    if (!group)
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
@@ -961,49 +1069,53 @@ int posix_setgid(gid_t gid)
 
     /// \todo Make sure we are actually allowed to do this!
     Processor::information().getCurrentThread()->getParent()->setGroup(group);
-    Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(group);
-    
+    Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(
+        group);
+
     return 0;
 }
 
 int posix_seteuid(uid_t euid)
 {
     SC_NOTICE("seteuid(" << euid << ")");
-    
+
     /// \todo Missing "set user"
     User *user = UserManager::instance().getUser(euid);
-    if(!user)
+    if (!user)
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    
-    Processor::information().getCurrentThread()->getParent()->setEffectiveUser(user);
-    
+
+    Processor::information().getCurrentThread()->getParent()->setEffectiveUser(
+        user);
+
     return 0;
 }
 
 int posix_setegid(gid_t egid)
 {
     SC_NOTICE("setegid(" << egid << ")");
-    
+
     /// \todo Missing "set user"
-    Group *group= UserManager::instance().getGroup(egid);
-    if(!group)
+    Group *group = UserManager::instance().getGroup(egid);
+    if (!group)
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
-    
-    Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(group);
-    
+
+    Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(
+        group);
+
     return 0;
 }
 
-
 int pedigree_login(int uid, const char *password)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(password), PATH_MAX, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(password), PATH_MAX,
+            PosixSubsystem::SafeRead))
     {
         SC_NOTICE("pedigree_login -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -1012,7 +1124,8 @@ int pedigree_login(int uid, const char *password)
 
     // Grab the given user.
     User *pUser = UserManager::instance().getUser(uid);
-    if (!pUser) return -1;
+    if (!pUser)
+        return -1;
 
     if (pUser->login(String(password)))
         return 0;
@@ -1025,8 +1138,9 @@ int posix_setsid()
     SC_NOTICE("setsid");
 
     // Not a POSIX process
-    Process *pStockProcess = Processor::information().getCurrentThread()->getParent();
-    if(pStockProcess->getType() != Process::Posix)
+    Process *pStockProcess =
+        Processor::information().getCurrentThread()->getParent();
+    if (pStockProcess->getType() != Process::Posix)
     {
         ERROR("setsid called on something not a POSIX process");
         return -1;
@@ -1036,14 +1150,15 @@ int posix_setsid()
 
     // Already in a group?
     PosixProcess::Membership myMembership = pProcess->getGroupMembership();
-    if(myMembership != PosixProcess::NoGroup)
+    if (myMembership != PosixProcess::NoGroup)
     {
         // If we don't actually have a group, something's gone wrong
-        if(!pProcess->getProcessGroup())
-            FATAL("Process' is apparently a member of a group, but its group pointer is invalid.");
+        if (!pProcess->getProcessGroup())
+            FATAL("Process' is apparently a member of a group, but its group "
+                  "pointer is invalid.");
 
         // Are we the group leader of that other group?
-        if(myMembership == PosixProcess::Leader)
+        if (myMembership == PosixProcess::Leader)
         {
             SC_NOTICE("setsid() called while the leader of another group");
             SYSCALL_ERROR(PermissionDenied);
@@ -1051,20 +1166,21 @@ int posix_setsid()
         }
         else
         {
-            SC_NOTICE("setsid() called while a member of another group [" << pProcess->getProcessGroup()->processGroupId << "]");
-
+            SC_NOTICE(
+                "setsid() called while a member of another group ["
+                << pProcess->getProcessGroup()->processGroupId << "]");
         }
     }
 
     // Delete the old group, if any
     ProcessGroup *pGroup = pProcess->getProcessGroup();
-    if(pGroup)
+    if (pGroup)
     {
         pProcess->setProcessGroup(0);
 
         /// \todo Remove us from the list
         /// \todo Remove others from the list!?
-        if(pGroup->Members.count() <= 1) // Us or nothing
+        if (pGroup->Members.count() <= 1)  // Us or nothing
             delete pGroup;
     }
 
@@ -1086,7 +1202,9 @@ int posix_setsid()
     // Remove controlling terminal.
     pProcess->setCtty(0);
 
-    SC_NOTICE("setsid: now part of a group [id=" << pNewGroup->processGroupId << "]!");
+    SC_NOTICE(
+        "setsid: now part of a group [id=" << pNewGroup->processGroupId
+                                           << "]!");
 
     // Success!
     return pNewGroup->processGroupId;
@@ -1098,15 +1216,16 @@ int posix_setpgid(int pid_, int pgid)
     SC_NOTICE("setpgid(" << pid << ", " << pgid << ")");
 
     // Handle invalid group ID
-    if(pgid < 0)
+    if (pgid < 0)
     {
         SYSCALL_ERROR(InvalidArgument);
         SC_NOTICE(" -> EINVAL");
         return -1;
     }
 
-    Process *pBaseProcess = Processor::information().getCurrentThread()->getParent();
-    if(pBaseProcess->getType() != Process::Posix)
+    Process *pBaseProcess =
+        Processor::information().getCurrentThread()->getParent();
+    if (pBaseProcess->getType() != Process::Posix)
     {
         SC_NOTICE("  -> not a posix process");
         return -1;
@@ -1118,33 +1237,34 @@ int posix_setpgid(int pid_, int pgid)
     PosixSession *pSession = pProcess->getSession();
 
     // Handle zero PID and PGID.
-    if(!pid)
+    if (!pid)
     {
         pid = pProcess->getId();
     }
-    if(!pgid)
+    if (!pgid)
     {
         pgid = pid;
     }
 
     // Is this us or a child of us?
     /// \todo pid == child, but child not in this session = EPERM
-    if(pid != pProcess->getId())
+    if (pid != pProcess->getId())
     {
-        /// \todo We actually have no way of finding children of a process sanely.
+        /// \todo We actually have no way of finding children of a process
+        /// sanely.
         SYSCALL_ERROR(PermissionDenied);
         SC_NOTICE(" -> EPERM");
         return 0;
     }
 
-    if(pGroup && (pGroup->processGroupId == pgid))
+    if (pGroup && (pGroup->processGroupId == pgid))
     {
         // Already a member.
         SC_NOTICE(" -> OK, already a member!");
         return 0;
     }
 
-    if(pSession && (pSession->Leader == pProcess))
+    if (pSession && (pSession->Leader == pProcess))
     {
         // Already a session leader.
         SYSCALL_ERROR(PermissionDenied);
@@ -1154,17 +1274,17 @@ int posix_setpgid(int pid_, int pgid)
 
     // Does the process group exist?
     Process *check = 0;
-    for(size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
+    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
     {
         check = Scheduler::instance().getProcess(i);
-        if(check->getType() != Process::Posix)
+        if (check->getType() != Process::Posix)
             continue;
 
         PosixProcess *posixCheck = static_cast<PosixProcess *>(check);
         ProcessGroup *pGroupCheck = posixCheck->getProcessGroup();
-        if(pGroupCheck)
+        if (pGroupCheck)
         {
-            if(pGroupCheck->processGroupId == pgid)
+            if (pGroupCheck->processGroupId == pgid)
             {
                 // Join this group.
                 pProcess->setProcessGroup(pGroupCheck);
@@ -1193,11 +1313,12 @@ int posix_getpgrp()
 {
     SC_NOTICE("getpgrp");
 
-    PosixProcess *pProcess = static_cast<PosixProcess *>(Processor::information().getCurrentThread()->getParent());
+    PosixProcess *pProcess = static_cast<PosixProcess *>(
+        Processor::information().getCurrentThread()->getParent());
     ProcessGroup *pGroup = pProcess->getProcessGroup();
 
     int result = 0;
-    if(pGroup)
+    if (pGroup)
     {
         SC_NOTICE(" -> using existing group id");
         result = pGroup->processGroupId;
@@ -1205,7 +1326,7 @@ int posix_getpgrp()
     else
     {
         SC_NOTICE(" -> using pid only");
-        result = pProcess->getId(); // Fallback if no ProcessGroup pointer yet
+        result = pProcess->getId();  // Fallback if no ProcessGroup pointer yet
     }
 
     SC_NOTICE(" -> " << result);
@@ -1217,8 +1338,9 @@ mode_t posix_umask(mode_t mask)
     SC_NOTICE("umask(" << Oct << mask << ")");
 
     // Not a POSIX process
-    Process *pStockProcess = Processor::information().getCurrentThread()->getParent();
-    if(pStockProcess->getType() != Process::Posix)
+    Process *pStockProcess =
+        Processor::information().getCurrentThread()->getParent();
+    if (pStockProcess->getType() != Process::Posix)
     {
         SC_NOTICE("umask -> called on something not a POSIX process");
         SYSCALL_ERROR(InvalidArgument);
@@ -1235,7 +1357,8 @@ mode_t posix_umask(mode_t mask)
 
 int posix_linux_syslog(int type, char *buf, int len)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), len, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buf), len, PosixSubsystem::SafeRead))
     {
         SC_NOTICE("linux_syslog -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -1244,7 +1367,8 @@ int posix_linux_syslog(int type, char *buf, int len)
 
     SC_NOTICE("linux_syslog");
 
-    if (len > 512) len = 512;
+    if (len > 512)
+        len = 512;
 
     switch (type)
     {
@@ -1298,25 +1422,28 @@ int posix_linux_syslog(int type, char *buf, int len)
 
 int posix_syslog(const char *msg, int prio)
 {
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(msg), PATH_MAX, PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(msg), PATH_MAX,
+            PosixSubsystem::SafeRead))
     {
         SC_NOTICE("klog -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    uint64_t id = Processor::information().getCurrentThread()->getParent()->getId();
-    if(id <= 1)
+    uint64_t id =
+        Processor::information().getCurrentThread()->getParent()->getId();
+    if (id <= 1)
     {
-        if(prio <= LOG_CRIT)
+        if (prio <= LOG_CRIT)
             FATAL("[" << Dec << id << Hex << "]\tklog: " << msg);
     }
 
-    if(prio <= LOG_ERR)
+    if (prio <= LOG_ERR)
         ERROR("[" << Dec << id << Hex << "]\tklog: " << msg);
-    else if(prio == LOG_WARNING)
+    else if (prio == LOG_WARNING)
         WARNING("[" << Dec << id << Hex << "]\tklog: " << msg);
-    else if(prio == LOG_NOTICE || prio == LOG_INFO)
+    else if (prio == LOG_NOTICE || prio == LOG_INFO)
         NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
 #if DEBUGGER
     else
@@ -1330,7 +1457,8 @@ extern void system_reset();
 int pedigree_reboot()
 {
     // Are we superuser?
-    User *pUser = Processor::information().getCurrentThread()->getParent()->getUser();
+    User *pUser =
+        Processor::information().getCurrentThread()->getParent()->getUser();
     if (pUser->getId())
     {
         SYSCALL_ERROR(NotEnoughPermissions);
@@ -1338,15 +1466,15 @@ int pedigree_reboot()
     }
 
     WARNING("System shutting down...");
-    for(int i = Scheduler::instance().getNumProcesses() - 1; i >= 0; i--)
+    for (int i = Scheduler::instance().getNumProcesses() - 1; i >= 0; i--)
     {
         Process *proc = Scheduler::instance().getProcess(i);
         Subsystem *subsys = proc->getSubsystem();
 
-        if(proc == Processor::information().getCurrentThread()->getParent())
+        if (proc == Processor::information().getCurrentThread()->getParent())
             continue;
 
-        if(subsys)
+        if (subsys)
         {
             // If there's a subsystem, kill it that way.
             /// \todo need to set a timeout and SIGKILL if it expires...
@@ -1354,13 +1482,15 @@ int pedigree_reboot()
         }
         else
         {
-            // If no subsystem, outright kill the process without sending a signal
+            // If no subsystem, outright kill the process without sending a
+            // signal
             Scheduler::instance().removeProcess(proc);
 
-            /// \todo Process::kill() acts as if that process is already running.
-            ///       It needs to allow other Processes to call it without causing
-            ///       the calling thread to become a zombie.
-            //proc->kill();
+            /// \todo Process::kill() acts as if that process is already
+            /// running.
+            ///       It needs to allow other Processes to call it without
+            ///       causing the calling thread to become a zombie.
+            // proc->kill();
         }
     }
 
@@ -1375,11 +1505,15 @@ int pedigree_reboot()
         bool allZombie = true;
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
         {
-            if (Scheduler::instance().getProcess(i) == Processor::information().getCurrentThread()->getParent())
+            if (Scheduler::instance().getProcess(i) ==
+                Processor::information().getCurrentThread()->getParent())
             {
                 continue;
             }
-            if (Scheduler::instance().getProcess(i)->getThread(0)->getStatus() != Thread::Zombie)
+            if (Scheduler::instance()
+                    .getProcess(i)
+                    ->getThread(0)
+                    ->getStatus() != Thread::Zombie)
             {
                 allZombie = false;
             }
@@ -1397,7 +1531,8 @@ int pedigree_reboot()
     // All dead, reap them all.
     while (Scheduler::instance().getNumProcesses() > 1)
     {
-        if (Scheduler::instance().getProcess(0) == Processor::information().getCurrentThread()->getParent())
+        if (Scheduler::instance().getProcess(0) ==
+            Processor::information().getCurrentThread()->getParent())
         {
             continue;
         }
@@ -1465,7 +1600,9 @@ int posix_setgroups(size_t size, const gid_t *list)
 
     /// \todo support this (currently a stub)
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t), PosixSubsystem::SafeRead))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
+            PosixSubsystem::SafeRead))
     {
         SC_NOTICE(" -> invalid address");
         SYSCALL_ERROR(BadAddress);
@@ -1487,7 +1624,9 @@ int posix_getgroups(int size, gid_t *list)
         return 0;
     }
 
-    if(!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t), PosixSubsystem::SafeWrite))
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
+            PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("execve -> invalid address");
         SYSCALL_ERROR(BadAddress);
@@ -1582,7 +1721,8 @@ int posix_getpriority(int which, int who)
 int posix_setpriority(int which, int who, int prio)
 {
     /// \todo could do more with this
-    SC_NOTICE("setpriority(" << which << ", " << Dec << who << ", " << prio << ")");
+    SC_NOTICE(
+        "setpriority(" << which << ", " << Dec << who << ", " << prio << ")");
     return 0;
 }
 
@@ -1597,7 +1737,8 @@ int posix_setreuid(uid_t ruid, uid_t euid)
         User *realUser = UserManager::instance().getUser(ruid);
         if (realUser)
         {
-            Processor::information().getCurrentThread()->getParent()->setUser(realUser);
+            Processor::information().getCurrentThread()->getParent()->setUser(
+                realUser);
         }
     }
 
@@ -1606,7 +1747,10 @@ int posix_setreuid(uid_t ruid, uid_t euid)
         User *effectiveUser = UserManager::instance().getUser(ruid);
         if (effectiveUser)
         {
-            Processor::information().getCurrentThread()->getParent()->setEffectiveUser(effectiveUser);
+            Processor::information()
+                .getCurrentThread()
+                ->getParent()
+                ->setEffectiveUser(effectiveUser);
         }
     }
 
@@ -1624,7 +1768,8 @@ int posix_setregid(gid_t rgid, gid_t egid)
         Group *realGroup = UserManager::instance().getGroup(rgid);
         if (realGroup)
         {
-            Processor::information().getCurrentThread()->getParent()->setGroup(realGroup);
+            Processor::information().getCurrentThread()->getParent()->setGroup(
+                realGroup);
         }
     }
 
@@ -1633,26 +1778,35 @@ int posix_setregid(gid_t rgid, gid_t egid)
         Group *effectiveGroup = UserManager::instance().getGroup(egid);
         if (effectiveGroup)
         {
-            Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(effectiveGroup);
+            Processor::information()
+                .getCurrentThread()
+                ->getParent()
+                ->setEffectiveGroup(effectiveGroup);
         }
     }
 
     return 0;
 }
 
-int posix_get_robust_list(int pid, struct robust_list_head **head_ptr, size_t *len_ptr)
+int posix_get_robust_list(
+    int pid, struct robust_list_head **head_ptr, size_t *len_ptr)
 {
     SC_NOTICE("get_robust_list");
 
-    if(!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(head_ptr), sizeof(void *), PosixSubsystem::SafeWrite) &&
-         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(len_ptr), sizeof(size_t), PosixSubsystem::SafeWrite)))
+    if (!(PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(head_ptr), sizeof(void *),
+              PosixSubsystem::SafeWrite) &&
+          PosixSubsystem::checkAddress(
+              reinterpret_cast<uintptr_t>(len_ptr), sizeof(size_t),
+              PosixSubsystem::SafeWrite)))
     {
         SC_NOTICE(" -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    PosixProcess *pProcess = static_cast<PosixProcess *>(Processor::information().getCurrentThread()->getParent());
+    PosixProcess *pProcess = static_cast<PosixProcess *>(
+        Processor::information().getCurrentThread()->getParent());
 
     auto data = pProcess->getRobustList();
     *head_ptr = reinterpret_cast<struct robust_list_head *>(data.head);
@@ -1665,7 +1819,8 @@ int posix_set_robust_list(struct robust_list_head *head, size_t len)
 {
     SC_NOTICE("set_robust_list");
 
-    PosixProcess *pProcess = static_cast<PosixProcess *>(Processor::information().getCurrentThread()->getParent());
+    PosixProcess *pProcess = static_cast<PosixProcess *>(
+        Processor::information().getCurrentThread()->getParent());
 
     PosixProcess::RobustListData data;
     data.head = head;

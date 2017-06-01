@@ -22,12 +22,15 @@
 
 #include "ConsoleDefines.h"
 
-ConsolePhysicalFile::ConsolePhysicalFile(File *pTerminal, String consoleName, Filesystem *pFs) :
-    ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal), m_ProcessedInput(PTY_BUFFER_SIZE)
+ConsolePhysicalFile::ConsolePhysicalFile(
+    File *pTerminal, String consoleName, Filesystem *pFs)
+    : ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal),
+      m_ProcessedInput(PTY_BUFFER_SIZE)
 {
 }
 
-uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConsolePhysicalFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // read from terminal and perform line discipline as needed
     // we loop because we need to perform line discipline even though a
@@ -39,13 +42,14 @@ uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t b
         if (!m_ProcessedInput.canRead(false))
         {
             char *temp = new char[size];
-            size_t nRead = m_pTerminal->read(location, size, reinterpret_cast<uintptr_t>(temp), bCanBlock);
+            size_t nRead = m_pTerminal->read(
+                location, size, reinterpret_cast<uintptr_t>(temp), bCanBlock);
 
             if (nRead)
             {
                 inputLineDiscipline(temp, nRead, m_Flags, m_ControlChars);
             }
-            delete [] temp;
+            delete[] temp;
         }
 
         // handle any bytes that the input discipline created
@@ -54,13 +58,14 @@ uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t b
             char *buff = new char[512];
             size_t nTransfer = m_Buffer.read(buff, 512);
             write(0, nTransfer, reinterpret_cast<uintptr_t>(buff), true);
-            delete [] buff;
+            delete[] buff;
         }
 
         // and then return the processed content to the caller when ready
         if (m_ProcessedInput.canRead(false))
         {
-            return m_ProcessedInput.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+            return m_ProcessedInput.read(
+                reinterpret_cast<char *>(buffer), size, bCanBlock);
         }
         else if (!bCanBlock)
         {
@@ -69,18 +74,23 @@ uint64_t ConsolePhysicalFile::read(uint64_t location, uint64_t size, uintptr_t b
     }
 }
 
-uint64_t ConsolePhysicalFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConsolePhysicalFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // we allocate a buffer to allow for a input buffer exclusively filled with
     // NL characters to be converted to CRNL
     char *outputBuffer = new char[size * 2];
     ByteSet(outputBuffer, 0, size * 2);
     StringCopyN(outputBuffer, reinterpret_cast<char *>(buffer), size);
-    size_t disciplineSize = outputLineDiscipline(outputBuffer, size, size * 2, m_Flags);
+    size_t disciplineSize =
+        outputLineDiscipline(outputBuffer, size, size * 2, m_Flags);
     /// \todo handle small writes
-    /// \todo disciplineSize can be bigger than size due to edits, how do we manage this instead of lying?
-    m_pTerminal->write(location, disciplineSize, reinterpret_cast<uintptr_t>(outputBuffer), bCanBlock);
-    delete [] outputBuffer;
+    /// \todo disciplineSize can be bigger than size due to edits, how do we
+    /// manage this instead of lying?
+    m_pTerminal->write(
+        location, disciplineSize, reinterpret_cast<uintptr_t>(outputBuffer),
+        bCanBlock);
+    delete[] outputBuffer;
     return size;
 }
 

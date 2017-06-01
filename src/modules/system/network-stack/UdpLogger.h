@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,29 +20,30 @@
 #ifndef _NETWORK_UDP_LOGGER_H
 #define _NETWORK_UDP_LOGGER_H
 
-#include <processor/types.h>
-#include <network/IpAddress.h>
 #include "ConnectionlessEndpoint.h"
 #include "NetworkStack.h"
 #include "UdpManager.h"
 #include <Log.h>
+#include <network/IpAddress.h>
+#include <processor/types.h>
 
 /** Defines a UDP-based callback for Log entries. */
 class UdpLogger : public Log::LogCallback
 {
     public:
-        UdpLogger() : m_pEndpoint(0), m_LoggingServer()
-        {}
-        virtual ~UdpLogger();
-        
-        bool initialise(IpAddress remote, uint16_t port = 1234);
-        
-        void callback(const char *str);
-    
+    UdpLogger() : m_pEndpoint(0), m_LoggingServer()
+    {
+    }
+    virtual ~UdpLogger();
+
+    bool initialise(IpAddress remote, uint16_t port = 1234);
+
+    void callback(const char *str);
+
     private:
-        ConnectionlessEndpoint *m_pEndpoint;
-        
-        Endpoint::RemoteEndpoint m_LoggingServer;
+    ConnectionlessEndpoint *m_pEndpoint;
+
+    Endpoint::RemoteEndpoint m_LoggingServer;
 };
 
 #endif

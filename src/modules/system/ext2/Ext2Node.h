@@ -20,33 +20,39 @@
 #ifndef EXT2_NODE_H
 #define EXT2_NODE_H
 
+#include "Ext2Filesystem.h"
 #include "ext2.h"
 #include <utilities/Vector.h>
-#include "Ext2Filesystem.h"
 
 /** A node in an ext2 filesystem. */
 class Ext2Node
 {
     friend class Ext2Filesystem;
 
-private:
+    private:
     /** Copy constructors are hidden - unused! */
     Ext2Node(const Ext2Node &file);
-    Ext2Node& operator =(const Ext2Node&);
-public:
+    Ext2Node &operator=(const Ext2Node &);
+
+    public:
     /** Constructor, should be called only by a Filesystem. */
     Ext2Node(uintptr_t inode_num, Inode *pInode, class Ext2Filesystem *pFs);
     /** Destructor */
     virtual ~Ext2Node();
 
     Inode *getInode()
-    {return m_pInode;}
+    {
+        return m_pInode;
+    }
 
     uint32_t getInodeNumber()
-    {return m_InodeNumber;}
+    {
+        return m_InodeNumber;
+    }
 
     /** Updates inode attributes. */
-    void fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime);
+    void
+    fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime);
 
     /** Updates inode metadata. */
     void updateMetadata(uint16_t uid, uint16_t gid, uint32_t perms);
@@ -66,21 +72,24 @@ public:
 
     void sync(size_t offset, bool async);
 
-protected:
+    protected:
     /**
      * Ensures the inode is at least 'size' big.
      * Set onlyBlocks to true to not change the actual data size, which can be
      * useful for preallocation.
      */
-    bool ensureLargeEnough(size_t size, bool onlyBlocks=false);
+    bool ensureLargeEnough(size_t size, bool onlyBlocks = false);
 
     bool addBlock(uint32_t blockValue);
 
     bool ensureBlockLoaded(size_t nBlock);
     bool getBlockNumber(size_t nBlock);
-    bool getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
-    bool getBlockNumberBiindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
-    bool getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
+    bool
+    getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
+    bool getBlockNumberBiindirect(
+        uint32_t inode_block, size_t nBlocks, size_t nBlock);
+    bool getBlockNumberTriindirect(
+        uint32_t inode_block, size_t nBlocks, size_t nBlock);
 
     bool setBlockNumber(size_t blockNum, uint32_t blockValue);
 

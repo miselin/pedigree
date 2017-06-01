@@ -20,15 +20,17 @@
 #include "Console.h"
 #include <vfs/VFS.h>
 
-#include <processor/Processor.h>
 #include <process/Scheduler.h>
+#include <processor/Processor.h>
 
-ConsoleMasterFile::ConsoleMasterFile(size_t consoleNumber, String consoleName, Filesystem *pFs) :
-    ConsoleFile(consoleNumber, consoleName, pFs), bLocked(false), pLocker(0)
+ConsoleMasterFile::ConsoleMasterFile(
+    size_t consoleNumber, String consoleName, Filesystem *pFs)
+    : ConsoleFile(consoleNumber, consoleName, pFs), bLocked(false), pLocker(0)
 {
 }
 
-uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConsoleMasterFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // Check for NL->CRNL conversion which requires special logic.
     size_t slaveFlags = m_pOther->m_Flags;
@@ -36,13 +38,15 @@ uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buf
     {
         // Easy read/write - output line discipline will not need to do any
         // conversions that involve expansion.
-        uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
+        uint64_t nBytes =
+            m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
         if (!nBytes)
         {
             return 0;
         }
 
-        return outputLineDiscipline(reinterpret_cast<char *>(buffer), nBytes, size, m_pOther->m_Flags);
+        return outputLineDiscipline(
+            reinterpret_cast<char *>(buffer), nBytes, size, m_pOther->m_Flags);
     }
 
     uint64_t totalBytes = 0;
@@ -60,7 +64,8 @@ uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buf
         // we just return what's been read so far (assuming there's still
         // content in the buffer by that stage).
         // Note: the integer division will floor() which is intentional.
-        uint64_t nBytes = m_Buffer.read(reinterpret_cast<char *>(buffer + totalBytes), size / 2, bCanBlock);
+        uint64_t nBytes = m_Buffer.read(
+            reinterpret_cast<char *>(buffer + totalBytes), size / 2, bCanBlock);
         if (!nBytes)
         {
             break;
@@ -68,7 +73,9 @@ uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buf
 
         // Perform line discipline using the full, unhalved size so we can
         // expand all available newlines.
-        size_t disciplineSize = outputLineDiscipline(reinterpret_cast<char *>(buffer + totalBytes), nBytes, size, m_pOther->m_Flags);
+        size_t disciplineSize = outputLineDiscipline(
+            reinterpret_cast<char *>(buffer + totalBytes), nBytes, size,
+            m_pOther->m_Flags);
         totalBytes += disciplineSize;
         size -= disciplineSize;
 
@@ -80,9 +87,10 @@ uint64_t ConsoleMasterFile::read(uint64_t location, uint64_t size, uintptr_t buf
     return totalBytes;
 }
 
-uint64_t ConsoleMasterFile::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t ConsoleMasterFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if(!m_pOther->m_Buffer.canWrite(bCanBlock))
+    if (!m_pOther->m_Buffer.canWrite(bCanBlock))
     {
         return 0;
     }

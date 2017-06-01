@@ -19,59 +19,62 @@
 
 #include "DynamicLinker.h"
 #include <Log.h>
-#include <vfs/VFS.h>
-#include <vfs/File.h>
-#include <vfs/Symlink.h>
-#include <utilities/StaticString.h>
 #include <Module.h>
+#include <panic.h>
+#include <process/Scheduler.h>
+#include <processor/KernelCoreSyscallManager.h>
+#include <processor/PhysicalMemoryManager.h>
 #include <processor/Processor.h>
 #include <processor/VirtualAddressSpace.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/KernelCoreSyscallManager.h>
-#include <process/Scheduler.h>
-#include <panic.h>
+#include <utilities/StaticString.h>
 #include <utilities/assert.h>
+#include <vfs/File.h>
+#include <vfs/Symlink.h>
+#include <vfs/VFS.h>
 
 DLTrapHandler DLTrapHandler::m_Instance;
 
 uintptr_t DynamicLinker::resolvePlt(SyscallState &state)
 {
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
 
-    return pProcess->getLinker()->resolvePltSymbol(state.getSyscallParameter(0), state.getSyscallParameter(1));
+    return pProcess->getLinker()->resolvePltSymbol(
+        state.getSyscallParameter(0), state.getSyscallParameter(1));
 }
 
-DynamicLinker::DynamicLinker() :
-    m_pProgramElf(0), m_ProgramStart(0), m_ProgramSize(0), m_ProgramBuffer(0), m_LoadedObjects(), m_Objects()
+DynamicLinker::DynamicLinker()
+    : m_pProgramElf(0), m_ProgramStart(0), m_ProgramSize(0), m_ProgramBuffer(0),
+      m_LoadedObjects(), m_Objects()
 {
-
 }
 
-DynamicLinker::DynamicLinker(DynamicLinker &other) :
-    m_pProgramElf(other.m_pProgramElf), m_ProgramStart(other.m_ProgramStart),
-    m_ProgramSize(other.m_ProgramSize), m_ProgramBuffer(other.m_ProgramBuffer),
-    m_LoadedObjects(other.m_LoadedObjects), m_Objects()
+DynamicLinker::DynamicLinker(DynamicLinker &other)
+    : m_pProgramElf(other.m_pProgramElf), m_ProgramStart(other.m_ProgramStart),
+      m_ProgramSize(other.m_ProgramSize),
+      m_ProgramBuffer(other.m_ProgramBuffer),
+      m_LoadedObjects(other.m_LoadedObjects), m_Objects()
 {
     m_pProgramElf = new Elf(*other.m_pProgramElf);
-    for (Tree<uintptr_t,SharedObject*>::Iterator it = other.m_Objects.begin();
-         it != other.m_Objects.end();
-         it++)
+    for (Tree<uintptr_t, SharedObject *>::Iterator it = other.m_Objects.begin();
+         it != other.m_Objects.end(); it++)
     {
         uintptr_t key = it.key();
         SharedObject *pSo = it.value();
-        m_Objects.insert(key, new SharedObject(new Elf(*pSo->elf),
-                                               pSo->file, pSo->buffer,
-                                               pSo->address, pSo->size));
+        m_Objects.insert(
+            key, new SharedObject(
+                     new Elf(*pSo->elf), pSo->file, pSo->buffer, pSo->address,
+                     pSo->size));
     }
 }
 
 DynamicLinker::~DynamicLinker()
 {
-//    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+    //    VirtualAddressSpace &va =
+    //    Processor::information().getVirtualAddressSpace();
 
-    for (Tree<uintptr_t,SharedObject*>::Iterator it = m_Objects.begin();
-         it != m_Objects.end();
-         it++)
+    for (Tree<uintptr_t, SharedObject *>::Iterator it = m_Objects.begin();
+         it != m_Objects.end(); it++)
     {
         SharedObject *pSo = it.value();
         delete pSo->elf;
@@ -81,13 +84,15 @@ DynamicLinker::~DynamicLinker()
     delete m_pProgramElf;
 }
 
-bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, String *sInterpreter)
+bool DynamicLinker::loadProgram(
+    File *pFile, bool bDryRun, bool bInterpreter, String *sInterpreter)
 {
-    if(!pFile)
+    if (!pFile)
         return false;
 
     uintptr_t buffer = 0;
-    MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
+    MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(
+        pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
 
     String fileName;
     pFile->getName(fileName);
@@ -95,13 +100,16 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
 
     Elf *programElf = new Elf();
 
-    if(!bDryRun)
+    if (!bDryRun)
     {
         delete m_pProgramElf;
         m_pProgramElf = programElf;
-        if (!m_pProgramElf->create(reinterpret_cast<uint8_t*>(buffer), pFile->getSize()))
+        if (!m_pProgramElf->create(
+                reinterpret_cast<uint8_t *>(buffer), pFile->getSize()))
         {
-            ERROR("DynamicLinker: Main program ELF failed to create: `" << fileName << "' at " << buffer);
+            ERROR(
+                "DynamicLinker: Main program ELF failed to create: `"
+                << fileName << "' at " << buffer);
             MemoryMapManager::instance().unmap(pMmFile);
 
             delete m_pProgramElf;
@@ -109,9 +117,13 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
             return false;
         }
 
-        if (!m_pProgramElf->allocate(reinterpret_cast<uint8_t*>(buffer), pFile->getSize(), m_ProgramStart, 0, false, &m_ProgramSize))
+        if (!m_pProgramElf->allocate(
+                reinterpret_cast<uint8_t *>(buffer), pFile->getSize(),
+                m_ProgramStart, 0, false, &m_ProgramSize))
         {
-            ERROR("DynamicLinker: Main program ELF failed to load: `" << fileName << "'");
+            ERROR(
+                "DynamicLinker: Main program ELF failed to load: `" << fileName
+                                                                    << "'");
             MemoryMapManager::instance().unmap(pMmFile);
 
             delete m_pProgramElf;
@@ -123,12 +135,15 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
     }
     else
     {
-        if (!programElf->createNeededOnly(reinterpret_cast<uint8_t*>(buffer), pFile->getSize()))
+        if (!programElf->createNeededOnly(
+                reinterpret_cast<uint8_t *>(buffer), pFile->getSize()))
         {
-            ERROR("DynamicLinker: Main program ELF failed to create: `" << fileName << "' at " << buffer);
+            ERROR(
+                "DynamicLinker: Main program ELF failed to create: `"
+                << fileName << "' at " << buffer);
             MemoryMapManager::instance().unmap(pMmFile);
 
-            if(!bDryRun)
+            if (!bDryRun)
             {
                 delete m_pProgramElf;
                 m_pProgramElf = 0;
@@ -139,13 +154,13 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
         }
     }
 
-    if(bInterpreter)
+    if (bInterpreter)
     {
-        if(!sInterpreter)
+        if (!sInterpreter)
             return false;
         *sInterpreter = programElf->getInterpreter();
         bool hasInterpreter = sInterpreter->length() > 0;
-        if(bDryRun)
+        if (bDryRun)
         {
             // Clean up the ELF
             delete programElf;
@@ -157,17 +172,16 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
         return hasInterpreter;
     }
 
-    List<char*> &dependencies = programElf->neededLibraries();
+    List<char *> &dependencies = programElf->neededLibraries();
 
     // Load all dependencies
-    for (List<char*>::Iterator it = dependencies.begin();
-         it != dependencies.end();
-         it++)
+    for (List<char *>::Iterator it = dependencies.begin();
+         it != dependencies.end(); it++)
     {
         // Extreme validation
-        if(!*it)
+        if (!*it)
             continue;
-        if(m_LoadedObjects.lookup(String(*it)))
+        if (m_LoadedObjects.lookup(String(*it)))
         {
             WARNING("Object `" << *it << "' has already been loaded");
             continue;
@@ -180,7 +194,7 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
         if (!pFile)
         {
             ERROR("DynamicLinker: Dependency `" << filename << "' not found!");
-            if(!bDryRun)
+            if (!bDryRun)
             {
                 delete m_pProgramElf;
                 m_pProgramElf = 0;
@@ -193,8 +207,10 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
             pFile = Symlink::fromFile(pFile)->followLink();
         if (!pFile || !loadObject(pFile, bDryRun))
         {
-            ERROR("DynamicLinker: Dependency `" << filename << "' failed to load!");
-            if(!bDryRun)
+            ERROR(
+                "DynamicLinker: Dependency `" << filename
+                                              << "' failed to load!");
+            if (!bDryRun)
             {
                 delete m_pProgramElf;
                 m_pProgramElf = 0;
@@ -204,13 +220,13 @@ bool DynamicLinker::loadProgram(File *pFile, bool bDryRun, bool bInterpreter, St
             return false;
         }
 
-        // Success! Add the filename of the library (NOT WITH LIBRARIES DIRECTORY)
-        // to the known loaded objects list.
-        if(!bDryRun)
-            m_LoadedObjects.insert(String(*it), reinterpret_cast<void*>(1));
+        // Success! Add the filename of the library (NOT WITH LIBRARIES
+        // DIRECTORY) to the known loaded objects list.
+        if (!bDryRun)
+            m_LoadedObjects.insert(String(*it), reinterpret_cast<void *>(1));
     }
 
-    if(!bDryRun)
+    if (!bDryRun)
         initPlt(m_pProgramElf, 0);
     else
         delete programElf;
@@ -223,27 +239,35 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
     uintptr_t buffer = 0;
     size_t size;
     uintptr_t loadBase;
-    MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
+    MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(
+        pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
 
     Elf *pElf = new Elf();
     SharedObject *pSo = 0;
-    
+
     String fileName;
     pFile->getName(fileName);
     NOTICE("DynamicLinker::loadObject(" << fileName << ")");
 
-    if(!bDryRun)
+    if (!bDryRun)
     {
-        if (!pElf->create(reinterpret_cast<uint8_t*>(buffer), pFile->getSize()))
+        if (!pElf->create(
+                reinterpret_cast<uint8_t *>(buffer), pFile->getSize()))
         {
-            ERROR("DynamicLinker: ELF creation failed for file `" << pFile->getName() << "'");
+            ERROR(
+                "DynamicLinker: ELF creation failed for file `"
+                << pFile->getName() << "'");
             delete pElf;
             return false;
         }
 
-        if (!pElf->allocate(reinterpret_cast<uint8_t*>(buffer), pFile->getSize(), loadBase, m_pProgramElf->getSymbolTable(), false, &size))
+        if (!pElf->allocate(
+                reinterpret_cast<uint8_t *>(buffer), pFile->getSize(), loadBase,
+                m_pProgramElf->getSymbolTable(), false, &size))
         {
-            ERROR("DynamicLinker: ELF allocate failed for file `" << pFile->getName() << "'");
+            ERROR(
+                "DynamicLinker: ELF allocate failed for file `"
+                << pFile->getName() << "'");
             delete pElf;
             return false;
         }
@@ -254,25 +278,27 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
     }
     else
     {
-        if (!pElf->createNeededOnly(reinterpret_cast<uint8_t*>(buffer), pFile->getSize()))
+        if (!pElf->createNeededOnly(
+                reinterpret_cast<uint8_t *>(buffer), pFile->getSize()))
         {
-            ERROR("DynamicLinker: ELF creation failed for file `" << pFile->getName() << "'");
+            ERROR(
+                "DynamicLinker: ELF creation failed for file `"
+                << pFile->getName() << "'");
             delete pElf;
             return false;
         }
     }
 
-    List<char*> &dependencies = pElf->neededLibraries();
+    List<char *> &dependencies = pElf->neededLibraries();
 
     // Load all dependencies
-    for (List<char*>::Iterator it = dependencies.begin();
-         it != dependencies.end();
-         it++)
+    for (List<char *>::Iterator it = dependencies.begin();
+         it != dependencies.end(); it++)
     {
         // Extreme validation
-        if(!*it)
+        if (!*it)
             continue;
-        if(m_LoadedObjects.lookup(String(*it)))
+        if (m_LoadedObjects.lookup(String(*it)))
         {
             WARNING("Object `" << *it << "' has already been loaded");
             continue;
@@ -285,7 +311,7 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
         if (!_pFile)
         {
             ERROR("DynamicLinker: Dependency `" << filename << "' not found!");
-            if(!bDryRun)
+            if (!bDryRun)
             {
                 m_Objects.remove(loadBase);
                 delete pSo;
@@ -297,8 +323,10 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
             _pFile = Symlink::fromFile(_pFile)->followLink();
         if (!_pFile || !loadObject(_pFile, bDryRun))
         {
-            ERROR("DynamicLinker: Dependency `" << filename << "' failed to load!");
-            if(!bDryRun)
+            ERROR(
+                "DynamicLinker: Dependency `" << filename
+                                              << "' failed to load!");
+            if (!bDryRun)
             {
                 m_Objects.remove(loadBase);
                 delete pSo;
@@ -307,13 +335,13 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
             return false;
         }
 
-        // Success! Add the filename of the library (NOT WITH LIBRARIES DIRECTORY)
-        // to the known loaded objects list.
-        if(!bDryRun)
-            m_LoadedObjects.insert(String(*it), reinterpret_cast<void*>(1));
+        // Success! Add the filename of the library (NOT WITH LIBRARIES
+        // DIRECTORY) to the known loaded objects list.
+        if (!bDryRun)
+            m_LoadedObjects.insert(String(*it), reinterpret_cast<void *>(1));
     }
 
-    if(!bDryRun)
+    if (!bDryRun)
         initPlt(pElf, loadBase);
     else
         delete pElf;
@@ -328,7 +356,7 @@ bool DynamicLinker::trap(uintptr_t address)
     uintptr_t buffer = 0;
     size_t size = 0;
 
-    if (address >= m_ProgramStart && address < m_ProgramStart+m_ProgramSize)
+    if (address >= m_ProgramStart && address < m_ProgramStart + m_ProgramSize)
     {
         pElf = m_pProgramElf;
         offset = 0;
@@ -337,22 +365,21 @@ bool DynamicLinker::trap(uintptr_t address)
     }
     else
     {
-        for (Tree<uintptr_t, SharedObject*>::Iterator it = m_Objects.begin();
-             it != m_Objects.end();
-             it++)
+        for (Tree<uintptr_t, SharedObject *>::Iterator it = m_Objects.begin();
+             it != m_Objects.end(); it++)
         {
             SharedObject *pSo = it.value();
 
-            // Totally pedantic
+// Totally pedantic
 #ifdef ADDITIONAL_CHECKS
-            if(!pSo)
+            if (!pSo)
             {
                 ERROR("A null shared object was in the object list.");
                 continue;
             }
 #endif
 
-            if (address >= pSo->address && address < pSo->address+pSo->size)
+            if (address >= pSo->address && address < pSo->address + pSo->size)
             {
                 pElf = pSo->elf;
                 offset = pSo->address;
@@ -368,20 +395,24 @@ bool DynamicLinker::trap(uintptr_t address)
 
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
-    uintptr_t v = address & ~(PhysicalMemoryManager::getPageSize()-1);
+    uintptr_t v = address & ~(PhysicalMemoryManager::getPageSize() - 1);
 
     // Grab a physical page.
     physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
     // Map it into the address space.
-    if (!va.map(p, reinterpret_cast<void*>(v), VirtualAddressSpace::Write|VirtualAddressSpace::Execute))
+    if (!va.map(
+            p, reinterpret_cast<void *>(v),
+            VirtualAddressSpace::Write | VirtualAddressSpace::Execute))
     {
         WARNING("IMAGE: map() failed in ElfImage::trap(): vaddr: " << v);
         return false;
     }
 
     // Now that it's mapped, load the ELF region.
-    if (pElf->load(reinterpret_cast<uint8_t*>(buffer), size, offset, m_pProgramElf->getSymbolTable(), v,
-                     v+PhysicalMemoryManager::getPageSize()) == false)
+    if (pElf->load(
+            reinterpret_cast<uint8_t *>(buffer), size, offset,
+            m_pProgramElf->getSymbolTable(), v,
+            v + PhysicalMemoryManager::getPageSize()) == false)
     {
         WARNING("LINKER: load() failed in DynamicLinker::trap()");
         return false;
@@ -404,9 +435,11 @@ DLTrapHandler::~DLTrapHandler()
 {
 }
 
-bool DLTrapHandler::trap(InterruptState &state, uintptr_t address, bool bIsWrite)
+bool DLTrapHandler::trap(
+    InterruptState &state, uintptr_t address, bool bIsWrite)
 {
-    DynamicLinker *pL = Processor::information().getCurrentThread()->getParent()->getLinker();
+    DynamicLinker *pL =
+        Processor::information().getCurrentThread()->getParent()->getLinker();
     if (!pL)
         return false;
     return pL->trap(address);
@@ -414,13 +447,13 @@ bool DLTrapHandler::trap(InterruptState &state, uintptr_t address, bool bIsWrite
 
 static bool init()
 {
-    KernelCoreSyscallManager::instance().registerSyscall(KernelCoreSyscallManager::link, &DynamicLinker::resolvePlt);
+    KernelCoreSyscallManager::instance().registerSyscall(
+        KernelCoreSyscallManager::link, &DynamicLinker::resolvePlt);
     return true;
 }
 
 static void destroy()
 {
 }
-
 
 MODULE_INFO("linker", &init, &destroy, "vfs");

@@ -18,8 +18,8 @@
  */
 
 #include "Ipv6.h"
-#include <Module.h>
 #include <Log.h>
+#include <Module.h>
 
 // Protocols we use in IPv6
 #include "Ethernet.h"
@@ -27,12 +27,12 @@
 
 // Child protocols of IPv6
 #include "Icmpv6.h"
-#include "Udp.h"
 #include "Tcp.h"
+#include "Udp.h"
 
+#include "Endpoint.h"
 #include "NetManager.h"
 #include "RawManager.h"
-#include "Endpoint.h"
 
 #include "RoutingTable.h"
 
@@ -47,7 +47,7 @@ void Ipv6::getIpv6Eui64(MacAddress mac, uint8_t *eui)
 {
     MemoryCopy(eui, mac.getMac(), 3);
     MemoryCopy(eui + 5, mac.getMac() + 3, 3);
-    eui[3] = 0xFF; // Middle two bytes are 'FFFE'
+    eui[3] = 0xFF;  // Middle two bytes are 'FFFE'
     eui[4] = 0xFE;
 
     // Add the Modified EUI-64 identifier
@@ -56,16 +56,16 @@ void Ipv6::getIpv6Eui64(MacAddress mac, uint8_t *eui)
 
 bool Ipv6Service::serve(ServiceFeatures::Type type, void *pData, size_t dataLen)
 {
-    if(!pData)
+    if (!pData)
         return false;
 
     // Correct type?
-    if(g_pIpv6Features->provides(type))
+    if (g_pIpv6Features->provides(type))
     {
         // We only provide Touch services
-        if(type & ServiceFeatures::touch)
+        if (type & ServiceFeatures::touch)
         {
-            Network *pCard = static_cast<Network*>(pData);
+            Network *pCard = static_cast<Network *>(pData);
 
             StationInfo info = pCard->getStationInfo();
 
@@ -82,7 +82,7 @@ bool Ipv6Service::serve(ServiceFeatures::Type type, void *pData, size_t dataLen)
             IpAddress *pNewAddress = 0;
 
             // Set the card's IPv6 address
-            if(!info.nIpv6Addresses)
+            if (!info.nIpv6Addresses)
             {
                 info.ipv6 = new IpAddress(ipv6);
                 info.ipv6->setIpv6Prefix(64);
@@ -95,13 +95,13 @@ bool Ipv6Service::serve(ServiceFeatures::Type type, void *pData, size_t dataLen)
                 // Need to add a new address.
                 size_t currAddresses = info.nIpv6Addresses;
                 IpAddress *pNew = new IpAddress[currAddresses + 1];
-                for(size_t i = 0; i < currAddresses; i++)
+                for (size_t i = 0; i < currAddresses; i++)
                     pNew[i] = info.ipv6[i];
 
                 pNew[currAddresses].setIp(ipv6);
                 pNew[currAddresses].setIpv6Prefix(64);
 
-                delete [] info.ipv6;
+                delete[] info.ipv6;
                 info.ipv6 = pNew;
 
                 info.nIpv6Addresses++;
@@ -112,8 +112,11 @@ bool Ipv6Service::serve(ServiceFeatures::Type type, void *pData, size_t dataLen)
             pCard->setStationInfo(info);
 
             // Set up a route for this address.
-            uint8_t localhost[16] = {0}; localhost[15] = 1;
-            RoutingTable::instance().Add(RoutingTable::DestIpv6Sub, *pNewAddress, IpAddress(localhost), String(""), pCard);
+            uint8_t localhost[16] = {0};
+            localhost[15] = 1;
+            RoutingTable::instance().Add(
+                RoutingTable::DestIpv6Sub, *pNewAddress, IpAddress(localhost),
+                String(""), pCard);
 
             // Additionally, attempt to find any routers on the local network
             // in order to get a routable IPv6 address.
@@ -135,39 +138,44 @@ Ipv6::~Ipv6()
 {
 }
 
-uint16_t Ipv6::ipChecksum(IpAddress &from, IpAddress &to, uint8_t proto, uintptr_t data, uint16_t length)
+uint16_t Ipv6::ipChecksum(
+    IpAddress &from, IpAddress &to, uint8_t proto, uintptr_t data,
+    uint16_t length)
 {
-  // Allocate space for the psuedo-header + packet data
-  size_t tmpSize = length + sizeof(PsuedoHeader);
-  uint8_t* tmpPack = new uint8_t[tmpSize];
-  uintptr_t tmpPackAddr = reinterpret_cast<uintptr_t>(tmpPack);
+    // Allocate space for the psuedo-header + packet data
+    size_t tmpSize = length + sizeof(PsuedoHeader);
+    uint8_t *tmpPack = new uint8_t[tmpSize];
+    uintptr_t tmpPackAddr = reinterpret_cast<uintptr_t>(tmpPack);
 
-  // Set up the psuedo-header
-  PsuedoHeader *pHeader = reinterpret_cast<PsuedoHeader*>(tmpPackAddr);
-  from.getIp(pHeader->src_addr);
-  to.getIp(pHeader->dest_addr);
-  pHeader->nextHeader = proto;
-  pHeader->length = HOST_TO_BIG16(length);
-  pHeader->zero1 = pHeader->zero2 = 0;
+    // Set up the psuedo-header
+    PsuedoHeader *pHeader = reinterpret_cast<PsuedoHeader *>(tmpPackAddr);
+    from.getIp(pHeader->src_addr);
+    to.getIp(pHeader->dest_addr);
+    pHeader->nextHeader = proto;
+    pHeader->length = HOST_TO_BIG16(length);
+    pHeader->zero1 = pHeader->zero2 = 0;
 
-  // Throw in the packet data
-  MemoryCopy(reinterpret_cast<void*>(tmpPackAddr + sizeof(PsuedoHeader)),
-         reinterpret_cast<void*>(data),
-         length);
+    // Throw in the packet data
+    MemoryCopy(
+        reinterpret_cast<void *>(tmpPackAddr + sizeof(PsuedoHeader)),
+        reinterpret_cast<void *>(data), length);
 
-  // Perform the checksum
-  uint16_t checksum = Network::calculateChecksum(tmpPackAddr, tmpSize);
+    // Perform the checksum
+    uint16_t checksum = Network::calculateChecksum(tmpPackAddr, tmpSize);
 
-  // Done.
-  delete [] tmpPack;
-  return checksum;
+    // Done.
+    delete[] tmpPack;
+    return checksum;
 }
 
-bool Ipv6::send(IpAddress dest, IpAddress from, uint8_t type, size_t nBytes, uintptr_t packet, Network *pCard)
+bool Ipv6::send(
+    IpAddress dest, IpAddress from, uint8_t type, size_t nBytes,
+    uintptr_t packet, Network *pCard)
 {
     IpAddress realDest = dest;
 
-    if((from.getType() == IpAddress::IPv4) || (dest.getType() == IpAddress::IPv4))
+    if ((from.getType() == IpAddress::IPv4) ||
+        (dest.getType() == IpAddress::IPv4))
     {
         WARNING("IPv6: IPv4 addresses given to send");
         return false;
@@ -175,42 +183,46 @@ bool Ipv6::send(IpAddress dest, IpAddress from, uint8_t type, size_t nBytes, uin
 
     // Grab the address to send to (as well as the NIC to send with)
     // OVERRIDE any given pCard value!
-    if(dest.isUnicast() && !dest.isLinkLocal())
+    if (dest.isUnicast() && !dest.isLinkLocal())
     {
-      pCard = RoutingTable::instance().DetermineRoute(&realDest);
-      if(!pCard)
-      {
-        WARNING("IPv6: Couldn't find a route for destination '" << dest.toString() << "'.");
-        return false;
-      }
+        pCard = RoutingTable::instance().DetermineRoute(&realDest);
+        if (!pCard)
+        {
+            WARNING(
+                "IPv6: Couldn't find a route for destination '"
+                << dest.toString() << "'.");
+            return false;
+        }
     }
 
-    if(dest.isLinkLocal())
-      pCard = RoutingTable::instance().DefaultRouteV6();
+    if (dest.isLinkLocal())
+        pCard = RoutingTable::instance().DefaultRouteV6();
 
-    if(!pCard->isConnected())
-        return false; // NIC isn't active
+    if (!pCard->isConnected())
+        return false;  // NIC isn't active
 
     /// \todo Assumption: given "from" address is accurate.
 
     // Load the payload.
-    MemoryCopy(reinterpret_cast<void*>(packet + sizeof(ip6Header)), reinterpret_cast<void*>(packet), nBytes);
+    MemoryCopy(
+        reinterpret_cast<void *>(packet + sizeof(ip6Header)),
+        reinterpret_cast<void *>(packet), nBytes);
 
     // Fill in the IPv6 header.
-    ip6Header *pHeader = reinterpret_cast<ip6Header*>(packet);
+    ip6Header *pHeader = reinterpret_cast<ip6Header *>(packet);
     ByteSet(pHeader, 0, sizeof(ip6Header));
 
     pHeader->verClassFlow = 6 << 4;
     pHeader->payloadLength = HOST_TO_BIG16(nBytes);
     pHeader->nextHeader = type;
-    pHeader->hopLimit = 255; /// \todo Configurable hop limit.
+    pHeader->hopLimit = 255;  /// \todo Configurable hop limit.
     from.getIp(pHeader->sourceAddress);
     dest.getIp(pHeader->destAddress);
 
     // Get the address to send this packet to.
     MacAddress destMac;
     bool macValid = true;
-    if(dest.isMulticast())
+    if (dest.isMulticast())
     {
         // Need individual octets of the IPv6 address.
         uint16_t ipv6[8];
@@ -226,28 +238,30 @@ bool Ipv6::send(IpAddress dest, IpAddress from, uint8_t type, size_t nBytes, uin
     else
         macValid = Ndp::instance().neighbourSolicit(realDest, &destMac, pCard);
 
-    if(macValid)
-        Ethernet::send(nBytes + sizeof(ip6Header), packet, pCard, destMac, dest.getType());
+    if (macValid)
+        Ethernet::send(
+            nBytes + sizeof(ip6Header), packet, pCard, destMac, dest.getType());
 
     return macValid;
 }
 
-void Ipv6::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset)
+void Ipv6::receive(
+    size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
 {
     // Verify the inputs. Drivers may directly dump this information on us so
     // we cannot ever be too sure.
-    if(!packet || !nBytes || !pCard)
+    if (!packet || !nBytes || !pCard)
         return;
 
     uintptr_t packetAddress = packet + offset;
 
     // Check for filtering
     /// \todo Add statistics to NICs
-    if(!NetworkFilter::instance().filter(2, packetAddress, nBytes - offset))
+    if (!NetworkFilter::instance().filter(2, packetAddress, nBytes - offset))
         return;
 
     // Grab the header
-    ip6Header* header = reinterpret_cast<ip6Header*>(packetAddress);
+    ip6Header *header = reinterpret_cast<ip6Header *>(packetAddress);
 
     // Get the destination and source addresses
     IpAddress src(header->sourceAddress);
@@ -256,13 +270,14 @@ void Ipv6::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
     StationInfo me = pCard->getStationInfo();
 
     // Should we accept the packet?
-    if(dest.isUnicast()) /// \todo We don't necessarily subscribe to ALL multicast groups - handle membership here.
+    if (dest.isUnicast())  /// \todo We don't necessarily subscribe to ALL
+                           /// multicast groups - handle membership here.
     {
         // Match?
         bool bMatch = false;
-        for(size_t i = 0; i < me.nIpv6Addresses; i++)
+        for (size_t i = 0; i < me.nIpv6Addresses; i++)
         {
-            if(me.ipv6[i] == dest)
+            if (me.ipv6[i] == dest)
             {
                 bMatch = true;
                 break;
@@ -270,7 +285,7 @@ void Ipv6::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
         }
 
         // Not for us, ignore it.
-        if(!bMatch)
+        if (!bMatch)
         {
             return;
         }
@@ -286,22 +301,28 @@ void Ipv6::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
     uint8_t nextHeader = header->nextHeader;
 
     {
-        switch(nextHeader)
+        switch (nextHeader)
         {
             case IP_TCP:
 #ifndef DISABLE_TCP
                 // NOTICE("IPv6: TCP");
-                Tcp::instance().receive(src, dest, packetAddress + sizeof(ip6Header), payloadSize, this, pCard);
+                Tcp::instance().receive(
+                    src, dest, packetAddress + sizeof(ip6Header), payloadSize,
+                    this, pCard);
 #endif
                 break;
             case IP_UDP:
                 // NOTICE("IPv6: UDP");
                 /// \todo Assumes no extension headers.
-                Udp::instance().receive(src, dest, packetAddress + sizeof(ip6Header), payloadSize, this, pCard);
+                Udp::instance().receive(
+                    src, dest, packetAddress + sizeof(ip6Header), payloadSize,
+                    this, pCard);
                 break;
             case IP_ICMPV6:
                 // NOTICE("IPv6: ICMPv6");
-                Icmpv6::instance().receive(src, dest, packetAddress + sizeof(ip6Header), payloadSize, this, pCard);
+                Icmpv6::instance().receive(
+                    src, dest, packetAddress + sizeof(ip6Header), payloadSize,
+                    this, pCard);
                 break;
         }
     }

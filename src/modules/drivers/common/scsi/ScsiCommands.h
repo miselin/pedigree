@@ -26,485 +26,497 @@
 class ScsiCommand
 {
     public:
-        inline ScsiCommand() {}
-        virtual inline ~ScsiCommand() {}
+    inline ScsiCommand()
+    {
+    }
+    virtual inline ~ScsiCommand()
+    {
+    }
 
-        virtual size_t serialise(uintptr_t &addr) = 0;
+    virtual size_t serialise(uintptr_t &addr) = 0;
 };
 
 namespace ScsiCommands
 {
-    class Inquiry : public ScsiCommand
+class Inquiry : public ScsiCommand
+{
+    public:
+    inline Inquiry(
+        uint16_t len = 0, bool enableVitalData = false, uint8_t pageCode = 0,
+        uint8_t ctl = 0)
     {
-        public:
-            inline Inquiry(uint16_t len = 0, bool enableVitalData = false, uint8_t pageCode = 0, uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0x12;
-                command.epvd = enableVitalData;
-                if(enableVitalData)
-                    command.pageCode = pageCode;
-                command.len = HOST_TO_BIG16(len);
-                command.control = ctl;
-            }
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0x12;
+        command.epvd = enableVitalData;
+        if (enableVitalData)
+            command.pageCode = pageCode;
+        command.len = HOST_TO_BIG16(len);
+        command.control = ctl;
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint8_t epvd;
-                uint8_t pageCode;
-                uint16_t len;
-                uint8_t control;
-            } PACKED command;
-    };
-
-    class UnitReady : public ScsiCommand
+    virtual size_t serialise(uintptr_t &addr)
     {
-        public:
-            inline UnitReady(uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0;
-                command.control = ctl;
-            }
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint32_t rsvd;
-                uint8_t control;
-            } PACKED command;
-    };
-
-    class ReadSense : public ScsiCommand
+    struct
     {
-        public:
-            inline ReadSense(uint8_t desc, uint8_t len, uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0x03;
-                command.desc = desc;
-                command.len = len;
-                command.control = ctl;
-            }
+        uint8_t opcode;
+        uint8_t epvd;
+        uint8_t pageCode;
+        uint16_t len;
+        uint8_t control;
+    } PACKED command;
+};
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint8_t desc;
-                uint16_t rsvd;
-                uint8_t len;
-                uint8_t control;
-            } PACKED command;
-    };
-
-    class StartStop : public ScsiCommand
+class UnitReady : public ScsiCommand
+{
+    public:
+    inline UnitReady(uint8_t ctl = 0)
     {
-        public:
-            inline StartStop(bool imm, uint8_t newpower, bool eject_load, bool start, uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0x1b;
-                command.imm = imm ? 1 : 0;
-                command.setup = (start ? 1 : 0) | ((eject_load ? 1 : 0) << 1) | (newpower << 4);
-                command.control = ctl;
-            }
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0;
+        command.control = ctl;
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint8_t imm;
-                uint16_t rsvd;
-                uint8_t setup;
-                uint8_t control;
-            } PACKED command;
-    };
-
-    class SendDiagnostic : public ScsiCommand
+    virtual size_t serialise(uintptr_t &addr)
     {
-        public:
-            inline SendDiagnostic(bool selfTest, uint8_t selfTestCode = 0, uintptr_t params = 0, size_t paramLen = 0, bool deviceOffline = false, bool unitOffline = false, uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0x1d;
-                command.unitOffline = unitOffline;
-                command.devOffline = deviceOffline;
-                command.selfTest = selfTest;
-                command.pf = 0;
-                command.selfTestCode = selfTestCode;
-                command.paramListLen = HOST_TO_BIG16(paramLen);
-                command.control = ctl;
-            }
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint32_t unitOffline : 1;
-                uint32_t devOffline : 1;
-                uint32_t selfTest : 1;
-                uint32_t rsvd1 : 1;
-                uint32_t pf : 1;
-                uint32_t selfTestCode : 3;
-                uint8_t rsvd2;
-                uint16_t paramListLen;
-                uint8_t control;
-            } PACKED command;
-    };
-
-    class ReadTocCommand : public ScsiCommand
+    struct
     {
-        public:
-            inline ReadTocCommand(uint16_t nativeBlockSize, uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0x43;
-                command.len = HOST_TO_BIG16(nativeBlockSize);
-            }
+        uint8_t opcode;
+        uint32_t rsvd;
+        uint8_t control;
+    } PACKED command;
+};
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint8_t flags;
-                uint8_t format;
-                uint8_t rsvd1;
-                uint8_t rsvd2;
-                uint8_t rsvd3;
-                uint8_t track;
-                uint16_t len;
-                uint8_t control;
-            } PACKED command;
-
-            struct TocEntry
-            {
-                uint8_t Rsvd1;
-                uint8_t Flags;
-                uint8_t TrackNum;
-                uint8_t Rsvd2;
-                uint32_t TrackStart;
-            } PACKED;
-    };
-
-    class ReadCapacity10 : public ScsiCommand
+class ReadSense : public ScsiCommand
+{
+    public:
+    inline ReadSense(uint8_t desc, uint8_t len, uint8_t ctl = 0)
     {
-        public:
-            inline ReadCapacity10(uint8_t ctl = 0)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.opcode = 0x25;
-                command.control = ctl;
-            }
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0x03;
+        command.desc = desc;
+        command.len = len;
+        command.control = ctl;
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct
-            {
-                uint8_t opcode;
-                uint8_t obsolete_rsvd;
-                uint32_t lba;
-                uint8_t rsvd[2];
-                uint8_t pmi;
-                uint8_t control;
-            } PACKED command;
-    };
-
-    class Read10 : public ScsiCommand
+    virtual size_t serialise(uintptr_t &addr)
     {
-        public:
-            inline Read10(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0x28;
-                command.nLba = HOST_TO_BIG32(nLba);
-                command.nSectors = HOST_TO_BIG16(nSectors);
-            }
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t bRelAddr : 1;
-                uint8_t res0 : 2;
-                uint8_t bFUA : 1;
-                uint8_t bDPO : 1;
-                uint8_t res1 : 3;
-                uint32_t nLba;
-                uint8_t res2;
-                uint16_t nSectors;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Read12 : public ScsiCommand
+    struct
     {
-        public:
-            inline Read12(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0xa8;
-                command.nLba = HOST_TO_BIG32(nLba);
-                command.nSectors = HOST_TO_BIG32(nSectors);
-            }
+        uint8_t opcode;
+        uint8_t desc;
+        uint16_t rsvd;
+        uint8_t len;
+        uint8_t control;
+    } PACKED command;
+};
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t bRelAddr : 1;
-                uint8_t res0 : 2;
-                uint8_t bFUA : 1;
-                uint8_t bDPO : 1;
-                uint8_t res1 : 3;
-                uint32_t nLba;
-                uint32_t nSectors;
-                uint8_t res2;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Read16 : public ScsiCommand
+class StartStop : public ScsiCommand
+{
+    public:
+    inline StartStop(
+        bool imm, uint8_t newpower, bool eject_load, bool start,
+        uint8_t ctl = 0)
     {
-        public:
-            inline Read16(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0x88;
-                command.nLba = HOST_TO_BIG64(nLba);
-                command.nSectors = HOST_TO_BIG32(nSectors);
-            }
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0x1b;
+        command.imm = imm ? 1 : 0;
+        command.setup =
+            (start ? 1 : 0) | ((eject_load ? 1 : 0) << 1) | (newpower << 4);
+        command.control = ctl;
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t bRelAddr : 1;
-                uint8_t res0 : 2;
-                uint8_t bFUA : 1;
-                uint8_t bDPO : 1;
-                uint8_t res1 : 3;
-                uint64_t nLba;
-                uint32_t nSectors;
-                uint8_t res2;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Write10 : public ScsiCommand
+    virtual size_t serialise(uintptr_t &addr)
     {
-        public:
-            inline Write10(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0x2A;
-                command.nLba = HOST_TO_BIG32(nLba);
-                command.nSectors = HOST_TO_BIG16(nSectors);
-            }
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t obs : 1;
-                uint8_t bFUA_NV : 1;
-                uint8_t res1 : 1;
-                uint8_t bFUA : 1;
-                uint8_t bDPO : 1;
-                uint8_t nWrProtect : 3;
-                uint32_t nLba;
-                uint8_t res2;
-                uint16_t nSectors;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Write12 : public ScsiCommand
+    struct
     {
-        public:
-            inline Write12(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0xAA;
-                command.nLba = HOST_TO_BIG32(nLba);
-                command.nSectors = HOST_TO_BIG32(nSectors);
-            }
+        uint8_t opcode;
+        uint8_t imm;
+        uint16_t rsvd;
+        uint8_t setup;
+        uint8_t control;
+    } PACKED command;
+};
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t obs : 1;
-                uint8_t bFUA_NV : 1;
-                uint8_t res1 : 1;
-                uint8_t bFUA : 1;
-                uint8_t bDPO : 1;
-                uint8_t nWrProtect : 3;
-                uint32_t nLba;
-                uint32_t nSectors;
-                uint8_t res2;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Write16 : public ScsiCommand
+class SendDiagnostic : public ScsiCommand
+{
+    public:
+    inline SendDiagnostic(
+        bool selfTest, uint8_t selfTestCode = 0, uintptr_t params = 0,
+        size_t paramLen = 0, bool deviceOffline = false,
+        bool unitOffline = false, uint8_t ctl = 0)
     {
-        public:
-            inline Write16(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0x8A;
-                command.nLba = HOST_TO_BIG64(nLba);
-                command.nSectors = HOST_TO_BIG32(nSectors);
-            }
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0x1d;
+        command.unitOffline = unitOffline;
+        command.devOffline = deviceOffline;
+        command.selfTest = selfTest;
+        command.pf = 0;
+        command.selfTestCode = selfTestCode;
+        command.paramListLen = HOST_TO_BIG16(paramLen);
+        command.control = ctl;
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t obs : 1;
-                uint8_t bFUA_NV : 1;
-                uint8_t res1 : 1;
-                uint8_t bFUA : 1;
-                uint8_t bDPO : 1;
-                uint8_t nWrProtect : 3;
-                uint64_t nLba;
-                uint32_t nSectors;
-                uint8_t res2;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Synchronise10 : public ScsiCommand
+    virtual size_t serialise(uintptr_t &addr)
     {
-        public:
-            inline Synchronise10(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0x35;
-                command.nLba = HOST_TO_BIG32(nLba);
-                command.nBlocks = HOST_TO_BIG16(nSectors);
-            }
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
-
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t obs : 1;
-                uint8_t bImmed : 1;
-                uint8_t bSyncNV : 1;
-                uint8_t rsvd1 : 5;
-                uint32_t nLba;
-                uint8_t nGroup : 5;
-                uint8_t rsvd2 : 3;
-                uint16_t nBlocks;
-                uint8_t nControl;
-            } PACKED command;
-    };
-
-    class Synchronise16 : public ScsiCommand
+    struct
     {
-        public:
-            inline Synchronise16(uint32_t nLba, uint32_t nSectors)
-            {
-                ByteSet(&command, 0, sizeof(command));
-                command.nOpCode = 0x91;
-                command.nLba = HOST_TO_BIG64(nLba);
-                command.nBlocks = HOST_TO_BIG32(nSectors);
-            }
+        uint8_t opcode;
+        uint32_t unitOffline : 1;
+        uint32_t devOffline : 1;
+        uint32_t selfTest : 1;
+        uint32_t rsvd1 : 1;
+        uint32_t pf : 1;
+        uint32_t selfTestCode : 3;
+        uint8_t rsvd2;
+        uint16_t paramListLen;
+        uint8_t control;
+    } PACKED command;
+};
 
-            virtual size_t serialise(uintptr_t &addr)
-            {
-                addr = reinterpret_cast<uintptr_t>(&command);
-                return sizeof(command);
-            }
+class ReadTocCommand : public ScsiCommand
+{
+    public:
+    inline ReadTocCommand(uint16_t nativeBlockSize, uint8_t ctl = 0)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0x43;
+        command.len = HOST_TO_BIG16(nativeBlockSize);
+    }
 
-            struct command
-            {
-                uint8_t nOpCode;
-                uint8_t obs : 1;
-                uint8_t bImmed : 1;
-                uint8_t bSyncNV : 1;
-                uint8_t rsvd1 : 5;
-                uint64_t nLba;
-                uint32_t nBlocks;
-                uint8_t nGroup : 5;
-                uint8_t rsvd2 : 3;
-                uint8_t nControl;
-            } PACKED command;
-    };
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct
+    {
+        uint8_t opcode;
+        uint8_t flags;
+        uint8_t format;
+        uint8_t rsvd1;
+        uint8_t rsvd2;
+        uint8_t rsvd3;
+        uint8_t track;
+        uint16_t len;
+        uint8_t control;
+    } PACKED command;
+
+    struct TocEntry
+    {
+        uint8_t Rsvd1;
+        uint8_t Flags;
+        uint8_t TrackNum;
+        uint8_t Rsvd2;
+        uint32_t TrackStart;
+    } PACKED;
+};
+
+class ReadCapacity10 : public ScsiCommand
+{
+    public:
+    inline ReadCapacity10(uint8_t ctl = 0)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.opcode = 0x25;
+        command.control = ctl;
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct
+    {
+        uint8_t opcode;
+        uint8_t obsolete_rsvd;
+        uint32_t lba;
+        uint8_t rsvd[2];
+        uint8_t pmi;
+        uint8_t control;
+    } PACKED command;
+};
+
+class Read10 : public ScsiCommand
+{
+    public:
+    inline Read10(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0x28;
+        command.nLba = HOST_TO_BIG32(nLba);
+        command.nSectors = HOST_TO_BIG16(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t bRelAddr : 1;
+        uint8_t res0 : 2;
+        uint8_t bFUA : 1;
+        uint8_t bDPO : 1;
+        uint8_t res1 : 3;
+        uint32_t nLba;
+        uint8_t res2;
+        uint16_t nSectors;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Read12 : public ScsiCommand
+{
+    public:
+    inline Read12(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0xa8;
+        command.nLba = HOST_TO_BIG32(nLba);
+        command.nSectors = HOST_TO_BIG32(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t bRelAddr : 1;
+        uint8_t res0 : 2;
+        uint8_t bFUA : 1;
+        uint8_t bDPO : 1;
+        uint8_t res1 : 3;
+        uint32_t nLba;
+        uint32_t nSectors;
+        uint8_t res2;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Read16 : public ScsiCommand
+{
+    public:
+    inline Read16(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0x88;
+        command.nLba = HOST_TO_BIG64(nLba);
+        command.nSectors = HOST_TO_BIG32(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t bRelAddr : 1;
+        uint8_t res0 : 2;
+        uint8_t bFUA : 1;
+        uint8_t bDPO : 1;
+        uint8_t res1 : 3;
+        uint64_t nLba;
+        uint32_t nSectors;
+        uint8_t res2;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Write10 : public ScsiCommand
+{
+    public:
+    inline Write10(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0x2A;
+        command.nLba = HOST_TO_BIG32(nLba);
+        command.nSectors = HOST_TO_BIG16(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t obs : 1;
+        uint8_t bFUA_NV : 1;
+        uint8_t res1 : 1;
+        uint8_t bFUA : 1;
+        uint8_t bDPO : 1;
+        uint8_t nWrProtect : 3;
+        uint32_t nLba;
+        uint8_t res2;
+        uint16_t nSectors;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Write12 : public ScsiCommand
+{
+    public:
+    inline Write12(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0xAA;
+        command.nLba = HOST_TO_BIG32(nLba);
+        command.nSectors = HOST_TO_BIG32(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t obs : 1;
+        uint8_t bFUA_NV : 1;
+        uint8_t res1 : 1;
+        uint8_t bFUA : 1;
+        uint8_t bDPO : 1;
+        uint8_t nWrProtect : 3;
+        uint32_t nLba;
+        uint32_t nSectors;
+        uint8_t res2;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Write16 : public ScsiCommand
+{
+    public:
+    inline Write16(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0x8A;
+        command.nLba = HOST_TO_BIG64(nLba);
+        command.nSectors = HOST_TO_BIG32(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t obs : 1;
+        uint8_t bFUA_NV : 1;
+        uint8_t res1 : 1;
+        uint8_t bFUA : 1;
+        uint8_t bDPO : 1;
+        uint8_t nWrProtect : 3;
+        uint64_t nLba;
+        uint32_t nSectors;
+        uint8_t res2;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Synchronise10 : public ScsiCommand
+{
+    public:
+    inline Synchronise10(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0x35;
+        command.nLba = HOST_TO_BIG32(nLba);
+        command.nBlocks = HOST_TO_BIG16(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t obs : 1;
+        uint8_t bImmed : 1;
+        uint8_t bSyncNV : 1;
+        uint8_t rsvd1 : 5;
+        uint32_t nLba;
+        uint8_t nGroup : 5;
+        uint8_t rsvd2 : 3;
+        uint16_t nBlocks;
+        uint8_t nControl;
+    } PACKED command;
+};
+
+class Synchronise16 : public ScsiCommand
+{
+    public:
+    inline Synchronise16(uint32_t nLba, uint32_t nSectors)
+    {
+        ByteSet(&command, 0, sizeof(command));
+        command.nOpCode = 0x91;
+        command.nLba = HOST_TO_BIG64(nLba);
+        command.nBlocks = HOST_TO_BIG32(nSectors);
+    }
+
+    virtual size_t serialise(uintptr_t &addr)
+    {
+        addr = reinterpret_cast<uintptr_t>(&command);
+        return sizeof(command);
+    }
+
+    struct command
+    {
+        uint8_t nOpCode;
+        uint8_t obs : 1;
+        uint8_t bImmed : 1;
+        uint8_t bSyncNV : 1;
+        uint8_t rsvd1 : 5;
+        uint64_t nLba;
+        uint32_t nBlocks;
+        uint8_t nGroup : 5;
+        uint8_t rsvd2 : 3;
+        uint8_t nControl;
+    } PACKED command;
+};
 };
 
 #endif

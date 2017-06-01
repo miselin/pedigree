@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,17 +20,18 @@
 #ifndef KERNEL_PROCESSOR_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_SYSCALLMANAGER_H
 
-#include <processor/state.h>
 #include <processor/SyscallHandler.h>
 #include <processor/Syscalls.h>
+#include <processor/state.h>
 
 /** @addtogroup kernelprocessor
  * @{ */
 
-/** The syscall manager allows syscall handler registrations and handles syscalls */
+/** The syscall manager allows syscall handler registrations and handles
+ * syscalls */
 class SyscallManager
 {
-  public:
+    public:
     /** Get the syscall manager instance
      *\return instance of the syscall manager */
     static SyscallManager &instance();
@@ -39,24 +39,27 @@ class SyscallManager
      *\param[in] Service the service number you want to register
      *\param[in] pHandler the interrupt handler
      *\return true, if successfully registered, false otherwise */
-    virtual bool registerSyscallHandler(Service_t Service, SyscallHandler *pHandler) = 0;
+    virtual bool
+    registerSyscallHandler(Service_t Service, SyscallHandler *pHandler) = 0;
     /** Calls a syscall. */
-    virtual uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1=0, uintptr_t p2=0, uintptr_t p3=0, uintptr_t p4=0,
-                              uintptr_t p5=0) = 0;
+    virtual uintptr_t syscall(
+        Service_t service, uintptr_t function, uintptr_t p1 = 0,
+        uintptr_t p2 = 0, uintptr_t p3 = 0, uintptr_t p4 = 0,
+        uintptr_t p5 = 0) = 0;
 
-  protected:
+    protected:
     /** The constructor */
     inline SyscallManager();
     /** The destructor */
     inline virtual ~SyscallManager();
 
-  private:
+    private:
     /** The copy-constructor
      *\note Not implemented (singleton) */
     SyscallManager(const SyscallManager &);
     /** The copy-constructor
      *\note Not implemented (singleton) */
-    SyscallManager &operator = (const SyscallManager &);
+    SyscallManager &operator=(const SyscallManager &);
 };
 
 /** @} */

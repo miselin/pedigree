@@ -20,14 +20,17 @@
 #include <config/Config.h>
 #include <string.h>
 
-/// \todo make all these available in a header somewhere that isn't the POSIX subsystem
-extern "C"
-{
-void pedigree_config_getcolname(size_t resultIdx, size_t n, char *buf, size_t bufsz);
+/// \todo make all these available in a header somewhere that isn't the POSIX
+/// subsystem
+extern "C" {
+void pedigree_config_getcolname(
+    size_t resultIdx, size_t n, char *buf, size_t bufsz);
 
-void pedigree_config_getstr_n(size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz);
+void pedigree_config_getstr_n(
+    size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz);
 
-void pedigree_config_getstr_s(size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz);
+void pedigree_config_getstr_s(
+    size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz);
 
 int pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n);
 
@@ -67,11 +70,11 @@ std::string Config::Result::errorMessage(size_t buffSz)
     // Allocate a buffer of the given  (or default) size, zero it,
     // get the string in it, then put the buffer contents into a nice string
     // and return the nice string.
-    char *pBuffer = new char [buffSz];
+    char *pBuffer = new char[buffSz];
     memset(pBuffer, 0, buffSz);
     pedigree_config_get_error_message(m_nResultIdx, pBuffer, buffSz);
     std::string str(pBuffer);
-    delete [] pBuffer;
+    delete[] pBuffer;
     return str;
 }
 
@@ -90,11 +93,11 @@ std::string Config::Result::getColumnName(size_t col, size_t buffSz)
     // Allocate a buffer of the given  (or default) size, zero it,
     // get the string in it, then put the buffer contents into a nice string
     // and return the nice string.
-    char *pBuffer = new char [buffSz];
+    char *pBuffer = new char[buffSz];
     memset(pBuffer, 0, buffSz);
     pedigree_config_getcolname(m_nResultIdx, col, pBuffer, buffSz);
     std::string str(pBuffer);
-    delete [] pBuffer;
+    delete[] pBuffer;
     return str;
 }
 
@@ -103,11 +106,11 @@ std::string Config::Result::getStr(size_t row, size_t col, size_t buffSz)
     // Allocate a buffer of the given  (or default) size, zero it,
     // get the string in it, then put the buffer contents into a nice string
     // and return the nice string.
-    char *pBuffer = new char [buffSz];
+    char *pBuffer = new char[buffSz];
     memset(pBuffer, 0, buffSz);
     pedigree_config_getstr_n(m_nResultIdx, row, col, pBuffer, buffSz);
     std::string str(pBuffer);
-    delete [] pBuffer;
+    delete[] pBuffer;
     return str;
 }
 
@@ -126,11 +129,11 @@ std::string Config::Result::getStr(size_t row, const char *col, size_t buffSz)
     // Allocate a buffer of the given  (or default) size, zero it,
     // get the string in it, then put the buffer contents into a nice string
     // and return the nice string.
-    char *pBuffer = new char [buffSz];
+    char *pBuffer = new char[buffSz];
     memset(pBuffer, 0, buffSz);
     pedigree_config_getstr_s(m_nResultIdx, row, col, pBuffer, buffSz);
     std::string str(pBuffer);
-    delete [] pBuffer;
+    delete[] pBuffer;
     return str;
 }
 
@@ -147,14 +150,14 @@ bool Config::Result::getBool(size_t row, const char *col)
 Config::Result *Config::query(const char *sql)
 {
     // Check for null or empty queries
-    if(!sql || !*sql)
+    if (!sql || !*sql)
         return 0;
 
     // Query the database
     int resultIdx = pedigree_config_query(sql);
 
     // Check for query errors
-    if(resultIdx < 0)
+    if (resultIdx < 0)
         return 0;
 
     // Return a new Result

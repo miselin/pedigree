@@ -17,20 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <signal.h>
 #include <errno.h>
-#include <sched.h>
-#include <sys/klog.h>
+#include <fcntl.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/klog.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <native/graphics/Graphics.h>
 #include <native/input/Input.h>
@@ -42,36 +41,35 @@
 class PedigreeTerminalEmulator : public Widget
 {
     public:
-        PedigreeTerminalEmulator() : Widget(), m_nWidth(0), m_nHeight(0)
-        {};
+    PedigreeTerminalEmulator() : Widget(), m_nWidth(0), m_nHeight(0){};
 
-        virtual ~PedigreeTerminalEmulator()
-        {};
+    virtual ~PedigreeTerminalEmulator(){};
 
-        virtual bool render(PedigreeGraphics::Rect &rt, PedigreeGraphics::Rect &dirty)
-        {
-            return true;
-        }
+    virtual bool
+    render(PedigreeGraphics::Rect &rt, PedigreeGraphics::Rect &dirty)
+    {
+        return true;
+    }
 
-        void handleReposition(const PedigreeGraphics::Rect &rt)
-        {
-            m_nWidth = rt.getW();
-            m_nHeight = rt.getH();
-        }
+    void handleReposition(const PedigreeGraphics::Rect &rt)
+    {
+        m_nWidth = rt.getW();
+        m_nHeight = rt.getH();
+    }
 
-        size_t getWidth() const
-        {
-            return m_nWidth;
-        }
+    size_t getWidth() const
+    {
+        return m_nWidth;
+    }
 
-        size_t getHeight() const
-        {
-            return m_nHeight;
-        }
+    size_t getHeight() const
+    {
+        return m_nHeight;
+    }
 
     private:
-        size_t m_nWidth;
-        size_t m_nHeight;
+    size_t m_nWidth;
+    size_t m_nHeight;
 };
 
 static Tui *g_Tui = nullptr;
@@ -89,23 +87,24 @@ bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
         return false;
     }
 
-    switch(message)
+    switch (message)
     {
         case Reposition:
-            {
-                klog(LOG_INFO, "-- REPOSITION --");
-                const PedigreeGraphics::Rect *rt = reinterpret_cast<const PedigreeGraphics::Rect*>(msgData);
-                klog(LOG_INFO, " -> handling...");
-                g_pEmu->handleReposition(*rt);
-                klog(LOG_INFO, " -> registering the mode change");
-                g_Tui->resize(rt->getW(), rt->getH());
-                klog(LOG_INFO, " -> creating new framebuffer");
-                g_Tui->recreateSurfaces(g_pEmu->getRawFramebuffer());
-                klog(LOG_INFO, " -> reposition complete!");
-            }
-            break;
+        {
+            klog(LOG_INFO, "-- REPOSITION --");
+            const PedigreeGraphics::Rect *rt =
+                reinterpret_cast<const PedigreeGraphics::Rect *>(msgData);
+            klog(LOG_INFO, " -> handling...");
+            g_pEmu->handleReposition(*rt);
+            klog(LOG_INFO, " -> registering the mode change");
+            g_Tui->resize(rt->getW(), rt->getH());
+            klog(LOG_INFO, " -> creating new framebuffer");
+            g_Tui->recreateSurfaces(g_pEmu->getRawFramebuffer());
+            klog(LOG_INFO, " -> reposition complete!");
+        }
+        break;
         case KeyUp:
-            g_Tui->keyInput(*reinterpret_cast<const uint64_t*>(msgData));
+            g_Tui->keyInput(*reinterpret_cast<const uint64_t *>(msgData));
             break;
         case Focus:
             g_Tui->setCursorStyle(true);
@@ -145,7 +144,7 @@ int main(int argc, char *argv[])
     g_Tui = new Tui(g_pEmu);
 
     klog(LOG_INFO, "TUI: constructing widget '%s'...", endpoint);
-    if(!g_pEmu->construct(endpoint, "Pedigree xterm Emulator", callback, rt))
+    if (!g_pEmu->construct(endpoint, "Pedigree xterm Emulator", callback, rt))
     {
         klog(LOG_ERR, "tui: couldn't construct widget");
         delete g_Tui;

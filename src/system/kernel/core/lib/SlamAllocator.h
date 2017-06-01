@@ -26,8 +26,8 @@
     \see http://www.pedigree-project.org/r/projects/pedigree/wiki/SlabDraft
 **/
 
-#include <processor/types.h>
 #include <Log.h>
+#include <processor/types.h>
 
 #ifndef PEDIGREE_BENCHMARK
 #include <processor/PhysicalMemoryManager.h>
@@ -49,33 +49,35 @@ void unmapAll();
 class SlamAllocator;
 
 /// Size of each slab in 4096-byte pages
-#define SLAB_SIZE                       1
+#define SLAB_SIZE 1
 
 /// Minimum slab size in bytes
-#define SLAB_MINIMUM_SIZE               (4096 * SLAB_SIZE)
+#define SLAB_MINIMUM_SIZE (4096 * SLAB_SIZE)
 
 /// Define if using the magic number method of slab recovery.
 /// This turns recovery into an O(n) instead of O(n^2) algorithm,
 /// but relies on a magic number which introduces false positives
 /// (depending on number length and value), and requires a
 /// doubly linked list instead of a singly.
-#define USING_MAGIC                     1
+#define USING_MAGIC 1
 
 /// Used only if USING_MAGIC. Type of the magic number.
-#define MAGIC_TYPE                      uintptr_t
+#define MAGIC_TYPE uintptr_t
 
 /// Used only if USING_MAGIC. Magic value.
-#define MAGIC_VALUE                     0xb00b1e55ULL
+#define MAGIC_VALUE 0xb00b1e55ULL
 
 /// Minimum size of an object.
-#define ABSOLUTE_MINIMUM_SIZE           64
-#define ALL_HEADERS_SIZE                (sizeof(SlamCache::Node) + \
-    sizeof(SlamAllocator::AllocHeader) + sizeof(SlamAllocator::AllocFooter))
-#define OBJECT_MINIMUM_SIZE             (ALL_HEADERS_SIZE < ABSOLUTE_MINIMUM_SIZE ? \
-    ABSOLUTE_MINIMUM_SIZE : ALL_HEADERS_SIZE)
+#define ABSOLUTE_MINIMUM_SIZE 64
+#define ALL_HEADERS_SIZE                                            \
+    (sizeof(SlamCache::Node) + sizeof(SlamAllocator::AllocHeader) + \
+     sizeof(SlamAllocator::AllocFooter))
+#define OBJECT_MINIMUM_SIZE                                             \
+    (ALL_HEADERS_SIZE < ABSOLUTE_MINIMUM_SIZE ? ABSOLUTE_MINIMUM_SIZE : \
+                                                ALL_HEADERS_SIZE)
 
 /// Outputs information during each function call
-#define DEBUGGING_SLAB_ALLOCATOR        0
+#define DEBUGGING_SLAB_ALLOCATOR 0
 
 /// Temporary magic used during allocation.
 #define TEMP_MAGIC 0x67845753
@@ -83,37 +85,37 @@ class SlamAllocator;
 /// Adds magic numbers to the start of free blocks, to check for
 /// buffer overruns.
 #ifdef USE_DEBUG_ALLOCATOR
-#define OVERRUN_CHECK                   0
+#define OVERRUN_CHECK 0
 #else
-#define OVERRUN_CHECK                   1
+#define OVERRUN_CHECK 1
 #endif
 
 /// Adds magic numbers to the start and end of allocated chunks, increasing
 /// object size. Also adds a small amount of backtrace information.
-#define VIGILANT_OVERRUN_CHECK          0
+#define VIGILANT_OVERRUN_CHECK 0
 
-#define VIGILANT_MAGIC                  0x1337cafe
+#define VIGILANT_MAGIC 0x1337cafe
 
 /// This will check EVERY object on EVERY alloc/free.
 /// It will cripple your performance.
-#define CRIPPLINGLY_VIGILANT            0
+#define CRIPPLINGLY_VIGILANT 0
 
 /// If you're using a modified version of Bochs which supports magic
 /// watchpoints (xchg cx, cx), this will set and remove watchpoints
 /// on all allocations. This means you find out exactly where each
 /// overrun occurs (EIP and all) rather than guessing.
-#define BOCHS_MAGIC_WATCHPOINTS         0
+#define BOCHS_MAGIC_WATCHPOINTS 0
 
 /// Scribble in freed memory; can be useful for finding bugs which are caused
 /// by reuse of freed objects (that would otherwise look like valid objects).
 /// It can also avoid leaking information in heap objects.
-#define SCRIBBLE_FREED_BLOCKS           1
+#define SCRIBBLE_FREED_BLOCKS 1
 
 /** A cache allocates objects of a constant size. */
 class SlamCache
 {
-// struct Node must be public so that sizeof(SlamCache::Node) is available.
-public:
+    // struct Node must be public so that sizeof(SlamCache::Node) is available.
+    public:
     /** The structure inside a free object (list node) */
     struct Node
     {
@@ -158,12 +160,12 @@ public:
     void check();
 #endif
 
-private:
+    private:
     SlamCache(const SlamCache &);
-    const SlamCache& operator = (const SlamCache &);
+    const SlamCache &operator=(const SlamCache &);
 
 #ifdef MULTIPROCESSOR
-    ///\todo MAX_CPUS
+///\todo MAX_CPUS
 #define NUM_LISTS 255
 #else
 #define NUM_LISTS 1
@@ -183,9 +185,9 @@ private:
     size_t m_ObjectSize;
     size_t m_SlabSize;
 
-    // This version of the allocator doesn't have a free list, instead
-    // the reap() function returns memory directly to the VMM. This
-    // avoids needing to lock the free list on MP systems.
+// This version of the allocator doesn't have a free list, instead
+// the reap() function returns memory directly to the VMM. This
+// avoids needing to lock the free list on MP systems.
 
 #if CRIPPLINGLY_VIGILANT
     uintptr_t m_FirstSlab;
@@ -210,42 +212,42 @@ private:
 class SlamAllocator
 {
     public:
-        SlamAllocator();
-        virtual ~SlamAllocator();
+    SlamAllocator();
+    virtual ~SlamAllocator();
 
-        void initialise();
+    void initialise();
 
 #ifdef PEDIGREE_BENCHMARK
-        // quickly clear all allocations from the allocator
-        void clearAll();
+    // quickly clear all allocations from the allocator
+    void clearAll();
 #endif
 
-        uintptr_t allocate(size_t nBytes);
-        void free(uintptr_t mem);
+    uintptr_t allocate(size_t nBytes);
+    void free(uintptr_t mem);
 
-        size_t recovery(size_t maxSlabs = 1);
+    size_t recovery(size_t maxSlabs = 1);
 
-        bool isPointerValid(uintptr_t mem);
+    bool isPointerValid(uintptr_t mem);
 
-        size_t allocSize(uintptr_t mem);
+    size_t allocSize(uintptr_t mem);
 
-        static SlamAllocator &instance()
-        {
+    static SlamAllocator &instance()
+    {
 #ifdef PEDIGREE_BENCHMARK
-            static SlamAllocator instance;
-            return instance;
+        static SlamAllocator instance;
+        return instance;
 #else
-            return m_Instance;
+        return m_Instance;
 #endif
-        }
+    }
 
-        size_t heapPageCount() const
-        {
-            return m_HeapPageCount;
-        }
+    size_t heapPageCount() const
+    {
+        return m_HeapPageCount;
+    }
 
-        uintptr_t getSlab(size_t fullSize);
-        void freeSlab(uintptr_t address, size_t length);
+    uintptr_t getSlab(size_t fullSize);
+    void freeSlab(uintptr_t address, size_t length);
 
 #ifdef USE_DEBUG_ALLOCATOR
     inline size_t headerSize()
@@ -260,51 +262,57 @@ class SlamAllocator
 
 #if CRIPPLINGLY_VIGILANT
     void setVigilance(bool b)
-    {m_bVigilant = b;}
+    {
+        m_bVigilant = b;
+    }
     bool getVigilance()
-    {return m_bVigilant;}
+    {
+        return m_bVigilant;
+    }
 #endif
 
     private:
-        SlamAllocator(const SlamAllocator&);
-        const SlamAllocator& operator = (const SlamAllocator&);
+    SlamAllocator(const SlamAllocator &);
+    const SlamAllocator &operator=(const SlamAllocator &);
 
 #ifndef PEDIGREE_BENCHMARK
-        static SlamAllocator m_Instance;
+    static SlamAllocator m_Instance;
 #endif
 
-        SlamCache m_Caches[32];
-public:
-        /// Prepended to all allocated data. Basically just information to make
-        /// freeing slightly less performance-intensive...
-        struct AllocHeader
-        {
-            // Already-present and embedded Node fields.
-            SlamCache::Node node;
+    SlamCache m_Caches[32];
+
+    public:
+    /// Prepended to all allocated data. Basically just information to make
+    /// freeing slightly less performance-intensive...
+    struct AllocHeader
+    {
+        // Already-present and embedded Node fields.
+        SlamCache::Node node;
 #if OVERRUN_CHECK
 #if BOCHS_MAGIC_WATCHPOINTS
-            uint32_t catcher;
+        uint32_t catcher;
 #endif
-            size_t magic;
+        size_t magic;
 #if VIGILANT_OVERRUN_CHECK
-            uintptr_t backtrace[NUM_SLAM_BT_FRAMES];
-            size_t requested;
+        uintptr_t backtrace[NUM_SLAM_BT_FRAMES];
+        size_t requested;
 #endif
 #endif
-            SlamCache *cache;
-        } __attribute__((aligned(16)));
+        SlamCache *cache;
+    } __attribute__((aligned(16)));
 
-        struct AllocFooter
-        {
+    struct AllocFooter
+    {
 #if OVERRUN_CHECK
 #if BOCHS_MAGIC_WATCHPOINTS
-            uint32_t catcher;
+        uint32_t catcher;
 #endif
-            size_t magic;
+        size_t magic;
 #endif
-        } __attribute__((aligned(16)));
-private:
-        bool m_bInitialised;
+    } __attribute__((aligned(16)));
+
+    private:
+    bool m_bInitialised;
 
 #if CRIPPLINGLY_VIGILANT
     bool m_bVigilant;

@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <LockGuard.h>
+#include <Log.h>
+#include <machine/InputManager.h>
 #include <machine/Machine.h>
 #include <machine/Vga.h>
 #include <processor/Processor.h>
-#include <machine/InputManager.h>
-#include <LockGuard.h>
-#include <Log.h>
 
 #include "TextIO.h"
 
@@ -34,17 +34,17 @@
 
 static int startFlipThread(void *param);
 
-TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
-    File(str, 0, 0, 0, inode, pParentFS, 0, pParent),
-    m_bInitialised(false), m_bControlSeq(false), m_bBracket(false),
-    m_bParenthesis(false), m_bParams(false), m_bQuestionMark(false),
-    m_CursorX(0), m_CursorY(0), m_SavedCursorX(0), m_SavedCursorY(0),
-    m_ScrollStart(0), m_ScrollEnd(0), m_LeftMargin(0), m_RightMargin(0),
-    m_CurrentParam(0), m_Params(), m_Fore(TextIO::LightGrey), m_Back(TextIO::Black),
-    m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
-    m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'),
-    m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false),
-    m_Lock(false), m_bOwnsConsole(false)
+TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
+    : File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_bInitialised(false),
+      m_bControlSeq(false), m_bBracket(false), m_bParenthesis(false),
+      m_bParams(false), m_bQuestionMark(false), m_CursorX(0), m_CursorY(0),
+      m_SavedCursorX(0), m_SavedCursorY(0), m_ScrollStart(0), m_ScrollEnd(0),
+      m_LeftMargin(0), m_RightMargin(0), m_CurrentParam(0), m_Params(),
+      m_Fore(TextIO::LightGrey), m_Back(TextIO::Black), m_pFramebuffer(0),
+      m_pBackbuffer(0), m_pVga(0), m_TabStops(),
+      m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'), m_bUtf8(false),
+      m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false), m_Lock(false),
+      m_bOwnsConsole(false)
 {
     m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
 
@@ -53,12 +53,13 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent) :
     setUidOnly(0);
     setGidOnly(0);
 
-    InputManager::instance().installCallback(InputManager::Key, inputCallback, this);
+    InputManager::instance().installCallback(
+        InputManager::Key, inputCallback, this);
 }
 
 TextIO::~TextIO()
 {
-    delete [] m_pBackbuffer;
+    delete[] m_pBackbuffer;
     m_pBackbuffer = 0;
 
     InputManager::instance().removeCallback(inputCallback, this);
@@ -86,19 +87,24 @@ bool TextIO::initialise(bool bClear)
     ByteSet(m_TabStops, 0, BACKBUFFER_STRIDE);
 
     m_pVga = Machine::instance().getVga(0);
-    if(m_pVga)
+    if (m_pVga)
     {
         m_pVga->setLargestTextMode();
         m_pFramebuffer = *m_pVga;
-        if(m_pFramebuffer != 0)
+        if (m_pFramebuffer != 0)
         {
-            if(bClear)
+            if (bClear)
             {
                 if (isPrimary())
                 {
-                    ByteSet(m_pFramebuffer, 0, m_pVga->getNumRows() * m_pVga->getNumCols() * sizeof(uint16_t));
+                    ByteSet(
+                        m_pFramebuffer, 0,
+                        m_pVga->getNumRows() * m_pVga->getNumCols() *
+                            sizeof(uint16_t));
                 }
-                ByteSet(m_pBackbuffer, 0, BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell));
+                ByteSet(
+                    m_pBackbuffer, 0,
+                    BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell));
             }
 
             m_bInitialised = true;
@@ -110,7 +116,7 @@ bool TextIO::initialise(bool bClear)
             m_CurrentModes = AnsiVt52 | CharacterSetG0;
 
             // Set default tab stops.
-            for(size_t i = 0; i < BACKBUFFER_STRIDE; i += 8)
+            for (size_t i = 0; i < BACKBUFFER_STRIDE; i += 8)
                 m_TabStops[i] = '|';
 
             m_pVga->clearControl(Vga::Blink);
@@ -123,7 +129,8 @@ bool TextIO::initialise(bool bClear)
 
     if (m_bInitialised)
     {
-        Process *parent = Processor::information().getCurrentThread()->getParent();
+        Process *parent =
+            Processor::information().getCurrentThread()->getParent();
         m_pFlipThread = new Thread(parent, startFlipThread, this);
         m_pFlipThread->detach();
     }
@@ -133,12 +140,12 @@ bool TextIO::initialise(bool bClear)
 
 void TextIO::write(const char *s, size_t len)
 {
-    if(!m_bInitialised)
+    if (!m_bInitialised)
     {
         FATAL("TextIO misused: successfully call initialise() first.");
     }
 
-    if(!s)
+    if (!s)
     {
         ERROR("TextIO: null string passed in.");
         return;
@@ -147,28 +154,29 @@ void TextIO::write(const char *s, size_t len)
     m_bActive = true;
 
     const char *orig = s;
-    while((*s) && (len--))
+    while ((*s) && (len--))
     {
         // UTF8 -> UTF32 conversion.
-        uint8_t byte = *reinterpret_cast<const uint8_t*>(s);
-        if(m_bUtf8)
+        uint8_t byte = *reinterpret_cast<const uint8_t *>(s);
+        if (m_bUtf8)
         {
-            if(m_nUtf8Handled >= 6)
+            if (m_nUtf8Handled >= 6)
             {
                 m_nUtf8Handled -= 6;
                 m_nCharacter |= (byte & 0x3F) << m_nUtf8Handled;
 
-                if(m_nUtf8Handled)
+                if (m_nUtf8Handled)
                 {
                     ++s;
                     continue;
                 }
             }
 
-            if((m_nUtf8Handled == 0) || ((byte & 0xC0) != 0x80))
+            if ((m_nUtf8Handled == 0) || ((byte & 0xC0) != 0x80))
             {
-                if(m_nUtf8Handled > 0)
-                    ERROR("TextIO: expected a continuation byte, but didn't get one");
+                if (m_nUtf8Handled > 0)
+                    ERROR("TextIO: expected a continuation byte, but didn't "
+                          "get one");
 
                 // All good to use m_nCharacter now!
                 m_bUtf8 = false;
@@ -177,45 +185,46 @@ void TextIO::write(const char *s, size_t len)
                 // need to adjust the string pointer so we end up handling this
                 // character again, as a character that is not part of this UTF8
                 // sequence.
-                if(((byte & 0xC0) != 0x80) && (s != orig))
+                if (((byte & 0xC0) != 0x80) && (s != orig))
                 {
                     --s;
                     ++len;
                 }
 
                 // Ignore the codepoint if it is bad.
-                if(m_nCharacter > 0x10FFFF)
+                if (m_nCharacter > 0x10FFFF)
                 {
                     ERROR("TextIO: invalid UTF8 sequence encountered.");
                     continue;
                 }
             }
-            else if(m_nUtf8Handled < 6)
+            else if (m_nUtf8Handled < 6)
             {
-                ERROR("TextIO: too many continuation bytes for a UTF8 sequence!");
+                ERROR(
+                    "TextIO: too many continuation bytes for a UTF8 sequence!");
                 m_bUtf8 = false;
                 ++s;
                 continue;
             }
         }
-        else if((byte & 0xC0) == 0xC0)
+        else if ((byte & 0xC0) == 0xC0)
         {
             m_bUtf8 = true;
 
-            uint8_t thisByte = *reinterpret_cast<const uint8_t*>(s);
-            if((thisByte & 0xF8) == 0xF0)
+            uint8_t thisByte = *reinterpret_cast<const uint8_t *>(s);
+            if ((thisByte & 0xF8) == 0xF0)
             {
                 // 4-byte sequence.
                 m_nCharacter = (thisByte & 0x7) << 18;
                 m_nUtf8Handled = 18;
             }
-            else if((thisByte & 0xF0) == 0xE0)
+            else if ((thisByte & 0xF0) == 0xE0)
             {
                 // 3-byte sequence.
                 m_nCharacter = (thisByte & 0xF) << 12;
                 m_nUtf8Handled = 12;
             }
-            else if((thisByte & 0xE0) == 0xC0)
+            else if ((thisByte & 0xE0) == 0xC0)
             {
                 // 2-byte sequence.
                 m_nCharacter = (thisByte & 0x1F) << 6;
@@ -223,25 +232,28 @@ void TextIO::write(const char *s, size_t len)
             }
             else
             {
-                ERROR("TextIO: invalid UTF8 leading byte (possible 5- or 6-byte sequence?)");
+                ERROR("TextIO: invalid UTF8 leading byte (possible 5- or "
+                      "6-byte sequence?)");
                 m_bUtf8 = false;
             }
 
             ++s;
             continue;
         }
-        else if((byte & 0x80) == 0x80)
+        else if ((byte & 0x80) == 0x80)
         {
-            ERROR("TextIO: invalid ASCII character " << byte << " (not a UTF8 leading byte)");
+            ERROR(
+                "TextIO: invalid ASCII character "
+                << byte << " (not a UTF8 leading byte)");
             ++s;
             continue;
         }
         else
             m_nCharacter = *s;
 
-        if(m_bControlSeq && m_bBracket)
+        if (m_bControlSeq && m_bBracket)
         {
-            switch(m_nCharacter)
+            switch (m_nCharacter)
             {
                 case '"':
                 case '$':
@@ -256,7 +268,7 @@ void TextIO::write(const char *s, size_t len)
 
                 case '\n':
                 case 0x0B:
-                    if(m_CurrentModes & LineFeedNewLine)
+                    if (m_CurrentModes & LineFeedNewLine)
                         doCarriageReturn();
                     doLinefeed();
                     break;
@@ -279,27 +291,28 @@ void TextIO::write(const char *s, size_t len)
                 case '7':
                 case '8':
                 case '9':
-                    m_Params[m_CurrentParam] = (m_Params[m_CurrentParam] * 10) + (m_nCharacter - '0');
+                    m_Params[m_CurrentParam] =
+                        (m_Params[m_CurrentParam] * 10) + (m_nCharacter - '0');
                     m_bParams = true;
                     break;
 
                 case ';':
                     ++m_CurrentParam;
-                    if(m_CurrentParam >= MAX_TEXTIO_PARAMS)
+                    if (m_CurrentParam >= MAX_TEXTIO_PARAMS)
                         FATAL("TextIO: too many parameters!");
                     break;
 
                 case 'A':
                     // Cursor up.
-                    if(m_CursorY)
+                    if (m_CursorY)
                     {
-                        if(m_bParams && m_Params[0])
+                        if (m_bParams && m_Params[0])
                             m_CursorY -= m_Params[0];
                         else
                             --m_CursorY;
                     }
 
-                    if(m_CursorY < m_ScrollStart)
+                    if (m_CursorY < m_ScrollStart)
                         m_CursorY = m_ScrollStart;
 
                     m_bControlSeq = false;
@@ -307,12 +320,12 @@ void TextIO::write(const char *s, size_t len)
 
                 case 'B':
                     // Cursor down.
-                    if(m_bParams && m_Params[0])
+                    if (m_bParams && m_Params[0])
                         m_CursorY += m_Params[0];
                     else
                         ++m_CursorY;
 
-                    if(m_CursorY > m_ScrollEnd)
+                    if (m_CursorY > m_ScrollEnd)
                         m_CursorY = m_ScrollEnd;
 
                     m_bControlSeq = false;
@@ -320,12 +333,12 @@ void TextIO::write(const char *s, size_t len)
 
                 case 'C':
                     // Cursor right.
-                    if(m_bParams && m_Params[0])
+                    if (m_bParams && m_Params[0])
                         m_CursorX += m_Params[0];
                     else
                         ++m_CursorX;
-                    
-                    if(m_CursorX >= m_RightMargin)
+
+                    if (m_CursorX >= m_RightMargin)
                         m_CursorX = m_RightMargin - 1;
 
                     m_bControlSeq = false;
@@ -333,15 +346,15 @@ void TextIO::write(const char *s, size_t len)
 
                 case 'D':
                     // Cursor left.
-                    if(m_CursorX)
+                    if (m_CursorX)
                     {
-                        if(m_bParams && m_Params[0])
+                        if (m_bParams && m_Params[0])
                             m_CursorX -= m_Params[0];
                         else
                             --m_CursorX;
                     }
 
-                    if(m_CursorX < m_LeftMargin)
+                    if (m_CursorX < m_LeftMargin)
                         m_CursorX = m_LeftMargin;
 
                     m_bControlSeq = false;
@@ -350,7 +363,7 @@ void TextIO::write(const char *s, size_t len)
                 case 'H':
                 case 'f':
                     // CUP/HVP commands
-                    if(m_bParams)
+                    if (m_bParams)
                     {
                         size_t xmove = m_Params[1] ? m_Params[1] - 1 : 0;
                         size_t ymove = m_Params[0] ? m_Params[0] - 1 : 0;
@@ -368,15 +381,15 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'J':
-                    if((!m_bParams) || (!m_Params[0]))
+                    if ((!m_bParams) || (!m_Params[0]))
                     {
                         eraseEOS();
                     }
-                    else if(m_Params[0] == 1)
+                    else if (m_Params[0] == 1)
                     {
                         eraseSOS();
                     }
-                    else if(m_Params[0] == 2)
+                    else if (m_Params[0] == 2)
                     {
                         // Erase entire screen, move to home.
                         eraseScreen(' ');
@@ -386,16 +399,16 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'K':
-                    if((!m_bParams) || (!m_Params[0]))
+                    if ((!m_bParams) || (!m_Params[0]))
                     {
                         eraseEOL();
                     }
-                    else if(m_Params[0] == 1)
+                    else if (m_Params[0] == 1)
                     {
                         // Erase to start of line.
                         eraseSOL();
                     }
-                    else if(m_Params[0] == 2)
+                    else if (m_Params[0] == 2)
                     {
                         // Erase entire line.
                         eraseLine();
@@ -404,24 +417,26 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'c':
-                    if(m_Params[0])
+                    if (m_Params[0])
                     {
-                        ERROR("TextIO: Device Attributes command with non-zero parameter.");
+                        ERROR("TextIO: Device Attributes command with non-zero "
+                              "parameter.");
                     }
                     else
                     {
                         // We mosly support the 'Advanced Video Option'.
                         // (apart from underline/blink)
                         const char *attribs = "\033[?1;2c";
-                        m_OutBuffer.write(const_cast<char *>(attribs), StringLength(attribs));
+                        m_OutBuffer.write(
+                            const_cast<char *>(attribs), StringLength(attribs));
                     }
                     m_bControlSeq = false;
                     break;
 
                 case 'g':
-                    if(m_Params[0])
+                    if (m_Params[0])
                     {
-                        if(m_Params[0] == 3)
+                        if (m_Params[0] == 3)
                         {
                             ByteSet(m_TabStops, 0, BACKBUFFER_STRIDE);
                         }
@@ -435,14 +450,14 @@ void TextIO::write(const char *s, size_t len)
 
                 case 'h':
                 case 'l':
-                    {
+                {
                     int modesToChange = 0;
 
-                    if(m_bQuestionMark & m_bParams)
+                    if (m_bQuestionMark & m_bParams)
                     {
-                        for(size_t i = 0; i <= m_CurrentParam; ++i)
+                        for (size_t i = 0; i <= m_CurrentParam; ++i)
                         {
-                            switch(m_Params[i])
+                            switch (m_Params[i])
                             {
                                 case 1:
                                     modesToChange |= CursorKey;
@@ -472,40 +487,45 @@ void TextIO::write(const char *s, size_t len)
                                     modesToChange |= Interlace;
                                     break;
                                 default:
-                                    WARNING("TextIO: unknown 'DEC Private Mode Set' mode '" << m_Params[i] << "'");
+                                    WARNING(
+                                        "TextIO: unknown 'DEC Private Mode "
+                                        "Set' mode '"
+                                        << m_Params[i] << "'");
                                     break;
                             }
                         }
                     }
-                    else if(m_bParams)
+                    else if (m_bParams)
                     {
-                        for(size_t i = 0; i <= m_CurrentParam; ++i)
+                        for (size_t i = 0; i <= m_CurrentParam; ++i)
                         {
-                            switch(m_Params[i])
+                            switch (m_Params[i])
                             {
                                 case 20:
                                     modesToChange |= LineFeedNewLine;
                                     break;
                                 default:
-                                    WARNING("TextIO: unknown 'Set Mode' mode '" << m_Params[i] << "'");
+                                    WARNING(
+                                        "TextIO: unknown 'Set Mode' mode '"
+                                        << m_Params[i] << "'");
                                     break;
                             }
                         }
                     }
 
-                    if(m_nCharacter == 'h')
+                    if (m_nCharacter == 'h')
                     {
                         // Set modes.
                         m_CurrentModes |= modesToChange;
 
                         // Setting modes
-                        if(modesToChange & Origin)
+                        if (modesToChange & Origin)
                         {
                             // Reset origin to margins.
                             m_CursorX = m_LeftMargin;
                             m_CursorY = m_ScrollStart;
                         }
-                        else if(modesToChange & Column)
+                        else if (modesToChange & Column)
                         {
                             m_RightMargin = BACKBUFFER_COLS_WIDE;
 
@@ -528,13 +548,13 @@ void TextIO::write(const char *s, size_t len)
                         m_CurrentModes &= ~(modesToChange);
 
                         // Resetting modes
-                        if(modesToChange & Origin)
+                        if (modesToChange & Origin)
                         {
                             // Reset origin to top left corner.
                             m_CursorX = 0;
                             m_CursorY = 0;
                         }
-                        else if(modesToChange & Column)
+                        else if (modesToChange & Column)
                         {
                             m_RightMargin = BACKBUFFER_COLS_NORMAL;
 
@@ -553,13 +573,13 @@ void TextIO::write(const char *s, size_t len)
                     }
 
                     m_bControlSeq = false;
-                    }
-                    break;
+                }
+                break;
 
                 case 'm':
-                    for(size_t i = 0; i <= m_CurrentParam; ++i)
+                    for (size_t i = 0; i <= m_CurrentParam; ++i)
                     {
-                        switch(m_Params[i])
+                        switch (m_Params[i])
                         {
                             case 0:
                                 // Reset all attributes.
@@ -569,14 +589,14 @@ void TextIO::write(const char *s, size_t len)
                                 break;
 
                             case 1:
-                                if(!(m_CurrentModes & Bright))
+                                if (!(m_CurrentModes & Bright))
                                 {
                                     m_CurrentModes |= Bright;
                                 }
                                 break;
 
                             case 2:
-                                if(m_CurrentModes & Bright)
+                                if (m_CurrentModes & Bright)
                                 {
                                     m_CurrentModes &= ~Bright;
                                 }
@@ -584,14 +604,14 @@ void TextIO::write(const char *s, size_t len)
 
                             case 5:
                                 // Set blinking text.
-                                if(!(m_CurrentModes & Blink))
+                                if (!(m_CurrentModes & Blink))
                                 {
                                     m_CurrentModes |= Blink;
                                 }
                                 break;
 
                             case 7:
-                                if(!(m_CurrentModes & Inverse))
+                                if (!(m_CurrentModes & Inverse))
                                 {
                                     m_CurrentModes |= Inverse;
                                 }
@@ -605,12 +625,16 @@ void TextIO::write(const char *s, size_t len)
                             case 35:
                             case 36:
                             case 37:
-                                setColour(&m_Fore, m_Params[i] - 30, m_CurrentModes & Bright);
+                                setColour(
+                                    &m_Fore, m_Params[i] - 30,
+                                    m_CurrentModes & Bright);
                                 break;
                             case 38:
-                                if(m_Params[i + 1] == 5)
+                                if (m_Params[i + 1] == 5)
                                 {
-                                    setColour(&m_Fore, m_Params[i + 2], m_CurrentModes & Bright);
+                                    setColour(
+                                        &m_Fore, m_Params[i + 2],
+                                        m_CurrentModes & Bright);
                                     i += 3;
                                 }
                                 break;
@@ -629,7 +653,7 @@ void TextIO::write(const char *s, size_t len)
                                 setColour(&m_Back, m_Params[i] - 40);
                                 break;
                             case 48:
-                                if(m_Params[i + 1] == 5)
+                                if (m_Params[i + 1] == 5)
                                 {
                                     setColour(&m_Back, m_Params[i + 2]);
                                     i += 3;
@@ -662,7 +686,10 @@ void TextIO::write(const char *s, size_t len)
                                 break;
 
                             default:
-                                WARNING("TextIO: unhandled 'Set Attribute Mode' command " << Dec << m_Params[i] << Hex << ".");
+                                WARNING(
+                                    "TextIO: unhandled 'Set Attribute Mode' "
+                                    "command "
+                                    << Dec << m_Params[i] << Hex << ".");
                                 break;
                         }
                     }
@@ -670,43 +697,53 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'n':
-                    switch(m_Params[0])
+                    switch (m_Params[0])
                     {
                         case 5:
-                            {
-                                // Report ready with no malfunctions detected.
-                                const char *status = "\033[0n";
-                                m_OutBuffer.write(const_cast<char *>(status), StringLength(status));
-                            }
-                            break;
+                        {
+                            // Report ready with no malfunctions detected.
+                            const char *status = "\033[0n";
+                            m_OutBuffer.write(
+                                const_cast<char *>(status),
+                                StringLength(status));
+                        }
+                        break;
                         case 6:
+                        {
+                            // Report cursor position.
+                            // CPR - \e[ Y ; X R
+                            NormalStaticString response("\033[");
+
+                            ssize_t reportX = m_CursorX + 1;
+                            ssize_t reportY = m_CursorY + 1;
+
+                            if (m_CurrentModes & Origin)
                             {
-                                // Report cursor position.
-                                // CPR - \e[ Y ; X R
-                                NormalStaticString response("\033[");
-
-                                ssize_t reportX = m_CursorX + 1;
-                                ssize_t reportY = m_CursorY + 1;
-
-                                if(m_CurrentModes & Origin)
-                                {
-                                    // Only report relative if the cursor is within the
-                                    // margins and scroll region! Otherwise, absolute.
-                                    if((reportX > m_LeftMargin) && (reportX <= m_RightMargin))
-                                        reportX -= m_LeftMargin;
-                                    if((reportY > m_ScrollStart) && (reportY <= m_ScrollEnd))
-                                        reportY -= m_ScrollStart;
-                                }
-
-                                response.append(reportY);
-                                response.append(";");
-                                response.append(reportX);
-                                response.append("R");
-                                m_OutBuffer.write(const_cast<char *>(static_cast<const char *>(response)), response.length());
+                                // Only report relative if the cursor is within
+                                // the margins and scroll region! Otherwise,
+                                // absolute.
+                                if ((reportX > m_LeftMargin) &&
+                                    (reportX <= m_RightMargin))
+                                    reportX -= m_LeftMargin;
+                                if ((reportY > m_ScrollStart) &&
+                                    (reportY <= m_ScrollEnd))
+                                    reportY -= m_ScrollStart;
                             }
-                            break;
+
+                            response.append(reportY);
+                            response.append(";");
+                            response.append(reportX);
+                            response.append("R");
+                            m_OutBuffer.write(
+                                const_cast<char *>(
+                                    static_cast<const char *>(response)),
+                                response.length());
+                        }
+                        break;
                         default:
-                            NOTICE("TextIO: unknown device status request " << Dec << m_Params[0] << Hex << ".");
+                            NOTICE(
+                                "TextIO: unknown device status request "
+                                << Dec << m_Params[0] << Hex << ".");
                             break;
                     }
                     m_bControlSeq = false;
@@ -715,9 +752,11 @@ void TextIO::write(const char *s, size_t len)
                 case 'p':
                     // Depending on parameters and symbols in the sequence, this
                     // could be "Set Conformance Level" (DECSCL),
-                    // "Soft Terminal Reset" (DECSTR), etc, etc... so ignore for now.
+                    // "Soft Terminal Reset" (DECSTR), etc, etc... so ignore for
+                    // now.
                     /// \todo Should we handle this?
-                    WARNING("TextIO: dropping command after seeing 'p' command sequence terminator.");
+                    WARNING("TextIO: dropping command after seeing 'p' command "
+                            "sequence terminator.");
                     m_bControlSeq = false;
                     break;
 
@@ -728,14 +767,14 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'r':
-                    if(m_bParams)
+                    if (m_bParams)
                     {
                         m_ScrollStart = m_Params[0] - 1;
                         m_ScrollEnd = m_Params[1] - 1;
 
-                        if(m_ScrollStart >= BACKBUFFER_ROWS)
+                        if (m_ScrollStart >= BACKBUFFER_ROWS)
                             m_ScrollStart = BACKBUFFER_ROWS - 1;
-                        if(m_ScrollEnd >= BACKBUFFER_ROWS)
+                        if (m_ScrollEnd >= BACKBUFFER_ROWS)
                             m_ScrollEnd = BACKBUFFER_ROWS - 1;
                     }
                     else
@@ -744,7 +783,7 @@ void TextIO::write(const char *s, size_t len)
                         m_ScrollEnd = BACKBUFFER_ROWS - 1;
                     }
 
-                    if(m_ScrollStart > m_ScrollEnd)
+                    if (m_ScrollStart > m_ScrollEnd)
                     {
                         size_t tmp = m_ScrollStart;
                         m_ScrollStart = m_ScrollEnd;
@@ -770,9 +809,10 @@ void TextIO::write(const char *s, size_t len)
 
                 case 'x':
                     // Request Terminal Parameters
-                    if(m_Params[0] > 1)
+                    if (m_Params[0] > 1)
                     {
-                        ERROR("TextIO: invalid 'sol' parameter for 'Request Terminal Parameters'");
+                        ERROR("TextIO: invalid 'sol' parameter for 'Request "
+                              "Terminal Parameters'");
                     }
                     else
                     {
@@ -786,11 +826,13 @@ void TextIO::write(const char *s, size_t len)
                         // * 16x bit rate multiplier
                         // * No STP option, so no flags
                         const char *termparms = 0;
-                        if(m_Params[0])
+                        if (m_Params[0])
                             termparms = "\033[3;1;1;120;120;1;0x";
                         else
                             termparms = "\033[2;1;1;120;120;1;0x";
-                        m_OutBuffer.write(const_cast<char *>(termparms), StringLength(termparms));
+                        m_OutBuffer.write(
+                            const_cast<char *>(termparms),
+                            StringLength(termparms));
                     }
                     m_bControlSeq = false;
                     break;
@@ -801,40 +843,42 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 default:
-                    ERROR("TextIO: unknown control sequence character '" << m_nCharacter << "'!");
+                    ERROR(
+                        "TextIO: unknown control sequence character '"
+                        << m_nCharacter << "'!");
                     m_bControlSeq = false;
                     break;
             }
         }
-        else if(m_bControlSeq && (!m_bBracket) && (!m_bParenthesis))
+        else if (m_bControlSeq && (!m_bBracket) && (!m_bParenthesis))
         {
-            switch(m_nCharacter)
+            switch (m_nCharacter)
             {
                 case 0x08:
                     doBackspace();
                     break;
 
                 case 'A':
-                    if(m_CursorY > m_ScrollStart)
+                    if (m_CursorY > m_ScrollStart)
                         --m_CursorY;
                     m_bControlSeq = false;
                     break;
 
                 case 'B':
-                    if(m_CursorY < m_ScrollEnd)
+                    if (m_CursorY < m_ScrollEnd)
                         ++m_CursorY;
                     m_bControlSeq = false;
                     break;
 
                 case 'C':
                     ++m_CursorX;
-                    if(m_CursorX >= m_RightMargin)
+                    if (m_CursorX >= m_RightMargin)
                         m_CursorX = m_RightMargin - 1;
                     m_bControlSeq = false;
                     break;
 
                 case 'D':
-                    if(m_CurrentModes & AnsiVt52)
+                    if (m_CurrentModes & AnsiVt52)
                     {
                         // Index - cursor down one line, scroll if necessary.
                         doLinefeed();
@@ -842,7 +886,7 @@ void TextIO::write(const char *s, size_t len)
                     else
                     {
                         // Cursor Left
-                        if(m_CursorX > m_LeftMargin)
+                        if (m_CursorX > m_LeftMargin)
                             --m_CursorX;
                     }
                     m_bControlSeq = false;
@@ -862,7 +906,7 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'H':
-                    if(m_CurrentModes & AnsiVt52)
+                    if (m_CurrentModes & AnsiVt52)
                     {
                         // Horizontal tabulation set.
                         m_TabStops[m_CursorX] = '|';
@@ -878,7 +922,8 @@ void TextIO::write(const char *s, size_t len)
 
                 case 'M':
                 case 'I':
-                    // Reverse Index - cursor up one line, or scroll up if at top.
+                    // Reverse Index - cursor up one line, or scroll up if at
+                    // top.
                     --m_CursorY;
                     checkScroll();
                     m_bControlSeq = false;
@@ -895,34 +940,36 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 case 'Y':
-                    {
-                        uint8_t row = (*(++s)) - 0x20;
-                        uint8_t col = (*(++s)) - 0x20;
+                {
+                    uint8_t row = (*(++s)) - 0x20;
+                    uint8_t col = (*(++s)) - 0x20;
 
-                        /// \todo Sanity check.
-                        m_CursorX = col;
-                        m_CursorY = row;
-                    }
+                    /// \todo Sanity check.
+                    m_CursorX = col;
+                    m_CursorY = row;
+                }
                     m_bControlSeq = false;
                     break;
 
                 case 'Z':
-                    {
-                        const char *identifier = 0;
-                        if(m_CurrentModes & AnsiVt52)
-                            identifier = "\033[?1;2c";
-                        else
-                            identifier = "\033/Z";
-                        m_OutBuffer.write(const_cast<char *>(identifier), StringLength(identifier));
-                    }
+                {
+                    const char *identifier = 0;
+                    if (m_CurrentModes & AnsiVt52)
+                        identifier = "\033[?1;2c";
+                    else
+                        identifier = "\033/Z";
+                    m_OutBuffer.write(
+                        const_cast<char *>(identifier),
+                        StringLength(identifier));
+                }
                     m_bControlSeq = false;
                     break;
 
                 case '#':
                     // DEC commands
                     ++s;
-                    m_nCharacter = *s; /// \todo Error out if is Utf8
-                    switch(m_nCharacter)
+                    m_nCharacter = *s;  /// \todo Error out if is Utf8
+                    switch (m_nCharacter)
                     {
                         case '8':
                             // DEC Screen Alignment Test (DECALN)
@@ -931,7 +978,9 @@ void TextIO::write(const char *s, size_t len)
                             break;
 
                         default:
-                            ERROR("TextIO: unknown DEC command '" << m_nCharacter << "'");
+                            ERROR(
+                                "TextIO: unknown DEC command '" << m_nCharacter
+                                                                << "'");
                             break;
                     }
                     m_bControlSeq = false;
@@ -965,28 +1014,31 @@ void TextIO::write(const char *s, size_t len)
                 case '-':
                 case '.':
                 case '/':
+                {
+                    char curr = m_nCharacter;
+                    char next = *(++s);
+
+                    // Portugese or DEC supplementary graphics (to ignore VT300
+                    // command)
+                    if (next == '%')
+                        next = *(++s);
+
+                    if ((next >= '0' && next <= '2') ||
+                        (next >= 'A' && next <= 'B'))
                     {
-                        char curr = m_nCharacter;
-                        char next = *(++s);
-
-                        // Portugese or DEC supplementary graphics (to ignore VT300 command)
-                        if(next == '%')
-                            next = *(++s);
-
-                        if((next >= '0' && next <= '2') || (next >= 'A' && next <= 'B'))
-                        {
-                            // Designate G0 character set.
-                            if(curr == '(')
-                                m_G0 = next;
-                            // Designate G1 character set.
-                            else if(curr == ')')
-                                m_G1 = next;
-                            else
-                                WARNING("TextIO: only 'ESC(C' and 'ESC)C' are supported on a VT100.");
-                        }
-                        m_bControlSeq = false;
+                        // Designate G0 character set.
+                        if (curr == '(')
+                            m_G0 = next;
+                        // Designate G1 character set.
+                        else if (curr == ')')
+                            m_G1 = next;
+                        else
+                            WARNING("TextIO: only 'ESC(C' and 'ESC)C' are "
+                                    "supported on a VT100.");
                     }
-                    break;
+                    m_bControlSeq = false;
+                }
+                break;
 
                 case '7':
                     m_SavedCursorX = m_CursorX;
@@ -1007,14 +1059,16 @@ void TextIO::write(const char *s, size_t len)
                     break;
 
                 default:
-                    ERROR("TextIO: unknown escape sequence character '" << m_nCharacter << "'!");
+                    ERROR(
+                        "TextIO: unknown escape sequence character '"
+                        << m_nCharacter << "'!");
                     m_bControlSeq = false;
                     break;
             }
         }
         else
         {
-            if(m_nCharacter == '\033')
+            if (m_nCharacter == '\033')
             {
                 m_bControlSeq = true;
                 m_bBracket = false;
@@ -1026,15 +1080,17 @@ void TextIO::write(const char *s, size_t len)
             }
             else
             {
-                switch(m_nCharacter)
+                switch (m_nCharacter)
                 {
                     case 0x05:
-                        {
-                            // Reply with our answerback.
-                            const char *answerback = "\033[1;2c";
-                            m_OutBuffer.write(const_cast<char *>(answerback), StringLength(answerback));
-                        }
-                        break;
+                    {
+                        // Reply with our answerback.
+                        const char *answerback = "\033[1;2c";
+                        m_OutBuffer.write(
+                            const_cast<char *>(answerback),
+                            StringLength(answerback));
+                    }
+                    break;
                     case 0x08:
                         doBackspace();
                         break;
@@ -1047,7 +1103,7 @@ void TextIO::write(const char *s, size_t len)
                     case '\n':
                     case 0x0B:
                     case 0x0C:
-                        if(m_CurrentModes & LineFeedNewLine)
+                        if (m_CurrentModes & LineFeedNewLine)
                             doCarriageReturn();
                         doLinefeed();
                         break;
@@ -1066,54 +1122,96 @@ void TextIO::write(const char *s, size_t len)
                         uint8_t c = translate(m_nCharacter);
 
                         uint8_t characterSet = m_G0;
-                        if(m_CurrentModes & CharacterSetG1)
+                        if (m_CurrentModes & CharacterSetG1)
                             characterSet = m_G1;
 
-                        if(characterSet >= '0' && characterSet <= '2')
+                        if (characterSet >= '0' && characterSet <= '2')
                         {
-                            switch(c)
+                            switch (c)
                             {
-                                case '_': c = ' '; break; // Blank
+                                case '_':
+                                    c = ' ';
+                                    break;  // Blank
 
                                 // Symbols and line control.
-                                case 'a': c = 0xB2; break; // Checkerboard
-                                case 'b': c = 0xAF; break; // Horizontal tab
-                                case 'c': c = 0x9F; break; // Form feed
-                                case 'h': // Newline
-                                case 'e': // Linefeed
+                                case 'a':
+                                    c = 0xB2;
+                                    break;  // Checkerboard
+                                case 'b':
+                                    c = 0xAF;
+                                    break;  // Horizontal tab
+                                case 'c':
+                                    c = 0x9F;
+                                    break;  // Form feed
+                                case 'h':   // Newline
+                                case 'e':   // Linefeed
                                     c = 'n';
                                     break;
-                                case 'i': c = 'v'; break; // Vertical tab.
-                                case 'd': c = 'r'; break; // Carriage return
-                                case 'f': c = 0xF8; break; // Degree symbol
-                                case 'g': c = 0xF1; break; // Plus-minus
+                                case 'i':
+                                    c = 'v';
+                                    break;  // Vertical tab.
+                                case 'd':
+                                    c = 'r';
+                                    break;  // Carriage return
+                                case 'f':
+                                    c = 0xF8;
+                                    break;  // Degree symbol
+                                case 'g':
+                                    c = 0xF1;
+                                    break;  // Plus-minus
 
                                 // Line-drawing.
-                                case 'j': c = 0xBC; break; // Lower right corner
-                                case 'k': c = 0xBB; break; // Upper right corner
-                                case 'l': c = 0xC9; break; // Upper left corner
-                                case 'm': c = 0xC8; break; // Lower left corner
-                                case 'n': c = 0xCE; break; // Crossing lines.
-                                case 'q': c = 0xCD; break; // Horizontal line.
-                                case 't': c = 0xCC; break; // Left 'T'
-                                case 'u': c = 0xB9; break; // Right 'T'
-                                case 'v': c = 0xCA; break; // Bottom 'T'
-                                case 'w': c = 0xCB; break; // Top 'T'
-                                case 'x': c = 0xBA; break; // Vertical bar
+                                case 'j':
+                                    c = 0xBC;
+                                    break;  // Lower right corner
+                                case 'k':
+                                    c = 0xBB;
+                                    break;  // Upper right corner
+                                case 'l':
+                                    c = 0xC9;
+                                    break;  // Upper left corner
+                                case 'm':
+                                    c = 0xC8;
+                                    break;  // Lower left corner
+                                case 'n':
+                                    c = 0xCE;
+                                    break;  // Crossing lines.
+                                case 'q':
+                                    c = 0xCD;
+                                    break;  // Horizontal line.
+                                case 't':
+                                    c = 0xCC;
+                                    break;  // Left 'T'
+                                case 'u':
+                                    c = 0xB9;
+                                    break;  // Right 'T'
+                                case 'v':
+                                    c = 0xCA;
+                                    break;  // Bottom 'T'
+                                case 'w':
+                                    c = 0xCB;
+                                    break;  // Top 'T'
+                                case 'x':
+                                    c = 0xBA;
+                                    break;  // Vertical bar
                             }
                         }
 
-                        if(c >= ' ')
+                        if (c >= ' ')
                         {
                             // We must handle wrapping *just before* we write
                             // the next printable, because otherwise things
-                            // like BS at the right margin fail to work correctly.
+                            // like BS at the right margin fail to work
+                            // correctly.
                             checkWrap();
 
-                            if(m_CursorX < BACKBUFFER_STRIDE)
+                            if (m_CursorX < BACKBUFFER_STRIDE)
                             {
                                 LockGuard<Mutex> guard(m_Lock);
-                                VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + m_CursorX];
+                                VgaCell *pCell =
+                                    &m_pBackbuffer
+                                        [(m_CursorY * BACKBUFFER_STRIDE) +
+                                         m_CursorX];
                                 pCell->character = c;
                                 pCell->fore = m_Fore;
                                 pCell->back = m_Back;
@@ -1122,7 +1220,11 @@ void TextIO::write(const char *s, size_t len)
                             }
                             else
                             {
-                                ERROR("TextIO: X co-ordinate is beyond the end of a backbuffer line: " << m_CursorX << " vs " << BACKBUFFER_STRIDE << "?");
+                                ERROR(
+                                    "TextIO: X co-ordinate is beyond the end "
+                                    "of a backbuffer line: "
+                                    << m_CursorX << " vs " << BACKBUFFER_STRIDE
+                                    << "?");
                             }
                         }
                         break;
@@ -1130,7 +1232,7 @@ void TextIO::write(const char *s, size_t len)
             }
         }
 
-        if(m_CursorX < m_LeftMargin)
+        if (m_CursorX < m_LeftMargin)
         {
             WARNING("TextIO: X co-ordinate ended up befor the left margin.");
             m_CursorX = m_LeftMargin;
@@ -1150,13 +1252,13 @@ void TextIO::write(const char *s, size_t len)
     flip();
 
     // Wake up anything waiting on output from us if needed.
-    if(m_OutBuffer.canRead(false))
+    if (m_OutBuffer.canRead(false))
         dataChanged();
 }
 
 void TextIO::setColour(TextIO::VgaColour *which, size_t param, bool bBright)
 {
-    switch(param)
+    switch (param)
     {
         case 0:
             *which = bBright ? DarkGrey : Black;
@@ -1191,11 +1293,11 @@ void TextIO::doBackspace()
 {
     // If we are at a position where we would expect to wrap, step back one
     // extra character position so we don't wrap.
-    if(m_CursorX == m_RightMargin)
+    if (m_CursorX == m_RightMargin)
         --m_CursorX;
 
     // Backspace will not do anything if we are already on the left margin.
-    if(m_CursorX > m_LeftMargin)
+    if (m_CursorX > m_LeftMargin)
         --m_CursorX;
 }
 
@@ -1215,9 +1317,9 @@ void TextIO::doHorizontalTab()
     bool tabStopFound = false;
 
     // Move to the next tab stop from the current position.
-    for(ssize_t x = (m_CursorX + 1); x < m_RightMargin; ++x)
+    for (ssize_t x = (m_CursorX + 1); x < m_RightMargin; ++x)
     {
-        if(m_TabStops[x] != 0)
+        if (m_TabStops[x] != 0)
         {
             m_CursorX = x;
             tabStopFound = true;
@@ -1225,12 +1327,12 @@ void TextIO::doHorizontalTab()
         }
     }
 
-    if(!tabStopFound)
+    if (!tabStopFound)
     {
         // Tab to the right margin, if no tab stop was found at all.
         m_CursorX = m_RightMargin - 1;
     }
-    else if(m_CursorX >= m_RightMargin)
+    else if (m_CursorX >= m_RightMargin)
         m_CursorX = m_RightMargin - 1;
 }
 
@@ -1240,7 +1342,7 @@ void TextIO::checkScroll()
 
     // Handle scrolling, which can take place due to linefeeds and
     // other such cursor movements.
-    if(m_CursorY < m_ScrollStart)
+    if (m_CursorY < m_ScrollStart)
     {
         // By how much have we exceeded the scroll region?
         size_t numRows = (m_ScrollStart - m_CursorY);
@@ -1253,14 +1355,16 @@ void TextIO::checkScroll()
         size_t sourceEnd = m_ScrollEnd + 1 - numRows;
 
         // Move data.
-        MemoryCopy(&m_pBackbuffer[destRow * BACKBUFFER_STRIDE],
-                &m_pBackbuffer[sourceRow * BACKBUFFER_STRIDE],
-                (sourceEnd - sourceRow) * BACKBUFFER_STRIDE * sizeof(VgaCell));
+        MemoryCopy(
+            &m_pBackbuffer[destRow * BACKBUFFER_STRIDE],
+            &m_pBackbuffer[sourceRow * BACKBUFFER_STRIDE],
+            (sourceEnd - sourceRow) * BACKBUFFER_STRIDE * sizeof(VgaCell));
 
         // Clear out the start of the region now.
-        for(size_t i = 0; i < ((destRow - sourceRow) * BACKBUFFER_STRIDE); ++i)
+        for (size_t i = 0; i < ((destRow - sourceRow) * BACKBUFFER_STRIDE); ++i)
         {
-            VgaCell *pCell = &m_pBackbuffer[(sourceRow * BACKBUFFER_STRIDE) + i];
+            VgaCell *pCell =
+                &m_pBackbuffer[(sourceRow * BACKBUFFER_STRIDE) + i];
             pCell->character = ' ';
             pCell->back = m_Back;
             pCell->fore = m_Fore;
@@ -1269,7 +1373,7 @@ void TextIO::checkScroll()
 
         m_CursorY = m_ScrollStart;
     }
-    else if(m_CursorY > m_ScrollEnd)
+    else if (m_CursorY > m_ScrollEnd)
     {
         // By how much have we exceeded the scroll region?
         size_t numRows = (m_CursorY - m_ScrollEnd);
@@ -1289,12 +1393,13 @@ void TextIO::checkScroll()
         size_t blankFrom = (((m_ScrollEnd + 1) - numRows) * BACKBUFFER_STRIDE);
 
         // How much blanking do we need to do?
-        size_t blankLength = ((m_ScrollEnd + 1) * BACKBUFFER_STRIDE) - blankFrom;
+        size_t blankLength =
+            ((m_ScrollEnd + 1) * BACKBUFFER_STRIDE) - blankFrom;
 
-        MemoryCopy(&m_pBackbuffer[startOffset],
-                &m_pBackbuffer[fromOffset],
-                movedRows * sizeof(VgaCell));
-        for(size_t i = 0; i < blankLength; ++i)
+        MemoryCopy(
+            &m_pBackbuffer[startOffset], &m_pBackbuffer[fromOffset],
+            movedRows * sizeof(VgaCell));
+        for (size_t i = 0; i < blankLength; ++i)
         {
             VgaCell *pCell = &m_pBackbuffer[blankFrom + i];
             pCell->character = ' ';
@@ -1309,11 +1414,11 @@ void TextIO::checkScroll()
 
 void TextIO::checkWrap()
 {
-    if(m_CursorX >= m_RightMargin)
+    if (m_CursorX >= m_RightMargin)
     {
         // Default autowrap mode is off - new characters at
         // the right margin replace any that are already there.
-        if(m_CurrentModes & AutoWrap)
+        if (m_CurrentModes & AutoWrap)
         {
             m_CursorX = m_LeftMargin;
             ++m_CursorY;
@@ -1335,9 +1440,9 @@ void TextIO::eraseSOS()
     LockGuard<Mutex> guard(m_Lock);
 
     // Erase the screen above, and this line.
-    for(ssize_t y = 0; y < m_CursorY; ++y)
+    for (ssize_t y = 0; y < m_CursorY; ++y)
     {
-        for(size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
+        for (size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
         {
             VgaCell *pCell = &m_pBackbuffer[(y * BACKBUFFER_STRIDE) + x];
             pCell->character = ' ';
@@ -1356,9 +1461,9 @@ void TextIO::eraseEOS()
     LockGuard<Mutex> guard(m_Lock);
 
     // Then the rest of the screen.
-    for(size_t y = m_CursorY + 1; y < BACKBUFFER_ROWS; ++y)
+    for (size_t y = m_CursorY + 1; y < BACKBUFFER_ROWS; ++y)
     {
-        for(size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
+        for (size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
         {
             VgaCell *pCell = &m_pBackbuffer[(y * BACKBUFFER_STRIDE) + x];
             pCell->character = ' ';
@@ -1374,7 +1479,7 @@ void TextIO::eraseEOL()
     LockGuard<Mutex> guard(m_Lock);
 
     // Erase to end of line.
-    for(size_t x = m_CursorX; x < BACKBUFFER_STRIDE; ++x)
+    for (size_t x = m_CursorX; x < BACKBUFFER_STRIDE; ++x)
     {
         VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + x];
         pCell->character = ' ';
@@ -1388,7 +1493,7 @@ void TextIO::eraseSOL()
 {
     LockGuard<Mutex> guard(m_Lock);
 
-    for(ssize_t x = 0; x <= m_CursorX; ++x)
+    for (ssize_t x = 0; x <= m_CursorX; ++x)
     {
         VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + x];
         pCell->character = ' ';
@@ -1402,7 +1507,7 @@ void TextIO::eraseLine()
 {
     LockGuard<Mutex> guard(m_Lock);
 
-    for(size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
+    for (size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
     {
         VgaCell *pCell = &m_pBackbuffer[(m_CursorY * BACKBUFFER_STRIDE) + x];
         pCell->character = ' ';
@@ -1416,9 +1521,9 @@ void TextIO::eraseScreen(uint8_t character)
 {
     LockGuard<Mutex> guard(m_Lock);
 
-    for(size_t y = 0; y < BACKBUFFER_ROWS; ++y)
+    for (size_t y = 0; y < BACKBUFFER_ROWS; ++y)
     {
-        for(size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
+        for (size_t x = 0; x < BACKBUFFER_STRIDE; ++x)
         {
             VgaCell *pCell = &m_pBackbuffer[(y * BACKBUFFER_STRIDE) + x];
             pCell->character = character;
@@ -1432,7 +1537,7 @@ void TextIO::eraseScreen(uint8_t character)
 void TextIO::goHome(ssize_t xmove, ssize_t ymove)
 {
     // Reset X/Y
-    if(m_CurrentModes & Origin)
+    if (m_CurrentModes & Origin)
     {
         m_CursorX = m_LeftMargin + xmove;
         m_CursorY = m_ScrollStart + ymove;
@@ -1451,7 +1556,7 @@ void TextIO::flip(bool timer, bool hideState)
     const VgaColour defaultBack = Black, defaultFore = LightGrey;
 
     // Avoid flipping if we do not have a VGA instance.
-    if(!m_pVga)
+    if (!m_pVga)
         return;
 
     // Avoid flipping if we do not own the VGA instance.
@@ -1459,33 +1564,33 @@ void TextIO::flip(bool timer, bool hideState)
         return;
 
     // Avoid flipping if we aren't active.
-    if(!m_bActive)
+    if (!m_bActive)
         return;
 
     size_t numRows = m_pVga->getNumRows();
     size_t numCols = m_pVga->getNumCols();
 
-    for(size_t y = 0; y < numRows; ++y)
+    for (size_t y = 0; y < numRows; ++y)
     {
-        for(size_t x = 0; x < numCols; ++x)
+        for (size_t x = 0; x < numCols; ++x)
         {
             VgaCell *pCell = &m_pBackbuffer[(y * BACKBUFFER_STRIDE) + x];
-            if(timer)
+            if (timer)
             {
-                if(pCell->flags & Blink)
+                if (pCell->flags & Blink)
                     pCell->hidden = hideState;
                 else
-                    pCell->hidden = false; // Unhide if blink removed.
+                    pCell->hidden = false;  // Unhide if blink removed.
             }
 
             VgaColour fore = pCell->fore;
             VgaColour back = pCell->back;
 
             // Bold.
-            if((pCell->flags & Bright) && (fore < DarkGrey))
+            if ((pCell->flags & Bright) && (fore < DarkGrey))
                 fore = adjustColour(fore, true);
 
-            if(pCell->flags & Inverse)
+            if (pCell->flags & Inverse)
             {
                 // Invert colours.
                 VgaColour tmp = fore;
@@ -1494,27 +1599,30 @@ void TextIO::flip(bool timer, bool hideState)
             }
 
             uint8_t attrib = (back << 4) | (fore & 0x0F);
-            if(m_CurrentModes & Screen)
+            if (m_CurrentModes & Screen)
             {
                 // DECSCNM only applies to cells without colours.
-                if(pCell->fore == defaultFore && pCell->back == defaultBack)
+                if (pCell->fore == defaultFore && pCell->back == defaultBack)
                 {
                     attrib = (fore << 4) | (back & 0x0F);
                 }
             }
 
-            uint16_t front = (pCell->hidden ? ' ' : pCell->character) | (attrib << 8);
+            uint16_t front =
+                (pCell->hidden ? ' ' : pCell->character) | (attrib << 8);
             m_pFramebuffer[(y * numCols) + x] = front;
         }
     }
 }
 
-uint64_t TextIO::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t
+TextIO::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return m_OutBuffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
 }
 
-uint64_t TextIO::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t TextIO::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     write(reinterpret_cast<const char *>(buffer), size);
     return size;
@@ -1537,7 +1645,7 @@ void TextIO::flipThread()
     while (m_bInitialised)
     {
         bool bBlinkOn = m_NextInterval != BLINK_ON_PERIOD;
-        if(bBlinkOn)
+        if (bBlinkOn)
             m_NextInterval = BLINK_ON_PERIOD;
         else
             m_NextInterval = BLINK_OFF_PERIOD;
@@ -1553,142 +1661,270 @@ void TextIO::flipThread()
 uint8_t TextIO::translate(uint32_t codepoint)
 {
     // Translate codepoints into Code Page 437 representation.
-    switch(codepoint)
+    switch (codepoint)
     {
-        case 0x00C7: return 0x80;
-        case 0x00FC: return 0x81;
-        case 0x00E9: return 0x82;
-        case 0x00E2: return 0x83;
-        case 0x00E4: return 0x84; // ä
-        case 0x00E0: return 0x85;
-        case 0x00E5: return 0x86;
-        case 0x00E7: return 0x87;
-        case 0x00EA: return 0x88;
-        case 0x00EB: return 0x89;
-        case 0x00E8: return 0x8A;
-        case 0x00EF: return 0x8B;
-        case 0x00EE: return 0x8C;
-        case 0x00EC: return 0x8D;
-        case 0x00C4: return 0x8E;
-        case 0x00C5: return 0x8F;
-        case 0x00C9: return 0x90;
-        case 0x00E6: return 0x91;
-        case 0x00C6: return 0x92;
-        case 0x00F4: return 0x93;
-        case 0x00F6: return 0x94;
-        case 0x00F2: return 0x95;
-        case 0x00FB: return 0x96;
-        case 0x00F9: return 0x97;
-        case 0x00FF: return 0x98;
-        case 0x00D6: return 0x99;
-        case 0x00DC: return 0x9A;
-        case 0x00A2: return 0x9B;
-        case 0x00A3: return 0x9C;
-        case 0x00A5: return 0x9D;
-        case 0x20A7: return 0x9E;
-        case 0x0192: return 0x9F;
-        case 0x00E1: return 0xA0;
-        case 0x00ED: return 0xA1;
-        case 0x00F3: return 0xA2;
-        case 0x00FA: return 0xA3;
-        case 0x00F1: return 0xA4;
-        case 0x00D1: return 0xA5;
-        case 0x00AA: return 0xA6;
-        case 0x00BA: return 0xA7;
-        case 0x00BF: return 0xA8;
-        case 0x2310: return 0xA9;
-        case 0x00AC: return 0xAA;
-        case 0x00BD: return 0xAB;
-        case 0x00BC: return 0xAC;
-        case 0x00A1: return 0xAD;
-        case 0x00AB: return 0xAE; // «
-        case 0x00BB: return 0xAF; // »
-        case 0x2591: return 0xB0;
-        case 0x2592: return 0xB1;
-        case 0x2593: return 0xB2;
-        case 0x2502: return 0xB3;
-        case 0x2524: return 0xB4;
-        case 0x2561: return 0xB5;
-        case 0x2562: return 0xB6;
-        case 0x2556: return 0xB7;
-        case 0x2555: return 0xB8;
-        case 0x2563: return 0xB9;
-        case 0x2551: return 0xBA;
-        case 0x2557: return 0xBB;
-        case 0x255D: return 0xBC;
-        case 0x255C: return 0xBD;
-        case 0x255B: return 0xBE;
-        case 0x2510: return 0xBF;
-        case 0x2514: return 0xC0;
-        case 0x2534: return 0xC1;
-        case 0x252C: return 0xC2;
-        case 0x251C: return 0xC3;
-        case 0x2500: return 0xC4;
-        case 0x253C: return 0xC5;
-        case 0x255E: return 0xC6;
-        case 0x255F: return 0xC7;
-        case 0x255A: return 0xC8;
-        case 0x2554: return 0xC9;
-        case 0x2569: return 0xCA;
-        case 0x2566: return 0xCB;
-        case 0x2560: return 0xCC;
-        case 0x2550: return 0xCD;
-        case 0x256C: return 0xCE;
-        case 0x2567: return 0xCF;
-        case 0x2568: return 0xD0;
-        case 0x2564: return 0xD1;
-        case 0x2565: return 0xD2;
-        case 0x2559: return 0xD3;
-        case 0x2558: return 0xD4;
-        case 0x2552: return 0xD5;
-        case 0x2553: return 0xD6;
-        case 0x256B: return 0xD7;
-        case 0x256A: return 0xD8;
-        case 0x2518: return 0xD9;
-        case 0x250C: return 0xDA;
-        case 0x2588: return 0xDB;
-        case 0x2584: return 0xDC;
-        case 0x258C: return 0xDD;
-        case 0x2590: return 0xDE;
-        case 0x2580: return 0xDF;
-        case 0x03B1: return 0xE0;
-        case 0x00DF: return 0xE1;
-        case 0x0393: return 0xE2;
-        case 0x03C0: return 0xE3;
-        case 0x03A3: return 0xE4;
-        case 0x03C3: return 0xE5;
-        case 0x00B5: return 0xE6;
-        case 0x03C4: return 0xE7;
-        case 0x03A6: return 0xE8;
-        case 0x0398: return 0xE9;
-        case 0x03A9: return 0xEA;
-        case 0x03B4: return 0xEB;
-        case 0x221E: return 0xEC;
-        case 0x03C6: return 0xED;
-        case 0x03B5: return 0xEE;
-        case 0x2229: return 0xEF;
-        case 0x2261: return 0xF0;
-        case 0x00B1: return 0xF1;
-        case 0x2265: return 0xF2;
-        case 0x2264: return 0xF3;
-        case 0x2320: return 0xF4;
-        case 0x2321: return 0xF5;
-        case 0x00F7: return 0xF6;
-        case 0x2248: return 0xF7;
-        case 0x00B0: return 0xF8;
-        case 0x2219: return 0xF9;
-        case 0x00B7: return 0xFA;
-        case 0x221A: return 0xFB;
-        case 0x207F: return 0xFC;
-        case 0x00B2: return 0xFD;
-        case 0x25A0: return 0xFE;
-        case 0x00A0: return 0xFF;
+        case 0x00C7:
+            return 0x80;
+        case 0x00FC:
+            return 0x81;
+        case 0x00E9:
+            return 0x82;
+        case 0x00E2:
+            return 0x83;
+        case 0x00E4:
+            return 0x84;  // ä
+        case 0x00E0:
+            return 0x85;
+        case 0x00E5:
+            return 0x86;
+        case 0x00E7:
+            return 0x87;
+        case 0x00EA:
+            return 0x88;
+        case 0x00EB:
+            return 0x89;
+        case 0x00E8:
+            return 0x8A;
+        case 0x00EF:
+            return 0x8B;
+        case 0x00EE:
+            return 0x8C;
+        case 0x00EC:
+            return 0x8D;
+        case 0x00C4:
+            return 0x8E;
+        case 0x00C5:
+            return 0x8F;
+        case 0x00C9:
+            return 0x90;
+        case 0x00E6:
+            return 0x91;
+        case 0x00C6:
+            return 0x92;
+        case 0x00F4:
+            return 0x93;
+        case 0x00F6:
+            return 0x94;
+        case 0x00F2:
+            return 0x95;
+        case 0x00FB:
+            return 0x96;
+        case 0x00F9:
+            return 0x97;
+        case 0x00FF:
+            return 0x98;
+        case 0x00D6:
+            return 0x99;
+        case 0x00DC:
+            return 0x9A;
+        case 0x00A2:
+            return 0x9B;
+        case 0x00A3:
+            return 0x9C;
+        case 0x00A5:
+            return 0x9D;
+        case 0x20A7:
+            return 0x9E;
+        case 0x0192:
+            return 0x9F;
+        case 0x00E1:
+            return 0xA0;
+        case 0x00ED:
+            return 0xA1;
+        case 0x00F3:
+            return 0xA2;
+        case 0x00FA:
+            return 0xA3;
+        case 0x00F1:
+            return 0xA4;
+        case 0x00D1:
+            return 0xA5;
+        case 0x00AA:
+            return 0xA6;
+        case 0x00BA:
+            return 0xA7;
+        case 0x00BF:
+            return 0xA8;
+        case 0x2310:
+            return 0xA9;
+        case 0x00AC:
+            return 0xAA;
+        case 0x00BD:
+            return 0xAB;
+        case 0x00BC:
+            return 0xAC;
+        case 0x00A1:
+            return 0xAD;
+        case 0x00AB:
+            return 0xAE;  // «
+        case 0x00BB:
+            return 0xAF;  // »
+        case 0x2591:
+            return 0xB0;
+        case 0x2592:
+            return 0xB1;
+        case 0x2593:
+            return 0xB2;
+        case 0x2502:
+            return 0xB3;
+        case 0x2524:
+            return 0xB4;
+        case 0x2561:
+            return 0xB5;
+        case 0x2562:
+            return 0xB6;
+        case 0x2556:
+            return 0xB7;
+        case 0x2555:
+            return 0xB8;
+        case 0x2563:
+            return 0xB9;
+        case 0x2551:
+            return 0xBA;
+        case 0x2557:
+            return 0xBB;
+        case 0x255D:
+            return 0xBC;
+        case 0x255C:
+            return 0xBD;
+        case 0x255B:
+            return 0xBE;
+        case 0x2510:
+            return 0xBF;
+        case 0x2514:
+            return 0xC0;
+        case 0x2534:
+            return 0xC1;
+        case 0x252C:
+            return 0xC2;
+        case 0x251C:
+            return 0xC3;
+        case 0x2500:
+            return 0xC4;
+        case 0x253C:
+            return 0xC5;
+        case 0x255E:
+            return 0xC6;
+        case 0x255F:
+            return 0xC7;
+        case 0x255A:
+            return 0xC8;
+        case 0x2554:
+            return 0xC9;
+        case 0x2569:
+            return 0xCA;
+        case 0x2566:
+            return 0xCB;
+        case 0x2560:
+            return 0xCC;
+        case 0x2550:
+            return 0xCD;
+        case 0x256C:
+            return 0xCE;
+        case 0x2567:
+            return 0xCF;
+        case 0x2568:
+            return 0xD0;
+        case 0x2564:
+            return 0xD1;
+        case 0x2565:
+            return 0xD2;
+        case 0x2559:
+            return 0xD3;
+        case 0x2558:
+            return 0xD4;
+        case 0x2552:
+            return 0xD5;
+        case 0x2553:
+            return 0xD6;
+        case 0x256B:
+            return 0xD7;
+        case 0x256A:
+            return 0xD8;
+        case 0x2518:
+            return 0xD9;
+        case 0x250C:
+            return 0xDA;
+        case 0x2588:
+            return 0xDB;
+        case 0x2584:
+            return 0xDC;
+        case 0x258C:
+            return 0xDD;
+        case 0x2590:
+            return 0xDE;
+        case 0x2580:
+            return 0xDF;
+        case 0x03B1:
+            return 0xE0;
+        case 0x00DF:
+            return 0xE1;
+        case 0x0393:
+            return 0xE2;
+        case 0x03C0:
+            return 0xE3;
+        case 0x03A3:
+            return 0xE4;
+        case 0x03C3:
+            return 0xE5;
+        case 0x00B5:
+            return 0xE6;
+        case 0x03C4:
+            return 0xE7;
+        case 0x03A6:
+            return 0xE8;
+        case 0x0398:
+            return 0xE9;
+        case 0x03A9:
+            return 0xEA;
+        case 0x03B4:
+            return 0xEB;
+        case 0x221E:
+            return 0xEC;
+        case 0x03C6:
+            return 0xED;
+        case 0x03B5:
+            return 0xEE;
+        case 0x2229:
+            return 0xEF;
+        case 0x2261:
+            return 0xF0;
+        case 0x00B1:
+            return 0xF1;
+        case 0x2265:
+            return 0xF2;
+        case 0x2264:
+            return 0xF3;
+        case 0x2320:
+            return 0xF4;
+        case 0x2321:
+            return 0xF5;
+        case 0x00F7:
+            return 0xF6;
+        case 0x2248:
+            return 0xF7;
+        case 0x00B0:
+            return 0xF8;
+        case 0x2219:
+            return 0xF9;
+        case 0x00B7:
+            return 0xFA;
+        case 0x221A:
+            return 0xFB;
+        case 0x207F:
+            return 0xFC;
+        case 0x00B2:
+            return 0xFD;
+        case 0x25A0:
+            return 0xFE;
+        case 0x00A0:
+            return 0xFF;
     }
 
-    if(codepoint <= 0xFF)
+    if (codepoint <= 0xFF)
         return codepoint & 0xFF;
     else
-        return 219; // ASCII shaded box.
+        return 219;  // ASCII shaded box.
 }
 
 static int startFlipThread(void *param)
@@ -1724,24 +1960,24 @@ void TextIO::handleInput(InputManager::InputNotification &in)
     uint64_t c = in.data.key.key;
 
     int direction = -1;
-    if(c & SPECIAL_KEY)
+    if (c & SPECIAL_KEY)
     {
         uint32_t k = c & 0xFFFFFFFFULL;
         char *str = reinterpret_cast<char *>(&k);
 
-        if(!StringCompareN(str, "left", 4))
+        if (!StringCompareN(str, "left", 4))
         {
             direction = 0;  // left
         }
-        else if(!StringCompareN(str, "righ", 4))
+        else if (!StringCompareN(str, "righ", 4))
         {
             direction = 1;  // right
         }
-        else if(!StringCompareN(str, "up", 2))
+        else if (!StringCompareN(str, "up", 2))
         {
             direction = 2;  // up
         }
-        else if(!StringCompareN(str, "down", 4))
+        else if (!StringCompareN(str, "down", 4))
         {
             direction = 3;  // down
         }
@@ -1751,18 +1987,18 @@ void TextIO::handleInput(InputManager::InputNotification &in)
             return;
         }
     }
-    else if(c & CTRL_KEY)
+    else if (c & CTRL_KEY)
     {
         // CTRL-key = unprintable (ie, CTRL-C, CTRL-U)
         c &= 0x1F;
     }
 
-    if(c == '\n')
-        c = '\r'; // Enter key (ie, return) - CRtoNL.
+    if (c == '\n')
+        c = '\r';  // Enter key (ie, return) - CRtoNL.
 
-    if(direction >= 0)
+    if (direction >= 0)
     {
-        switch(direction)
+        switch (direction)
         {
             case 0:
                 m_OutBuffer.write("\e[D", 3);
@@ -1780,14 +2016,14 @@ void TextIO::handleInput(InputManager::InputNotification &in)
                 break;
         }
     }
-    else if(c & ALT_KEY)
+    else if (c & ALT_KEY)
     {
         // ALT escaped key
         c &= 0x7F;
         char buf[2] = {'\e', static_cast<char>(c & 0xFF)};
         m_OutBuffer.write(buf, 2);
     }
-    else if(c)
+    else if (c)
     {
         uint32_t utf32 = c & 0xFFFFFFFF;
 
@@ -1796,27 +2032,27 @@ void TextIO::handleInput(InputManager::InputNotification &in)
         size_t nbuf = 0;
         if (utf32 <= 0x7F)
         {
-            buf[0] = utf32&0x7F;
+            buf[0] = utf32 & 0x7F;
             nbuf = 1;
         }
         else if (utf32 <= 0x7FF)
         {
-            buf[0] = 0xC0 | ((utf32>>6) & 0x1F);
+            buf[0] = 0xC0 | ((utf32 >> 6) & 0x1F);
             buf[1] = 0x80 | (utf32 & 0x3F);
             nbuf = 2;
         }
         else if (utf32 <= 0xFFFF)
         {
-            buf[0] = 0xE0 | ((utf32>>12) & 0x0F);
-            buf[1] = 0x80 | ((utf32>>6) & 0x3F);
+            buf[0] = 0xE0 | ((utf32 >> 12) & 0x0F);
+            buf[1] = 0x80 | ((utf32 >> 6) & 0x3F);
             buf[2] = 0x80 | (utf32 & 0x3F);
             nbuf = 3;
         }
         else if (utf32 <= 0x10FFFF)
         {
-            buf[0] = 0xE0 | ((utf32>>18) & 0x07);
-            buf[1] = 0x80 | ((utf32>>12) & 0x3F);
-            buf[2] = 0x80 | ((utf32>>6) & 0x3F);
+            buf[0] = 0xE0 | ((utf32 >> 18) & 0x07);
+            buf[1] = 0x80 | ((utf32 >> 12) & 0x3F);
+            buf[2] = 0x80 | ((utf32 >> 6) & 0x3F);
             buf[3] = 0x80 | (utf32 & 0x3F);
             nbuf = 4;
         }

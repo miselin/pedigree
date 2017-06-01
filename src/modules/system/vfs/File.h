@@ -20,17 +20,17 @@
 #ifndef FILE_H
 #define FILE_H
 
-#include <time/Time.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/RadixTree.h>
-#include <process/Thread.h>
+#include <LockGuard.h>
 #include <process/Event.h>
+#include <process/Thread.h>
+#include <processor/types.h>
+#include <time/Time.h>
 #include <utilities/Cache.h>
 #include <utilities/CacheConstants.h>
+#include <utilities/RadixTree.h>
+#include <utilities/String.h>
 #include <utilities/Tree.h>
 #include <utilities/Vector.h>
-#include <LockGuard.h>
 
 #include <processor/PhysicalMemoryManager.h>
 
@@ -65,32 +65,38 @@ class File
 {
     friend class Filesystem;
 
-public:
+    public:
     /** Constructor, creates an invalid file. */
     File();
 
     /** Copy constructors are hidden - unused! */
-private:
+    private:
     File(const File &file);
-    File& operator =(const File&);
+    File &operator=(const File &);
 
-public:
+    public:
     /** Constructor, should be called only by a Filesystem. */
-    File(const String &name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-         uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
+    File(
+        const String &name, Time::Timestamp accessedTime,
+        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
+        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
     /** Destructor - doesn't do anything. */
     virtual ~File();
 
     /** Reads from the file.
      *  \param[in] buffer Buffer to write the read data into. Can be null, in
      *      which case the data can be found by calling getPhysicalPage.
-	 *  \param[in] bCanBlock Whether or not the File can block when reading
-	 */
-    virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+     *  \param[in] bCanBlock Whether or not the File can block when reading
+     */
+    virtual uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
     /** Writes to the file.
-	 *  \param[in] bCanBlock Whether or not the File can block when reading
-	 */
-    virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+     *  \param[in] bCanBlock Whether or not the File can block when reading
+     */
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
 
     /** Get the physical address for the given offset into the file.
      * Returns (physical_uintptr_t) ~0 if the offset isn't in the cache.
@@ -180,32 +186,41 @@ public:
     }
 
     uintptr_t getInode()
-    {return m_Inode;}
+    {
+        return m_Inode;
+    }
     virtual void setInode(uintptr_t inode)
-    {m_Inode = inode;}
+    {
+        m_Inode = inode;
+    }
 
     Filesystem *getFilesystem()
-    {return m_pFilesystem;}
+    {
+        return m_pFilesystem;
+    }
     void setFilesystem(Filesystem *pFs)
-    {m_pFilesystem = pFs;}
+    {
+        m_pFilesystem = pFs;
+    }
 
     virtual void fileAttributeChanged()
-    {}
+    {
+    }
 
     virtual void increaseRefCount(bool bIsWriter)
     {
         if (bIsWriter)
-            m_nWriters ++;
+            m_nWriters++;
         else
-            m_nReaders ++;
+            m_nReaders++;
     }
 
     virtual void decreaseRefCount(bool bIsWriter)
     {
         if (bIsWriter)
-            m_nWriters --;
+            m_nWriters--;
         else
-            m_nReaders --;
+            m_nReaders--;
     }
 
     void setPermissions(uint32_t perms)
@@ -250,11 +265,13 @@ public:
      *       so be sure to override if that's not right
      */
     virtual int select(bool bWriting = false, int timeout = 0)
-    {return 1;}
+    {
+        return 1;
+    }
 
-    /** Causes the event pEvent to be dispatched to pThread when activity occurs
-        on this File. Activity includes the file becoming available for reading,
-        writing or erroring. */
+/** Causes the event pEvent to be dispatched to pThread when activity occurs
+    on this File. Activity includes the file becoming available for reading,
+    writing or erroring. */
 #ifdef THREADS
     void monitor(Thread *pThread, Event *pEvent)
     {
@@ -282,7 +299,9 @@ public:
     /** Function to retrieve the block size returned by readBlock.
         \note This must be constant throughout the life of the file. */
     virtual size_t getBlockSize() const
-    {return PhysicalMemoryManager::getPageSize();}
+    {
+        return PhysicalMemoryManager::getPageSize();
+    }
 
     /** Enables direct mode (no File-level cache). */
     void enableDirect()
@@ -309,8 +328,7 @@ public:
      */
     virtual File *open();
 
-protected:
-
+    protected:
     /** Internal function to retrieve an aligned 512byte section of the file. */
     virtual uintptr_t readBlock(uint64_t location)
     {
@@ -327,7 +345,7 @@ protected:
     /** Internal function to extend a file to be at least the given size. */
     virtual void extend(size_t newSize)
     {
-        if(m_Size < newSize)
+        if (m_Size < newSize)
             m_Size = newSize;
     }
 
@@ -344,7 +362,9 @@ protected:
      * as the callback on their Cache instance to get a write-back
      * notification.
      */
-    static void writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page, void *meta);
+    static void writeCallback(
+        CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+        void *meta);
 
     /**
      * Pins the given page.
@@ -422,14 +442,14 @@ protected:
 
     bool m_bDirect;
 
-    /**
-     * This cache is necessary to handle filesystems with block sizes that are
-     * smaller than the native page size. For these filesystems, to perform
-     * memory maps we read native page size blocks into this cache, and then
-     * return pages from it directly. This is expected to somewhat increase
-     * memory usage and reduce performance on non-natively-sized block sizes,
-     * but that's an acceptable compromise.
-     */
+/**
+ * This cache is necessary to handle filesystems with block sizes that are
+ * smaller than the native page size. For these filesystems, to perform
+ * memory maps we read native page size blocks into this cache, and then
+ * return pages from it directly. This is expected to somewhat increase
+ * memory usage and reduce performance on non-natively-sized block sizes,
+ * but that's an acceptable compromise.
+ */
 #ifndef VFS_NOMMU
     Cache m_FillCache;
 #endif
@@ -439,17 +459,17 @@ protected:
 
     struct MonitorTarget
     {
-        MonitorTarget(Thread *pT, Event *pE) :
-            pThread(pT), pEvent(pE)
-        {}
+        MonitorTarget(Thread *pT, Event *pE) : pThread(pT), pEvent(pE)
+        {
+        }
         Thread *pThread;
-        Event  *pEvent;
+        Event *pEvent;
     };
 
-    List<MonitorTarget*> m_MonitorTargets;
+    List<MonitorTarget *> m_MonitorTargets;
 #endif
 
-private:
+    private:
     /** Retrieve a page from our cache. */
     uintptr_t getCachedPage(size_t block);
 

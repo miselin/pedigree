@@ -17,19 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/PointerGuard.h>
-#include <usb/UsbDevice.h>
-#include <usb/UsbHub.h>
+#include "FtdiSerialDevice.h"
 #include <usb/Usb.h>
 #include <usb/UsbConstants.h>
-#include "FtdiSerialDevice.h"
+#include <usb/UsbDevice.h>
+#include <usb/UsbHub.h>
+#include <utilities/PointerGuard.h>
 
 #define FTDI_BAUD_RATE 9600
 
 static uint8_t nSubdivisors[8] = {0, 3, 2, 4, 1, 5, 6, 7};
 
-FtdiSerialDevice::FtdiSerialDevice(UsbDevice *dev) :
-    UsbDevice(dev), Serial(), m_pInEndpoint(0), m_pOutEndpoint(0)
+FtdiSerialDevice::FtdiSerialDevice(UsbDevice *dev)
+    : UsbDevice(dev), Serial(), m_pInEndpoint(0), m_pOutEndpoint(0)
 {
 }
 
@@ -43,31 +43,36 @@ void FtdiSerialDevice::initialiseDriver()
     controlRequest(UsbRequestType::Vendor, 0, 0, 0);
 
     // Calculate the divisor and subdivisor for the baud rate
-    uint16_t nDivisor = (48000000 / 2) / FTDI_BAUD_RATE, nSubdivisor = nSubdivisors[nDivisor % 8];
+    uint16_t nDivisor = (48000000 / 2) / FTDI_BAUD_RATE,
+             nSubdivisor = nSubdivisors[nDivisor % 8];
     nDivisor /= 8;
 
     // Set the divisor and subdivisor (0x4138 / 0x00 for 9600)
-    controlRequest(UsbRequestType::Vendor, 3, (nSubdivisor & 3) << 14 | nDivisor, nSubdivisor >> 2);
+    controlRequest(
+        UsbRequestType::Vendor, 3, (nSubdivisor & 3) << 14 | nDivisor,
+        nSubdivisor >> 2);
 
     // Get the in and out endpoints
-    for(size_t i = 0; i < m_pInterface->endpointList.count(); i++)
+    for (size_t i = 0; i < m_pInterface->endpointList.count(); i++)
     {
         Endpoint *pEndpoint = m_pInterface->endpointList[i];
-        if(!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bIn)
+        if (!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) &&
+            pEndpoint->bIn)
             m_pInEndpoint = pEndpoint;
-        if(!m_pOutEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bOut)
+        if (!m_pOutEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) &&
+            pEndpoint->bOut)
             m_pOutEndpoint = pEndpoint;
-        if(m_pInEndpoint && m_pOutEndpoint)
+        if (m_pInEndpoint && m_pOutEndpoint)
             break;
     }
 
-    if(!m_pInEndpoint)
+    if (!m_pInEndpoint)
     {
         ERROR("USB: FTDI: No IN endpoint");
         return;
     }
 
-    if(!m_pOutEndpoint)
+    if (!m_pOutEndpoint)
     {
         ERROR("USB: FTDI: No OUT endpoint");
         return;

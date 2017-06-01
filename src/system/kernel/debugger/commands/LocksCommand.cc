@@ -18,14 +18,13 @@
  */
 
 #include "LocksCommand.h"
-#include <utilities/utility.h>
 #include <processor/Processor.h>
 #include <utilities/demangle.h>
-#include <processor/Processor.h>
+#include <utilities/utility.h>
 
 #ifndef TESTSUITE
-#include <linker/KernelElf.h>
 #include <debugger/Backtrace.h>
+#include <linker/KernelElf.h>
 #endif
 
 LocksCommand g_LocksCommand;
@@ -35,19 +34,22 @@ extern Spinlock g_MallocLock;
 
 #define DO_BACKTRACES 0
 
-// This is global because we need to rely on it before the constructor is called.
+// This is global because we need to rely on it before the constructor is
+// called.
 static bool g_bReady = false;
 
-#define ERROR_OR_FATAL(x) do { \
-    if (m_bFatal) \
-        FATAL_NOLOCK(x); \
-    else \
-        ERROR_NOLOCK(x); \
-} while(0)
+#define ERROR_OR_FATAL(x)    \
+    do                       \
+    {                        \
+        if (m_bFatal)        \
+            FATAL_NOLOCK(x); \
+        else                 \
+            ERROR_NOLOCK(x); \
+    } while (0)
 
-LocksCommand::LocksCommand() :
-    DebuggerCommand(), m_pDescriptors(), m_bAcquiring(), m_LockIndex(0),
-    m_bFatal(true), m_SelectedLine(0)
+LocksCommand::LocksCommand()
+    : DebuggerCommand(), m_pDescriptors(), m_bAcquiring(), m_LockIndex(0),
+      m_bFatal(true), m_SelectedLine(0)
 {
     for (size_t i = 0; i < LOCKS_COMMAND_NUM_CPU; ++i)
     {
@@ -61,11 +63,14 @@ LocksCommand::~LocksCommand()
 {
 }
 
-void LocksCommand::autocomplete(const HugeStaticString &input, HugeStaticString &output)
+void LocksCommand::autocomplete(
+    const HugeStaticString &input, HugeStaticString &output)
 {
 }
 
-bool LocksCommand::execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *pScreen)
+bool LocksCommand::execute(
+    const HugeStaticString &input, HugeStaticString &output,
+    InterruptState &state, DebuggerIO *pScreen)
 {
 #ifndef TRACK_LOCKS
     output += "Sorry, this kernel was not built with TRACK_LOCKS enabled.";
@@ -86,15 +91,28 @@ bool LocksCommand::execute(const HugeStaticString &input, HugeStaticString &outp
     resize(pScreen->getWidth(), pScreen->getHeight() - 2);
     setScrollKeys('j', 'k');
 
-    pScreen->drawHorizontalLine(' ', 0, 0, pScreen->getWidth() - 1, DebuggerIO::White, DebuggerIO::Green);
-    pScreen->drawHorizontalLine(' ', pScreen->getHeight() - 1, 0, pScreen->getWidth() - 1, DebuggerIO::White, DebuggerIO::Green);
-    pScreen->drawString("Pedigree debugger - Lock tracker", 0, 0, DebuggerIO::White, DebuggerIO::Green);
+    pScreen->drawHorizontalLine(
+        ' ', 0, 0, pScreen->getWidth() - 1, DebuggerIO::White,
+        DebuggerIO::Green);
+    pScreen->drawHorizontalLine(
+        ' ', pScreen->getHeight() - 1, 0, pScreen->getWidth() - 1,
+        DebuggerIO::White, DebuggerIO::Green);
+    pScreen->drawString(
+        "Pedigree debugger - Lock tracker", 0, 0, DebuggerIO::White,
+        DebuggerIO::Green);
 
-    pScreen->drawString("backspace: Page up. space: Page down. q: Quit.",
-                      pScreen->getHeight()-1, 0, DebuggerIO::White, DebuggerIO::Green);
-    pScreen->drawString("backspace", pScreen->getHeight()-1, 0, DebuggerIO::Yellow, DebuggerIO::Green);
-    pScreen->drawString("space", pScreen->getHeight()-1, 20, DebuggerIO::Yellow, DebuggerIO::Green);
-    pScreen->drawString("q", pScreen->getHeight()-1, 38, DebuggerIO::Yellow, DebuggerIO::Green);
+    pScreen->drawString(
+        "backspace: Page up. space: Page down. q: Quit.",
+        pScreen->getHeight() - 1, 0, DebuggerIO::White, DebuggerIO::Green);
+    pScreen->drawString(
+        "backspace", pScreen->getHeight() - 1, 0, DebuggerIO::Yellow,
+        DebuggerIO::Green);
+    pScreen->drawString(
+        "space", pScreen->getHeight() - 1, 20, DebuggerIO::Yellow,
+        DebuggerIO::Green);
+    pScreen->drawString(
+        "q", pScreen->getHeight() - 1, 38, DebuggerIO::Yellow,
+        DebuggerIO::Green);
 
     // Main I/O loop.
     bool bStop = false;
@@ -142,15 +160,17 @@ bool LocksCommand::execute(const HugeStaticString &input, HugeStaticString &outp
         }
     }
 
-    // HACK:: Serial connections will fill the screen with the last background colour used.
-    //        Here we write a space with black background so the CLI screen doesn't get filled
-    //        by some random colour!
+    // HACK:: Serial connections will fill the screen with the last background
+    // colour used.
+    //        Here we write a space with black background so the CLI screen
+    //        doesn't get filled by some random colour!
     pScreen->drawString(" ", 1, 0, DebuggerIO::White, DebuggerIO::Black);
     pScreen->enableCli();
     return bReturn;
 }
 
-const char *LocksCommand::getLine1(size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour)
+const char *LocksCommand::getLine1(
+    size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour)
 {
     static NormalStaticString Line;
     Line.clear();
@@ -230,7 +250,9 @@ const char *LocksCommand::getLine1(size_t index, DebuggerIO::Colour &colour, Deb
     return Line;
 }
 
-const char *LocksCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour)
+const char *LocksCommand::getLine2(
+    size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
+    DebuggerIO::Colour &bgColour)
 {
     static HugeStaticString Line;
     Line.clear();
@@ -314,7 +336,8 @@ const char *LocksCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO::
 
 #ifndef TESTSUITE
         uintptr_t symStart = 0;
-        const char *pSym = KernelElf::instance().globalLookupSymbol(addr, &symStart);
+        const char *pSym =
+            KernelElf::instance().globalLookupSymbol(addr, &symStart);
         if (pSym)
         {
             LargeStaticString sym(pSym);
@@ -323,7 +346,7 @@ const char *LocksCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO::
 
             symbol_t symbol;
             demangle(sym, &symbol);
-            Line += static_cast<const char*>(symbol.name);
+            Line += static_cast<const char *>(symbol.name);
         }
 #endif
     }
@@ -338,7 +361,8 @@ const char *LocksCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO::
 
 #ifndef TESTSUITE
         uintptr_t symStart = 0;
-        const char *pSym = KernelElf::instance().globalLookupSymbol(pD->pLock->m_Ra, &symStart);
+        const char *pSym = KernelElf::instance().globalLookupSymbol(
+            pD->pLock->m_Ra, &symStart);
         if (pSym)
         {
             LargeStaticString sym(pSym);
@@ -347,7 +371,7 @@ const char *LocksCommand::getLine2(size_t index, size_t &colOffset, DebuggerIO::
 
             symbol_t symbol;
             demangle(sym, &symbol);
-            Line += static_cast<const char*>(symbol.name);
+            Line += static_cast<const char *>(symbol.name);
         }
 #endif
     }
@@ -402,7 +426,8 @@ void LocksCommand::clearFatal()
     m_bFatal = false;
 }
 
-bool LocksCommand::lockAttempted(const Spinlock *pLock, size_t nCpu, bool intState)
+bool LocksCommand::lockAttempted(
+    const Spinlock *pLock, size_t nCpu, bool intState)
 {
     if (!g_bReady)
         return true;
@@ -414,14 +439,19 @@ bool LocksCommand::lockAttempted(const Spinlock *pLock, size_t nCpu, bool intSta
     size_t pos = (m_NextPosition[nCpu] += 1) - 1;
     if (pos > MAX_DESCRIPTORS)
     {
-        ERROR_OR_FATAL("Spinlock " << Hex << pLock << " ran out of room for locks [" << Dec << pos << "].");
+        ERROR_OR_FATAL(
+            "Spinlock " << Hex << pLock << " ran out of room for locks [" << Dec
+                        << pos << "].");
         return false;
     }
 
     if (pos && intState)
     {
         // We're more than one lock deep, but interrupts are enabled!
-        ERROR_OR_FATAL("Spinlock " << Hex << pLock << " attempted at level " << Dec << pos << Hex << " with interrupts enabled on CPU" << Dec << nCpu << ".");
+        ERROR_OR_FATAL(
+            "Spinlock " << Hex << pLock << " attempted at level " << Dec << pos
+                        << Hex << " with interrupts enabled on CPU" << Dec
+                        << nCpu << ".");
         return false;
     }
 
@@ -443,7 +473,8 @@ bool LocksCommand::lockAttempted(const Spinlock *pLock, size_t nCpu, bool intSta
     // generally don't care about the top level lock's backtrace, but rather
     // those that are nested (as they are the ones that will cause problems
     // with out-of-order release, typically).
-    if (pos && Processor::isInitialised() >= 2 && m_bTracing[nCpu].compareAndSwap(false, true))
+    if (pos && Processor::isInitialised() >= 2 &&
+        m_bTracing[nCpu].compareAndSwap(false, true))
     {
         Backtrace bt;
         bt.performBpBacktrace(0, 0);
@@ -467,7 +498,8 @@ bool LocksCommand::lockAttempted(const Spinlock *pLock, size_t nCpu, bool intSta
     return true;
 }
 
-bool LocksCommand::lockAcquired(const Spinlock *pLock, size_t nCpu, bool intState)
+bool LocksCommand::lockAcquired(
+    const Spinlock *pLock, size_t nCpu, bool intState)
 {
     if (!g_bReady)
         return true;
@@ -479,14 +511,19 @@ bool LocksCommand::lockAcquired(const Spinlock *pLock, size_t nCpu, bool intStat
     size_t back = m_NextPosition[nCpu] - 1;
     if (back > MAX_DESCRIPTORS)
     {
-        ERROR_OR_FATAL("Spinlock " << Hex << pLock << " acquired unexpectedly (no tracked locks).");
+        ERROR_OR_FATAL(
+            "Spinlock " << Hex << pLock
+                        << " acquired unexpectedly (no tracked locks).");
         return false;
     }
 
     if (back && intState)
     {
         // We're more than one lock deep, but interrupts are enabled!
-        ERROR_OR_FATAL("Spinlock " << Hex << pLock << " acquired at level " << Dec << back << Hex << " with interrupts enabled on CPU" << Dec << nCpu << ".");
+        ERROR_OR_FATAL(
+            "Spinlock " << Hex << pLock << " acquired at level " << Dec << back
+                        << Hex << " with interrupts enabled on CPU" << Dec
+                        << nCpu << ".");
         return false;
     }
 
@@ -494,7 +531,8 @@ bool LocksCommand::lockAcquired(const Spinlock *pLock, size_t nCpu, bool intStat
 
     if (pD->state != Attempted || pD->pLock != pLock)
     {
-        ERROR_OR_FATAL("Spinlock " << Hex << pLock << " acquired unexpectedly.");
+        ERROR_OR_FATAL(
+            "Spinlock " << Hex << pLock << " acquired unexpectedly.");
         return false;
     }
 
@@ -542,7 +580,12 @@ bool LocksCommand::lockReleased(const Spinlock *pLock, size_t nCpu)
 
         if (!ok)
         {
-            ERROR_OR_FATAL("Spinlock " << Hex << pLock << " released out-of-order [expected lock " << (pD ? pD->pLock : 0) << (pD ? "" : " (no lock)") << ", state " << (pD ? stateName(pD->state) : "(no state)") << "].");
+            ERROR_OR_FATAL(
+                "Spinlock "
+                << Hex << pLock << " released out-of-order [expected lock "
+                << (pD ? pD->pLock : 0) << (pD ? "" : " (no lock)")
+                << ", state " << (pD ? stateName(pD->state) : "(no state)")
+                << "].");
             return false;
         }
     }
@@ -565,7 +608,9 @@ bool LocksCommand::checkSchedule(size_t nCpu)
     size_t pos = m_NextPosition[nCpu];
     if (pos)
     {
-        ERROR_OR_FATAL("Rescheduling CPU" << nCpu << " is not allowed, as there are still " << pos << " acquired locks.");
+        ERROR_OR_FATAL(
+            "Rescheduling CPU" << nCpu << " is not allowed, as there are still "
+                               << pos << " acquired locks.");
         return false;
     }
 
@@ -637,7 +682,9 @@ bool LocksCommand::checkState(const Spinlock *pLock, size_t nCpu)
             {
                 // We hold their attempted lock. We're waiting on them.
                 // Deadlock.
-                ERROR_OR_FATAL("Detected lock dependency inversion (deadlock) between " << Hex << pLock << " and " << pD->pLock << "!");
+                ERROR_OR_FATAL(
+                    "Detected lock dependency inversion (deadlock) between "
+                    << Hex << pLock << " and " << pD->pLock << "!");
                 bResult = false;
                 break;
             }

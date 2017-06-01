@@ -29,7 +29,7 @@
 /** ARMV7 Interrupt State */
 class ARMV7InterruptState
 {
-  public:
+    public:
     //
     // General Interface (both InterruptState and SyscallState)
     //
@@ -56,16 +56,16 @@ class ARMV7InterruptState
      *\return the number of registers */
     size_t getRegisterCount() const;
     /** Get a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the value of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the value of the register */
     processor_register_t getRegister(size_t index) const;
     /** Get the name of a specific register
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the name of the register */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the name of the register */
     const char *getRegisterName(size_t index) const;
     /** Get the register's size in bytes
-     *\param[in] index the index of the register (from 0 to getRegisterCount() - 1)
-     *\return the register size in bytes */
+     *\param[in] index the index of the register (from 0 to getRegisterCount() -
+     *1) \return the register size in bytes */
     inline size_t getRegisterSize(size_t index) const;
 
     //
@@ -77,7 +77,7 @@ class ARMV7InterruptState
     /** Get the interrupt number
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
-    
+
     //
     // SyscallState Interface
     //
@@ -91,10 +91,10 @@ class ARMV7InterruptState
     inline uintptr_t getSyscallParameter(size_t n) const;
     inline void setSyscallReturnValue(uintptr_t val);
 
-  private:
+    private:
     /** The default constructor
      *\note NOT implemented */
-  public:
+    public:
     ARMV7InterruptState();
 
     /** The copy-constructor
@@ -102,11 +102,13 @@ class ARMV7InterruptState
     ARMV7InterruptState(const ARMV7InterruptState &);
     /** The assignement operator
      *\note NOT implemented */
-    ARMV7InterruptState &operator = (const ARMV7InterruptState &);
+    ARMV7InterruptState &operator=(const ARMV7InterruptState &);
     /** The destructor
      *\note NOT implemented */
-    ~ARMV7InterruptState() {}
-    
+    ~ARMV7InterruptState()
+    {
+    }
+
     /** ARMV7 interrupt frame **/
     uint32_t m_usersp;
     uint32_t m_userlr;
@@ -133,7 +135,7 @@ typedef ARMV7InterruptState ARMV7ProcessorState;
 
 class __attribute__((aligned(8))) ARMV7SchedulerState
 {
-public:
+    public:
     uint32_t r4;
     uint32_t r5;
     uint32_t r6;
@@ -180,18 +182,18 @@ void ARMV7InterruptState::setBasePointer(uintptr_t basePointer)
 size_t ARMV7InterruptState::getRegisterSize(size_t index) const
 {
 #if defined(BITS_32)
-  return 4;
+    return 4;
 #else
-  return 4; // TODO: handle other bits sizes (this is mainly here)
-            // in order to help future development if ARM ends up
-            // requiring 64-bit or something
+    return 4;  // TODO: handle other bits sizes (this is mainly here)
+               // in order to help future development if ARM ends up
+               // requiring 64-bit or something
 #endif
 }
 
 bool ARMV7InterruptState::kernelMode() const
 {
     uint32_t cpsr;
-    asm volatile("mrs %0, cpsr" : "=r" (cpsr));
+    asm volatile("mrs %0, cpsr" : "=r"(cpsr));
     return ((cpsr & 0x1F) != 0x10);
 }
 size_t ARMV7InterruptState::getInterruptNumber() const

@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -28,54 +27,54 @@
 class UsbHumanInterfaceDevice : public UsbDevice
 {
     public:
-        UsbHumanInterfaceDevice(UsbDevice *dev);
-        virtual ~UsbHumanInterfaceDevice();
+    UsbHumanInterfaceDevice(UsbDevice *dev);
+    virtual ~UsbHumanInterfaceDevice();
 
-        virtual void initialiseDriver();
+    virtual void initialiseDriver();
 
-        virtual void getName(String &str)
-        {
-            str = "USB Human Interface Device";
-        }
+    virtual void getName(String &str)
+    {
+        str = "USB Human Interface Device";
+    }
 
     private:
-
-        struct HidDescriptor
+    struct HidDescriptor
+    {
+        inline HidDescriptor(UnknownDescriptor *pDes)
         {
-            inline HidDescriptor(UnknownDescriptor *pDes)
-            {
-                Descriptor *pDescriptor = static_cast<Descriptor*>(pDes->pDescriptor);
-                nDescriptorLength = pDescriptor->nDescriptorLength;
-                delete pDescriptor;
-            }
+            Descriptor *pDescriptor =
+                static_cast<Descriptor *>(pDes->pDescriptor);
+            nDescriptorLength = pDescriptor->nDescriptorLength;
+            delete pDescriptor;
+        }
 
-            struct Descriptor
-            {
-                uint8_t nLength;
-                uint8_t nType;
-                uint16_t nBcdHidRelease;
-                uint8_t nCountryCode;
-                uint8_t nDescriptors;
-                uint8_t nDescriptorType;
-                uint16_t nDescriptorLength;
-            } PACKED;
-
+        struct Descriptor
+        {
+            uint8_t nLength;
+            uint8_t nType;
+            uint16_t nBcdHidRelease;
+            uint8_t nCountryCode;
+            uint8_t nDescriptors;
+            uint8_t nDescriptorType;
             uint16_t nDescriptorLength;
-        };
+        } PACKED;
 
-        static void callback(uintptr_t pParam, ssize_t ret);
-        void inputHandler();
+        uint16_t nDescriptorLength;
+    };
 
-        /// The endpoint used to receive input reports from the device
-        Endpoint *m_pInEndpoint;
+    static void callback(uintptr_t pParam, ssize_t ret);
+    void inputHandler();
 
-        /// The report instance used for input parsing
-        HidReport *m_pReport;
+    /// The endpoint used to receive input reports from the device
+    Endpoint *m_pInEndpoint;
 
-        /// Input report buffer
-        uint8_t *m_pInReportBuffer;
-        /// Old input report buffer
-        uint8_t *m_pOldInReportBuffer;
+    /// The report instance used for input parsing
+    HidReport *m_pReport;
+
+    /// Input report buffer
+    uint8_t *m_pInReportBuffer;
+    /// Old input report buffer
+    uint8_t *m_pOldInReportBuffer;
 };
 
 #endif

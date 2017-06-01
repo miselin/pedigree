@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,13 +24,12 @@
 
 typedef struct symbol
 {
-  symbol() :
-    name(),
-    nParams(0)
-  {}
-  LargeStaticString name; // Function name.
-  LargeStaticString params[32]; // Parameters.
-  size_t nParams;
+    symbol() : name(), nParams(0)
+    {
+    }
+    LargeStaticString name;        // Function name.
+    LargeStaticString params[32];  // Parameters.
+    size_t nParams;
 } symbol_t;
 
 void demangle(LargeStaticString src, symbol_t *sym);

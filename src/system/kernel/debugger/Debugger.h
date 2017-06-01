@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,71 +20,72 @@
 #ifndef DEBUGGER_H
 #define DEBUGGER_H
 
+#include <LocalIO.h>
+#include <processor/InterruptManager.h>
 #include <processor/Processor.h>
 #include <processor/state.h>
-#include <processor/InterruptManager.h>
-#include <LocalIO.h>
 
 /** @addtogroup kerneldebugger
  * @{ */
 
-#define ASSERT_FAILED_SENTINEL 0xa55e4710 // A cack-handed way of writing "assertio(n)".
+#define ASSERT_FAILED_SENTINEL \
+    0xa55e4710  // A cack-handed way of writing "assertio(n)".
 
 #ifdef DEBUGGER
 /**
  * Implements the main kernel debugger. This class interfaces with the machine
- * abstraction to provide trap and breakpoint services. It exposes a set of commands,
- * which are accessed by the user through a command-line interface defined by a concretion
- * of the abstract class DebuggerIO.
- * The kernel can also write entries to the (debug) system log by calling operator<< directly.
+ * abstraction to provide trap and breakpoint services. It exposes a set of
+ * commands, which are accessed by the user through a command-line interface
+ * defined by a concretion of the abstract class DebuggerIO. The kernel can also
+ * write entries to the (debug) system log by calling operator<< directly.
  */
 class Debugger : public InterruptHandler
 {
-public:
-  /**
-   * Get the instance of the Debugger
-   */
-  inline static Debugger &instance()
-  {
-    return m_Instance;
-  }
-  
-  /**
-   * Initialise the debugger - register interrupt handlers etc.
-   */
-  void initialise();
-  
-  /**
-   * Causes the debugger to take control.
-   */
-  void start(InterruptState &state, LargeStaticString &description);
-   
-  /** Called when the handler is registered with the interrupt manager and the interrupt occurred
-   * \param interruptNumber the interrupt number
-   * \param state reference to the state before the interrupt
-   */
-  virtual void interrupt(size_t interruptNumber, InterruptState &state);
+    public:
+    /**
+     * Get the instance of the Debugger
+     */
+    inline static Debugger &instance()
+    {
+        return m_Instance;
+    }
 
-  InterruptState *m_pTempState;
+    /**
+     * Initialise the debugger - register interrupt handlers etc.
+     */
+    void initialise();
 
-private:
-  /**
-   * Default constructor - does nothing.
-   */
-  Debugger();
-  Debugger(const Debugger &);
-  Debugger &operator = (const Debugger &);
-  ~Debugger();
+    /**
+     * Causes the debugger to take control.
+     */
+    void start(InterruptState &state, LargeStaticString &description);
 
-  /**
-   * The current DebuggerIO type.
-   */
-  int m_nIoType;
+    /** Called when the handler is registered with the interrupt manager and the
+     * interrupt occurred \param interruptNumber the interrupt number \param
+     * state reference to the state before the interrupt
+     */
+    virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
-  /**
-   * The Debugger instance (singleton class)
-   */
-  static Debugger m_Instance;
+    InterruptState *m_pTempState;
+
+    private:
+    /**
+     * Default constructor - does nothing.
+     */
+    Debugger();
+    Debugger(const Debugger &);
+    Debugger &operator=(const Debugger &);
+    ~Debugger();
+
+    /**
+     * The current DebuggerIO type.
+     */
+    int m_nIoType;
+
+    /**
+     * The Debugger instance (singleton class)
+     */
+    static Debugger m_Instance;
 };
 
 /** @} */
@@ -93,4 +93,3 @@ private:
 #endif
 
 #endif
-

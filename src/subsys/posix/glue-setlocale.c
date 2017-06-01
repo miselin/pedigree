@@ -17,15 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
-#include <newlib.h>
-#include <locale.h>
-#include <string.h>
 #include <errno.h>
 #include <limits.h>
+#include <locale.h>
+#include <newlib.h>
 #include <reent.h>
 #include <setlocale.h>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef TESTSUITE
 #define SETLOCALE_FUNCTION_NAME pedigree_setlocale
@@ -46,12 +45,11 @@ int __mlocale_changed = 0;
 char *_PathLocale = NULL;
 
 /// \todo this is lconv for the C locale, we want it for other locales too
-static const struct lconv lconv =
-{
-  (char *) ".", (char *) "", (char *) "", (char *) "", (char *) "",
-  (char *) "", (char *) "", (char *) "", (char *) "", (char *) "",
-  CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX,
-  CHAR_MAX, CHAR_MAX, CHAR_MAX, CHAR_MAX,
+static const struct lconv lconv = {
+    (char *) ".", (char *) "", (char *) "", (char *) "", (char *) "",
+    (char *) "",  (char *) "", (char *) "", (char *) "", (char *) "",
+    CHAR_MAX,     CHAR_MAX,    CHAR_MAX,    CHAR_MAX,    CHAR_MAX,
+    CHAR_MAX,     CHAR_MAX,    CHAR_MAX,
 };
 
 static char __locale_charset_value[ENCODING_LEN] = "ISO-8859-1";
@@ -79,42 +77,31 @@ char *__lc_ctype = __locale_ctype;
 
 static char *__locale_entry[] = {
     // LC_ALL
-    __locale_all,
-    __locale_last_all,
+    __locale_all, __locale_last_all,
     // LC_COLLATE
-    __locale_collate,
-    __locale_last_collate,
+    __locale_collate, __locale_last_collate,
     // LC_CTYPE
-    __locale_ctype,
-    __locale_last_ctype,
+    __locale_ctype, __locale_last_ctype,
     // LC_MONETARY
-    __locale_monetary,
-    __locale_last_monetary,
+    __locale_monetary, __locale_last_monetary,
     // LC_NUMERIC
-    __locale_numeric,
-    __locale_last_numeric,
+    __locale_numeric, __locale_last_numeric,
     // LC_TIME
-    __locale_time,
-    __locale_last_time,
+    __locale_time, __locale_last_time,
     // LC_MESSAGES
-    __locale_messages,
-    __locale_last_time,
+    __locale_messages, __locale_last_time,
 };
 
 static const char *__locale_env[] = {
-    "LC_ALL",
-    "LC_COLLATE",
-    "LC_CTYPE",
-    "LC_MONETARY",
-    "LC_NUMERIC",
-    "LC_TIME",
-    "LC_MESSAGES",
+    "LC_ALL",     "LC_COLLATE", "LC_CTYPE",    "LC_MONETARY",
+    "LC_NUMERIC", "LC_TIME",    "LC_MESSAGES",
 };
 
-#define SET_LAST(cat) strncpy(__locale_last_##cat, __locale_##cat, MAX_LOCALE_LENGTH)
+#define SET_LAST(cat) \
+    strncpy(__locale_last_##cat, __locale_##cat, MAX_LOCALE_LENGTH)
 #define SET_TO(cat, val) strncpy(__locale_##cat, val, MAX_LOCALE_LENGTH)
 
-char * SETLOCALE_FUNCTION_NAME (int category, const char *locale)
+char *SETLOCALE_FUNCTION_NAME(int category, const char *locale)
 {
     const char *new_locale_arg = "C";
     char new_locale[MAX_LOCALE_LENGTH];

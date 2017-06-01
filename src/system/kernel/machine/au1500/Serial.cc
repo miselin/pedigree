@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -20,8 +19,7 @@
 
 #include "Serial.h"
 
-Au1500Serial::Au1500Serial() :
-  m_pRegs(0)
+Au1500Serial::Au1500Serial() : m_pRegs(0)
 {
 }
 Au1500Serial::~Au1500Serial()
@@ -29,23 +27,25 @@ Au1500Serial::~Au1500Serial()
 }
 void Au1500Serial::setBase(uintptr_t nBaseAddr)
 {
-  // We use KSEG1 (uncached physical) for our IO accesses.
-  m_pRegs = reinterpret_cast<serial*> (KSEG1(nBaseAddr));
+    // We use KSEG1 (uncached physical) for our IO accesses.
+    m_pRegs = reinterpret_cast<serial *>(KSEG1(nBaseAddr));
 }
 char Au1500Serial::read()
 {
-  while (!(m_pRegs->autoflow & 0x1)) ;
-  return static_cast<char> (m_pRegs->rxdata);
+    while (!(m_pRegs->autoflow & 0x1))
+        ;
+    return static_cast<char>(m_pRegs->rxdata);
 }
 char Au1500Serial::readNonBlock()
 {
-  if ( m_pRegs->autoflow & 0x1)
-    return m_pRegs->rxdata;
-  else
-    return '\0';
+    if (m_pRegs->autoflow & 0x1)
+        return m_pRegs->rxdata;
+    else
+        return '\0';
 }
 void Au1500Serial::write(char c)
 {
-  while (!(m_pRegs->autoflow & 0x20)) ;
-  m_pRegs->txdata = static_cast<uint8_t> (c);
+    while (!(m_pRegs->autoflow & 0x20))
+        ;
+    m_pRegs->txdata = static_cast<uint8_t>(c);
 }

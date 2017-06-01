@@ -166,7 +166,7 @@ TEST(PedigreeBuffer, Chase)
     const int n = 0x10000;
     const int readThreshold = 0x500;
 
-    std::unique_ptr<size_t []> numbers(new size_t[n]);
+    std::unique_ptr<size_t[]> numbers(new size_t[n]);
     size_t offset = 0;
 
     for (size_t i = 0; i < n; ++i)
@@ -176,7 +176,9 @@ TEST(PedigreeBuffer, Chase)
         if (i && (i % readThreshold == 0))
         {
             // Read entries into our buffer.
-            ASSERT_EQ(buffer.read(numbers.get() + offset, readThreshold, false), readThreshold);
+            ASSERT_EQ(
+                buffer.read(numbers.get() + offset, readThreshold, false),
+                readThreshold);
             offset += readThreshold;
         }
     }

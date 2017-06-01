@@ -19,158 +19,177 @@
 
 #include <processor/state.h>
 
-static const char *X64InterruptStateRegisterName[18] =
-{
-  "rax",
-  "rbx",
-  "rcx",
-  "rdx",
-  "rdi",
-  "rsi",
-  "rbp",
-  "r8",
-  "r9",
-  "r10",
-  "r11",
-  "r12",
-  "r13",
-  "r14",
-  "r15",
-  "rsp",
-  "rip",
-  "rflags"
-};
+static const char *X64InterruptStateRegisterName[18] = {
+    "rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "r8",  "r9",
+    "r10", "r11", "r12", "r13", "r14", "r15", "rsp", "rip", "rflags"};
 
-static const char *X64SyscallStateRegisterName[16] =
-{
-  "rax",
-  "rbx",
-  "rdx",
-  "rdi",
-  "rsi",
-  "rbp",
-  "r8",
-  "r9",
-  "r10",
-  "r12",
-  "r13",
-  "r14",
-  "r15",
-  "rsp",
-  "rip",
-  "rflags"
-};
+static const char *X64SyscallStateRegisterName[16] = {
+    "rax", "rbx", "rdx", "rdi", "rsi", "rbp", "r8",  "r9",
+    "r10", "r12", "r13", "r14", "r15", "rsp", "rip", "rflags"};
 
 size_t X64InterruptState::getRegisterCount() const
 {
-  return 18;
+    return 18;
 }
 processor_register_t X64InterruptState::getRegister(size_t index) const
 {
-  if (index == 0)return m_Rax;
-  if (index == 1)return m_Rbx;
-  if (index == 2)return m_Rcx;
-  if (index == 3)return m_Rdx;
-  if (index == 4)return m_Rdi;
-  if (index == 5)return m_Rsi;
-  if (index == 6)return m_Rbp;
-  if (index == 7)return m_R8;
-  if (index == 8)return m_R9;
-  if (index == 9)return m_R10;
-  if (index == 10)return m_R11;
-  if (index == 11)return m_R12;
-  if (index == 12)return m_R13;
-  if (index == 13)return m_R14;
-  if (index == 14)return m_R15;
-  if (index == 15)return getStackPointer();
-  if (index == 16)return m_Rip;
-  if (index == 17)return m_Rflags;
-  return 0;
+    if (index == 0)
+        return m_Rax;
+    if (index == 1)
+        return m_Rbx;
+    if (index == 2)
+        return m_Rcx;
+    if (index == 3)
+        return m_Rdx;
+    if (index == 4)
+        return m_Rdi;
+    if (index == 5)
+        return m_Rsi;
+    if (index == 6)
+        return m_Rbp;
+    if (index == 7)
+        return m_R8;
+    if (index == 8)
+        return m_R9;
+    if (index == 9)
+        return m_R10;
+    if (index == 10)
+        return m_R11;
+    if (index == 11)
+        return m_R12;
+    if (index == 12)
+        return m_R13;
+    if (index == 13)
+        return m_R14;
+    if (index == 14)
+        return m_R15;
+    if (index == 15)
+        return getStackPointer();
+    if (index == 16)
+        return m_Rip;
+    if (index == 17)
+        return m_Rflags;
+    return 0;
 }
 void X64InterruptState::setRegister(size_t index, uintptr_t value)
 {
-  if (index == 0) m_Rax = value;
-  if (index == 1) m_Rbx = value;
-  if (index == 2) m_Rcx = value;
-  if (index == 3) m_Rdx = value;
-  if (index == 4) m_Rdi = value;
-  if (index == 5) m_Rsi = value;
-  if (index == 6) m_Rbp = value;
-  if (index == 7) m_R8 = value;
-  if (index == 8) m_R9 = value;
-  if (index == 9) m_R10 = value;
-  if (index == 10) m_R11 = value;
-  if (index == 11) m_R12 = value;
-  if (index == 12) m_R13 = value;
-  if (index == 13) m_R14 = value;
-  if (index == 14) m_R15 = value;
-  if (index == 15) m_Rsp = value;
-  if (index == 16) m_Rip = value;
-  if (index == 17) m_Rflags = value;
+    if (index == 0)
+        m_Rax = value;
+    if (index == 1)
+        m_Rbx = value;
+    if (index == 2)
+        m_Rcx = value;
+    if (index == 3)
+        m_Rdx = value;
+    if (index == 4)
+        m_Rdi = value;
+    if (index == 5)
+        m_Rsi = value;
+    if (index == 6)
+        m_Rbp = value;
+    if (index == 7)
+        m_R8 = value;
+    if (index == 8)
+        m_R9 = value;
+    if (index == 9)
+        m_R10 = value;
+    if (index == 10)
+        m_R11 = value;
+    if (index == 11)
+        m_R12 = value;
+    if (index == 12)
+        m_R13 = value;
+    if (index == 13)
+        m_R14 = value;
+    if (index == 14)
+        m_R15 = value;
+    if (index == 15)
+        m_Rsp = value;
+    if (index == 16)
+        m_Rip = value;
+    if (index == 17)
+        m_Rflags = value;
 }
 const char *X64InterruptState::getRegisterName(size_t index) const
 {
-  return X64InterruptStateRegisterName[index];
+    return X64InterruptStateRegisterName[index];
 }
 
 size_t X64SyscallState::getRegisterCount() const
 {
-  return 16;
+    return 16;
 }
 processor_register_t X64SyscallState::getRegister(size_t index) const
 {
-  if (index == 0)return m_Rax;
-  if (index == 1)return m_Rbx;
-  if (index == 2)return m_Rdx;
-  if (index == 3)return m_Rdi;
-  if (index == 4)return m_Rsi;
-  if (index == 5)return m_Rbp;
-  if (index == 6)return m_R8;
-  if (index == 7)return m_R9;
-  if (index == 8)return m_R10;
-  if (index == 9)return m_R12;
-  if (index == 10)return m_R13;
-  if (index == 11)return m_R14;
-  if (index == 12)return m_R15;
-  if (index == 13)return m_Rsp;
-  if (index == 14)return m_RipRcx;
-  if (index == 15)return m_RFlagsR11;
-  return 0;
+    if (index == 0)
+        return m_Rax;
+    if (index == 1)
+        return m_Rbx;
+    if (index == 2)
+        return m_Rdx;
+    if (index == 3)
+        return m_Rdi;
+    if (index == 4)
+        return m_Rsi;
+    if (index == 5)
+        return m_Rbp;
+    if (index == 6)
+        return m_R8;
+    if (index == 7)
+        return m_R9;
+    if (index == 8)
+        return m_R10;
+    if (index == 9)
+        return m_R12;
+    if (index == 10)
+        return m_R13;
+    if (index == 11)
+        return m_R14;
+    if (index == 12)
+        return m_R15;
+    if (index == 13)
+        return m_Rsp;
+    if (index == 14)
+        return m_RipRcx;
+    if (index == 15)
+        return m_RFlagsR11;
+    return 0;
 }
 const char *X64SyscallState::getRegisterName(size_t index) const
 {
-  return X64SyscallStateRegisterName[index];
+    return X64SyscallStateRegisterName[index];
 }
 
-X64InterruptState *X64InterruptState::construct(X64ProcessorState &state, bool userMode)
+X64InterruptState *
+X64InterruptState::construct(X64ProcessorState &state, bool userMode)
 {
-  // Obtain the stack pointer.
-  uintptr_t *pStack = reinterpret_cast<uintptr_t*> (state.getStackPointer());
+    // Obtain the stack pointer.
+    uintptr_t *pStack = reinterpret_cast<uintptr_t *>(state.getStackPointer());
 
-  *--pStack = (userMode) ? 0x23 : 0x10; // SS
-  *--pStack = state.rsp; // RSP
-  *--pStack = 0x200; // RFLAGS - IF enabled.
-  *--pStack = (userMode) ? 0x1b : 0x08; // CS
-  *--pStack = state.rip; // RIP
-  *--pStack = 0; // Error code
-  *--pStack = 0; // Interrupt number
-  *--pStack = state.rax; // RAX
-  *--pStack = state.rbx; // RBX
-  *--pStack = state.rcx; // RCX
-  *--pStack = state.rdx; // RDX
-  *--pStack = state.rdi; // RDI
-  *--pStack = state.rsi; // RSI
-  *--pStack = state.rbp; // RBP
-  *--pStack = state.r8;
-  *--pStack = state.r9;
-  *--pStack = state.r10;
-  *--pStack = state.r11;
-  *--pStack = state.r12;
-  *--pStack = state.r13;
-  *--pStack = state.r14;
-  *--pStack = state.r15;
-  
-  X64InterruptState *toRet = reinterpret_cast<X64InterruptState*> (pStack);
+    *--pStack = (userMode) ? 0x23 : 0x10;  // SS
+    *--pStack = state.rsp;                 // RSP
+    *--pStack = 0x200;                     // RFLAGS - IF enabled.
+    *--pStack = (userMode) ? 0x1b : 0x08;  // CS
+    *--pStack = state.rip;                 // RIP
+    *--pStack = 0;                         // Error code
+    *--pStack = 0;                         // Interrupt number
+    *--pStack = state.rax;                 // RAX
+    *--pStack = state.rbx;                 // RBX
+    *--pStack = state.rcx;                 // RCX
+    *--pStack = state.rdx;                 // RDX
+    *--pStack = state.rdi;                 // RDI
+    *--pStack = state.rsi;                 // RSI
+    *--pStack = state.rbp;                 // RBP
+    *--pStack = state.r8;
+    *--pStack = state.r9;
+    *--pStack = state.r10;
+    *--pStack = state.r11;
+    *--pStack = state.r12;
+    *--pStack = state.r13;
+    *--pStack = state.r14;
+    *--pStack = state.r15;
 
-  return toRet;
+    X64InterruptState *toRet = reinterpret_cast<X64InterruptState *>(pStack);
+
+    return toRet;
 }

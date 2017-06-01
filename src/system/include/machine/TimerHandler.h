@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -21,8 +20,8 @@
 #ifndef KERNEL_MACHINE_TIMERHANDLER_H
 #define KERNEL_MACHINE_TIMERHANDLER_H
 
-#include <processor/types.h>
 #include <processor/state.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelmachine
  * @{ */
@@ -31,17 +30,19 @@
  * be derived from this class */
 class TimerHandler
 {
-  public:
-    /** Called when the handler is registered with the Timer/SchedulerTimer class
-     * and a timer event occured
-     *\param[in] delta time elapsed since the last event, in nanoseconds
-     *\param[in,out] state the state of the processor when the event occurred.
+    public:
+    /** Called when the handler is registered with the Timer/SchedulerTimer
+     *class and a timer event occured \param[in] delta time elapsed since the
+     *last event, in nanoseconds \param[in,out] state the state of the processor
+     *when the event occurred.
      */
     virtual void timer(uint64_t delta, InterruptState &state) = 0;
 
-  protected:
+    protected:
     /** Virtual destructor */
-    inline virtual ~TimerHandler(){}
+    inline virtual ~TimerHandler()
+    {
+    }
 };
 
 /** @} */

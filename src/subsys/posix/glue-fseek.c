@@ -20,46 +20,46 @@ FUNCTION
 <<fseek>>, <<fseeko>>---set file position
 
 INDEX
-	fseek
+        fseek
 INDEX
-	fseeko
+        fseeko
 INDEX
-	_fseek_r
+        _fseek_r
 INDEX
-	_fseeko_r
+        _fseeko_r
 
 ANSI_SYNOPSIS
-	#include <stdio.h>
-	int fseek(FILE *<[fp]>, long <[offset]>, int <[whence]>)
-	int fseeko(FILE *<[fp]>, off_t <[offset]>, int <[whence]>)
-	int _fseek_r(struct _reent *<[ptr]>, FILE *<[fp]>,
-	             long <[offset]>, int <[whence]>)
-	int _fseeko_r(struct _reent *<[ptr]>, FILE *<[fp]>,
-	             off_t <[offset]>, int <[whence]>)
+        #include <stdio.h>
+        int fseek(FILE *<[fp]>, long <[offset]>, int <[whence]>)
+        int fseeko(FILE *<[fp]>, off_t <[offset]>, int <[whence]>)
+        int _fseek_r(struct _reent *<[ptr]>, FILE *<[fp]>,
+                     long <[offset]>, int <[whence]>)
+        int _fseeko_r(struct _reent *<[ptr]>, FILE *<[fp]>,
+                     off_t <[offset]>, int <[whence]>)
 
 TRAD_SYNOPSIS
-	#include <stdio.h>
-	int fseek(<[fp]>, <[offset]>, <[whence]>)
-	FILE *<[fp]>;
-	long <[offset]>;
-	int <[whence]>;
+        #include <stdio.h>
+        int fseek(<[fp]>, <[offset]>, <[whence]>)
+        FILE *<[fp]>;
+        long <[offset]>;
+        int <[whence]>;
 
-	int fseeko(<[fp]>, <[offset]>, <[whence]>)
-	FILE *<[fp]>;
-	off_t <[offset]>;
-	int <[whence]>;
+        int fseeko(<[fp]>, <[offset]>, <[whence]>)
+        FILE *<[fp]>;
+        off_t <[offset]>;
+        int <[whence]>;
 
-	int _fseek_r(<[ptr]>, <[fp]>, <[offset]>, <[whence]>)
-	struct _reent *<[ptr]>;
-	FILE *<[fp]>;
-	long <[offset]>;
-	int <[whence]>;
+        int _fseek_r(<[ptr]>, <[fp]>, <[offset]>, <[whence]>)
+        struct _reent *<[ptr]>;
+        FILE *<[fp]>;
+        long <[offset]>;
+        int <[whence]>;
 
-	int _fseeko_r(<[ptr]>, <[fp]>, <[offset]>, <[whence]>)
-	struct _reent *<[ptr]>;
-	FILE *<[fp]>;
-	off_t <[offset]>;
-	int <[whence]>;
+        int _fseeko_r(<[ptr]>, <[fp]>, <[offset]>, <[whence]>)
+        struct _reent *<[ptr]>;
+        FILE *<[fp]>;
+        off_t <[offset]>;
+        int <[whence]>;
 
 DESCRIPTION
 Objects of type <<FILE>> can have a ``position'' that records how much
@@ -98,7 +98,8 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 <<lseek>>, <<read>>, <<sbrk>>, <<write>>.
 */
 
-/** This is a Pedigree rewrite, because the newlib implementation of fseek() is awful */
+/** This is a Pedigree rewrite, because the newlib implementation of fseek() is
+ * awful */
 
 #define _COMPILING_NEWLIB
 
@@ -106,92 +107,92 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 
 #include <stdio.h>
 
-#include <_ansi.h>
-#include <reent.h>
-#include <string.h>
-#include <time.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <sys/stat.h>
 #include "local.h"
+#include <_ansi.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <reent.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 
-#define	POS_ERR	(-(_fpos_t)1)
+#define POS_ERR (-(_fpos_t) 1)
 
 /*
  * Seek the given file to the given offset.
  * `Whence' must be one of the three SEEK_* macros.
  */
 
-typedef _fpos_t _EXFUN((*seek_fnptr), (struct _reent *, _PTR, _fpos_t, int));
+typedef _fpos_t _EXFUN((*seek_fnptr), (struct _reent *, _PTR, _fpos_t, int) );
 
 int _fseek_r(struct _reent *ptr, register FILE *fp, long offset, int whence)
 {
-  _fpos_t _EXFUN((*seekfn), (struct _reent *, _PTR, _fpos_t, int));
-  _fpos_t target;
-  _fpos_t curoff = 0;
-  size_t n;
+    _fpos_t _EXFUN((*seekfn), (struct _reent *, _PTR, _fpos_t, int) );
+    _fpos_t target;
+    _fpos_t curoff = 0;
+    size_t n;
 #ifdef __USE_INTERNAL_STAT64
-  struct stat64 st;
+    struct stat64 st;
 #else
-  struct stat st;
+    struct stat st;
 #endif
-  int havepos;
+    int havepos;
 
-  /* Make sure stdio is set up.  */
+    /* Make sure stdio is set up.  */
 
-  CHECK_INIT (ptr, fp);
+    CHECK_INIT(ptr, fp);
 
-  _flockfile (fp);
+    _flockfile(fp);
 
-  /* If we've been doing some writing, and we're in append mode
-     then we don't really know where the filepos is.  */
+    /* If we've been doing some writing, and we're in append mode
+       then we don't really know where the filepos is.  */
 
-  if (fp->_flags & __SAPP && fp->_flags & __SWR)
+    if (fp->_flags & __SAPP && fp->_flags & __SWR)
     {
-      /* So flush the buffer and seek to the end.  */
-      _fflush_r (ptr, fp);
+        /* So flush the buffer and seek to the end.  */
+        _fflush_r(ptr, fp);
     }
 
-  /* Have to be able to seek.  */
+    /* Have to be able to seek.  */
 
-  if ((seekfn = (seek_fnptr) fp->_seek) == NULL)
+    if ((seekfn = (seek_fnptr) fp->_seek) == NULL)
     {
-      ptr->_errno = ESPIPE;	/* ??? */
-      _funlockfile (fp);
-      return EOF;
+        ptr->_errno = ESPIPE; /* ??? */
+        _funlockfile(fp);
+        return EOF;
     }
 
-  if (_fflush_r (ptr, fp)
-      || seekfn (ptr, fp->_cookie, offset, whence) == POS_ERR)
+    if (_fflush_r(ptr, fp) ||
+        seekfn(ptr, fp->_cookie, offset, whence) == POS_ERR)
     {
-      _funlockfile (fp);
-      return EOF;
+        _funlockfile(fp);
+        return EOF;
     }
-  /* success: clear EOF indicator and discard ungetc() data */
-  if (HASUB (fp))
-    FREEUB (ptr, fp);
-  fp->_p = fp->_bf._base;
-  fp->_r = 0;
-  /* fp->_w = 0; *//* unnecessary (I think...) */
-  fp->_flags &= ~__SEOF;
-  /* Reset no-optimization flag after successful seek.  The
-     no-optimization flag may be set in the case of a read
-     stream that is flushed which by POSIX/SUSv3 standards,
-     means that a corresponding seek must not optimize.  The
-     optimization is then allowed if no subsequent flush
-     is performed.  */
-  fp->_flags &= ~__SNPT;
-  // memset (&fp->_mbstate, 0, sizeof (_mbstate_t));
-  _funlockfile (fp);
-  return 0;
+    /* success: clear EOF indicator and discard ungetc() data */
+    if (HASUB(fp))
+        FREEUB(ptr, fp);
+    fp->_p = fp->_bf._base;
+    fp->_r = 0;
+    /* fp->_w = 0; */ /* unnecessary (I think...) */
+    fp->_flags &= ~__SEOF;
+    /* Reset no-optimization flag after successful seek.  The
+       no-optimization flag may be set in the case of a read
+       stream that is flushed which by POSIX/SUSv3 standards,
+       means that a corresponding seek must not optimize.  The
+       optimization is then allowed if no subsequent flush
+       is performed.  */
+    fp->_flags &= ~__SNPT;
+    // memset (&fp->_mbstate, 0, sizeof (_mbstate_t));
+    _funlockfile(fp);
+    return 0;
 }
 
 #ifndef _REENT_ONLY
 
 int fseek(register FILE *fp, long offset, int whence)
 {
-  return _fseek_r (_REENT, fp, offset, whence);
+    return _fseek_r(_REENT, fp, offset, whence);
 }
 
 #endif /* !_REENT_ONLY */

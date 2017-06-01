@@ -18,14 +18,14 @@
  */
 
 #include <BootstrapInfo.h>
-#include <Log.h>
-#include <panic.h>
-#include <machine/Timer.h>
-#include <machine/Machine.h>
-#include <utilities/utility.h>
-#include <processor/Processor.h>
 #include <LockGuard.h>
+#include <Log.h>
+#include <machine/Machine.h>
+#include <machine/Timer.h>
+#include <panic.h>
+#include <processor/Processor.h>
 #include <time/Time.h>
+#include <utilities/utility.h>
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
@@ -47,23 +47,22 @@ static NormalStaticString getTimestamp()
     return r;
 }
 
-Log::Log () :
+Log::Log()
+    :
 #ifdef THREADS
-    m_Lock(),
+      m_Lock(),
 #endif
-    m_StaticEntries(0),
-    m_StaticEntryStart(0),
-    m_StaticEntryEnd(0),
-    m_Buffer(),
+      m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
+      m_Buffer(),
 #ifdef DONT_LOG_TO_SERIAL
-    m_EchoToSerial(false)
+      m_EchoToSerial(false)
 #else
-    m_EchoToSerial(true)
+      m_EchoToSerial(true)
 #endif
 {
 }
 
-Log::~Log ()
+Log::~Log()
 {
     LogEntry entry;
     entry << Notice << "-- Log Terminating --";
@@ -74,18 +73,18 @@ void Log::initialise1()
 {
 #ifndef ARM_COMMON
     char *cmdline = g_pBootstrapInfo->getCommandLine();
-    if(cmdline)
+    if (cmdline)
     {
         List<SharedPointer<String>> cmds = String(cmdline).tokenise(' ');
         for (auto it = cmds.begin(); it != cmds.end(); it++)
         {
             auto cmd = *it;
-            if(*cmd == String("--disable-log-to-serial"))
+            if (*cmd == String("--disable-log-to-serial"))
             {
                 m_EchoToSerial = false;
                 break;
             }
-            else if(*cmd == String("--enable-log-to-serial"))
+            else if (*cmd == String("--enable-log-to-serial"))
             {
                 m_EchoToSerial = true;
                 break;
@@ -98,7 +97,7 @@ void Log::initialise1()
 void Log::initialise2()
 {
 #ifndef DONT_LOG_TO_SERIAL
-    if(m_EchoToSerial)
+    if (m_EchoToSerial)
         installSerialLogger();
 #endif
 }
@@ -113,19 +112,19 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
     }
 
     // Some callbacks want to skip a (potentially) massive backlog
-    if(bSkipBacklog)
+    if (bSkipBacklog)
         return;
 
     // Call the callback for the existing, flushed, log entries
     size_t entry = m_StaticEntryStart;
-    while(1)
+    while (1)
     {
-        if(entry == m_StaticEntryEnd)
+        if (entry == m_StaticEntryEnd)
             break;
         else
         {
             HugeStaticString str;
-            switch(m_StaticLog[entry].type)
+            switch (m_StaticLog[entry].type)
             {
                 case Debug:
                     str = "(DD) ";
@@ -146,7 +145,7 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
             str += getTimestamp();
             str += m_StaticLog[entry].str;
 #ifndef SERIAL_IS_FILE
-            str += "\r\n"; // Handle carriage return
+            str += "\r\n";  // Handle carriage return
 #else
             str += "\n";
 #endif
@@ -165,11 +164,10 @@ void Log::removeCallback(LogCallback *pCallback)
 #ifdef THREADS
     LockGuard<Spinlock> guard(m_Lock);
 #endif
-    for(List<LogCallback*>::Iterator it = m_OutputCallbacks.begin();
-        it != m_OutputCallbacks.end();
-        it++)
+    for (List<LogCallback *>::Iterator it = m_OutputCallbacks.begin();
+         it != m_OutputCallbacks.end(); it++)
     {
-        if(*it == pCallback)
+        if (*it == pCallback)
         {
             m_OutputCallbacks.erase(it);
             return;
@@ -177,19 +175,19 @@ void Log::removeCallback(LogCallback *pCallback)
     }
 }
 
-Log::LogEntry &Log::LogEntry::operator<< (const char *s)
+Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 {
     str.append(s);
     return *this;
 }
 
-Log::LogEntry &Log::LogEntry::operator<< (const String &s)
+Log::LogEntry &Log::LogEntry::operator<<(const String &s)
 {
     str.append(s);
     return *this;
 }
 
-Log::LogEntry &Log::LogEntry::operator<< (bool b)
+Log::LogEntry &Log::LogEntry::operator<<(bool b)
 {
     if (b)
         return *this << "true";
@@ -197,8 +195,8 @@ Log::LogEntry &Log::LogEntry::operator<< (bool b)
     return *this << "false";
 }
 
-template<class T>
-Log::LogEntry &Log::LogEntry::operator << (T n)
+template <class T>
+Log::LogEntry &Log::LogEntry::operator<<(T n)
 {
     size_t radix = 10;
     if (numberType == Hex)
@@ -215,13 +213,13 @@ Log::LogEntry &Log::LogEntry::operator << (T n)
     return *this;
 }
 
-Log::LogEntry &Log::LogEntry::operator<< (NumberType type)
+Log::LogEntry &Log::LogEntry::operator<<(NumberType type)
 {
     numberType = type;
     return *this;
 }
 
-Log::LogEntry &Log::LogEntry::operator<< (SeverityLevel level)
+Log::LogEntry &Log::LogEntry::operator<<(SeverityLevel level)
 {
     // Zero the buffer.
     str.clear();
@@ -229,8 +227,7 @@ Log::LogEntry &Log::LogEntry::operator<< (SeverityLevel level)
 
 #ifndef UTILITY_LINUX
     Machine &machine = Machine::instance();
-    if (machine.isInitialised() == true &&
-        machine.getTimer() != 0)
+    if (machine.isInitialised() == true && machine.getTimer() != 0)
     {
         Timer &timer = *machine.getTimer();
         timestamp = timer.getTickCount();
@@ -244,28 +241,28 @@ Log::LogEntry &Log::LogEntry::operator<< (SeverityLevel level)
 
 // NOTE: Make sure that the templated << operator gets only instantiated for
 //       integer types.
-template Log::LogEntry &Log::LogEntry::operator << (char);
-template Log::LogEntry &Log::LogEntry::operator << (unsigned char);
-template Log::LogEntry &Log::LogEntry::operator << (short);
-template Log::LogEntry &Log::LogEntry::operator << (unsigned short);
-template Log::LogEntry &Log::LogEntry::operator << (int);
-template Log::LogEntry &Log::LogEntry::operator << (unsigned int);
-template Log::LogEntry &Log::LogEntry::operator << (long);
-template Log::LogEntry &Log::LogEntry::operator << (unsigned long);
+template Log::LogEntry &Log::LogEntry::operator<<(char);
+template Log::LogEntry &Log::LogEntry::operator<<(unsigned char);
+template Log::LogEntry &Log::LogEntry::operator<<(short);
+template Log::LogEntry &Log::LogEntry::operator<<(unsigned short);
+template Log::LogEntry &Log::LogEntry::operator<<(int);
+template Log::LogEntry &Log::LogEntry::operator<<(unsigned int);
+template Log::LogEntry &Log::LogEntry::operator<<(long);
+template Log::LogEntry &Log::LogEntry::operator<<(unsigned long);
 // NOTE: Instantiating these for MIPS32 requires __udiv3di, but we only have
 //       __udiv3ti (??) in libgcc.a for mips.
 #ifndef MIPS32
-template Log::LogEntry &Log::LogEntry::operator << (long long);
-template Log::LogEntry &Log::LogEntry::operator << (unsigned long long);
+template Log::LogEntry &Log::LogEntry::operator<<(long long);
+template Log::LogEntry &Log::LogEntry::operator<<(unsigned long long);
 #endif
 
-Log &Log::operator<< (const LogEntry &entry)
+Log &Log::operator<<(const LogEntry &entry)
 {
     m_Buffer = entry;
     return *this;
 }
 
-Log &Log::operator<< (Modifier type)
+Log &Log::operator<<(Modifier type)
 {
     static bool handlingFatal = false;
 
@@ -274,20 +271,20 @@ Log &Log::operator<< (Modifier type)
     {
         if (m_StaticEntries >= LOG_ENTRIES)
         {
-            m_StaticEntryStart = (m_StaticEntryStart+1) % LOG_ENTRIES;
+            m_StaticEntryStart = (m_StaticEntryStart + 1) % LOG_ENTRIES;
         }
         else
-            m_StaticEntries ++;
+            m_StaticEntries++;
 
         m_StaticLog[m_StaticEntryEnd] = m_Buffer;
-        m_StaticEntryEnd = (m_StaticEntryEnd+1) % LOG_ENTRIES;
+        m_StaticEntryEnd = (m_StaticEntryEnd + 1) % LOG_ENTRIES;
 
-        if(m_OutputCallbacks.count())
+        if (m_OutputCallbacks.count())
         {
             // We have output callbacks installed. Build the string we'll pass
             // to each callback *now* and then send it.
             HugeStaticString str;
-            switch(m_Buffer.type)
+            switch (m_Buffer.type)
             {
                 case Debug:
                     str = "(DD) ";
@@ -308,17 +305,16 @@ Log &Log::operator<< (Modifier type)
             str += getTimestamp();
             str += m_Buffer.str;
 #ifndef SERIAL_IS_FILE
-            str += "\r\n"; // Handle carriage return
+            str += "\r\n";  // Handle carriage return
 #else
             str += "\n";
 #endif
 
-            for(List<LogCallback*>::Iterator it = m_OutputCallbacks.begin();
-                it != m_OutputCallbacks.end();
-                ++it)
+            for (List<LogCallback *>::Iterator it = m_OutputCallbacks.begin();
+                 it != m_OutputCallbacks.end(); ++it)
             {
-                if(*it)
-                    (*it)->callback(static_cast<const char*>(str));
+                if (*it)
+                    (*it)->callback(static_cast<const char *>(str));
             }
         }
 
@@ -327,13 +323,13 @@ Log &Log::operator<< (Modifier type)
         {
             handlingFatal = true;
 
-            const char *panicstr = static_cast<const char*>(m_Buffer.str);
+            const char *panicstr = static_cast<const char *>(m_Buffer.str);
 #ifdef THREADS
             if (m_Lock.acquired())
                 m_Lock.release();
 #endif
 
-            // Attempt to trap to debugger, panic if that fails.
+// Attempt to trap to debugger, panic if that fails.
 #ifdef DEBUGGER
             Processor::breakpoint();
 #endif

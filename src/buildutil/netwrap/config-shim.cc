@@ -29,10 +29,11 @@ int initialize_config()
     int e = sqlite3_open("pedigree.sqlite", &g_pSqlite);
     if (e)
     {
-        std::cerr << "sqlite3 startup failed [" << e << "]: " << sqlite3_errmsg(g_pSqlite) << std::endl;
+        std::cerr << "sqlite3 startup failed [" << e
+                  << "]: " << sqlite3_errmsg(g_pSqlite) << std::endl;
         return -1;
     }
-    
+
     return 0;
 }
 

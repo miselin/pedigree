@@ -21,30 +21,35 @@
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 
 #include <machine/IrqManager.h>
-#include <machine/Timer.h>
 #include <machine/SchedulerTimer.h>
+#include <machine/Timer.h>
 
-namespace __pedigree_hosted {
-    #include <time.h>
-    #include <signal.h>
+namespace __pedigree_hosted
+{
+#include <signal.h>
+#include <time.h>
 }
 
-#define MAX_TIMER_HANDLERS    32
+#define MAX_TIMER_HANDLERS 32
 
 /** @addtogroup kernelmachinehosted
  * @{ */
 
 class HostedTimer : public Timer, private IrqHandler
 {
-  public:
-    inline static HostedTimer &instance(){return m_Instance;}
+    public:
+    inline static HostedTimer &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // Timer interface
     //
     virtual bool registerHandler(TimerHandler *handler);
     virtual bool unregisterHandler(TimerHandler *handler);
-    virtual void addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs=0);
+    virtual void
+    addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs = 0);
     virtual void removeAlarm(class Event *pEvent);
     virtual size_t removeAlarm(class Event *pEvent, bool bRetZero);
     virtual size_t getYear();
@@ -62,23 +67,25 @@ class HostedTimer : public Timer, private IrqHandler
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
     /** Synchronise the time/date with the hardware */
-    virtual void synchronise(bool tohw=false);
+    virtual void synchronise(bool tohw = false);
     /** Uninitialises the class */
     void uninitialise();
 
-  protected:
+    protected:
     /** The default constructor */
     HostedTimer() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~HostedTimer(){}
+    inline virtual ~HostedTimer()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     HostedTimer(const HostedTimer &);
     /** The assignment operator
      *\note NOT implemented */
-    HostedTimer &operator = (const HostedTimer &);
+    HostedTimer &operator=(const HostedTimer &);
 
     //
     // IrqHandler interface
@@ -112,25 +119,27 @@ class HostedTimer : public Timer, private IrqHandler
     static HostedTimer m_Instance;
 
     /** All timer handlers installed */
-    TimerHandler* m_Handlers[MAX_TIMER_HANDLERS];
+    TimerHandler *m_Handlers[MAX_TIMER_HANDLERS];
 
     /** Alarm structure. */
     class Alarm
     {
-    public:
-        Alarm(class Event *pEvent, size_t time, class Thread *pThread) :
-            m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
-        {}
+        public:
+        Alarm(class Event *pEvent, size_t time, class Thread *pThread)
+            : m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
+        {
+        }
         class Event *m_pEvent;
         size_t m_Time;
         class Thread *m_pThread;
-    private:
+
+        private:
         Alarm(const Alarm &);
-        Alarm &operator = (const Alarm &);
+        Alarm &operator=(const Alarm &);
     };
 
     /** List of alarms. */
-    List<Alarm*> m_Alarms;
+    List<Alarm *> m_Alarms;
 };
 
 /** @} */

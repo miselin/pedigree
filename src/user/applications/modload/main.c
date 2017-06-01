@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "elf.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "elf.h"
 
 #define MODULE_FMT "root»/system/modules/%s.o"
 
@@ -31,25 +31,27 @@ int load_module(char *name);
 int load_module(char *name)
 {
     // Make the file name
-    char *file = (char*)malloc(strlen(name) + strlen(MODULE_FMT) - 1); // -1 because we have -2 (%s) and +1 (\0)
+    char *file = (char *) malloc(
+        strlen(name) + strlen(MODULE_FMT) -
+        1);  // -1 because we have -2 (%s) and +1 (\0)
     sprintf(file, MODULE_FMT, name);
     // Try to open the file
     FILE *fp = fopen(file, "r");
-    if(fp == NULL)
+    if (fp == NULL)
     {
         printf("Module file %s not found!\n", file);
         return -1;
     }
-    fseek(fp,0,SEEK_END);
+    fseek(fp, 0, SEEK_END);
     size_t len = ftell(fp);
-    fseek(fp,0,SEEK_SET);
+    fseek(fp, 0, SEEK_SET);
     // Read the contents of the file
-    uint8_t *buffer = (uint8_t *)malloc(len);
+    uint8_t *buffer = (uint8_t *) malloc(len);
     fread(buffer, len, 1, fp);
     fclose(fp);
     // Create the elf structure
     Elf_t *elf = elf_create(buffer, len);
-    if(!elf)
+    if (!elf)
     {
         free(buffer);
         free(file);
@@ -57,20 +59,21 @@ int load_module(char *name)
     }
 
     // Grab the name and dependencies symbols
-    ElfSymbol_t *name_sym = elf_get_symbol(elf, "g_pModuleName"), *deps_sym = elf_get_symbol(elf, "g_pDepends");
-    if(!name_sym)
+    ElfSymbol_t *name_sym = elf_get_symbol(elf, "g_pModuleName"),
+                *deps_sym = elf_get_symbol(elf, "g_pDepends");
+    if (!name_sym)
     {
         printf("g_pModuleName symbol not found!\n");
         return -1;
     }
-    if(!deps_sym)
+    if (!deps_sym)
     {
         printf("g_pDepends symbols not found!\n");
         return -1;
     }
 
-    char *modname = (char*)elf_relptr(elf, name_sym, *SYM_PTR(elf, name_sym));
-    if(pedigree_module_is_loaded(modname))
+    char *modname = (char *) elf_relptr(elf, name_sym, *SYM_PTR(elf, name_sym));
+    if (pedigree_module_is_loaded(modname))
     {
         printf("Module %s is already loaded!\n", modname);
         return -1;
@@ -78,12 +81,12 @@ int load_module(char *name)
 
     printf("Module %s being loaded...\n", modname);
     uint32_t *deps = SYM_PTR(elf, deps_sym);
-    for(size_t i = 0; deps[i]; i++)
+    for (size_t i = 0; deps[i]; i++)
     {
-        char *depname = (char*)elf_relptr(elf, deps_sym, deps[i]);
-        if(pedigree_module_is_loaded(depname))
+        char *depname = (char *) elf_relptr(elf, deps_sym, deps[i]);
+        if (pedigree_module_is_loaded(depname))
             continue;
-        if(!load_module(depname) && pedigree_module_is_loaded(depname))
+        if (!load_module(depname) && pedigree_module_is_loaded(depname))
             continue;
         printf("Dependency %s of %s couldn't been loaded!\n", depname, modname);
         return -1;
@@ -91,7 +94,7 @@ int load_module(char *name)
 
     // Finally load the module
     pedigree_module_load(file);
-    if(pedigree_module_is_loaded(modname))
+    if (pedigree_module_is_loaded(modname))
         return 0;
     printf("Module %s couldn't been loaded\n", modname);
     return -1;
@@ -99,7 +102,7 @@ int load_module(char *name)
 
 int main(int argc, char **argv)
 {
-    if(argc < 2)
+    if (argc < 2)
     {
         printf("Usage: %s <module name>\n", argv[0]);
         return 0;

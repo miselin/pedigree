@@ -22,16 +22,16 @@
 #include "Ext2Symlink.h"
 #include <syscallError.h>
 
-Ext2File::Ext2File(const String &name, uintptr_t inode_num, Inode *inode,
-                   Ext2Filesystem *pFs, File *pParent) :
-    File(name, LITTLE_TO_HOST32(inode->i_atime),
-         LITTLE_TO_HOST32(inode->i_mtime),
-         LITTLE_TO_HOST32(inode->i_ctime),
-         inode_num,
-         static_cast<Filesystem*>(pFs),
-         LITTLE_TO_HOST32(inode->i_size), /// \todo Deal with >4GB files here.
-         pParent),
-    Ext2Node(inode_num, inode, pFs)
+Ext2File::Ext2File(
+    const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,
+    File *pParent)
+    : File(
+          name, LITTLE_TO_HOST32(inode->i_atime),
+          LITTLE_TO_HOST32(inode->i_mtime), LITTLE_TO_HOST32(inode->i_ctime),
+          inode_num, static_cast<Filesystem *>(pFs),
+          LITTLE_TO_HOST32(inode->i_size),  /// \todo Deal with >4GB files here.
+          pParent),
+      Ext2Node(inode_num, inode, pFs)
 {
     uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
     setPermissionsOnly(modeToPermissions(mode));
@@ -64,8 +64,10 @@ void Ext2File::truncate()
 
 void Ext2File::fileAttributeChanged()
 {
-    static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
-    static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(), permissionsToMode(getPermissions()));
+    static_cast<Ext2Node *>(this)->fileAttributeChanged(
+        m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
+    static_cast<Ext2Node *>(this)->updateMetadata(
+        getUid(), getGid(), permissionsToMode(getPermissions()));
 }
 
 uintptr_t Ext2File::readBlock(uint64_t location)

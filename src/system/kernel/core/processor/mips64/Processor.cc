@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,14 +21,14 @@
 
 void Processor::initialise1(const BootstrapStruct_t &Info)
 {
-  // TODO
+    // TODO
 
-  m_Initialised = 1;
+    m_Initialised = 1;
 }
 
 void Processor::initialise2(const BootstrapStruct_t &Info)
 {
-  // TODO
+    // TODO
 
-  m_Initialised = 2;
+    m_Initialised = 2;
 }

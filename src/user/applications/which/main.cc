@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
-#include <limits.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -46,7 +46,6 @@ using std::list;
 using std::regex;
 using std::vector;
 
-
 int processOpts(int argc, char *argv[]);
 void usage();
 void version();
@@ -64,13 +63,12 @@ enum tty_opts
     opt_tty_only,
 };
 
-
 struct CommandLineOptions
 {
-public:
-    CommandLineOptions() :
-        all(0), readAliases(0), readFunctions(0), showDot(0), skipDot(0),
-        showTilde(0), skipTilde(0) {};
+    public:
+    CommandLineOptions()
+        : all(0), readAliases(0), readFunctions(0), showDot(0), skipDot(0),
+          showTilde(0), skipTilde(0){};
     int all;
     int readAliases;
     int readFunctions;
@@ -83,32 +81,29 @@ public:
 static list<string> aliases, functions;
 static string home, cwd;
 
-
 int processOpts(int argc, char *argv[])
 {
     int c, longOption, ttyOnly = 0;
-    struct option long_options[] =
-    {
+    struct option long_options[] = {
         {"all", no_argument, &opts.all, 1},
         {"read-alias", no_argument, &opts.readAliases, 1},
         {"skip-alias", no_argument, &opts.readAliases, 0},
         {"read-functions", no_argument, &opts.readFunctions, 1},
         {"skip-functions", no_argument, &opts.readFunctions, 0},
-        {"skip-dot",  no_argument, &longOption, opt_skip_dot},
-        {"show-dot",  no_argument, &longOption, opt_show_dot},
-        {"skip-tilde",  no_argument, &longOption, opt_skip_tilde},
-        {"show-tilde",  no_argument, &longOption, opt_show_tilde},
-        {"tty-only",  no_argument, &longOption, opt_tty_only},
-        {"version",  no_argument, 0, 'v'},
-        {"help",  no_argument, 0, 'h'},
-        {0, 0, 0, 0}
-    };
+        {"skip-dot", no_argument, &longOption, opt_skip_dot},
+        {"show-dot", no_argument, &longOption, opt_show_dot},
+        {"skip-tilde", no_argument, &longOption, opt_skip_tilde},
+        {"show-tilde", no_argument, &longOption, opt_show_tilde},
+        {"tty-only", no_argument, &longOption, opt_tty_only},
+        {"version", no_argument, 0, 'v'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}};
 
-    while(1)
+    while (1)
     {
         c = getopt_long(argc, argv, "aivVh", long_options, NULL);
 
-        if(c == -1)
+        if (c == -1)
             break;
 
         switch (c)
@@ -152,7 +147,6 @@ int processOpts(int argc, char *argv[])
     return 0;
 }
 
-
 void usage()
 {
     cout << "Usage: which [options] [--] COMMAND [...]" << endl;
@@ -160,25 +154,44 @@ void usage()
     cout << endl;
     cout << "  --version, -[vV] Print version and exit successfully." << endl;
     cout << "  --help,          Print this help and exit successfully." << endl;
-    cout << "  --skip-dot       Skip directories in PATH that start with a dot." << endl;
-    cout << "  --skip-tilde     Skip directories in PATH that start with a tilde." << endl;
-    cout << "  --show-dot       Don't expand a dot to current directory in output." << endl;
-    cout << "  --show-tilde     Output a tilde for HOME directory for non-root." << endl;
-    cout << "  --tty-only       Stop processing options on the right if not on tty." << endl;
-    cout << "  --all, -a        Print all matches in PATH, not just the first" << endl;
+    cout << "  --skip-dot       Skip directories in PATH that start with a dot."
+         << endl;
+    cout << "  --skip-tilde     Skip directories in PATH that start with a "
+            "tilde."
+         << endl;
+    cout << "  --show-dot       Don't expand a dot to current directory in "
+            "output."
+         << endl;
+    cout << "  --show-tilde     Output a tilde for HOME directory for non-root."
+         << endl;
+    cout << "  --tty-only       Stop processing options on the right if not on "
+            "tty."
+         << endl;
+    cout << "  --all, -a        Print all matches in PATH, not just the first"
+         << endl;
     cout << "  --read-alias, -i Read list of aliases from stdin." << endl;
-    cout << "  --skip-alias     Ignore option --read-alias; don't read stdin." << endl;
+    cout << "  --skip-alias     Ignore option --read-alias; don't read stdin."
+         << endl;
     cout << "  --read-functions Read shell functions from stdin." << endl;
-    cout << "  --skip-functions Ignore option --read-functions; don't read stdin." << endl;
+    cout << "  --skip-functions Ignore option --read-functions; don't read "
+            "stdin."
+         << endl;
     cout << endl;
-    cout << "Recommended use is to write the output of (alias; declare -f) to standard" << endl;
-    cout << "input, so that which can show aliases and shell functions. See which(1) fo" << endl;
+    cout << "Recommended use is to write the output of (alias; declare -f) to "
+            "standard"
+         << endl;
+    cout << "input, so that which can show aliases and shell functions. See "
+            "which(1) fo"
+         << endl;
     cout << "examples." << endl;
     cout << endl;
-    cout << "If the options --read-alias and/or --read-functions are specified then the" << endl;
-    cout << "output can be a full alias or function definition, optionally followed by" << endl;
+    cout << "If the options --read-alias and/or --read-functions are specified "
+            "then the"
+         << endl;
+    cout << "output can be a full alias or function definition, optionally "
+            "followed by"
+         << endl;
     cout << "the full path of each command used inside of those." << endl;
-
 }
 
 void version()
@@ -186,12 +199,11 @@ void version()
     cout << "which v1.0, Copyright (C) 2014 Nathan Hoad" << endl;
 }
 
-
 void split(const std::string &s, char delim, vector<string> &elems)
 {
     stringstream ss(s);
     string item;
-    while(std::getline(ss, item, delim))
+    while (std::getline(ss, item, delim))
     {
         elems.push_back(item);
     }
@@ -203,22 +215,22 @@ int findPaths(string filename)
     vector<string> dirs;
     int failed;
 
-    for(auto &alias : aliases)
+    for (auto &alias : aliases)
     {
-        if(alias.find(filename) == 0)
+        if (alias.find(filename) == 0)
         {
             cout << alias << endl;
-            if(opts.all == 0)
+            if (opts.all == 0)
                 return 0;
         }
     }
 
-    for(auto &function : functions)
+    for (auto &function : functions)
     {
-        if(function.find(filename) == 0)
+        if (function.find(filename) == 0)
         {
             cout << function << endl;
-            if(opts.all == 0)
+            if (opts.all == 0)
                 return 0;
         }
     }
@@ -227,27 +239,30 @@ int findPaths(string filename)
     failed = 1;
     split(path ? path : "", ':', dirs);
 
-    for(auto &dir: dirs)
+    for (auto &dir : dirs)
     {
         // clean up paths so we don't render double slashes
-        while(dir.rbegin() != dir.rend() && *dir.rbegin() == '/')
+        while (dir.rbegin() != dir.rend() && *dir.rbegin() == '/')
             dir.pop_back();
 
         string fullpath = dir + "/" + filename;
         string printed_path;
 
         struct stat sb;
-        if((stat(fullpath.c_str(), &sb) == 0) && sb.st_mode & S_IXUSR)
+        if ((stat(fullpath.c_str(), &sb) == 0) && sb.st_mode & S_IXUSR)
         {
-            if(opts.showDot && dir[0] == '.' && fullpath.compare(0, cwd.size(), cwd) == 0)
+            if (opts.showDot && dir[0] == '.' &&
+                fullpath.compare(0, cwd.size(), cwd) == 0)
             {
                 printed_path = string("./") + filename;
             }
             else
             {
-                if(opts.showTilde && !home.empty() && fullpath.compare(0, home.size(), home) == 0)
+                if (opts.showTilde && !home.empty() &&
+                    fullpath.compare(0, home.size(), home) == 0)
                 {
-                    fullpath = fullpath.substr(home.size(), fullpath.size()-home.size());
+                    fullpath = fullpath.substr(
+                        home.size(), fullpath.size() - home.size());
                     printed_path = string("~") + fullpath;
                 }
                 else
@@ -256,15 +271,15 @@ int findPaths(string filename)
                 }
             }
 
-            if(printed_path.size())
+            if (printed_path.size())
             {
-                if(opts.skipTilde && printed_path[0] == '~' && geteuid() != 0)
+                if (opts.skipTilde && printed_path[0] == '~' && geteuid() != 0)
                     continue;
-                else if(opts.skipDot && printed_path[0] == '.')
+                else if (opts.skipDot && printed_path[0] == '.')
                     continue;
                 cout << printed_path << endl;
                 failed = 0;
-                if(opts.all == 0)
+                if (opts.all == 0)
                     break;
             }
         }
@@ -275,27 +290,27 @@ int findPaths(string filename)
 
 void readAliasesAndFunctions()
 {
-    if(!opts.readFunctions && !opts.readAliases)
+    if (!opts.readFunctions && !opts.readAliases)
         return;
 
-    if(isatty(0))
+    if (isatty(0))
         cerr << "which: warning: stdin is a tty" << endl;
 
     string line, function;
 
-    while(std::getline(cin, line, '\n'))
+    while (std::getline(cin, line, '\n'))
     {
-        if(opts.readAliases && regex_match(line, regex("^.+=.+?$")))
+        if (opts.readAliases && regex_match(line, regex("^.+=.+?$")))
             aliases.push_back(line);
-        else if(opts.readFunctions)
+        else if (opts.readFunctions)
         {
             function = line + "\n";
-            while(std::getline(cin, line, '\n') && line != "}")
+            while (std::getline(cin, line, '\n') && line != "}")
             {
                 function += line + "\n";
             }
 
-            if(line == "}")
+            if (line == "}")
             {
                 function += "}\n";
                 functions.push_back(function);
@@ -304,7 +319,9 @@ void readAliasesAndFunctions()
         }
         else
         {
-            cerr << "which: line doesn't appear to be an alias and functions are disabled " << line << endl;
+            cerr << "which: line doesn't appear to be an alias and functions "
+                    "are disabled "
+                 << line << endl;
             exit(EXIT_FAILURE);
         }
     }
@@ -319,21 +336,21 @@ void setupFromEnv()
     home = _home ? _home : "";
 
     memset(_cwd, 0, PATH_MAX);
-    if(getcwd(_cwd, PATH_MAX) == NULL)
+    if (getcwd(_cwd, PATH_MAX) == NULL)
     {
-        cerr << "which: unable to retrieve current working directory " << strerror(errno) << endl;
+        cerr << "which: unable to retrieve current working directory "
+             << strerror(errno) << endl;
         exit(EXIT_FAILURE);
     }
 
     cwd = _cwd;
 }
 
-
 int main(int argc, char *argv[])
 {
     int status;
 
-    if(processOpts(argc, argv) != 0)
+    if (processOpts(argc, argv) != 0)
         return EXIT_FAILURE;
 
     setupFromEnv();
@@ -341,9 +358,9 @@ int main(int argc, char *argv[])
 
     status = EXIT_SUCCESS;
 
-    for(int i = optind; i < argc; i++)
+    for (int i = optind; i < argc; i++)
     {
-        if(findPaths(argv[i]) != 0)
+        if (findPaths(argv[i]) != 0)
         {
             cout << argv[i] << " not found" << endl;
             status = EXIT_FAILURE;

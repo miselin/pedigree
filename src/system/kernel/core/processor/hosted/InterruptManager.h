@@ -20,33 +20,36 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_INTERRUPTMANAGER_H
 
-#include <compiler.h>
 #include <Spinlock.h>
-#include <processor/types.h>
+#include <compiler.h>
 #include <processor/InterruptManager.h>
+#include <processor/types.h>
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
 
-#define MAX_SIGNAL  32
+#define MAX_SIGNAL 32
 
 /** The interrupt manager on hosted systems */
 class HostedInterruptManager : public ::InterruptManager
 {
-  public:
+    public:
     /** Get the HostedInterruptManager class instance
      *\return instance of the HostedInterruptManager class */
-    inline static HostedInterruptManager &instance(){return m_Instance;}
+    inline static HostedInterruptManager &instance()
+    {
+        return m_Instance;
+    }
 
-    virtual bool registerInterruptHandler(size_t nInterruptNumber,
-                                          InterruptHandler *pHandler);
+    virtual bool registerInterruptHandler(
+        size_t nInterruptNumber, InterruptHandler *pHandler);
 
-    #ifdef DEBUGGER
-      virtual bool registerInterruptHandlerDebugger(size_t nInterruptNumber,
-                                                    InterruptHandler *pHandler);
-      virtual size_t getBreakpointInterruptNumber() PURE;
-      virtual size_t getDebugInterruptNumber() PURE;
-    #endif
+#ifdef DEBUGGER
+    virtual bool registerInterruptHandlerDebugger(
+        size_t nInterruptNumber, InterruptHandler *pHandler);
+    virtual size_t getBreakpointInterruptNumber() PURE;
+    virtual size_t getDebugInterruptNumber() PURE;
+#endif
 
     /** Initialises this processors IDTR
      *\note This should only be called from Processor::initialise1() and
@@ -56,16 +59,19 @@ class HostedInterruptManager : public ::InterruptManager
     /** Signal handling shim for InterruptState protected access. */
     void signalShim(int which, void *siginfo, void *meta);
 
-  private:
+    private:
     /** Called when an interrupt was triggered
-     *\param[in] interruptState reference to the usermode/kernel state before the interrupt */
+     *\param[in] interruptState reference to the usermode/kernel state before
+     *the interrupt */
     static void interrupt(InterruptState &interruptState);
 
     /** Sets up an interrupt gate
      *\param[in] interruptNumber the interrupt number
-     *\param[in] interruptHandler address of the assembler interrupt handler stub
-     *\note This function is defined in kernel/processor/ARCH/interrupt.cc */
-    void setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler) INITIALISATION_ONLY;
+     *\param[in] interruptHandler address of the assembler interrupt handler
+     *stub \note This function is defined in kernel/processor/ARCH/interrupt.cc
+    */
+    void setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler)
+        INITIALISATION_ONLY;
     /** Sets the IST field for a given interrupt gate
      *\param[in] interruptNumber the interrupt number
      *\param[in] ist IST index to use */
@@ -77,7 +83,7 @@ class HostedInterruptManager : public ::InterruptManager
     HostedInterruptManager(const HostedInterruptManager &);
     /** Assignment operator
      *\note NOT implemented */
-    HostedInterruptManager &operator = (const HostedInterruptManager &);
+    HostedInterruptManager &operator=(const HostedInterruptManager &);
     /** The destructor */
     virtual ~HostedInterruptManager();
 
@@ -86,10 +92,10 @@ class HostedInterruptManager : public ::InterruptManager
 
     /** The normal interrupt handlers */
     InterruptHandler *m_pHandler[MAX_SIGNAL];
-    #ifdef DEBUGGER
-      /** The debugger interrupt handlers */
-      InterruptHandler *m_pDbgHandler[MAX_SIGNAL];
-    #endif
+#ifdef DEBUGGER
+    /** The debugger interrupt handlers */
+    InterruptHandler *m_pDbgHandler[MAX_SIGNAL];
+#endif
 
     /** The instance of the interrupt manager  */
     static HostedInterruptManager m_Instance;

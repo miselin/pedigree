@@ -24,7 +24,6 @@
 
 namespace Time
 {
-
 /**
  * Stopwatch provides a timer that can be stopped, started, and reset.
  *
@@ -33,7 +32,7 @@ namespace Time
  */
 class Stopwatch
 {
-public:
+    public:
     Stopwatch(bool startRunning = false);
     virtual ~Stopwatch();
 
@@ -49,7 +48,7 @@ public:
     /// Read the stopwatch value in nanoseconds.
     Timestamp value();
 
-private:
+    private:
     /// Current value.
     Timestamp m_Value;
 
@@ -59,7 +58,6 @@ private:
     /// Running or not.
     bool m_bRunning;
 };
-
 }
 
 #endif

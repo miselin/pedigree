@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -24,50 +23,54 @@
 /** @addtogroup kerneldebuggercommands
  * @{ */
 
-#include <Scrollable.h>
 #include <DebuggerCommand.h>
+#include <Scrollable.h>
 
 /**
  * Debugger command that allows viewing of the kernel log.
  */
-class LogViewer : public DebuggerCommand,
-                  public Scrollable
+class LogViewer : public DebuggerCommand, public Scrollable
 {
-public:
-  /**
-   * Default constructor - zero's stuff.
-   */
-  LogViewer();
+    public:
+    /**
+     * Default constructor - zero's stuff.
+     */
+    LogViewer();
 
-  /**
-   * Default destructor - does nothing.
-   */
-  ~LogViewer();
+    /**
+     * Default destructor - does nothing.
+     */
+    ~LogViewer();
 
-  /**
-   * Return an autocomplete string, given an input string.
-   */
-  void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+    /**
+     * Return an autocomplete string, given an input string.
+     */
+    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
 
-  /**
-   * Execute the command with the given screen.
-   */
-  bool execute(const HugeStaticString &input, HugeStaticString &output, InterruptState &state, DebuggerIO *screen);
-  
-  /**
-   * Returns the string representation of this command.
-   */
-  const NormalStaticString getString()
-  {
-    return NormalStaticString("log");
-  }
+    /**
+     * Execute the command with the given screen.
+     */
+    bool execute(
+        const HugeStaticString &input, HugeStaticString &output,
+        InterruptState &state, DebuggerIO *screen);
 
-  //
-  // Scrollable interface
-  //
-  virtual const char *getLine1(size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-  virtual const char *getLine2(size_t index, size_t &colOffset, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-  virtual size_t getLineCount();  
+    /**
+     * Returns the string representation of this command.
+     */
+    const NormalStaticString getString()
+    {
+        return NormalStaticString("log");
+    }
+
+    //
+    // Scrollable interface
+    //
+    virtual const char *getLine1(
+        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
+    virtual const char *getLine2(
+        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
+        DebuggerIO::Colour &bgColour);
+    virtual size_t getLineCount();
 };
 
 /** @} */

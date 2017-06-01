@@ -20,30 +20,33 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_RTC_H
 #define KERNEL_MACHINE_X86_COMMON_RTC_H
 
-#include <processor/IoPort.h>
+#include <Spinlock.h>
 #include <machine/IrqManager.h>
 #include <machine/Timer.h>
+#include <processor/IoPort.h>
 #include <processor/state.h>
-#include <Spinlock.h>
 
-#define MAX_TIMER_HANDLERS    32
+#define MAX_TIMER_HANDLERS 32
 
 /** @addtogroup kernelmachinex86common
  * @{ */
 
 /** Class for the Real-time clock / CMOS implementing the Timer interface */
-class Rtc : public Timer,
-            private IrqHandler
+class Rtc : public Timer, private IrqHandler
 {
-  public:
-    inline static Rtc &instance(){return m_Instance;}
+    public:
+    inline static Rtc &instance()
+    {
+        return m_Instance;
+    }
 
     //
     // Timer interface
     //
     virtual bool registerHandler(TimerHandler *handler);
     virtual bool unregisterHandler(TimerHandler *handler);
-    virtual void addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs=0);
+    virtual void
+    addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs = 0);
     virtual void removeAlarm(class Event *pEvent);
     virtual size_t removeAlarm(class Event *pEvent, bool bRetZero);
     virtual size_t getYear();
@@ -63,23 +66,25 @@ class Rtc : public Timer,
     /** Initialises the RTC's IRQ. */
     bool initialise2() INITIALISATION_ONLY;
     /** Synchronise the time/date with the hardware */
-    virtual void synchronise(bool tohw=false);
+    virtual void synchronise(bool tohw = false);
     /** Uninitialises the class */
     void uninitialise();
 
-  protected:
+    protected:
     /** The default constructor */
     Rtc() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~Rtc(){}
+    inline virtual ~Rtc()
+    {
+    }
 
-  private:
+    private:
     /** The copy-constructor
      *\note NOT implemented */
     Rtc(const Rtc &);
     /** The assignment operator
      *\note NOT implemented */
-    Rtc &operator = (const Rtc &);
+    Rtc &operator=(const Rtc &);
 
     //
     // IrqHandler interface
@@ -139,12 +144,12 @@ class Rtc : public Timer,
     /** Holds information about the RTC periodic irq */
     struct periodicIrqInfo_t
     {
-      /** The frequency */
-      size_t Hz;
-      /** Value that needs to be written to the CMOS register */
-      uint8_t rateBits;
-      /** Nanoseconds between two ticks */
-      uint64_t ns[2];
+        /** The frequency */
+        size_t Hz;
+        /** Value that needs to be written to the CMOS register */
+        uint8_t rateBits;
+        /** Nanoseconds between two ticks */
+        uint64_t ns[2];
     };
 
     /** Information about the RTC's periodic irq */
@@ -154,25 +159,27 @@ class Rtc : public Timer,
     static Rtc m_Instance;
 
     /** All timer handlers installed */
-    TimerHandler* m_Handlers[MAX_TIMER_HANDLERS];
+    TimerHandler *m_Handlers[MAX_TIMER_HANDLERS];
 
     /** Alarm structure. */
     class Alarm
     {
-    public:
-        Alarm(class Event *pEvent, size_t time, class Thread *pThread) :
-            m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
-        {}
+        public:
+        Alarm(class Event *pEvent, size_t time, class Thread *pThread)
+            : m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
+        {
+        }
         class Event *m_pEvent;
         size_t m_Time;
         class Thread *m_pThread;
-    private:
+
+        private:
         Alarm(const Alarm &);
-        Alarm &operator = (const Alarm &);
+        Alarm &operator=(const Alarm &);
     };
 
     /** List of alarms. */
-    List<Alarm*> m_Alarms;
+    List<Alarm *> m_Alarms;
     /** Protects m_Alarms. */
     Spinlock m_Lock;
 

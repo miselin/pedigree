@@ -20,22 +20,22 @@
 #ifndef MEMORY_BACKEND_H
 #define MEMORY_BACKEND_H
 
-#include <config/ConfigurationManager.h>
 #include <config/ConfigurationBackend.h>
+#include <config/ConfigurationManager.h>
 #include <processor/types.h>
 
-
 /** Memory configuration backend. Stores everything in RAM,
-  * won't save to file. Good for runtime-only information.
-  */
+ * won't save to file. Good for runtime-only information.
+ */
 class MemoryBackend : public ConfigurationBackend
 {
-public:
+    public:
     MemoryBackend(String configStore);
     virtual ~MemoryBackend();
 
     virtual size_t createTable(String table);
-    /** Inserts the value 'value' into the table 'table', with its key as 'key' */
+    /** Inserts the value 'value' into the table 'table', with its key as 'key'
+     */
     virtual void insert(String table, String key, ConfigValue &value);
     /** Returns the value in table, with key matching 'key', or zero. */
     virtual ConfigValue &select(String table, String key);
@@ -43,12 +43,12 @@ public:
     /** Watch a specific table entry. */
     virtual void watch(String table, String key, ConfigurationWatcher watcher);
     /** Remove a watcher from a table entry. */
-    virtual void unwatch(String table, String key, ConfigurationWatcher watcher);
+    virtual void
+    unwatch(String table, String key, ConfigurationWatcher watcher);
 
     String getTypeName();
 
-private:
-
+    private:
     // A Table
     struct Table
     {
@@ -59,11 +59,11 @@ private:
         {
         }
 
-        RadixTree<ConfigValue*> m_Rows;
+        RadixTree<ConfigValue *> m_Rows;
     };
 
     // Our tables
-    RadixTree<Table*> m_Tables;
+    RadixTree<Table *> m_Tables;
 };
 
 #endif

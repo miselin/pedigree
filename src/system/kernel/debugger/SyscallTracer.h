@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -22,10 +21,10 @@
 
 class SyscallTracer
 {
-public:
-  /**
-   * Creates a new SyscallTracer object.
-   */
-  SyscallTracer(const char* pfileName, const char* pFnName, int line);
-  ~SyscallTracer();
+    public:
+    /**
+     * Creates a new SyscallTracer object.
+     */
+    SyscallTracer(const char *pfileName, const char *pFnName, int line);
+    ~SyscallTracer();
 };

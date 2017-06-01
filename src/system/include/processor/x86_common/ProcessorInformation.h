@@ -20,14 +20,14 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_X86_COMMON_PROCESSORINFORMATION_H
 
-#include <process/Thread.h>
 #include <process/PerProcessorScheduler.h>
-#include <processor/types.h>
+#include <process/Thread.h>
 #include <processor/VirtualAddressSpace.h>
+#include <processor/types.h>
 #if defined(X86)
-  #include <processor/x86/tss.h>
+#include <processor/x86/tss.h>
 #else
-  #include <processor/x64/tss.h>
+#include <processor/x64/tss.h>
 #endif
 #include <process/InfoBlock.h>
 
@@ -37,14 +37,15 @@
 /** Common x86 processor information structure */
 class X86CommonProcessorInformation
 {
-  friend class Processor;
-  friend class Multiprocessor;
-  public:
-    #if defined(X86)
-      typedef X86TaskStateSegment TaskStateSegment;
-    #else
-      typedef X64TaskStateSegment TaskStateSegment;
-    #endif
+    friend class Processor;
+    friend class Multiprocessor;
+
+    public:
+#if defined(X86)
+    typedef X86TaskStateSegment TaskStateSegment;
+#else
+    typedef X64TaskStateSegment TaskStateSegment;
+#endif
 
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
@@ -58,53 +59,77 @@ class X86CommonProcessorInformation
     /** Set the current processor's VirtualAddressSpace
      *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
     inline void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace)
-      {m_VirtualAddressSpace = &virtualAddressSpace;}
+    {
+        m_VirtualAddressSpace = &virtualAddressSpace;
+    }
 
     /** Set the processor's TSS selector
      *\param[in] TssSelector the new TSS selector */
     inline void setTssSelector(uint16_t TssSelector)
-      {m_TssSelector = TssSelector;}
+    {
+        m_TssSelector = TssSelector;
+    }
     /** Set the processor's TSS
      *\param[in] Tss pointer to the new TSS */
     inline void setTss(void *Tss)
-      {m_Tss= reinterpret_cast<TaskStateSegment*>(Tss);}
+    {
+        m_Tss = reinterpret_cast<TaskStateSegment *>(Tss);
+    }
     /** Get the processor's TSS selector
      *\return the TSS selector of the processor */
     inline uint16_t getTssSelector() const
-      {return m_TssSelector;}
+    {
+        return m_TssSelector;
+    }
     /** Get the processor's TSS
      *\return the Tss of the processor */
     inline void *getTss() const
-      {return reinterpret_cast<void*>(m_Tss);}
+    {
+        return reinterpret_cast<void *>(m_Tss);
+    }
     /** Gets the processor's TLS base segment */
     inline uint16_t getTlsSelector()
-      {return m_TlsSelector;}
+    {
+        return m_TlsSelector;
+    }
     /** Sets the processor's TLS base segment */
     inline void setTlsSelector(uint16_t tls)
-      {m_TlsSelector = tls;}
+    {
+        m_TlsSelector = tls;
+    }
 
     inline uintptr_t getKernelStack() const;
     inline void setKernelStack(uintptr_t stack);
     inline Thread *getCurrentThread() const
-      {return m_pCurrentThread;}
+    {
+        return m_pCurrentThread;
+    }
     inline void setCurrentThread(Thread *pThread)
     {
-      m_pCurrentThread = pThread;
-      InfoBlockManager::instance().setPid(pThread->getParent()->getId());
+        m_pCurrentThread = pThread;
+        InfoBlockManager::instance().setPid(pThread->getParent()->getId());
     }
 
     inline PerProcessorScheduler &getScheduler()
-      {return m_Scheduler;}
+    {
+        return m_Scheduler;
+    }
 
-  protected:
+    protected:
     /** Construct a X86CommonProcessor object
      *\param[in] processorId Identifier of the processor */
-    inline X86CommonProcessorInformation(ProcessorId processorId, uint8_t apicId = 0)
-      : m_ProcessorId(processorId), m_TssSelector(0), m_Tss(0),
-        m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()), m_LocalApicId(apicId),
-        m_pCurrentThread(0), m_Scheduler(), m_TlsSelector(0) {}
+    inline X86CommonProcessorInformation(
+        ProcessorId processorId, uint8_t apicId = 0)
+        : m_ProcessorId(processorId), m_TssSelector(0), m_Tss(0),
+          m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
+          m_LocalApicId(apicId), m_pCurrentThread(0), m_Scheduler(),
+          m_TlsSelector(0)
+    {
+    }
     /** The destructor does nothing */
-    inline virtual ~X86CommonProcessorInformation(){}
+    inline virtual ~X86CommonProcessorInformation()
+    {
+    }
 
     inline void setIds(ProcessorId processorId, uint8_t apicId = 0)
     {
@@ -112,7 +137,7 @@ class X86CommonProcessorInformation
         m_LocalApicId = apicId;
     }
 
-  private:
+    private:
     /** Default constructor
      *\note NOT implemented */
     X86CommonProcessorInformation();
@@ -121,7 +146,8 @@ class X86CommonProcessorInformation
     X86CommonProcessorInformation(const X86CommonProcessorInformation &);
     /** Assignment operator
      *\note NOT implemented */
-    X86CommonProcessorInformation &operator = (const X86CommonProcessorInformation &);
+    X86CommonProcessorInformation &
+    operator=(const X86CommonProcessorInformation &);
 
     /** Identifier of that processor */
     ProcessorId m_ProcessorId;
@@ -148,23 +174,23 @@ class X86CommonProcessorInformation
 //
 uintptr_t X86CommonProcessorInformation::getKernelStack() const
 {
-  #if defined(X86)
+#if defined(X86)
     return m_Tss->esp0;
-  #else
+#else
     return m_Tss->rsp0;
-  #endif
+#endif
 }
 void X86CommonProcessorInformation::setKernelStack(uintptr_t stack)
 {
-  #if defined(X86)
+#if defined(X86)
     m_Tss->esp0 = stack;
-  #else
+#else
     m_Tss->rsp0 = stack;
     // Can't use Procesor::writeMachineSpecificRegister as Processor is
     // undeclared here!
     uint32_t eax = stack, edx = stack >> 32;
-    asm volatile("wrmsr" :: "a" (eax), "d" (edx), "c" (0xc0000102));
-  #endif
+    asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102));
+#endif
 }
 
 #endif
