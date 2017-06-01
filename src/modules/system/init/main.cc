@@ -48,15 +48,25 @@ static int init_stage2(void *param)
     return;
 #endif
 
+    bool tryingLinux = false;
+
     String init_path("root»/applications/init");
     if (!VFS::instance().find(init_path))
     {
         WARNING("Did not find " << init_path << ", trying for a Linux userspace...");
         init_path = "root»/sbin/init";
+        tryingLinux = true;
     }
 
     List<SharedPointer<String>> argv, env;
     argv.pushBack(SharedPointer<String>::allocate(init_path));
+
+    if (tryingLinux)
+    {
+        // Jump to runlevel 5
+        // argv.pushBack(SharedPointer<String>::allocate(String("5")));
+        argv.pushBack(SharedPointer<String>::allocate(String("S")));
+    }
 
     Process *pProcess = Processor::information().getCurrentThread()->getParent();
     if (!pProcess->getSubsystem()->invoke(init_path, argv, env))
