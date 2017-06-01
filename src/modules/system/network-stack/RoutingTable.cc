@@ -32,6 +32,19 @@ RoutingTable::~RoutingTable()
 {
 }
 
+bool RoutingTable::initialise()
+{
+    // Need to wipe out the routing tables so they're in a known state.
+    String str;
+    str.Format("DELETE FROM routes");
+    Config::instance().query(str);
+
+    str.Format("DELETE FROM routesv6");
+    Config::instance().query(str);
+
+    return true;
+}
+
 void RoutingTable::Add(Type type, IpAddress dest, IpAddress subIp, String meta, Network *card)
 {
     LockGuard<Mutex> guard(m_TableLock);
@@ -46,7 +59,13 @@ void RoutingTable::Add(Type type, IpAddress dest, IpAddress subIp, String meta, 
     if((dest.getType() == IpAddress::IPv4) && (type != NamedV6))
     {
         if(type != Named)
-        NOTICE("RoutingTable: Adding IPv4 match route for " << dest.toString() << ", sub " << subIp.toString() << ".");
+        {
+            NOTICE("RoutingTable: Adding IPv4 match route for " << dest.toString() << ", sub " << subIp.toString() << ".");
+        }
+        else
+        {
+            NOTICE("RoutingTable: Adding IPv4 named route '" << meta << "'...");
+        }
 
         // Add the route to the database directly
         String str;
@@ -60,7 +79,13 @@ void RoutingTable::Add(Type type, IpAddress dest, IpAddress subIp, String meta, 
     else
     {
         if(type != NamedV6)
-        NOTICE("RoutingTable: Adding IPv6 match route for " << dest.prefixString(128) << ", sub " << subIp.prefixString(128) << ".");
+        {
+            NOTICE("RoutingTable: Adding IPv6 match route for " << dest.prefixString(128) << ", sub " << subIp.prefixString(128) << ".");
+        }
+        else
+        {
+            NOTICE("RoutingTable: Adding IPv6 named route '" << meta << "'...");
+        }
 
         // Develop the subip parameter - four integers.
         uint32_t subipTemp[4];
@@ -180,7 +205,8 @@ Network *RoutingTable::route(IpAddress *ip, Config::Result *pResult)
     }
 
     // Grab the interface
-    Network *pCard = static_cast<Network*>(DeviceHashTree::instance().getDevice(pResult->getNum(0, "iface")));
+    size_t iface = pResult->getNum(0, "iface");
+    Network *pCard = static_cast<Network*>(DeviceHashTree::instance().getDevice(iface));
 
     // If we are to perform substitution, do so
     Type t = static_cast<Type>(pResult->getNum(0, "type"));
@@ -333,6 +359,10 @@ Network *RoutingTable::DefaultRoute()
         if(bLocked)
             m_TableLock.release();
         return route(0, pResult);
+    }
+    else
+    {
+        ERROR("No rows matched when trying to find the default route.");
     }
 
     delete pResult;

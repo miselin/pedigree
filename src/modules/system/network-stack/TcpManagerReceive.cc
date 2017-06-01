@@ -80,8 +80,9 @@ void TcpManager::receive(IpAddress from, uint16_t sourcePort, uint16_t destPort,
   if(((header->flags & Tcp::SYN) != 0) && (headerLength > 20))
   {
     size_t offset = 20;
-    uint8_t *opts = &reinterpret_cast<uint8_t *>(header)[offset];
-    while((*opts) && (offset < headerLength))
+    uint8_t *opts = reinterpret_cast<uint8_t *>(header + offset);
+    NOTICE("offset=" << offset << ", headerlen=" << headerLength << " [opts=" << *opts << "]");
+    while((offset < headerLength) && (*opts))
     {
       uint8_t code = opts[0];
       uint8_t len = opts[1];
@@ -97,6 +98,8 @@ void TcpManager::receive(IpAddress from, uint16_t sourcePort, uint16_t destPort,
 
       offset += len;
       opts = &reinterpret_cast<uint8_t *>(header)[offset];
+
+      NOTICE("NEW offset=" << offset << ", headerlen=" << headerLength);
     }
   }
 
@@ -736,7 +739,7 @@ void TcpManager::receive(IpAddress from, uint16_t sourcePort, uint16_t destPort,
     {
       stateBlock->endpoint->stateChanged(stateBlock->currentState);
     }
-    stateBlock->waitState.release();
+    stateBlock->cond.signal();
   }
 
   if(stateBlock->currentState == Tcp::CLOSED)

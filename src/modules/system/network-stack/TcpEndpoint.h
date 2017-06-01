@@ -30,6 +30,8 @@
 #include "ConnectionBasedEndpoint.h"
 #include "Endpoint.h"
 #include "TcpMisc.h"
+#include "Tcp.h"
+
 class TcpManager;
 class StateBlock;
 
@@ -104,7 +106,8 @@ class TcpEndpoint : public ConnectionBasedEndpoint
 
     /** Incoming connection queue (to be handled by accept) */
     List<Endpoint*> m_IncomingConnections;
-    Semaphore m_IncomingConnectionCount;
+    size_t m_IncomingConnectionCount;
+    ConditionVariable cond;
 
     /** Is there a connection active? */
     bool m_bConnected;

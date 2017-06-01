@@ -60,14 +60,7 @@ public:
 
 bool delay(Timestamp nanoseconds)
 {
-    Thread *pThread = Processor::information().getCurrentThread();
-    Event *pEvent = new DelayTimerEvent();
-    uint64_t usecs = nanoseconds / Multiplier::MICROSECOND;
-    if (!usecs)
-        ++usecs;  /// \todo perhaps change addAlarm to take ns.
-
-    pThread->setInterrupted(false);
-    Machine::instance().getTimer()->addAlarm(pEvent, 0, usecs);
+    void *handle = addAlarm(nanoseconds);
 
     /// \todo possible race condition for very short alarm times
     while (true)
@@ -77,14 +70,12 @@ bool delay(Timestamp nanoseconds)
 
         if (pThread->wasInterrupted())
         {
-            Machine::instance().getTimer()->removeAlarm(pEvent);
-            delete pEvent;
+            removeAlarm(handle);
             break;
         }
         else if (pThread->getUnwindState() != Thread::Continue)
         {
-            Machine::instance().getTimer()->removeAlarm(pEvent);
-            delete pEvent;
+            removeAlarm(handle);
             return false;
         }
 
@@ -92,6 +83,27 @@ bool delay(Timestamp nanoseconds)
     }
 
     return true;
+}
+
+void *addAlarm(Timestamp nanoseconds)
+{
+    Event *pEvent = new DelayTimerEvent();
+    uint64_t usecs = nanoseconds / Multiplier::MICROSECOND;
+    if (!usecs)
+        ++usecs;  /// \todo perhaps change addAlarm to take ns.
+
+    Thread *pThread = Processor::information().getCurrentThread();
+    pThread->setInterrupted(false);
+    Machine::instance().getTimer()->addAlarm(pEvent, 0, usecs);
+
+    return pEvent;
+}
+
+void removeAlarm(void *handle)
+{
+    Event *pEvent = reinterpret_cast<Event *>(handle);
+    Machine::instance().getTimer()->removeAlarm(pEvent);
+    delete pEvent;
 }
 
 }

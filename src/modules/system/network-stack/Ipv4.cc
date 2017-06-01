@@ -412,7 +412,7 @@ void Ipv4::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t off
         break;
 
       default:
-        NOTICE("IP: Unknown packet type");
+        NOTICE("IP: Unknown packet type: " << Hex << header->type);
         pCard->badPacket();
         break;
     }

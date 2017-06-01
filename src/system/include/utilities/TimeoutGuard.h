@@ -96,6 +96,8 @@ private:
     /** Saved state. */
 #ifdef THREADS
     SchedulerState m_State;
+#else
+    void *m_State;
 #endif
 
     /** Saved nesting level. */

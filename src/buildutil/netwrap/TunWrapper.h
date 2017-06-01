@@ -21,6 +21,8 @@
 #define TUNWRAPPER_H
 
 #include <machine/Network.h>
+#include <process/Mutex.h>
+#include <process/ConditionVariable.h>
 
 class TunWrapper : public Network
 {
@@ -49,8 +51,21 @@ public:
     void run(int fd);
 
 protected:
+    static int packetPusherThread(void *param);
+    void packetPusher();
+
     int m_Fd;
     StationInfo m_StationInfo;
+
+    struct packet
+    {
+        size_t bytes;
+        char buffer[4096];
+    };
+
+    List<packet *> m_Packets;
+    Mutex lock;
+    ConditionVariable cond;
 };
 
 #endif  // TUNWRAPPER_H

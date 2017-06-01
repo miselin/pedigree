@@ -81,6 +81,8 @@ class RoutingTable
             return m_Instance;
         }
 
+        bool initialise();
+
         inline bool hasRoutes()
         {
             return m_bHasRoutes;

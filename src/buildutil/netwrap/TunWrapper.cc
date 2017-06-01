@@ -29,21 +29,6 @@
 #include <network-stack/NetworkStack.h>
 #include <utilities/pocketknife.h>
 
-struct packet
-{
-    size_t bytes;
-    TunWrapper *owner;
-    char buffer[4096];
-};
-
-static int pushPacket(void *param)
-{
-    packet *p = reinterpret_cast<packet *>(param);
-    NetworkStack::instance().receive(p->bytes, reinterpret_cast<uintptr_t>(p->buffer), p->owner, 0);
-    delete p;
-    return 0;
-}
-
 TunWrapper::TunWrapper() : m_StationInfo(), m_Fd(-1)
 {
     m_SpecificType = "Pedigree TUN/TAP Device Wrapper";
@@ -84,8 +69,6 @@ bool TunWrapper::send(size_t nBytes, uintptr_t buffer)
 
 bool TunWrapper::setStationInfo(StationInfo info)
 {
-    m_StationInfo = info;
-
     m_StationInfo.ipv4 = info.ipv4;
     NOTICE("TUNTAP: Setting ipv4, " << info.ipv4.toString());
 
@@ -108,6 +91,8 @@ StationInfo TunWrapper::getStationInfo()
 
 void TunWrapper::run(int fd)
 {
+    pocketknife::runConcurrently(packetPusherThread, this);
+
     m_Fd = fd;
 
     struct pollfd pfd;
@@ -134,14 +119,16 @@ void TunWrapper::run(int fd)
         {
             packet *p = new packet;
             memset(p, 0, sizeof(*p));
-            p->owner = this;
 
             ssize_t bytes = read(fd, p->buffer, sizeof p->buffer);
             p->bytes = bytes;
 
             if (bytes >= 0)
             {
-                pocketknife::runConcurrently(pushPacket, p);
+                lock.acquire();
+                m_Packets.pushBack(p);
+                cond.signal();
+                lock.release();
             }
         }
         else if ((pfd.revents & POLLERR) == POLLERR)
@@ -149,4 +136,29 @@ void TunWrapper::run(int fd)
             /// \todo how to handle this?
         }
     }
+}
+
+int TunWrapper::packetPusherThread(void *param)
+{
+    TunWrapper *wrapper = reinterpret_cast<TunWrapper *>(param);
+    wrapper->packetPusher();
+    return 0;
+}
+
+void TunWrapper::packetPusher()
+{
+    lock.acquire();
+    while (true)
+    {
+        if (!m_Packets.count())
+        {
+            cond.wait(lock);
+            continue;
+        }
+
+        packet *p = m_Packets.popFront();
+        NetworkStack::instance().receive(p->bytes, reinterpret_cast<uintptr_t>(p->buffer), this, 0);
+        delete p;
+    }
+    lock.release();
 }

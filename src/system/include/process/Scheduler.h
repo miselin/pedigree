@@ -92,7 +92,8 @@ public:
 #endif  // THREADS
 
 private:
-    WITHOUT_IMPLICIT_CONSTRUCTORS(Scheduler);
+    Scheduler();
+    NOT_COPYABLE_OR_ASSIGNABLE(Scheduler);
   
     /** The Scheduler instance. */
     static Scheduler m_Instance;

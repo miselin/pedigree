@@ -40,6 +40,18 @@ namespace Multiplier
 /** Performs a sleep for the given time. */
 bool delay(Timestamp nanoseconds);
 
+/**
+ * Add an alarm that interrupts the thread after the given time.
+ * Can be used to request a wakeup from a sleep().
+ */
+void *addAlarm(Timestamp nanoseconds);
+
+/** Remove an alarm created by addAlarm. */
+void removeAlarm(void *handle);
+
+/** Run the given function (asynchronously) after the specified delay. */
+void runAfter(int (*func)(void *), void *param, Timestamp nanoseconds);
+
 /** Gets the system's current time. */
 Timestamp getTime(bool sync=false);
 

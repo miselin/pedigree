@@ -43,7 +43,7 @@ int stateBlockFree(void* p);
 // TCP is based on connections, so we need to keep track of them
 // before we even think about depositing into Endpoints. These state blocks
 // keep track of important information relating to the connection state.
-class StateBlock : public TimerHandler
+class StateBlock
 {
   private:
 
@@ -105,7 +105,8 @@ class StateBlock : public TimerHandler
     uint32_t numEndpointPackets;
 
     // Waiting for something?
-    Semaphore waitState;
+    Mutex lock;
+    ConditionVariable cond;
 
     // The endpoint applications use for this TCP connection
     TcpEndpoint* endpoint;
@@ -139,6 +140,9 @@ class StateBlock : public TimerHandler
     // resets the timer (to restart a timeout)
     void resetTimer(uint32_t timeout = 10);
 
+    // starts a timer to destroy this state block
+    void startCleanup();
+
     // are we waiting on a timeout?
     bool waitingForTimeout;
 
@@ -149,10 +153,12 @@ class StateBlock : public TimerHandler
     bool didTimeout;
 
     // timeout wait semaphore (in case)
-    Semaphore timeoutWait;
     bool useWaitSem;
 
   private:
+    static int performCleanupTrampoline(void *param);
+
+    void performCleanup();
 
     // number of nanoseconds & seconds for the timer
     uint64_t m_Nanoseconds;

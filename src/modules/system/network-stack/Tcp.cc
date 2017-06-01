@@ -145,6 +145,13 @@ void Tcp::receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
   if(!packet || !nBytes)
       return;
 
+  if (nBytes < sizeof(tcpHeader))
+  {
+      WARNING("TCP packet with truncated header!");
+      pCard->badPacket();
+      return;
+  }
+
   // Check for filtering
   if(!NetworkFilter::instance().filter(3, packet, nBytes))
   {
@@ -171,11 +178,25 @@ void Tcp::receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
   // the size of the header (+ options)
   size_t headerSize = header->offset * 4;
 
+  if (headerSize > nBytes)
+  {
+    WARNING("TCP packet had an invalid offset field");
+    pCard->badPacket();
+    return;
+  }
+
   // find the payload and its size - tcpHeader::len is the size of the header + data
   // we use it rather than calculating the size from offsets in order to be able to handle
   // packets that may have been padded (for whatever reason)
   uintptr_t payload = reinterpret_cast<uintptr_t>(header) + headerSize; // offset is in DWORDs
   size_t payloadSize = nBytes - headerSize;
+
+  if (payloadSize > nBytes)
+  {
+    WARNING("TCP packet has an invalid payload size");
+    pCard->badPacket();
+    return;
+  }
 
   // check the checksum, if it's not zero
   if(header->checksum != 0)
@@ -198,5 +219,6 @@ void Tcp::receive(IpAddress from, IpAddress to, uintptr_t packet, size_t nBytes,
   // NOTICE("TCP: Packet has arrived! Dest port is " << Dec << BIG_TO_HOST16(header->dest_port) << Hex << " and flags are " << header->flags << ".");
 
   // either no checksum, or calculation was successful, either way go on to handle it
+  NOTICE("packet is " << nBytes << " bytes, payload is " << payloadSize << " bytes");
   TcpManager::instance().receive(from, BIG_TO_HOST16(header->src_port), BIG_TO_HOST16(header->dest_port), header, payload, payloadSize, pCard);
 }

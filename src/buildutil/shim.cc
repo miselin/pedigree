@@ -26,6 +26,7 @@
 #include <time.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#include <setjmp.h>
 
 #include <time/Time.h>
 #include <Spinlock.h>
@@ -33,8 +34,12 @@
 #include <process/ConditionVariable.h>
 #include <utilities/Cache.h>
 #include <utilities/MemoryPool.h>
+#include <process/Scheduler.h>
+#include <utilities/TimeoutGuard.h>
 
 void *g_pBootstrapInfo = 0;
+
+Scheduler Scheduler::m_Instance;
 
 namespace Time
 {
@@ -42,6 +47,16 @@ namespace Time
 Timestamp getTime(bool sync)
 {
     return time(NULL);
+}
+
+bool delay(Timestamp nanoseconds)
+{
+    /// \todo this isn't quite right
+    struct timespec ts;
+    ts.tv_sec = nanoseconds / Multiplier::SECOND;
+    ts.tv_nsec = nanoseconds % Multiplier::SECOND;
+    nanosleep(&ts, nullptr);
+    return true;
 }
 
 }  // Time
@@ -149,12 +164,25 @@ ConditionVariable::~ConditionVariable()
     delete cond;
 }
 
-bool ConditionVariable::wait(Mutex &mutex)
+bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
 {
     pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
     pthread_mutex_t *m = reinterpret_cast<pthread_mutex_t *>(mutex.getPrivate());
 
-    int r = pthread_cond_wait(cond, m);
+    int r = 0;
+    if (timeout == 0)
+    {
+        r = pthread_cond_wait(cond, m);
+    }
+    else
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += timeout / Time::Multiplier::SECOND;
+        ts.tv_nsec += timeout % Time::Multiplier::SECOND;
+
+        r = pthread_cond_timedwait(cond, m, &ts);
+    }
     return r == 0;
 }
 
@@ -280,3 +308,33 @@ void syscallError(int e)
     errno = e;
 }
 
+Scheduler::Scheduler() = default;
+
+void Scheduler::yield()
+{
+    sched_yield();
+}
+
+TimeoutGuard::TimeoutGuard(size_t timeoutSecs) : m_bTimedOut(false)
+{
+    jmp_buf *buf = reinterpret_cast<jmp_buf *>(malloc(sizeof(jmp_buf)));
+    if (sigsetjmp(*buf, 0))
+    {
+        m_bTimedOut = true;
+        return;
+    }
+
+    m_State = buf;
+}
+
+TimeoutGuard::~TimeoutGuard()
+{
+    jmp_buf *buf = reinterpret_cast<jmp_buf *>(m_State);
+    free(buf);
+}
+
+void TimeoutGuard::cancel()
+{
+    jmp_buf *buf = reinterpret_cast<jmp_buf *>(m_State);
+    siglongjmp(*buf, 1);
+}

@@ -43,7 +43,7 @@ build_env.Append(CPPPATH=header_paths)
 defines = [
     'HOSTED', 'DEVICE_IGNORE_ADDRESSES', 'TARGET_IS_LITTLE_ENDIAN',
     'MEMORY_TRACING', 'STATIC_DRIVERS', 'STANDALONE_MUTEXES', 'UTILITY_LINUX',
-    'DISABLE_TCP', 'DISABLE_RAWNET', 'NO_NETWORK_SERVICES', 'STANDALONE_MEMPOOL'
+    'DISABLE_RAWNET', 'NO_NETWORK_SERVICES', 'STANDALONE_MEMPOOL'
 ]
 
 build_env.Append(CPPDEFINES=defines)
@@ -70,31 +70,31 @@ libnetwork_sources = [
 ]
 
 libnetstack_sources = [
-    # '#src/modules/system/network-stack/TcpMisc.cc',
+    '#src/modules/system/network-stack/TcpMisc.cc',
     '#src/modules/system/network-stack/ConnectionBasedEndpoint.cc',
     # '#src/modules/system/network-stack/RawManager.cc',
     '#src/modules/system/network-stack/Ipv4.cc',
     '#src/modules/system/network-stack/IpCommon.cc',
-    # '#src/modules/system/network-stack/TcpEndpoint.cc',
+    '#src/modules/system/network-stack/TcpEndpoint.cc',
     '#src/modules/system/network-stack/Ndp.cc',
     '#src/modules/system/network-stack/Udp.cc',
-    # '#src/modules/system/network-stack/TcpManager.cc',
+    '#src/modules/system/network-stack/TcpManager.cc',
     '#src/modules/system/network-stack/Ethernet.cc',
     '#src/modules/system/network-stack/RoutingTable.cc',
     '#src/modules/system/network-stack/Filter.cc',
     '#src/modules/system/network-stack/Endpoint.cc',
     '#src/modules/system/network-stack/Icmp.cc',
     '#src/modules/system/network-stack/NetworkStack.cc',
-    # '#src/modules/system/network-stack/TcpManagerReceive.cc',
+    '#src/modules/system/network-stack/TcpManagerReceive.cc',
     '#src/modules/system/network-stack/UdpLogger.cc',
     '#src/modules/system/network-stack/Arp.cc',
     '#src/modules/system/network-stack/Icmpv6.cc',
-    # '#src/modules/system/network-stack/Tcp.cc',
+    '#src/modules/system/network-stack/Tcp.cc',
     '#src/modules/system/network-stack/Ipv6.cc',
     '#src/modules/system/network-stack/NeighbourDiscovery.cc',
     '#src/modules/system/network-stack/NetManager.cc',
     '#src/modules/system/network-stack/UdpManager.cc',
-    # '#src/modules/system/network-stack/TcpStateBlock.cc',
+    '#src/modules/system/network-stack/TcpStateBlock.cc',
 ]
 
 build_env.Library(libconfig, libconfig_sources)

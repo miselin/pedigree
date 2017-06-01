@@ -22,6 +22,7 @@
 
 #include <Spinlock.h>
 #include <utilities/List.h>
+#include <time/Time.h>
 
 class Mutex;
 class Thread;
@@ -36,8 +37,9 @@ class ConditionVariable
         ~ConditionVariable();
 
         /** Wait for a signal on the condition variable.
-         * \param[in] mutex an acquired mutex protecting the resource. */
-        bool wait(Mutex &mutex);
+         * \param[in] mutex an acquired mutex protecting the resource.
+         * \param[in] timeout a timeout in nanoseconds to add (or zero for none). */
+        bool wait(Mutex &mutex, Time::Timestamp timeout = 0);
 
         /** Wake up at least one thread that is currently waiting. */
         void signal();

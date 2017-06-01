@@ -43,6 +43,8 @@
 
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
+#include <network-stack/TcpManager.h>
+#include <machine/DeviceHashTree.h>
 #include <Log.h>
 
 static jmp_buf g_jb;
@@ -98,6 +100,7 @@ static void mainloop(int fd)
     }
 
     NetworkStack *stack = new NetworkStack();
+    TcpManager *tcpManager = new TcpManager();
 
     // StationInfo for our static configuration.
     StationInfo info;
@@ -118,9 +121,10 @@ static void mainloop(int fd)
     wrapper->setStationInfo(info);
     NetworkStack::instance().registerDevice(wrapper);
 
-    std::cerr << "we are " << wrapper << std::endl;
+    DeviceHashTree::instance().fill(wrapper);
 
     IpAddress empty;
+    RoutingTable::instance().initialise();
     RoutingTable::instance().Add(RoutingTable::Named, empty, empty, String("default"), wrapper);
 
     if (sigsetjmp(g_jb, 0))

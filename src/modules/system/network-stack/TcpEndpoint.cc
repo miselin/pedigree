@@ -27,7 +27,7 @@
 TcpEndpoint::TcpEndpoint() :
   ConnectionBasedEndpoint(), m_Card(0), m_ConnId(0), m_RemoteHost(),
   nBytesRemoved(0), m_Listening(false), m_IncomingConnections(),
-  m_IncomingConnectionCount(0), m_bConnected(false), m_IncomingConnectionLock(),
+  m_IncomingConnectionCount(0), cond(), m_bConnected(false), m_IncomingConnectionLock(),
   m_DataStream(), m_ShadowDataStream()
 {
   m_bConnection = true;
@@ -35,7 +35,7 @@ TcpEndpoint::TcpEndpoint() :
 TcpEndpoint::TcpEndpoint(uint16_t local, uint16_t remote) :
   ConnectionBasedEndpoint(local, remote), m_Card(0), m_ConnId(0),
   m_RemoteHost(), nBytesRemoved(0), m_Listening(false), m_IncomingConnections(),
-  m_IncomingConnectionCount(0), m_bConnected(false), m_IncomingConnectionLock(),
+  m_IncomingConnectionCount(0), cond(), m_bConnected(false), m_IncomingConnectionLock(),
   m_DataStream(), m_ShadowDataStream()
 {
   m_bConnection = true;
@@ -43,7 +43,7 @@ TcpEndpoint::TcpEndpoint(uint16_t local, uint16_t remote) :
 TcpEndpoint::TcpEndpoint(IpAddress remoteIp, uint16_t local, uint16_t remote) :
   ConnectionBasedEndpoint(remoteIp, local, remote), m_Card(0),
   m_ConnId(0), m_RemoteHost(), nBytesRemoved(0), m_Listening(false),
-  m_IncomingConnections(), m_IncomingConnectionCount(0), m_bConnected(false),
+  m_IncomingConnections(), m_IncomingConnectionCount(0), cond(), m_bConnected(false),
   m_IncomingConnectionLock(), m_DataStream(), m_ShadowDataStream()
 {
   m_bConnection = true;
@@ -51,7 +51,7 @@ TcpEndpoint::TcpEndpoint(IpAddress remoteIp, uint16_t local, uint16_t remote) :
 TcpEndpoint::TcpEndpoint(size_t connId, IpAddress remoteIp, uint16_t local, uint16_t remote) :
   ConnectionBasedEndpoint(remoteIp, local, remote), m_Card(0),
   m_ConnId(connId), m_RemoteHost(), nBytesRemoved(0), m_Listening(false),
-  m_IncomingConnections(), m_IncomingConnectionCount(0), m_bConnected(false),
+  m_IncomingConnections(), m_IncomingConnectionCount(0), cond(), m_bConnected(false),
   m_IncomingConnectionLock(), m_DataStream(), m_ShadowDataStream()
 {
   m_bConnection = true;
@@ -95,14 +95,14 @@ Endpoint* TcpEndpoint::accept()
     }
 
     // acquire() will return true when there is at least one connection waiting
-    while (!m_IncomingConnectionCount.acquire())
-        Scheduler::instance().yield();
-
-    Endpoint* e = 0;
+    m_IncomingConnectionLock.acquire();
+    while (!m_IncomingConnectionCount)
     {
-        LockGuard<Mutex> guard(m_IncomingConnectionLock);
-        e = m_IncomingConnections.popFront();
+        cond.wait(m_IncomingConnectionLock);
     }
+
+    Endpoint* e = m_IncomingConnections.popFront();
+    m_IncomingConnectionLock.release();
 
     return e;
 }
@@ -274,9 +274,21 @@ bool TcpEndpoint::dataReady(bool block, uint32_t tmout)
       {
         // Wait for incoming connection.
         bool bRet = false;
-        if((bRet = m_IncomingConnectionCount.acquire(tmout)))
-          m_IncomingConnectionCount.release();
-        return bRet;
+        LockGuard<Mutex> guard(m_IncomingConnectionLock);
+        if (m_IncomingConnectionCount > 0)
+        {
+            return true;
+        }
+
+        while (!m_IncomingConnectionCount)
+        {
+            if (!cond.wait(m_IncomingConnectionLock, tmout * Time::Multiplier::SECOND))
+            {
+                return false;
+            }
+        }
+
+        return true;
       }
       else
       {
@@ -333,8 +345,9 @@ void TcpEndpoint::addIncomingConnection(TcpEndpoint* conn)
     {
       LockGuard<Mutex> guard(m_IncomingConnectionLock);
       m_IncomingConnections.pushBack(static_cast<Endpoint*>(conn));
+      ++m_IncomingConnectionCount;
+      cond.signal();
     }
-    m_IncomingConnectionCount.release();
 
     // Wake up listeners that might be waiting for an incoming connection.
     /// \todo This is a hack - fix stateChanged to be aware of more states.
