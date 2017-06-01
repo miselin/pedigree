@@ -32,4 +32,17 @@ void runConcurrently(int (*func)(void*), void *param)
     pThread->detach();
 }
 
+void *runConcurrentlyAttached(int (*func)(void*), void *param)
+{
+    Process *parent = Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = new Thread(parent, func, param);
+    return pThread;
+}
+
+int attachTo(void *handle)
+{
+    Thread *pThread = reinterpret_cast<Thread *>(handle);
+    return pThread->join();
+}
+
 }

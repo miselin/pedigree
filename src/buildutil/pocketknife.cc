@@ -30,4 +30,17 @@ void runConcurrently(int (*func)(void*), void *param)
     thread.detach();
 }
 
+void *runConcurrentlyAttached(int (*func)(void*), void *param)
+{
+    std::thread *thread = new std::thread(func, param);
+    return thread;
+}
+
+int attachTo(void *handle)
+{
+    std::thread *thread = reinterpret_cast<std::thread *>(handle);
+    thread->join();
+    return 0;  /// \todo get return value from thread?
+}
+
 }

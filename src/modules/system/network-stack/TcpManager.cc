@@ -27,9 +27,8 @@ TcpManager *TcpManager::manager = 0;
 
 int TcpManager::sequenceIncrementer(void *param)
 {
-  /// \todo figure out when to terminate this thread
   TcpManager *m = reinterpret_cast<TcpManager *>(param);
-  while (true)
+  while (m->m_bAlive)
   {
     {
       LockGuard<Mutex> guard(m->m_SequenceMutex);
@@ -37,12 +36,14 @@ int TcpManager::sequenceIncrementer(void *param)
     }
     Time::delay(500 * Time::Multiplier::MILLISECOND);
   }
+  return 0;
 }
 
 TcpManager::TcpManager() :
   m_NextTcpSequence(1), m_NextConnId(1), m_StateBlocks(), m_ListeningStateBlocks(),
   m_CurrentConnections(), m_Endpoints(), m_ListenPorts(), m_EphemeralPorts(),
-  m_TcpMutex(false), m_SequenceMutex(false), m_Nanoseconds(0)
+  m_TcpMutex(false), m_SequenceMutex(false), m_Nanoseconds(0), m_ThreadHandle(nullptr),
+  m_bAlive(false)
 {
   manager = this;
 
@@ -52,12 +53,15 @@ TcpManager::TcpManager() :
     m_EphemeralPorts.set(n);
   }
 
-  pocketknife::runConcurrently(sequenceIncrementer, this);
+  m_bAlive = true;
+  m_ThreadHandle = pocketknife::runConcurrentlyAttached(sequenceIncrementer, this);
 }
 
 TcpManager::~TcpManager()
 {
-  /// \todo figure out how to remove the sequence incrementer now
+  m_bAlive = false;
+  pocketknife::attachTo(m_ThreadHandle);  // Will block for up to 500ms.
+
   manager = 0;
 }
 
