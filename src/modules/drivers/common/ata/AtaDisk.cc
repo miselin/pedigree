@@ -677,7 +677,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
     if (bAlreadyAllRead)
     {
         // All pages were already in cache.
-        return 0;
+        return nBytes;
     }
 
     // Grab our parent's IoPorts for command and control accesses.
@@ -888,7 +888,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
         getCache().markNoLongerEditing(location + buffers[i].offset);
     }
 
-    return 0;
+    return nBytes;
 }
 
 uint64_t AtaDisk::doWrite(uint64_t location)
