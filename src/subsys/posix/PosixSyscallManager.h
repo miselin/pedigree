@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -23,6 +22,7 @@
 
 #include <processor/types.h>
 #include <processor/SyscallHandler.h>
+#include <utilities/Tree.h>
 
 class PosixSyscallManager : public SyscallHandler
 {
@@ -47,6 +47,8 @@ private:
   /** The copy-constructor
    *\note Not implemented (singleton) */
   PosixSyscallManager &operator = (const PosixSyscallManager &);
+  /** Records seen unknown syscalls so we don't spam logs. */
+  Tree<size_t, bool> m_SeenUnknownSyscalls;
 };
 
 #endif

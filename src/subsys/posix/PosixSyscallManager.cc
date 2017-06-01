@@ -179,7 +179,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         long which = posix_translate_syscall(syscallNumber);
         if (which < 0)
         {
-            ERROR("POSIX: unknown Linux syscall " << syscallNumber << " by pid=" << pProcess->getId() << ", translation failed!");
+            size_t key = (pProcess->getId() << 32ULL) | syscallNumber;
+            if (!m_SeenUnknownSyscalls.lookup(key))
+            {
+                ERROR("POSIX: unknown Linux syscall " << syscallNumber << " by pid=" << pProcess->getId() << ", translation failed!");
+                m_SeenUnknownSyscalls.insert(key, true);
+            }
             SYSCALL_ERROR(Unimplemented);
             return -1;
         }
