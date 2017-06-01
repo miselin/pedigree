@@ -19,6 +19,9 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include <ctime>
+#include <cstdlib>
+
 #include <benchmark/benchmark.h>
 
 #include <utilities/RangeList.h>
