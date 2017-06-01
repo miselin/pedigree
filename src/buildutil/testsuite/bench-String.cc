@@ -30,6 +30,18 @@ static void BM_CxxStringCreation(benchmark::State &state)
     while (state.KeepRunning())
     {
         String s;
+        benchmark::DoNotOptimize(s);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_CxxStringCreationConstexpr(benchmark::State &state)
+{
+    while (state.KeepRunning())
+    {
+        String s("Hello, world!");
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -42,6 +54,7 @@ static void BM_CxxStringCopyToStatic(benchmark::State &state)
     while (state.KeepRunning())
     {
         String s(assign);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -57,6 +70,7 @@ static void BM_CxxStringCopyToDynamic(benchmark::State &state)
     while (state.KeepRunning())
     {
         String s(assign);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -72,6 +86,7 @@ static void BM_CxxStringCopyLength(benchmark::State &state)
     while (state.KeepRunning())
     {
         String s(assign, 128);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -84,6 +99,7 @@ static void BM_CxxStringFormat(benchmark::State &state)
     {
         String s;
         s.Format("Hello, %s!", "world");
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -152,6 +168,7 @@ static void BM_CxxStringStrip(benchmark::State &state)
     {
         s.assign(buf, state.range(0));
         s.strip();
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -171,6 +188,7 @@ static void BM_CxxStringLStrip(benchmark::State &state)
     {
         s.assign(buf, state.range(0));
         s.lstrip();
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -190,6 +208,7 @@ static void BM_CxxStringRStrip(benchmark::State &state)
     {
         s.assign(buf, state.range(0));
         s.rstrip();
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -226,6 +245,7 @@ static void BM_CxxStringSplitRef(benchmark::State &state)
     {
         s.assign(buf, state.range(0));
         s.split(state.range(0) / 2, target);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -282,6 +302,7 @@ static void BM_CxxStringTokenizeRef(benchmark::State &state)
     {
         s.assign(buf, state.range(0));
         s.tokenise(' ', tokens);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -289,6 +310,7 @@ static void BM_CxxStringTokenizeRef(benchmark::State &state)
 }
 
 BENCHMARK(BM_CxxStringCreation);
+BENCHMARK(BM_CxxStringCreationConstexpr);
 BENCHMARK(BM_CxxStringCopyToStatic);
 BENCHMARK(BM_CxxStringCopyToDynamic);
 BENCHMARK(BM_CxxStringCopyLength);

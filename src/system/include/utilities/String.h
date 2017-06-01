@@ -29,6 +29,10 @@
 #include <utilities/SharedPointer.h>
 #include <compiler.h>
 
+// If non-zero, a constexpr constructor will be available in String. It is an
+// experimental change that needs some more work to be stable.
+#define STRING_WITH_CONSTEXPR_CONSTRUCTOR 0
+
 /** String class for ASCII strings
  *\todo provide documentation */
 class String
@@ -41,6 +45,11 @@ class String
         String(const String &x);
         String(String &&x);
         ~String();
+
+#if STRING_WITH_CONSTEXPR_CONSTRUCTOR
+        template<size_t N>
+        constexpr String(const char (&s)[N]);
+#endif
 
         String &operator = (const String &x);
         String &operator = (const char *s);
@@ -137,21 +146,33 @@ class String
         /** Extract the correct string buffer for this string. */
         char *extract() const;
         /** Size of static string storage (over this threshold, the heap is used) */
-        static const size_t StaticSize = 64;
+        static constexpr const size_t StaticSize = 64;
         /** Pointer to the zero-terminated ASCII string */
         char *m_Data;
+        /** Pointer to a constant version of the string. */
+        const char *m_ConstData;
         /** The string's length */
         size_t m_Length;
         /** The size of the reserved space for the string */
         size_t m_Size;
         /** Static string storage (avoid heap overhead for small strings) */
         char m_Static[StaticSize];
+        /** Is m_Data heap allocated? Used for e.g. constexpr strings. */
+        bool m_HeapData;
         /** Is the given character whitespace? (for *strip()) */
         bool iswhitespace(const char c) const;
 
         /** tokenise() pointer type. */
         typedef SharedPointer<String> tokenise_t;
 };
+
+#if STRING_WITH_CONSTEXPR_CONSTRUCTOR
+template<size_t N>
+constexpr String::String(const char (&s)[N]) :
+    m_Data(nullptr), m_ConstData(s), m_Length(N ? N - 1 : 0), m_Size(N), m_HeapData(false)
+{
+}
+#endif
 
 /** @} */
 
