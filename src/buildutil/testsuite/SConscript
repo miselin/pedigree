@@ -73,7 +73,7 @@ libdebugger = coverage_env.StaticLibrary('debugger', [
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
                      LIBS=['netstack', 'network', 'config', 'kernel',
                            libdebugger, 'utility_coverage', env['LIBGTEST'],
-                           'pthread', 'dl'])
+                           'pthread', 'dl', 'rt'])
 
 if build_env['HAVE_BENCHMARK']:
     build_env.MergeFlags({
@@ -83,4 +83,4 @@ if build_env['HAVE_BENCHMARK']:
     })
 
     build_env.Program(benchmark_bin, Glob('bench-*.cc'),
-                      LIBS=['utility', 'benchmark', 'pthread'])
+                      LIBS=['utility', 'benchmark', 'pthread', 'rt'])
