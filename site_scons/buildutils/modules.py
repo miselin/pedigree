@@ -44,8 +44,8 @@ def buildModule(env, stripped_target, target, sources):
             extra_linkflags,
     })
 
-    libmodule_dir = os.path.join(module_env['BUILDDIR'], 'modules')
-    libmodule_path = os.path.join(libmodule_dir, 'libmodule.a')
+    libmodule_dir = module_env['BUILDDIR'].Dir('modules')
+    libmodule_path = libmodule_dir.File('libmodule.a')
 
     module_env.MergeFlags({
         'LIBS': ['module', 'gcc'],

@@ -32,9 +32,9 @@ kerneldir = env["PEDIGREE_BUILD_KERNEL"]
 moduledir = env["PEDIGREE_BUILD_MODULES"]
 subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
 
-pedigree_c_objname = os.path.join(subsysdir, 'pedigree-c.o')
-libpedigree_c_objname = os.path.join(builddir, 'libpedigree-c.a')
-libpedigree_c_shobjname = os.path.join(builddir, 'libpedigree-c.so')
+pedigree_c_objname = subsysdir.File('pedigree-c.o')
+libpedigree_c_objname = builddir.File('libpedigree-c.a')
+libpedigree_c_shobjname = builddir.File('libpedigree-c.so')
 
 env.Alias("subsys", pedigree_c_objname)
 
@@ -67,7 +67,7 @@ libs_clone = userspace_env_clone.Clone()
 libs_clone.MergeFlags('-fPIC -DUSE_PIC_SYSCALLS')
 libs_clone['CPPPATH'] = include_dirs
 if env['posix_musl']:
-    libs_clone['LIBPATH'] = [os.path.join(builddir, 'musl', 'lib'), builddir]
+    libs_clone['LIBPATH'] = [builddir.Dir('musl').Dir('lib'), builddir]
 else:
     libs_clone['LIBPATH'] = [builddir]
 

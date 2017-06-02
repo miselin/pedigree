@@ -28,8 +28,8 @@ env_clone = env.Clone()
 
 builddir = env["PEDIGREE_BUILD_BASE"]
 imagesdir = env["PEDIGREE_IMAGES_DIR"]
-objname = os.path.join(builddir, 'libSDL.a')
-sobjname = os.path.join(builddir, 'libSDL.so')
+objname = builddir.File('libSDL.a')
+sobjname = builddir.File('libSDL.so')
 
 EXTERNAL_INCLUDE_DIR = '#images/local/include'
 if env['ON_PEDIGREE']:
@@ -71,10 +71,10 @@ include = [
 
 cppinclude = include
 if not env['ON_PEDIGREE']:
-    cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
+    cpp_base = env.Dir('#images/local/support/gcc/include/c++/%s' % env['CCVERSION'])
     cppinclude += [
         cpp_base,
-        os.path.join(cpp_base, env['COMPILER_TARGET']),
+        cpp_base.Dir(env['COMPILER_TARGET']),
     ]
 
 libraries = [
@@ -99,10 +99,10 @@ libraries = [
 # To add a library path add to the list below
 libpaths = [
     '#',
-    os.path.join(imagesdir, 'libraries'),
+    imagesdir.Dir('libraries'),
     builddir,
-    os.path.join(builddir, 'libs'),
-    os.path.join(builddir, 'musl', 'lib'),
+    builddir.Dir('libs'),
+    builddir.Dir('musl').Dir('lib'),
 ]
 
 env_clone['CFLAGS'] = buildutils.userspace.fixFlags(env, env_clone['CFLAGS'])

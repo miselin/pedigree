@@ -26,7 +26,7 @@ EXT2_DIR = env.Dir('../../modules/system/ext2')
 VFS_DIR = env.Dir('../../modules/system/vfs')
 PART_DIR = env.Dir('../../modules/drivers/common/partition')
 
-ext2img_bin = os.path.join(env['BUILDDIR'], 'ext2img')
+ext2img_bin = env['BUILDDIR'].File('ext2img')
 
 build_env = env.Clone()
 

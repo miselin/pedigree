@@ -38,23 +38,23 @@ moduledir = env["PEDIGREE_BUILD_MODULES"]
 subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
 imagesdir = env["PEDIGREE_IMAGES_DIR"]
 
-posix_objname = os.path.join(subsysdir, 'posix.o')
+posix_objname = subsysdir.File('posix.o')
 
-glue_objname = os.path.join(builddir, 'libpedigree-glue.a')
+glue_objname = builddir.File('libpedigree-glue.a')
 
-libpthread_objname = os.path.join(builddir, 'libpthread.a')
-libpthread_shobjname = os.path.join(builddir, 'libpthread.so')
+libpthread_objname = builddir.File('libpthread.a')
+libpthread_shobjname = builddir.File('libpthread.so')
 
-crt0_objname = os.path.join(kerneldir, 'crt0.o')
-crti_objname = os.path.join(kerneldir, 'crti.o')
-crtn_objname = os.path.join(kerneldir, 'crtn.o')
+crt0_objname = kerneldir.File('crt0.o')
+crti_objname = kerneldir.File('crti.o')
+crtn_objname = kerneldir.File('crtn.o')
 
-libpedigree_c_objname = os.path.join(builddir, 'libpedigree-c.a')
-libpedigree_c_shobjname = os.path.join(builddir, 'libpedigree-c.so')
+libpedigree_c_objname = builddir.File('libpedigree-c.a')
+libpedigree_c_shobjname = builddir.File('libpedigree-c.so')
 
 env.Alias("subsys", posix_objname)
 if not env['posix_musl']:
-    libc_objname = os.path.join(builddir, 'libc.so')
+    libc_objname = builddir.File('libc.so')
 
     env.Alias("crt", [crt0_objname, crti_objname, crtn_objname])
     env.Alias("pthreads", libpthread_objname)
@@ -67,7 +67,7 @@ if not env['posix_musl']:
         env.Depends(libc_objname, libpedigree_c_objname)
         env.Depends(libpedigree_c_shobjname, libc_objname)
 else:
-    libc_objname = os.path.join(builddir, 'musl', 'lib', 'libc.so')
+    libc_objname = builddir.Dir('musl').Dir('lib').File('libc.so')
 
 # To include new files just add to the list, or Glob("*.cpp")
 posix_files = [
@@ -107,7 +107,7 @@ crtn_files = ["crtn" + suffix + ".s"]
 # To include a new directory for includes, just add it to the list
 include = [
     '#src',
-    os.path.join(builddir, 'musl', 'include'),
+    builddir.Dir('musl').Dir('include'),
     '#src/subsys/posix/syscalls',
     # '#src/subsys/posix/include',
     '#/src/modules',
@@ -203,15 +203,15 @@ if not env['posix_musl']:
 buildDir = env_clone.Dir(builddir)
 
 base = env_clone.Dir("#")
-baseLibc = env_clone.File(builddir + "/stock-libg.a")
-baseLibm = env_clone.File(builddir + "/stock-libm.a")
+baseLibc = builddir.File('stock-libg.a')
+baseLibm = builddir.File('stock-libm.a')
 baseInclude = env_clone.Dir("#src/subsys/posix/include")
 
-buildLibc = env_clone.File(builddir + '/libc.so')
-buildLibm = env_clone.File(builddir + '/libm.so')
-buildLibcA = env_clone.File(builddir + '/libc.a')
-buildLibmA = env_clone.File(builddir + '/libm.a')
-buildInclude = env_clone.Dir(builddir + '/include-posix')
+buildLibc = builddir.File('libc.so')
+buildLibm = builddir.File('libm.so')
+buildLibcA = builddir.File('libc.a')
+buildLibmA = builddir.File('libm.a')
+buildInclude = builddir.Dir('include-posix')
 
 if env['posix_musl']:
     SConscript(os.path.join('musl', 'SConscript'), exports=['userspace_env'])

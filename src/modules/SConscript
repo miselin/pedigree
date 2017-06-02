@@ -274,7 +274,7 @@ custom_libs = {
 
 # Default library paths
 default_libpath = [
-    imagesdir + '/libraries',
+    imagesdir.Dir('libraries'),
     '.',
 ]
 
@@ -337,7 +337,7 @@ def buildModule(env, path, outputBase, targetAlias):
 
     buildutils.misc.removeFromAllFlags(module_env, set(remove_flags.get(module, [])))
 
-    output = os.path.join(outputBase, module + '.o')
+    output = outputBase.File(module + '.o')
     files = [Glob(os.path.join(base, '*.c')), Glob(os.path.join(base, '*.cc'))]
     for d in custom_subdirs.get(module, []):
         files += [
@@ -381,8 +381,8 @@ for cdi_driver in cdi_drivers:
     buildModule(cdi_env, cdi_driver, driverdir, 'drivers')
 
 # Ready to generate the initrd...
-builddir = env.Dir(env["PEDIGREE_BUILD_BASE"])
-initrdFile = env.File(os.path.join(env["PEDIGREE_BUILD_BASE"], "initrd.tar"))
+builddir = env["PEDIGREE_BUILD_BASE"]
+initrdFile = env["PEDIGREE_BUILD_BASE"].File("initrd.tar")
 
 # initrd lists
 

@@ -29,7 +29,7 @@ env = userspace_env
 
 env_clone = env.Clone()
 
-appsbase = 'applications'
+appsbase = env.Dir('applications')
 appoutputdir = env["PEDIGREE_BUILD_APPS"]
 imagesdir = env["PEDIGREE_IMAGES_DIR"]
 builddir = env["PEDIGREE_BUILD_BASE"]
@@ -179,7 +179,7 @@ base_libs = []
 # Default include paths
 if env['posix_musl']:
     base_include_dirs = [
-        os.path.join(builddir, 'musl', 'include'),
+        builddir.Dir('musl').Dir('include'),
         EXTERNAL_INCLUDE_DIR,
     ]
 else:
@@ -207,11 +207,11 @@ env_clone['CCFLAGS'] = buildutils.userspace.fixFlags(env, env['CCFLAGS'])
 env_clone['CXXFLAGS'] = buildutils.userspace.fixFlags(env, env['CXXFLAGS'])
 env_clone['CPPDEFINES'] += ['PEDIGREE', '__PEDIGREE__']
 env_clone['LIBS'] = base_libs
-env_clone['LIBPATH'] = [builddir, os.path.join(builddir, 'libs')]
+env_clone['LIBPATH'] = [builddir, builddir.Dir('libs')]
 env_clone['CPPPATH'] = base_include_dirs
 
 if env['posix_musl']:
-    env_clone['LIBPATH'].append(os.path.join(builddir, 'musl', 'lib'))
+    env_clone['LIBPATH'].append(builddir.Dir('musl').Dir('lib'))
 
 env_clone.MergeFlags({
     'CPPDEFINES': ['_POSIX_SOURCE', '_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
@@ -219,8 +219,8 @@ env_clone.MergeFlags({
 })
 
 if not env['ON_PEDIGREE']:
-    cpp_base = '#images/local/support/gcc/include/c++/%s' % env['CCVERSION']
-    cpp_arch_base = os.path.join(cpp_base, env['COMPILER_TARGET'])
+    cpp_base = env.Dir('#images/local/support/gcc/include/c++/%s' % env['CCVERSION'])
+    cpp_arch_base = cpp_base.Dir(env['COMPILER_TARGET'])
 
 # -static stops GCC placing the path to the dynamic linker into the binary, and creates a non-relocateable executable.
 if env['build_libs'] and not env['posix_musl']:
@@ -265,16 +265,16 @@ if not env['with_graphical_apps']:
 for app in set(apps):
     app_env = env_clone.Clone()
     if env['hosted']:
-        app_env['LSCRIPT'] = app_env.File(os.path.join('#src/system/kernel/core/processor/hosted/app.ld'))
+        app_env['LSCRIPT'] = app_env.File('#src/system/kernel/core/processor/hosted/app.ld')
         app_env['LINKFLAGS'] = ['-T$LSCRIPT']
     else:
         app_env['LINKFLAGS'] = []
 
-    base = os.path.join(appsbase, app)
+    base = appsbase.Dir(app)
 
     # Handle custom paths and libraries.
-    custom_include_path = os.path.join(base, 'include')
-    if os.path.exists(custom_include_path):
+    custom_include_path = base.Dir('include')
+    if custom_include_path.exists():
         app_env['CPPPATH'] += [custom_include_path]
 
     custom_include_path = custom_incpath.get(app)
@@ -354,20 +354,21 @@ for app in set(apps):
 
     app_env.MergeFlags({'CCFLAGS': add_flags.get(app, [])})
 
-    output = os.path.join(builddir, 'apps', app)
-    files = Glob(os.path.join(base, '*.c')) + Glob(os.path.join(base, '*.cc'))
+    output = builddir.Dir('apps').File(app)
+    files = base.glob('*.c') + base.glob('*.cc')
 
-    app_env.Program(output, files)
+    print output
+    output_bin = app_env.Program(output, files)
 
-    env.Alias("apps", output)
+    env.Alias("apps", output_bin)
 
     if 'LSCRIPT' in app_env:
-        env.Depends(output, app_env['LSCRIPT'])
+        app_env.Depends(output_bin, app_env['LSCRIPT'])
 
-    # env.Depends(output, "crt0")
-    env.Depends(output, "libs")
-    env.Requires(output, "libload")
-    env.Depends(output, "headers")
+    app_env.Depends(output_bin, env.Alias('libs'))
+    app_env.Requires(output_bin, env.Alias('libload'))
+    app_env.Depends(output_bin, env.Alias('headers'))
+    app_env.Depends(output_bin, env.Alias('native-headers'))
 
 if env['build_libs']:
     SConscript(os.path.join('libraries', 'SConscript'), exports=['env'])

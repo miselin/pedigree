@@ -28,7 +28,7 @@ env_clone['LIBS'] = []
 kerneldir = env["PEDIGREE_BUILD_KERNEL"]
 imagesdir = env["PEDIGREE_IMAGES_DIR"]
 builddir = env["PEDIGREE_BUILD_BASE"]
-objname = os.path.join(kerneldir, 'kernel')
+objname = kerneldir.File('kernel')
 
 env.Alias("kernel", objname)
 
@@ -48,7 +48,7 @@ env_clone.MergeFlags({
 files = [
     'Log.cc',
     'SerialLog.cc',
-    os.path.join(builddir, 'Version.cc'),
+    builddir.File('Version.cc'),
     'Archive.cc',
     'Atomic.cc',
     'Spinlock.cc',
@@ -163,7 +163,7 @@ if env['SUBARCH_DIR']:
 env_clone['CPPPATH'] = include_dirs
 env_clone['LIBS'] += ['gcc']
 if not env['hosted']:  # Don't let the kernel link against Pedigree .so objects
-    env_clone['LIBPATH'] = ['#', os.path.join(imagesdir, 'libraries')]
+    env_clone['LIBPATH'] = ['#', imagesdir.Dir('libraries')]
 
 # Always pull in libudis86, even if we don't build the rest of the debugger
 # Also disable warnings, as it's not our code.

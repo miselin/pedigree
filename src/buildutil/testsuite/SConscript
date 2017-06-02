@@ -24,8 +24,8 @@ Import(['env'])
 
 KERNEL_DIR = env.Dir('../../system/kernel')
 
-testsuite_bin = os.path.join(env['BUILDDIR'], 'testsuite')
-benchmark_bin = os.path.join(env['BUILDDIR'], 'benchmarker')
+testsuite_bin = 'testsuite'
+benchmark_bin = 'benchmarker'
 
 build_env = env.Clone()
 
@@ -52,7 +52,7 @@ defines = [
 build_env.Append(CPPDEFINES=defines)
 
 # TODO(miselin): improve the path to external libraries
-build_env.Append(LIBPATH=[os.path.join(build_env['BUILDDIR'], 'external')])
+build_env.Append(LIBPATH=[build_env['BUILDDIR'].Dir('external')])
 
 coverage_env = build_env.Clone()
 

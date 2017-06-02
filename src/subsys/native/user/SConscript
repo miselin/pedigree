@@ -35,8 +35,8 @@ subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
 
 # We output a single library, which applications link against to gain access to
 # the implementation of the native subsystem classes.
-native_userlib_objname = os.path.join(builddir, 'libpedigree.a')
-native_userlib_shobjname = os.path.join(builddir, 'libpedigree.so')
+native_userlib_objname = builddir.File('libpedigree.a')
+native_userlib_shobjname = builddir.File('libpedigree.so')
 
 env.Alias("libs", native_userlib_objname)
 env.Alias("libs", native_userlib_shobjname)
@@ -44,15 +44,15 @@ env.Depends(native_userlib_shobjname, "crt")
 
 # XXX: We have an unfortunate dependency on libc.
 if env['posix_musl']:
-    libpath = os.path.join(builddir, 'musl', 'lib')
-    libc_objname = os.path.join(libpath, 'libc.so')
+    libpath = builddir.Dir('musl').Dir('lib')
+    libc_objname = libpath.File('libc.so')
 else:
     libpath = builddir
-    libc_objname = os.path.join(libpath, 'libc.so')
+    libc_objname = libpath.File('libc.so')
 env.Depends(native_userlib_shobjname, libc_objname)
 
 # We also depend on pedigree-c
-env.Depends(native_userlib_shobjname, os.path.join(builddir, 'libpedigree-c.so'))
+env.Depends(native_userlib_shobjname, builddir.File('libpedigree-c.so'))
 
 files = [
     Glob("*.cc"),
@@ -65,7 +65,7 @@ files = [
 include_dirs = [
     '#src',
     '#src/subsys',
-    os.path.join(builddir, 'musl', 'include'),
+    builddir.Dir('musl').Dir('include'),
     '#images/local/include',
     '#images/local/include/native',
     '#src/system/include',

@@ -22,10 +22,10 @@ import os
 
 Import(['env'])
 
-netwrap_bin = os.path.join(env['BUILDDIR'], 'netwrap')
-libnetwork = os.path.join(env['BUILDDIR'], 'network')
-libnetstack = os.path.join(env['BUILDDIR'], 'netstack')
-libconfig = os.path.join(env['BUILDDIR'], 'config')
+netwrap_bin = env['BUILDDIR'].File('netwrap')
+libnetwork = 'network'
+libnetstack = 'netstack'
+libconfig = 'config'
 
 build_env = env.Clone()
 

@@ -79,7 +79,7 @@ env_clone['CXXFLAGS'] = buildutils.userspace.fixFlags(env, env['CXXFLAGS'])
 env_clone['CPPDEFINES'] += ['PEDIGREE', '__PEDIGREE__']
 env_clone['LIBS'] = []
 if env['posix_musl']:
-    env_clone['LIBPATH'] = [os.path.join(builddir, 'musl', 'lib'), builddir]
+    env_clone['LIBPATH'] = [builddir.Dir('musl').Dir('lib'), builddir]
 else:
     env_clone['LIBPATH'] = [builddir]
 env_clone['CPPPATH'] = base_include_dirs
@@ -111,11 +111,12 @@ for library in libs:
         print("** Library with subsys '%s' is not buildable - fix ' \
               'src/user/libraries/SConscript!" % (s))
 
-    srcdir = env.Dir(library).srcnode().abspath
+    libdir = env.Dir(library)
+    srcdir = libdir.srcnode()
 
     # Handle extra include directories within the library
-    custom_include_dir = os.path.join(srcdir, 'include')
-    if(os.path.exists(custom_include_dir)):
+    custom_include_dir = srcdir.Dir('include')
+    if custom_include_dir.exists():
         incpath.append(custom_include_dir)
 
     incpath.extend(custom_include_dirs.get(library, ()))
@@ -123,10 +124,10 @@ for library in libs:
     library_env['CPPPATH'] += incpath
     library_env['LIBS'] = lib_deps.get(library, [])
 
-    output = os.path.join(builddir, 'libs', '%s.a' % library)
-    shoutput = os.path.join(builddir, 'libs', '%s.so' % library)
-    files = [Glob(os.path.join(library, 'src', '*.c')),
-             Glob(os.path.join(library, 'src', '*.cc'))]
+    output = builddir.Dir('libs').File('%s.a' % library)
+    shoutput = builddir.Dir('libs').File('%s.so' % library)
+    files = [libdir.Dir('src').glob('*.c'),
+             libdir.Dir('src').glob('*.cc')]
 
     library_env.StaticLibrary(output, files)
     library_env.SharedLibrary(shoutput, files, LINKFLAGS='')

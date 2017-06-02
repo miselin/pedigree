@@ -468,14 +468,14 @@ env['PROGSUFFIX'] = ''
 # env['SHLIBNOVERSIONSYMLINKS'] = False
 
 # Determine build directories (these can be outside the source tree).
-env['BUILDDIR'] = env.Dir(env['BUILDDIR']).abspath  # Normalise path.
-env['HOST_BUILDDIR'] = os.path.join(env['BUILDDIR'], 'host')
+env['BUILDDIR'] = env.Dir(env['BUILDDIR'])  # Normalise path.
+env['HOST_BUILDDIR'] = env['BUILDDIR'].Dir('host')
 env['PEDIGREE_BUILD_BASE'] = env['BUILDDIR']
-env['PEDIGREE_BUILD_MODULES'] = os.path.join(env['BUILDDIR'], 'modules')
-env['PEDIGREE_BUILD_KERNEL'] = os.path.join(env['BUILDDIR'], 'kernel')
-env['PEDIGREE_BUILD_DRIVERS'] = os.path.join(env['BUILDDIR'], 'drivers')
-env['PEDIGREE_BUILD_SUBSYS'] = os.path.join(env['BUILDDIR'], 'subsystems')
-env['PEDIGREE_BUILD_APPS'] = os.path.join(env['BUILDDIR'], 'apps')
+env['PEDIGREE_BUILD_MODULES'] = env['BUILDDIR'].Dir('modules')
+env['PEDIGREE_BUILD_KERNEL'] = env['BUILDDIR'].Dir('kernel')
+env['PEDIGREE_BUILD_DRIVERS'] = env['BUILDDIR'].Dir('drivers')
+env['PEDIGREE_BUILD_SUBSYS'] = env['BUILDDIR'].Dir('subsystems')
+env['PEDIGREE_BUILD_APPS'] = env['BUILDDIR'].Dir('apps')
 
 # Add host build output path.
 host_env['BUILDDIR'] = env['HOST_BUILDDIR']
@@ -828,7 +828,7 @@ def create_version_cc(target, source, env):
     f.write('\n')
     f.close()
 
-env.Command(os.path.join(env['PEDIGREE_BUILD_BASE'], 'Version.cc'), None, Action(create_version_cc, None))
+env.Command(env['PEDIGREE_BUILD_BASE'].File('Version.cc'), None, Action(create_version_cc, None))
 
 # Preserve compilation flags for the target.
 for key in ('CFLAGS', 'CCFLAGS', 'CXXFLAGS', 'LINKFLAGS'):
@@ -1089,6 +1089,9 @@ if env['iwyu']:
     # We don't want disk images when doing an IWYU run.
     env['build_images'] = False
 
+# Fix images directory to be a SCons Dir
+env['PEDIGREE_IMAGES_DIR'] = env.Dir(env['PEDIGREE_IMAGES_DIR'])
+
 # Save the cache, all the options are configured
 if (not env['build_tests_only']) and env['cache']:
     opts.Save('options.cache', env)
@@ -1111,9 +1114,9 @@ if not env['build_tests_only']:
 misc.generate(host_env)
 
 VariantDir(env['BUILDDIR'], 'src', duplicate=0)
-VariantDir(os.path.join(env['BUILDDIR'], 'external'), 'external', duplicate=0)
+VariantDir(env['BUILDDIR'].Dir('external'), 'external', duplicate=0)
 
-SConscript(os.path.join(env['BUILDDIR'], 'SConscript'), exports=exports)
+SConscript(env['BUILDDIR'].File('SConscript'), exports=exports)
 
 subarch_dump = env.get('SUBARCH_DIR', '')
 if subarch_dump:

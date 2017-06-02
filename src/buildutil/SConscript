@@ -107,7 +107,7 @@ utility_env.MergeFlags({
     'CFLAGS': ['-std=gnu99'],
 })
 
-utility_env.Library(os.path.join(env['BUILDDIR'], 'utility'),
+utility_env.Library('utility',
     ['shim.cc', 'pocketknife.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources])
 
 # Build a version of libutility that has the necessary coverage pieces, such
@@ -115,7 +115,7 @@ utility_env.Library(os.path.join(env['BUILDDIR'], 'utility'),
 # being tested.
 utility_env['OBJSUFFIX'] = '.build.coverage.o'
 utility_env['CPPDEFINES'] += ['UTILITY_LINUX_COVERAGE']
-utility_env.Library(os.path.join(env['BUILDDIR'], 'utility_coverage'),
+utility_env.Library('utility_coverage',
     ['shim.cc', 'pocketknife.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources],
     CCFLAGS=utility_env['COVERAGE_CCFLAGS'])
 
@@ -124,7 +124,7 @@ kernel_sources = [
     os.path.join('machine', 'Device.cc'),
     os.path.join('machine', 'DeviceHashTree.cc'),
 ]
-utility_env.Library(os.path.join(env['BUILDDIR'], 'kernel'), [KERNEL_DIR.File(f) for f in kernel_sources])
+utility_env.Library('kernel', [KERNEL_DIR.File(f) for f in kernel_sources])
 
 for subdir in subdirs:
     SConscript(os.path.join(subdir, 'SConscript'), exports=['env'])
@@ -147,9 +147,9 @@ keymap = keymap_env.Program('keymap', keymap_sources + [keymap_lexer, keymap_par
 env.Alias('keymaps', keymap)
 
 # TODO: getopt in keymap to remove these mv's
-keymap_target_dir = os.path.join(env['BUILDDIR'], 'keymaps')
+keymap_target_dir = env['BUILDDIR'].Dir('keymaps')
 for entry in env.Dir(keymaps_dir).glob('*', source=True):
-    k = env.Command(os.path.join(keymap_target_dir, entry.name + '.kmc'), entry,
+    k = env.Command(keymap_target_dir.File(entry.name + '.kmc'), entry,
                 '$KEYMAP compile $SOURCE && rm ${SOURCE}.h && '
                 'mv ${SOURCE}.kmc $TARGET', KEYMAP=keymap)
 

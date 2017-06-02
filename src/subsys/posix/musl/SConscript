@@ -38,9 +38,9 @@ MUSL_BUILDER = '#scripts/build-musl.sh'
 downloaded = env.Download(
     MUSL_FILENAME, 'https://www.musl-libc.org/releases/%s' % MUSL_FILENAME)
 
-MUSL_OUTPUT_DIRECTORY = os.path.join(builddir, 'musl')
-MUSL_LIB_DIRECTORY = os.path.join(builddir, 'musl', 'lib')
-MUSL_INCLUDE_DIRECTORY = os.path.join(builddir, 'musl', 'include')
+MUSL_OUTPUT_DIRECTORY = builddir.Dir('musl')
+MUSL_LIB_DIRECTORY = builddir.Dir('musl').Dir('lib')
+MUSL_INCLUDE_DIRECTORY = builddir.Dir('musl').Dir('include')
 
 env.Extract(MUSL_BASENAME, MUSL_FILENAME)
 
@@ -60,22 +60,22 @@ def buildMusl(target, source, env):
 
 output_libs = env.Command(
     [
-        os.path.join(MUSL_LIB_DIRECTORY, 'libc.so'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'ld-musl-x86_64.so.1'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'crt1.o'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'crti.o'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'crtn.o'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'rcrt1.o'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'Scrt1.o'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libc.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libcrypt.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libdl.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libm.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'librt.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libpthread.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libresolv.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libutil.a'),
-        os.path.join(MUSL_LIB_DIRECTORY, 'libxnet.a'),
+        MUSL_LIB_DIRECTORY.File('libc.so'),
+        MUSL_LIB_DIRECTORY.File('ld-musl-x86_64.so.1'),
+        MUSL_LIB_DIRECTORY.File('crt1.o'),
+        MUSL_LIB_DIRECTORY.File('crti.o'),
+        MUSL_LIB_DIRECTORY.File('crtn.o'),
+        MUSL_LIB_DIRECTORY.File('rcrt1.o'),
+        MUSL_LIB_DIRECTORY.File('Scrt1.o'),
+        MUSL_LIB_DIRECTORY.File('libc.a'),
+        MUSL_LIB_DIRECTORY.File('libcrypt.a'),
+        MUSL_LIB_DIRECTORY.File('libdl.a'),
+        MUSL_LIB_DIRECTORY.File('libm.a'),
+        MUSL_LIB_DIRECTORY.File('librt.a'),
+        MUSL_LIB_DIRECTORY.File('libpthread.a'),
+        MUSL_LIB_DIRECTORY.File('libresolv.a'),
+        MUSL_LIB_DIRECTORY.File('libutil.a'),
+        MUSL_LIB_DIRECTORY.File('libxnet.a'),
     ],
     # Also depend on our drop-in files.
     [MUSL_BUILDER, MUSL_BASENAME] + Glob('*.h') + Glob('*.c') + Glob('*.musl-s'),
