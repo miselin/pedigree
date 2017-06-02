@@ -67,11 +67,11 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Network.h"
-#include <network-stack/NetworkStack.h>
+#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include <network-stack/Ethernet.h>
+#include "modules/system/network-stack/Ethernet.h"
 
 int Nic3C90x::issueCommand(int cmd, int param)
 {

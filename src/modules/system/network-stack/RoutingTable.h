@@ -20,7 +20,7 @@
 #ifndef MACHINE_ROUTINGTABLE_H
 #define MACHINE_ROUTINGTABLE_H
 
-#include <config/Config.h>
+#include "modules/system/config/Config.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"

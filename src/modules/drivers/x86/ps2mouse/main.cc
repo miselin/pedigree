@@ -18,7 +18,7 @@
  */
 
 #include "Ps2Mouse.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 // Global static object for the PS/2 mouse we'll be working with
 static Ps2Mouse *g_Ps2Mouse = 0;

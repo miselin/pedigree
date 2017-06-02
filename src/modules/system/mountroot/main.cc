@@ -18,11 +18,11 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/core/BootIO.h"
-#include <lodisk/LoDisk.h>
+#include "modules/system/lodisk/LoDisk.h"
 #include "pedigree/kernel/machine/Disk.h"
-#include <vfs/VFS.h>
+#include "modules/system/vfs/VFS.h"
 
 static bool bRootMounted = false;
 

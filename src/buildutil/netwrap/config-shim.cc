@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config/sqlite3/sqlite3.h>
+#include "modules/system/config/sqlite3/sqlite3.h"
 
 #include <iostream>
 

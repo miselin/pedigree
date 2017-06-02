@@ -10,7 +10,7 @@
 
 //#include <stdlib.h>
 
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/machine/Device.h"
 
 #include <cdi.h>

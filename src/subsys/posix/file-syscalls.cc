@@ -17,28 +17,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <console/Console.h>
-#include <network-stack/NetManager.h>
-#include <network-stack/Tcp.h>
+#include "modules/system/console/Console.h"
+#include "modules/system/network-stack/NetManager.h"
+#include "modules/system/network-stack/Tcp.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
-#include <ramfs/RamFs.h>
+#include "modules/system/ramfs/RamFs.h"
 #include "pedigree/kernel/syscallError.h"
-#include <users/UserManager.h>
+#include "modules/system/users/UserManager.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include <vfs/Directory.h>
-#include <vfs/File.h>
-#include <vfs/LockedFile.h>
-#include <vfs/MemoryMappedFile.h>
-#include <vfs/Pipe.h>
-#include <vfs/Symlink.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/LockedFile.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/Pipe.h"
+#include "modules/system/vfs/Symlink.h"
+#include "modules/system/vfs/VFS.h"
 
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>

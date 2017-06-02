@@ -19,11 +19,11 @@
 
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include <usb/Usb.h>
-#include <usb/UsbConstants.h>
-#include <usb/UsbDescriptors.h>
-#include <usb/UsbDevice.h>
-#include <usb/UsbHub.h>
+#include "modules/system/usb/Usb.h"
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbDescriptors.h"
+#include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"
 

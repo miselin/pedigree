@@ -24,7 +24,7 @@
 #include "pedigree/kernel/machine/x86_common/Bios.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-#include <config/Config.h>
+#include "modules/system/config/Config.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "pedigree/kernel/graphics/Graphics.h"

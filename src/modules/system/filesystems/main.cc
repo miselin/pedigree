@@ -22,7 +22,7 @@
  * filesystem drivers have been loaded.
  */
 
-#include <Module.h>
+#include "modules/Module.h"
 
 MODULE_INFO("filesystems", 0, 0);
 MODULE_OPTIONAL_DEPENDS("fat", "ext2", "iso9660", "rawfs", "lodisk", "ramfs");

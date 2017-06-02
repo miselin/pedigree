@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config/Config.h>
+#include "pedigree/native/config/Config.h"
 #include <string.h>
 
 /// \todo make all these available in a header somewhere that isn't the POSIX

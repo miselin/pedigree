@@ -19,7 +19,7 @@
 
 #include "../../../system/kernel/core/BootIO.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
 extern BootIO bootIO;

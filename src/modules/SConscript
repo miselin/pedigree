@@ -280,6 +280,7 @@ default_libpath = [
 
 # Default include paths
 default_incpath = [
+    '#src',
     '#/src/modules',
     '#/src/system/include',
     '#/src/modules/system',

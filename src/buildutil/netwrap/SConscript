@@ -31,6 +31,7 @@ build_env = env.Clone()
 
 # Set up includes correctly.
 header_paths = [
+    env.Dir('#src'),
     env.Dir('#src/modules'),
     env.Dir('#src/modules/system'),
     env.Dir('#src/system/include'),

@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
+#include "modules/Module.h"
 
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Machine.h"

@@ -18,7 +18,7 @@
  */
 
 #include "UsbUlpi.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 static bool entry()
 {

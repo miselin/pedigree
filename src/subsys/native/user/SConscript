@@ -63,6 +63,7 @@ files = [
 ]
 
 include_dirs = [
+    '#src',
     '#src/subsys',
     os.path.join(builddir, 'musl', 'include'),
     '#images/local/include',

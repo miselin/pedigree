@@ -106,6 +106,7 @@ crtn_files = ["crtn" + suffix + ".s"]
 
 # To include a new directory for includes, just add it to the list
 include = [
+    '#src',
     os.path.join(builddir, 'musl', 'include'),
     '#src/subsys/posix/syscalls',
     # '#src/subsys/posix/include',

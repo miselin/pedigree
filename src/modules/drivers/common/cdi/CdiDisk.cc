@@ -23,7 +23,7 @@
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/utilities/assert.h"
 
-#include <vfs/VFS.h>
+#include "modules/system/vfs/VFS.h"
 
 // Prototypes in the extern "C" block to ensure that they are not mangled
 extern "C" {

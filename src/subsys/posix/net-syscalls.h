@@ -21,7 +21,7 @@
 #define NET_SYSCALLS_H
 
 #include "logging.h"
-#include <vfs/File.h>
+#include "modules/system/vfs/File.h"
 
 #include <sys/socket.h>
 #include <sys/types.h>

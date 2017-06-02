@@ -24,9 +24,9 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <vfs/Directory.h>
-#include <vfs/Filesystem.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 
 /** Provides access to Disks without mounting their contained filesystem
     (raw device access). */

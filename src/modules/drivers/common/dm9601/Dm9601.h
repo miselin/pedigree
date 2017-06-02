@@ -30,7 +30,7 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
-#include <usb/UsbDevice.h>
+#include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/utilities/List.h"
 
 class Dm9601 : public UsbDevice, public Network

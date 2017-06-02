@@ -30,7 +30,7 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
-#include <usb/UsbHub.h>
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
 /** Device driver for the Uhci class */

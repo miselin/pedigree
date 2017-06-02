@@ -23,7 +23,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
-#include <vfs/Symlink.h>
+#include "modules/system/vfs/Symlink.h"
 
 #include "FatFile.h"
 

@@ -21,13 +21,13 @@
 
 #include "file-syscalls.h"
 #include "pipe-syscalls.h"
-#include <vfs/Pipe.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/Pipe.h"
+#include "modules/system/vfs/VFS.h"
 
 #include <PosixSubsystem.h>
 #include "pedigree/kernel/Subsystem.h"
 
-#include <Module.h>
+#include "modules/Module.h"
 
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"

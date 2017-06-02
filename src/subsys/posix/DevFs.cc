@@ -19,14 +19,14 @@
 
 #include "DevFs.h"
 
-#include <vfs/Pipe.h>
+#include "modules/system/vfs/Pipe.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
 
-#include <console/Console.h>
+#include "modules/system/console/Console.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 #include "pedigree/kernel/graphics/Graphics.h"

@@ -18,10 +18,10 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
-#include <network-stack/Filter.h>
+#include "modules/system/network-stack/Filter.h"
 #include "pedigree/kernel/time/Time.h"
 
 struct PcapHeader

@@ -24,7 +24,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
-#include <vfs/File.h>
+#include "modules/system/vfs/File.h"
 
 /** This class provides the abstract skeleton that all filesystems must
  * implement.

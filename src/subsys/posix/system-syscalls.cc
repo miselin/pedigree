@@ -25,7 +25,7 @@
 #include "signal-syscalls.h"
 #include "pedigree/kernel/Log.h"
 #include <Version.h>
-#include <linker/DynamicLinker.h>
+#include "modules/system/linker/DynamicLinker.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
@@ -41,9 +41,9 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <vfs/File.h>
-#include <vfs/Symlink.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Symlink.h"
+#include "modules/system/vfs/VFS.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/machine/Machine.h"
@@ -53,8 +53,8 @@
 #include <PosixSubsystem.h>
 #include "pedigree/kernel/Subsystem.h"
 
-#include <console/Console.h>
-#include <users/UserManager.h>
+#include "modules/system/console/Console.h"
+#include "modules/system/users/UserManager.h"
 
 #include <grp.h>
 #include <limits.h>

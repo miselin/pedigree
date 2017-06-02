@@ -23,7 +23,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Network.h"
-#include <network-stack/NetworkStack.h>
+#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 Rtl8139::Rtl8139(Network *pDev)

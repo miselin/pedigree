@@ -18,18 +18,18 @@
  */
 
 #include "pedigree/kernel/machine/Network.h"
-#include <network-stack/NetManager.h>
-#include <network-stack/NetworkStack.h>
-#include <network-stack/RoutingTable.h>
-#include <network-stack/Tcp.h>
-#include <network-stack/UdpManager.h>
+#include "modules/system/network-stack/NetManager.h"
+#include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/network-stack/RoutingTable.h"
+#include "modules/system/network-stack/Tcp.h"
+#include "modules/system/network-stack/UdpManager.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include <vfs/File.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
 
 #include <PosixSubsystem.h>
 #include "pedigree/kernel/Subsystem.h"

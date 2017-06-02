@@ -20,7 +20,7 @@
 #ifndef USBPNP_H
 #define USBPNP_H
 
-#include <usb/UsbDevice.h>
+#include "modules/system/usb/UsbDevice.h"
 
 enum UsbPnPConstants
 {

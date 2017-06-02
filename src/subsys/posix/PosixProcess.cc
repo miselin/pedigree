@@ -20,7 +20,7 @@
 #include "PosixProcess.h"
 #include "ProcFs.h"
 
-#include <vfs/VFS.h>
+#include "modules/system/vfs/VFS.h"
 
 ProcessGroup::~ProcessGroup()
 {

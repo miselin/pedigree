@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <console/Console.h>
+#include "modules/system/console/Console.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include <vfs/File.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
 
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>

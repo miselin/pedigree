@@ -18,10 +18,10 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 #include "pedigree/kernel/BootstrapInfo.h"
-#include <config/Config.h>
+#include "modules/system/config/Config.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/processor/Processor.h"

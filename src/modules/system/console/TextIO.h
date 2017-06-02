@@ -25,7 +25,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 
-#include <vfs/File.h>
+#include "modules/system/vfs/File.h"
 
 class Vga;
 

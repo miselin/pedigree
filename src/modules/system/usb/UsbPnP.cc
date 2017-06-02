@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
-#include <usb/UsbDevice.h>
-#include <usb/UsbPnP.h>
+#include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbPnP.h"
 
 UsbPnP UsbPnP::m_Instance;
 

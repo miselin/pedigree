@@ -25,8 +25,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
-#include <vfs/File.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
 
 /// \todo Expose functionality here as a Service - specifically
 /// creating/removing disks.

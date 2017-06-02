@@ -21,7 +21,7 @@
 #include "RawFsDir.h"
 #include "RawFsFile.h"
 
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 static RawFs *g_pRawFs = 0;

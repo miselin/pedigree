@@ -18,7 +18,7 @@
  */
 
 #include "Console.h"
-#include <vfs/VFS.h>
+#include "modules/system/vfs/VFS.h"
 
 #include "ConsoleDefines.h"
 

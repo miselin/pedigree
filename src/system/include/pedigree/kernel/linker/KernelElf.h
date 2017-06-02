@@ -34,7 +34,7 @@
 #endif
 
 #ifdef STATIC_DRIVERS
-#include <Module.h>
+#include "modules/Module.h"
 #endif
 
 /** @addtogroup kernellinker

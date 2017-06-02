@@ -26,7 +26,7 @@
 #include <poll.h>
 #include <unistd.h>
 
-#include <network-stack/NetworkStack.h>
+#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/utilities/pocketknife.h"
 
 TunWrapper::TunWrapper() : m_StationInfo(), m_Fd(-1)

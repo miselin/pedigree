@@ -18,7 +18,7 @@
  */
 
 #include <native/input/Input.h>
-#include <pedigree-c/pedigree-syscalls.h>
+#include "subsys/pedigree-c/pedigree-syscalls.h"
 #include <stdio.h>
 
 using namespace Input;

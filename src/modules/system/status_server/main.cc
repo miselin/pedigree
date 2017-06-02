@@ -18,20 +18,20 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include <Version.h>
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/Network.h"
-#include <network-stack/ConnectionBasedEndpoint.h>
-#include <network-stack/Endpoint.h>
-#include <network-stack/NetworkStack.h>
-#include <network-stack/RoutingTable.h>
-#include <network-stack/TcpManager.h>
+#include "modules/system/network-stack/ConnectionBasedEndpoint.h"
+#include "modules/system/network-stack/Endpoint.h"
+#include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/network-stack/RoutingTable.h"
+#include "modules/system/network-stack/TcpManager.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include <vfs/Filesystem.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 
 #define LISTEN_PORT 1234
 

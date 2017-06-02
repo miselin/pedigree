@@ -19,7 +19,7 @@
 
 #include "Udp.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 #include "Ethernet.h"
 #include "Ipv4.h"

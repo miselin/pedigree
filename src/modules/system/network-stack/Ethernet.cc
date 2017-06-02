@@ -23,7 +23,7 @@
 #include "Ipv6.h"
 #include "RawManager.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 #include "Filter.h"
 

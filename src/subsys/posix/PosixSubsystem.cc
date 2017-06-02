@@ -37,13 +37,13 @@
 #include "PosixProcess.h"
 #include "logging.h"
 
-#include <linker/DynamicLinker.h>
+#include "modules/system/linker/DynamicLinker.h"
 #include "pedigree/kernel/linker/Elf.h"
-#include <vfs/File.h>
-#include <vfs/LockedFile.h>
-#include <vfs/MemoryMappedFile.h>
-#include <vfs/Symlink.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/LockedFile.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/Symlink.h"
+#include "modules/system/vfs/VFS.h"
 
 #include "file-syscalls.h"
 

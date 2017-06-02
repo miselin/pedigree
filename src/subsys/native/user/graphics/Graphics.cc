@@ -20,7 +20,7 @@
 #include "pedigree/native/graphics/Graphics.h"
 #include "pedigree/kernel/debugger/libudis86/types.h"
 
-#include <pedigree-c/pedigree-syscalls.h>
+#include "subsys/pedigree-c/pedigree-syscalls.h"
 
 #define PACKED __attribute__((packed))  /// \todo Move to a header
 

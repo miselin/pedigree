@@ -24,7 +24,7 @@
 #include "Ext2Node.h"
 #include "ext2.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <vfs/Directory.h>
+#include "modules/system/vfs/Directory.h"
 
 /** A File is a file, a directory or a symlink. */
 class Ext2Directory : public Directory, public Ext2Node

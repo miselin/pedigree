@@ -23,7 +23,7 @@
 
 #include <cstdint>
 
-#include <network-stack/TcpMisc.h>
+#include "modules/system/network-stack/TcpMisc.h"
 
 TEST(PedigreeTcpBuffer, InitialSettings)
 {

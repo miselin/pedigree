@@ -18,13 +18,13 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include <vfs/Filesystem.h>
-#include <vfs/MemoryMappedFile.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/VFS.h"
 
 static const char *g_FilesToPreload[] = {
     "root»/applications/init",        "root»/applications/ttyterm",

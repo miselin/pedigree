@@ -20,7 +20,7 @@
 /** Metamodule to handle dependencies on graphics devices so splash only runs
  *  after all graphics drivers have been loaded. */
 
-#include <Module.h>
+#include "modules/Module.h"
 
 #if defined(X86_COMMON)
 #define __MOD_DEPS 0

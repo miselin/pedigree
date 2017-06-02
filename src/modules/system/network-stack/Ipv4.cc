@@ -19,7 +19,7 @@
 
 #include "Ipv4.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 // Protocols we use in IPv4
 #include "Arp.h"

@@ -24,11 +24,11 @@
 
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
-#include <vfs/Directory.h>
-#include <vfs/File.h>
-#include <vfs/Filesystem.h>
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
 
-#include <console/TextIO.h>
+#include "modules/system/console/TextIO.h"
 
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"

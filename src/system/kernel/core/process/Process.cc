@@ -33,7 +33,7 @@
 
 #include "pedigree/kernel/Subsystem.h"
 
-#include <vfs/File.h>
+#include "modules/system/vfs/File.h"
 
 Process *Process::m_pInitProcess = 0;
 

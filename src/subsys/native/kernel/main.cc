@@ -18,7 +18,7 @@
  */
 
 #include "NativeSyscallManager.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 static NativeSyscallManager g_NativeSyscallManager;
 

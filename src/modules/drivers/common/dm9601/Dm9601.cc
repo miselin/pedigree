@@ -20,11 +20,11 @@
 #include "Dm9601.h"
 #include "pedigree/kernel/Log.h"
 
-#include <network-stack/NetworkStack.h>
+#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include <usb/UsbConstants.h>
-#include <usb/UsbHub.h>
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbHub.h"
 
 #include "pedigree/kernel/LockGuard.h"
 

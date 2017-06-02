@@ -18,12 +18,12 @@
  */
 
 #include "NetManager.h"
-#include <network-stack/ConnectionBasedEndpoint.h>
-#include <network-stack/Endpoint.h>
-#include <network-stack/RawManager.h>
-#include <network-stack/RoutingTable.h>
-#include <network-stack/TcpManager.h>
-#include <network-stack/UdpManager.h>
+#include "modules/system/network-stack/ConnectionBasedEndpoint.h"
+#include "modules/system/network-stack/Endpoint.h"
+#include "modules/system/network-stack/RawManager.h"
+#include "modules/system/network-stack/RoutingTable.h"
+#include "modules/system/network-stack/TcpManager.h"
+#include "modules/system/network-stack/UdpManager.h"
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 
 NetManager NetManager::m_Instance;

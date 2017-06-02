@@ -18,7 +18,7 @@
  */
 
 #include "IsaDma.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 #ifdef X86_COMMON
 #include "x86/X86IsaDma.h"

@@ -22,7 +22,7 @@
 
 #include <hid/HidReport.h>
 #include "pedigree/kernel/processor/types.h"
-#include <usb/UsbDevice.h>
+#include "modules/system/usb/UsbDevice.h"
 
 class UsbHumanInterfaceDevice : public UsbDevice
 {

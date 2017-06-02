@@ -27,8 +27,8 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include <vfs/File.h>
-#include <vfs/MemoryMappedFile.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
 
 /** The dynamic linker tracks instances of shared objects through
     an address space. */

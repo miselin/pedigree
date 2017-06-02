@@ -11,7 +11,7 @@
 #ifndef _CDI_OSDEP_H_
 #define _CDI_OSDEP_H_
 
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 struct cdi_driver;

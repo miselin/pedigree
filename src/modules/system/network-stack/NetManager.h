@@ -23,13 +23,13 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <vfs/Filesystem.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 
-#include <network-stack/ConnectionBasedEndpoint.h>
-#include <network-stack/ConnectionlessEndpoint.h>
-#include <network-stack/Endpoint.h>
-#include <network-stack/Tcp.h>
+#include "modules/system/network-stack/ConnectionBasedEndpoint.h"
+#include "modules/system/network-stack/ConnectionlessEndpoint.h"
+#include "modules/system/network-stack/Endpoint.h"
+#include "modules/system/network-stack/Tcp.h"
 
 #define NETMAN_TYPE_UDP 1
 #define NETMAN_TYPE_TCP 2

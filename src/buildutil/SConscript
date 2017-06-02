@@ -56,6 +56,7 @@ env.MergeFlags({
 
 # Build utility libraries.
 header_paths = [
+    env.Dir('#src'),
     env.Dir('#src/modules/system'),
     env.Dir('#src/system/include'),
     env.Dir('#src/system/kernel/core'),

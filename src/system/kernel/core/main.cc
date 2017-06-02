@@ -144,7 +144,7 @@
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 #endif
 
-#include <Module.h>
+#include "modules/Module.h"
 
 #include "pedigree/kernel/graphics/GraphicsService.h"
 

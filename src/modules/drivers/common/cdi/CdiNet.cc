@@ -21,7 +21,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Network.h"
-#include <network-stack/NetworkStack.h>
+#include "modules/system/network-stack/NetworkStack.h"
 
 // Prototypes in the extern "C" block to ensure that they are not mangled
 extern "C" {

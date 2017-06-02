@@ -25,7 +25,7 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <vfs/Filesystem.h>
+#include "modules/system/vfs/Filesystem.h"
 
 #include "iso9660.h"
 

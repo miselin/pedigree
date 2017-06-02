@@ -22,8 +22,8 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include <scsi/ScsiController.h>
-#include <usb/UsbConstants.h>
-#include <usb/UsbDevice.h>
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbDevice.h"
 
 class UsbMassStorageDevice : public ScsiController, public UsbDevice
 {

@@ -24,7 +24,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
-#include <usb/Usb.h>
+#include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
 class UsbHub : public Device

@@ -26,9 +26,9 @@
 #include "pedigree/kernel/Log.h"
 
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
-#include <vfs/Directory.h>
-#include <vfs/File.h>
-#include <vfs/Filesystem.h>
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
 
 class ProcFs;
 class ProcFsDirectory;

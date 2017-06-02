@@ -43,9 +43,9 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/DeviceHashTree.h"
-#include <network-stack/NetworkStack.h>
-#include <network-stack/RoutingTable.h>
-#include <network-stack/TcpManager.h>
+#include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/network-stack/RoutingTable.h"
+#include "modules/system/network-stack/TcpManager.h"
 
 static jmp_buf g_jb;
 

@@ -19,7 +19,7 @@
 
 #include "Rtl8139.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/processor/Processor.h"

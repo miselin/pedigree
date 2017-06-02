@@ -24,8 +24,8 @@
 #include <Version.h>
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include <users/Group.h>
-#include <users/User.h>
+#include "modules/system/users/Group.h"
+#include "modules/system/users/User.h"
 
 #include "file-syscalls.h"
 

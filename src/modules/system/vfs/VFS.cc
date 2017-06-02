@@ -20,15 +20,15 @@
 #include "VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
-#include <users/UserManager.h>
+#include "modules/system/users/UserManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #ifndef VFS_STANDALONE
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/processor/Processor.h"
 #endif
 
-#include <ramfs/RamFs.h>
+#include "modules/system/ramfs/RamFs.h"
 
 /// \todo Figure out a way to clean up files after deletion. Directory::remove()
 ///       is not the right place to do this. There needs to be a way to add a

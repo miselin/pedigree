@@ -20,9 +20,9 @@
 #include <hid/HidReport.h>
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
-#include <usb/UsbConstants.h>
-#include <usb/UsbDevice.h>
-#include <usb/UsbHub.h>
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 
 #include "UsbHumanInterfaceDevice.h"

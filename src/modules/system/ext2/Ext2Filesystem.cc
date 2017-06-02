@@ -27,15 +27,15 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
-#include <users/UserManager.h>
+#include "modules/system/users/UserManager.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include <vfs/VFS.h>
+#include "modules/system/vfs/VFS.h"
 
 #ifndef EXT2_STANDALONE
-#include <Module.h>
+#include "modules/Module.h"
 #endif
 
 // The sparse block page. This is zeroed and made read-only. A handler is set

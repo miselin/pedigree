@@ -18,8 +18,8 @@
  */
 
 #include "Console.h"
-#include <Module.h>
-#include <vfs/VFS.h>
+#include "modules/Module.h"
+#include "modules/system/vfs/VFS.h"
 
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"

@@ -18,12 +18,12 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
-#include <network-stack/ConnectionlessEndpoint.h>
-#include <network-stack/NetworkStack.h>
-#include <network-stack/UdpManager.h>
+#include "modules/Module.h"
+#include "modules/system/network-stack/ConnectionlessEndpoint.h"
+#include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/network-stack/UdpManager.h"
 
-#include <network-stack/Ndp.h>
+#include "modules/system/network-stack/Ndp.h"
 
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/processor/Processor.h"

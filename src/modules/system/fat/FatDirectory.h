@@ -22,7 +22,7 @@
 
 #include "FatFilesystem.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <vfs/Directory.h>
+#include "modules/system/vfs/Directory.h"
 
 #include "FatFile.h"
 #include "fat.h"

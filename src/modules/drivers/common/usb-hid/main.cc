@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Module.h>
-#include <usb/UsbPnP.h>
+#include "modules/Module.h"
+#include "modules/system/usb/UsbPnP.h"
 
 #include "UsbHumanInterfaceDevice.h"
 

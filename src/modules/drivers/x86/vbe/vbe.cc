@@ -19,8 +19,8 @@
 
 #include "VbeDisplay.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
-#include <config/Config.h>
+#include "modules/Module.h"
+#include "modules/system/config/Config.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/processor/Processor.h"

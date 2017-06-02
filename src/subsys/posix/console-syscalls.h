@@ -20,7 +20,7 @@
 #ifndef CONSOLE_SYSCALLS_H
 #define CONSOLE_SYSCALLS_H
 
-#include <vfs/File.h>
+#include "modules/system/vfs/File.h"
 
 #include <sys/types.h>
 

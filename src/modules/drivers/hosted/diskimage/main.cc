@@ -18,7 +18,7 @@
  */
 
 #include "DiskImage.h"
-#include <Module.h>
+#include "modules/Module.h"
 
 bool entry()
 {

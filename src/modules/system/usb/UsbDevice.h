@@ -22,8 +22,8 @@
 
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
-#include <usb/Usb.h>
-#include <usb/UsbDescriptors.h>
+#include "modules/system/usb/Usb.h"
+#include "modules/system/usb/UsbDescriptors.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 class UsbHub;

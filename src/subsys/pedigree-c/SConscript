@@ -45,6 +45,7 @@ libpedigree_c_files = Glob("*.c")
 # To include a new directory for includes, just add it to the list
 include_dirs = [
     './include',
+    '#src',
     '#src/modules',
     '#src/system/include',
     '#src/modules/system',

@@ -24,12 +24,12 @@
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include <ramfs/RamFs.h>
-#include <vfs/VFS.h>
+#include "modules/system/ramfs/RamFs.h"
+#include "modules/system/vfs/VFS.h"
 
 static PosixSyscallManager g_PosixSyscallManager;
 

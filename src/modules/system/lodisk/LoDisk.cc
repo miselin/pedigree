@@ -18,7 +18,7 @@
  */
 
 #include "LoDisk.h"
-#include "../Module.h"
+#include "modules/system/../Module.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 #include "pedigree/kernel/ServiceManager.h"

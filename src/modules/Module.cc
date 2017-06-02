@@ -19,7 +19,7 @@
 
 #include "pedigree/kernel/utilities/List.h"
 
-#include "Module.h"
+#include "modules/Module.h"
 
 #ifndef STATIC_DRIVERS
 

@@ -20,7 +20,7 @@
 #include "NetworkStack.h"
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "Ethernet.h"

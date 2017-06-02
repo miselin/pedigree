@@ -90,6 +90,7 @@ else:
     ]
 
 include_dirs = [
+    '#src',
     '#/src/system/include',
     '#/src/modules/system',
     '#/src/modules',

@@ -27,7 +27,7 @@
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include <usb/Usb.h>
+#include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 #define INDEX_FROM_QTD(ptr) \

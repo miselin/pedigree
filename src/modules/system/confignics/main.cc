@@ -18,12 +18,12 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/machine/DeviceHashTree.h"
-#include <network-stack/NetworkStack.h>
-#include <network-stack/RoutingTable.h>
+#include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/network-stack/RoutingTable.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 static int configureInterfaces()

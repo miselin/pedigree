@@ -18,7 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include <Module.h>
+#include "modules/Module.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
@@ -26,7 +26,7 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include <vfs/VFS.h>
+#include "modules/system/vfs/VFS.h"
 
 #include "FatDirectory.h"
 #include "FatFile.h"

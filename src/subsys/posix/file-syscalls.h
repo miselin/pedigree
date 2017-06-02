@@ -20,9 +20,9 @@
 #ifndef FILE_SYSCALLS_H
 #define FILE_SYSCALLS_H
 
-#include <vfs/File.h>
-#include <vfs/Filesystem.h>
-#include <vfs/VFS.h>
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 
 #include "DevFs.h"
 #include "logging.h"

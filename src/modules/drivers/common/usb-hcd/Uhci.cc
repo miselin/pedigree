@@ -25,7 +25,7 @@
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include <usb/Usb.h>
+#include "modules/system/usb/Usb.h"
 
 #define INDEX_FROM_TD_VIRT(ptr)                  \
     (((reinterpret_cast<uintptr_t>((ptr)) -      \
