@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <Subsystem.h>
-#include <process/Thread.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 void Subsystem::acquire()
 {

@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <panic.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 RequestQueue::RequestQueue()
     : m_Stop(false),

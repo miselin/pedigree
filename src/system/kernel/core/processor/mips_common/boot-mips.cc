@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BootstrapInfo.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 extern "C" void _main(BootstrapStruct_t *);
 
 extern "C" int start(BootstrapStruct_t *bs)

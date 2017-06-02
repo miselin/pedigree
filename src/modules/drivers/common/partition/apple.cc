@@ -19,8 +19,8 @@
 
 #include "apple.h"
 #include "Partition.h"
-#include <Log.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 bool appleProbeDisk(Disk *pDisk)
 {

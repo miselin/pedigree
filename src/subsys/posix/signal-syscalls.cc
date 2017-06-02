@@ -21,19 +21,19 @@
 #include "file-syscalls.h"
 #include "pthread-syscalls.h"
 #include "system-syscalls.h"
-#include <Log.h>
-#include <syscallError.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/syscallError.h"
 
-#include <process/Scheduler.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
-#include <machine/Machine.h>
-#include <machine/Timer.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
 
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 #include <signal.h>
 

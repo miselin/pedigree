@@ -20,13 +20,13 @@
 #ifndef OHCI_H
 #define OHCI_H
 
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <processor/InterruptManager.h>
-#include <processor/IoBase.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 #include <usb/UsbHub.h>
 
 /** Device driver for the Ohci class */

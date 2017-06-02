@@ -23,7 +23,7 @@
  */
 
 #include <stdarg.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 /* we use this so that we can do without the ctype library */
 #define is_digit(c) ((c) >= '0' && (c) <= '9')

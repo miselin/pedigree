@@ -23,8 +23,8 @@
 /** @addtogroup kerneldebuggercommands
  * @{ */
 
-#include <DebuggerCommand.h>
-#include <Scrollable.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/Scrollable.h"
 
 /**
  * Debugger command that allows viewing of the kernel log.

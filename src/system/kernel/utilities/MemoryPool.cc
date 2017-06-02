@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/MemoryPool.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/MemoryPool.h"
 
 static void map(uintptr_t location)
 {

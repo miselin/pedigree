@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <Service.h>
-#include <ServiceManager.h>
-#include <machine/DeviceHashTree.h>
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/machine/DeviceHashTree.h"
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 static int configureInterfaces()
 {

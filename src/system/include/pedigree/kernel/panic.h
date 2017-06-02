@@ -20,7 +20,7 @@
 #ifndef KERNEL_PANIC_H
 #define KERNEL_PANIC_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 
 /** @addtogroup kernel
  * @{ */

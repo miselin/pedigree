@@ -23,11 +23,11 @@
 /** @addtogroup kernelutilities
  * @{ */
 
-#include <compiler.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/SharedPointer.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // If non-zero, a constexpr constructor will be available in String. It is an
 // experimental change that needs some more work to be stable.

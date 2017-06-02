@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <hid/HidReport.h>
 #include <hid/HidUsages.h>
 #include <hid/HidUtils.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 // Handy macro for mixing tag and type in a single value
 #define MIX_TYPE_N_TAG(type, tag) (type | (tag << 2))

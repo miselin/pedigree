@@ -20,8 +20,8 @@
 #ifndef KERNEL_PROCESSOR_MEMORYREGION_H
 #define KERNEL_PROCESSOR_MEMORYREGION_H
 
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

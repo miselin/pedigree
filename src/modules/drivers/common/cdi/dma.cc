@@ -8,11 +8,11 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
-#include <processor/types.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <Log.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/Log.h"
 
 #include <stdio.h>
 #include <stdlib.h>

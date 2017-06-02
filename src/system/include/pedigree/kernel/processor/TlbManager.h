@@ -21,7 +21,7 @@
 #define TLBMANAGER_H
 
 #ifdef MIPS32
-#include <processor/mips32/TlbManager.h>
+#include "pedigree/kernel/processor/mips32/TlbManager.h"
 typedef MIPS32TlbManager TlbManager;
 #endif
 

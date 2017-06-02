@@ -18,20 +18,20 @@
  */
 
 #include "InterruptManager.h"
-#include <LockGuard.h>
-#include <panic.h>
-#include <processor/Processor.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #if defined(DEBUGGER)
-#include <Debugger.h>
+#include "pedigree/kernel/debugger/Debugger.h"
 #endif
 
 #ifdef THREADS
-#include <Subsystem.h>
-#include <process/Process.h>
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/Process.h"
 #endif
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 #define SYSCALL_INTERRUPT_NUMBER 255
 

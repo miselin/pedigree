@@ -20,8 +20,8 @@
 #ifndef SCSICOMMANDS_H
 #define SCSICOMMANDS_H
 
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 class ScsiCommand
 {

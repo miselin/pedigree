@@ -20,8 +20,8 @@
 #ifndef ARCHIVE_H
 #define ARCHIVE_H
 
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
 
 /**
  * This class provides functions for extracting an archive file as made by UNIX

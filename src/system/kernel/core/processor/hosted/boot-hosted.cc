@@ -28,7 +28,7 @@
 
 #include <elf.h>
 
-#include "BootstrapInfo.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 
 extern "C" void _main(BootstrapStruct_t &bs);
 

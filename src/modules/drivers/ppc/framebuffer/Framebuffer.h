@@ -20,9 +20,9 @@
 #ifndef FRAMEBUFFER_H
 #define FRAMEBUFFER_H
 
-#include <machine/Device.h>
-#include <machine/Display.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/utilities/List.h"
 
 /** This class is a wrapper around the standard PPC Vga driver,
  *  to provide access to it as a device tree node. */

@@ -19,21 +19,21 @@
 
 #ifdef THREADS
 
-#include <Log.h>
-#include <machine/Machine.h>
-#include <process/ProcessorThreadAllocator.h>
-#include <process/Scheduler.h>
-#include <process/SchedulingAlgorithm.h>
-#include <process/Thread.h>
-#include <processor/Processor.h>
-#include <processor/StackFrame.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/StackFrame.h"
 
-#include <machine/InputManager.h>
+#include "pedigree/kernel/machine/InputManager.h"
 
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-#include <processor/ProcessorInformation.h>
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 
 Thread::Thread(
     Process *pParent, ThreadStartFunc pStartFunction, void *pParam,

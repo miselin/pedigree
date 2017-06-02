@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/HidInputManager.h>
-#include <machine/Keyboard.h>
-#include <machine/KeymapManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/HidInputManager.h"
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
 
-#include <machine/keymaps/KeymapEnUs.h>
+#include "pedigree/kernel/machine/keymaps/KeymapEnUs.h"
 
 // #define DEBUG_KEYMAP
 

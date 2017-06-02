@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <panic.h>
+#include "pedigree/kernel/panic.h"
 
 #undef memcpy
 

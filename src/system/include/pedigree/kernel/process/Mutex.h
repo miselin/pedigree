@@ -45,7 +45,7 @@ class Mutex
 
 #ifdef THREADS
 
-#include <process/Semaphore.h>
+#include "pedigree/kernel/process/Semaphore.h"
 
 /**
  * A mutex, or binary semaphore

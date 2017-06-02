@@ -20,7 +20,7 @@
 #ifndef USB_H
 #define USB_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 // PID types, ordered as they appear in the EHCI spec
 enum UsbPid

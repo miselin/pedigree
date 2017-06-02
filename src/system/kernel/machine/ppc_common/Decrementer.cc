@@ -19,13 +19,13 @@
 
 #include "Decrementer.h"
 #include "../core/processor/ppc32/InterruptManager.h"
-#include <Log.h>
-#include <compiler.h>
-#include <machine/Machine.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <processor/InterruptManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 Decrementer Decrementer::m_Instance;
 

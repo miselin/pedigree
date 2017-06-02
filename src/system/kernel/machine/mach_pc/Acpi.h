@@ -23,10 +23,10 @@
 #if defined(ACPI)
 
 #include "../../core/processor/x86_common/Multiprocessor.h"
-#include <compiler.h>
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

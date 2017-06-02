@@ -18,7 +18,7 @@
  */
 
 #include "Vga.h"
-#include <BootIO.h>
+#include "pedigree/kernel/core/BootIO.h"
 
 #include <stdio.h>
 

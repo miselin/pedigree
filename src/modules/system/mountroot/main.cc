@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <core/BootIO.h>
+#include "pedigree/kernel/core/BootIO.h"
 #include <lodisk/LoDisk.h>
-#include <machine/Disk.h>
+#include "pedigree/kernel/machine/Disk.h"
 #include <vfs/VFS.h>
 
 static bool bRootMounted = false;

@@ -20,9 +20,9 @@
 #include "FatFile.h"
 #include "FatFilesystem.h"
 
-#include <LockGuard.h>
-#include <process/Mutex.h>
-#include <utilities/MemoryPool.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/utilities/MemoryPool.h"
 
 FatFile::FatFile(
     String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,

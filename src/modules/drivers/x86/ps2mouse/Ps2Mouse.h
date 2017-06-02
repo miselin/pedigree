@@ -20,10 +20,10 @@
 #ifndef _PS2_MOUSE_H
 #define _PS2_MOUSE_H
 
-#include <Spinlock.h>
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <process/Semaphore.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 
 class Ps2Mouse : public Device, public IrqHandler
 {

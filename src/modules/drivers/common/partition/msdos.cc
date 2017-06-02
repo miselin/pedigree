@@ -19,12 +19,12 @@
 
 #include "msdos.h"
 #include "Partition.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #ifdef THREADS
-#include <Spinlock.h>
+#include "pedigree/kernel/Spinlock.h"
 static Spinlock g_Lock;
 #endif
 

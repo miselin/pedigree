@@ -20,16 +20,16 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_X86_COMMON_PROCESSORINFORMATION_H
 
-#include <process/PerProcessorScheduler.h>
-#include <process/Thread.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 #if defined(X86)
-#include <processor/x86/tss.h>
+#include "pedigree/kernel/processor/x86/tss.h"
 #else
-#include <processor/x64/tss.h>
+#include "pedigree/kernel/processor/x64/tss.h"
 #endif
-#include <process/InfoBlock.h>
+#include "pedigree/kernel/process/InfoBlock.h"
 
 /** @addtogroup kernelprocessorx86common
  * @{ */

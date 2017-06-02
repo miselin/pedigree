@@ -19,7 +19,7 @@
 
 #define _PEDIGREE_COMPILING_SUBSYS
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #define _COMPILING_NEWLIB
 #include <newlib.h>

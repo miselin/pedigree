@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <process/Scheduler.h>
-#include <process/Semaphore.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include <vfs/Filesystem.h>
 #include <vfs/MemoryMappedFile.h>
 #include <vfs/VFS.h>

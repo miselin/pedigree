@@ -17,22 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/Cache.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifndef STANDALONE_CACHE
-#include <process/Scheduler.h>
-#include <process/Thread.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #endif
 
-#include <utilities/smhasher/MurmurHash3.h>
+#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 // Don't allocate cache space in reverse, but DO re-use cache pages.
 // This gives us wins because we don't need to reallocate page tables for

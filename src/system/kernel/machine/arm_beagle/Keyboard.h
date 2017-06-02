@@ -20,7 +20,7 @@
 #ifndef MACHINE_ARMBEAGLE_KEYBOARD_H
 #define MACHINE_ARMBEAGLE_KEYBOARD_H
 
-#include <machine/Keyboard.h>
+#include "pedigree/kernel/machine/Keyboard.h"
 
 /// \note No actual attached keyboard apart from one on USB perhaps - so this
 ///       is completely stubbed.

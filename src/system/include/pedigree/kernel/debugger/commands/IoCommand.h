@@ -23,7 +23,7 @@
 /** @addtogroup kerneldebuggercommands
  * @{ */
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /**
  * Debugger command that list allocated I/O ports and memory-regions

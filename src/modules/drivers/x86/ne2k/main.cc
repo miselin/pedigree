@@ -18,12 +18,12 @@
  */
 
 #include "Ne2k.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <machine/Device.h>
-#include <machine/Network.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
 
 static bool bFound = false;
 

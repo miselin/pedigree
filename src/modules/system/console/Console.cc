@@ -21,8 +21,8 @@
 #include <Module.h>
 #include <vfs/VFS.h>
 
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 ConsoleManager ConsoleManager::m_Instance;
 

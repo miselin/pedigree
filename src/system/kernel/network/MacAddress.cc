@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <network/MacAddress.h>
+#include "pedigree/kernel/network/MacAddress.h"
 
 MacAddress::MacAddress() : m_Mac(), m_Valid(false)
 {

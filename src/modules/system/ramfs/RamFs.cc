@@ -18,10 +18,10 @@
  */
 
 #include "RamFs.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <process/Process.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include <vfs/VFS.h>
 
 RamFile::RamFile(

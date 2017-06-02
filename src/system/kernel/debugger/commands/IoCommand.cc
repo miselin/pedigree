@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "IoCommand.h"
-#include <DebuggerIO.h>
-#include <processor/IoPortManager.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/debugger/commands/IoCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/processor/IoPortManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 IoCommand::IoCommand() : DebuggerCommand()
 {

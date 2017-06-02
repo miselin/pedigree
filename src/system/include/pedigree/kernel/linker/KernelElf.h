@@ -20,17 +20,17 @@
 #ifndef KERNEL_LINKER_KERNELELF_H
 #define KERNEL_LINKER_KERNELELF_H
 
-#include <BootstrapInfo.h>
-#include <compiler.h>
-#include <linker/Elf.h>
-#include <processor/MemoryRegion.h>
-#include <utilities/MemoryAllocator.h>
-#include <utilities/SharedPointer.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #ifdef THREADS
-#include <Spinlock.h>
-#include <process/Semaphore.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #endif
 
 #ifdef STATIC_DRIVERS

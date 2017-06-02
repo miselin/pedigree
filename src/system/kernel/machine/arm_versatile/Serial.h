@@ -20,8 +20,8 @@
 #ifndef MACHINE_ARM_VERSATILE_SERIAL_H
 #define MACHINE_ARM_VERSATILE_SERIAL_H
 
-#include <compiler.h>
-#include <machine/Serial.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Serial.h"
 
 /**
  * Implements a driver for the Serial connection of the Versatile's UART (A

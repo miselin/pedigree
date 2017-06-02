@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include <usb/Usb.h>
 #include <usb/UsbDevice.h>
 #include <usb/UsbHub.h>
 #include <usb/UsbPnP.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
 {

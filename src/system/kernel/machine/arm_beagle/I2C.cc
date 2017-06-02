@@ -19,12 +19,12 @@
 
 #include "I2C.h"
 #include "Prcm.h"
-#include <Log.h>
-#include <process/Semaphore.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <time/Time.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/time/Time.h"
 
 I2C I2C::m_Instance[3];
 

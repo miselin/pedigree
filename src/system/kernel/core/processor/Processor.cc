@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 size_t Processor::m_Initialised = 0;
 #if !defined(MULTIPROCESSOR)

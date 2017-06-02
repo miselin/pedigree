@@ -20,7 +20,7 @@
 #ifndef EXT2_H
 #define EXT2_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #define EXT2_UNKNOWN 0x0
 #define EXT2_FILE 0x1

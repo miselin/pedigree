@@ -19,8 +19,8 @@
 
 #include "Pipe.h"
 #include "Filesystem.h"
-#include <processor/Processor.h>
-#include <utilities/ZombieQueue.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/ZombieQueue.h"
 
 class ZombiePipe : public ZombieObject
 {

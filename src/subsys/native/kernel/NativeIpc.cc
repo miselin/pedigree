@@ -18,11 +18,11 @@
  */
 
 #include <native/ipc/Ipc.h>
-#include <process/Ipc.h>
+#include "pedigree/kernel/process/Ipc.h"
 
-#include <utilities/Pair.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/utilities/Pair.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include <native-ipc.h>
 

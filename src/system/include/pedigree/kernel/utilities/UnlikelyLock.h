@@ -20,8 +20,8 @@
 #ifndef UNLIKELY_LOCK_H
 #define UNLIKELY_LOCK_H
 
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
 
 /** \file UnlikelyLock.h
     \author James Molloy

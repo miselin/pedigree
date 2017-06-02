@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/state.h>
+#include "pedigree/kernel/processor/state.h"
 
 const char *MIPS32InterruptStateRegisterName[34] = {
     "at", "v0", "v1", "a0",    "a1",  "a2",       "a3",     "t0", "t1",

@@ -22,11 +22,11 @@
 
 #ifndef DISABLE_RAWNET
 
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <utilities/List.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include "Manager.h"
 

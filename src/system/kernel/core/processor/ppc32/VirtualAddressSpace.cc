@@ -19,14 +19,14 @@
 
 #include "VirtualAddressSpace.h"
 #include "HashedPageTable.h"
-#include <Log.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #define PAGE_DIRECTORY_INDEX(x) ((reinterpret_cast<uintptr_t>(x) >> 22) & 0x3FF)
 #define PAGE_TABLE_INDEX(x) ((reinterpret_cast<uintptr_t>(x) >> 12) & 0x3FF)

@@ -20,7 +20,7 @@
 #ifndef CDI_STDIO_H
 #define CDI_STDIO_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #ifdef __cplusplus
 extern "C" {

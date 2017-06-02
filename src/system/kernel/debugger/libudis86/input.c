@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -25,9 +24,9 @@
  * All rights reserved. See LICENSE
  * -----------------------------------------------------------------------------
  */
-#include "extern.h"
-#include "types.h"
-#include "input.h"
+#include "pedigree/kernel/debugger/libudis86/extern.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
+#include "pedigree/kernel/debugger/libudis86/input.h"
 
 /* -----------------------------------------------------------------------------
  * inp_buff_hook() - Hook for buffered inputs.

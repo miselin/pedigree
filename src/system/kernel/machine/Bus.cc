@@ -17,4 +17,4 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Bus.h>
+#include "pedigree/kernel/machine/Bus.h"

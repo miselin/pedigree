@@ -20,6 +20,6 @@
 #ifndef KERNEL_PROCESSOR_X64_PROCESSOR_H
 #define KERNEL_PROCESSOR_X64_PROCESSOR_H
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 #endif

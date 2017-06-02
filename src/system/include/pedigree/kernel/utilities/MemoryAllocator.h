@@ -20,7 +20,7 @@
 #ifndef KERNEL_UTILITIES_MEMORYALLOCATOR_H
 #define KERNEL_UTILITIES_MEMORYALLOCATOR_H
 
-#include <utilities/RangeList.h>
+#include "pedigree/kernel/utilities/RangeList.h"
 
 /** @addtogroup kernelutilities
  * @{ */

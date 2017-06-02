@@ -18,9 +18,9 @@
  */
 
 #include "gdt.h"
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 X86GdtManager X86GdtManager::m_Instance;
 

@@ -18,11 +18,11 @@
  */
 
 #include "UsbUlpi.h"
-#include <Log.h>
-#include <process/Semaphore.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <time/Time.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/time/Time.h"
 
 /// \todo super specific to a machine
 #include <Gpio.h>

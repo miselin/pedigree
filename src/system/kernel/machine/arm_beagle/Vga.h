@@ -20,7 +20,7 @@
 #ifndef MACHINE_ARM_BEAGLE_VGA_H
 #define MACHINE_ARM_BEAGLE_VGA_H
 
-#include <machine/Vga.h>
+#include "pedigree/kernel/machine/Vga.h"
 
 /// \note useless, no text framebuffer device available.
 class ArmBeagleVga : public Vga

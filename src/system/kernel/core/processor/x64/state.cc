@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/state.h>
+#include "pedigree/kernel/processor/state.h"
 
 static const char *X64InterruptStateRegisterName[18] = {
     "rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "r8",  "r9",

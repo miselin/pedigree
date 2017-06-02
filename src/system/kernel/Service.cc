@@ -17,4 +17,4 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Service.h"
+#include "pedigree/kernel/Service.h"

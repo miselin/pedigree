@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/state.h>
+#include "pedigree/kernel/processor/state.h"
 
 const char *HostedInterruptStateRegisterName[3] = {
     "state", "extra", "meta",

@@ -19,10 +19,10 @@
 
 #include <Module.h>
 
-#include <machine/Device.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#include <machine/TimerHandler.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 
 enum Ib700TimeEntries
 {

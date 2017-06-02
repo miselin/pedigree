@@ -20,18 +20,18 @@
 #include <console/Console.h>
 #include <network-stack/NetManager.h>
 #include <network-stack/Tcp.h>
-#include <process/Process.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 #include <ramfs/RamFs.h>
-#include <syscallError.h>
+#include "pedigree/kernel/syscallError.h"
 #include <users/UserManager.h>
-#include <utilities/PointerGuard.h>
-#include <utilities/Tree.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
@@ -42,7 +42,7 @@
 
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 #include "console-syscalls.h"
 #include "file-syscalls.h"

@@ -20,8 +20,8 @@
 #ifndef MIPS_COMMON_ASIDMANAGER_H
 #define MIPS_COMMON_ASIDMANAGER_H
 
-#include <process/Mutex.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorMIPSCommon
  * @{ */

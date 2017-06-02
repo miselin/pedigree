@@ -21,11 +21,11 @@
 #include "PhysicalMemoryManager.h"
 #include "SyscallManager.h"
 #include "VirtualAddressSpace.h"
-#include <process/Scheduler.h>
-#include <process/Thread.h>
-#include <process/initialiseMultitasking.h>
-#include <processor/PageFaultHandler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 namespace __pedigree_hosted
 {

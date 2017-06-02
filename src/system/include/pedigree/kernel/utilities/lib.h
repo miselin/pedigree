@@ -20,7 +20,7 @@
 #ifndef KERNEL_UTILITIES_LIB_H
 #define KERNEL_UTILITIES_LIB_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 #include <stdarg.h>
 
 // Condense X86-ish systems into one define for utilities.
@@ -145,7 +145,7 @@ uint32_t jenkinsHash(const char *buffer, size_t length);
 }
 
 // Export C++ support library header.
-#include <utilities/cpp.h>
+#include "pedigree/kernel/utilities/cpp.h"
 #endif
 
 #endif  // KERNEL_UTILITIES_LIB_H

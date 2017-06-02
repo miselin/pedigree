@@ -21,8 +21,8 @@
 #include "FatFile.h"
 #include "FatFilesystem.h"
 #include "FatSymlink.h"
-#include <LockGuard.h>
-#include <syscallError.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/syscallError.h"
 
 #include "fat.h"
 

@@ -27,11 +27,11 @@
 
 class Disk;
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 #include <vfs/Directory.h>
 #include <vfs/VFS.h>
 
-#include <utilities/Cache.h>
+#include "pedigree/kernel/utilities/Cache.h"
 
 class RamFile : public File
 {

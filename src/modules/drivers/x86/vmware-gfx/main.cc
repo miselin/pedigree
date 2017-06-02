@@ -17,23 +17,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 #include <config/Config.h>
-#include <machine/Display.h>
-#include <machine/Machine.h>
-#include <processor/MemoryMappedIo.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
-#include <machine/Framebuffer.h>
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
 
 #include "svga_reg.h"
 #include "vm_device_version.h"

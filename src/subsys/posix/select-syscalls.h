@@ -21,8 +21,8 @@
 #define SELECT_SYSCALLS_H
 
 #include "file-syscalls.h"
-#include <process/Event.h>
-#include <process/eventNumbers.h>
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/eventNumbers.h"
 
 /** Event class for passing to File::monitor. */
 class SelectEvent : public Event

@@ -22,11 +22,11 @@
 #include "I2C.h"
 #include "Prcm.h"
 
-#include <machine/Bus.h>
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <machine/Pci.h>
+#include "pedigree/kernel/machine/Bus.h"
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/machine/Pci.h"
 
 ArmBeagle ArmBeagle::m_Instance;
 

@@ -20,16 +20,16 @@
 #ifndef NE2K_H
 #define NE2K_H
 
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <process/Thread.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
 #define NE2K_VENDOR_ID 0x10ec
 #define NE2K_DEVICE_ID 0x8029

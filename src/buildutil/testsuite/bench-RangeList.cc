@@ -24,7 +24,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/RangeList.h>
+#include "pedigree/kernel/utilities/RangeList.h"
 
 #define RANDOM_MAX 0x10000
 

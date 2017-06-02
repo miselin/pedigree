@@ -20,15 +20,15 @@
 #ifndef NETWORK_BLOCK_TIMEOUT_H
 #define NETWORK_BLOCK_TIMEOUT_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
-#include <machine/Machine.h>
-#include <machine/Timer.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
 #undef MACHINE_FORWARD_DECL_ONLY
 
-#include <Log.h>
-#include <process/Semaphore.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Semaphore.h"
 
 /** The Pedigree network stack - Network timeout (for anything that blocks on a
  * semaphore) */

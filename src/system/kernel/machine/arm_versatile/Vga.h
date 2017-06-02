@@ -20,7 +20,7 @@
 #ifndef MACHINE_ARM_VERSATILE_VGA_H
 #define MACHINE_ARM_VERSATILE_VGA_H
 
-#include <machine/Vga.h>
+#include "pedigree/kernel/machine/Vga.h"
 
 /**
  * Vga device abstraction.

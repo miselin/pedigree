@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <linker/KernelElf.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/MemoryCount.h>
-#include <utilities/MemoryTracing.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/MemoryCount.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 KernelElf KernelElf::m_Instance;
 

@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "BootIO.h"
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Serial.h>
-#include <machine/Vga.h>
-#include <processor/types.h>
+#include "pedigree/kernel/core/BootIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/processor/types.h"
 
 BootIO::BootIO() : m_CursorX(0), m_CursorY(0)
 {

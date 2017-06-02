@@ -20,7 +20,7 @@
 #ifndef KERNEL_PROCESSOR_MIPS_COMMON_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_MIPS_COMMON_PHYSICALMEMORYMANAGER_H
 
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 /** @addtogroup kernelprocessormipscommon
  * @{ */

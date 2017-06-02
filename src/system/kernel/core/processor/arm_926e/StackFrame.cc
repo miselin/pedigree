@@ -19,7 +19,7 @@
 
 #if defined(DEBUGGER)
 
-#include <processor/StackFrame.h>
+#include "pedigree/kernel/processor/StackFrame.h"
 
 uintptr_t ARM926EStackFrame::getParameter(size_t n)
 {

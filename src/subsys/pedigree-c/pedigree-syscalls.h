@@ -20,13 +20,13 @@
 #ifndef PEDIGREE_SYSCALLS_H
 #define PEDIGREE_SYSCALLS_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 
 #ifndef PEDIGREE_SYSCALLS_LIBC
 
 #ifdef PEDIGREEC_WITHIN_KERNEL
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #if 1
 #define P_NOTICE(x)                                                          \

@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/List.h>
+#include "pedigree/kernel/utilities/List.h"
 
 #include "Module.h"
 

@@ -18,10 +18,10 @@
  */
 
 #include "Translation.h"
-#include <Log.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <panic.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/panic.h"
 
 Translations::Translations() : m_nTranslations(0)
 {

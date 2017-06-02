@@ -23,9 +23,9 @@
 /** @addtogroup kerneldebugger
  * @{ */
 
-#include <compiler.h>
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 class DwarfUnwinder
 {

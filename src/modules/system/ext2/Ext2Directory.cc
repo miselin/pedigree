@@ -21,7 +21,7 @@
 #include "Ext2File.h"
 #include "Ext2Filesystem.h"
 #include "Ext2Symlink.h"
-#include <syscallError.h>
+#include "pedigree/kernel/syscallError.h"
 
 Ext2Directory::Ext2Directory(
     const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,

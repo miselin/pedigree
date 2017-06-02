@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/HidInputManager.h>
-#include <machine/InputManager.h>
-#include <machine/KeymapManager.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/HidInputManager.h"
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
 
 HidInputManager HidInputManager::m_Instance;
 

@@ -23,7 +23,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 #define CONSTANT_MESSAGE "hello, world! this is a constant string."
 

@@ -20,7 +20,7 @@
 #ifndef SERVICE_FEATURES_H
 #define SERVICE_FEATURES_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** Service Operation Enumeration
  *

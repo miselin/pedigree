@@ -20,9 +20,9 @@
 #ifndef PARTITION_SERVICE_H
 #define PARTITION_SERVICE_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
-#include <ServiceManager.h>
+#include "pedigree/kernel/ServiceManager.h"
 //#include <ServiceFeatures.h>
 
 class PartitionService : public Service

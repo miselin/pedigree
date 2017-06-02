@@ -21,8 +21,8 @@
 #define DMA_H
 
 #include "nv_macros.h"
-#include <processor/MemoryMappedIo.h>
-#include <processor/MemoryRegion.h>
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 
 /* FIFO channels */
 #define NV_GENERAL_FIFO_CH0 0x0000

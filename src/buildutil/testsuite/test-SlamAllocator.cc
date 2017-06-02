@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <lib/SlamAllocator.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 TEST(PedigreeSlamAllocator, EmptyStartup)
 {

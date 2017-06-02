@@ -21,7 +21,7 @@
 #define FAT_DIRECTORY_H
 
 #include "FatFilesystem.h"
-#include <utilities/Vector.h>
+#include "pedigree/kernel/utilities/Vector.h"
 #include <vfs/Directory.h>
 
 #include "FatFile.h"

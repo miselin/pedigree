@@ -18,10 +18,10 @@
  */
 
 #include "Config.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <process/Mutex.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static Mutex g_sqlLock(false);
 

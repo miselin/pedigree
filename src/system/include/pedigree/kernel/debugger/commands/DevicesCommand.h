@@ -20,10 +20,10 @@
 #ifndef DEVICESCOMMAND_H
 #define DEVICESCOMMAND_H
 
-#include <DebuggerCommand.h>
-#include <Scrollable.h>
-#include <machine/Device.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/Scrollable.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

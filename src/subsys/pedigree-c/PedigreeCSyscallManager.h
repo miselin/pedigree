@@ -20,8 +20,8 @@
 #ifndef PEDIGREEC_SYSCALL_MANAGER_H
 #define PEDIGREEC_SYSCALL_MANAGER_H
 
-#include <processor/SyscallHandler.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/types.h"
 
 class PedigreeCSyscallManager : public SyscallHandler
 {

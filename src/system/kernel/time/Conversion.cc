@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time/Time.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 static const uint16_t cumulativeDays[] = {0,   31,  59,  90,  120, 151, 181,
                                           212, 243, 273, 304, 334, 365};

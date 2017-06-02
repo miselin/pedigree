@@ -85,8 +85,8 @@
 #ifndef MODULE_H
 #define MODULE_H
 
-#include <compiler.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifndef __cplusplus
 #include <stdbool.h>

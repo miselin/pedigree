@@ -20,10 +20,10 @@
 #ifndef MACHINE_X86_SERIAL_H
 #define MACHINE_X86_SERIAL_H
 
-#include <compiler.h>
-#include <machine/Serial.h>
-#include <processor/IoPort.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/types.h"
 
 namespace serial
 {

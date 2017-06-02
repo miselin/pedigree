@@ -18,10 +18,10 @@
  */
 
 #include "IsaAtaController.h"
-#include <Log.h>
-#include <machine/Machine.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 
 IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     : AtaController(pDev, nController)

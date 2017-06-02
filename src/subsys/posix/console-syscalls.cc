@@ -18,18 +18,18 @@
  */
 
 #include <console/Console.h>
-#include <process/Process.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <syscallError.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Tree.h"
 #include <vfs/File.h>
 #include <vfs/VFS.h>
 
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 #include "console-syscalls.h"
 #include "file-syscalls.h"

@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "QuitCommand.h"
-#include <DebuggerIO.h>
-#include <Log.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/commands/QuitCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 QuitCommand::QuitCommand() : DebuggerCommand()
 {

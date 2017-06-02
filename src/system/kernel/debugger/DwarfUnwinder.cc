@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <DwarfCfiAutomaton.h>
-#include <DwarfState.h>
-#include <DwarfUnwinder.h>
-#include <Log.h>
+#include "pedigree/kernel/debugger/DwarfCfiAutomaton.h"
+#include "pedigree/kernel/debugger/DwarfState.h"
+#include "pedigree/kernel/debugger/DwarfUnwinder.h"
+#include "pedigree/kernel/Log.h"
 
 DwarfUnwinder::DwarfUnwinder(uintptr_t nData, size_t nLength)
     : m_nData(nData), m_nLength(nLength)

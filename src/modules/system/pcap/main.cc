@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <compiler.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include <network-stack/Filter.h>
-#include <time/Time.h>
+#include "pedigree/kernel/time/Time.h"
 
 struct PcapHeader
 {

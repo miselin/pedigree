@@ -24,7 +24,7 @@
 #include "Keyboard.h"
 #include "Serial.h"
 #include "Vga.h"
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/Machine.h"
 
 /**
  * Concretion of the abstract Machine class for an ArmBeagle board.

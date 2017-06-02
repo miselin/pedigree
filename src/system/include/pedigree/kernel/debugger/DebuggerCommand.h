@@ -20,8 +20,8 @@
 #ifndef DEBUGGER_COMMAND_H
 #define DEBUGGER_COMMAND_H
 
-#include <processor/state.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kerneldebugger
  * @{ */

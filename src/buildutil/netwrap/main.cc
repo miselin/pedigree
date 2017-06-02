@@ -41,8 +41,8 @@
 #include "TunWrapper.h"
 #include "config-shim.h"
 
-#include <Log.h>
-#include <machine/DeviceHashTree.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/DeviceHashTree.h"
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
 #include <network-stack/TcpManager.h>

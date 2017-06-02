@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 ExtensibleBitmap::ExtensibleBitmap()
     : m_StaticMap(0), m_pDynamicMap(0), m_DynamicMapSize(0), m_nMaxBit(0),

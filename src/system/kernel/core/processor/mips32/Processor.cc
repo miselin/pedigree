@@ -18,8 +18,8 @@
  */
 
 #include "InterruptManager.h"
-#include <processor/Processor.h>
-#include <processor/TlbManager.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/TlbManager.h"
 
 void Processor::initialise1(const BootstrapStruct_t &Info)
 {

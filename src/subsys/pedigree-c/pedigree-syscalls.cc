@@ -17,20 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <config/Config.h>
-#include <linker/KernelElf.h>
-#include <syscallError.h>
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/syscallError.h"
 #include <vfs/File.h>
 #include <vfs/MemoryMappedFile.h>
 #include <vfs/Symlink.h>
 #include <vfs/VFS.h>
 
-#include <machine/InputManager.h>
-#include <machine/KeymapManager.h>
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
 
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
 
 #include <users/UserManager.h>
 

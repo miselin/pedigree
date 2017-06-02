@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <DebuggerCommand.h>
-#include <Log.h>
-#include <SerialIO.h>
-#include <processor/IoPort.h>
-#include <utilities/StaticString.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/SerialIO.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 /// \todo needs a bit of a tidyup!
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 SerialIO::SerialIO(Serial *pSerial)
     : m_UpperCliLimit(0), m_LowerCliLimit(0), m_nWidth(80), m_nHeight(25),

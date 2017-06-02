@@ -31,19 +31,19 @@ typedef size_t ProcessorId;
 #ifndef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 #if defined(X86_COMMON)
-#include <processor/x86_common/ProcessorInformation.h>
+#include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X86Common##x
 #elif defined(MIPS_COMMON)
-#include <processor/mips_common/ProcessorInformation.h>
+#include "pedigree/kernel/processor/mips_common/ProcessorInformation.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPSCommon##x
 #elif defined(ARM_COMMON)
-#include <processor/arm_common/ProcessorInformation.h>
+#include "pedigree/kernel/processor/arm_common/ProcessorInformation.h"
 #define PROCESSOR_SPECIFIC_NAME(x) ArmCommon##x
 #elif defined(PPC_COMMON)
-#include <processor/ppc_common/ProcessorInformation.h>
+#include "pedigree/kernel/processor/ppc_common/ProcessorInformation.h"
 #define PROCESSOR_SPECIFIC_NAME(x) PPCCommon##x
 #elif defined(HOSTED)
-#include <processor/hosted/ProcessorInformation.h>
+#include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 

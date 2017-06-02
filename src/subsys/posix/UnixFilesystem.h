@@ -24,7 +24,7 @@
 #include <vfs/File.h>
 #include <vfs/Filesystem.h>
 
-#include <utilities/RingBuffer.h>
+#include "pedigree/kernel/utilities/RingBuffer.h"
 
 #define MAX_UNIX_DGRAM_BACKLOG 65536
 

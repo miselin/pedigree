@@ -19,8 +19,8 @@
 
 #include "Dma.h"
 
-#include <Log.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 Dma::Dma(
     IoBase *pRegs, IoBase *pFb, NvCard card, NvType type, uintptr_t ramSize)

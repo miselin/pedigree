@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <linker/Elf.h>
-#include <linker/SymbolTable.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/linker/SymbolTable.h"
 
 #ifdef THREADS
 #define RAII_LOCK LockGuard<Mutex> guard(m_Lock)

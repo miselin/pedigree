@@ -20,12 +20,12 @@
 #ifndef TCPENDPOINT_H
 #define TCPENDPOINT_H
 
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <processor/types.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 #include "ConnectionBasedEndpoint.h"
 #include "Endpoint.h"

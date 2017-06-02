@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <time/Stopwatch.h>
-#include <time/Time.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/time/Stopwatch.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 namespace Time
 {

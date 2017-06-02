@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
-#include <utilities/TimeoutGuard.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/TimeoutGuard.h"
 #ifdef THREADS
-#include <process/PerProcessorScheduler.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #endif
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 static void guardEventFired(uint8_t *pBuffer) NORETURN;
 

@@ -28,14 +28,14 @@
 #include <sys/mman.h>
 #include <time.h>
 
-#include <Spinlock.h>
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
-#include <process/Scheduler.h>
-#include <time/Time.h>
-#include <utilities/Cache.h>
-#include <utilities/MemoryPool.h>
-#include <utilities/TimeoutGuard.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/MemoryPool.h"
+#include "pedigree/kernel/utilities/TimeoutGuard.h"
 
 void *g_pBootstrapInfo = 0;
 

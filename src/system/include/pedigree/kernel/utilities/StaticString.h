@@ -20,7 +20,7 @@
 #ifndef STATICSTRING_H
 #define STATICSTRING_H
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelutilities
  * @{ */

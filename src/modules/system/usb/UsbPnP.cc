@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 #include <usb/UsbDevice.h>
 #include <usb/UsbPnP.h>
 

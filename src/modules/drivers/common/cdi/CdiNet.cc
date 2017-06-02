@@ -19,8 +19,8 @@
 
 #include "CdiNet.h"
 
-#include <Log.h>
-#include <machine/Network.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Network.h"
 #include <network-stack/NetworkStack.h>
 
 // Prototypes in the extern "C" block to ensure that they are not mangled

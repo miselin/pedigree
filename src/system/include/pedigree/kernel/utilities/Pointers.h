@@ -20,8 +20,8 @@
 #ifndef POINTERS_H
 #define POINTERS_H
 
-#include <Log.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** Provides a wrapper around a single-use pointer. The copy constructor
  * will invalidate the reference in the object being copied from.

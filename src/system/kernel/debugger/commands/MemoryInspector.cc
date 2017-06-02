@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "MemoryInspector.h"
-#include <processor/Processor.h>
+#include "pedigree/kernel/debugger/commands/MemoryInspector.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 MemoryInspector::MemoryInspector()
     : DebuggerCommand(), Scrollable(), m_nCharsPerLine(8)

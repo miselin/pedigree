@@ -21,10 +21,10 @@
 #define KERNEL_LINKER_ELF_H
 
 #ifdef IN_PEDIGREE_KERNEL
-#include <compiler.h>
-#include <linker/SymbolTable.h>
-#include <processor/types.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/linker/SymbolTable.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 #endif
 
 /** @addtogroup kernellinker

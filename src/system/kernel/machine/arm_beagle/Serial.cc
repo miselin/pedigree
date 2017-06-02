@@ -18,9 +18,9 @@
  */
 
 #include "Serial.h"
-#include <machine/Machine.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 ArmBeagleSerial::ArmBeagleSerial() : m_Base(0), m_BaseRegion("beagle-uart")
 {

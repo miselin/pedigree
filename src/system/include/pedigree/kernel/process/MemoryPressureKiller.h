@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <process/MemoryPressureManager.h>
+#include "pedigree/kernel/process/MemoryPressureManager.h"
 
 /** Handles killing processes if memory pressure is encountered. */
 class MemoryPressureProcessKiller : public MemoryPressureHandler

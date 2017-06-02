@@ -20,7 +20,7 @@
 #ifndef PROCESS_INTERRUPTIBLE_H
 #define PROCESS_INTERRUPTIBLE_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 
 /**
  * Uninterruptible provides an RAII helper to move the current thread into

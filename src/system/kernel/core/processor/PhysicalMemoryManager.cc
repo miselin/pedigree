@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 PhysicalMemoryManager::PhysicalMemoryManager() : m_MemoryRegions()
 {

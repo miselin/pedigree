@@ -20,9 +20,9 @@
 #ifndef MACHINE_MALTA_KEYBOARD_H
 #define MACHINE_MALTA_KEYBOARD_H
 
-#include <machine/Keyboard.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 
 class PPCKeyboard : public Keyboard
 {

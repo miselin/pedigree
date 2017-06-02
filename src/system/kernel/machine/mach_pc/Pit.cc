@@ -18,9 +18,9 @@
  */
 
 #include "Pit.h"
-#include <Log.h>
-#include <compiler.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 /** One hundred hertz frequency. */
 #ifdef BOCHS

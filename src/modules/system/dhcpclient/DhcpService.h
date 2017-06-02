@@ -20,9 +20,9 @@
 #ifndef DHCP_SERVICE_H
 #define DHCP_SERVICE_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
-#include <ServiceManager.h>
+#include "pedigree/kernel/ServiceManager.h"
 
 class DhcpService : public Service
 {

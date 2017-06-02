@@ -20,7 +20,7 @@
 #ifndef TRANSLATION_H
 #define TRANSLATION_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #define NUM_TRANSLATIONS 256
 

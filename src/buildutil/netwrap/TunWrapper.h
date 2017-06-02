@@ -20,9 +20,9 @@
 #ifndef TUNWRAPPER_H
 #define TUNWRAPPER_H
 
-#include <machine/Network.h>
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
 
 class TunWrapper : public Network
 {

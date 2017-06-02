@@ -20,7 +20,7 @@
 #ifndef SIGNAL_EVENT_H
 #define SIGNAL_EVENT_H
 
-#include <process/Event.h>
+#include "pedigree/kernel/process/Event.h"
 
 class SignalEvent : public Event
 {

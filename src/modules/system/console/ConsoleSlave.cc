@@ -20,8 +20,8 @@
 #include "Console.h"
 #include <vfs/VFS.h>
 
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 extern const char defaultControl[MAX_CONTROL_CHAR];
 

@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Scrollable.h"
-#include <Log.h>
+#include "pedigree/kernel/debugger/Scrollable.h"
+#include "pedigree/kernel/Log.h"
 
 void Scrollable::move(size_t x, size_t y)
 {

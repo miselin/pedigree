@@ -21,9 +21,9 @@
 #define SCSIDISK_H
 
 #include "ScsiCommands.h"
-#include <machine/Disk.h>
-#include <processor/types.h>
-#include <utilities/Cache.h>
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
 
 class ScsiDisk : public Disk
 {

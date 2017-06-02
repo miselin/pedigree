@@ -20,11 +20,11 @@
 #ifndef LODISK_H
 #define LODISK_H
 
-#include <machine/Disk.h>
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
-#include <utilities/Cache.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/String.h"
 #include <vfs/File.h>
 #include <vfs/VFS.h>
 

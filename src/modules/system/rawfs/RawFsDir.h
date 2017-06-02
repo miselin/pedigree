@@ -20,7 +20,7 @@
 #ifndef RAWFS_DIRECTORY_H
 #define RAWFS_DIRECTORY_H
 
-#include <utilities/String.h>
+#include "pedigree/kernel/utilities/String.h"
 #include <vfs/Directory.h>
 
 class RawFsDir : public Directory

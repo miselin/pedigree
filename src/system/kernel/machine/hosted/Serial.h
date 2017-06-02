@@ -20,9 +20,9 @@
 #ifndef MACHINE_HOSTED_SERIAL_H
 #define MACHINE_HOSTED_SERIAL_H
 
-#include <compiler.h>
-#include <machine/Serial.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/processor/types.h"
 
 /**
  * Serial device abstraction.

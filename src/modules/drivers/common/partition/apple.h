@@ -23,8 +23,8 @@
 #ifndef APPLE_H
 #define APPLE_H
 
-#include <machine/Device.h>
-#include <machine/Disk.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
 
 #define APPLE_PM_SIG 0x504D  // "PM"
 

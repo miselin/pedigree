@@ -18,8 +18,8 @@
  */
 
 #include "instrument.h"
-#include <machine/Machine.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 #define USE_LITE_RECORD 1
 

@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/Machine.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include <usb/Usb.h>
 #ifdef X86_COMMON
-#include <machine/Pci.h>
+#include "pedigree/kernel/machine/Pci.h"
 #endif
 #include "Ohci.h"
-#include <LockGuard.h>
-#include <time/Time.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/time/Time.h"
 
 #define INDEX_FROM_TD(ptr) \
     (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(TD)))

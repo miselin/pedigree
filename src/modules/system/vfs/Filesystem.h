@@ -20,10 +20,10 @@
 #ifndef FILESYSTEM_H
 #define FILESYSTEM_H
 
-#include <machine/Disk.h>
-#include <processor/types.h>
-#include <utilities/RadixTree.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
 #include <vfs/File.h>
 
 /** This class provides the abstract skeleton that all filesystems must

@@ -20,8 +20,8 @@
 #ifndef MACHINE_OF_OF_H
 #define MACHINE_OF_OF_H
 
-#include <machine/openfirmware/types.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/openfirmware/types.h"
+#include "pedigree/kernel/processor/types.h"
 
 /**
  * Interface to OpenFirmware.

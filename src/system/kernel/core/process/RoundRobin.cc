@@ -18,12 +18,12 @@
  */
 
 #if defined(THREADS)
-#include <LockGuard.h>
-#include <Log.h>
-#include <process/RoundRobin.h>
-#include <process/Thread.h>
-#include <processor/Processor.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/RoundRobin.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 RoundRobin::RoundRobin() : m_Lock(false)
 {

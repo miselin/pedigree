@@ -20,9 +20,9 @@
 #ifndef MACHINE_PPC_VGA_H
 #define MACHINE_PPC_VGA_H
 
-#include <machine/Vga.h>
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
 // include <machine/openfirmware/OpenFirmware.h>
 // include <machine/openfirmware/Device.h>
 

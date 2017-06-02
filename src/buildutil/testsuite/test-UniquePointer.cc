@@ -21,4 +21,4 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/Pointers.h>
+#include "pedigree/kernel/utilities/Pointers.h"

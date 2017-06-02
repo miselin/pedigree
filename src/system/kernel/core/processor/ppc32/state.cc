@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <processor/Processor.h>
-#include <processor/state.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/state.h"
 
 const char *PPC32InterruptStateRegisterName[40] = {
     "r0",  "r1",  "r2",  "r3",  "r4",  "r5",   "r6",   "r7",    "r8",  "r9",

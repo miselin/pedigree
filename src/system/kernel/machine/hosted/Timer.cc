@@ -18,13 +18,13 @@
  */
 
 #include "Timer.h"
-#include <compiler.h>
-#include <machine/Machine.h>
-#include <process/Event.h>
-#include <process/Thread.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 
-#include <SlamAllocator.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 // Millisecond interval (tick every ms)
 #define INTERVAL 1000000

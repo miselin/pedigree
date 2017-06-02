@@ -43,7 +43,7 @@
 #ifndef _SHA1_H_
 #define _SHA1_H_
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 class SHA1
 {

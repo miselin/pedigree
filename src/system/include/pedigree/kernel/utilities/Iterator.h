@@ -20,7 +20,7 @@
 #ifndef KERNEL_UTILITIES_ITERATOR_H
 #define KERNEL_UTILITIES_ITERATOR_H
 
-#include <utilities/template.h>
+#include "pedigree/kernel/utilities/template.h"
 
 /** @addtogroup kernelutilities
  * @{ */

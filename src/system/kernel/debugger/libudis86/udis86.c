@@ -29,10 +29,10 @@
 //include <stdio.h>
 //include <string.h>
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
-#include "input.h"
-#include "extern.h"
+#include "pedigree/kernel/debugger/libudis86/input.h"
+#include "pedigree/kernel/debugger/libudis86/extern.h"
 
 /* =============================================================================
  * ud_init() - Initializes ud_t object.

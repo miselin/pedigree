@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
-#include <syscallError.h>
-#include <utilities/List.h>
-#include <utilities/StaticString.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include <vfs/VFS.h>
 
 #include "FatDirectory.h"

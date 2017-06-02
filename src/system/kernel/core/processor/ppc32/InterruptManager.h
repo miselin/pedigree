@@ -20,12 +20,12 @@
 #ifndef KERNEL_PROCESSOR_PPC32_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_PPC32_INTERRUPTMANAGER_H
 
-#include <Spinlock.h>
-#include <compiler.h>
-#include <processor/InterruptManager.h>
-#include <processor/SyscallManager.h>
-#include <processor/Syscalls.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/Syscalls.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorPPC32
  * @{ */

@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 class SerialLogger : public Log::LogCallback
 {

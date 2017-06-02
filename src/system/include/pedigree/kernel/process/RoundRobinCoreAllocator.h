@@ -20,7 +20,7 @@
 #ifndef ROUND_ROBIN_CORE_ALLOCATOR_H
 #define ROUND_ROBIN_CORE_ALLOCATOR_H
 
-#include <process/ThreadToCoreAllocationAlgorithm.h>
+#include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
 
 class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm
 {

@@ -20,17 +20,17 @@
 #ifndef POSIX_SUBSYSTEM_H
 #define POSIX_SUBSYSTEM_H
 
-#include <Subsystem.h>
-#include <process/Mutex.h>
-#include <process/Semaphore.h>
-#include <process/SignalEvent.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/SignalEvent.h"
+#include "pedigree/kernel/processor/types.h"
 
-#include <LockGuard.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/RadixTree.h>
-#include <utilities/Tree.h>
-#include <utilities/UnlikelyLock.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/UnlikelyLock.h"
 
 class File;
 class LockedFile;

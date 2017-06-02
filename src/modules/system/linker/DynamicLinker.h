@@ -20,13 +20,13 @@
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
 
-#include <linker/Elf.h>
-#include <process/Process.h>
-#include <processor/state.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/RadixTree.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/Tree.h"
 #include <vfs/File.h>
 #include <vfs/MemoryMappedFile.h>
 

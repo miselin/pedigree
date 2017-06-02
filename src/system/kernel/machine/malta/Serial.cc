@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include <machine/malta/Serial.h>
-#include <machine/types.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 MaltaSerial::MaltaSerial() : m_pBuffer(0), m_pRegs(0)
 {
 }

@@ -19,13 +19,13 @@
 
 #include "Machine.h"
 
-#include <Log.h>
-#include <panic.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 
-#include <machine/Bus.h>
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
+#include "pedigree/kernel/machine/Bus.h"
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
 
 HostedMachine HostedMachine::m_Instance;
 

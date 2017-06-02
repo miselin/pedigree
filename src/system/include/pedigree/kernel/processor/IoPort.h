@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_IOPORT_H
 #define KERNEL_PROCESSOR_IOPORT_H
 
-#include <processor/IoBase.h>
-#include <processor/types.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** @addtogroup kernelprocessor
  * @{ */
@@ -99,7 +99,7 @@ class IoPort : public IoBase
 // Part of the implementation
 //
 #if defined(X86_COMMON)
-#include <processor/x86_common/IoPort.h>
+#include "pedigree/kernel/processor/x86_common/IoPort.h"
 #endif
 
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)

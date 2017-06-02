@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <syscallError.h>
+#include "pedigree/kernel/syscallError.h"
 
 #include "file-syscalls.h"
 #include "pipe-syscalls.h"
@@ -25,12 +25,12 @@
 #include <vfs/VFS.h>
 
 #include <PosixSubsystem.h>
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 #include <Module.h>
 
-#include <process/Process.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #include <fcntl.h>
 

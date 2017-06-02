@@ -18,24 +18,24 @@
  */
 
 #include "Keyboard.h"
-#include <machine/Device.h>
-#include <machine/HidInputManager.h>
-#include <machine/KeymapManager.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/HidInputManager.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 #ifdef DEBUGGER
-#include <Debugger.h>
+#include "pedigree/kernel/debugger/Debugger.h"
 
 #ifdef TRACK_PAGE_ALLOCATIONS
-#include <AllocationCommand.h>
+#include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
 #endif
 
 #ifdef DEBUGGER
-#include <SlamCommand.h>
+#include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #endif
 
-#include <SlamAllocator.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 namespace __pedigree_hosted
 {

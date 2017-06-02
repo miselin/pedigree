@@ -20,9 +20,9 @@
 #ifndef _ATA_COMMON_H
 #define _ATA_COMMON_H
 
-#include <compiler.h>
-#include <processor/IoBase.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/types.h"
 
 typedef union
 {

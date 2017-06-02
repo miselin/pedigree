@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Spinlock.h>
-#include <process/Thread.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #ifdef TRACK_LOCKS
-#include <LocksCommand.h>
+#include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
-#include <panic.h>
+#include "pedigree/kernel/panic.h"
 
 static Atomic<size_t> x(0);
 

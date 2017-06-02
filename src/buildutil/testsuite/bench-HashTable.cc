@@ -25,7 +25,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/HashTable.h>
+#include "pedigree/kernel/utilities/HashTable.h"
 
 class HashedInteger
 {

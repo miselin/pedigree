@@ -20,10 +20,10 @@
 #ifndef MACHINE_OF_DEVICE_H
 #define MACHINE_OF_DEVICE_H
 
-#include <machine/openfirmware/types.h>
-#include <machine/types.h>
-#include <processor/types.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/openfirmware/types.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /**
  * Provides an interface to query OpenFirmware about a device.

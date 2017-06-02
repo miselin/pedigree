@@ -20,7 +20,7 @@
 #ifndef QUITCOMMAND_H
 #define QUITCOMMAND_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

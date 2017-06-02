@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <panic.h>
-#include <processor/IoPortManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/IoPortManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
 

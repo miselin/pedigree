@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config/ConfigurationBackend.h>
-#include <config/ConfigurationManager.h>
+#include "pedigree/kernel/config/ConfigurationBackend.h"
+#include "pedigree/kernel/config/ConfigurationManager.h"
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 ConfigurationBackend::ConfigurationBackend(String configStore)
     : m_ConfigStore(configStore)

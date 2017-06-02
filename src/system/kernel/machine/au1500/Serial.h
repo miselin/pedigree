@@ -20,7 +20,7 @@
 #ifndef MACHINE_AU1500_SERIAL_H
 #define MACHINE_AU1500_SERIAL_H
 
-#include <machine/Serial.h>
+#include "pedigree/kernel/machine/Serial.h"
 
 /**
  * Implements a driver for the Serial connection of the malta's UART.

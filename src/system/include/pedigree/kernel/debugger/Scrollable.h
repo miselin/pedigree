@@ -20,8 +20,8 @@
 #ifndef SCROLLABLE_H
 #define SCROLLABLE_H
 
-#include "DebuggerIO.h"
-#include <processor/types.h>
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kerneldebugger
  * @{ */

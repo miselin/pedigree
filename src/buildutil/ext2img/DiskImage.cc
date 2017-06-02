@@ -18,9 +18,9 @@
  */
 
 #include "DiskImage.h"
-#include <BootstrapInfo.h>
-#include <Log.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #include <sys/mman.h>
 #include <sys/stat.h>

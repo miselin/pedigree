@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <processor/StackFrame.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/StackFrame.h"
 
 #if defined(DEBUGGER)
 

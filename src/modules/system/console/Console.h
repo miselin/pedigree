@@ -20,10 +20,10 @@
 #ifndef CONSOLE_H
 #define CONSOLE_H
 
-#include <Spinlock.h>
-#include <utilities/Buffer.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include <vfs/File.h>
 #include <vfs/Filesystem.h>
 #include <vfs/VFS.h>

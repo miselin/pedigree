@@ -22,7 +22,7 @@
 
 #include "Ext2Filesystem.h"
 #include "ext2.h"
-#include <utilities/Vector.h>
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** A node in an ext2 filesystem. */
 class Ext2Node

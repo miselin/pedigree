@@ -20,20 +20,20 @@
 #ifndef CACHE_H
 #define CACHE_H
 
-#include <Spinlock.h>
-#include <processor/types.h>
-#include <utilities/BloomFilter.h>
-#include <utilities/MemoryAllocator.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/Tree.h>
-#include <utilities/UnlikelyLock.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/BloomFilter.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/UnlikelyLock.h"
 
-#include <machine/TimerHandler.h>
+#include "pedigree/kernel/machine/TimerHandler.h"
 
-#include <process/MemoryPressureManager.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-#include <utilities/CacheConstants.h>
+#include "pedigree/kernel/utilities/CacheConstants.h"
 
 /// The age at which a cache page is considered "old" and can be evicted
 /// This is expressed in seconds.

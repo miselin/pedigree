@@ -20,7 +20,7 @@
 #ifndef _GRAPHICS_H
 #define _GRAPHICS_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 class Framebuffer;
 

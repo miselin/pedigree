@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 
 OFDevice::OFDevice(OFHandle handle) : m_Handle(handle)
 {

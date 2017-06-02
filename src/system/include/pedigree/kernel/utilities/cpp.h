@@ -26,8 +26,8 @@
 #include <string.h>
 #endif
 
-#include <processor/types.h>
-#include <utilities/lib.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 namespace pedigree_std
 {

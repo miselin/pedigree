@@ -19,19 +19,19 @@
 
 #if defined(THREADS)
 
-#include <Log.h>
-#include <linker/Elf.h>
-#include <process/Process.h>
-#include <process/Scheduler.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
-#include <utilities/ZombieQueue.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/ZombieQueue.h"
 
-#include <process/SignalEvent.h>
+#include "pedigree/kernel/process/SignalEvent.h"
 
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 #include <vfs/File.h>
 

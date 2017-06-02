@@ -20,7 +20,7 @@
 #ifndef STOPWATCH_H
 #define STOPWATCH_H
 
-#include <time/Time.h>
+#include "pedigree/kernel/time/Time.h"
 
 namespace Time
 {

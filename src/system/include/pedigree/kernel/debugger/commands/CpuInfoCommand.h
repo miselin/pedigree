@@ -20,7 +20,7 @@
 #ifndef CPUINFO_COMMAND_H
 #define CPUINFO_COMMAND_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

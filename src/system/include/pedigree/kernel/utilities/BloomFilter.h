@@ -20,10 +20,10 @@
 #ifndef KERNEL_UTILITIES_BLOOMFILTER_H
 #define KERNEL_UTILITIES_BLOOMFILTER_H
 
-#include <processor/types.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/lib.h>
-#include <utilities/smhasher/MurmurHash3.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 template <class T>
 class BloomFilter

@@ -20,31 +20,31 @@
 #ifndef KERNEL_PROCESSOR_STACKFRAME_H
 #define KERNEL_PROCESSOR_STACKFRAME_H
 
-#include <processor/StackFrameBase.h>
+#include "pedigree/kernel/processor/StackFrameBase.h"
 
 #if defined(X86)
-#include <processor/x86/StackFrame.h>
+#include "pedigree/kernel/processor/x86/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-#include <processor/x64/StackFrame.h>
+#include "pedigree/kernel/processor/x64/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-#include <processor/mips32/StackFrame.h>
+#include "pedigree/kernel/processor/mips32/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-#include <processor/mips64/StackFrame.h>
+#include "pedigree/kernel/processor/mips64/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM926E)
-#include <processor/arm_926e/StackFrame.h>
+#include "pedigree/kernel/processor/arm_926e/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
 #elif defined(PPC32)
-#include <processor/ppc32/StackFrame.h>
+#include "pedigree/kernel/processor/ppc32/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(ARMV7)
-#include <processor/armv7/StackFrame.h>
+#include "pedigree/kernel/processor/armv7/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif defined(HOSTED)
-#include <processor/hosted/StackFrame.h>
+#include "pedigree/kernel/processor/hosted/StackFrame.h"
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 

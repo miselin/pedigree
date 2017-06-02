@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <compiler.h>
-#include <core/BootIO.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/core/BootIO.h"
 #include <linker/DynamicLinker.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include <subsys/posix/PosixProcess.h>
 #include <subsys/posix/PosixSubsystem.h>
 #include <users/UserManager.h>

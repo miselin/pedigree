@@ -18,11 +18,11 @@
  */
 
 #include "SyscallManager.h"
-#include <LockGuard.h>
-#include <compiler.h>
-#include <process/TimeTracker.h>
-#include <processor/Processor.h>
-#include <time/Stopwatch.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/TimeTracker.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Stopwatch.h"
 
 X64SyscallManager X64SyscallManager::m_Instance;
 

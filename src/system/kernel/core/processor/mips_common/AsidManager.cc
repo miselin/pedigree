@@ -18,8 +18,8 @@
  */
 
 #include "AsidManager.h"
-#include <Log.h>
-#include <panic.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 
 AsidManager AsidManager::m_Instance;
 

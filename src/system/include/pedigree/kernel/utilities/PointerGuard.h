@@ -20,8 +20,8 @@
 #ifndef POINTERGUARD_H
 #define POINTERGUARD_H
 
-#include <Log.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** Provides a guard for a pointer. When the class goes out of scope
  * the pointer will automatically be freed.

@@ -20,8 +20,8 @@
 #ifndef DWARFCFIAUTOMATON_H
 #define DWARFCFIAUTOMATON_H
 
-#include <DwarfState.h>
-#include <processor/types.h>
+#include "pedigree/kernel/debugger/DwarfState.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kerneldebugger
  * @{ */

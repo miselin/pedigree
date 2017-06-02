@@ -20,13 +20,13 @@
 #ifndef KERNEL_UTILITY_H
 #define KERNEL_UTILITY_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 // Export memcpy et al
-#include <utilities/lib.h>
+#include "pedigree/kernel/utilities/lib.h"
 
 #ifdef __cplusplus
-#include <processor/PhysicalMemoryManager.h>  // getPageSize()
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h" //
 #endif
 
 #ifdef HOSTED

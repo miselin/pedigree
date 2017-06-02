@@ -21,4 +21,4 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/Tree.h>
+#include "pedigree/kernel/utilities/Tree.h"

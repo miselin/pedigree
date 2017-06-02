@@ -20,8 +20,8 @@
 #ifndef PCI_COMMON_H
 #define PCI_COMMON_H
 
-#include <machine/Device.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** Architecture-independent interface to a PCI bus */
 class PciBus

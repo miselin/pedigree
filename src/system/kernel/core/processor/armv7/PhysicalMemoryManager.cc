@@ -19,10 +19,10 @@
 
 #include "PhysicalMemoryManager.h"
 #include "VirtualAddressSpace.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <processor/MemoryRegion.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 ArmV7PhysicalMemoryManager ArmV7PhysicalMemoryManager::m_Instance;
 

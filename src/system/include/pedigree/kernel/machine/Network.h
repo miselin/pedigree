@@ -20,17 +20,16 @@
 #ifndef MACHINE_NETWORK_H
 #define MACHINE_NETWORK_H
 
-#include <machine/Device.h>
-#include <processor/state.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include "../../kernel/core/BootIO.h"
-extern BootIO bootIO;
+#include "pedigree/kernel/core/BootIO.h"
 
-#include <network/IpAddress.h>
-#include <network/MacAddress.h>
-#include <network/NetworkBlockTimeout.h>
+#include "pedigree/kernel/network/IpAddress.h"
+#include "pedigree/kernel/network/MacAddress.h"
+#include "pedigree/kernel/network/NetworkBlockTimeout.h"
 
 /** Station information - basically information about this station, per NIC */
 class StationInfo

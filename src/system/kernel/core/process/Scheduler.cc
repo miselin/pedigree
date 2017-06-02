@@ -19,22 +19,22 @@
 
 #if defined(THREADS)
 
-#include <Debugger.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <panic.h>
-#include <process/PerProcessorScheduler.h>
-#include <process/ProcessorThreadAllocator.h>
-#include <process/RoundRobin.h>
-#include <process/RoundRobinCoreAllocator.h>
-#include <process/Scheduler.h>
-#include <process/SchedulingAlgorithm.h>
-#include <process/Thread.h>
-#include <process/initialiseMultitasking.h>
-#include <processor/KernelCoreSyscallManager.h>
-#include <processor/Processor.h>
-#include <processor/StackFrame.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
+#include "pedigree/kernel/process/RoundRobin.h"
+#include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 Scheduler Scheduler::m_Instance;
 

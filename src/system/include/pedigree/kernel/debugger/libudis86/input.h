@@ -20,7 +20,7 @@
 #ifndef UD_INPUT_H
 #define UD_INPUT_H
 
-#include "types.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
 
 uint8_t inp_next(struct ud*);
 uint8_t inp_peek(struct ud*);

@@ -20,12 +20,12 @@
 #ifndef BUSMASTERIDE_H
 #define BUSMASTERIDE_H
 
-#include <process/Mutex.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 
 /**
  * If set to 1, the BusMasterIde object will log fairly verbosely (outcome of

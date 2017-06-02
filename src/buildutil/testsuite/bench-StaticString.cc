@@ -23,7 +23,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
 static void BM_CxxStaticStringCreation(benchmark::State &state)
 {

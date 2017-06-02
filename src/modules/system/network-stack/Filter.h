@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 /** Provides an interface for filtering network packets as they come in to
  * the system. */

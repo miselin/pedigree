@@ -20,8 +20,8 @@
 #ifndef MACHINE_HOSTED_KEYBOARD_H
 #define MACHINE_HOSTED_KEYBOARD_H
 
-#include <machine/Keyboard.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/processor/types.h"
 
 class HostedKeyboard : public Keyboard
 {

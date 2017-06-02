@@ -20,8 +20,8 @@
 #ifndef USBULPI_H
 #define USBULPI_H
 
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
 
 class UsbUlpi
 {

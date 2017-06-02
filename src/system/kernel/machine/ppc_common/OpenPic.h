@@ -20,9 +20,9 @@
 #ifndef KERNEL_MACHINE_PPC_COMMON_PIC_H
 #define KERNEL_MACHINE_PPC_COMMON_PIC_H
 
-#include <machine/IrqManager.h>
-#include <processor/InterruptManager.h>
-#include <processor/MemoryMappedIo.h>
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
 
 /** @addtogroup kernelmachineppccommon
  * @{ */

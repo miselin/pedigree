@@ -18,7 +18,7 @@
  */
 
 #include "Serial.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 X86Serial::X86Serial() : m_Port("COM")
 {

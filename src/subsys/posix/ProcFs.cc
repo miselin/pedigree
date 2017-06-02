@@ -19,11 +19,11 @@
 
 #include "ProcFs.h"
 
-#include <BootstrapInfo.h>
-#include <LockGuard.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/LockGuard.h"
 #include <Version.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 #include <users/Group.h>
 #include <users/User.h>
 

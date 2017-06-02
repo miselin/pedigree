@@ -20,9 +20,9 @@
 #ifndef FAT_SYMLINK_H
 #define FAT_SYMLINK_H
 
-#include <processor/types.h>
-#include <time/Time.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/String.h"
 #include <vfs/Symlink.h>
 
 #include "FatFile.h"

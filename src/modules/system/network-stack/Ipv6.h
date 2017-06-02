@@ -20,15 +20,15 @@
 #ifndef MACHINE_IPV6_H
 #define MACHINE_IPV6_H
 
-#include <LockGuard.h>
-#include <Spinlock.h>
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
-#include <ServiceManager.h>
+#include "pedigree/kernel/ServiceManager.h"
 
 #include "Ethernet.h"
 #include "NetworkStack.h"

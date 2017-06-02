@@ -20,9 +20,9 @@
 #ifndef SYSTEM_SYSCALLS_H
 #define SYSTEM_SYSCALLS_H
 
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/state.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
 
 #include "logging.h"
 

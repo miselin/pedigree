@@ -17,4 +17,4 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/RingBuffer.h>
+#include "pedigree/kernel/utilities/RingBuffer.h"

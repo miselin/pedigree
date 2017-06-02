@@ -20,8 +20,8 @@
 #ifndef KERNEL_MACHINE_IRQHANDLER_H
 #define KERNEL_MACHINE_IRQHANDLER_H
 
-#include <machine/types.h>
-#include <processor/state.h>
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/state.h"
 
 /** @addtogroup kernelmachine
  * @{ */

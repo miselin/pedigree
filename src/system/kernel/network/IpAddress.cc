@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <network/IpAddress.h>
+#include "pedigree/kernel/network/IpAddress.h"
 
 bool IpAddress::isLinkLocal() const
 {

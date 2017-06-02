@@ -21,9 +21,9 @@
 #define VFS_H
 
 #include "Filesystem.h"
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** This class implements a virtual file system.
  *

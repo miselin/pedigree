@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/Processor.h>
-#include <time/Time.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 #include <usb/Usb.h>
 #include <usb/UsbConstants.h>
 #include <usb/UsbDescriptors.h>
 #include <usb/UsbDevice.h>
 #include <usb/UsbHub.h>
-#include <utilities/PointerGuard.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 UsbDevice::UsbDevice(UsbHub *pHub, uint8_t nPort, UsbSpeed speed)
     : m_nAddress(0), m_nPort(nPort), m_Speed(speed), m_UsbState(Connected),

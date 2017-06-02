@@ -24,7 +24,7 @@
 #include <iostream>
 #include <memory>
 
-#include <lib/SlamAllocator.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 static void BM_SlamAllocatorBackForth(benchmark::State &state)
 {

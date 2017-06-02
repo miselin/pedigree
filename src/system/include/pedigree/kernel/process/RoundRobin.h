@@ -20,9 +20,9 @@
 #ifndef ROUND_ROBIN_H
 #define ROUND_ROBIN_H
 
-#include <Spinlock.h>
-#include <process/SchedulingAlgorithm.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/utilities/List.h"
 
 class RoundRobin : public SchedulingAlgorithm
 {

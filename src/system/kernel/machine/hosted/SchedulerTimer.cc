@@ -18,9 +18,9 @@
  */
 
 #include "SchedulerTimer.h"
-#include <Log.h>
-#include <compiler.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 using namespace __pedigree_hosted;
 

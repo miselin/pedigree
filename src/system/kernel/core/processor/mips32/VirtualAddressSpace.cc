@@ -18,12 +18,12 @@
  */
 
 #include "VirtualAddressSpace.h"
-#include <Log.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static bool g_Kseg2Initialised = false;
 

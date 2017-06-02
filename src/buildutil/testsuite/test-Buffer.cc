@@ -24,7 +24,7 @@
 #include <cstdint>
 #include <memory>
 
-#include <utilities/Buffer.h>
+#include "pedigree/kernel/utilities/Buffer.h"
 
 TEST(PedigreeBuffer, InitialSettings)
 {

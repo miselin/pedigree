@@ -17,23 +17,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Debugger.h>
+#include "pedigree/kernel/debugger/Debugger.h"
 
-#include <DebuggerIO.h>
-#include <LocalIO.h>
-#include <SerialIO.h>
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/debugger/LocalIO.h"
+#include "pedigree/kernel/debugger/SerialIO.h"
 
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
-#include <machine/Machine.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
 
-#include <Log.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <panic.h>
+#include "pedigree/kernel/panic.h"
 
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 void _assert(bool b, const char *file, int line, const char *func)
 {

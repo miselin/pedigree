@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <utilities/StaticString.h>
-#include <utilities/demangle.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/demangle.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // Uncomment these if running standalone.
 // include <stdio.h>

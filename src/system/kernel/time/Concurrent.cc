@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time/Time.h>
-#include <utilities/pocketknife.h>
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
 
 namespace Time
 {

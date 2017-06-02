@@ -20,12 +20,12 @@
 #ifndef PROCFS_H
 #define PROCFS_H
 
-#include <machine/Machine.h>
-#include <machine/Timer.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
-#include <utilities/ExtensibleBitmap.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <vfs/Filesystem.h>

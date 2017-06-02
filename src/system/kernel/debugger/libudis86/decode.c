@@ -25,13 +25,13 @@
  * -----------------------------------------------------------------------------
  */
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 //#include <string.h>
-#include "types.h"
-#include "input.h"
-#include "opcmap.h"
-#include "mnemonics.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
+#include "pedigree/kernel/debugger/libudis86/input.h"
+#include "pedigree/kernel/debugger/libudis86/opcmap.h"
+#include "pedigree/kernel/debugger/libudis86/mnemonics.h"
 
 /* The max number of prefixes to an instruction */
 #define MAX_PREFIXES	15

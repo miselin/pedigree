@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/BloomFilter.h>
+#include "pedigree/kernel/utilities/BloomFilter.h"
 
 template class BloomFilter<void *>;
 template class BloomFilter<int8_t>;

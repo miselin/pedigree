@@ -23,9 +23,9 @@
 /** @addtogroup kerneldebugger
  * @{ */
 
-#include <DebuggerIO.h>
-#include <machine/Keyboard.h>
-#include <machine/Vga.h>
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/Vga.h"
 
 class DebuggerCommand;
 

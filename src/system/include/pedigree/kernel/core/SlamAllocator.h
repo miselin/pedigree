@@ -26,14 +26,14 @@
     \see http://www.pedigree-project.org/r/projects/pedigree/wiki/SlabDraft
 **/
 
-#include <Log.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
 
 #ifndef PEDIGREE_BENCHMARK
-#include <processor/PhysicalMemoryManager.h>
-#include <utilities/MemoryAllocator.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
 
-#include <Spinlock.h>
+#include "pedigree/kernel/Spinlock.h"
 #else  // PEDIGREE_BENCHMARK
 
 namespace SlamSupport

@@ -18,19 +18,19 @@
  */
 
 #include "cppsupport.h"
-#include <Log.h>
-#include <Spinlock.h>
-#include <compiler.h>
-#include <machine/Machine.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 
-#include <utilities/MemoryTracing.h>
+#include "pedigree/kernel/utilities/MemoryTracing.h"
 
-#include "SlamAllocator.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 /// If the debug allocator is enabled, this switches it into underflow detection
 /// mode.

@@ -20,7 +20,7 @@
 #ifndef MACHINE_BUS_H
 #define MACHINE_BUS_H
 
-#include <machine/Device.h>
+#include "pedigree/kernel/machine/Device.h"
 
 /**
  * A bus is a device which provides a view onto other devices.

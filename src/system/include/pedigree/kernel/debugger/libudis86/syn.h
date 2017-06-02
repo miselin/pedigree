@@ -20,11 +20,11 @@
 #ifndef UD_SYN_H
 #define UD_SYN_H
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 //include <stdio.h>
 #include <stdarg.h>
-#include "types.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
 
 extern const char* ud_reg_tab[];
 

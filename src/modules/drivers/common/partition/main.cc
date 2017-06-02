@@ -19,15 +19,15 @@
 
 #include "apple.h"
 #include "msdos.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
 
-#include <ServiceFeatures.h>
-#include <ServiceManager.h>
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
 
 #include "Partition.h"
 #include "PartitionService.h"

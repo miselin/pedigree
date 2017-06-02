@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "TraceCommand.h"
-#include <DebuggerIO.h>
-#include <Log.h>
-#include <linker/KernelElf.h>
-#include <machine/Machine.h>
-#include <processor/Disassembler.h>
-#include <processor/Processor.h>
-#include <udis86.h>
-#include <utilities/demangle.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/commands/TraceCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Disassembler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/debugger/libudis86/udis86.h"
+#include "pedigree/kernel/utilities/demangle.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 TraceCommand::TraceCommand() : DebuggerCommand(), m_nExec(-1), m_nInterface(-1)
 {

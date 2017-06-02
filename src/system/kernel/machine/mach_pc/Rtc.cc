@@ -18,15 +18,15 @@
  */
 
 #include "Rtc.h"
-#include <compiler.h>
-#include <machine/Machine.h>
-#include <process/Event.h>
-#include <process/Scheduler.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 
-#include <time/Time.h>
+#include "pedigree/kernel/time/Time.h"
 
-#include <SlamAllocator.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 // RTC frequency to set at startup - tradeoff between precision of timers
 // against constant RTC noise.

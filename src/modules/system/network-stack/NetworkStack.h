@@ -20,12 +20,12 @@
 #ifndef MACHINE_NETWORK_STACK_H
 #define MACHINE_NETWORK_STACK_H
 
-#include <machine/Network.h>
-#include <processor/types.h>
-#include <utilities/MemoryPool.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/MemoryPool.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /**
  * The Pedigree network stack

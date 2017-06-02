@@ -22,8 +22,8 @@
 #include "../x86_common/Multiprocessor.h"
 #include "InterruptManager.h"
 #include "gdt.h"
-#include <process/initialiseMultitasking.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "../../../machine/x86_common/Pc.h"
 

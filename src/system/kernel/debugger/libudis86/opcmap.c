@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -26,10 +25,10 @@
  * -----------------------------------------------------------------------------
  */
 //include <assert.h>
-#include "types.h"
-#include "mnemonics.h"
-#include "opcmap.h"
-#include "input.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
+#include "pedigree/kernel/debugger/libudis86/mnemonics.h"
+#include "pedigree/kernel/debugger/libudis86/opcmap.h"
+#include "pedigree/kernel/debugger/libudis86/input.h"
 
 /* operand types - check out the intel/amd manuals */
 #define Ap	{ OP_A, SZ_P 	}

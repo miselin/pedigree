@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/InputManager.h>
-#include <machine/Machine.h>
-#include <machine/Vga.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "TextIO.h"
 

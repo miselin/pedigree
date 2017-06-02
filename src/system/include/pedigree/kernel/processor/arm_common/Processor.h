@@ -20,7 +20,7 @@
 #ifndef KERNEL_PROCESSOR_ARM_COMMON_PROCESSOR_H
 #define KERNEL_PROCESSOR_ARM_COMMON_PROCESSOR_H
 
-#include <panic.h>
+#include "pedigree/kernel/panic.h"
 
 void Processor::halt()
 {

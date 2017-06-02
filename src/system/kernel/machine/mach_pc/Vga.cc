@@ -18,13 +18,13 @@
  */
 
 #include "Vga.h"
-#include <machine/x86_common/Bios.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/machine/x86_common/Bios.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <Log.h>
-#include <panic.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 
 X86Vga::X86Vga(uint32_t nRegisterBase, uint32_t nFramebufferBase)
     : m_RegisterPort("VGA controller"), m_Framebuffer("VGA framebuffer"),

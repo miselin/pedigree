@@ -24,8 +24,8 @@
 #include "../ppc_common/Keyboard.h"
 #include "../ppc_common/Serial.h"
 #include "../ppc_common/Vga.h"
-#include <machine/IrqManager.h>
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 /**
  * Concretion of the abstract Machine class for a MIPS Malta board.

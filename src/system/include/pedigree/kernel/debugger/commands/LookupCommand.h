@@ -20,7 +20,7 @@
 #ifndef LookupCommand_H
 #define LookupCommand_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

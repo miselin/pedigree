@@ -20,15 +20,15 @@
 #ifndef _UTILITY_MEMORY_POOL
 #define _UTILITY_MEMORY_POOL
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 #ifdef THREADS
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
 #endif
-#include <process/MemoryPressureManager.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <utilities/ExtensibleBitmap.h>
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
 class MemoryPool;
 

@@ -20,9 +20,9 @@
 #ifndef CONFIG_MANAGER_H
 #define CONFIG_MANAGER_H
 
-#include <processor/types.h>
-#include <utilities/RadixTree.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class ConfigurationBackend;
 

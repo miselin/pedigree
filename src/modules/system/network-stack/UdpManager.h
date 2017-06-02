@@ -20,14 +20,14 @@
 #ifndef MACHINE_UDPMANAGER_H
 #define MACHINE_UDPMANAGER_H
 
-#include <machine/Network.h>
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
-#include <process/Semaphore.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/List.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include "Manager.h"
 

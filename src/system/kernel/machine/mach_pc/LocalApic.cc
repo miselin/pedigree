@@ -20,12 +20,12 @@
 #if defined(APIC)
 
 #include "LocalApic.h"
-#include <Log.h>
-#include <machine/Machine.h>
-#include <processor/InterruptManager.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #define LAPIC_REG_ID 0x0020
 #define LAPIC_REG_VERSION 0x0030

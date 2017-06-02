@@ -20,7 +20,7 @@
 #ifndef UD_OPCMAP_H
 #define UD_OPCMAP_H
 
-#include "types.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
 
 	/* Prefixes/Macros */
 

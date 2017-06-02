@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <process/Ipc.h>
+#include "pedigree/kernel/process/Ipc.h"
 
-#include <utilities/RadixTree.h>
+#include "pedigree/kernel/utilities/RadixTree.h"
 
-#include <process/Scheduler.h>
+#include "pedigree/kernel/process/Scheduler.h"
 
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#include <utilities/MemoryPool.h>
+#include "pedigree/kernel/utilities/MemoryPool.h"
 
 using namespace Ipc;
 

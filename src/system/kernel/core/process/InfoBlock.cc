@@ -18,11 +18,11 @@
  */
 
 #include <Version.h>
-#include <compiler.h>
-#include <machine/Machine.h>
-#include <process/InfoBlock.h>
-#include <processor/VirtualAddressSpace.h>
-#include <time/Time.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/InfoBlock.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/time/Time.h"
 
 InfoBlockManager InfoBlockManager::m_Instance;
 

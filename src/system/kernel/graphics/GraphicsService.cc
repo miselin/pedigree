@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <graphics/GraphicsService.h>
-#include <processor/types.h>
+#include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/processor/types.h"
 
 bool GraphicsService::serve(
     ServiceFeatures::Type type, void *pData, size_t dataLen)

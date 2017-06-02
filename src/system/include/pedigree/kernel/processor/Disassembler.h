@@ -20,8 +20,8 @@
 #ifndef PROCESSOR_DISASSEMBLER_H
 #define PROCESSOR_DISASSEMBLER_H
 
-#include <processor/types.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

@@ -20,8 +20,8 @@
 #ifndef _THREAD_TO_CORE_ALLOCATION_ALGORITHM_H
 #define _THREAD_TO_CORE_ALLOCATION_ALGORITHM_H
 
-#include <process/PerProcessorScheduler.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 
 /// \todo Document.
 

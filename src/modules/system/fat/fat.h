@@ -20,8 +20,8 @@
 #ifndef FAT_H
 #define FAT_H
 
-#include <processor/types.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 // FAT Attributes
 #define ATTR_READONLY 0x01

@@ -20,7 +20,7 @@
 #ifndef KERNEL_UTILITIES_RANGELIST_H
 #define KERNEL_UTILITIES_RANGELIST_H
 
-#include <utilities/List.h>
+#include "pedigree/kernel/utilities/List.h"
 
 /** @addtogroup kernelutilities
  * @{ */

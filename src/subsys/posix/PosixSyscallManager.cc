@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <process/Scheduler.h>
-#include <processor/PageFaultHandler.h>
-#include <processor/Processor.h>
-#include <processor/SyscallManager.h>
-#include <syscallError.h>
-#include <time/Time.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/time/Time.h"
 
 #include "PosixSyscallManager.h"
 #include "console-syscalls.h"
@@ -42,7 +42,7 @@
 #include <fcntl.h>
 #include <time.h>
 
-#include <debugger/Backtrace.h>
+#include "pedigree/kernel/debugger/Backtrace.h"
 
 class LinuxVsyscallTrapHandler : public MemoryTrapHandler
 {

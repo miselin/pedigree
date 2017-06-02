@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "SyscallTracerCommand.h"
+#include "pedigree/kernel/debugger/commands/SyscallTracerCommand.h"
 
 SyscallTracerCommand::SyscallTracerCommand()
 {

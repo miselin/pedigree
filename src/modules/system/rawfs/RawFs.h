@@ -20,10 +20,10 @@
 #ifndef RAWFS_H
 #define RAWFS_H
 
-#include <process/Mutex.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include <vfs/Directory.h>
 #include <vfs/Filesystem.h>
 #include <vfs/VFS.h>

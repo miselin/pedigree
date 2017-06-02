@@ -20,9 +20,9 @@
 #ifndef KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 
-#include <machine/IrqManager.h>
-#include <machine/SchedulerTimer.h>
-#include <machine/Timer.h>
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/Timer.h"
 
 namespace __pedigree_hosted
 {

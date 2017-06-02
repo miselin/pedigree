@@ -20,12 +20,12 @@
 #ifndef _PROCESSOR_THREAD_ALLOCATOR_H
 #define _PROCESSOR_THREAD_ALLOCATOR_H
 
-#include <process/PerProcessorScheduler.h>
-#include <process/Thread.h>
-#include <process/ThreadToCoreAllocationAlgorithm.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
 
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 class ProcessorThreadAllocator
 {

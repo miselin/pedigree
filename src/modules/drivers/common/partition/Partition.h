@@ -20,8 +20,8 @@
 #ifndef PARTITION_H
 #define PARTITION_H
 
-#include <machine/Disk.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /**
  * A partition is a chunk of disk.

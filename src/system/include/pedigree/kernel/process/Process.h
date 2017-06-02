@@ -22,22 +22,22 @@
 
 #ifdef THREADS
 
-#include <Atomic.h>
-#include <LockGuard.h>
-#include <Spinlock.h>
-#include <compiler.h>
-#include <process/Mutex.h>
-#include <process/Semaphore.h>
-#include <process/Thread.h>
-#include <processor/state.h>
-#include <time/Time.h>
-#include <utilities/MemoryAllocator.h>
-#include <utilities/StaticString.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 class VirtualAddressSpace;
 class File;

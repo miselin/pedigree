@@ -20,7 +20,7 @@
 #ifndef BreakpointCommand_H
 #define BreakpointCommand_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

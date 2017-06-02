@@ -20,7 +20,7 @@
 #ifndef KERNEL_MACHINE_HOSTED_TYPES_H
 #define KERNEL_MACHINE_HOSTED_TYPES_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 // Forward to the system's machine/types.h rather than replacing it altogether.
 // We only do this for targets which already pull in things like stdlib.h

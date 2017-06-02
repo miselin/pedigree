@@ -23,13 +23,13 @@
 // Forward definition of used classes
 class Thread;
 
-#include <processor/state.h>
+#include "pedigree/kernel/processor/state.h"
 class Process;
 
-#include <Log.h>
-#include <utilities/List.h>
-#include <utilities/SharedPointer.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** The abstract base class for a generic application subsystem. This provides
  * a well-defined interface to the kernel that allows global behaviour to have

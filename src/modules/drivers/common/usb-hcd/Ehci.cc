@@ -17,18 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/Machine.h"
 #ifdef X86_COMMON
-#include <machine/Pci.h>
+#include "pedigree/kernel/machine/Pci.h"
 #endif
 #include "Ehci.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <processor/InterruptManager.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 #include <usb/Usb.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 #define INDEX_FROM_QTD(ptr) \
     (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(qTD)))

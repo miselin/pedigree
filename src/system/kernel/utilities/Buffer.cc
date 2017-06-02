@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <utilities/Buffer.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifdef THREADS
-#include <process/Thread.h>
+#include "pedigree/kernel/process/Thread.h"
 #endif
 
 template <class T, bool allowShortOperation>

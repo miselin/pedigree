@@ -20,7 +20,7 @@
 #ifndef BIOS_H
 #define BIOS_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** Provides an interface to BIOS functions. Currently, this is implemented as a
    wrapper around X86Emu, taken from the XFree86 source. */

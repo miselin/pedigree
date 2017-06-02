@@ -21,13 +21,13 @@
 #define MACHINE_ROUTINGTABLE_H
 
 #include <config/Config.h>
-#include <machine/Network.h>
-#include <process/Mutex.h>
-#include <process/Semaphore.h>
-#include <utilities/List.h>
-#include <utilities/RadixTree.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 /**
  * The Pedigree routing table supports three different ways to route packets:

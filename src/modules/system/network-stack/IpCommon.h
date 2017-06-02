@@ -20,7 +20,7 @@
 #ifndef IP_COMMON_H
 #define IP_COMMON_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 class IpAddress;
 class Network;

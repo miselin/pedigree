@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <graphics/Graphics.h>
-#include <machine/Framebuffer.h>
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
 
 Framebuffer *Graphics::createFramebuffer(
     Framebuffer *pParent, size_t x, size_t y, size_t w, size_t h,

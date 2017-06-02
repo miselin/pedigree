@@ -20,8 +20,8 @@
 #ifndef KERNEL_MACHINE_TIMERHANDLER_H
 #define KERNEL_MACHINE_TIMERHANDLER_H
 
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachine
  * @{ */

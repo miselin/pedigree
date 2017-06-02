@@ -20,7 +20,7 @@
 #ifndef SYSCALL_ERROR_H
 #define SYSCALL_ERROR_H
 
-#include <errors.h>
+#include "pedigree/kernel/errors.h"
 
 // For setting a thread's error number when a problem occurs in a syscall.
 void syscallError(int e);

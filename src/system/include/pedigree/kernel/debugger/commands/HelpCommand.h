@@ -20,7 +20,7 @@
 #ifndef HelpCommand_H
 #define HelpCommand_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

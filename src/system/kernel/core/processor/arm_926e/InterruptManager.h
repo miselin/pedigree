@@ -20,10 +20,10 @@
 #ifndef KERNEL_PROCESSOR_ARM926E_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_ARM926E_INTERRUPTMANAGER_H
 
-#include <compiler.h>
-#include <processor/InterruptManager.h>
-#include <processor/SyscallManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorARM926E
  * @{ */

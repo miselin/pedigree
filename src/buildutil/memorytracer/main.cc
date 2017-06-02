@@ -32,7 +32,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <utilities/MemoryTracing.h>
+#include "pedigree/kernel/utilities/MemoryTracing.h"
 
 using namespace MemoryTracing;
 

@@ -18,18 +18,18 @@
  */
 
 #include "sqlite3/sqlite3.h"
-#include <BootstrapInfo.h>
-#include <Log.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <panic.h>
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#include <linker/KernelElf.h>
+#include "pedigree/kernel/linker/KernelElf.h"
 
 #include "Config.h"
 

@@ -18,11 +18,11 @@
  */
 
 #include "Archive.h"
-#include <Log.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 Archive::Archive(uint8_t *pPhys, size_t sSize)
     :

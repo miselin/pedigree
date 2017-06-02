@@ -20,9 +20,9 @@
 #ifndef MACHINE_X86_VGA_H
 #define MACHINE_X86_VGA_H
 
-#include <machine/Vga.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryMappedIo.h>
+#include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
 
 #define VGA_BASE 0x3C0
 #define VGA_AC_INDEX 0x0

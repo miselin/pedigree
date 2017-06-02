@@ -20,12 +20,12 @@
 #ifndef USBHUB_H
 #define USBHUB_H
 
-#include <machine/Device.h>
-#include <process/Mutex.h>
-#include <process/Semaphore.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
 #include <usb/Usb.h>
-#include <utilities/ExtensibleBitmap.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
 class UsbHub : public Device
 {

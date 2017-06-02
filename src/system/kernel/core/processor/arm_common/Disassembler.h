@@ -20,7 +20,7 @@
 #ifndef ARM926E_DISASSEMBLER_H
 #define ARM926E_DISASSEMBLER_H
 
-#include <processor/Disassembler.h>
+#include "pedigree/kernel/processor/Disassembler.h"
 
 /**
  * A disassembler for ARM926E processors.

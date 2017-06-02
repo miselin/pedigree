@@ -18,12 +18,12 @@
  */
 
 #include <hid/HidReport.h>
-#include <machine/HidInputManager.h>
-#include <machine/InputManager.h>
+#include "pedigree/kernel/machine/HidInputManager.h"
+#include "pedigree/kernel/machine/InputManager.h"
 #include <usb/UsbConstants.h>
 #include <usb/UsbDevice.h>
 #include <usb/UsbHub.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 #include "UsbHumanInterfaceDevice.h"
 

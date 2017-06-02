@@ -20,7 +20,7 @@
 #ifndef HIDUSAGES_H
 #define HIDUSAGES_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 namespace HidUsagePages
 {

@@ -20,8 +20,8 @@
 #ifndef KERNEL_ATOMIC_H
 #define KERNEL_ATOMIC_H
 
-#include <compiler.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernel
  * @{ */

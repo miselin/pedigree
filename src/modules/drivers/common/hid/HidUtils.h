@@ -20,7 +20,7 @@
 #ifndef HIDUTILS_H
 #define HIDUTILS_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /// Enum used to distinguish between various input devices
 enum HidDeviceType

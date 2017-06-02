@@ -20,10 +20,10 @@
 #ifndef EXT2FILESYSTEM_H
 #define EXT2FILESYSTEM_H
 
-#include <process/Mutex.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include <vfs/Filesystem.h>
 #include <vfs/VFS.h>
 

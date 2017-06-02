@@ -20,8 +20,8 @@
 #ifndef PPC_COMMON_VSIDMANAGER_H
 #define PPC_COMMON_VSIDMANAGER_H
 
-#include <process/Mutex.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorPPCCommon
  * @{ */

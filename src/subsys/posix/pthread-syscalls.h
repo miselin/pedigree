@@ -20,13 +20,13 @@
 #ifndef _PTHREAD_SYSCALLS_H
 #define _PTHREAD_SYSCALLS_H
 
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/state.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
 
 #include "PosixSubsystem.h"
-#include <process/Semaphore.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
 
 #include "logging.h"
 

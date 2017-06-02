@@ -20,15 +20,15 @@
 #ifndef EHCI_H
 #define EHCI_H
 
-#include <machine/IrqHandler.h>
-#include <processor/InterruptManager.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 #include <usb/UsbHub.h>
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/MemoryAllocator.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
 /** Device driver for the Ehci class */
 class Ehci : public UsbHub,

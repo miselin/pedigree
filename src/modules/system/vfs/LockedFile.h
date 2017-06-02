@@ -20,10 +20,10 @@
 #ifndef LOCKED_FILE_H
 #define LOCKED_FILE_H
 
-#include <Log.h>
-#include <process/Mutex.h>
-#include <process/Scheduler.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/types.h"
 
 #include "File.h"
 

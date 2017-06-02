@@ -19,11 +19,11 @@
 
 #include "Timer.h"
 #include "../core/processor/mips32/InterruptManager.h"
-#include <Log.h>
-#include <compiler.h>
-#include <machine/Machine.h>
-#include <processor/InterruptManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 CountCompareTimer CountCompareTimer::m_Instance;
 

@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 //include <stdio.h>
-#include "types.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
 
 /* ============================= PUBLIC API ================================= */
 

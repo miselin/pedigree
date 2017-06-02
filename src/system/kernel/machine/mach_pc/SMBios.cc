@@ -20,8 +20,8 @@
 #if defined(SMBIOS)
 
 #include "SMBios.h"
-#include <Log.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 void SMBios::initialise()
 {

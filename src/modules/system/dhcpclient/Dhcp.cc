@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 #include <network-stack/ConnectionlessEndpoint.h>
 #include <network-stack/NetworkStack.h>
@@ -25,8 +25,8 @@
 
 #include <network-stack/Ndp.h>
 
-#include <ServiceManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "DhcpService.h"
 

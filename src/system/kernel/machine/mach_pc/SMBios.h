@@ -22,8 +22,8 @@
 
 #if defined(SMBIOS)
 
-#include <compiler.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 class SMBios
 {

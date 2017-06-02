@@ -20,8 +20,8 @@
 #ifndef KERNEL_PROCESSOR_MIPS64_STACKFRAME_H
 #define KERNEL_PROCESSOR_MIPS64_STACKFRAME_H
 
-#include <compiler.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorMIPS64
  * @{ */

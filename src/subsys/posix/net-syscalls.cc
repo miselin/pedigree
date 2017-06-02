@@ -17,22 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Network.h>
+#include "pedigree/kernel/machine/Network.h"
 #include <network-stack/NetManager.h>
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
 #include <network-stack/Tcp.h>
 #include <network-stack/UdpManager.h>
-#include <process/Process.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <syscallError.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Tree.h"
 #include <vfs/File.h>
 #include <vfs/VFS.h>
 
 #include <PosixSubsystem.h>
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 #include <UnixFilesystem.h>
 
 #include "file-syscalls.h"

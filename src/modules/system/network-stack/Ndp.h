@@ -20,10 +20,10 @@
 #ifndef _NETWORK_NDP_H
 #define _NETWORK_NDP_H
 
-#include <machine/Network.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/processor/types.h"
 
-#include <utilities/RadixTree.h>
+#include "pedigree/kernel/utilities/RadixTree.h"
 
 #include "IpCommon.h"
 

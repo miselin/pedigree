@@ -19,8 +19,8 @@
 
 #include "Ext2Symlink.h"
 #include "Ext2Filesystem.h"
-#include <syscallError.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Ext2Symlink::Ext2Symlink(
     const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,

@@ -17,19 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 #include <Version.h>
-#include <compiler.h>
-#include <core/lib/SlamAllocator.h>
-#include <machine/Network.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/machine/Network.h"
 #include <network-stack/ConnectionBasedEndpoint.h>
 #include <network-stack/Endpoint.h>
 #include <network-stack/NetworkStack.h>
 #include <network-stack/RoutingTable.h>
 #include <network-stack/TcpManager.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include <vfs/Filesystem.h>
 #include <vfs/VFS.h>
 

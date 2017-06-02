@@ -20,7 +20,7 @@
 #ifndef DumpCommand_H
 #define DumpCommand_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

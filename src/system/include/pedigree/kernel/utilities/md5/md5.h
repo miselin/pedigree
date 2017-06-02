@@ -70,7 +70,7 @@
 
 //----------------------------------------------------------------------
 // Pedigree includes
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 //----------------------------------------------------------------------
 // typedefs

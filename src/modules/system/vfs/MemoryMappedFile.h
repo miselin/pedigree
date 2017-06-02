@@ -22,13 +22,13 @@
 
 #include "File.h"
 
-#include <LockGuard.h>
-#include <process/MemoryPressureManager.h>
-#include <process/Mutex.h>
-#include <process/Process.h>
-#include <processor/PageFaultHandler.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 /** \addtogroup vfs
     @{ */

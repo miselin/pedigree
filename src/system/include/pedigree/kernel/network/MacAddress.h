@@ -20,11 +20,11 @@
 #ifndef MAC_ADDRESS_H
 #define MAC_ADDRESS_H
 
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <utilities/StaticString.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** A MAC address */
 class MacAddress

@@ -20,17 +20,17 @@
 #ifndef CDI_CPP_DISK_H
 #define CDI_CPP_DISK_H
 
-#include <processor/types.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <machine/IrqHandler.h>
-#include <process/Thread.h>
-#include <process/Semaphore.h>
-#include <utilities/Cache.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/utilities/Cache.h"
 
 #include "cdi/storage.h"
 

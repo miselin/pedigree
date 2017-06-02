@@ -20,8 +20,8 @@
 #ifndef DISKIMAGE_H
 #define DISKIMAGE_H
 
-#include <machine/Disk.h>
-#include <utilities/Cache.h>
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/Cache.h"
 
 /** Loads a disk image as a usable disk device. */
 class DiskImage : public Disk

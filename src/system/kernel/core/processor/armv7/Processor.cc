@@ -20,9 +20,9 @@
 #include "InterruptManager.h"
 #include "PhysicalMemoryManager.h"
 #include "VirtualAddressSpace.h"
-#include <Log.h>
-#include <process/initialiseMultitasking.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 void Processor::initialise1(const BootstrapStruct_t &Info)
 {

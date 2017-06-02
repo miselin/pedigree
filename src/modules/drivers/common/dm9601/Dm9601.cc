@@ -18,17 +18,17 @@
  */
 
 #include "Dm9601.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 #include <network-stack/NetworkStack.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 #include <usb/UsbConstants.h>
 #include <usb/UsbHub.h>
 
-#include <LockGuard.h>
+#include "pedigree/kernel/LockGuard.h"
 
-#include <machine/Network.h>
+#include "pedigree/kernel/machine/Network.h"
 
 Dm9601::Dm9601(UsbDevice *pDev)
     : UsbDevice(pDev), ::Network(), m_pInEndpoint(0), m_pOutEndpoint(0),

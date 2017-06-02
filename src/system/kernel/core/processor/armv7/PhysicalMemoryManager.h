@@ -20,10 +20,10 @@
 #ifndef KERNEL_PROCESSOR_ARMV7_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_ARMV7_PHYSICALMEMORYMANAGER_H
 
-#include <BootstrapInfo.h>
-#include <Spinlock.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <utilities/RangeList.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/RangeList.h"
 
 /** @addtogroup kernelprocessorArmV7
  * @{ */

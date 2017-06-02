@@ -20,11 +20,11 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
-#include <Atomic.h>
-#include <Spinlock.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 class Thread;
 class Process;

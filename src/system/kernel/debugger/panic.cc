@@ -17,21 +17,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Debugger.h>
+#include "pedigree/kernel/debugger/Debugger.h"
 
-#include <DebuggerIO.h>
-#include <LocalIO.h>
-#include <SerialIO.h>
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/debugger/LocalIO.h"
+#include "pedigree/kernel/debugger/SerialIO.h"
 
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
-#include <machine/Machine.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
 
-#include <Log.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <graphics/GraphicsService.h>
+#include "pedigree/kernel/graphics/GraphicsService.h"
 
 static size_t newlineCount(const char *pString)
 {

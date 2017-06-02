@@ -22,16 +22,16 @@
 #ifndef UHCI_H
 #define UHCI_H
 
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <machine/Timer.h>
-#include <process/Semaphore.h>
-#include <processor/IoBase.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 #include <usb/UsbHub.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
 /** Device driver for the Uhci class */
 class Uhci : public UsbHub,

@@ -19,9 +19,9 @@
 
 #if defined(DEBUGGER)
 
-#include <Log.h>
-#include <processor/StackFrameBase.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/StackFrameBase.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 StackFrameBase::StackFrameBase(
     const ProcessorState &State, uintptr_t basePointer,

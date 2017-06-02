@@ -23,7 +23,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 static void BM_Memory_MemoryCopy(benchmark::State &state)
 {

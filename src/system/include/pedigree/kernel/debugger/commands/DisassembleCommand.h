@@ -20,7 +20,7 @@
 #ifndef DISASSEMBLER_COMMAND_H
 #define DISASSEMBLER_COMMAND_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

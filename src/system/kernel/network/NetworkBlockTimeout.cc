@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <network/NetworkBlockTimeout.h>
+#include "pedigree/kernel/network/NetworkBlockTimeout.h"
 
 NetworkBlockTimeout::NetworkBlockTimeout()
     : m_Nanoseconds(0), m_Seconds(0), m_Timeout(30), m_Sem(0), m_TimedOut(0)

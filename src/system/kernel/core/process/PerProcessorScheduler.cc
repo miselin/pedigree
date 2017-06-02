@@ -19,26 +19,26 @@
 
 #ifdef THREADS
 
-#include <process/PerProcessorScheduler.h>
-#include <process/RoundRobin.h>
-#include <process/SchedulingAlgorithm.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/RoundRobin.h"
+#include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/process/Thread.h"
 
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/Machine.h"
 
-#include <LockGuard.h>
-#include <Log.h>
-#include <Spinlock.h>
-#include <panic.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/panic.h"
 
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 #ifdef TRACK_LOCKS
-#include <LocksCommand.h>
+#include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
 PerProcessorScheduler::PerProcessorScheduler()

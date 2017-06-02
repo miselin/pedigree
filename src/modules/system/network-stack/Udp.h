@@ -20,11 +20,11 @@
 #ifndef MACHINE_UDP_H
 #define MACHINE_UDP_H
 
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #include "IpCommon.h"
 

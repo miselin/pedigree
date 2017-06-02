@@ -65,8 +65,8 @@
 
 //----------------------------------------------------------------------
 // Pedigree includes
-#include <utilities/md5/md5.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/md5/md5.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 //----------------------------------------------------------------------
 // defines

@@ -19,10 +19,10 @@
 
 #include "Filesystem.h"
 #include "VFS.h"
-#include <Log.h>
-#include <processor/Processor.h>
-#include <syscallError.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #include "Directory.h"
 #include "File.h"

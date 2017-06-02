@@ -20,7 +20,7 @@
 #ifndef KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

@@ -23,14 +23,14 @@
 ///       when Semaphores are compiled in a non-threaded environment.
 #ifdef THREADS
 
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#include <process/Scheduler.h>
-#include <process/Semaphore.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/Processor.h"
 
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 static void interruptSemaphore(uint8_t *pBuffer)
 {

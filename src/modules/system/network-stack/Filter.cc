@@ -18,7 +18,7 @@
  */
 
 #include "Filter.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 NetworkFilter NetworkFilter::m_Instance;
 

@@ -20,7 +20,7 @@
 #ifndef MACHINE_CONTROLLER_H
 #define MACHINE_CONTROLLER_H
 
-#include <machine/Device.h>
+#include "pedigree/kernel/machine/Device.h"
 
 /**
  * A controller is a hub that controls multiple devices.

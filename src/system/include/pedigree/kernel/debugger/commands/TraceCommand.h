@@ -20,9 +20,9 @@
 #ifndef TRACECOMMAND_H
 #define TRACECOMMAND_H
 
-#include <Backtrace.h>
-#include <DebuggerCommand.h>
-#include <Scrollable.h>
+#include "pedigree/kernel/debugger/Backtrace.h"
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/Scrollable.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

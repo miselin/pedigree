@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ServiceManager.h"
+#include "pedigree/kernel/ServiceManager.h"
 
 ServiceManager ServiceManager::m_Instance;
 

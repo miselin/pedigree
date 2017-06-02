@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 
-#include <process/PerProcessorScheduler.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 
 class Thread;
 

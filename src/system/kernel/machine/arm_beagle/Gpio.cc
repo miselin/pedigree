@@ -18,7 +18,7 @@
  */
 
 #include "Gpio.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 Gpio Gpio::m_Instance;
 

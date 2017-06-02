@@ -8,18 +8,18 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
-#include <Log.h>
-#include <processor/Processor.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <machine/Machine.h>
-#include <machine/IrqHandler.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 
-#include <utilities/TimeoutGuard.h>
-#include <process/Semaphore.h>
-#include <process/Mutex.h>
-#include <LockGuard.h>
+#include "pedigree/kernel/utilities/TimeoutGuard.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/LockGuard.h"
 
 class CdiIrqHandler : public IrqHandler {
         virtual bool irq(irq_id_t number, InterruptState &state);

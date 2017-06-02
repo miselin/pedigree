@@ -21,7 +21,7 @@
 
 #include "pedigree-c-syscall.h"
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #include <stdlib.h>
 #include <unistd.h>

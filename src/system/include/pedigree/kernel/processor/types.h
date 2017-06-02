@@ -21,25 +21,25 @@
 #define KERNEL_PROCESSOR_TYPES_H
 
 #if defined(X86)
-#include <processor/x86/types.h>
+#include "pedigree/kernel/processor/x86/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-#include <processor/x64/types.h>
+#include "pedigree/kernel/processor/x64/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-#include <processor/mips32/types.h>
+#include "pedigree/kernel/processor/mips32/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-#include <processor/mips64/types.h>
+#include "pedigree/kernel/processor/mips64/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM_COMMON)
-#include <processor/arm_common/types.h>
+#include "pedigree/kernel/processor/arm_common/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) ARM##x
 #elif defined(PPC32)
-#include <processor/ppc32/types.h>
+#include "pedigree/kernel/processor/ppc32/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(HOSTED)
-#include <processor/hosted/types.h>
+#include "pedigree/kernel/processor/hosted/types.h"
 #define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x
 #endif
 

@@ -18,17 +18,17 @@
  */
 
 #include "Iso9660Filesystem.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <processor/Processor.h>
-#include <syscallError.h>
-#include <utilities/List.h>
-#include <utilities/StaticString.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include <vfs/VFS.h>
 
-#include <utilities/PointerGuard.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 #include "Iso9660Directory.h"
 #include "Iso9660File.h"

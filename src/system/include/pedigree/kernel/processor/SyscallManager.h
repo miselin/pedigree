@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_SYSCALLMANAGER_H
 
-#include <processor/SyscallHandler.h>
-#include <processor/Syscalls.h>
-#include <processor/state.h>
+#include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/Syscalls.h"
+#include "pedigree/kernel/processor/state.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

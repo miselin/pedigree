@@ -20,7 +20,7 @@
 #ifndef EVENT_H
 #define EVENT_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** The maximum size of one event, serialized. */
 #define EVENT_LIMIT 4096

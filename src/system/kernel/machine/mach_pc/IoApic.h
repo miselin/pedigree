@@ -22,8 +22,8 @@
 
 #if defined(APIC)
 
-#include <processor/MemoryMappedIo.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

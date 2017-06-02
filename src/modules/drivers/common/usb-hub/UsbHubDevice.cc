@@ -18,10 +18,10 @@
  */
 
 #include "UsbHubDevice.h"
-#include <time/Time.h>
+#include "pedigree/kernel/time/Time.h"
 #include <usb/UsbDevice.h>
 #include <usb/UsbHub.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 UsbHubDevice::UsbHubDevice(UsbDevice *dev) : UsbDevice(dev), UsbHub()
 {

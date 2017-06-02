@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/Machine.h"
 
 Machine::~Machine()
 {

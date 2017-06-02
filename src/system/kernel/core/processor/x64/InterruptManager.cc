@@ -18,17 +18,17 @@
  */
 
 #include "InterruptManager.h"
-#include <LockGuard.h>
-#include <panic.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #if defined(DEBUGGER)
-#include <Debugger.h>
+#include "pedigree/kernel/debugger/Debugger.h"
 #endif
 
 #ifdef THREADS
-#include <Subsystem.h>
-#include <process/Process.h>
-#include <process/TimeTracker.h>
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TimeTracker.h"
 #endif
 
 static const char *g_ExceptionNames[] = {

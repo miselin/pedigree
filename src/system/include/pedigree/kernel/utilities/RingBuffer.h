@@ -20,12 +20,12 @@
 #ifndef RINGBUFFER_H
 #define RINGBUFFER_H
 
-#include <LockGuard.h>
-#include <process/ConditionVariable.h>
-#include <process/Event.h>
-#include <process/Mutex.h>
-#include <processor/types.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 
 /// \todo rewrite this in the same way as TcpBuffer!
 

@@ -20,10 +20,10 @@
 #ifndef KERNEL_PROCESSOR_ARM_COMMON_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_ARM_COMMON_PROCESSORINFORMATION_H
 
-#include <process/PerProcessorScheduler.h>
-#include <process/Thread.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorarmv7
  * @{ */

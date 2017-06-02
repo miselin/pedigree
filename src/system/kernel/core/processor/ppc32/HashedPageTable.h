@@ -21,7 +21,7 @@
 #define KERNEL_PROCESSOR_PPC32_HASHEDPAGETABLE_H
 
 #include "Translation.h"
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #define HTAB_VIRTUAL 0xC0100000
 

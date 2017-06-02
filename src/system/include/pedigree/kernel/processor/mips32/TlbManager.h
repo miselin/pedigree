@@ -20,9 +20,9 @@
 #ifndef MIPS32_TLBMANAGER_H
 #define MIPS32_TLBMANAGER_H
 
-#include <processor/InterruptHandler.h>
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** A class for manipulating and refilling the translation lookaside buffer. */
 class MIPS32TlbManager : public InterruptHandler

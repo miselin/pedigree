@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <BootstrapInfo.h>
-#include <Log.h>
-#include <linker/Elf.h>
-#include <linker/KernelElf.h>
-#include <process/Process.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** Helper function: copies data into a new buffer given a certain number of
  * bytes */

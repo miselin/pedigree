@@ -20,7 +20,7 @@
 #ifndef BACKTRACER_H
 #define BACKTRACER_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

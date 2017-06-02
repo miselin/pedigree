@@ -18,11 +18,11 @@
  */
 
 #include "PedigreeCSyscallManager.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <process/Process.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 static PedigreeCSyscallManager g_PedigreeCSyscallManager;
 

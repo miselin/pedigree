@@ -20,17 +20,17 @@
 #ifndef MACHINE_TCPMANAGER_H
 #define MACHINE_TCPMANAGER_H
 
-#include <LockGuard.h>
-#include <machine/Network.h>
-#include <machine/TimerHandler.h>
-#include <process/Mutex.h>
-#include <process/Semaphore.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 #include "Manager.h"
 

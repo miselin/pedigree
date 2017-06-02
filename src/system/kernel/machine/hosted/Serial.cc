@@ -18,7 +18,7 @@
  */
 
 #include "Serial.h"
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
 #include <fcntl.h>
 #include <stdio.h>

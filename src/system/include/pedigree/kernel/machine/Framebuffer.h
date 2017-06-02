@@ -20,10 +20,10 @@
 #ifndef _MACHINE_FRAMEBUFFER_H
 #define _MACHINE_FRAMEBUFFER_H
 
-#include <Log.h>
-#include <graphics/Graphics.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 class Display;
 

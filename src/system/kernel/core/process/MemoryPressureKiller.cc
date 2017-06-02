@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <Subsystem.h>
-#include <process/MemoryPressureKiller.h>
-#include <process/Process.h>
-#include <process/Scheduler.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/MemoryPressureKiller.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
 
 static size_t mb(size_t pages)
 {

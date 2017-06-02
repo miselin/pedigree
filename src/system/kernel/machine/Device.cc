@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/Device.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryMappedIo.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 #ifdef THREADS
-#include <LockGuard.h>
+#include "pedigree/kernel/LockGuard.h"
 #define RAII_LOCK() LockGuard<Mutex> guard(m_TreeLock)
 
 Mutex Device::m_TreeLock;

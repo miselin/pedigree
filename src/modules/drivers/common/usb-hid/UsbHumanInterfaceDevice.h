@@ -21,7 +21,7 @@
 #define USBHUMANINTERFACEDEVICE_H
 
 #include <hid/HidReport.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 #include <usb/UsbDevice.h>
 
 class UsbHumanInterfaceDevice : public UsbDevice

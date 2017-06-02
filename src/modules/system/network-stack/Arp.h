@@ -20,15 +20,15 @@
 #ifndef MACHINE_ARP_H
 #define MACHINE_ARP_H
 
-#include <machine/Machine.h>
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <processor/state.h>
-#include <processor/types.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #include "Ethernet.h"
 #include "NetworkStack.h"

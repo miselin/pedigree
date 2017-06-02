@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_ARM926E_STACKFRAME_H
 #define KERNEL_PROCESSOR_ARM926E_STACKFRAME_H
 
-#include <compiler.h>
-#include <processor/StackFrameBase.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/StackFrameBase.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorARM926E
  * @{ */

@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Debugger.h>
-#include <Log.h>
-#include <panic.h>
-#include <process/Scheduler.h>
-#include <processor/PageFaultHandler.h>
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 /// \todo Implement
 

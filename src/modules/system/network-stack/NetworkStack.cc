@@ -19,9 +19,9 @@
 
 #include "NetworkStack.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "Ethernet.h"
 #include "Ipv6.h"

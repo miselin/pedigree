@@ -20,7 +20,7 @@
 #ifndef DEMANGLE_H
 #define DEMANGLE_H
 
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
 typedef struct symbol
 {

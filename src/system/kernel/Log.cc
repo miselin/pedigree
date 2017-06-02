@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <BootstrapInfo.h>
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#include <panic.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 

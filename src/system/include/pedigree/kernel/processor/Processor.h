@@ -20,14 +20,14 @@
 #ifndef KERNEL_PROCESSOR_PROCESSOR_H
 #define KERNEL_PROCESSOR_PROCESSOR_H
 
-#include <BootstrapInfo.h>
-#include <compiler.h>
-#include <processor/ProcessorInformation.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/state.h>
-#include <processor/types.h>
-#include <utilities/StaticString.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kernelprocessor
  * @{ */
@@ -393,22 +393,22 @@ class Processor
 /** @} */
 
 #if defined(X86_COMMON)
-#include <processor/x86_common/Processor.h>
+#include "pedigree/kernel/processor/x86_common/Processor.h"
 #elif defined(MIPS_COMMON)
-#include <processor/mips_common/Processor.h>
+#include "pedigree/kernel/processor/mips_common/Processor.h"
 #elif defined(ARM_COMMON)
-#include <processor/arm_common/Processor.h>
+#include "pedigree/kernel/processor/arm_common/Processor.h"
 #elif defined(PPC_COMMON)
-#include <processor/ppc_common/Processor.h>
+#include "pedigree/kernel/processor/ppc_common/Processor.h"
 #elif defined(HOSTED)
-#include <processor/hosted/Processor.h>
+#include "pedigree/kernel/processor/hosted/Processor.h"
 #endif
 
 #ifdef X86
-#include <processor/x86/Processor.h>
+#include "pedigree/kernel/processor/x86/Processor.h"
 #endif
 #ifdef X64
-#include <processor/x64/Processor.h>
+#include "pedigree/kernel/processor/x64/Processor.h"
 #endif
 
 //

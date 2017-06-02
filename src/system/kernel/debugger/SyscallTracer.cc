@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "SyscallTracer.h"
+#include "pedigree/kernel/debugger/SyscallTracer.h"
 
 SyscallTracer::SyscallTracer(
     const char *pfileName, const char *pFnName, int line)

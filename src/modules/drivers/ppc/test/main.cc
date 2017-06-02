@@ -18,9 +18,9 @@
  */
 
 #include "../../../system/kernel/core/BootIO.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
 extern BootIO bootIO;
 

@@ -18,9 +18,9 @@
  */
 
 #include "Pic.h"
-#include <Debugger.h>
-#include <Log.h>
-#include <compiler.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 
 // TODO: Needs locking
 

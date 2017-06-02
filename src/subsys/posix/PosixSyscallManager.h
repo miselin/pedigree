@@ -20,9 +20,9 @@
 #ifndef POSIX_SYSCALL_MANAGER_H
 #define POSIX_SYSCALL_MANAGER_H
 
-#include <processor/SyscallHandler.h>
-#include <processor/types.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 class PosixSyscallManager : public SyscallHandler
 {

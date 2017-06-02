@@ -20,9 +20,9 @@
 #ifndef KERNEL_MACHINE_PPC_COMMON_DECREMENTER_H
 #define KERNEL_MACHINE_PPC_COMMON_DECREMENTER_H
 
-#include <machine/SchedulerTimer.h>
-#include <processor/InterruptHandler.h>
-#include <processor/state.h>
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/state.h"
 
 /** @addtogroup kernelmachineppccommon
  * @{ */

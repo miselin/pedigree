@@ -20,9 +20,9 @@
 #ifndef MACHINE_KEYMAP_MANAGER_H
 #define MACHINE_KEYMAP_MANAGER_H
 
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 /**
  * Global manager for keymaps

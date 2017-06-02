@@ -11,7 +11,7 @@
 //#include <stdlib.h>
 
 #include <Module.h>
-#include <machine/Device.h>
+#include "pedigree/kernel/machine/Device.h"
 
 #include <cdi.h>
 #include <cdi-osdep.h>
@@ -19,7 +19,7 @@
 #include <cdi/pci.h>
 
 #ifdef X86_COMMON
-#include <machine/Pci.h>
+#include "pedigree/kernel/machine/Pci.h"
 #endif
 
 static cdi_list_t drivers = NULL;

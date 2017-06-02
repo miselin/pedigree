@@ -27,8 +27,8 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/BloomFilter.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/utilities/BloomFilter.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #define RANDOM_MAX 0x10000
 

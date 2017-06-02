@@ -20,9 +20,9 @@
 #include "UserManager.h"
 #include <Module.h>
 #include <config/Config.h>
-#include <process/Process.h>
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 UserManager UserManager::m_Instance;
 

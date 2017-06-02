@@ -18,7 +18,7 @@
  */
 
 #include "Ipv6.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 
 // Protocols we use in IPv6

@@ -38,12 +38,12 @@
 // include <inttypes.h>
 #endif
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 #ifndef NULL
 #define NULL 0
 #endif
 
-#include "mnemonics.h"
+#include "pedigree/kernel/debugger/libudis86/mnemonics.h"
 
 /* -----------------------------------------------------------------------------
  * All possible "types" of objects in udis86. Order is Important!

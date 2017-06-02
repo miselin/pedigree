@@ -22,7 +22,7 @@
 #include <usb/UsbConstants.h>
 #include <usb/UsbDevice.h>
 #include <usb/UsbHub.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 #define FTDI_BAUD_RATE 9600
 

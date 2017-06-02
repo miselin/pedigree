@@ -20,12 +20,12 @@
 #ifndef KERNEL_UTILITIES_LIST_H
 #define KERNEL_UTILITIES_LIST_H
 
-#include <processor/types.h>
-#include <utilities/Iterator.h>
-#include <utilities/IteratorAdapter.h>
-#include <utilities/ObjectPool.h>
-#include <utilities/assert.h>
-#include <utilities/template.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/IteratorAdapter.h"
+#include "pedigree/kernel/utilities/ObjectPool.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/template.h"
 
 /** @addtogroup kernelutilities
  * @{ */

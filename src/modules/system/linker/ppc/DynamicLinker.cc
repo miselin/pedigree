@@ -18,15 +18,15 @@
  */
 
 #include "DynamicLinker.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <panic.h>
-#include <process/Scheduler.h>
-#include <processor/KernelCoreSyscallManager.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #include <vfs/VFS.h>
 
 extern "C" void plt_resolve(void);

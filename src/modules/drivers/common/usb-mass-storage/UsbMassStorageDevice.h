@@ -20,7 +20,7 @@
 #ifndef USBMASSSTORAGEDEVICE_H
 #define USBMASSSTORAGEDEVICE_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 #include <scsi/ScsiController.h>
 #include <usb/UsbConstants.h>
 #include <usb/UsbDevice.h>

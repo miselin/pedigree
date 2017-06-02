@@ -20,7 +20,7 @@
 #if defined(APIC)
 
 #include "Apic.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 irq_id_t Apic::registerIsaIrqHandler(uint8_t, IrqHandler *handler, bool bEdge)
 {

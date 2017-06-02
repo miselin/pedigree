@@ -20,12 +20,12 @@
 #ifndef KERNEL_UTILITIES_TREE_H
 #define KERNEL_UTILITIES_TREE_H
 
-#include <processor/types.h>
-#include <utilities/Iterator.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Iterator.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
-#include <utilities/new>
+#include "pedigree/kernel/utilities/new"
 
 /** @addtogroup kernelutilities
  * @{ */

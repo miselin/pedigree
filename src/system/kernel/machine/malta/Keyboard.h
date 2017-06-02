@@ -20,7 +20,7 @@
 #ifndef MACHINE_MALTA_KEYBOARD_H
 #define MACHINE_MALTA_KEYBOARD_H
 
-#include <machine/Keyboard.h>
+#include "pedigree/kernel/machine/Keyboard.h"
 
 class MaltaKeyboard : public Keyboard
 {

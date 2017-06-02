@@ -18,14 +18,14 @@
  */
 
 #include "Mac.h"
-#include <Log.h>
-#include <machine/Device.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 #include <machine/ppc_common/Heathrow.h>
 #include <machine/ppc_common/OpenPic.h>
-#include <machine/ppc_common/pci.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/machine/ppc_common/pci.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 extern size_t resolveInterruptNumber(Device *pDev);
 

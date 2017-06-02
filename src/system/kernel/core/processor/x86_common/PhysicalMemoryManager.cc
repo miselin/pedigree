@@ -18,15 +18,15 @@
  */
 
 #include "PhysicalMemoryManager.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <panic.h>
-#include <processor/MemoryRegion.h>
-#include <processor/Processor.h>
-#include <utilities/Cache.h>
-#include <utilities/MemoryTracing.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
@@ -44,11 +44,11 @@ uint32_t g_PageBitmap[16384] = {0};
 #endif
 
 #if defined(TRACK_PAGE_ALLOCATIONS)
-#include <commands/AllocationCommand.h>
+#include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
 
-#include <SlamAllocator.h>
-#include <process/MemoryPressureManager.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
 
 X86CommonPhysicalMemoryManager X86CommonPhysicalMemoryManager::m_Instance;
 

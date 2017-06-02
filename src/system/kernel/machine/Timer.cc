@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Timer.h>
-#include <time/Time.h>
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/time/Time.h"
 
 Time::Timestamp Timer::getUnixTimestamp()
 {

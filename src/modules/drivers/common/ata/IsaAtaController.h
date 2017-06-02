@@ -22,14 +22,14 @@
 
 #include "AtaController.h"
 #include "AtaDisk.h"
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <machine/IrqHandler.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/types.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
 /** The controller for up to two AtaDisks. This uses a background thread
  * and a request queue. */

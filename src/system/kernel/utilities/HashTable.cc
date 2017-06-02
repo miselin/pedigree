@@ -17,4 +17,4 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/HashTable.h>
+#include "pedigree/kernel/utilities/HashTable.h"

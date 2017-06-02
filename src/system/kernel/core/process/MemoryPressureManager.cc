@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <process/MemoryPressureManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
 
 MemoryPressureManager MemoryPressureManager::m_Instance;
 

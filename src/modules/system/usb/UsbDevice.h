@@ -20,11 +20,11 @@
 #ifndef USBDEVICE_H
 #define USBDEVICE_H
 
-#include <machine/Device.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/types.h"
 #include <usb/Usb.h>
 #include <usb/UsbDescriptors.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 class UsbHub;
 class UsbDeviceContainer;

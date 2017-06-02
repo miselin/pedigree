@@ -20,7 +20,7 @@
 #ifndef MACHINE_DISK_H
 #define MACHINE_DISK_H
 
-#include <machine/Device.h>
+#include "pedigree/kernel/machine/Device.h"
 
 /**
  * A disk is a random access fixed size block device.

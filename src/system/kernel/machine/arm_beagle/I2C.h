@@ -20,8 +20,8 @@
 #ifndef _I2C_H
 #define _I2C_H
 
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
 
 class I2C
 {

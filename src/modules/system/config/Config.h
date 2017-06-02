@@ -21,8 +21,8 @@
 #define CONFIG_H
 
 #include "sqlite3/sqlite3.h"
-#include <processor/types.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 extern sqlite3 *g_pSqlite;
 

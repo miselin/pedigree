@@ -20,7 +20,7 @@
 #ifndef KERNEL_ASSERT_H
 #define KERNEL_ASSERT_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 #include <stdint.h>
 
 /** @addtogroup kernel

@@ -20,14 +20,14 @@
 #ifndef VBE_DISPLAY_H
 #define VBE_DISPLAY_H
 
-#include <machine/Device.h>
-#include <machine/Display.h>
-#include <processor/MemoryMappedIo.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <utilities/List.h>
-#include <utilities/MemoryAllocator.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
 
-#include <machine/Framebuffer.h>
+#include "pedigree/kernel/machine/Framebuffer.h"
 
 class VbeDisplay : public Display
 {

@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/Device.h>
-#include <machine/DeviceHashTree.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/DeviceHashTree.h"
 
-#include <utilities/sha1/sha1.h>
+#include "pedigree/kernel/utilities/sha1/sha1.h"
 
 DeviceHashTree DeviceHashTree::m_Instance;
 

@@ -18,7 +18,7 @@
  */
 
 #include "PhysicalMemoryManager.h"
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 #if defined(X86)
 #include "../../core/processor/x86/VirtualAddressSpace.h"
 #else

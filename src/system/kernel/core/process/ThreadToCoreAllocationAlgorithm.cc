@@ -17,4 +17,4 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <process/ThreadToCoreAllocationAlgorithm.h>
+#include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"

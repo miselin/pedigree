@@ -19,9 +19,9 @@
 
 #include "CdiDisk.h"
 
-#include <Log.h>
-#include <ServiceManager.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 #include <vfs/VFS.h>
 

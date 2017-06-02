@@ -22,7 +22,7 @@
 
 #ifdef __cplusplus
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 #endif
 
@@ -43,7 +43,7 @@ struct InfoBlock
 
 #ifdef __cplusplus
 
-#include <machine/TimerHandler.h>
+#include "pedigree/kernel/machine/TimerHandler.h"
 
 class InfoBlockManager : public TimerHandler
 {

@@ -20,19 +20,19 @@
 #ifndef MACHINE_MACHINE_H
 #define MACHINE_MACHINE_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /// \note Avoids pulling in a bunch of extra include files (specifically, an
 /// ambiguous
 ///       reference to <machine/types.h> when working with the POSIX subsystem).
 ///       POSIX subsystem ftl.
 #if !defined(MACHINE_FORWARD_DECL_ONLY)
-#include <machine/IrqManager.h>
-#include <machine/Keyboard.h>
-#include <machine/SchedulerTimer.h>
-#include <machine/Serial.h>
-#include <machine/Timer.h>
-#include <machine/Vga.h>
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/machine/Vga.h"
 #else
 class Serial;
 class Vga;

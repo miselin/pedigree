@@ -20,19 +20,19 @@
 #ifndef FILE_H
 #define FILE_H
 
-#include <LockGuard.h>
-#include <process/Event.h>
-#include <process/Thread.h>
-#include <processor/types.h>
-#include <time/Time.h>
-#include <utilities/Cache.h>
-#include <utilities/CacheConstants.h>
-#include <utilities/RadixTree.h>
-#include <utilities/String.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/CacheConstants.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
-#include <processor/PhysicalMemoryManager.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 // RWX for owner.
 #define FILE_UR 0001

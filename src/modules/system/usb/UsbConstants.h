@@ -20,7 +20,7 @@
 #ifndef USBCONSTANTS_H
 #define USBCONSTANTS_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 namespace UsbRequestType
 {

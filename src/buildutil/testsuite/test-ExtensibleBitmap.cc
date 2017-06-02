@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/ExtensibleBitmap.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
 TEST(PedigreeExtensibleBitmap, InitialState)
 {

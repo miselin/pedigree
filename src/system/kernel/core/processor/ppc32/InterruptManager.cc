@@ -18,16 +18,16 @@
  */
 
 #include "InterruptManager.h"
-#include <Debugger.h>
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <machine/types.h>
-#include <panic.h>
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 extern "C" int isr_reset;
 extern "C" int isr_machine_check;

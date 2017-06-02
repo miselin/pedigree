@@ -20,9 +20,9 @@
 #ifndef NETMANAGER_H
 #define NETMANAGER_H
 
-#include <process/Scheduler.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include <vfs/Filesystem.h>
 #include <vfs/VFS.h>
 

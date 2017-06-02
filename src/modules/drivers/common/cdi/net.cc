@@ -12,7 +12,7 @@
 #include <cdi/lists.h>
 #include <cdi/net.h>
 #include <cdi/pci.h>
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 static unsigned long netcard_highest_id = 0;
 static cdi_list_t netcard_list;

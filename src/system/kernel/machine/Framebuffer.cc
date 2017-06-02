@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Display.h>
-#include <machine/Framebuffer.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 Graphics::Buffer *Framebuffer::swCreateBuffer(
     const void *srcData, Graphics::PixelFormat srcFormat, size_t width,

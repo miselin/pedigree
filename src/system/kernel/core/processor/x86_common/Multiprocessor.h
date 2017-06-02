@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_MULTIPROCESSOR_H
 #define KERNEL_PROCESSOR_X86_COMMON_MULTIPROCESSOR_H
 
-#include <Spinlock.h>
-#include <compiler.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorx86common
  * @{ */

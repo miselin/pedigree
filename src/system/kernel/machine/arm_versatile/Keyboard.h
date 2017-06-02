@@ -20,7 +20,7 @@
 #ifndef MACHINE_ARMVERSATILE_KEYBOARD_H
 #define MACHINE_ARMVERSATILE_KEYBOARD_H
 
-#include <machine/Keyboard.h>
+#include "pedigree/kernel/machine/Keyboard.h"
 
 class ArmVersatileKeyboard : public Keyboard
 {

@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <linker/Elf.h>
-#include <linker/KernelElf.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 // http://refspecs.freestandards.org/elf/elfspec_ppc.pdf
 

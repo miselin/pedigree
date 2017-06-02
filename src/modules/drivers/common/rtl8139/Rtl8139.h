@@ -20,16 +20,16 @@
 #ifndef RTL8139_H
 #define RTL8139_H
 
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <process/Thread.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 
 #define RTL8139_VENDOR_ID 0x10ec
 #define RTL8139_DEVICE_ID 0x8139

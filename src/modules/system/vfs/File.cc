@@ -21,10 +21,10 @@
 #include "Filesystem.h"
 #include "Symlink.h"
 #include "VFS.h"
-#include <Log.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
 
 void File::writeCallback(
     CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,

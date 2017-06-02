@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <process/ProcessorThreadAllocator.h>
+#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 
-#include <process/PerProcessorScheduler.h>
-#include <process/Scheduler.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 ProcessorThreadAllocator ProcessorThreadAllocator::m_Instance;
 

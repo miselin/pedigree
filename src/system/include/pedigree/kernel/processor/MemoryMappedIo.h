@@ -20,11 +20,11 @@
 #ifndef KERNEL_PROCESSOR_MEMORYMAPPEDIO_H
 #define KERNEL_PROCESSOR_MEMORYMAPPEDIO_H
 
-#include <processor/IoBase.h>
-#include <processor/MemoryRegion.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

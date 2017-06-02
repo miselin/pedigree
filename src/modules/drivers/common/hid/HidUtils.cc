@@ -19,8 +19,8 @@
 
 #include <hid/HidUsages.h>
 #include <hid/HidUtils.h>
-#include <machine/HidInputManager.h>
-#include <machine/InputManager.h>
+#include "pedigree/kernel/machine/HidInputManager.h"
+#include "pedigree/kernel/machine/InputManager.h"
 
 uint64_t
 HidUtils::getBufferField(uint8_t *pBuffer, size_t nStart, size_t nLength)

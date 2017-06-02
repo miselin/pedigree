@@ -18,12 +18,12 @@
  */
 
 #include "Heathrow.h"
-#include <Debugger.h>
-#include <Log.h>
-#include <compiler.h>
-#include <machine/Device.h>
-#include <machine/openfirmware/Device.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 // TODO: Needs locking
 

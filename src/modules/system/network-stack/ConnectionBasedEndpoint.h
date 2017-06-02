@@ -20,7 +20,7 @@
 #ifndef _CONNECTION_BASED_ENDPOINT_H
 #define _CONNECTION_BASED_ENDPOINT_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 
 #include "Endpoint.h"
 

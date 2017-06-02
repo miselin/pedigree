@@ -22,9 +22,9 @@
 
 #ifdef THREADS
 
-#include <DebuggerCommand.h>
-#include <Scrollable.h>
-#include <process/Thread.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/Scrollable.h"
+#include "pedigree/kernel/process/Thread.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

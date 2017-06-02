@@ -21,10 +21,10 @@
 #define SYMLINK_H
 
 #include "File.h"
-#include <processor/types.h>
-#include <time/Time.h>
-#include <utilities/RadixTree.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** A symbolic link node. */
 class Symlink : public File

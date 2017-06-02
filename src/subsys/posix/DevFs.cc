@@ -22,17 +22,17 @@
 #include <vfs/Pipe.h>
 
 #define MACHINE_FORWARD_DECL_ONLY
-#include <machine/InputManager.h>
-#include <machine/Machine.h>
-#include <machine/Vga.h>
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Vga.h"
 
 #include <console/Console.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 #include <sys/fb.h>
 

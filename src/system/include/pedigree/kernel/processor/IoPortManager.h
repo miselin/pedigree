@@ -20,12 +20,12 @@
 #ifndef KERNEL_PROCESSOR_IOPORTMANAGER_H
 #define KERNEL_PROCESSOR_IOPORTMANAGER_H
 
-#include <Spinlock.h>
-#include <compiler.h>
-#include <processor/IoPort.h>
-#include <processor/types.h>
-#include <utilities/RangeList.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RangeList.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

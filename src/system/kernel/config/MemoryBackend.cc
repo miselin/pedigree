@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config/MemoryBackend.h>
+#include "pedigree/kernel/config/MemoryBackend.h"
 
 MemoryBackend::MemoryBackend(String configStore)
     : ConfigurationBackend(configStore), m_Tables()

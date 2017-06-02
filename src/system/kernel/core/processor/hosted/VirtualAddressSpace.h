@@ -20,10 +20,10 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_HOSTED_VIRTUALADDRESSSPACE_H
 
-#include <Spinlock.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 //
 // Virtual address space layout

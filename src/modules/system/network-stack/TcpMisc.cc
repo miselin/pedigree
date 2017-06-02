@@ -23,10 +23,10 @@
 #endif
 
 #include "TcpMisc.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 #ifdef THREADS
-#include <LockGuard.h>
+#include "pedigree/kernel/LockGuard.h"
 #endif
 
 #ifndef TESTSUITE

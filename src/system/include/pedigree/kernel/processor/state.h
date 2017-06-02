@@ -21,28 +21,28 @@
 #define KERNEL_PROCESSOR_STATE_H
 
 #if defined(X86)
-#include <processor/x86/state.h>
+#include "pedigree/kernel/processor/x86/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-#include <processor/x64/state.h>
+#include "pedigree/kernel/processor/x64/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-#include <processor/mips32/state.h>
+#include "pedigree/kernel/processor/mips32/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-#include <processor/mips64/state.h>
+#include "pedigree/kernel/processor/mips64/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM926E)
-#include <processor/arm_926e/state.h>
+#include "pedigree/kernel/processor/arm_926e/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
 #elif defined(PPC32)
-#include <processor/ppc32/state.h>
+#include "pedigree/kernel/processor/ppc32/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(ARMV7)
-#include <processor/armv7/state.h>
+#include "pedigree/kernel/processor/armv7/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif defined(HOSTED)
-#include <processor/hosted/state.h>
+#include "pedigree/kernel/processor/hosted/state.h"
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 

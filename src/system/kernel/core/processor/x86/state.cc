@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/state.h>
+#include "pedigree/kernel/processor/state.h"
 
 const char *X86InterruptStateRegisterName[11] = {
     "eax", "ebx", "ecx", "edx", "edi", "esi", "ebp", "esp", "eip", "eflags"};

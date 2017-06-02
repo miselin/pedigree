@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
-#include <processor/SyscallManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 
 #include <native-ipc.h>
 #include <native/ipc/Ipc.h>

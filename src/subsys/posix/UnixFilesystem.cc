@@ -18,7 +18,7 @@
  */
 
 #include "UnixFilesystem.h"
-#include <LockGuard.h>
+#include "pedigree/kernel/LockGuard.h"
 
 UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent)
     : File(name, 0, 0, 0, 0, pFs, 0, pParent),

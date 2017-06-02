@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "DumpCommand.h"
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/commands/DumpCommand.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 DumpCommand::DumpCommand() : DebuggerCommand()
 {

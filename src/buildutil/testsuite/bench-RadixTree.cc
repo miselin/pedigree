@@ -27,7 +27,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/RadixTree.h>
+#include "pedigree/kernel/utilities/RadixTree.h"
 
 #define RANDOM_MAX 0x1000000
 

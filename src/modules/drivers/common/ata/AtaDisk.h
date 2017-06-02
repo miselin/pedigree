@@ -21,15 +21,15 @@
 #define ATA_ATA_DISK_H
 
 #include "BusMasterIde.h"
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
-#include <utilities/Cache.h>
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
 
 #include <scsi/ScsiDisk.h>
 

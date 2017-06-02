@@ -18,9 +18,9 @@
  */
 
 #include "RoutingTable.h"
-#include <LockGuard.h>
+#include "pedigree/kernel/LockGuard.h"
 #include <config/Config.h>
-#include <machine/DeviceHashTree.h>
+#include "pedigree/kernel/machine/DeviceHashTree.h"
 
 RoutingTable RoutingTable::m_Instance;
 

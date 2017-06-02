@@ -26,6 +26,6 @@
 #define SERVICE_INIT int ign = 0
 #define SERVICE_ERROR ign
 
-#include <processor/syscall-stubs.h>
+#include "pedigree/kernel/processor/syscall-stubs.h"
 
 #endif

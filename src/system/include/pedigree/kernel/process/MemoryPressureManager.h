@@ -20,9 +20,9 @@
 #ifndef MEMORY_PRESSURE_MANAGER_H
 #define MEMORY_PRESSURE_MANAGER_H
 
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** Maximum memory pressure handler priority (one list per priority level). */
 #define MAX_MEMPRESSURE_PRIORITY 16

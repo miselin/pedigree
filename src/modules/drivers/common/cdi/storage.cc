@@ -8,9 +8,9 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <Log.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/Log.h"
 
 #include <stdio.h>
 #include <stdlib.h>

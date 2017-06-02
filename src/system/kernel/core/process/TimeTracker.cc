@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <process/Process.h>
-#include <process/Thread.h>
-#include <process/TimeTracker.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/TimeTracker.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 TimeTracker::TimeTracker(Process *pProcess, bool fromUserspace)
     : m_pProcess(pProcess), m_bFromUserspace(fromUserspace)

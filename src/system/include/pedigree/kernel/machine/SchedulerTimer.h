@@ -20,8 +20,8 @@
 #ifndef KERNEL_MACHINE_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_SCHEDULERTIMER_H
 
-#include <machine/TimerHandler.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachine
  * @{ */

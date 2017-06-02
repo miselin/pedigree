@@ -20,9 +20,9 @@
 #ifndef REQUEST_QUEUE_H
 #define REQUEST_QUEUE_H
 
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 
 class Thread;
 

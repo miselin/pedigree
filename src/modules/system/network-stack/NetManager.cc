@@ -24,7 +24,7 @@
 #include <network-stack/RoutingTable.h>
 #include <network-stack/TcpManager.h>
 #include <network-stack/UdpManager.h>
-#include <utilities/ZombieQueue.h>
+#include "pedigree/kernel/utilities/ZombieQueue.h"
 
 NetManager NetManager::m_Instance;
 

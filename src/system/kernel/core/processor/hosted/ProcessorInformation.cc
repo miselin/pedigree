@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <processor/Processor.h>
-#include <processor/hosted/ProcessorInformation.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
 #include <processor/hosted/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 namespace __pedigree_hosted
 {

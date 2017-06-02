@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <CpuInfoCommand.h>
-#include <DebuggerIO.h>
-#include <Log.h>
-#include <processor/Processor.h>
-#include <udis86.h>
-#include <utilities/demangle.h>
+#include "pedigree/kernel/debugger/commands/CpuInfoCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/debugger/libudis86/udis86.h"
+#include "pedigree/kernel/utilities/demangle.h"
 
 CpuInfoCommand::CpuInfoCommand()
 {

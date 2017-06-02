@@ -20,8 +20,8 @@
 #ifndef MEMORYINSPECTOR_H
 #define MEMORYINSPECTOR_H
 
-#include <DebuggerCommand.h>
-#include <Scrollable.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/Scrollable.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

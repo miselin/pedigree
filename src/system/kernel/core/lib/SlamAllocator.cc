@@ -17,21 +17,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "SlamAllocator.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 #ifndef PEDIGREE_BENCHMARK
-#include <LockGuard.h>
-#include <utilities/MemoryTracing.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
+#include "pedigree/kernel/utilities/assert.h"
 
-#include <machine/Machine.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#include <Backtrace.h>
-#include <SlamCommand.h>
+#include "pedigree/kernel/debugger/Backtrace.h"
+#include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #endif
 
 #ifdef MULTIPROCESSOR

@@ -21,8 +21,8 @@
 #define KERNEL_PROCESSOR_PPC32_COMMON_PHYSICALMEMORYMANAGER_H
 
 #include "../ppc32/Translation.h"
-#include <processor/PhysicalMemoryManager.h>
-#include <utilities/RangeList.h>
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/RangeList.h"
 
 /** @addtogroup kernelprocessorppccommon
  * @{ */

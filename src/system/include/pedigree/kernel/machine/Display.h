@@ -20,11 +20,11 @@
 #ifndef MACHINE_DISPLAY_H
 #define MACHINE_DISPLAY_H
 
-#include <compiler.h>
-#include <machine/Device.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/List.h"
 
-#include <machine/Framebuffer.h>
+#include "pedigree/kernel/machine/Framebuffer.h"
 
 /**
  * A display is either a dumb framebuffer or something more accelerated.

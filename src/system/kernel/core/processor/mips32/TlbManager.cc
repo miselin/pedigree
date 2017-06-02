@@ -19,12 +19,12 @@
 
 #include "../mips_common/AsidManager.h"
 #include "VirtualAddressSpace.h"
-#include <Debugger.h>
-#include <Log.h>
-#include <panic.h>
-#include <processor/InterruptManager.h>
-#include <processor/Processor.h>
-#include <processor/mips32/TlbManager.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/mips32/TlbManager.h"
 
 MIPS32TlbManager MIPS32TlbManager::m_Instance;
 

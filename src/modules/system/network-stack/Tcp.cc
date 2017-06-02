@@ -18,7 +18,7 @@
  */
 
 #include "Tcp.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 
 #include "Ethernet.h"

@@ -56,7 +56,7 @@
  *
  */
 
-#include <utilities/sha1/sha1.h>
+#include "pedigree/kernel/utilities/sha1/sha1.h"
 
 /*
  *  SHA1

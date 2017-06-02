@@ -18,21 +18,21 @@
  */
 
 #include "poll-syscalls.h"
-#include <compiler.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 #include <console/Console.h>
 #include <network-stack/NetManager.h>
 #include <network-stack/Tcp.h>
-#include <process/Process.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
-#include <syscallError.h>
-#include <utilities/Tree.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
@@ -41,7 +41,7 @@
 #include <vfs/VFS.h>
 
 #include <PosixSubsystem.h>
-#include <Subsystem.h>
+#include "pedigree/kernel/Subsystem.h"
 
 static void pollEventHandler(uint8_t *pBuffer);
 

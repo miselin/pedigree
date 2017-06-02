@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <machine/Device.h>
-#include <machine/openfirmware/Device.h>
-#include <panic.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
 
 /// Given a device node, attempts to find the interrupt number attached to it.
 size_t resolveInterruptNumber(Device *pDev)

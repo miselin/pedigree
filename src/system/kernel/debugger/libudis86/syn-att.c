@@ -1,5 +1,4 @@
 /*
- * 
  * Copyright (c) 2008-2014, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
@@ -26,10 +25,10 @@
  * -----------------------------------------------------------------------------
  */
 
-#include "types.h"
-#include "extern.h"
-#include "opcmap.h"
-#include "syn.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
+#include "pedigree/kernel/debugger/libudis86/extern.h"
+#include "pedigree/kernel/debugger/libudis86/opcmap.h"
+#include "pedigree/kernel/debugger/libudis86/syn.h"
 
 /* -----------------------------------------------------------------------------
  * opr_cast() - Prints an operand cast.

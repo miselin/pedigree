@@ -19,8 +19,8 @@
 
 #include "User.h"
 #include "Group.h"
-#include <process/Process.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 User::User(
     size_t uid, String username, String fullName, Group *pGroup, String home,

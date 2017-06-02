@@ -20,18 +20,18 @@
 #ifndef MACHINE_DEVICE_H
 #define MACHINE_DEVICE_H
 
-#include <compiler.h>
-#include <processor/IoBase.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #ifdef THREADS
-#include <LockGuard.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Mutex.h"
 #endif
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #ifdef OPENFIRMWARE
-#include <machine/openfirmware/OpenFirmware.h>
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 #endif
 
 /**

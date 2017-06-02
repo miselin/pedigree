@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/utilities/StaticString.h"
 
 // Test fixture for typed tests.
 template <typename T>

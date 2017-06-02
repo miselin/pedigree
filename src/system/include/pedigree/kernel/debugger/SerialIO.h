@@ -20,8 +20,8 @@
 #ifndef SERIALIO_H
 #define SERIALIO_H
 
-#include <DebuggerIO.h>
-#include <machine/Serial.h>
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/machine/Serial.h"
 
 /** @addtogroup kerneldebugger
  * @{ */

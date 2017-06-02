@@ -20,7 +20,7 @@
 #ifndef KERNEL_SPINLOCK_H
 #define KERNEL_SPINLOCK_H
 
-#include <Atomic.h>
+#include "pedigree/kernel/Atomic.h"
 
 class Spinlock
 {

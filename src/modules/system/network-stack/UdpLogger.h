@@ -23,9 +23,9 @@
 #include "ConnectionlessEndpoint.h"
 #include "NetworkStack.h"
 #include "UdpManager.h"
-#include <Log.h>
-#include <network/IpAddress.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/network/IpAddress.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** Defines a UDP-based callback for Log entries. */
 class UdpLogger : public Log::LogCallback

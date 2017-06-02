@@ -21,13 +21,13 @@
 #define KERNEL_LOG_H
 
 #ifdef THREADS
-#include <Spinlock.h>
+#include "pedigree/kernel/Spinlock.h"
 #endif
-#include <panic.h>
-#include <processor/types.h>
-#include <utilities/StaticString.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kernel
  * @{ */

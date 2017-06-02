@@ -19,15 +19,15 @@
 
 #if defined(THREADS)
 
-#include <Log.h>
-#include <process/PerProcessorScheduler.h>
-#include <process/Process.h>
-#include <process/ProcessorThreadAllocator.h>
-#include <process/RoundRobinCoreAllocator.h>
-#include <process/Scheduler.h>
-#include <process/Thread.h>
-#include <process/initialiseMultitasking.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
+#include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 void initialiseMultitasking()
 {

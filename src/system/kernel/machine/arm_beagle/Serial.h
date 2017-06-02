@@ -20,9 +20,9 @@
 #ifndef MACHINE_ARM_BEAGLE_SERIAL_H
 #define MACHINE_ARM_BEAGLE_SERIAL_H
 
-#include <machine/Serial.h>
-#include <processor/InterruptManager.h>
-#include <processor/MemoryRegion.h>
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 
 /// Implements the UART interface on the BeagleBoard
 class ArmBeagleSerial : public Serial, public InterruptHandler

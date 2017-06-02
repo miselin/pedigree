@@ -22,9 +22,9 @@
 
 #include "../ppc_common/VsidManager.h"
 #include "Translation.h"
-#include <machine/ppc_common/types.h>
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/ppc_common/types.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 
 /// 4K page sizes.
 #ifndef PAGE_SIZE

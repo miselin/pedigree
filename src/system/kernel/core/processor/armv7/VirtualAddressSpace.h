@@ -20,8 +20,8 @@
 #ifndef KERNEL_PROCESSOR_ARMV7_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_ARMV7_VIRTUALADDRESSSPACE_H
 
-#include <processor/VirtualAddressSpace.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorArmV7
  * @{ */

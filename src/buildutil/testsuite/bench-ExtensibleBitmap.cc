@@ -24,7 +24,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/ExtensibleBitmap.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
 #define RANDOM_MAX 0x1000000
 

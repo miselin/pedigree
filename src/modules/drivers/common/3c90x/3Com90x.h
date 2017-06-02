@@ -20,17 +20,17 @@
 #ifndef NIC_3C90X_H
 #define NIC_3C90X_H
 
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <process/Thread.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/MemoryRegion.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/types.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 
 /** Device driver for the Nic3C90x class of network device */
 class Nic3C90x : public Network, public IrqHandler

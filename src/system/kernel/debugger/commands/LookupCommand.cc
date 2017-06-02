@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "LookupCommand.h"
-#include <linker/KernelElf.h>
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/commands/LookupCommand.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 LookupCommand::LookupCommand() : DebuggerCommand()
 {

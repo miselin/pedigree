@@ -19,10 +19,10 @@
 
 #include "PhysicalMemoryManager.h"
 #include "../ppc32/VirtualAddressSpace.h"
-#include <Log.h>
-#include <panic.h>
-#include <processor/MemoryRegion.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 PpcCommonPhysicalMemoryManager PpcCommonPhysicalMemoryManager::m_Instance;
 

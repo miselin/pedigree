@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Backtrace.h>
-#include <Backtracer.h>
-#include <DebuggerIO.h>
-#include <utilities/StaticString.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/Backtrace.h"
+#include "pedigree/kernel/debugger/commands/Backtracer.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include <DwarfUnwinder.h>
+#include "pedigree/kernel/debugger/DwarfUnwinder.h"
 
 Backtracer::Backtracer()
 {

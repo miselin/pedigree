@@ -20,7 +20,7 @@
 #ifndef MACHINE_HOSTED_VGA_H
 #define MACHINE_HOSTED_VGA_H
 
-#include <machine/Vga.h>
+#include "pedigree/kernel/machine/Vga.h"
 
 /**
  * Vga device abstraction.

@@ -20,7 +20,7 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_TYPES_H
 #define KERNEL_MACHINE_X86_COMMON_TYPES_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

@@ -20,9 +20,9 @@
 #ifndef SCSICONTROLLER_H
 #define SCSICONTROLLER_H
 
-#include <machine/Controller.h>
-#include <processor/types.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
 #define SCSI_REQUEST_READ 1
 #define SCSI_REQUEST_WRITE 2

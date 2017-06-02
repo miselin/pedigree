@@ -21,10 +21,10 @@
 #define MACHINE_ETHERNET_H
 
 #include "NetworkStack.h"
-#include <machine/Network.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #define ETH_ARP 0x0806
 #define ETH_RARP 0x8035

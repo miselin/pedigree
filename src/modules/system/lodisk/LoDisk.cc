@@ -19,9 +19,9 @@
 
 #include "LoDisk.h"
 #include "../Module.h"
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
-#include <ServiceManager.h>
+#include "pedigree/kernel/ServiceManager.h"
 
 FileDisk::FileDisk(String file, AccessType mode)
     : m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),

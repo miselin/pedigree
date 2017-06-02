@@ -20,7 +20,7 @@
 #ifndef PANICCOMMAND_H
 #define PANICCOMMAND_H
 
-#include <DebuggerCommand.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

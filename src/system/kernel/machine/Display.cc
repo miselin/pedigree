@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/Display.h>
+#include "pedigree/kernel/machine/Display.h"
 
 Display::ScreenMode::ScreenMode()
     : id(0), width(0), height(0), refresh(0), framebuffer(0), pf(), pf2(),

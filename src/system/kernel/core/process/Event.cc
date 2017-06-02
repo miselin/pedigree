@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <compiler.h>
-#include <process/Event.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 Event::Event(
     uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel)

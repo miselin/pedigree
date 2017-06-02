@@ -21,17 +21,17 @@
 #include "Ext2Directory.h"
 #include "Ext2File.h"
 #include "Ext2Symlink.h"
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Timer.h>
-#include <process/Process.h>
-#include <processor/Processor.h>
-#include <syscallError.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/syscallError.h"
 #include <users/UserManager.h>
-#include <utilities/List.h>
-#include <utilities/StaticString.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include <vfs/VFS.h>
 
 #ifndef EXT2_STANDALONE

@@ -17,28 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 
-#include <BootstrapInfo.h>
+#include "pedigree/kernel/BootstrapInfo.h"
 #include <config/Config.h>
-#include <machine/Display.h>
-#include <machine/InputManager.h>
-#include <processor/Processor.h>
-#include <utilities/assert.h>
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/assert.h"
 
-#include <LockGuard.h>
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
 
-#include <core/BootIO.h>  // In src/system/kernel
+#include "pedigree/kernel/core/BootIO.h"
 
 #include "font.h"
 #include "image.h"
 
 static Framebuffer *g_pFramebuffer = 0;
-
-extern BootIO bootIO;
 
 static uint8_t *g_pBuffer = 0;
 static Graphics::Buffer *g_pFont = 0;

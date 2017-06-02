@@ -22,13 +22,13 @@
 #include "InterruptManager.h"
 #include "Translation.h"
 #include "VirtualAddressSpace.h"
-#include <Log.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <panic.h>
-#include <process/initialiseMultitasking.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 static uint32_t detectMemory()
 {

@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/state.h>
+#include "pedigree/kernel/processor/state.h"
 
 const char *ARM926EInterruptStateRegisterName[17] = {
     "r0", "r1",  "r2", "r3",  "r4", "r5",  "r6", "r7",  "r8",

@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/List.h>
+#include "pedigree/kernel/utilities/List.h"
 
 struct Foo
 {

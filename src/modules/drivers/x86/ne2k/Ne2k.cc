@@ -19,13 +19,13 @@
 
 #include "Ne2k.h"
 #include "Ne2kConstants.h"
-#include <Log.h>
-#include <machine/IrqManager.h>
-#include <machine/Machine.h>
-#include <machine/Network.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Network.h"
 #include <network-stack/NetworkStack.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 // #define NE2K_NO_THREADS
 

@@ -21,10 +21,10 @@
 #define POSIX_PROCESS_H
 
 #include "PosixSubsystem.h"
-#include <Log.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
 
-#include <process/Process.h>
+#include "pedigree/kernel/process/Process.h"
 
 class PosixProcess;
 

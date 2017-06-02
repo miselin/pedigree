@@ -19,9 +19,9 @@
 
 #include "TcpManager.h"
 #include "RoutingTable.h"
-#include <Log.h>
-#include <processor/Processor.h>
-#include <utilities/pocketknife.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
 
 TcpManager *TcpManager::manager = 0;
 

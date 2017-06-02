@@ -18,23 +18,23 @@
  */
 
 #include "PhysicalMemoryManager.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <panic.h>
-#include <processor/MemoryRegion.h>
-#include <processor/Processor.h>
-#include <utilities/Cache.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #if defined(TRACK_PAGE_ALLOCATIONS)
-#include <commands/AllocationCommand.h>
+#include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
 
 #include "VirtualAddressSpace.h"
 
-#include <SlamAllocator.h>
-#include <process/MemoryPressureManager.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
 
 namespace __pedigree_hosted
 {

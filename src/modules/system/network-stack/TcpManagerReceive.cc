@@ -18,10 +18,10 @@
  */
 
 #include "TcpManager.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
-#include <LockGuard.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Mutex.h"
 
 #define TCP_DEBUG 1
 

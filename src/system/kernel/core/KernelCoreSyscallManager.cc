@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <process/Scheduler.h>
-#include <processor/KernelCoreSyscallManager.h>
-#include <processor/Processor.h>
-#include <processor/SyscallManager.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 
 KernelCoreSyscallManager KernelCoreSyscallManager::m_Instance;
 

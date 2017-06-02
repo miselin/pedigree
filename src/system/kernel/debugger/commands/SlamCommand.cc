@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "SlamCommand.h"
-#include <DebuggerIO.h>
-#include <Log.h>
-#include <linker/KernelElf.h>
-#include <machine/Machine.h>
-#include <process/Process.h>
-#include <process/Scheduler.h>
-#include <processor/Processor.h>
-#include <utilities/demangle.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/commands/SlamCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/demangle.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 SlamCommand g_SlamCommand;
 

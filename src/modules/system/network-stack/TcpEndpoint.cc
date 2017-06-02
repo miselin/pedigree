@@ -19,10 +19,10 @@
 
 #include "NetManager.h"
 #include "TcpManager.h"
-#include <Log.h>
-#include <process/Scheduler.h>
-#include <syscallError.h>
-#include <utilities/TimeoutGuard.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/TimeoutGuard.h"
 
 TcpEndpoint::TcpEndpoint()
     : ConnectionBasedEndpoint(), m_Card(0), m_ConnId(0), m_RemoteHost(),

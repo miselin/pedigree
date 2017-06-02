@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/Tree.h>
+#include "pedigree/kernel/utilities/Tree.h"
 
 template class Tree<void *, void *>;
 template class Tree<int8_t, void *>;

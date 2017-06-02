@@ -23,8 +23,8 @@
 #ifndef MSDOS_H
 #define MSDOS_H
 
-#include <machine/Device.h>
-#include <machine/Disk.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
 
 // Identification of an MBR - 0x55 0xAA in bytes 510 and 511 respectively.
 #define MSDOS_IDENT_1 0x55

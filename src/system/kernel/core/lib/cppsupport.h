@@ -20,7 +20,7 @@
 #ifndef KERNEL_CPPSUPPORT_H
 #define KERNEL_CPPSUPPORT_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 
 /**
  * Calls the constructors of global objects

@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/pocketknife.h>
+#include "pedigree/kernel/utilities/pocketknife.h"
 
 #include <thread>
 

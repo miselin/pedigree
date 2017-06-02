@@ -20,11 +20,11 @@
 #ifdef X86_COMMON
 
 #include "Uhci.h"
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Pci.h>
-#include <processor/Processor.h>
-#include <time/Time.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 #include <usb/Usb.h>
 
 #define INDEX_FROM_TD_VIRT(ptr)                  \

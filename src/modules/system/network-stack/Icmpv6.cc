@@ -24,7 +24,7 @@
 
 #include "RoutingTable.h"
 
-#include <network/IpAddress.h>
+#include "pedigree/kernel/network/IpAddress.h"
 
 #define ICMPV6_ECHOREQ 128
 #define ICMPV6_ECHORESP 129

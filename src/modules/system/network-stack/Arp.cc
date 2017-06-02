@@ -19,9 +19,9 @@
 
 #include "Arp.h"
 #include "Ethernet.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "Filter.h"
 

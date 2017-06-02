@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/MemoryRegion.h>
-#include <processor/types.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** PRCM - Power, Reset and Clock Management - abstraction
  * \todo Power management

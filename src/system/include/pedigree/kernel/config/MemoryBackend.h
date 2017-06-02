@@ -20,9 +20,9 @@
 #ifndef MEMORY_BACKEND_H
 #define MEMORY_BACKEND_H
 
-#include <config/ConfigurationBackend.h>
-#include <config/ConfigurationManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/config/ConfigurationBackend.h"
+#include "pedigree/kernel/config/ConfigurationManager.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** Memory configuration backend. Stores everything in RAM,
  * won't save to file. Good for runtime-only information.

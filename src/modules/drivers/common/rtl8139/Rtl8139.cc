@@ -19,12 +19,12 @@
 
 #include "Rtl8139.h"
 #include "Rtl8139Constants.h"
-#include <Log.h>
-#include <machine/IrqManager.h>
-#include <machine/Machine.h>
-#include <machine/Network.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Network.h"
 #include <network-stack/NetworkStack.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 Rtl8139::Rtl8139(Network *pDev)
     : Network(pDev), m_pBase(0), m_StationInfo(), m_RxCurr(0), m_TxCurr(0),

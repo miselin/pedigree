@@ -23,8 +23,8 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/smhasher/MurmurHash3.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static void BM_Utility_Checksum(benchmark::State &state)
 {

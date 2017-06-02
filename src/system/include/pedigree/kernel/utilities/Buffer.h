@@ -20,8 +20,8 @@
 #ifndef KERNEL_UTILITIES_BUFFER_H
 #define KERNEL_UTILITIES_BUFFER_H
 
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
 
 class Thread;
 class Event;

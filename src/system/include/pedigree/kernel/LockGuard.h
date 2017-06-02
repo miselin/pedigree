@@ -20,7 +20,7 @@
 #ifndef KERNEL_LOCKGUARD_H
 #define KERNEL_LOCKGUARD_H
 
-#include <compiler.h>
+#include "pedigree/kernel/compiler.h"
 
 /** @addtogroup kernel
  * @{ */

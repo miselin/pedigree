@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <graphics/Graphics.h>
-#include <types.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
 
 #include <pedigree-c/pedigree-syscalls.h>
 

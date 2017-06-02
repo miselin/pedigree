@@ -20,11 +20,11 @@
 #ifndef FAT_FILE_H
 #define FAT_FILE_H
 
-#include <processor/types.h>
-#include <time/Time.h>
-#include <utilities/Cache.h>
-#include <utilities/RadixTree.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
 #include <vfs/File.h>
 
 /** A File is a file, a directory or a symlink. */

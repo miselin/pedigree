@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/ObjectPool.h>
+#include "pedigree/kernel/utilities/ObjectPool.h"
 
 TEST(PedigreeObjectPool, EmptyPoolAllocation)
 {

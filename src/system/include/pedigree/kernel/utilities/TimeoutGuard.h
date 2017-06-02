@@ -26,11 +26,11 @@
  *\brief  Implements the class TimeoutGuard, which cancels any operation after
           a given amount of time. */
 
-#include <Spinlock.h>
-#include <process/Event.h>
-#include <process/PerProcessorScheduler.h>
-#include <process/eventNumbers.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/eventNumbers.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** This class waits (in the background) for a given amount of time to elapse,
     then cancels whatever operation is currently taking place.

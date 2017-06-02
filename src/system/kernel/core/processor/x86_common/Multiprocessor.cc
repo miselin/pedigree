@@ -20,9 +20,9 @@
 #ifdef MULTIPROCESSOR
 
 #include "Multiprocessor.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <machine/mach_pc/Pc.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/utilities/Vector.h"
 
 #if defined(X86)
 #include <processsor/x86/VirtualAddressSpace.h>

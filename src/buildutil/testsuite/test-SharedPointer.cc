@@ -23,7 +23,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/String.h>
+#include "pedigree/kernel/utilities/String.h"
 
 TEST(PedigreeSharedPointer, Construction)
 {

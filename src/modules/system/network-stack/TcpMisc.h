@@ -21,15 +21,15 @@
 #define MACHINE_TCPMISC_H
 
 #include "Endpoint.h"
-#include <utilities/Iterator.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 #ifdef THREADS
-#include <LockGuard.h>
-#include <process/Mutex.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Mutex.h"
 #endif
 
 /** A TCP "Buffer" (also known as a stream) */

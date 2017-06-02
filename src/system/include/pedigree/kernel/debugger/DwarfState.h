@@ -20,9 +20,9 @@
 #ifndef DWARFSTATE_H
 #define DWARFSTATE_H
 
-#include <Log.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kerneldebugger
  * @{ */

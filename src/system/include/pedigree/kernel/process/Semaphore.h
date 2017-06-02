@@ -20,12 +20,12 @@
 #ifndef SEMAPHORE_H
 #define SEMAPHORE_H
 
-#include <Atomic.h>
-#include <Spinlock.h>
-#include <process/Event.h>
-#include <process/eventNumbers.h>
-#include <processor/types.h>
-#include <utilities/List.h>
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/eventNumbers.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 
 /**
  * A counting semaphore.

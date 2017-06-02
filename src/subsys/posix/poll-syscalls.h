@@ -21,8 +21,8 @@
 #define POLL_SYSCALLS_H
 
 #include "file-syscalls.h"
-#include <process/Event.h>
-#include <process/eventNumbers.h>
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/eventNumbers.h"
 
 #include <poll.h>
 

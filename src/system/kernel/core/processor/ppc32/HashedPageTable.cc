@@ -20,11 +20,11 @@
 #include "HashedPageTable.h"
 #include "InterruptManager.h"
 #include "VirtualAddressSpace.h"
-#include <Log.h>
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <panic.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 extern "C" void sdr1_trampoline(uint32_t);
 

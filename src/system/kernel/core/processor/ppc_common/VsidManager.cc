@@ -18,7 +18,7 @@
  */
 
 #include "VsidManager.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 VsidManager VsidManager::m_Instance;
 

@@ -20,7 +20,7 @@
 #ifndef TIME_H
 #define TIME_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 namespace Time
 {

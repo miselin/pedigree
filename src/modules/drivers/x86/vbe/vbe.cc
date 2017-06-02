@@ -18,20 +18,20 @@
  */
 
 #include "VbeDisplay.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
 #include <config/Config.h>
-#include <machine/Display.h>
-#include <machine/Machine.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
 
-#include <machine/x86_common/Bios.h>
+#include "pedigree/kernel/machine/x86_common/Bios.h"
 
 extern "C" void vbeModeChangedCallback(char *pId, char *pModeId);
 

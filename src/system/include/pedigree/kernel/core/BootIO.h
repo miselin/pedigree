@@ -20,8 +20,8 @@
 #ifndef BOOTIO_H
 #define BOOTIO_H
 
-#include <machine/Serial.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 extern class BootIO bootIO;
 

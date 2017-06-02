@@ -20,11 +20,11 @@
 #ifndef TCPSTATEBLOCK_H
 #define TCPSTATEBLOCK_H
 
-#include <compiler.h>
-#include <machine/Network.h>
-#include <process/Semaphore.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
 
 #include "Endpoint.h"
 #include "NetworkStack.h"

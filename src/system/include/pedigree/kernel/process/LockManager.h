@@ -20,8 +20,8 @@
 #ifndef LOCK_MANAGER_H
 #define LOCK_MANAGER_H
 
-#include <process/Semaphore.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /**
  * A class for managing locks. It is only used if ENFORCE_LOCK_ORDERING is

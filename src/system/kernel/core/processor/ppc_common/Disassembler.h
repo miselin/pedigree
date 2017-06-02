@@ -20,7 +20,7 @@
 #ifndef PPC_DISASSEMBLER_H
 #define PPC_DISASSEMBLER_H
 
-#include <processor/Disassembler.h>
+#include "pedigree/kernel/processor/Disassembler.h"
 
 /**
  * A disassembler for R3000-R6000 MIPS32/64 processors.

@@ -23,7 +23,7 @@
 
 #include <ctime>
 
-#include <time/Time.h>
+#include "pedigree/kernel/time/Time.h"
 
 TEST(PedigreeTime, ToUnixConversion)
 {

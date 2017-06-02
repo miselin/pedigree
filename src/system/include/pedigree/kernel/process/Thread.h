@@ -22,24 +22,24 @@
 
 #ifdef THREADS
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
-#include <process/Event.h>
-#include <process/Uninterruptible.h>
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
-#include <utilities/ExtensibleBitmap.h>
-#include <utilities/List.h>
-#include <utilities/RequestQueue.h>
-#include <utilities/SharedPointer.h>
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 
-#include <processor/MemoryRegion.h>
-#include <processor/VirtualAddressSpace.h>
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 // Hacky but I'd rather not c&p the typedef
 #define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
-#include <processor/ProcessorInformation.h>
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 class Processor;

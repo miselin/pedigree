@@ -18,11 +18,11 @@
  */
 
 #include "Lo.h"
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/Network.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Network.h"
 #include <network-stack/NetworkStack.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 #include <network-stack/RoutingTable.h>
 

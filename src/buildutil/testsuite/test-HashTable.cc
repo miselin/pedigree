@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/HashTable.h>
+#include "pedigree/kernel/utilities/HashTable.h"
 
 template <int hashModulo = 0>
 class HashableIntegerBase

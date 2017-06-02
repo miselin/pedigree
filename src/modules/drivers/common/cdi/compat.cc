@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <processor/types.h>
-#include <utilities/utility.h>
-#include <Log.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/Log.h"
 
 #include "include/stdio.h"
 

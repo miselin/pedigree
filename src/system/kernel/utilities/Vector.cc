@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/Vector.h>
+#include "pedigree/kernel/utilities/Vector.h"
 
 // Explicitly instantiate a few known types.
 template class Vector<void *>;

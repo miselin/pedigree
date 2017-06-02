@@ -22,15 +22,15 @@
 
 #ifdef THREADS
 
-#include <Atomic.h>
-#include <compiler.h>
-#include <machine/TimerHandler.h>
-#include <process/ConditionVariable.h>
-#include <process/Mutex.h>
-#include <process/Process.h>
-#include <process/Thread.h>
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 class SchedulingAlgorithm;
 class Processor;

@@ -20,8 +20,8 @@
 #ifndef KERNEL_UTILITIES_PAIR_H
 #define KERNEL_UTILITIES_PAIR_H
 
-#include <processor/types.h>
-#include <utilities/template.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/template.h"
 
 /** @addtogroup kernelutilities
  * @{ */

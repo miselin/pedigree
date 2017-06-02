@@ -17,28 +17,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <PosixSubsystem.h>
 
-#include <process/Scheduler.h>
-#include <process/SignalEvent.h>
-#include <process/Thread.h>
-#include <process/Uninterruptible.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <syscallError.h>
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/SignalEvent.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
 
-#include <LockGuard.h>
-#include <utilities/RadixTree.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 #include "PosixProcess.h"
 #include "logging.h"
 
 #include <linker/DynamicLinker.h>
-#include <linker/Elf.h>
+#include "pedigree/kernel/linker/Elf.h"
 #include <vfs/File.h>
 #include <vfs/LockedFile.h>
 #include <vfs/MemoryMappedFile.h>

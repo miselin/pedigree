@@ -19,11 +19,11 @@
 
 #include "Vga.h"
 #include "Font.c"
-#include <machine/openfirmware/Device.h>
-#include <machine/openfirmware/OpenFirmware.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/machine/openfirmware/Device.h"
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 PPCVga::PPCVga()
     : m_Framebuffer("VGA framebuffer"), m_pFramebuffer(0), m_Width(0),

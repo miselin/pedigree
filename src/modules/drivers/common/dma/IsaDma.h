@@ -20,7 +20,7 @@
 #ifndef ISA_DMA_H
 #define ISA_DMA_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** Base class for ISA DMA implementations.
  *  Different architectures will do things differently, so the base class

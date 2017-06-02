@@ -18,8 +18,8 @@
  */
 
 #include "gdt.h"
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // These will all be safe for use when entering a double fault handler
 static char g_SafeStack[8192] = {0};

@@ -20,8 +20,8 @@
 #ifndef KERNEL_UTILITIES_VECTOR_H
 #define KERNEL_UTILITIES_VECTOR_H
 
-#include <processor/types.h>
-#include <utilities/lib.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 /** @addtogroup kernelutilities
  * @{ */

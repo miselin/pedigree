@@ -20,18 +20,18 @@
 #ifndef DEVFS_H
 #define DEVFS_H
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
-#include <machine/InputManager.h>
-#include <utilities/ExtensibleBitmap.h>
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include <vfs/Directory.h>
 #include <vfs/File.h>
 #include <vfs/Filesystem.h>
 
 #include <console/TextIO.h>
 
-#include <graphics/Graphics.h>
-#include <graphics/GraphicsService.h>
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
 
 class DevFs;
 class DevFsDirectory;

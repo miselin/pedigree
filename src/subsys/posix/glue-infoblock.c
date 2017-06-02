@@ -31,8 +31,8 @@ extern int *__errno(void);
 
 #include <string.h>
 
-#include <compiler.h>
-#include <process/InfoBlock.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/InfoBlock.h"
 
 static struct InfoBlock *infoBlock = 0;
 static int hasInfoBlock = 0;

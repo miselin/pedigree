@@ -20,11 +20,11 @@
 #ifndef MACHINE_ENDPOINT_H
 #define MACHINE_ENDPOINT_H
 
-#include <errors.h>
-#include <machine/Network.h>
-#include <processor/types.h>
-#include <utilities/String.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/errors.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 class Socket;
 

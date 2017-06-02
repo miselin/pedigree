@@ -18,13 +18,13 @@
  */
 
 #include "InterruptManager.h"
-#include <Debugger.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <machine/types.h>
-#include <processor/Processor.h>
-#include <processor/TlbManager.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/TlbManager.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #define SYSCALL_INTERRUPT_NUMBER 8
 #define BREAKPOINT_INTERRUPT_NUMBER 9

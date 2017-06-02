@@ -12,7 +12,7 @@
 #define _CDI_OSDEP_H_
 
 #include <Module.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 struct cdi_driver;
 

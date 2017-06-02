@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <process/Event.h>
-#include <process/SignalEvent.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/SignalEvent.h"
+#include "pedigree/kernel/processor/types.h"
 
 SignalEvent::SignalEvent(
     uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel)

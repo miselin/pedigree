@@ -20,7 +20,7 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_IO_H
 #define KERNEL_PROCESSOR_X86_COMMON_IO_H
 
-#include <processor/Processor.h>
+#include "pedigree/kernel/processor/Processor.h"
 
 uint8_t IoPort::read8(size_t offset)
 {

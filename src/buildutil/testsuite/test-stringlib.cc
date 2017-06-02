@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/utility.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 TEST(PedigreeStringLibrary, StringLength)
 {

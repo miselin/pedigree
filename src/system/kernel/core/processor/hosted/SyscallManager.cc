@@ -18,9 +18,9 @@
  */
 
 #include "SyscallManager.h"
-#include <LockGuard.h>
-#include <compiler.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 HostedSyscallManager HostedSyscallManager::m_Instance;
 

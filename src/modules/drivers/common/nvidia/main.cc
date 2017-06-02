@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <machine/Display.h>
-#include <machine/Machine.h>
-#include <processor/MemoryMappedIo.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/List.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 #include "Dma.h"
 

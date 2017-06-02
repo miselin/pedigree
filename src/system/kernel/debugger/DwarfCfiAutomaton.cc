@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <DwarfCfiAutomaton.h>
-#include <DwarfUnwinder.h>
-#include <Log.h>
+#include "pedigree/kernel/debugger/DwarfCfiAutomaton.h"
+#include "pedigree/kernel/debugger/DwarfUnwinder.h"
+#include "pedigree/kernel/Log.h"
 
 DwarfCfiAutomaton::DwarfCfiAutomaton()
     : m_InitialState(), m_CurrentState(), m_nCodeAlignmentFactor(),

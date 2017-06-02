@@ -26,6 +26,6 @@
 #define SERVICE_INIT
 #define SERVICE_ERROR errno
 
-#include <processor/syscall-stubs.h>
+#include "pedigree/kernel/processor/syscall-stubs.h"
 
 #endif

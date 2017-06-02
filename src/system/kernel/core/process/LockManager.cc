@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Log.h>
-#include <process/LockManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/LockManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 LockManager::LockManager() : m_Stack(32)
 {

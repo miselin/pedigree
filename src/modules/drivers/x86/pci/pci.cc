@@ -18,15 +18,15 @@
  */
 
 #include "pci_list.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <machine/Bus.h>
-#include <machine/Device.h>
-#include <machine/Machine.h>
-#include <machine/Pci.h>
-#include <processor/IoPort.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/machine/Bus.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #define CONFIG_ADDRESS 0
 #define CONFIG_DATA 4

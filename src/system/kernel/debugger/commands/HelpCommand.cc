@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "HelpCommand.h"
-#include <processor/Processor.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/commands/HelpCommand.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 HelpCommand::HelpCommand() : DebuggerCommand()
 {

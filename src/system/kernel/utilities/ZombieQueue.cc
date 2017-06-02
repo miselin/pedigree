@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <utilities/ZombieQueue.h>
+#include "pedigree/kernel/utilities/ZombieQueue.h"
 
-#include <process/Process.h>
+#include "pedigree/kernel/process/Process.h"
 
 ZombieQueue ZombieQueue::m_Instance;
 

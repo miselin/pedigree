@@ -20,12 +20,12 @@
 #ifndef KERNEL_UTILITY_OBJECT_POOL_H
 #define KERNEL_UTILITY_OBJECT_POOL_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 #ifdef THREADS
-#include <LockGuard.h>
-#include <Spinlock.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Spinlock.h"
 #endif
-#include <utilities/Vector.h>
+#include "pedigree/kernel/utilities/Vector.h"
 
 /// \todo add a MemoryPressureHandler here.
 

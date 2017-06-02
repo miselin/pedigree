@@ -20,9 +20,9 @@
 #ifndef KERNEL_MACHINE_IRQMANAGER_H
 #define KERNEL_MACHINE_IRQMANAGER_H
 
-#include <machine/Device.h>
-#include <machine/IrqHandler.h>
-#include <machine/types.h>
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/types.h"
 
 /** @addtogroup kernelmachine
  * @{ */

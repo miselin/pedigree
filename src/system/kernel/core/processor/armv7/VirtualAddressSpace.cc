@@ -18,14 +18,14 @@
  */
 
 #include "VirtualAddressSpace.h"
-#include <LockGuard.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <panic.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** Array of free pages, used during the mapping algorithms in case a new page
     table needs to be mapped, which must be done without relinquishing the lock

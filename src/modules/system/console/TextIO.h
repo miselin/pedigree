@@ -20,10 +20,10 @@
 #ifndef TEXTIO_H
 #define TEXTIO_H
 
-#include <machine/InputManager.h>
-#include <process/Mutex.h>
-#include <processor/types.h>
-#include <utilities/Buffer.h>
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Buffer.h"
 
 #include <vfs/File.h>
 

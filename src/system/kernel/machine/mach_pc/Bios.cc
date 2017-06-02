@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <machine/x86_common/Bios.h>
-#include <processor/Processor.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/machine/x86_common/Bios.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
-#include "../../core/BootIO.h"
+#include "pedigree/kernel/debugger/commands/../../core/BootIO.h"
 #include "x86emu/x86emu.h"
 
 extern BootIO bootIO;

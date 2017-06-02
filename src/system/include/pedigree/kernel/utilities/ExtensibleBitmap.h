@@ -20,7 +20,7 @@
 #ifndef EXTENSIBLE_BITMAP_H
 #define EXTENSIBLE_BITMAP_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /** Defines an "extensible bitmap" - a bitmap that can extend to accommodate
     any value.

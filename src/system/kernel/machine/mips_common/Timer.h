@@ -20,9 +20,9 @@
 #ifndef KERNEL_MACHINE_MIPS_COMMON_TIMER_H
 #define KERNEL_MACHINE_MIPS_COMMON_TIMER_H
 
-#include <machine/SchedulerTimer.h>
-#include <processor/InterruptHandler.h>
-#include <processor/state.h>
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/state.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

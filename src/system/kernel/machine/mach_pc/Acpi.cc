@@ -21,9 +21,9 @@
 
 #include "Acpi.h"
 #include "../../core/processor/x86_common/PhysicalMemoryManager.h"
-#include <Log.h>
-#include <processor/VirtualAddressSpace.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #if !defined(ACPI_NOTICE)
 #undef NOTICE

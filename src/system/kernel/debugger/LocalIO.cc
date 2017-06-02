@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <DebuggerCommand.h>
-#include <LocalIO.h>
-#include <Log.h>
-#include <machine/Machine.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/LocalIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 LocalIO::LocalIO(Vga *pVga, Keyboard *pKeyboard)
     : m_nWidth(80), m_nHeight(25), m_UpperCliLimit(0), m_LowerCliLimit(0),

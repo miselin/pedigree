@@ -23,7 +23,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/String.h>
+#include "pedigree/kernel/utilities/String.h"
 
 // Output our String objects nicely (not as a list of bytes).
 std::ostream &operator<<(::std::ostream &os, const String &s)

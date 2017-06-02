@@ -20,15 +20,15 @@
 #ifndef ATA_CONTROLLER_H
 #define ATA_CONTROLLER_H
 
-#include <Log.h>
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <machine/IrqHandler.h>
-#include <processor/IoBase.h>
-#include <processor/IoPort.h>
-#include <processor/types.h>
-#include <utilities/RequestQueue.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 
 #include <scsi/ScsiController.h>
 

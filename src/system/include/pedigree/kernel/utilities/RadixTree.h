@@ -20,11 +20,11 @@
 #ifndef KERNEL_UTILITIES_RADIX_TREE_H
 #define KERNEL_UTILITIES_RADIX_TREE_H
 
-#include <Log.h>
-#include <processor/types.h>
-#include <utilities/Iterator.h>
-#include <utilities/IteratorAdapter.h>
-#include <utilities/String.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/IteratorAdapter.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /**\file  RadixTree.h
  *\author James Molloy <jamesm@osdev.org>

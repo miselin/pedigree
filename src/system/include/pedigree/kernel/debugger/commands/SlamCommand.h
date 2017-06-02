@@ -20,10 +20,10 @@
 #ifndef SLAMCOMMAND_H
 #define SLAMCOMMAND_H
 
-#include <DebuggerCommand.h>
-#include <Scrollable.h>
-#include <utilities/Tree.h>
-#include <utilities/Vector.h>
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/Scrollable.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

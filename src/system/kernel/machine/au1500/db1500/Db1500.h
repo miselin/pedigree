@@ -22,7 +22,7 @@
 
 #include "../Serial.h"
 #include "../Vga.h"
-#include <machine/Machine.h>
+#include "pedigree/kernel/machine/Machine.h"
 
 class Db1500 : public Machine
 {

@@ -18,12 +18,12 @@
  */
 
 #include "PosixSubsystem.h"
-#include "errors.h"
-#include <process/Scheduler.h>
+#include "pedigree/kernel/errors.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include <pthread-syscalls.h>
-#include <syscallError.h>
-#include <utilities/List.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 /// \todo add paths to include from path/to/musl-<vers>/src/internal/futex.h
 #define FUTEX_WAIT 0

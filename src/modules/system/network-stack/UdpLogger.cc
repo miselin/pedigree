@@ -21,7 +21,7 @@
 #include "NetworkStack.h"
 #include "RoutingTable.h"
 #include "UdpManager.h"
-#include <network/IpAddress.h>
+#include "pedigree/kernel/network/IpAddress.h"
 
 UdpLogger::~UdpLogger()
 {

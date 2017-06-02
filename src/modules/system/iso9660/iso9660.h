@@ -20,8 +20,8 @@
 #ifndef ISO9660_H
 #define ISO9660_H
 
-#include <processor/types.h>
-#include <utilities/PointerGuard.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 /** ISO 9660 Types */
 

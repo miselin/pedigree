@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-#include <utilities/RadixTree.h>
+#include "pedigree/kernel/utilities/RadixTree.h"
 
 TEST(PedigreeRadixTree, Construction)
 {

@@ -20,9 +20,9 @@
 #ifndef KERNEL_PROCESSOR_X64_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_X64_SYSCALLMANAGER_H
 
-#include <Spinlock.h>
-#include <processor/SyscallManager.h>
-#include <processor/types.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorx64
  * @{ */

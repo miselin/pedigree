@@ -20,9 +20,9 @@
 #ifndef CONFIG_BACKEND_H
 #define CONFIG_BACKEND_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
-#include <config/ConfigurationManager.h>
+#include "pedigree/kernel/config/ConfigurationManager.h"
 
 /** A configuration backend for the Pedigree configuration system.
  *

@@ -23,7 +23,7 @@
 #if defined(APIC)
 
 #include "LocalApic.h"
-#include <machine/IrqManager.h>
+#include "pedigree/kernel/machine/IrqManager.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

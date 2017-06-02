@@ -24,8 +24,8 @@
 
 #ifndef _MACHINE_H
 #define MACHINE_FORWARD_DECL_ONLY
-#include <machine/Machine.h>
-#include <machine/Serial.h>
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #endif
 
 #define DUMP_MEM_INFO                                                         \

@@ -23,7 +23,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <utilities/Vector.h>
+#include "pedigree/kernel/utilities/Vector.h"
 
 static void BM_VectorPushBack(benchmark::State &state)
 {

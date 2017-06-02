@@ -20,11 +20,11 @@
 #ifndef MACHINE_HID_INPUT_MANAGER_H
 #define MACHINE_HID_INPUT_MANAGER_H
 
-#include <Spinlock.h>
-#include <machine/Timer.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 /**
  * Global manager for all input from HID devices.

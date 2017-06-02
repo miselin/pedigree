@@ -22,12 +22,12 @@
 
 #if defined(APIC)
 
-#include <machine/IrqManager.h>
-#include <machine/SchedulerTimer.h>
-#include <processor/InterruptHandler.h>
-#include <processor/MemoryMappedIo.h>
-#include <processor/state.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 #define IPI_HALT_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC

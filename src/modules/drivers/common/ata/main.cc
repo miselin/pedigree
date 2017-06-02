@@ -20,13 +20,13 @@
 #include "AtaController.h"
 #include "IsaAtaController.h"
 #include "PciAtaController.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 #include <Module.h>
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
 
 static int nController = 0;
 

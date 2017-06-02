@@ -19,12 +19,12 @@
 
 #include "MemoryMappedFile.h"
 
-#include <Spinlock.h>
-#include <process/MemoryPressureManager.h>
-#include <processor/PhysicalMemoryManager.h>
-#include <processor/Processor.h>
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 
-#include <utilities/assert.h>
+#include "pedigree/kernel/utilities/assert.h"
 
 MemoryMapManager MemoryMapManager::m_Instance;
 

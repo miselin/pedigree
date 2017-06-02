@@ -20,18 +20,18 @@
 #include "AtaDisk.h"
 #include "AtaController.h"
 #include "ata-common.h"
-#include <Log.h>
-#include <compiler.h>
-#include <machine/Controller.h>
-#include <machine/Device.h>
-#include <machine/Disk.h>
-#include <machine/Machine.h>
-#include <panic.h>
-#include <processor/Processor.h>
-#include <processor/types.h>
-#include <utilities/PointerGuard.h>
-#include <utilities/assert.h>
-#include <utilities/utility.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // #define ATA_DEFAULT_BLOCK_SIZE 0x1000
 #define ATA_DEFAULT_BLOCK_SIZE 0x10000 * 2

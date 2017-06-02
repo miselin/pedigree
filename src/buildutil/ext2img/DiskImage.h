@@ -20,9 +20,9 @@
 #ifndef DISKIMAGE_H
 #define DISKIMAGE_H
 
-#include <compiler.h>
-#include <machine/Disk.h>
-#include <utilities/Tree.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include <stdio.h>
 

@@ -20,7 +20,7 @@
 #ifndef MACHINE_SERIAL_H
 #define MACHINE_SERIAL_H
 
-#include <processor/types.h>
+#include "pedigree/kernel/processor/types.h"
 
 /**
  * Serial device abstraction.

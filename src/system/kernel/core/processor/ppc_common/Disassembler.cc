@@ -18,7 +18,7 @@
  */
 
 #include "Disassembler.h"
-#include <Log.h>
+#include "pedigree/kernel/Log.h"
 
 const char *g_pRegisters[32] = {
     "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",  "r8",  "r9",  "r10",

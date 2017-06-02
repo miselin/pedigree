@@ -20,8 +20,8 @@
 #ifndef SHAREDPOINTER_H
 #define SHAREDPOINTER_H
 
-#include <processor/types.h>
-#include <utilities/cpp.h>
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/cpp.h"
 
 /**
  * Provides a reference-counted pointer that can be freely shared, and is

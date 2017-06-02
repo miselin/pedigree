@@ -20,9 +20,9 @@
 #ifndef BACKTRACE_H
 #define BACKTRACE_H
 
-#include <processor/Processor.h>
-#include <processor/StackFrame.h>
-#include <utilities/StaticString.h>
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kerneldebugger
  * @{ */
