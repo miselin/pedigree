@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -24,15 +25,21 @@ import os
 
 
 # Extra prefixes to add to headers to try and find them (some moved).
+# First entry: prefix to add to include paths
+# Second entry: prefix to add before the above prefix to help find headers
+# Third entry: an additional prefix to add, but not use for finding headers
 HEADER_SEARCH_PREFIXES = (
-    ('', 'pedigree/kernel'),
-    ('debugger', 'pedigree/kernel'),
-    ('debugger/commands', 'pedigree/kernel'),
-    ('debugger/libudis86', 'pedigree/kernel'),
-    ('core', 'pedigree/kernel'),
-    ('modules', ''),
-    ('modules/system', ''),
-    ('subsys', ''),
+    ('', '', ''),
+    ('modules', '', ''),
+    ('modules/system', '', ''),
+    ('subsys', '', ''),
+    ('pedigree', 'subsys/native/include', ''),  # for e.g. native/ -> pedigree/native/
+    ('', 'subsys/native/include/pedigree/native', 'pedigree/native'),  # for bare native headers
+    ('debugger', '', 'pedigree/kernel'),
+    ('debugger/commands', '', 'pedigree/kernel'),
+    ('debugger/libudis86', '', 'pedigree/kernel'),
+    ('core', '', 'pedigree/kernel'),
+    ('', '', 'pedigree/kernel'),
 )
 
 NEVER_REWRITE = (
@@ -43,6 +50,20 @@ NEVER_REWRITE = (
 
 VERBOSE = False
 SHOW_DIFFS = False
+
+
+def identify_path(path, extra_prefix, extra_include_prefix):
+    if extra_prefix:
+        inner = '%s/%s' % (extra_prefix, path)
+    else:
+        inner = path
+
+    if extra_include_prefix:
+        new_header = '%s/%s' % (extra_include_prefix, inner)
+    else:
+        new_header = inner
+
+    return new_header
 
 
 def process(sourcepath, headersdir):
@@ -82,14 +103,14 @@ def process(sourcepath, headersdir):
             newdata.append(orig_l)
             continue
 
-        for prefix, include_prefix in HEADER_SEARCH_PREFIXES:
-            target_path = os.path.join(headersdir, prefix, path)
+        for prefix, extra_search, include_prefix in HEADER_SEARCH_PREFIXES:
+            target_path = os.path.join(headersdir, extra_search, prefix, path)
             if VERBOSE:
                 print 'attempt: %s -> %s' % (path, target_path)
             if os.path.exists(target_path):
                 if VERBOSE:
-                    print 'success: %s rewrites %s -> pedigree/%s' % (
-                        path, path, path)
+                    print 'success: %s rewrites %s -> %s' % (
+                        path, path, identify_path(path, prefix, include_prefix))
                 extra_prefix = prefix
                 extra_include_prefix = include_prefix
                 break
@@ -107,7 +128,8 @@ def process(sourcepath, headersdir):
             continue
 
         # Does exist, we need to rewrite.
-        newdata.append('#include "%s"%s' % (os.path.join(extra_include_prefix, os.path.join(extra_prefix, path)), extras))
+        new_header = identify_path(path, prefix, include_prefix)
+        newdata.append('#include "%s"%s' % (new_header, extras))
 
     if SHOW_DIFFS:
         new = newdata
@@ -115,6 +137,9 @@ def process(sourcepath, headersdir):
 
         for field in difflib.unified_diff(old, new, sourcepath, sourcepath, lineterm=''):
             print field
+
+    if newdata == [l.strip('\r\n') for l in source.splitlines()]:
+        return  # No changes need to be made.
 
     with open(sourcepath, 'w') as f:
         f.write('\n'.join(newdata))
