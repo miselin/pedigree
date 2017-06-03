@@ -45,86 +45,38 @@ class MemoryRegion
 
   public:
     /** The default constructor does nothing  */
-    inline MemoryRegion(const char *pName)
-        : m_VirtualAddress(0), m_PhysicalAddress(0), m_Size(0), m_pName(pName),
-          m_bNonRamMemory(false), m_bForced(false)
-    {
-    }
+    MemoryRegion(const char *pName);
     /** The destructor unregisters itself from the PMM. */
-    inline virtual ~MemoryRegion()
-    {
-        PhysicalMemoryManager::instance().unmapRegion(this);
-    }
+    virtual ~MemoryRegion();
 
-    void free()
-    {
-        PhysicalMemoryManager::instance().unmapRegion(this);
-    }
+    void free();
 
     /** Get the address of the beginning of the MemoryRegion in the virtual
      *  address space
      *\return pointer to the beginning of the MemoryRegion (in the virtual
      *address space) */
-    inline void *virtualAddress() const
-    {
-        return m_VirtualAddress;
-    }
+    void *virtualAddress() const;
     /** Get the physical address of the beginning of the MemoryRegion
      *\return pointer to the beginning of the MemoryRegion (in the physical
      *address space) */
-    inline physical_uintptr_t physicalAddress() const
-    {
-        return m_PhysicalAddress;
-    }
+    physical_uintptr_t physicalAddress() const;
     /** Get the size of the MemoryRegion
      *\return size of the MemoryRegion in bytes */
-    inline size_t size() const
-    {
-        return m_Size;
-    }
+    size_t size() const;
     /** Get the name of the memory-region
      *\return pointer to the name of the memory-region */
-    inline const char *name() const
-    {
-        return m_pName;
-    }
+    const char *name() const;
 
-    inline operator bool() const
-    {
-        return (m_Size != 0);
-    }
+    operator bool() const;
 
-    inline bool physicalBoundsCheck(physical_uintptr_t address)
-    {
-        if (address >= m_PhysicalAddress &&
-            address < (m_PhysicalAddress + m_Size))
-            return true;
-        return false;
-    }
+    bool physicalBoundsCheck(physical_uintptr_t address);
     template <typename T>
-    inline T *convertPhysicalPointer(physical_uintptr_t address)
-    {
-        return reinterpret_cast<T *>(
-            reinterpret_cast<uintptr_t>(m_VirtualAddress) +
-            (address - m_PhysicalAddress));
-    }
+    T *convertPhysicalPointer(physical_uintptr_t address);
 
-    void setNonRamMemory(bool b)
-    {
-        m_bNonRamMemory = b;
-    }
-    bool getNonRamMemory()
-    {
-        return m_bNonRamMemory;
-    }
-    void setForced(bool b)
-    {
-        m_bForced = b;
-    }
-    bool getForced()
-    {
-        return m_bForced;
-    }
+    void setNonRamMemory(bool b);
+    bool getNonRamMemory();
+    void setForced(bool b);
+    bool getForced();
 
   private:
     /** The copy-constructor
@@ -149,5 +101,13 @@ class MemoryRegion
 };
 
 /** @} */
+
+template <typename T>
+T *MemoryRegion::convertPhysicalPointer(physical_uintptr_t address)
+{
+    return reinterpret_cast<T *>(
+        reinterpret_cast<uintptr_t>(m_VirtualAddress) +
+        (address - m_PhysicalAddress));
+}
 
 #endif

@@ -34,30 +34,24 @@
 class MemoryMappedIo : public IoBase, public MemoryRegion
 {
   public:
-    /** The default constructor */
-    inline MemoryMappedIo(
-        const char *pName, uintptr_t offset = 0, uintptr_t padding = 1)
-        : IoBase(), MemoryRegion(pName), m_Offset(offset), m_Padding(padding)
-    {
-    }
+    MemoryMappedIo(
+        const char *pName, uintptr_t offset = 0, uintptr_t padding = 1);
     /** The destructor frees the allocated ressources */
-    inline virtual ~MemoryMappedIo()
-    {
-    }
+    virtual ~MemoryMappedIo();
 
     //
     // IoBase Interface
     //
-    inline virtual size_t size() const;
-    inline virtual uint8_t read8(size_t offset = 0);
-    inline virtual uint16_t read16(size_t offset = 0);
-    inline virtual uint32_t read32(size_t offset = 0);
-    inline virtual uint64_t read64(size_t offset = 0);
-    inline virtual void write8(uint8_t value, size_t offset = 0);
-    inline virtual void write16(uint16_t value, size_t offset = 0);
-    inline virtual void write32(uint32_t value, size_t offset = 0);
-    inline virtual void write64(uint64_t value, size_t offset = 0);
-    inline virtual operator bool() const;
+    virtual size_t size() const;
+    virtual uint8_t read8(size_t offset = 0);
+    virtual uint16_t read16(size_t offset = 0);
+    virtual uint32_t read32(size_t offset = 0);
+    virtual uint64_t read64(size_t offset = 0);
+    virtual void write8(uint8_t value, size_t offset = 0);
+    virtual void write16(uint16_t value, size_t offset = 0);
+    virtual void write32(uint32_t value, size_t offset = 0);
+    virtual void write64(uint64_t value, size_t offset = 0);
+    virtual operator bool() const;
 
     //
     // MemoryRegion Interface
@@ -82,97 +76,5 @@ class MemoryMappedIo : public IoBase, public MemoryRegion
 };
 
 /** @} */
-
-//
-// Part of the implementation
-//
-size_t MemoryMappedIo::size() const
-{
-    return MemoryRegion::size();
-}
-uint8_t MemoryMappedIo::read8(size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if (offset >= size())
-        Processor::halt();
-#endif
-
-    return *reinterpret_cast<volatile uint8_t *>(
-        adjust_pointer(virtualAddress(), (offset * m_Padding) + m_Offset));
-}
-uint16_t MemoryMappedIo::read16(size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if ((offset + 1) >= size())
-        Processor::halt();
-#endif
-
-    return *reinterpret_cast<volatile uint16_t *>(
-        adjust_pointer(virtualAddress(), (offset * m_Padding) + m_Offset));
-}
-uint32_t MemoryMappedIo::read32(size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if ((offset + 3) >= size())
-        Processor::halt();
-#endif
-
-    return *reinterpret_cast<volatile uint32_t *>(
-        adjust_pointer(virtualAddress(), (offset * m_Padding) + m_Offset));
-}
-uint64_t MemoryMappedIo::read64(size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if ((offset + 7) >= size())
-        Processor::halt();
-#endif
-
-    return *reinterpret_cast<volatile uint64_t *>(
-        adjust_pointer(virtualAddress(), (offset * m_Padding) + m_Offset));
-}
-void MemoryMappedIo::write8(uint8_t value, size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if (offset >= size())
-        Processor::halt();
-#endif
-
-    *reinterpret_cast<volatile uint8_t *>(adjust_pointer(
-        virtualAddress(), (offset * m_Padding) + m_Offset)) = value;
-}
-void MemoryMappedIo::write16(uint16_t value, size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if ((offset + 1) >= size())
-        Processor::halt();
-#endif
-
-    *reinterpret_cast<volatile uint16_t *>(adjust_pointer(
-        virtualAddress(), (offset * m_Padding) + m_Offset)) = value;
-}
-void MemoryMappedIo::write32(uint32_t value, size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if ((offset + 3) >= size())
-        Processor::halt();
-#endif
-
-    *reinterpret_cast<volatile uint32_t *>(adjust_pointer(
-        virtualAddress(), (offset * m_Padding) + m_Offset)) = value;
-}
-void MemoryMappedIo::write64(uint64_t value, size_t offset)
-{
-#if defined(ADDITIONAL_CHECKS)
-    if ((offset + 7) >= size())
-        Processor::halt();
-#endif
-
-    *reinterpret_cast<volatile uint64_t *>(adjust_pointer(
-        virtualAddress(), (offset * m_Padding) + m_Offset)) = value;
-}
-MemoryMappedIo::operator bool() const
-{
-    return MemoryRegion::operator bool();
-}
 
 #endif
