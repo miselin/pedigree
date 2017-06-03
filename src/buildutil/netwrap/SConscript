@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -16,7 +17,6 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
-
 
 import os
 
@@ -53,11 +53,9 @@ build_env.MergeFlags({
     'CXXFLAGS': ['-std=c++11', '-Os'],
     'CCFLAGS': ['-g3', '-ggdb'],
     'LINKFLAGS': ['-g3', '-ggdb'],
-    'LIBS': ['netstack', 'network', 'config', 'kernel', 'utility', 'pthread',
-             'dl', 'rt'],
+    'LIBS': ['kernel', 'utility', 'pthread', 'dl', 'rt'],
+    'LIBPATH': ['..'],  # buildutil, parent libraries
 })
-
-build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])
 
 libconfig_sources = [
     'config-shim.cc',
@@ -98,6 +96,10 @@ libnetstack_sources = [
     '../../modules/system/network-stack/TcpStateBlock.cc',
 ]
 
-build_env.Library(libconfig, libconfig_sources)
-build_env.Library(libnetwork, libnetwork_sources)
-build_env.Library(libnetstack, libnetstack_sources)
+config = build_env.Library(libconfig, libconfig_sources)
+network = build_env.Library(libnetwork, libnetwork_sources)
+netstack = build_env.Library(libnetstack, libnetstack_sources)
+
+build_env['LIBS'] = [netstack, network, config] + build_env['LIBS']
+
+build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])

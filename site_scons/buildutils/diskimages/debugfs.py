@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -17,7 +18,6 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
-
 import os
 import shutil
 import subprocess
@@ -26,6 +26,8 @@ import struct
 import sqlite3
 import tempfile
 
+import SCons
+
 
 def buildImageE2fsprogs(target, source, env):
     if env['verbose']:
@@ -33,19 +35,19 @@ def buildImageE2fsprogs(target, source, env):
     else:
         print '      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m'
 
-    builddir = env.Dir(env["PEDIGREE_BUILD_BASE"]).abspath
-    imagedir = env.Dir(env['PEDIGREE_IMAGES_DIR']).abspath
-    appsdir = env.Dir(env['PEDIGREE_BUILD_APPS']).abspath
-    modsdir = env.Dir(env['PEDIGREE_BUILD_MODULES']).abspath
-    drvsdir = env.Dir(env['PEDIGREE_BUILD_DRIVERS']).abspath
-    libsdir = os.path.join(builddir, 'libs')
-    i18ndir = os.path.join(builddir, 'po', 'locale')
-    keymaps_dir = os.path.join(env['HOST_BUILDDIR'], 'keymaps')
+    builddir = env["PEDIGREE_BUILD_BASE"]
+    imagedir = env['PEDIGREE_IMAGES_DIR'].path
+    appsdir = env['PEDIGREE_BUILD_APPS'].path
+    modsdir = env['PEDIGREE_BUILD_MODULES'].path
+    drvsdir = env['PEDIGREE_BUILD_DRIVERS'].path
+    libsdir = builddir.Dir('libs').path
+    i18ndir = builddir.Dir('po').Dir('locale').path
+    keymaps_dir = env['HOST_BUILDDIR'].Dir('keymaps').path
 
-    outFile = target[0].abspath
+    outFile = target[0].path
 
     # ext2img inserts files into our disk image.
-    ext2img = os.path.join(env['HOST_BUILDDIR'], 'ext2img')
+    ext2img = os.path.join(env['HOST_BUILDDIR'].path, 'ext2img')
 
     # TODO(miselin): this image will not have GRUB on it.
 
@@ -54,6 +56,9 @@ def buildImageE2fsprogs(target, source, env):
 
     # Adds a copy to builddir_copies, handling duplicates correctly.
     def add_builddir_copy(source, target, override=False):
+        if isinstance(source, SCons.Node.FS.Base):
+            source = source.path
+
         entry = builddir_copies.get(source)
         if entry and not override:
             entry.add(target)
@@ -68,11 +73,11 @@ def buildImageE2fsprogs(target, source, env):
         return False
 
     # Copy files into the local images directory, ready for creation.
-    add_builddir_copy(os.path.join(builddir, 'config.db'), '/.pedigree-root')
+    add_builddir_copy(builddir.File('config.db'), '/.pedigree-root')
 
     # Open the configuration database and collect known users and groups.
     try:
-        conn = sqlite3.connect(os.path.join(builddir, 'config.db'))
+        conn = sqlite3.connect(builddir.File('config.db'))
     except:
         # Won't be able to assign permissions correctly.
         conn = None
@@ -109,14 +114,13 @@ def buildImageE2fsprogs(target, source, env):
         if 'STATIC_DRIVERS' in env['CPPDEFINES']:
             nth = 2
         for i in source[0:nth]:
-            add_builddir_copy(i.abspath, '/boot/' + i.name)
+            add_builddir_copy(i.path, '/boot/' + i.name)
     else:
         nth = 0
     source = source[nth:]
 
     # Copy each input file across
     for i in source:
-        otherPath = ''
         search, prefix = imagedir, ''
 
         # Applications
@@ -140,18 +144,16 @@ def buildImageE2fsprogs(target, source, env):
             prefix = '/libraries'
 
         # Additional Libraries
-        elif builddir in i.abspath:
-            search = builddir
+        elif builddir.path in i.abspath:
+            search = builddir.path
             prefix = '/libraries'
 
         # Already in the image.
         elif imagedir in i.abspath:
             continue
 
-        otherPath = prefix + i.abspath.replace(search, '')
-
         # Clean out the last directory name if needed
-        add_builddir_copy(i.abspath, os.path.join(prefix, i.name))
+        add_builddir_copy(i.path, os.path.join(prefix, i.name))
 
     def extra_copy_tree(base_dir, target_prefix='', replacements=None):
         for (dirpath, dirs, files) in os.walk(base_dir):
@@ -187,8 +189,8 @@ def buildImageE2fsprogs(target, source, env):
 
     # Copy musl, if we can.
     if env['posix_musl']:
-        extra_copy_tree(os.path.join(builddir, 'musl', 'lib'), '/libraries')
-        extra_copy_tree(os.path.join(builddir, 'musl', 'include'),
+        extra_copy_tree(builddir.Dir('musl').Dir('lib').path, '/libraries')
+        extra_copy_tree(builddir.Dir('musl').Dir('include').path,
                         '/system/include')
 
     # Offset into the image for the partition proper to start.
@@ -369,4 +371,4 @@ def buildImageE2fsprogs(target, source, env):
             outFile,
         ]
 
-        subprocess.check_call(args)
+        subprocess.check_call(args, cwd=env.Dir('#').abspath)
