@@ -31,8 +31,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <native/graphics/Graphics.h>
-#include <native/input/Input.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/native/input/Input.h"
 
 #include <pedigree_fb.h>
 #include <tui.h>

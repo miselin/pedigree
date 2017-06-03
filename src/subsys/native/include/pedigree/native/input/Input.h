@@ -20,7 +20,7 @@
 #ifndef _INPUT_H
 #define _INPUT_H
 
-#include <native/types.h>
+#include "pedigree/native/types.h"
 
 namespace Input
 {

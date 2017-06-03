@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <demo.h>
-#include <native-protocol.h>
+#include "pedigree/native/demo.h"
+#include "pedigree/native/native-protocol.h"
 
 Demo::Demo()
 {

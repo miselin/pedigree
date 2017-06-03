@@ -20,7 +20,7 @@
 #ifndef _NATIVE_IPC_H
 #define _NATIVE_IPC_H
 
-#include <native/types.h>
+#include "pedigree/native/types.h"
 
 namespace PedigreeIpc
 {

@@ -23,10 +23,10 @@
 #include "pedigree/kernel/processor/SyscallManager.h"
 
 #include <native-ipc.h>
-#include <native/ipc/Ipc.h>
+#include "pedigree/native/ipc/Ipc.h"
 
 #include "NativeSyscallManager.h"
-#include <native/nativeSyscallNumbers.h>
+#include "pedigree/native/nativeSyscallNumbers.h"
 
 NativeSyscallManager::NativeSyscallManager()
 {

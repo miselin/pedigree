@@ -28,7 +28,7 @@
 
 #include <sys/klog.h>
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H

@@ -21,7 +21,7 @@
 #define _WINMAN_UTIL_H
 
 #ifndef TARGET_LINUX
-#include <native/ipc/Ipc.h>
+#include "pedigree/native/ipc/Ipc.h"
 #endif
 
 /**

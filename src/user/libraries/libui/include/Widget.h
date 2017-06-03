@@ -26,11 +26,11 @@
 
 #include <util.h>
 #else
-#include <native/ipc/Ipc.h>
-#include <native/types.h>
+#include "pedigree/native/ipc/Ipc.h"
+#include "pedigree/native/types.h"
 #endif
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 
 #include <map>
 #include <queue>

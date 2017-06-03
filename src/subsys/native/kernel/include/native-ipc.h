@@ -20,8 +20,8 @@
 #define _NATIVE_IPC_API_H
 #define _NATIVE_IPC_API_H
 
-#include <native/ipc/Ipc.h>
-#include <native/types.h>
+#include "pedigree/native/ipc/Ipc.h"
+#include "pedigree/native/types.h"
 
 /**
  * This file defines the system calls for IPC for the Native subsystem's

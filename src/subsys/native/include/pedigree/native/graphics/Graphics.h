@@ -20,7 +20,7 @@
 #ifndef _GRAPHICS_H
 #define _GRAPHICS_H
 
-#include <native/types.h>
+#include "pedigree/native/types.h"
 
 namespace PedigreeGraphics
 {

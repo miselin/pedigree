@@ -31,8 +31,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <native/graphics/Graphics.h>
-#include <native/input/Input.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/native/input/Input.h"
 
 #include <Widget.h>
 

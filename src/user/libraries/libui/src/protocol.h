@@ -20,11 +20,11 @@
 #ifndef LIBUI_PROTOCOL_H
 #define LIBUI_PROTOCOL_H
 
-#include <native/types.h>
+#include "pedigree/native/types.h"
 
 #include <Widget.h>
-#include <native/graphics/Graphics.h>
-#include <native/ipc/Ipc.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/native/ipc/Ipc.h"
 
 /** \addtogroup PedigreeGUI
  *  @{

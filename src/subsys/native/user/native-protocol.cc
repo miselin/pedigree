@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <native-protocol.h>
-#include <native-syscall.h>
-#include <nativeSyscallNumbers.h>
+#include "pedigree/native/native-protocol.h"
+#include "pedigree/native/native-syscall.h"
+#include "pedigree/native/nativeSyscallNumbers.h"
 
 int _syscall(Object *pObject, size_t nOp)
 {

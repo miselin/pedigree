@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <native/ipc/Ipc.h>
+#include "pedigree/native/ipc/Ipc.h"
 #include "pedigree/kernel/process/Ipc.h"
 
 #include "pedigree/kernel/utilities/Pair.h"

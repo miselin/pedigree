@@ -43,8 +43,8 @@
 #include <queue>
 #include <set>
 
-#include <native/graphics/Graphics.h>
-#include <native/input/Input.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/native/input/Input.h"
 
 #include <cairo/cairo-ft.h>
 #include <cairo/cairo.h>

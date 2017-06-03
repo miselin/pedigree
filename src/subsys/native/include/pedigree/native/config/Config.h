@@ -20,7 +20,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include <native/types.h>
+#include "pedigree/native/types.h"
 #include <string>
 
 namespace Config

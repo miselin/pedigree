@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <native/demo.h>
+#include "pedigree/native/demo.h"
 
 int main(int argc, char **argv)
 {

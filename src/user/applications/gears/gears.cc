@@ -63,7 +63,7 @@
 #include <GL/gl.h>
 #include <GL/osmesa.h>
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 #include <Widget.h>
 
 class Gears;

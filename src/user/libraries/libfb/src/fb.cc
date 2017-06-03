@@ -27,7 +27,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 
 #include "pedigree_fb.h"
 

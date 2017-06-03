@@ -20,7 +20,7 @@
 #include <iostream>
 #include <string>
 
-#include <native/config/Config.h>
+#include "pedigree/native/config/Config.h"
 
 void usage()
 {

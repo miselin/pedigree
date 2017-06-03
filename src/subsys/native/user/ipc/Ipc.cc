@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <ipc/Ipc.h>
+#include "pedigree/native/ipc/Ipc.h"
 
-#include <native-syscall.h>
-#include <nativeSyscallNumbers.h>
+#include "pedigree/native/native-syscall.h"
+#include "pedigree/native/nativeSyscallNumbers.h"
 
 using namespace PedigreeIpc;
 

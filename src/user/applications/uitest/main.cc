@@ -18,8 +18,8 @@
  */
 
 #include <Widget.h>
-#include <native/graphics/Graphics.h>
-#include <native/types.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/native/types.h"
 
 #include <iostream>
 

@@ -24,7 +24,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 
 #include <map>
 

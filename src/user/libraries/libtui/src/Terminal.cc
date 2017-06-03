@@ -32,7 +32,7 @@
 #include <unistd.h>
 #include <utmp.h>
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 
 #include <cairo/cairo.h>
 

@@ -29,7 +29,7 @@
 #include "Vt100.h"
 #endif
 
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/graphics/Graphics.h"
 
 #include <cairo/cairo.h>
 

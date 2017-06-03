@@ -49,8 +49,8 @@
 
 #include "environment.h"
 
-#include <native/config/Config.h>
-#include <native/graphics/Graphics.h>
+#include "pedigree/native/config/Config.h"
+#include "pedigree/native/graphics/Graphics.h"
 
 #include <cairo/cairo.h>
 
