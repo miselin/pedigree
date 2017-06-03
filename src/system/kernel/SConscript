@@ -93,6 +93,7 @@ else:
 include_dirs = [
     '../..',  # src/
     '../include',  # src/system/include
+    '.',  # for includes to e.g. x86_common etc
 ]
 
 # Pull in machine implementation.
