@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -17,7 +18,6 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
-
 import os
 
 import debugfs
@@ -31,11 +31,11 @@ import SCons
 
 
 def buildDiskImages(env, config_database):
-    builddir = env.Dir(env["PEDIGREE_BUILD_BASE"]).abspath
-    imagedir = env.Dir(env['PEDIGREE_IMAGES_DIR']).abspath
+    builddir = env["PEDIGREE_BUILD_BASE"]
+    imagedir = env['PEDIGREE_IMAGES_DIR']
 
-    hddimg = os.path.join(builddir, 'hdd.img')
-    cdimg = os.path.join(builddir, 'pedigree.iso')
+    hddimg = builddir.File('hdd.img')
+    cdimg = builddir.File('pedigree.iso')
 
     if (env['ARCH_TARGET'] not in ['X86', 'X64', 'PPC', 'ARM', 'HOSTED'] or
             not env['build_images']):
@@ -43,7 +43,7 @@ def buildDiskImages(env, config_database):
         return
 
     # We depend on the ext2img host tool to inject files into ext2 images.
-    ext2img = os.path.join(env['HOST_BUILDDIR'], 'ext2img')
+    ext2img = env['HOST_BUILDDIR'].File('ext2img')
     env.Depends(hddimg, ext2img)
 
     env.Depends(hddimg, 'libs')
@@ -61,38 +61,38 @@ def buildDiskImages(env, config_database):
 
     fileList = []
 
-    kernel = os.path.join(builddir, 'kernel', 'kernel')
-    initrd = os.path.join(builddir, 'initrd.tar')
+    kernel = builddir.Dir('kernel').File('kernel')
+    initrd = builddir.File('initrd.tar')
 
-    apps = os.path.join(builddir, 'apps')
-    modules = os.path.join(builddir, 'modules')
-    drivers = os.path.join(builddir, 'drivers')
+    apps = builddir.Dir('apps')
+    modules = builddir.Dir('modules')
+    drivers = builddir.Dir('drivers')
 
     if env['posix_musl']:
-        libc = os.path.join(builddir, 'musl', 'lib', 'libc.so')
+        libc = builddir.Dir('musl').Dir('lib').File('libc.so')
         image_c_libs = [libc]
     else:
-        libc = os.path.join(builddir, 'libc.so')
-        libm = os.path.join(builddir, 'libm.so')
-        libpthread = os.path.join(builddir, 'libpthread.so')
+        libc = builddir.File('libc.so')
+        libm = builddir.File('libm.so')
+        libpthread = builddir.File('libpthread.so')
         image_c_libs = [libc, libm, libpthread]
 
         # TODO(miselin): more ARM userspace
         if env['ARCH_TARGET'] != 'ARM':
-            libload = os.path.join(builddir, 'libload.so')
+            libload = builddir.File('libload.so')
             image_c_libs.append(libload)
 
     if env['ARCH_TARGET'] != 'ARM':
-        libui = os.path.join(builddir, 'libs', 'libui.so')
-        libtui = os.path.join(builddir, 'libs', 'libtui.so')
-        libfb = os.path.join(builddir, 'libs', 'libfb.so')
+        libui = builddir.Dir('libs').File('libui.so')
+        libtui = builddir.Dir('libs').File('libtui.so')
+        libfb = builddir.Dir('libs').File('libfb.so')
     else:
         libui = None
         libtui = None
         libfb = None
 
-    libpedigree = os.path.join(builddir, 'libpedigree.so')
-    libpedigree_c = os.path.join(builddir, 'libpedigree-c.so')
+    libpedigree = builddir.File('libpedigree.so')
+    libpedigree_c = builddir.File('libpedigree-c.so')
 
     # Build the disk images (whichever are the best choice for this system)
     forcemtools = env['forcemtools']
@@ -125,30 +125,31 @@ def buildDiskImages(env, config_database):
             env.Depends(hddimg, 'initrd')
 
     # Add directories in the images directory.
-    for entry in os.listdir(imagedir):
-        fileList += [os.path.join(imagedir, entry)]
+    # TODO(miselin): fix this to use Dir/File
+    for entry in os.listdir(imagedir.abspath):
+        fileList += [os.path.join(imagedir.abspath, entry)]
 
     # Add applications that we build as part of the build process.
-    if os.path.exists(apps):
-        for app in os.listdir(apps):
-            fileList += [os.path.join(apps, app)]
+    if os.path.exists(apps.path):
+        for app in os.listdir(apps.path):
+            fileList += [os.path.join(apps.path, app)]
     else:
         print "Apps directory did not exist at time of build."
         print "'scons' will need to be run again to fully build the disk image."
 
     # Add modules, and drivers, that we build as part of the build process.
     if env['modules_on_disk']:
-        if os.path.exists(modules):
-            for module in os.listdir(modules):
+        if os.path.exists(modules.path):
+            for module in os.listdir(modules.path):
                 if not (module.endswith('.o') or module.endswith('.o.debug')):
                     continue
-                fileList += [os.path.join(modules, module)]
+                fileList += [os.path.join(modules.path, module)]
 
-        if os.path.exists(drivers):
-            for driver in os.listdir(drivers):
+        if os.path.exists(drivers.path):
+            for driver in os.listdir(drivers.path):
                 if not (driver.endswith('.o') or driver.endswith('.o.debug')):
                     continue
-                fileList += [os.path.join(drivers, driver)]
+                fileList += [os.path.join(drivers.path, driver)]
 
     # Add libraries
     fileList += image_c_libs + [
@@ -162,7 +163,7 @@ def buildDiskImages(env, config_database):
         fileList.append(libpedigree)
 
     if env['ARCH_TARGET'] in ['X86', 'X64'] and not env['posix_musl']:
-        fileList += [os.path.join(builddir, 'libSDL.so')]
+        fileList += [builddir.File('libSDL.so')]
 
     fileList = [x for x in fileList if x]
     env.Command(hddimg, fileList, SCons.Action.Action(buildImage, None))

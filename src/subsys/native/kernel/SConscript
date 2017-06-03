@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -70,5 +71,4 @@ buildutils.modules.buildModule(env_clone, final_output, native_userlib_objname,
                                files)
 
 # Install native subsystem headers to the local images directory.
-buildutils.fs.install_tree(
-    imagesdir.Dir('include').Dir('pedigree').Dir('native'), baseInclude, env, alias='native-headers')
+buildutils.fs.install_tree(imagesdir.Dir('include'), baseInclude, env, alias='native-headers')
