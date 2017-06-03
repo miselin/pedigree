@@ -35,11 +35,11 @@ HEADER_SEARCH_PREFIXES = (
     ('subsys', '', ''),
     ('pedigree', 'subsys/native/include', ''),  # for e.g. native/ -> pedigree/native/
     ('', 'subsys/native/include/pedigree/native', 'pedigree/native'),  # for bare native headers
-    ('debugger', '', 'pedigree/kernel'),
-    ('debugger/commands', '', 'pedigree/kernel'),
-    ('debugger/libudis86', '', 'pedigree/kernel'),
-    ('core', '', 'pedigree/kernel'),
-    ('', '', 'pedigree/kernel'),
+    ('debugger', 'system/include/pedigree/kernel', 'pedigree/kernel'),
+    ('debugger/commands', 'system/include/pedigree/kernel', 'pedigree/kernel'),
+    ('debugger/libudis86', 'system/include/pedigree/kernel', 'pedigree/kernel'),
+    ('core', 'system/include/pedigree/kernel', 'pedigree/kernel'),
+    ('', 'system/include/pedigree/kernel', 'pedigree/kernel'),
 )
 
 NEVER_REWRITE = (
@@ -84,7 +84,7 @@ def process(sourcepath, headersdir):
         # Handles #include"header.h" properly.
         l = l[len('#include'):].strip()
 
-        fields = l.split(' ', 2)
+        fields = l.split(' ', 1)
 
         path = fields[0]
         path = path.strip('<">')
@@ -165,6 +165,9 @@ def main():
             if not (fl.endswith('.cc') or f.endswith('.c') or f.endswith('.h')):
                 if fl not in ('new',):
                     continue
+
+            if f != 'main.cc':
+                continue
 
             path = os.path.join(root, f)
             if VERBOSE:
