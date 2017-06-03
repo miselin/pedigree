@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -16,7 +17,6 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
-
 
 import os
 
@@ -52,7 +52,11 @@ defines = [
 build_env.Append(CPPDEFINES=defines)
 
 # TODO(miselin): improve the path to external libraries
-build_env.Append(LIBPATH=[build_env['BUILDDIR'].Dir('external')])
+build_env.Append(LIBPATH=[
+    build_env['BUILDDIR'].Dir('external'),
+    '..',  # buildutil libraries
+    '../netwrap',  # libnetwork et al
+])
 
 coverage_env = build_env.Clone()
 
@@ -72,7 +76,7 @@ libdebugger = coverage_env.StaticLibrary('debugger', [
 ])
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
-                     LIBS=['netstack', 'network', 'config', 'kernel',
+                     LIBS=['netstack', 'network', 'config', 'kernel_coverage',
                            libdebugger, 'utility_coverage', env['LIBGTEST'],
                            'pthread', 'dl', 'rt'])
 

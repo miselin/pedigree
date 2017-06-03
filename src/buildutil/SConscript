@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -16,6 +17,7 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
+
 from __future__ import print_function
 
 
@@ -89,10 +91,15 @@ libutility_sources = [
     'Atomic.cc',
     'Log.cc',
 ]
+# Base kernel sources that we care about.
+kernel_sources = [
+    os.path.join('machine', 'Device.cc'),
+    os.path.join('machine', 'DeviceHashTree.cc'),
+]
 defines = [
     'HOSTED', 'UTILITY_LINUX', 'TARGET_IS_LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',
     'PEDIGREE_BENCHMARK', 'STANDALONE_MUTEXES', 'STANDALONE_CACHE',
-    'STANDALONE_MEMPOOL', 'DEVICE_IGNORE_ADDRESSES',
+    'STANDALONE_MEMPOOL', 'DEVICE_IGNORE_ADDRESSES'
 ]
 
 utility_env = env.Clone()
@@ -110,6 +117,8 @@ utility_env.MergeFlags({
 utility_env.Library('utility',
     ['shim.cc', 'pocketknife.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources])
 
+utility_env.Library('kernel', [KERNEL_DIR.File(f) for f in kernel_sources])
+
 # Build a version of libutility that has the necessary coverage pieces, such
 # that we can get code coverage analysis where actual .cc files hold the code
 # being tested.
@@ -119,12 +128,7 @@ utility_env.Library('utility_coverage',
     ['shim.cc', 'pocketknife.cc'] + [KERNEL_DIR.File(f) for f in libutility_sources],
     CCFLAGS=utility_env['COVERAGE_CCFLAGS'])
 
-# base kernel sources that we care about.
-kernel_sources = [
-    os.path.join('machine', 'Device.cc'),
-    os.path.join('machine', 'DeviceHashTree.cc'),
-]
-utility_env.Library('kernel', [KERNEL_DIR.File(f) for f in kernel_sources])
+utility_env.Library('kernel_coverage', [KERNEL_DIR.File(f) for f in kernel_sources])
 
 for subdir in subdirs:
     SConscript(os.path.join(subdir, 'SConscript'), exports=['env'])
