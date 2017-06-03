@@ -22,11 +22,11 @@
 #include "InterruptManager.h"
 #include "SyscallManager.h"
 #include "gdt.h"
-#include <machine/mach_pc/Pc.h>
+#include "machine/mach_pc/Pc.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include <processor/x86_common/Multiprocessor.h>
+#include "../x86_common/Multiprocessor.h"
 
 void Multiprocessor::applicationProcessorStartup()
 {

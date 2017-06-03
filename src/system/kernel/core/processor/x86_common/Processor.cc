@@ -20,9 +20,9 @@
 #include "PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #if defined(X86)
-#include "../../core/processor/x86/VirtualAddressSpace.h"
+#include "../x86/VirtualAddressSpace.h"
 #else
-#include "../../core/processor/x64/VirtualAddressSpace.h"
+#include "../x64/VirtualAddressSpace.h"
 #endif
 
 #ifdef MULTIPROCESSOR

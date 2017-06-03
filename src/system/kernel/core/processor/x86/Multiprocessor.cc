@@ -25,7 +25,7 @@
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include "../../../machine/x86_common/Pc.h"
+#include "machine/x86_common/Pc.h"
 
 void Multiprocessor::applicationProcessorStartup()
 {

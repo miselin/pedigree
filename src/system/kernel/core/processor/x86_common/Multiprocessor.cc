@@ -25,9 +25,9 @@
 #include "pedigree/kernel/utilities/Vector.h"
 
 #if defined(X86)
-#include <processsor/x86/VirtualAddressSpace.h>
+#include "../x86/VirtualAddressSpace.h"
 #elif defined(X64)
-#include <processor/x64/VirtualAddressSpace.h>
+#include "../x64/VirtualAddressSpace.h"
 #endif
 
 #if defined(ACPI)
