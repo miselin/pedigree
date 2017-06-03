@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Archive.h"
+#include "pedigree/kernel/Archive.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"

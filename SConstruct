@@ -781,7 +781,7 @@ else:
 # Set the flags
 env['PEDIGREE_FLAGS'] = ' '.join(env['CPPDEFINES'])
 
-version_out = ['#include <Version.h>',
+version_out = ['#include "pedigree/kernel/Version.h"',
                'const char *g_pBuildTime = "$buildtime";',
                'const char *g_pBuildRevision = "$rev";',
                'const char *g_pBuildFlags = "$flags";',

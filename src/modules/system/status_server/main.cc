@@ -19,7 +19,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
-#include <Version.h>
+#include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/Network.h"

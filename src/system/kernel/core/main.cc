@@ -100,13 +100,13 @@
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
-#include <Archive.h>
+#include "pedigree/kernel/Archive.h"
 #include "pedigree/kernel/Log.h"
-#include <Version.h>
-#include "pedigree/kernel/linker/KernelElf.h" //
+#include "pedigree/kernel/Version.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
 
-#include "cppsupport.h"  // initialiseConstructors()
+#include "pedigree/kernel/core/cppsupport.h" // initialiseConstructors()
 
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -116,7 +116,7 @@
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/LocalIO.h"
 #include "pedigree/kernel/debugger/SerialIO.h"
-#include "pedigree/kernel/machine/Machine.h" //
+#include "pedigree/kernel/machine/Machine.h"
 
 #include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
