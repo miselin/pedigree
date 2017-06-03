@@ -21,7 +21,7 @@
 
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
-#include <Version.h>
+#include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 #include "modules/system/users/Group.h"

@@ -24,7 +24,7 @@
 #include "pthread-syscalls.h"
 #include "signal-syscalls.h"
 #include "pedigree/kernel/Log.h"
-#include <Version.h>
+#include "pedigree/kernel/Version.h"
 #include "modules/system/linker/DynamicLinker.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/KernelElf.h"
