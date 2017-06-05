@@ -19,6 +19,7 @@
 
 #if defined(MULTIPROCESSOR)
 
+#include "../x86_common/Multiprocessor.h"
 #include "InterruptManager.h"
 #include "SyscallManager.h"
 #include "gdt.h"
@@ -26,7 +27,6 @@
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "../x86_common/Multiprocessor.h"
 
 void Multiprocessor::applicationProcessorStartup()
 {

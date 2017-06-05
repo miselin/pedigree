@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
 #include "modules/system/network-stack/ConnectionlessEndpoint.h"
 #include "modules/system/network-stack/NetworkStack.h"
 #include "modules/system/network-stack/UdpManager.h"
+#include "pedigree/kernel/Log.h"
 
 #include "modules/system/network-stack/Ndp.h"
 

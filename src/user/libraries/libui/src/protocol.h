@@ -22,9 +22,9 @@
 
 #include "pedigree/native/types.h"
 
-#include <Widget.h>
 #include "pedigree/native/graphics/Graphics.h"
 #include "pedigree/native/ipc/Ipc.h"
+#include <Widget.h>
 
 /** \addtogroup PedigreeGUI
  *  @{

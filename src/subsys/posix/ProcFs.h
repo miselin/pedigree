@@ -25,10 +25,10 @@
 
 #include "pedigree/kernel/Log.h"
 
-#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
 class ProcFs;
 class ProcFsDirectory;

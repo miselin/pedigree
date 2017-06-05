@@ -23,13 +23,13 @@
 ///       when Semaphores are compiled in a non-threaded environment.
 #ifdef THREADS
 
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "pedigree/kernel/utilities/assert.h"

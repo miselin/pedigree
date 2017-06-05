@@ -22,8 +22,8 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 
-#include <native-ipc.h>
 #include "pedigree/native/ipc/Ipc.h"
+#include <native-ipc.h>
 
 #include "NativeSyscallManager.h"
 #include "pedigree/native/nativeSyscallNumbers.h"

@@ -20,12 +20,12 @@
 #ifndef ISO9660FILE_H
 #define ISO9660FILE_H
 
+#include "modules/system/vfs/Filesystem.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "modules/system/vfs/Filesystem.h"
 
 #include "Iso9660Filesystem.h"
 #include "iso9660.h"

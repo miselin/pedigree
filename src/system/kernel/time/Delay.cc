@@ -20,9 +20,9 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/eventNumbers.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 

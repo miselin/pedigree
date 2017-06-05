@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "PhysicalMemoryManager.h"
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
 #else

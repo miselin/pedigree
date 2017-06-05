@@ -18,10 +18,10 @@
  */
 
 #include "UsbMassStorageDevice.h"
-#include "pedigree/kernel/ServiceManager.h"
-#include "pedigree/kernel/machine/Disk.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbHub.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"

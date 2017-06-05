@@ -19,12 +19,12 @@
 
 #ifdef THREADS
 
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/StackFrame.h"
 

@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/Backtrace.h"
 #include "pedigree/kernel/debugger/commands/Backtracer.h"
+#include "pedigree/kernel/debugger/Backtrace.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"

@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "InterruptManager.h"
 #include "pedigree/kernel/processor/TlbManager.h"
 
 void Processor::initialise1(const BootstrapStruct_t &Info)

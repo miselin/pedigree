@@ -21,8 +21,8 @@
 
 #include "Multiprocessor.h"
 #include "pedigree/kernel/Log.h"
-#include <machine/mach_pc/Pc.h>
 #include "pedigree/kernel/utilities/Vector.h"
+#include <machine/mach_pc/Pc.h>
 
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"

@@ -32,14 +32,14 @@
 #include <string>
 #include <vector>
 
-#include "pedigree/kernel/Log.h"
 #include "modules/system/ext2/Ext2Filesystem.h"
-#include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/utilities/String.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/String.h"
 
 #include "DiskImage.h"
 

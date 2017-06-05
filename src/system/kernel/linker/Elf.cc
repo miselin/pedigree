@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"

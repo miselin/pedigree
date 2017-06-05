@@ -21,9 +21,9 @@
 #define X86_ISA_DMA_H
 
 #include "../IsaDma.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/Log.h"
 
 /** ISA DMA (PC) Master chip */
 namespace MasterChip

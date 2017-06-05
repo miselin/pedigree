@@ -22,6 +22,7 @@
 #ifndef UHCI_H
 #define UHCI_H
 
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Timer.h"
@@ -30,7 +31,6 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
-#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
 /** Device driver for the Uhci class */

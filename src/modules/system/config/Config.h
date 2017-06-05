@@ -20,9 +20,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include "sqlite3/sqlite3.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "sqlite3/sqlite3.h"
 
 extern sqlite3 *g_pSqlite;
 

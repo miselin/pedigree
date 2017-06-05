@@ -20,9 +20,9 @@
 #ifndef LOCKSCOMMAND_H
 #define LOCKSCOMMAND_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/Scrollable.h"
-#include "pedigree/kernel/Spinlock.h"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

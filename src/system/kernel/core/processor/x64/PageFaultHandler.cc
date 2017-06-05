@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "VirtualAddressSpace.h"
-#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 PageFaultHandler PageFaultHandler::m_Instance;

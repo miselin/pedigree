@@ -21,6 +21,7 @@
 #define FATFILESYSTEM_H
 
 #include "FatFile.h"
+#include "modules/system/vfs/Filesystem.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -28,7 +29,6 @@
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "modules/system/vfs/Filesystem.h"
 
 #include "FatDirectory.h"
 #include "FatFile.h"

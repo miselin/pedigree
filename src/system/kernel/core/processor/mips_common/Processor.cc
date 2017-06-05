@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/Log.h"
 
 size_t Processor::getDebugBreakpointCount()
 {

@@ -641,15 +641,14 @@ void mul_word_asm(u32 *flags, u16 *ax, u16 *dx, u16 d, u16 s);
                                                                        bx dx];
 
 void mul_long_asm(u32 *flags, u32 *eax, u32 *edx, u32 d, u32 s);
-#pragma aux mul_long_asm =                                                     \
-    "push	[edi]"                                                               \
-    "popf"                                                                     \
-    "mul	ebx"                                                                  \
-    "pushf"                                                                    \
-    "pop	[edi]"                                                                \
-    "mov	[esi],eax"                                                            \
-    "mov	[ecx],edx" parm[edi][esi][ecx][eax][ebx] modify exact[esi edi eax ebx \
-                                                                   edx];
+#pragma aux mul_long_asm = "push	[edi]"                                    \
+                           "popf"                                          \
+                           "mul	ebx"                                       \
+                           "pushf"                                         \
+                           "pop	[edi]"                                     \
+                           "mov	[esi],eax"                                 \
+                           "mov	[ecx],edx" parm[edi][esi][ecx][eax] \
+    [ebx] modify exact[esi edi eax ebx edx];
 
 void idiv_byte_asm(u32 *flags, u8 *al, u8 *ah, u16 d, u8 s);
 #pragma aux idiv_byte_asm =                                                   \
@@ -694,14 +693,15 @@ void div_byte_asm(u32 *flags, u8 *al, u8 *ah, u16 d, u8 s);
                                                                        bl];
 
 void div_word_asm(u32 *flags, u16 *ax, u16 *dx, u16 dlo, u16 dhi, u16 s);
-#pragma aux div_word_asm = "push	[edi]"                                      \
-                           "popf"                                            \
-                           "div	bx"                                          \
-                           "pushf"                                           \
-                           "pop	[edi]"                                       \
-                           "mov	[esi],ax"                                    \
-                           "mov	[ecx],dx" parm[edi][esi][ecx][ax][dx] \
-    [bx] modify exact[esi edi ax dx bx];
+#pragma aux div_word_asm =                                                    \
+    "push	[edi]"                                                              \
+    "popf"                                                                    \
+    "div	bx"                                                                  \
+    "pushf"                                                                   \
+    "pop	[edi]"                                                               \
+    "mov	[esi],ax"                                                            \
+    "mov	[ecx],dx" parm[edi][esi][ecx][ax][dx][bx] modify exact[esi edi ax dx \
+                                                                    bx];
 
 void div_long_asm(u32 *flags, u32 *eax, u32 *edx, u32 dlo, u32 dhi, u32 s);
 #pragma aux div_long_asm = "push	[edi]"                                  \

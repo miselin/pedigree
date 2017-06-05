@@ -20,9 +20,9 @@
 #ifndef HIDREPORT_H
 #define HIDREPORT_H
 
-#include <hid/HidUtils.h>
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include <hid/HidUtils.h>
 
 class HidReport
 {

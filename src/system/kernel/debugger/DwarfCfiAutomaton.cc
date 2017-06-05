@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/debugger/DwarfCfiAutomaton.h"
-#include "pedigree/kernel/debugger/DwarfUnwinder.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DwarfUnwinder.h"
 
 DwarfCfiAutomaton::DwarfCfiAutomaton()
     : m_InitialState(), m_CurrentState(), m_nCodeAlignmentFactor(),

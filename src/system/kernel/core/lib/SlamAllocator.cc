@@ -33,8 +33,8 @@
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #endif
 
-#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 #ifdef MULTIPROCESSOR
 #define ATOMIC_MEMORY_ORDER __ATOMIC_RELEASE

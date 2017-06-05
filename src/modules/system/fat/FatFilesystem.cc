@@ -17,8 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
@@ -26,7 +27,6 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "modules/system/vfs/VFS.h"
 
 #include "FatDirectory.h"
 #include "FatFile.h"

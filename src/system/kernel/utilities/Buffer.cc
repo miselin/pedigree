@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #ifdef THREADS

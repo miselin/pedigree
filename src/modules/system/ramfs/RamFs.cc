@@ -18,11 +18,11 @@
  */
 
 #include "RamFs.h"
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "modules/system/vfs/VFS.h"
 
 RamFile::RamFile(
     String name, uintptr_t inode, Filesystem *pParentFS, File *pParent)

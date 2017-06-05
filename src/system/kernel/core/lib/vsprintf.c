@@ -22,8 +22,8 @@
  * Wirzenius wrote this portably, Torvalds fucked it up :-)
  */
 
-#include <stdarg.h>
 #include "pedigree/kernel/utilities/utility.h"
+#include <stdarg.h>
 
 /* we use this so that we can do without the ctype library */
 #define is_digit(c) ((c) >= '0' && (c) <= '9')

@@ -17,17 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "modules/system/linker/DynamicLinker.h"
+#include "modules/system/users/UserManager.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/BootIO.h"
-#include "modules/system/linker/DynamicLinker.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "subsys/posix/PosixProcess.h"
 #include "subsys/posix/PosixSubsystem.h"
-#include "modules/system/users/UserManager.h"
-#include "modules/system/vfs/VFS.h"
 
 static void error(const char *s)
 {

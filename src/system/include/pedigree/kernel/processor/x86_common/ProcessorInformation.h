@@ -22,8 +22,8 @@
 
 #define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/types.h"
 
 class VirtualAddressSpace;
 class PerProcessorScheduler;

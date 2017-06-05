@@ -19,20 +19,19 @@
 
 #include "system-syscalls.h"
 #include "file-syscalls.h"
-#include "pipe-syscalls.h"
-#include "posixSyscallNumbers.h"
-#include "pthread-syscalls.h"
-#include "signal-syscalls.h"
+#include "modules/system/linker/DynamicLinker.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Symlink.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
-#include "modules/system/linker/DynamicLinker.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/StackFrame.h"
@@ -42,17 +41,18 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/Symlink.h"
-#include "modules/system/vfs/VFS.h"
+#include "pipe-syscalls.h"
+#include "posixSyscallNumbers.h"
+#include "pthread-syscalls.h"
+#include "signal-syscalls.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 
+#include "pedigree/kernel/Subsystem.h"
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
-#include "pedigree/kernel/Subsystem.h"
 
 #include "modules/system/console/Console.h"
 #include "modules/system/users/UserManager.h"

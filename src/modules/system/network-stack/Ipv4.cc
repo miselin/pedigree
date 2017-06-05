@@ -18,8 +18,8 @@
  */
 
 #include "Ipv4.h"
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "pedigree/kernel/Log.h"
 
 // Protocols we use in IPv4
 #include "Arp.h"

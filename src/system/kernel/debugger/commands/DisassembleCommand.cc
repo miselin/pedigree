@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/commands/DisassembleCommand.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/debugger/libudis86/udis86.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/processor/Disassembler.h"
-#include "pedigree/kernel/debugger/libudis86/udis86.h"
 #include "pedigree/kernel/utilities/demangle.h"
 
 DisassembleCommand::DisassembleCommand()

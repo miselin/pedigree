@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/Debugger.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 NMFaultHandler NMFaultHandler::m_Instance;

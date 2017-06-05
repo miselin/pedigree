@@ -24,6 +24,12 @@
 #include "modules/system/console/Console.h"
 #include "modules/system/network-stack/NetManager.h"
 #include "modules/system/network-stack/Tcp.h"
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/LockedFile.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/Symlink.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -33,15 +39,9 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "modules/system/vfs/Directory.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/LockedFile.h"
-#include "modules/system/vfs/MemoryMappedFile.h"
-#include "modules/system/vfs/Symlink.h"
-#include "modules/system/vfs/VFS.h"
 
-#include <PosixSubsystem.h>
 #include "pedigree/kernel/Subsystem.h"
+#include <PosixSubsystem.h>
 
 static void pollEventHandler(uint8_t *pBuffer);
 

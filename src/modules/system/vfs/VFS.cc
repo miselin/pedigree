@@ -18,15 +18,15 @@
  */
 
 #include "VFS.h"
+#include "modules/system/users/UserManager.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
-#include "modules/system/users/UserManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #ifndef VFS_STANDALONE
 #include "modules/Module.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
 #endif
 
 #include "modules/system/ramfs/RamFs.h"

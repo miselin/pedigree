@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
-#include <processor/hosted/VirtualAddressSpace.h>
 #include "pedigree/kernel/processor/types.h"
+#include <processor/hosted/VirtualAddressSpace.h>
 
 namespace __pedigree_hosted
 {
@@ -58,7 +58,8 @@ VirtualAddressSpace &HostedProcessorInformation::getVirtualAddressSpace() const
         return VirtualAddressSpace::getKernelAddressSpace();
 }
 
-void HostedProcessorInformation::setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace)
+void HostedProcessorInformation::setVirtualAddressSpace(
+    VirtualAddressSpace &virtualAddressSpace)
 {
     m_VirtualAddressSpace = &virtualAddressSpace;
 }

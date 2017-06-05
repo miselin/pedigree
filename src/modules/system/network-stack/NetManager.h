@@ -20,11 +20,11 @@
 #ifndef NETMANAGER_H
 #define NETMANAGER_H
 
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "modules/system/vfs/Filesystem.h"
-#include "modules/system/vfs/VFS.h"
 
 #include "modules/system/network-stack/ConnectionBasedEndpoint.h"
 #include "modules/system/network-stack/ConnectionlessEndpoint.h"

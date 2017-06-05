@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/process/TimeTracker.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/TimeTracker.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 TimeTracker::TimeTracker(Process *pProcess, bool fromUserspace)

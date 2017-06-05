@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/DebuggerCommand.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/SerialIO.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"
