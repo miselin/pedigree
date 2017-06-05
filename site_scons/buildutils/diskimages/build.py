@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -130,26 +129,30 @@ def buildDiskImages(env, config_database):
         fileList += [os.path.join(imagedir.abspath, entry)]
 
     # Add applications that we build as part of the build process.
-    if os.path.exists(apps.path):
-        for app in os.listdir(apps.path):
-            fileList += [os.path.join(apps.path, app)]
+    if apps.exists():
+        for app in apps.entries:
+            try:
+                fileList.append(apps.File(app))
+            except TypeError:
+                # entry is not a file
+                pass
     else:
         print "Apps directory did not exist at time of build."
         print "'scons' will need to be run again to fully build the disk image."
 
     # Add modules, and drivers, that we build as part of the build process.
     if env['modules_on_disk']:
-        if os.path.exists(modules.path):
-            for module in os.listdir(modules.path):
+        if modules.exists():
+            for module in modules.entries:
                 if not (module.endswith('.o') or module.endswith('.o.debug')):
                     continue
-                fileList += [os.path.join(modules.path, module)]
+                fileList += [modules.File(module)]
 
-        if os.path.exists(drivers.path):
-            for driver in os.listdir(drivers.path):
+        if drivers.exists():
+            for driver in drivers.entries:
                 if not (driver.endswith('.o') or driver.endswith('.o.debug')):
                     continue
-                fileList += [os.path.join(drivers.path, driver)]
+                fileList += [drivers.File(driver)]
 
     # Add libraries
     fileList += image_c_libs + [

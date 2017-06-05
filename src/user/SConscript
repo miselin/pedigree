@@ -357,7 +357,6 @@ for app in set(apps):
     output = builddir.Dir('apps').File(app)
     files = base.glob('*.c') + base.glob('*.cc')
 
-    print output
     output_bin = app_env.Program(output, files)
 
     env.Alias("apps", output_bin)
