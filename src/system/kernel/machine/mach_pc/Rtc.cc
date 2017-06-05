@@ -24,6 +24,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "pedigree/kernel/time/Time.h"
 
