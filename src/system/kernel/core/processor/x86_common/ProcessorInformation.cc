@@ -117,6 +117,11 @@ void X86CommonProcessorInformation::setCurrentThread(Thread *pThread)
 
 PerProcessorScheduler &X86CommonProcessorInformation::getScheduler()
 {
+    // Allocate the scheduler lazily.
+    if (m_Scheduler == nullptr)
+    {
+        m_Scheduler = new PerProcessorScheduler();
+    }
     return *m_Scheduler;
 }
 
@@ -124,10 +129,9 @@ X86CommonProcessorInformation::X86CommonProcessorInformation(
     ProcessorId processorId, uint8_t apicId)
     : m_ProcessorId(processorId), m_TssSelector(0), m_Tss(0),
       m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
-      m_LocalApicId(apicId), m_pCurrentThread(0), m_Scheduler(0),
+      m_LocalApicId(apicId), m_pCurrentThread(0), m_Scheduler(nullptr),
       m_TlsSelector(0)
 {
-    m_Scheduler = new PerProcessorScheduler();
 }
 /** The destructor does nothing */
 X86CommonProcessorInformation::~X86CommonProcessorInformation()
