@@ -93,4 +93,4 @@ if build_env['HAVE_BENCHMARK']:
     })
 
     build_env.Program(benchmark_bin, Glob('bench-*.cc'),
-                      LIBS=['utility', 'benchmark', 'pthread'] + additional_libs)
+                      LIBS=['utility', 'kernel', 'benchmark', 'pthread'] + additional_libs)

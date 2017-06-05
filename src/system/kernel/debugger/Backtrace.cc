@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 extern uintptr_t start;
 

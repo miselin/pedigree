@@ -34,6 +34,7 @@
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
@@ -368,4 +369,13 @@ void TimeoutGuard::cancel()
 {
     jmp_buf *buf = reinterpret_cast<jmp_buf *>(m_State);
     siglongjmp(*buf, 1);
+}
+
+size_t Processor::id()
+{
+    return 0;
+}
+
+void Processor::pause()
+{
 }

@@ -24,6 +24,7 @@
 
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 
 // Incoming relative mouse movements are divided by this
 #define MOUSE_REDUCE_FACTOR 1

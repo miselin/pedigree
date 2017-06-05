@@ -22,6 +22,7 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #ifdef THREADS
 #include "pedigree/kernel/LockGuard.h"

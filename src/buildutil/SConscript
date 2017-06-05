@@ -95,6 +95,8 @@ libutility_sources = [
 kernel_sources = [
     os.path.join('machine', 'Device.cc'),
     os.path.join('machine', 'DeviceHashTree.cc'),
+    # os.path.join('core', 'processor', 'Processor.cc'),
+    # os.path.join('core', 'processor', 'hosted', 'Processor.cc'),
 ]
 defines = [
     'HOSTED', 'UTILITY_LINUX', 'TARGET_IS_LITTLE_ENDIAN', 'DONT_LOG_TO_SERIAL',

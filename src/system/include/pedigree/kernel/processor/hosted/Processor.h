@@ -20,32 +20,6 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSOR_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSOR_H
 
-void Processor::breakpoint()
-{
-    Processor::_breakpoint();
-}
-
-void Processor::halt()
-{
-    // Abnormal exit.
-    __builtin_trap();
-}
-
-void Processor::pause()
-{
-    asm volatile("pause");
-}
-
-void Processor::reset()
-{
-    Processor::_reset();
-}
-
-void Processor::haltUntilInterrupt()
-{
-    Processor::_haltUntilInterrupt();
-}
-
 extern "C" int callOnStack(
     uintptr_t stack, uintptr_t func, uintptr_t p1 = 0, uintptr_t p2 = 0,
     uintptr_t p3 = 0, uintptr_t p4 = 0);
