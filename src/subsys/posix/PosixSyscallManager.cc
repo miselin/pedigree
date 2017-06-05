@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"

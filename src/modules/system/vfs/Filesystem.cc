@@ -20,6 +20,7 @@
 #include "Filesystem.h"
 #include "VFS.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/utility.h"

@@ -26,6 +26,7 @@
 #ifndef VFS_STANDALONE
 #include "modules/Module.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/Process.h"
 #endif
 
 #include "modules/system/ramfs/RamFs.h"
