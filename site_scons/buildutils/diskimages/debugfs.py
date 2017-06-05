@@ -120,7 +120,7 @@ def buildImageE2fsprogs(target, source, env):
 
     # Copy each input file across
     for i in source:
-        prefix = imagedir
+        prefix = '/'
 
         # Applications
         if appsdir.abspath in i.abspath:
