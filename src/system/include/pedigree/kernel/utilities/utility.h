@@ -26,7 +26,7 @@
 #include "pedigree/kernel/utilities/lib.h"
 
 #ifdef __cplusplus
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"  //
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #endif
 
 #ifdef HOSTED

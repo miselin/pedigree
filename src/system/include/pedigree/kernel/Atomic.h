@@ -21,7 +21,7 @@
 #define KERNEL_ATOMIC_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/utilities/cpp.h"
 
 /** @addtogroup kernel
  * @{ */
