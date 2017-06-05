@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -36,13 +35,13 @@ def buildImageE2fsprogs(target, source, env):
         print '      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m'
 
     builddir = env["PEDIGREE_BUILD_BASE"]
-    imagedir = env['PEDIGREE_IMAGES_DIR'].path
-    appsdir = env['PEDIGREE_BUILD_APPS'].path
-    modsdir = env['PEDIGREE_BUILD_MODULES'].path
-    drvsdir = env['PEDIGREE_BUILD_DRIVERS'].path
-    libsdir = builddir.Dir('libs').path
-    i18ndir = builddir.Dir('po').Dir('locale').path
-    keymaps_dir = env['HOST_BUILDDIR'].Dir('keymaps').path
+    imagedir = env['PEDIGREE_IMAGES_DIR']
+    appsdir = env['PEDIGREE_BUILD_APPS']
+    modsdir = env['PEDIGREE_BUILD_MODULES']
+    drvsdir = env['PEDIGREE_BUILD_DRIVERS']
+    libsdir = builddir.Dir('libs')
+    i18ndir = builddir.Dir('po').Dir('locale')
+    keymaps_dir = env['HOST_BUILDDIR'].Dir('keymaps')
 
     outFile = target[0].path
 
@@ -106,7 +105,7 @@ def buildImageE2fsprogs(target, source, env):
             os.makedirs(p)
 
     # Add GRUB config.
-    add_builddir_copy(os.path.join(imagedir, '..', 'grub', 'menu-hdd.lst'), '/boot/grub/menu.lst')
+    add_builddir_copy(imagedir.Dir('..').Dir('grub').File('menu-hdd.lst').path, '/boot/grub/menu.lst')
 
     # Copy the kernel, initrd, and configuration database
     if env['kernel_on_disk']:
@@ -121,35 +120,30 @@ def buildImageE2fsprogs(target, source, env):
 
     # Copy each input file across
     for i in source:
-        search, prefix = imagedir, ''
+        prefix = imagedir
 
         # Applications
-        if appsdir in i.abspath:
-            search = appsdir
+        if appsdir.abspath in i.abspath:
             prefix = '/applications'
 
         # Modules
-        elif modsdir in i.abspath:
-            search = modsdir
+        elif modsdir.abspath in i.abspath:
             prefix = '/system/modules'
 
         # Drivers
-        elif drvsdir in i.abspath:
-            search = drvsdir
+        elif drvsdir.abspath in i.abspath:
             prefix = '/system/modules'
 
         # User Libraries
-        elif libsdir in i.abspath:
-            search = libsdir
+        elif libsdir.abspath in i.abspath:
             prefix = '/libraries'
 
         # Additional Libraries
-        elif builddir.path in i.abspath:
-            search = builddir.path
+        elif builddir.abspath in i.abspath:
             prefix = '/libraries'
 
         # Already in the image.
-        elif imagedir in i.abspath:
+        elif imagedir.abspath in i.abspath:
             continue
 
         # Clean out the last directory name if needed
@@ -175,17 +169,17 @@ def buildImageE2fsprogs(target, source, env):
                 add_builddir_copy(source_fullpath, target_fullpath, True)
 
     # Copy etc bits.
-    base_dir = os.path.join(imagedir, '..', 'base')
-    extra_copy_tree(base_dir, replacements=(
+    base_dir = imagedir.Dir('..').Dir('base')
+    extra_copy_tree(base_dir.path, replacements=(
         ('/config/term', '/support/ncurses/share'),
     ))
 
     # Copy locale files from user apps.
     if env['build_translations']:
-        extra_copy_tree(i18ndir, target_prefix='/system/locale')
+        extra_copy_tree(i18ndir.path, target_prefix='/system/locale')
 
     # Copy keymaps.
-    extra_copy_tree(keymaps_dir, target_prefix='/system/keymaps')
+    extra_copy_tree(keymaps_dir.path, target_prefix='/system/keymaps')
 
     # Copy musl, if we can.
     if env['posix_musl']:
@@ -275,8 +269,8 @@ def buildImageE2fsprogs(target, source, env):
     # Populate the image.
     cmdlist = []
     safe_dirs = set()
-    for (dirpath, dirs, files) in os.walk(imagedir):
-        target_dirpath = dirpath.replace(imagedir, '')
+    for (dirpath, dirs, files) in os.walk(imagedir.path):
+        target_dirpath = dirpath.replace(imagedir.path, '')
         if not target_dirpath:
             target_dirpath = '/'
 
@@ -333,7 +327,7 @@ def buildImageE2fsprogs(target, source, env):
             if os.path.isfile(host_path):
                 add_file(cmdlist, host_path, target_path)
             else:
-                raise Exception('Target %s is not a file.' % (target_path,))
+                raise Exception('Host file "%s" for target path %s is not a file.' % (host_path, target_path))
 
     # Add some more useful layout features (e.g. to make /bin/sh work).
     cmdlist.append('symlink /applications/sh /applications/bash')
@@ -355,6 +349,9 @@ def buildImageE2fsprogs(target, source, env):
         return (order.index(item_which), count_components(item_target_path))
 
     cmdlist = sorted(cmdlist, key=commandlist_sorter)
+
+    with open('/tmp/cmdlist', 'w') as f:
+        f.write('\n'.join(cmdlist))
 
     # Dump our files into the image using ext2img (built as part of the normal
     # Pedigree build, to run on the build system - not on Pedigree).
