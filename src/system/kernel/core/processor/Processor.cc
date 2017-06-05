@@ -29,6 +29,29 @@ ProcessorInformation Processor::m_SafeBspProcessorInformation(0);
 
 size_t Processor::m_nProcessors = 1;
 
+size_t Processor::isInitialised()
+{
+    return m_Initialised;
+}
+
+#if !defined(MULTIPROCESSOR)
+ProcessorId Processor::id()
+{
+    return 0;
+}
+
+ProcessorInformation &Processor::information()
+{
+    return m_ProcessorInformation;
+}
+
+size_t Processor::getCount()
+{
+    return 1;
+}
+#endif
+
+#ifndef PEDIGREE_BENCHMARK
 EnsureInterrupts::EnsureInterrupts(bool desired)
 {
     m_bPrevious = Processor::getInterrupts();
@@ -39,3 +62,4 @@ EnsureInterrupts::~EnsureInterrupts()
 {
     Processor::setInterrupts(m_bPrevious);
 }
+#endif

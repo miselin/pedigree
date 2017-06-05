@@ -22,6 +22,7 @@
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/eventNumbers.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 

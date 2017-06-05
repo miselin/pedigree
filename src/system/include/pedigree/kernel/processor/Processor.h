@@ -20,14 +20,21 @@
 #ifndef KERNEL_PROCESSOR_PROCESSOR_H
 #define KERNEL_PROCESSOR_PROCESSOR_H
 
-#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"  // exported
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#if defined(MULTIPROCESSOR)
 #include "pedigree/kernel/utilities/Vector.h"
+#endif
+
+class VirtualAddressSpace;
+#ifdef MULTIBOOT
+class BootstrapStruct_t;
+#else
+struct BootstrapStruct_t;
+#endif
 
 /** @addtogroup kernelprocessor
  * @{ */
@@ -103,10 +110,7 @@ class Processor
      *\return 0, if nothing has been initialised, 1, if initialise1() has been
      *executed successfully, 2, if initialise2() has been executed successfully
      */
-    inline static size_t isInitialised()
-    {
-        return m_Initialised;
-    }
+    static size_t isInitialised();
 
     /** Get the base-pointer of the calling function
      *\return base-pointer of the calling function */
@@ -207,11 +211,11 @@ class Processor
         uintptr_t p4 = 0) NORETURN;
 
     /** Trigger a breakpoint */
-    inline static void breakpoint() ALWAYS_INLINE;
+    static void breakpoint();
     /** Halt this processor */
-    inline static void halt() ALWAYS_INLINE;
+    static void halt();
     /** Reset this processor */
-    inline static void reset() ALWAYS_INLINE;
+    static void reset();
 
     /** Return the (total) number of breakpoints
      *\return (total) number of breakpoints */
@@ -243,9 +247,9 @@ class Processor
     static uintptr_t getDebugStatus();
 
     /** Wait for an IRQ to fire. Possible HALT or low-power state. */
-    static inline void haltUntilInterrupt();
+    static void haltUntilInterrupt();
     /** Pause CPU during a tight polling loop. */
-    static inline void pause();
+    static void pause();
 
     /** Enable/Disable IRQs
      *\param[in] bEnable true to enable IRSs, false otherwise */
@@ -336,26 +340,26 @@ class Processor
 /** Get the ProcessorId of this processor
  *\return the ProcessorId of this processor */
 #if !defined(MULTIPROCESSOR)
-    inline static ProcessorId id();
+    static ProcessorId id();
 #else
     static ProcessorId id();
 #endif
 /** Get the ProcessorInformation structure of this processor
  *\return the ProcessorInformation structure of this processor */
 #if !defined(MULTIPROCESSOR)
-    static inline ProcessorInformation &information();
+    static ProcessorInformation &information();
 #else
     static ProcessorInformation &information();
 #endif
 /** Get the number of CPUs currently available */
 #if !defined(MULTIPROCESSOR)
-    static inline size_t getCount();
+    static size_t getCount();
 #else
     static size_t getCount();
 #endif
 
 #ifdef PPC_COMMON
-    inline static void
+    static void
     setSegmentRegisters(uint32_t segmentBase, bool supervisorKey, bool userKey);
 #endif
 
@@ -409,25 +413,6 @@ class Processor
 #endif
 #ifdef X64
 #include "pedigree/kernel/processor/x64/Processor.h"
-#endif
-
-//
-// Part of the implementation
-//
-
-#if !defined(MULTIPROCESSOR)
-ProcessorId Processor::id()
-{
-    return 0;
-}
-ProcessorInformation &Processor::information()
-{
-    return m_ProcessorInformation;
-}
-size_t Processor::getCount()
-{
-    return 1;
-}
 #endif
 
 /**

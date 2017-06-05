@@ -21,6 +21,8 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/Cache.h"

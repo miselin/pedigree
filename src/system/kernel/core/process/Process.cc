@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"

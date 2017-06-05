@@ -20,57 +20,25 @@
 #ifndef KERNEL_PROCESSOR_STATE_H
 #define KERNEL_PROCESSOR_STATE_H
 
+#include "pedigree/kernel/processor/state_forward.h"
+
+// Bring in rest of state definitions to complete forward-declared state.
 #if defined(X86)
 #include "pedigree/kernel/processor/x86/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
 #include "pedigree/kernel/processor/x64/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
 #include "pedigree/kernel/processor/mips32/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
 #include "pedigree/kernel/processor/mips64/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM926E)
 #include "pedigree/kernel/processor/arm_926e/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
 #elif defined(PPC32)
 #include "pedigree/kernel/processor/ppc32/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(ARMV7)
 #include "pedigree/kernel/processor/armv7/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif defined(HOSTED)
 #include "pedigree/kernel/processor/hosted/state.h"
-#define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
-
-// NOTE: This throws a compile-time error if this header is not adapted for
-//       the selected processor architecture
-#if !defined(PROCESSOR_SPECIFIC_NAME)
-#error Unknown processor architecture
-#endif
-
-/** @addtogroup kernelprocessor
- * @{ */
-
-// NOTE: If a newly added processor architecture does not supply all the
-//       needed types, you will get an error here
-
-/** Lift the processor-specifc InterruptState class into the global namespace */
-typedef PROCESSOR_SPECIFIC_NAME(InterruptState) InterruptState;
-/** Lift the processor-specifc SyscallState class into the global namespace */
-typedef PROCESSOR_SPECIFIC_NAME(SyscallState) SyscallState;
-/** Lift the processor-specific ProcessorState class into the global namespace
- */
-typedef PROCESSOR_SPECIFIC_NAME(ProcessorState) ProcessorState;
-/** Lift the processor-specific SchedulerState class into the global namespace
- */
-typedef PROCESSOR_SPECIFIC_NAME(SchedulerState) SchedulerState;
-
-/** @} */
-
-#undef PROCESSOR_SPECIFIC_NAME
 
 #endif

@@ -27,6 +27,8 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/Processor.h"
 

@@ -28,6 +28,7 @@
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #define IPI_HALT_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC

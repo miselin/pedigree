@@ -293,13 +293,11 @@ void operator delete[](void *p) noexcept
 }
 void operator delete(void *p, void *q) noexcept
 {
-    // TODO
-    panic("Operator delete (placement) -implement");
+    // no-op
 }
 void operator delete[](void *p, void *q) noexcept
 {
-    // TODO
-    panic("Operator delete[] (placement) -implement");
+    // no-op
 }
 
 #ifdef HOSTED

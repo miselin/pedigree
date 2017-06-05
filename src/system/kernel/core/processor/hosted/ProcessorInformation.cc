@@ -33,6 +33,53 @@ using namespace __pedigree_hosted;
 
 extern void *safe_stack_top;
 
+HostedProcessorInformation::HostedProcessorInformation(
+    ProcessorId processorId, uint8_t apicId)
+    : m_ProcessorId(processorId),
+      m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
+#ifdef THREADS
+      m_pCurrentThread(0), m_Scheduler(0),
+#endif
+      m_KernelStack(0)
+{
+    m_Scheduler = new PerProcessorScheduler();
+}
+
+HostedProcessorInformation::~HostedProcessorInformation()
+{
+    delete m_Scheduler;
+}
+
+VirtualAddressSpace &HostedProcessorInformation::getVirtualAddressSpace() const
+{
+    if (m_VirtualAddressSpace)
+        return *m_VirtualAddressSpace;
+    else
+        return VirtualAddressSpace::getKernelAddressSpace();
+}
+
+void HostedProcessorInformation::setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace)
+{
+    m_VirtualAddressSpace = &virtualAddressSpace;
+}
+
+#ifdef THREADS
+Thread *HostedProcessorInformation::getCurrentThread() const
+{
+    return m_pCurrentThread;
+}
+
+void HostedProcessorInformation::setCurrentThread(Thread *pThread)
+{
+    m_pCurrentThread = pThread;
+}
+
+PerProcessorScheduler &HostedProcessorInformation::getScheduler()
+{
+    return *m_Scheduler;
+}
+#endif
+
 /**
  * So, the sigaltstack implementation implements EPERM for sigaltstack by
  * checking the userspace stack pointer. While this is usually OK, as it will

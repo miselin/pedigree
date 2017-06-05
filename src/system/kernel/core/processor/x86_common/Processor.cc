@@ -229,6 +229,7 @@ ProcessorId Processor::id()
 
     return 0;
 }
+
 ProcessorInformation &Processor::information()
 {
     if (m_Initialised < 2)
@@ -243,8 +244,39 @@ ProcessorInformation &Processor::information()
 
     return m_SafeBspProcessorInformation;
 }
+
 size_t Processor::getCount()
 {
     return m_ProcessorInformation.count();
 }
 #endif
+
+void Processor::breakpoint()
+{
+    asm volatile("int $3");
+}
+
+void Processor::halt()
+{
+    asm volatile("hlt");
+}
+
+void Processor::pause()
+{
+    asm volatile("pause");
+}
+
+void Processor::reset()
+{
+    // Load null IDT for now
+    size_t zero = 0x0;
+    asm volatile("lidt %0; int $3" ::"m"(zero));
+}
+
+void Processor::haltUntilInterrupt()
+{
+    bool bWasInterrupts = getInterrupts();
+    __asm__ __volatile__("sti; hlt");
+    if (!bWasInterrupts)
+        setInterrupts(false);
+}

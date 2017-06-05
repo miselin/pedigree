@@ -116,6 +116,7 @@ void Processor::jumpUser(
     jumpKernel(pLock, address, stack, p1, p2, p3, p4);
 }
 
+#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 void Processor::switchState(
     bool bInterrupts, SchedulerState &a, SchedulerState &b,
     volatile uintptr_t *pLock)
@@ -173,6 +174,7 @@ void Processor::saveAndJumpUser(
     Processor::saveAndJumpKernel(
         bInterrupts, s, pLock, address, stack, p1, p2, p3, p4);
 }
+#endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 
 void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 {
@@ -305,4 +307,30 @@ void Processor::_haltUntilInterrupt()
     sigemptyset(&set);
     sigsuspend(&set);
     Processor::setInterrupts(bOld);
+}
+
+void Processor::breakpoint()
+{
+    Processor::_breakpoint();
+}
+
+void Processor::halt()
+{
+    // Abnormal exit.
+    __builtin_trap();
+}
+
+void Processor::pause()
+{
+    asm volatile("pause");
+}
+
+void Processor::reset()
+{
+    Processor::_reset();
+}
+
+void Processor::haltUntilInterrupt()
+{
+    Processor::_haltUntilInterrupt();
 }

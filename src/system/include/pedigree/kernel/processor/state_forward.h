@@ -17,35 +17,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef KERNEL_PROCESSOR_PROCESSORINFORMATION_H
-#define KERNEL_PROCESSOR_PROCESSORINFORMATION_H
+#ifndef KERNEL_PROCESSOR_STATE_FORWARD_H
+#define KERNEL_PROCESSOR_STATE_FORWARD_H
 
-#include "pedigree/kernel/processor/types.h"
-
-/** @addtogroup kernelprocessor
- * @{ */
-
-/** Identifier of a processor */
-typedef size_t ProcessorId;
-
-/** @} */
-
-#ifndef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
-
-#if defined(X86_COMMON)
-#include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
-#define PROCESSOR_SPECIFIC_NAME(x) X86Common##x
-#elif defined(MIPS_COMMON)
-#include "pedigree/kernel/processor/mips_common/ProcessorInformation.h"
-#define PROCESSOR_SPECIFIC_NAME(x) MIPSCommon##x
-#elif defined(ARM_COMMON)
-#include "pedigree/kernel/processor/arm_common/ProcessorInformation.h"
-#define PROCESSOR_SPECIFIC_NAME(x) ArmCommon##x
-#elif defined(PPC_COMMON)
-#include "pedigree/kernel/processor/ppc_common/ProcessorInformation.h"
-#define PROCESSOR_SPECIFIC_NAME(x) PPCCommon##x
+#if defined(X86)
+#define PROCESSOR_SPECIFIC_NAME(x) X86##x
+#elif defined(X64)
+#define PROCESSOR_SPECIFIC_NAME(x) X64##x
+#elif defined(MIPS32)
+#define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
+#elif defined(MIPS64)
+#define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
+#elif defined(ARM926E)
+#define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
+#elif defined(PPC32)
+#define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
+#elif defined(ARMV7)
+#define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif defined(HOSTED)
-#include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 
@@ -61,15 +50,25 @@ typedef size_t ProcessorId;
 // NOTE: If a newly added processor architecture does not supply all the
 //       needed types, you will get an error here
 
-/** Define ProcessorInformation */
-typedef PROCESSOR_SPECIFIC_NAME(ProcessorInformation) ProcessorInformation;
+// Forward-declare all source classes.
+class PROCESSOR_SPECIFIC_NAME(InterruptState);
+class PROCESSOR_SPECIFIC_NAME(SyscallState);
+class PROCESSOR_SPECIFIC_NAME(ProcessorState);
+class PROCESSOR_SPECIFIC_NAME(SchedulerState);
+
+/** Lift the processor-specifc InterruptState class into the global namespace */
+typedef PROCESSOR_SPECIFIC_NAME(InterruptState) InterruptState;
+/** Lift the processor-specifc SyscallState class into the global namespace */
+typedef PROCESSOR_SPECIFIC_NAME(SyscallState) SyscallState;
+/** Lift the processor-specific ProcessorState class into the global namespace
+ */
+typedef PROCESSOR_SPECIFIC_NAME(ProcessorState) ProcessorState;
+/** Lift the processor-specific SchedulerState class into the global namespace
+ */
+typedef PROCESSOR_SPECIFIC_NAME(SchedulerState) SchedulerState;
 
 /** @} */
 
 #undef PROCESSOR_SPECIFIC_NAME
-
-#else
-#undef KERNEL_PROCESSOR_PROCESSORINFORMATION_H
-#endif
 
 #endif

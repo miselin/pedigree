@@ -20,11 +20,11 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Thread;
+class VirtualAddressSpace;
+class PerProcessorScheduler;
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -38,55 +38,25 @@ class HostedProcessorInformation
   public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
-    inline VirtualAddressSpace &getVirtualAddressSpace() const
-    {
-        if (m_VirtualAddressSpace)
-            return *m_VirtualAddressSpace;
-        else
-            return VirtualAddressSpace::getKernelAddressSpace();
-    }
+    VirtualAddressSpace &getVirtualAddressSpace() const;
     /** Set the current processor's VirtualAddressSpace
      *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
-    inline void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace)
-    {
-        m_VirtualAddressSpace = &virtualAddressSpace;
-    }
+    void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace);
 
     uintptr_t getKernelStack() const;
     void setKernelStack(uintptr_t stack);
 #ifdef THREADS
-    inline Thread *getCurrentThread() const
-    {
-        return m_pCurrentThread;
-    }
-    inline void setCurrentThread(Thread *pThread)
-    {
-        m_pCurrentThread = pThread;
-    }
-
-    inline PerProcessorScheduler &getScheduler()
-    {
-        return m_Scheduler;
-    }
+    Thread *getCurrentThread() const;
+    void setCurrentThread(Thread *pThread);
+    PerProcessorScheduler &getScheduler();
 #endif
 
   protected:
     /** Construct a HostedProcessorInformation object
      *\param[in] processorId Identifier of the processor */
-    inline HostedProcessorInformation(
-        ProcessorId processorId, uint8_t apicId = 0)
-        : m_ProcessorId(processorId),
-          m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
-#ifdef THREADS
-          m_pCurrentThread(0), m_Scheduler(),
-#endif
-          m_KernelStack(0)
-    {
-    }
+    HostedProcessorInformation(ProcessorId processorId, uint8_t apicId = 0);
     /** The destructor does nothing */
-    inline virtual ~HostedProcessorInformation()
-    {
-    }
+    virtual ~HostedProcessorInformation();
 
   private:
     /** Default constructor
@@ -107,7 +77,7 @@ class HostedProcessorInformation
     /** The current thread */
     Thread *m_pCurrentThread;
     /** The processor's scheduler. */
-    PerProcessorScheduler m_Scheduler;
+    PerProcessorScheduler *m_Scheduler;
 #endif
     /** Kernel stack. */
     uintptr_t m_KernelStack;

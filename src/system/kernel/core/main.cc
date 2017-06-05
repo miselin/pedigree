@@ -110,7 +110,7 @@
 
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h" //
+#include "pedigree/kernel/processor/Processor.h"
 
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
@@ -122,6 +122,7 @@
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
