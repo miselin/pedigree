@@ -23,11 +23,10 @@
 #ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
 #endif
-#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/Vector.h"
+
+class String;
 
 /** @addtogroup kernel
  * @{ */
@@ -139,6 +138,8 @@
 // 64K static log buffer
 #define LOG_ENTRIES ((1 << 16) / sizeof(LogEntry))
 #endif
+/** Maximum number of output callbacks that can be registered. */
+#define LOG_CALLBACK_COUNT 16
 
 /** Radix for Log's integer output */
 enum NumberType
@@ -351,7 +352,8 @@ class Log
     bool m_EchoToSerial;
 
     /** Output callback list */
-    List<LogCallback *> m_OutputCallbacks;
+    LogCallback *m_OutputCallbacks[LOG_CALLBACK_COUNT];
+    size_t m_nOutputCallbacks;
 
     /** The Log instance (singleton class) */
     static Log m_Instance;

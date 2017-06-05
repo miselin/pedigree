@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/panic.h"
+
 #include "pedigree/kernel/debugger/Debugger.h"
 
 #include "pedigree/kernel/debugger/DebuggerIO.h"

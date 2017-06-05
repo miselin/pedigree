@@ -25,6 +25,7 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
@@ -55,11 +56,16 @@ Log::Log()
       m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
       m_Buffer(),
 #ifdef DONT_LOG_TO_SERIAL
-      m_EchoToSerial(false)
+      m_EchoToSerial(false),
 #else
-      m_EchoToSerial(true)
+      m_EchoToSerial(true),
 #endif
+      m_nOutputCallbacks(0)
 {
+    for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+    {
+        m_OutputCallbacks[i] = nullptr;
+    }
 }
 
 Log::~Log()
@@ -108,7 +114,23 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
 #ifdef THREADS
         LockGuard<Spinlock> guard(m_Lock);
 #endif
-        m_OutputCallbacks.pushBack(pCallback);
+        bool ok = false;
+        for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+        {
+            if (m_OutputCallbacks[i] == nullptr)
+            {
+                m_OutputCallbacks[i] = pCallback;
+                ++m_nOutputCallbacks;
+                ok = true;
+                break;
+            }
+        }
+
+        if (!ok)
+        {
+            /// \todo installCallback should return success/failure
+            return;
+        }
     }
 
     // Some callbacks want to skip a (potentially) massive backlog
@@ -164,13 +186,13 @@ void Log::removeCallback(LogCallback *pCallback)
 #ifdef THREADS
     LockGuard<Spinlock> guard(m_Lock);
 #endif
-    for (List<LogCallback *>::Iterator it = m_OutputCallbacks.begin();
-         it != m_OutputCallbacks.end(); it++)
+    for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
     {
-        if (*it == pCallback)
+        if (m_OutputCallbacks[i] == nullptr)
         {
-            m_OutputCallbacks.erase(it);
-            return;
+            m_OutputCallbacks[i] = pCallback;
+            --m_nOutputCallbacks;
+            break;
         }
     }
 }
@@ -279,7 +301,7 @@ Log &Log::operator<<(Modifier type)
         m_StaticLog[m_StaticEntryEnd] = m_Buffer;
         m_StaticEntryEnd = (m_StaticEntryEnd + 1) % LOG_ENTRIES;
 
-        if (m_OutputCallbacks.count())
+        if (m_nOutputCallbacks)
         {
             // We have output callbacks installed. Build the string we'll pass
             // to each callback *now* and then send it.
@@ -310,11 +332,12 @@ Log &Log::operator<<(Modifier type)
             str += "\n";
 #endif
 
-            for (List<LogCallback *>::Iterator it = m_OutputCallbacks.begin();
-                 it != m_OutputCallbacks.end(); ++it)
+            for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
             {
-                if (*it)
-                    (*it)->callback(static_cast<const char *>(str));
+                if (m_OutputCallbacks[i] != nullptr)
+                {
+                    m_OutputCallbacks[i]->callback(static_cast<const char *>(str));
+                }
             }
         }
 
