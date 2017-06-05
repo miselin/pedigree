@@ -22,7 +22,6 @@
 
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/String.h"
 
 /** @addtogroup kernelprocessor
  * @{ */
@@ -35,38 +34,33 @@ class IoPort : public IoBase
 {
   public:
     /** The default constructor does nothing */
-    inline IoPort(const char *name) : m_IoPort(0), m_Size(0), m_Name(name)
-    {
-    }
+    IoPort(const char *name);
     /** The destructor frees the allocated ressources */
-    inline virtual ~IoPort()
-    {
-        free();
-    }
+    virtual ~IoPort();
 
     //
     // IoBase Interface
     //
-    inline virtual size_t size() const;
-    inline virtual uint8_t read8(size_t offset = 0);
-    inline virtual uint16_t read16(size_t offset = 0);
-    inline virtual uint32_t read32(size_t offset = 0);
+    virtual size_t size() const;
+    virtual uint8_t read8(size_t offset = 0);
+    virtual uint16_t read16(size_t offset = 0);
+    virtual uint32_t read32(size_t offset = 0);
 #if defined(BITS_64)
-    inline virtual uint64_t read64(size_t offset = 0);
+    virtual uint64_t read64(size_t offset = 0);
 #endif
-    inline virtual void write8(uint8_t value, size_t offset = 0);
-    inline virtual void write16(uint16_t value, size_t offset = 0);
-    inline virtual void write32(uint32_t value, size_t offset = 0);
+    virtual void write8(uint8_t value, size_t offset = 0);
+    virtual void write16(uint16_t value, size_t offset = 0);
+    virtual void write32(uint32_t value, size_t offset = 0);
 #if defined(BITS_64)
-    inline virtual void write64(uint64_t value, size_t offset = 0);
+    virtual void write64(uint64_t value, size_t offset = 0);
 #endif
-    inline virtual operator bool() const;
+    virtual operator bool() const;
 
     /** Get the base I/O port */
-    inline io_port_t base() const;
+    io_port_t base() const;
     /** Get the name of the I/O port range
      *\return pointer to the name of the I/O port range */
-    inline const char *name() const;
+    const char *name() const;
     /** Free an I/O port range */
     void free();
     /** Allocate an I/O port range
@@ -94,31 +88,5 @@ class IoPort : public IoBase
 #endif
 
 /** @} */
-
-//
-// Part of the implementation
-//
-#if defined(X86_COMMON)
-#include "pedigree/kernel/processor/x86_common/IoPort.h"
-#endif
-
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-size_t IoPort::size() const
-{
-    return m_Size;
-}
-io_port_t IoPort::base() const
-{
-    return m_IoPort;
-}
-IoPort::operator bool() const
-{
-    return (m_Size != 0);
-}
-const char *IoPort::name() const
-{
-    return m_Name;
-}
-#endif
 
 #endif

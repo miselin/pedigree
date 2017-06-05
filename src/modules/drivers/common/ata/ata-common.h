@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 typedef union
 {

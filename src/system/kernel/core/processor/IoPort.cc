@@ -23,6 +23,15 @@
 
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
 
+IoPort::IoPort(const char *name) : m_IoPort(0), m_Size(0), m_Name(name)
+{
+}
+
+IoPort::~IoPort()
+{
+    free();
+}
+
 bool IoPort::allocate(io_port_t ioPort, size_t size)
 {
     // Free any allocated I/O ports
@@ -47,6 +56,26 @@ void IoPort::free()
         m_IoPort = 0;
         m_Size = 0;
     }
+}
+
+size_t IoPort::size() const
+{
+    return m_Size;
+}
+
+io_port_t IoPort::base() const
+{
+    return m_IoPort;
+}
+
+IoPort::operator bool() const
+{
+    return (m_Size != 0);
+}
+
+const char *IoPort::name() const
+{
+    return m_Name;
 }
 
 #endif
