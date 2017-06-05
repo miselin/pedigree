@@ -19,6 +19,7 @@
 
 #include "Pipe.h"
 #include "Filesystem.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 

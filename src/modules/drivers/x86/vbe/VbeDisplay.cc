@@ -23,6 +23,7 @@
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/machine/x86_common/Bios.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #include "modules/system/config/Config.h"
 #include "pedigree/kernel/utilities/utility.h"

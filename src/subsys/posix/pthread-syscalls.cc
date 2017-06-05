@@ -19,7 +19,9 @@
 
 #include "PosixSubsystem.h"
 #include "pedigree/kernel/errors.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include <pthread-syscalls.h>
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/List.h"

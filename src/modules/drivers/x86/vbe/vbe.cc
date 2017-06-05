@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/StaticString.h"

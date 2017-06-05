@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
 #include "modules/system/usb/UsbHub.h"
 
 /** Device driver for the Ohci class */

@@ -25,6 +25,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 BusMasterIde::BusMasterIde()
     : m_pBase(0), m_PrdTableLock(false), m_PrdTable(0), m_LastPrdTableOffset(0),

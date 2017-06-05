@@ -19,6 +19,8 @@
 
 #include "pedigree/native/ipc/Ipc.h"
 #include "pedigree/kernel/process/Ipc.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
 
 #include "pedigree/kernel/utilities/Pair.h"
 #include "pedigree/kernel/utilities/String.h"

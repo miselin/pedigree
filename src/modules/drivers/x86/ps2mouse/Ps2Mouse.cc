@@ -26,6 +26,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/Thread.h"
 
 Ps2Mouse::Ps2Mouse(Device *pDev)
     : m_pBase(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(), m_IrqWait(0)

@@ -21,6 +21,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 Dma::Dma(
     IoBase *pRegs, IoBase *pFb, NvCard card, NvType type, uintptr_t ramSize)

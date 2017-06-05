@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include "pedigree/kernel/machine/Framebuffer.h"
 

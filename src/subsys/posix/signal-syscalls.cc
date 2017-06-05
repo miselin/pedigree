@@ -25,6 +25,7 @@
 #include "pedigree/kernel/syscallError.h"
 
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 #define MACHINE_FORWARD_DECL_ONLY

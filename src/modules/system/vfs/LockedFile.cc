@@ -19,6 +19,7 @@
 
 #include "LockedFile.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 LockedFile::LockedFile(File *pFile)

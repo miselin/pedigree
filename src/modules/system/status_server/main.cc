@@ -29,6 +29,7 @@
 #include "modules/system/network-stack/RoutingTable.h"
 #include "modules/system/network-stack/TcpManager.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"

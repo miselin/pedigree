@@ -26,6 +26,8 @@
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 
