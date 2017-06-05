@@ -425,6 +425,12 @@ class StaticString
     size_t m_Length;
 };
 
+// Specializations for the typedefs below (in StaticString.cc)
+extern template class StaticString<32>;
+extern template class StaticString<64>;
+extern template class StaticString<128>;
+extern template class StaticString<1024>;
+
 typedef StaticString<32> TinyStaticString;
 typedef StaticString<64> NormalStaticString;
 typedef StaticString<128> LargeStaticString;
