@@ -20,14 +20,14 @@
 #ifndef EVENT_MANAGER_H
 #define EVENT_MANAGER_H
 
+class Event;
+
 class EventManager
 {
   public:
     void dispatch(Event *pEvent, Thread *pThread);
 
-    void
-
-        private:
+  private:
 };
 
 #endif
