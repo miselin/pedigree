@@ -20,6 +20,7 @@
 #ifndef USBDESCRIPTORS_H
 #define USBDESCRIPTORS_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 struct UsbEndpointDescriptor
