@@ -23,8 +23,8 @@
 #include "Ext2Filesystem.h"
 #include "Ext2Node.h"
 #include "ext2.h"
-#include "pedigree/kernel/utilities/Vector.h"
 #include "modules/system/vfs/File.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** A File is a file, a directory or a symlink. */
 class Ext2File : public File, public Ext2Node

@@ -18,8 +18,8 @@
  */
 
 #include "InterruptManager.h"
-#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/Processor.h"

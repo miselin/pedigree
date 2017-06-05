@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/openfirmware/Device.h"
-#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 
 OpenFirmware OpenFirmware::m_Instance;
 

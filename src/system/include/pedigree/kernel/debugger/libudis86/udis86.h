@@ -20,7 +20,7 @@
 #ifndef UDIS86_H
 #define UDIS86_H
 
-#include "pedigree/kernel/debugger/libudis86/types.h"
 #include "pedigree/kernel/debugger/libudis86/extern.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
 
 #endif

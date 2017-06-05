@@ -19,11 +19,11 @@
 
 #include "Ne2k.h"
 #include "Ne2kConstants.h"
+#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Network.h"
-#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 

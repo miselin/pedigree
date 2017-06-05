@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/Processor.h"
 #include "../x86_common/PhysicalMemoryManager.h"
 #include "InterruptManager.h"
 #include "SyscallManager.h"
@@ -26,7 +27,6 @@
 #include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "pedigree/kernel/processor/Processor.h"
 
 // Multiprocessor headers
 #if defined(MULTIPROCESSOR)

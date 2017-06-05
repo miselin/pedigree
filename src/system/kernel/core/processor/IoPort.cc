@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/IoPortManager.h"
 
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)

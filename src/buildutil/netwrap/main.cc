@@ -41,11 +41,11 @@
 #include "TunWrapper.h"
 #include "config-shim.h"
 
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "modules/system/network-stack/NetworkStack.h"
 #include "modules/system/network-stack/RoutingTable.h"
 #include "modules/system/network-stack/TcpManager.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/DeviceHashTree.h"
 
 static jmp_buf g_jb;
 

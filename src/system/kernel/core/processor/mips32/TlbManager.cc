@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/mips32/TlbManager.h"
 #include "../mips_common/AsidManager.h"
 #include "VirtualAddressSpace.h"
-#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/mips32/TlbManager.h"
 
 MIPS32TlbManager MIPS32TlbManager::m_Instance;
 

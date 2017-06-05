@@ -18,8 +18,8 @@
  */
 
 #include "Icmp.h"
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "pedigree/kernel/Log.h"
 
 #include "Ethernet.h"
 #include "Ipv4.h"

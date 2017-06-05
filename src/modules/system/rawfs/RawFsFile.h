@@ -20,9 +20,9 @@
 #ifndef RAWFS_FILE_H
 #define RAWFS_FILE_H
 
+#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "modules/system/vfs/File.h"
 
 class RawFsFile : public File
 {

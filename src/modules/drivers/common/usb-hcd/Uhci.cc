@@ -20,6 +20,7 @@
 #ifdef X86_COMMON
 
 #include "Uhci.h"
+#include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
@@ -27,7 +28,6 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
-#include "modules/system/usb/Usb.h"
 
 #define INDEX_FROM_TD_VIRT(ptr)                  \
     (((reinterpret_cast<uintptr_t>((ptr)) -      \

@@ -21,15 +21,15 @@
 #include "PosixSyscallManager.h"
 #include "ProcFs.h"
 #include "UnixFilesystem.h"
-#include "signal-syscalls.h"
-#include "system-syscalls.h"
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "modules/system/ramfs/RamFs.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "modules/system/ramfs/RamFs.h"
-#include "modules/system/vfs/VFS.h"
+#include "signal-syscalls.h"
+#include "system-syscalls.h"
 
 static PosixSyscallManager g_PosixSyscallManager;
 

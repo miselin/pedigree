@@ -18,9 +18,9 @@
  */
 
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include <stdarg.h>
 #include <stddef.h>
-#include "pedigree/kernel/utilities/utility.h"
 
 size_t strlen(const char *s);
 char *strcpy(char *dest, const char *src);

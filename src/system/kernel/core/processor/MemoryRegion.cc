@@ -62,8 +62,7 @@ MemoryRegion::operator bool() const
 
 bool MemoryRegion::physicalBoundsCheck(physical_uintptr_t address)
 {
-    if (address >= m_PhysicalAddress &&
-        address < (m_PhysicalAddress + m_Size))
+    if (address >= m_PhysicalAddress && address < (m_PhysicalAddress + m_Size))
         return true;
     return false;
 }

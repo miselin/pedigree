@@ -19,9 +19,9 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
-#include <machine/ppc_common/Serial.h>
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include <machine/ppc_common/Serial.h>
 
 PPCSerial::PPCSerial() : m_pBuffer(0)
 {

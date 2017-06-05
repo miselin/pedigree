@@ -20,6 +20,8 @@
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
 
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/state.h"
@@ -27,8 +29,6 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/MemoryMappedFile.h"
 
 /** The dynamic linker tracks instances of shared objects through
     an address space. */

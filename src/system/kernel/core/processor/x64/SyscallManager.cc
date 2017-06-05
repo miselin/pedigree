@@ -20,9 +20,9 @@
 #include "SyscallManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/TimeTracker.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/TimeTracker.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Stopwatch.h"
 

@@ -21,10 +21,10 @@
 #include "pedigree/kernel/Log.h"
 
 #include "modules/system/network-stack/NetworkStack.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/time/Time.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbHub.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 
 #include "pedigree/kernel/LockGuard.h"
 

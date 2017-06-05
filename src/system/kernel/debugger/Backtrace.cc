@@ -18,11 +18,11 @@
  */
 
 #include "pedigree/kernel/debugger/Backtrace.h"
-#include "pedigree/kernel/debugger/DwarfUnwinder.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DwarfUnwinder.h"
 #include "pedigree/kernel/linker/KernelElf.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 extern uintptr_t start;
 

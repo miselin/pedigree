@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/panic.h"
@@ -336,7 +336,8 @@ Log &Log::operator<<(Modifier type)
             {
                 if (m_OutputCallbacks[i] != nullptr)
                 {
-                    m_OutputCallbacks[i]->callback(static_cast<const char *>(str));
+                    m_OutputCallbacks[i]->callback(
+                        static_cast<const char *>(str));
                 }
             }
         }

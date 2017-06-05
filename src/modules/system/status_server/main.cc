@@ -17,22 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
-#include "pedigree/kernel/Version.h"
-#include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/core/SlamAllocator.h"
-#include "pedigree/kernel/machine/Network.h"
 #include "modules/system/network-stack/ConnectionBasedEndpoint.h"
 #include "modules/system/network-stack/Endpoint.h"
 #include "modules/system/network-stack/NetworkStack.h"
 #include "modules/system/network-stack/RoutingTable.h"
 #include "modules/system/network-stack/TcpManager.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Version.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #define LISTEN_PORT 1234
 

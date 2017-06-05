@@ -106,7 +106,7 @@
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
 
-#include "pedigree/kernel/core/cppsupport.h" // initialiseConstructors()
+#include "pedigree/kernel/core/cppsupport.h"  // initialiseConstructors()
 
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -121,8 +121,8 @@
 #include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"

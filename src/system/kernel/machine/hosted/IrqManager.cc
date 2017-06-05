@@ -18,10 +18,10 @@
  */
 
 #include "IrqManager.h"
-#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/debugger/Debugger.h"
 
 namespace __pedigree_hosted
 {

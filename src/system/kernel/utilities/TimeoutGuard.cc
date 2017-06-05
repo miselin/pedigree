@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/TimeoutGuard.h"
+#include "pedigree/kernel/compiler.h"
 #ifdef THREADS
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"

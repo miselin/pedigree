@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/debugger/commands/PanicCommand.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/utility.h"
 

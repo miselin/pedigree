@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/Processor.h"
 #include "../ppc_common/PhysicalMemoryManager.h"
 #include "HashedPageTable.h"
 #include "InterruptManager.h"
@@ -28,7 +29,6 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
 
 static uint32_t detectMemory()
 {

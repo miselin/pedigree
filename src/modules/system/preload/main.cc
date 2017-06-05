@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 static const char *g_FilesToPreload[] = {
     "root»/applications/init",        "root»/applications/ttyterm",

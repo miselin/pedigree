@@ -20,11 +20,11 @@
 #include "pedigree/kernel/Log.h"
 #include <PosixSubsystem.h>
 
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
@@ -39,12 +39,12 @@
 #include "logging.h"
 
 #include "modules/system/linker/DynamicLinker.h"
-#include "pedigree/kernel/linker/Elf.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/LockedFile.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/linker/Elf.h"
 
 #include "file-syscalls.h"
 

@@ -17,14 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "modules/system/config/Config.h"
-#include "pedigree/kernel/linker/KernelElf.h"
-#include "pedigree/kernel/syscallError.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/syscallError.h"
 
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 

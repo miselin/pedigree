@@ -18,9 +18,9 @@
  */
 
 #include "InterruptManager.h"
-#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/openfirmware/Device.h"
 #include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"

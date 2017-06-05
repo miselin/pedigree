@@ -20,8 +20,8 @@
 #ifndef MIPS_DISASSEMBLER_H
 #define MIPS_DISASSEMBLER_H
 
-#include "pedigree/kernel/processor/Disassembler.h"
 #include "pedigree/kernel/debugger/libudis86/udis86.h"
+#include "pedigree/kernel/processor/Disassembler.h"
 
 /**
  * A disassembler for R3000-R6000 MIPS32/64 processors.

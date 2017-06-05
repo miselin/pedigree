@@ -18,8 +18,9 @@
  */
 
 #include "DynamicLinker.h"
-#include "pedigree/kernel/Log.h"
 #include "modules/Module.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
@@ -27,7 +28,6 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#include "modules/system/vfs/VFS.h"
 
 extern "C" void plt_resolve(void);
 

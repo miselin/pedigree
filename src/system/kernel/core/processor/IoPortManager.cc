@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #if !defined(KERNEL_PROCESSOR_NO_PORT_IO)

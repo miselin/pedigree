@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 bool DebuggerIO::readCli(HugeStaticString &str, DebuggerCommand *pAutoComplete)

@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/native/native-protocol.h"
 #include "pedigree/native/Object.h"
+#include "pedigree/native/native-protocol.h"
 
 Object::Object()
 {

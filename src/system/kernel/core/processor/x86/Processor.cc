@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/Processor.h"
 #include "../x86_common/PhysicalMemoryManager.h"
 #include "InterruptManager.h"
 #include "VirtualAddressSpace.h"
 #include "gdt.h"
-#include <SlabAllocator.h>
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include <SlabAllocator.h>
 
 // Multiprocessor headers
 #if defined(MULTIPROCESSOR)

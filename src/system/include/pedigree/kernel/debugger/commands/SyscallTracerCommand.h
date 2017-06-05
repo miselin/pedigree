@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/Scrollable.h"
 #include "pedigree/kernel/processor/Processor.h"
 

@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 

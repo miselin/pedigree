@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/Processor.h"
 #include "InterruptManager.h"
 #include "PhysicalMemoryManager.h"
 #include "SyscallManager.h"
@@ -25,7 +26,6 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "pedigree/kernel/processor/Processor.h"
 
 namespace __pedigree_hosted
 {

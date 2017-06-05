@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/Processor.h"
-#include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbPnP.h"
+#include "modules/system/usb/UsbDevice.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 UsbPnP UsbPnP::m_Instance;
 

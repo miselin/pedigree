@@ -18,9 +18,9 @@
  */
 
 #include "Console.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "modules/system/vfs/VFS.h"
 
 extern const char defaultControl[MAX_CONTROL_CHAR];
 

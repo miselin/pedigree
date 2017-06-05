@@ -19,13 +19,13 @@
 
 #include "ProcFs.h"
 
+#include "modules/system/users/Group.h"
+#include "modules/system/users/User.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include "modules/system/users/Group.h"
-#include "modules/system/users/User.h"
 
 #include "file-syscalls.h"
 

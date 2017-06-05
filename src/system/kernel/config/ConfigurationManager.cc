@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/config/ConfigurationBackend.h"
 #include "pedigree/kernel/config/ConfigurationManager.h"
+#include "pedigree/kernel/config/ConfigurationBackend.h"
 
 #include "pedigree/kernel/processor/types.h"
 

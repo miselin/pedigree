@@ -20,13 +20,13 @@
 #ifndef LODISK_H
 #define LODISK_H
 
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/VFS.h"
 
 /// \todo Expose functionality here as a Service - specifically
 /// creating/removing disks.

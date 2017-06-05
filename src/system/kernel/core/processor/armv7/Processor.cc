@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/processor/Processor.h"
 #include "InterruptManager.h"
 #include "PhysicalMemoryManager.h"
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
-#include "pedigree/kernel/processor/Processor.h"
 
 void Processor::initialise1(const BootstrapStruct_t &Info)
 {

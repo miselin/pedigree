@@ -20,12 +20,12 @@
 #include "pedigree/kernel/syscallError.h"
 
 #include "file-syscalls.h"
-#include "pipe-syscalls.h"
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/VFS.h"
+#include "pipe-syscalls.h"
 
-#include <PosixSubsystem.h>
 #include "pedigree/kernel/Subsystem.h"
+#include <PosixSubsystem.h>
 
 #include "modules/Module.h"
 

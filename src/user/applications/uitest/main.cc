@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <Widget.h>
 #include "pedigree/native/graphics/Graphics.h"
 #include "pedigree/native/types.h"
+#include <Widget.h>
 
 #include <iostream>
 

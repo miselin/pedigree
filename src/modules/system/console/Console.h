@@ -20,13 +20,13 @@
 #ifndef CONSOLE_H
 #define CONSOLE_H
 
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/Filesystem.h"
-#include "modules/system/vfs/VFS.h"
 
 #include "ConsoleDefines.h"
 

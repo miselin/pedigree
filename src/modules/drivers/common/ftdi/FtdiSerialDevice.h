@@ -20,9 +20,9 @@
 #ifndef FTDISERIALDEVICE_H
 #define FTDISERIALDEVICE_H
 
+#include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/types.h"
-#include "modules/system/usb/UsbDevice.h"
 
 class FtdiSerialDevice : public UsbDevice, public Serial
 {

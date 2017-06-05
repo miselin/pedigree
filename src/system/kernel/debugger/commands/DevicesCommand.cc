@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/debugger/commands/DevicesCommand.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/processor/Processor.h"

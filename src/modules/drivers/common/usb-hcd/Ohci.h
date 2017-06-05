@@ -20,6 +20,7 @@
 #ifndef OHCI_H
 #define OHCI_H
 
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
@@ -28,7 +29,6 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
-#include "modules/system/usb/UsbHub.h"
 
 /** Device driver for the Ohci class */
 class Ohci : public UsbHub,
