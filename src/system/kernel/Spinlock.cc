@@ -60,10 +60,12 @@ bool Spinlock::acquire(bool recurse, bool safe)
 
     if (m_Magic != 0xdeadbaba)
     {
+        uintptr_t myra =
+            reinterpret_cast<uintptr_t>(__builtin_return_address(0));
         FATAL_NOLOCK(
             "Wrong magic in acquire ["
             << Hex << m_Magic << "] [this=" << reinterpret_cast<uintptr_t>(this)
-            << "]");
+            << "] return=" << myra);
     }
 
 #ifdef TRACK_LOCKS
