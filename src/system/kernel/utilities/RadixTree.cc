@@ -18,3 +18,5 @@
  */
 
 #include "pedigree/kernel/utilities/RadixTree.h"
+
+template class RadixTree<void *>;

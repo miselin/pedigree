@@ -840,7 +840,7 @@ void RadixTree<T>::Node::dump(void (*emit_line)(const char *s)) const
 }
 
 // Explicitly instantiate RadixTree<void*> early.
-template class RadixTree<void *>;
+extern template class RadixTree<void *>;
 
 /** @} */
 

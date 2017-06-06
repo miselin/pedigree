@@ -17,8 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/utilities/RingBuffer.h"
-#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/utilities/RangeList.h"
 
-template class RingBuffer<char>;
-template class RingBuffer<void *>;
+template class RangeList<uint64_t>;
+template class RangeList<uint32_t>;
