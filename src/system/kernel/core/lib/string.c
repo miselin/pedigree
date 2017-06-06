@@ -36,6 +36,32 @@ unsigned long strtoul(const char *nptr, char const **endptr, int base);
 
 #define ULONG_MAX -1
 
+char toUpper(char c)
+{
+    if (c < 'a' || c > 'z')
+        return c;  // special chars
+    c += ('A' - 'a');
+    return c;
+}
+
+char toLower(char c)
+{
+    if (c < 'A' || c > 'Z')
+        return c;  // special chars
+    c -= ('A' - 'a');
+    return c;
+}
+
+int max(size_t a, size_t b)
+{
+    return a > b ? a : b;
+}
+
+int min(size_t a, size_t b)
+{
+    return a > b ? b : a;
+}
+
 size_t _StringLength(const char *src)
 {
     if (!src)
