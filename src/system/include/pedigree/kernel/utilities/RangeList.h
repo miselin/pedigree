@@ -360,4 +360,7 @@ void RangeList<T>::sweep()
     }
 }
 
+extern template class RangeList<uint64_t>;
+extern template class RangeList<uint32_t>;
+
 #endif

@@ -27,6 +27,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 
+class Thread;
+
 /// \todo rewrite this in the same way as TcpBuffer!
 
 namespace RingBufferWait
@@ -282,5 +284,8 @@ class RingBuffer
 
     List<MonitorTarget *> m_MonitorTargets;
 };
+
+extern template class RingBuffer<char>;
+extern template class RingBuffer<void *>;
 
 #endif

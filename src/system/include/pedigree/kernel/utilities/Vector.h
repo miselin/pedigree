@@ -337,6 +337,16 @@ void Vector<T>::swap(Iterator a, Iterator b)
     *b = tmp;
 }
 
+extern template class Vector<void *>;
+extern template class Vector<uint64_t>;
+extern template class Vector<uint32_t>;
+extern template class Vector<uint16_t>;
+extern template class Vector<uint8_t>;
+extern template class Vector<int64_t>;
+extern template class Vector<int32_t>;
+extern template class Vector<int16_t>;
+extern template class Vector<int8_t>;
+
 /** @} */
 
 #endif
