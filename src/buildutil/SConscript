@@ -105,6 +105,14 @@ defines = [
 ]
 
 utility_env = env.Clone()
+
+# Make sure our choice of optimization flag is the only one.
+for possible in ('-O3', '-O2', '-O1', '-O0', '-Os'):
+    try:
+        utility_env['CCFLAGS'].remove(possible)
+    except ValueError:
+        pass
+
 utility_env.Append(**{
     'CPPPATH': header_paths,
     'CPPDEFINES': defines,

@@ -83,35 +83,10 @@ int isalpha(int c) PURE;
 void random_seed(uint64_t seed);
 uint64_t random_next(void);
 
-inline char toUpper(char c) PURE;
-inline char toUpper(char c)
-{
-    if (c < 'a' || c > 'z')
-        return c;  // special chars
-    c += ('A' - 'a');
-    return c;
-}
-
-inline char toLower(char c) PURE;
-inline char toLower(char c)
-{
-    if (c < 'A' || c > 'Z')
-        return c;  // special chars
-    c -= ('A' - 'a');
-    return c;
-}
-
-inline int max(size_t a, size_t b) PURE;
-inline int max(size_t a, size_t b)
-{
-    return a > b ? a : b;
-}
-
-inline int min(size_t a, size_t b) PURE;
-inline int min(size_t a, size_t b)
-{
-    return a > b ? b : a;
-}
+char toUpper(char c) PURE;
+char toLower(char c) PURE;
+int max(size_t a, size_t b) PURE;
+int min(size_t a, size_t b) PURE;
 
 // Memory allocation for C code
 #ifndef UTILITY_LINUX
