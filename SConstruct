@@ -168,6 +168,10 @@ opts.AddVariables(
     BoolVariable('pcap', 'Build the PCAP module, which writes all network traffic to a serial port?', 0),
 
     BoolVariable('optimise_for_size', 'Optimise for size, not speed (e.g. -Os instead of -O3)', 0),
+    BoolVariable('release_build', 'Build for release (i.e. aggressively optimise, reduce debug, and so on).', 0),
+
+    # Compiler options.
+    BoolVariable('gcc_profile_compilation', 'Profile compilation of each file using GCC\'s -Q/-ftime-report options.', 0),
     
     ('uimage_target', 'Where to copy the generated uImage.bin file to.', '~'),
 )
@@ -642,8 +646,12 @@ if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET
     if flags is not None:
         # Fix up optimisation flags.
         if env['optimise_for_size']:
+            replacement = '-O0'
+            if env['release_build']:
+                replacement = '-Os'
+
             default_flags[flags_arch] = [
-                x.replace('-O3', '-Os') for x in default_flags[flags_arch]]
+                x.replace('-O3', replacement) for x in default_flags[flags_arch]]
 
         mapping = {
             'CCFLAGS': default_flags[flags_arch],
@@ -1088,6 +1096,11 @@ if env['iwyu']:
 
     # We don't want disk images when doing an IWYU run.
     env['build_images'] = False
+
+if env['gcc_profile_compilation']:
+    env.MergeFlags({
+        'CCFLAGS': ['-ftime-report'],
+    })
 
 # Fix images directory to be a SCons Dir
 env['PEDIGREE_IMAGES_DIR'] = env.Dir(env['PEDIGREE_IMAGES_DIR'])
