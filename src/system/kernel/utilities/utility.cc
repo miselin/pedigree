@@ -20,8 +20,6 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-#include <stdio.h>
-
 const char *DirectoryName(const char *path)
 {
     const char *last_slash = StringReverseFind(path, '/');
