@@ -59,7 +59,6 @@ if env['HAVE_OPENSSL_SHA']:
 build_env.Append(CPPDEFINES=defines)
 
 build_env.MergeFlags({
-    'CXXFLAGS': ['-std=c++11', '-g3', '-ggdb', '-O2'],
     'LIBPATH': ['.', '..'],
 })
 
