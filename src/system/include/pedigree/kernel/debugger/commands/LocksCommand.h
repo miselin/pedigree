@@ -40,6 +40,8 @@
 #endif
 #endif
 
+#define LOCKS_COMMAND_DO_BACKTRACES 0
+
 /**
  * Traces lock allocations.
  */
@@ -121,14 +123,14 @@ class LocksCommand : public DebuggerCommand, public Scrollable
   private:
     enum State
     {
+        /// This entry is no longer active.
+        Inactive = 0,
         /// The lock is about to be attempted.
         Attempted,
         /// The lock is acquired.
         Acquired,
         /// The lock failed to be acquired, and has been checked once.
         Checked,
-        /// This entry is no longer active.
-        Inactive,
     };
 
     const char *stateName(State s)
@@ -150,21 +152,30 @@ class LocksCommand : public DebuggerCommand, public Scrollable
 
     struct LockDescriptor
     {
-        LockDescriptor() : pLock(0), ra(), n(0), state(Inactive)
+        LockDescriptor() :
+            pLock(0), state(Inactive)
+#if LOCKS_COMMAND_DO_BACKTRACES
+            , n(0), ra()
+#endif
         {
         }
 
         const Spinlock *pLock;
-        uintptr_t ra[NUM_BT_FRAMES];
-        size_t n;
         State state;
+#if LOCKS_COMMAND_DO_BACKTRACES
+        size_t n;
+        uintptr_t ra[NUM_BT_FRAMES];
+#endif
     };
 
     LockDescriptor m_pDescriptors[LOCKS_COMMAND_NUM_CPU][MAX_DESCRIPTORS];
 
-    Atomic<bool> m_bAcquiring[LOCKS_COMMAND_NUM_CPU];
+    Atomic<bool> m_bAcquiring;
+#if LOCKS_COMMAND_DO_BACKTRACES
     Atomic<bool> m_bTracing[LOCKS_COMMAND_NUM_CPU];
-    Atomic<size_t> m_NextPosition[LOCKS_COMMAND_NUM_CPU];
+#endif
+    /// \note locking up to 256 levels deep can be tracked
+    Atomic<uint8_t> m_NextPosition[LOCKS_COMMAND_NUM_CPU];
     Atomic<size_t> m_LockIndex;
 
     bool m_bFatal;

@@ -32,8 +32,6 @@ LocksCommand g_LocksCommand;
 extern Spinlock g_MallocLock;
 #endif
 
-#define DO_BACKTRACES 0
-
 // This is global because we need to rely on it before the constructor is
 // called.
 static bool g_bReady = false;
@@ -48,13 +46,14 @@ static bool g_bReady = false;
     } while (0)
 
 LocksCommand::LocksCommand()
-    : DebuggerCommand(), m_pDescriptors(), m_bAcquiring(), m_LockIndex(0),
+    : DebuggerCommand(), m_pDescriptors(), m_bAcquiring(false), m_LockIndex(0),
       m_bFatal(true), m_SelectedLine(0)
 {
     for (size_t i = 0; i < LOCKS_COMMAND_NUM_CPU; ++i)
     {
-        m_bAcquiring[i] = false;
+#if LOCKS_COMMAND_DO_BACKTRACES
         m_bTracing[i] = false;
+#endif
         m_NextPosition[i] = 0;
     }
 }
@@ -204,7 +203,7 @@ const char *LocksCommand::getLine1(
             {
                 break;
             }
-#if DO_BACKTRACES
+#if LOCKS_COMMAND_DO_BACKTRACES
             else if ((nLock < index) && (nLock + pD->n >= index))
             {
                 break;
@@ -287,7 +286,7 @@ const char *LocksCommand::getLine2(
             {
                 break;
             }
-#if DO_BACKTRACES
+#if LOCKS_COMMAND_DO_BACKTRACES
             else if ((nLock < index) && (nLock + pD->n >= index))
             {
                 // Backtrace frame.
@@ -315,7 +314,7 @@ const char *LocksCommand::getLine2(
 
     colOffset = nDepth + 3;
 
-#if DO_BACKTRACES
+#if LOCKS_COMMAND_DO_BACKTRACES
     if (doBacktrace && pD->n)
     {
         ++colOffset;
@@ -397,7 +396,7 @@ size_t LocksCommand::getLineCount()
             ++numLocks;
         }
 
-#if DO_BACKTRACES
+#if LOCKS_COMMAND_DO_BACKTRACES
         // Add backtrace frames for this lock.
         for (size_t j = 0; j < nextPos; ++j)
         {
@@ -465,10 +464,11 @@ bool LocksCommand::lockAttempted(
 
     pD->pLock = pLock;
     pD->state = Attempted;
-    pD->n = 0;
 
 #ifndef TESTSUITE
-#if DO_BACKTRACES
+#if LOCKS_COMMAND_DO_BACKTRACES
+    pD->n = 0;
+
     // Backtrace has to be touched carefully as it takes locks too. Also, we
     // generally don't care about the top level lock's backtrace, but rather
     // those that are nested (as they are the ones that will cause problems
@@ -629,11 +629,8 @@ bool LocksCommand::checkState(const Spinlock *pLock, size_t nCpu)
     bool bResult = true;
 
     // Enter critical section for all cores.
-    for (size_t i = 0; i < LOCKS_COMMAND_NUM_CPU; ++i)
-    {
-        while (!m_bAcquiring[i].compareAndSwap(false, true))
-            Processor::pause();
-    }
+    while (!m_bAcquiring.compareAndSwap(false, true))
+        Processor::pause();
 
     // Check state of our lock against all other CPUs.
     for (size_t i = 0; i < LOCKS_COMMAND_NUM_CPU; ++i)
@@ -692,10 +689,7 @@ bool LocksCommand::checkState(const Spinlock *pLock, size_t nCpu)
     }
 
     // Done with critical section.
-    for (size_t i = 0; i < LOCKS_COMMAND_NUM_CPU; ++i)
-    {
-        m_bAcquiring[i] = false;
-    }
+    m_bAcquiring = false;
 
     return bResult;
 }
