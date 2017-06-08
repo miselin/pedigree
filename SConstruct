@@ -286,6 +286,8 @@ host_env = Environment(platform='posix', **host_environ)
 host_env.MergeFlags({
     'CPPPATH': ['/include', '/usr/include', '/usr/local/include'],
     'LIBPATH': ['/lib', '/usr/lib', '/usr/local/lib'],
+    'CCFLAGS': ['-pthread'],
+    'LINKFLAGS': ['-pthread'],
     })
 
 conf = Configure(host_env)

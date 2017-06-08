@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -54,6 +55,7 @@ build_env.Append(CPPDEFINES=defines)
 build_env.Append(LIBPATH=[
     build_env['BUILDDIR'].Dir('external'),
     '..',  # buildutil libraries
+    '../ext2img',  # ext2img holds vfs libraries
     '../netwrap',  # libnetwork et al
 ])
 
@@ -76,7 +78,7 @@ libdebugger = coverage_env.StaticLibrary('debugger', [
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
                      LIBS=['netstack', 'network', 'config', 'kernel_coverage',
-                           libdebugger, 'utility_coverage', env['LIBGTEST'],
+                           libdebugger, 'vfs', 'utility_coverage', env['LIBGTEST'],
                            'pthread', 'dl', 'rt'])
 
 if build_env['HAVE_BENCHMARK']:

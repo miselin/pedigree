@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -49,10 +50,20 @@ if env['memory_tracing']:
 if 'LIBGTEST' in env:
     subdirs.append('testsuite')
 
+# Make sure our choice of optimization flag is the only one.
+for possible in ('-O3', '-O2', '-O1', '-O0', '-Os'):
+    try:
+        env['CCFLAGS'].remove(possible)
+    except ValueError:
+        pass
+
 # Make sure we can find libraries in the build directory.
 env.MergeFlags({
     'LIBPATH': [env['BUILDDIR']],
     'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+    'CCFLAGS': ['-g3', '-ggdb', '-O3'],
+    'CXXFLAGS': ['-std=c++11'],
+    'CFLAGS': ['-std=gnu99'],
 })
 
 # Build utility libraries.
@@ -106,22 +117,12 @@ defines = [
 
 utility_env = env.Clone()
 
-# Make sure our choice of optimization flag is the only one.
-for possible in ('-O3', '-O2', '-O1', '-O0', '-Os'):
-    try:
-        utility_env['CCFLAGS'].remove(possible)
-    except ValueError:
-        pass
-
 utility_env.Append(**{
     'CPPPATH': header_paths,
     'CPPDEFINES': defines,
 })
 utility_env.MergeFlags({
-    'CCFLAGS': ['-g3', '-ggdb', '-O3'],
-    'COVERAGE_CCFLAGS': ['-g3', '-ggdb', '-O3'],
-    'CXXFLAGS': ['-std=c++11'],
-    'CFLAGS': ['-std=gnu99'],
+    'COVERAGE_CCFLAGS': ['-g3', '-ggdb'],
 })
 
 utility_env.Library('utility',
