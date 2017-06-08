@@ -52,6 +52,7 @@ static const char *g_ExceptionNames[] = {
     "Alignment Check",
     "Machine-Check",
     "SIMD Floating-Point Exception",
+    "Reserved: Interrupt 19",
     "Reserved: Interrupt 20",
     "Reserved: Interrupt 21",
     "Reserved: Interrupt 22",
