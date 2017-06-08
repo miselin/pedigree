@@ -355,7 +355,10 @@ int StringCompareCase(
     }
     else if (s1 == s2)
     {
-        *offset = StringLength(s1);
+        if (offset)
+        {
+            *offset = StringLength(s1);
+        }
         return 0;
     }
     else if (!s1)
