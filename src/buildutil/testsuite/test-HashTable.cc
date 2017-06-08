@@ -108,191 +108,149 @@ class ModuloTenHashableInteger : public HashableIntegerBase<10>
 
 TEST(PedigreeHashTable, NoOpRemoval)
 {
-    HashTable<HashableInteger, int> hashtable;
+    HashTable<HashableInteger, int, 100, -1> hashtable;
 
     HashableInteger key(0);
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
+    EXPECT_EQ(hashtable.lookup(key), -1);
 
     hashtable.remove(key);
 
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
+    EXPECT_EQ(hashtable.lookup(key), -1);
 }
 
 TEST(PedigreeHashTable, RemoveImpossibleHash)
 {
-    HashTable<HashableInteger, int> hashtable(5);
+    HashTable<HashableInteger, int, 5, -1> hashtable;
 
     HashableInteger key(50);
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
+    EXPECT_EQ(hashtable.lookup(key), -1);
 
     hashtable.remove(key);
 
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
+    EXPECT_EQ(hashtable.lookup(key), -1);
 }
 
 TEST(PedigreeHashTable, AnotherNoOpRemoval)
 {
-    HashTable<HashableInteger, int> hashtable(5);
+    HashTable<HashableInteger, int, 5, -1> hashtable;
 
     HashableInteger key(3);
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
+    EXPECT_EQ(hashtable.lookup(key), -1);
 
     hashtable.remove(key);
 
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
+    EXPECT_EQ(hashtable.lookup(key), -1);
 }
 
 TEST(PedigreeHashTable, RemoveInserted)
 {
-    HashTable<HashableInteger, int> hashtable(5);
-
-    int *value = new int;
+    HashTable<HashableInteger, int, 5> hashtable;
 
     HashableInteger key(3);
-    hashtable.insert(key, value);
+    hashtable.insert(key, 5);
 
-    EXPECT_EQ(hashtable.lookup(key), value);
+    EXPECT_EQ(hashtable.lookup(key), 5);
 
     hashtable.remove(key);
 
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
-
-    delete value;
+    EXPECT_EQ(hashtable.lookup(key), 0);
 }
 
 TEST(PedigreeHashTable, NoBuckets)
 {
-    HashTable<HashableInteger, int> hashtable;
-
-    int *value = new int;
+    HashTable<HashableInteger, int, 0> hashtable;
 
     HashableInteger key(0);
 
-    hashtable.insert(key, value);
-    EXPECT_EQ(hashtable.lookup(key), (int *) 0);
-
-    delete value;
+    hashtable.insert(key, 5);
+    EXPECT_EQ(hashtable.lookup(key), 0);
 }
 
 TEST(PedigreeHashTable, InsertedAlready)
 {
-    HashTable<HashableInteger, int> hashtable(10);
-
-    int *value1 = new int;
-    int *value2 = new int;
+    HashTable<HashableInteger, int, 10> hashtable;
 
     HashableInteger key(0);
 
-    hashtable.insert(key, value1);
-    hashtable.insert(key, value2);
-    EXPECT_EQ(hashtable.lookup(key), value1);
-
-    delete value1;
-    delete value2;
+    hashtable.insert(key, 5);
+    hashtable.insert(key, 6);
+    EXPECT_EQ(hashtable.lookup(key), 5);
 }
 
 TEST(PedigreeHashTable, CollidingHashes)
 {
-    HashTable<CollidingHashableInteger, int> hashtable(10);
-
-    int *value1 = new int;
-    int *value2 = new int;
+    HashTable<CollidingHashableInteger, int, 10> hashtable;
 
     CollidingHashableInteger key1(0), key2(1);
 
-    hashtable.insert(key1, value1);
-    hashtable.insert(key2, value2);
-    EXPECT_EQ(hashtable.lookup(key1), value1);
-    EXPECT_EQ(hashtable.lookup(key2), value2);
-
-    delete value1;
-    delete value2;
+    hashtable.insert(key1, 5);
+    hashtable.insert(key2, 6);
+    EXPECT_EQ(hashtable.lookup(key1), 5);
+    EXPECT_EQ(hashtable.lookup(key2), 6);
 }
 
 TEST(PedigreeHashTable, InsertionNoChains)
 {
-    HashTable<HashableInteger, int> hashtable(10);
-
-    int *value = new int;
+    HashTable<HashableInteger, int, 10> hashtable;
 
     for (size_t i = 0; i < 10; ++i)
     {
         HashableInteger key(i);
-        hashtable.insert(key, value + i);
+        hashtable.insert(key, 5 + i);
     }
 
     for (size_t i = 0; i < 10; ++i)
     {
         HashableInteger key(i);
-        EXPECT_EQ(hashtable.lookup(key), value + i);
+        EXPECT_EQ(hashtable.lookup(key), 5 + i);
     }
-
-    delete value;
 }
 
 TEST(PedigreeHashTable, InsertionWithChains)
 {
-    HashTable<ModuloTenHashableInteger, int> hashtable(10);
-
-    int *value = new int;
+    HashTable<ModuloTenHashableInteger, int, 10> hashtable;
 
     for (size_t i = 0; i < 20; ++i)
     {
         ModuloTenHashableInteger key(i);
-        hashtable.insert(key, value + i);
+        hashtable.insert(key, 5 + i);
     }
 
     for (size_t i = 0; i < 20; ++i)
     {
         ModuloTenHashableInteger key(i);
-        EXPECT_EQ(hashtable.lookup(key), value + i);
+        EXPECT_EQ(hashtable.lookup(key), 5 + i);
     }
-
-    delete value;
 }
 
 TEST(PedigreeHashTable, RemoveChained)
 {
-    HashTable<CollidingHashableInteger, int> hashtable(10);
-
-    int *value1 = new int;
-    int *value2 = new int;
-    int *value3 = new int;
+    HashTable<CollidingHashableInteger, int, 10> hashtable;
 
     CollidingHashableInteger key1(0), key2(1), key3(2);
 
-    hashtable.insert(key1, value1);
-    hashtable.insert(key2, value2);
-    hashtable.insert(key3, value3);
+    hashtable.insert(key1, 1);
+    hashtable.insert(key2, 2);
+    hashtable.insert(key3, 3);
 
     hashtable.remove(key2);
 
-    EXPECT_EQ(hashtable.lookup(key1), value1);
-    EXPECT_EQ(hashtable.lookup(key2), (int *) 0);
-    EXPECT_EQ(hashtable.lookup(key3), value3);
-
-    delete value1;
-    delete value2;
-    delete value3;
+    EXPECT_EQ(hashtable.lookup(key1), 1);
+    EXPECT_EQ(hashtable.lookup(key2), 0);
+    EXPECT_EQ(hashtable.lookup(key3), 3);
 }
 
 TEST(PedigreeHashTable, RemoveFirstInChain)
 {
-    HashTable<CollidingHashableInteger, int> hashtable(10);
-
-    int *value1 = new int;
-    int *value2 = new int;
+    HashTable<CollidingHashableInteger, int, 10> hashtable;
 
     CollidingHashableInteger key1(0), key2(1);
 
-    hashtable.insert(key1, value1);
-    hashtable.insert(key2, value2);
+    hashtable.insert(key1, 1);
+    hashtable.insert(key2, 2);
 
     hashtable.remove(key1);
 
-    EXPECT_EQ(hashtable.lookup(key1), (int *) 0);
-    EXPECT_EQ(hashtable.lookup(key2), value2);
-
-    delete value1;
-    delete value2;
+    EXPECT_EQ(hashtable.lookup(key1), 0);
+    EXPECT_EQ(hashtable.lookup(key2), 2);
 }

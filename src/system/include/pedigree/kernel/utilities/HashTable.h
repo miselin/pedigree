@@ -26,13 +26,14 @@
 /** @addtogroup kernelutilities
  * @{ */
 
+#ifndef HASH_TABLE_ON_STACK
+#define HASH_TABLE_ON_STACK 0
+#endif
+
 /**
  * Hash table class.
  *
  * Handles hash collisions by chaining keys.
- *
- * The table is lazily created, so if a lookup or insertion is never
- * done, the instance will not consume any additional memory.
  *
  * The key type 'K' should have a method hash() which returns a
  * size_t hash that can be used to index into the bucket array.
@@ -40,7 +41,7 @@
  * The key type 'K' should also be able to compare against other 'K'
  * types for equality.
  */
-template <class K, class V>
+template <class K, class V, size_t Buckets = 100, V Default = V()>
 class HashTable
 {
   public:
@@ -50,67 +51,65 @@ class HashTable
      *
      * Hashes that fall outside this range will be silently ignored.
      */
-    HashTable(size_t numbuckets = 0)
+    HashTable()
     {
-        m_Buckets = 0;
-        m_nBuckets = 0;
-        m_MaxBucket = numbuckets;
-    }
-
-    /**
-     * Allows for late configuration of the hash table size, for
-     * cases where the table size can be optimised.
-     */
-    void initialise(size_t numbuckets, bool preallocate = false)
-    {
-        if (m_Buckets)
+        if (!Buckets)
         {
             return;
         }
-        m_MaxBucket = numbuckets;
-        m_nBuckets = 0;
 
-        if (preallocate)
+#if !HASH_TABLE_ON_STACK
+        m_Buckets = new bucket[Buckets];
+#endif
+
+        for (size_t i = 0; i < Buckets; ++i)
         {
-            m_nBuckets = m_MaxBucket;
-            m_Buckets = new bucket[m_nBuckets];
+            m_Buckets[i].set = false;
         }
     }
 
     /**
-     * Clear the HashTable and free all held memory.
+     * Clear the HashTable.
      */
     void clear()
     {
-        if (!m_Buckets)
+        if (!Buckets)
         {
             return;
         }
 
-        delete[] m_Buckets;
-        m_Buckets = 0;
+        for (size_t i = 0; i < Buckets; ++i)
+        {
+            if (!m_Buckets[i].set)
+            {
+                continue;
+            }
 
-        m_MaxBucket = 0;
-        m_nBuckets = 0;
+            bucket *b = m_Buckets[i].next;
+            while (b)
+            {
+                bucket *d = b;
+                b = b->next;
+                delete d;
+            }
+
+            m_Buckets[i].set = false;
+            m_Buckets[i].value = Default;
+        }
     }
 
     virtual ~HashTable()
     {
-        if (m_Buckets)
+        if (!Buckets)
         {
-            for (size_t i = 0; i < m_nBuckets; ++i)
-            {
-                bucket *b = m_Buckets[i].next;
-                while (b)
-                {
-                    bucket *d = b;
-                    b = b->next;
-                    delete d;
-                }
-            }
-
-            delete[] m_Buckets;
+            return;
         }
+
+        clear();
+
+#if !HASH_TABLE_ON_STACK
+        delete [] m_Buckets;
+#endif
     }
 
     /**
@@ -120,30 +119,19 @@ class HashTable
      * O(1) in the average case, with a hash function that rarely
      * collides.
      */
-    V *lookup(K &k) const
+    const V &lookup(const K &k) const
     {
-        // No buckets yet?
-        if (!m_Buckets)
+        if (!Buckets)
         {
-            return 0;
+            return m_Default;
         }
 
-        size_t hash = k.hash();
-        if (hash > m_MaxBucket)
-        {
-            return 0;
-        }
+        size_t hash = k.hash() % Buckets;
 
-        if (hash >= m_nBuckets)
-        {
-            // Not present.
-            return 0;
-        }
-
-        bucket *b = &m_Buckets[hash];
+        const bucket *b = &m_Buckets[hash];
         if (!b->set)
         {
-            return 0;
+            return m_Default;
         }
 
         if (b->key != k)
@@ -163,7 +151,7 @@ class HashTable
 
             if (!chain)
             {
-                return 0;
+                return m_Default;
             }
         }
 
@@ -173,43 +161,24 @@ class HashTable
     /**
      * Insert the given value with the given key.
      */
-    bool insert(K &k, V *v)
+    bool insert(const K &k, const V &v, bool chain = true)
     {
-        // If this exact key already exists, we have more than
-        // just a hash collision, and we must fail.
-        if (lookup(k) != 0)
+        if (!Buckets)
         {
-            return false;
+            return true;
         }
 
-        if (!m_MaxBucket)
-        {
-            return false;
-        }
-
-        size_t hash = k.hash();
-        if (hash > m_MaxBucket)
-        {
-            return false;
-        }
-
-        // Lazily create buckets if needed.
-        if ((hash + 1) > m_nBuckets)
-        {
-            size_t nextStep = max(max(m_nBuckets * 2, hash + 1), m_MaxBucket);
-            bucket *newBuckets = new bucket[nextStep];
-            if (m_Buckets)
-            {
-                pedigree_std::copy(newBuckets, m_Buckets, m_nBuckets);
-                delete[] m_Buckets;
-            }
-            m_nBuckets = nextStep;
-            m_Buckets = newBuckets;
-        }
+        size_t hash = k.hash() % Buckets;
 
         // Do we need to chain?
         if (m_Buckets[hash].set)
         {
+            // If key matches, this is more than a hash collision.
+            if (m_Buckets[hash].key == k)
+            {
+                return false;
+            }
+
             // Yes.
             bucket *newb = new bucket;
             newb->key = k;
@@ -239,30 +208,21 @@ class HashTable
     /**
      * Remove the given key.
      */
-    void remove(K &k)
+    void remove(const K &k)
     {
-        if (lookup(k) == 0)
+        if (!Buckets)
         {
             return;
         }
 
-        if (!m_Buckets)
-        {
-            return;
-        }
-
-        size_t hash = k.hash();
-        if (hash > m_MaxBucket)
-        {
-            return;
-        }
-
-        if (hash > m_nBuckets)
-        {
-            return;
-        }
+        size_t hash = k.hash() % Buckets;
 
         bucket *b = &m_Buckets[hash];
+        if (!b->set)
+        {
+            return;
+        }
+
         if (b->key == k)
         {
             if (b->next)
@@ -300,12 +260,12 @@ class HashTable
   private:
     struct bucket
     {
-        bucket() : key(), value(0), next(0), set(false)
+        bucket() : key(), value(Default), next(nullptr), set(false)
         {
         }
 
         K key;
-        V *value;
+        V value;
 
         // Where hash collisions occur, we chain another value
         // to the original bucket.
@@ -314,9 +274,12 @@ class HashTable
         bool set;
     };
 
+#if HASH_TABLE_ON_STACK
+    bucket m_Buckets[Buckets];
+#else
     bucket *m_Buckets;
-    size_t m_nBuckets;
-    size_t m_MaxBucket;
+#endif
+    V m_Default = Default;
 };
 
 /** @} */

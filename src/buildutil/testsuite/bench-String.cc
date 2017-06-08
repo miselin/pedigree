@@ -312,6 +312,60 @@ static void BM_CxxStringTokenizeRef(benchmark::State &state)
     state.SetComplexityN(state.range(0));
 }
 
+static void BM_CxxStringCompareBestCase(benchmark::State &state)
+{
+    char left[state.range(0)];
+    char right[state.range(0)];
+    memset(left, 'a', state.range(0));
+    memset(right, 'a', state.range(0));
+    right[0] = 'b';  // very early fail
+
+    String l(left, state.range(0)), r(right, state.range(0));
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(l == r);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareAverageCase(benchmark::State &state)
+{
+    char left[state.range(0)];
+    char right[state.range(0)];
+    memset(left, 'a', state.range(0));
+    memset(right, 'a', state.range(0));
+    right[state.range(0) / 2] = 'b';  // middle range fail
+
+    String l(left, state.range(0)), r(right, state.range(0));
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(l == r);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareWorstCase(benchmark::State &state)
+{
+    char left[state.range(0)];
+    char right[state.range(0)];
+    memset(left, 'a', state.range(0));
+    memset(right, 'a', state.range(0));
+    right[state.range(0) - 1] = 'b';  // end of range fail
+
+    String l(left, state.range(0)), r(right, state.range(0));
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(l == r);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
 BENCHMARK(BM_CxxStringCreation);
 BENCHMARK(BM_CxxStringCreationConstexpr);
 BENCHMARK(BM_CxxStringCopyToStatic);
@@ -328,3 +382,6 @@ BENCHMARK(BM_CxxStringSplit)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringSplitRef)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringTokenize)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringTokenizeRef)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringCompareBestCase)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringCompareAverageCase)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringCompareWorstCase)->Range(8, 4096)->Complexity();
