@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include <stdarg.h>
@@ -132,7 +133,7 @@ int StringFormat(char *buf, const char *fmt, ...)
     return i;
 }
 
-int StringCompare(const char *p1, const char *p2)
+WEAK int StringCompare(const char *p1, const char *p2)
 {
     if (p1 == p2)
         return 0;
@@ -149,7 +150,7 @@ int StringCompare(const char *p1, const char *p2)
     return *p1 - *p2;
 }
 
-int StringCompareN(const char *p1, const char *p2, size_t n)
+WEAK int StringCompareN(const char *p1, const char *p2, size_t n)
 {
     if (!n)
         return 0;

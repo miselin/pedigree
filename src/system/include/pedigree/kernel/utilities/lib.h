@@ -33,9 +33,11 @@
 extern "C" {
 #endif
 
-// String functions.
+// This is not a prototype so doesn't fall into the block below.
 #define StringLength(x) \
     (IS_CONSTANT(x) ? __builtin_strlen((x)) : _StringLength(x))
+
+// String functions.
 size_t _StringLength(const char *buf) PURE;
 char *StringCopy(char *dest, const char *src);
 char *StringCopyN(char *dest, const char *src, size_t len);
