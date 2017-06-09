@@ -57,9 +57,9 @@ class ElfHashedSymbol
     {
     }
 
-    ElfHashedSymbol(const String &str) : str_(str), hash_(0)
+    ElfHashedSymbol(const String *str) : str_(str), hash_(0)
     {
-        hash_ = elf_hash(str_);
+        hash_ = elf_hash(*str_);
     }
 
     uint32_t hash() const
@@ -69,16 +69,16 @@ class ElfHashedSymbol
 
     bool operator==(const ElfHashedSymbol &other) const
     {
-        return str_ == other.str_;
+        return *str_ == *other.str_;
     }
 
     bool operator!=(const ElfHashedSymbol &other) const
     {
-        return str_ != other.str_;
+        return *str_ != *other.str_;
     }
 
   private:
-    String str_;
+    const String *str_;
     uint32_t hash_;
 };
 
@@ -89,9 +89,9 @@ class JenkinsHashedSymbol
     {
     }
 
-    JenkinsHashedSymbol(const String &str) : str_(str), hash_(0)
+    JenkinsHashedSymbol(const String *str) : str_(str), hash_(0)
     {
-        hash_ = jenkins_hash(str_);
+        hash_ = jenkins_hash(*str_);
     }
 
     uint32_t hash() const
@@ -101,16 +101,16 @@ class JenkinsHashedSymbol
 
     bool operator==(const JenkinsHashedSymbol &other) const
     {
-        return str_ == other.str_;
+        return *str_ == *other.str_;
     }
 
     bool operator!=(const JenkinsHashedSymbol &other) const
     {
-        return str_ != other.str_;
+        return *str_ != *other.str_;
     }
 
   private:
-    String str_;
+    const String *str_;
     uint32_t hash_;
 };
 
@@ -121,9 +121,9 @@ class MurmurHashedSymbol
     {
     }
 
-    MurmurHashedSymbol(const String &str) : str_(str), hash_(0)
+    MurmurHashedSymbol(const String *str) : str_(str), hash_(0)
     {
-        hash_ = murmur_hash(str_);
+        hash_ = murmur_hash(*str_);
     }
 
     uint32_t hash() const
@@ -133,18 +133,23 @@ class MurmurHashedSymbol
 
     bool operator==(const MurmurHashedSymbol &other) const
     {
-        return str_ == other.str_;
+        return *str_ == *other.str_;
     }
 
     bool operator!=(const MurmurHashedSymbol &other) const
     {
-        return str_ != other.str_;
+        return *str_ != *other.str_;
     }
 
   private:
-    String str_;
+    const String *str_;
     uint32_t hash_;
 };
+
+extern template class RadixTree<int64_t>;
+extern template class HashTable<ElfHashedSymbol, int64_t>;
+extern template class HashTable<JenkinsHashedSymbol, int64_t>;
+extern template class HashTable<MurmurHashedSymbol, int64_t>;
 
 static void LoadSymbols(std::vector<String> &result)
 {
@@ -158,6 +163,15 @@ static void LoadSymbols(std::vector<String> &result)
 
         String word(s.c_str());
         result.push_back(word);
+    }
+}
+
+template <class T>
+static void CreateKeys(const std::vector<String> &symbols, std::vector<T> &keys)
+{
+    for (auto &word : symbols)
+    {
+        keys.push_back(T(&word));
     }
 }
 
@@ -188,20 +202,22 @@ static void BM_SymbolsInsert_RadixTree(benchmark::State &state)
 static void BM_SymbolsInsert_ElfHash(benchmark::State &state)
 {
     std::vector<String> symbols;
+    std::vector<ElfHashedSymbol> keys;
     int64_t value = 1;
 
     LoadSymbols(symbols);
+    CreateKeys(symbols, keys);
 
-    HashTable<ElfHashedSymbol, int64_t, 0x10000> map;
+    HashTable<ElfHashedSymbol, int64_t> map;
     while (state.KeepRunning())
     {
         state.PauseTiming();
         map.clear();
         state.ResumeTiming();
 
-        for (auto &word : symbols)
+        for (auto &key : keys)
         {
-            map.insert(ElfHashedSymbol(word), value);
+            map.insert(key, value);
         }
     }
 
@@ -212,20 +228,22 @@ static void BM_SymbolsInsert_ElfHash(benchmark::State &state)
 static void BM_SymbolsInsert_JenkinsHash(benchmark::State &state)
 {
     std::vector<String> symbols;
+    std::vector<JenkinsHashedSymbol> keys;
     int64_t value = 1;
 
     LoadSymbols(symbols);
+    CreateKeys(symbols, keys);
 
-    HashTable<JenkinsHashedSymbol, int64_t, 0x10000> map;
+    HashTable<JenkinsHashedSymbol, int64_t> map;
     while (state.KeepRunning())
     {
         state.PauseTiming();
         map.clear();
         state.ResumeTiming();
 
-        for (auto &word : symbols)
+        for (auto &key : keys)
         {
-            map.insert(JenkinsHashedSymbol(word), value);
+            map.insert(key, value);
         }
     }
 
@@ -236,20 +254,22 @@ static void BM_SymbolsInsert_JenkinsHash(benchmark::State &state)
 static void BM_SymbolsInsert_MurmurHash(benchmark::State &state)
 {
     std::vector<String> symbols;
+    std::vector<MurmurHashedSymbol> keys;
     int64_t value = 1;
 
     LoadSymbols(symbols);
+    CreateKeys(symbols, keys);
 
-    HashTable<MurmurHashedSymbol, int64_t, 0x10000> map;
+    HashTable<MurmurHashedSymbol, int64_t> map;
     while (state.KeepRunning())
     {
         state.PauseTiming();
         map.clear();
         state.ResumeTiming();
 
-        for (auto &word : symbols)
+        for (auto &key : keys)
         {
-            map.insert(MurmurHashedSymbol(word), value);
+            map.insert(key, value);
         }
     }
 
@@ -287,24 +307,26 @@ static void BM_SymbolsLookup_RadixTree(benchmark::State &state)
 static void BM_SymbolsLookup_ElfHash(benchmark::State &state)
 {
     std::vector<String> symbols;
+    std::vector<ElfHashedSymbol> keys;
     int64_t value = 1;
 
     LoadSymbols(symbols);
+    CreateKeys(symbols, keys);
 
-    HashTable<ElfHashedSymbol, int64_t, 0x10000> map;
-    for (auto word : symbols)
+    HashTable<ElfHashedSymbol, int64_t> map;
+    for (auto &key : keys)
     {
-        map.insert(ElfHashedSymbol(word), value);
+        map.insert(key, value);
     }
 
-    auto it = symbols.begin();
+    auto it = keys.begin();
     while (state.KeepRunning())
     {
-        auto &word = *it;
-        benchmark::DoNotOptimize(map.lookup(ElfHashedSymbol(word)));
-        if (++it == symbols.end())
+        auto &k = *it;
+        benchmark::DoNotOptimize(map.lookup(k));
+        if (++it == keys.end())
         {
-            it = symbols.begin();
+            it = keys.begin();
         }
     }
 
@@ -314,24 +336,26 @@ static void BM_SymbolsLookup_ElfHash(benchmark::State &state)
 static void BM_SymbolsLookup_JenkinsHash(benchmark::State &state)
 {
     std::vector<String> symbols;
+    std::vector<JenkinsHashedSymbol> keys;
     int64_t value = 1;
 
     LoadSymbols(symbols);
+    CreateKeys(symbols, keys);
 
-    HashTable<JenkinsHashedSymbol, int64_t, 0x10000> map;
-    for (auto word : symbols)
+    HashTable<JenkinsHashedSymbol, int64_t> map;
+    for (auto &key : keys)
     {
-        map.insert(JenkinsHashedSymbol(word), value);
+        map.insert(key, value);
     }
 
-    auto it = symbols.begin();
+    auto it = keys.begin();
     while (state.KeepRunning())
     {
-        auto &word = *it;
-        benchmark::DoNotOptimize(map.lookup(JenkinsHashedSymbol(word)));
-        if (++it == symbols.end())
+        auto &k = *it;
+        benchmark::DoNotOptimize(map.lookup(k));
+        if (++it == keys.end())
         {
-            it = symbols.begin();
+            it = keys.begin();
         }
     }
 
@@ -341,24 +365,26 @@ static void BM_SymbolsLookup_JenkinsHash(benchmark::State &state)
 static void BM_SymbolsLookup_MurmurHash(benchmark::State &state)
 {
     std::vector<String> symbols;
+    std::vector<MurmurHashedSymbol> keys;
     int64_t value = 1;
 
     LoadSymbols(symbols);
+    CreateKeys(symbols, keys);
 
-    HashTable<MurmurHashedSymbol, int64_t, 0x10000> map;
-    for (auto word : symbols)
+    HashTable<MurmurHashedSymbol, int64_t> map;
+    for (auto &key : keys)
     {
-        map.insert(MurmurHashedSymbol(word), value);
+        map.insert(key, value);
     }
 
-    auto it = symbols.begin();
+    auto it = keys.begin();
     while (state.KeepRunning())
     {
-        auto &word = *it;
-        benchmark::DoNotOptimize(map.lookup(MurmurHashedSymbol(word)));
-        if (++it == symbols.end())
+        auto &k = *it;
+        benchmark::DoNotOptimize(map.lookup(k));
+        if (++it == keys.end())
         {
-            it = symbols.begin();
+            it = keys.begin();
         }
     }
 
@@ -373,3 +399,10 @@ BENCHMARK(BM_SymbolsLookup_RadixTree);
 BENCHMARK(BM_SymbolsLookup_ElfHash);
 BENCHMARK(BM_SymbolsLookup_JenkinsHash);
 BENCHMARK(BM_SymbolsLookup_MurmurHash);
+
+// Implementations after all usages of HashTable and RadixTree so we get
+// single emitted versions, rather than inline versions.
+template class RadixTree<int64_t>;
+template class HashTable<ElfHashedSymbol, int64_t>;
+template class HashTable<JenkinsHashedSymbol, int64_t>;
+template class HashTable<MurmurHashedSymbol, int64_t>;
