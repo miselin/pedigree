@@ -132,7 +132,7 @@ static void BM_StringCompareN(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(StringCopyN(buf1, buf2, state.range_x()));
+        benchmark::DoNotOptimize(StringCompareN(buf1, buf2, state.range_x()));
     }
 
     state.SetBytesProcessed(
