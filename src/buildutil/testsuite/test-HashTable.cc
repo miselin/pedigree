@@ -108,7 +108,7 @@ class ModuloTenHashableInteger : public HashableIntegerBase<10>
 
 TEST(PedigreeHashTable, NoOpRemoval)
 {
-    HashTable<HashableInteger, int, 100, -1> hashtable;
+    HashTable<HashableInteger, int, -1> hashtable;
 
     HashableInteger key(0);
     EXPECT_EQ(hashtable.lookup(key), -1);
@@ -118,21 +118,9 @@ TEST(PedigreeHashTable, NoOpRemoval)
     EXPECT_EQ(hashtable.lookup(key), -1);
 }
 
-TEST(PedigreeHashTable, RemoveImpossibleHash)
-{
-    HashTable<HashableInteger, int, 5, -1> hashtable;
-
-    HashableInteger key(50);
-    EXPECT_EQ(hashtable.lookup(key), -1);
-
-    hashtable.remove(key);
-
-    EXPECT_EQ(hashtable.lookup(key), -1);
-}
-
 TEST(PedigreeHashTable, AnotherNoOpRemoval)
 {
-    HashTable<HashableInteger, int, 5, -1> hashtable;
+    HashTable<HashableInteger, int, -1> hashtable;
 
     HashableInteger key(3);
     EXPECT_EQ(hashtable.lookup(key), -1);
@@ -144,7 +132,7 @@ TEST(PedigreeHashTable, AnotherNoOpRemoval)
 
 TEST(PedigreeHashTable, RemoveInserted)
 {
-    HashTable<HashableInteger, int, 5> hashtable;
+    HashTable<HashableInteger, int> hashtable;
 
     HashableInteger key(3);
     hashtable.insert(key, 5);
@@ -156,19 +144,9 @@ TEST(PedigreeHashTable, RemoveInserted)
     EXPECT_EQ(hashtable.lookup(key), 0);
 }
 
-TEST(PedigreeHashTable, NoBuckets)
-{
-    HashTable<HashableInteger, int, 0> hashtable;
-
-    HashableInteger key(0);
-
-    hashtable.insert(key, 5);
-    EXPECT_EQ(hashtable.lookup(key), 0);
-}
-
 TEST(PedigreeHashTable, InsertedAlready)
 {
-    HashTable<HashableInteger, int, 10> hashtable;
+    HashTable<HashableInteger, int> hashtable;
 
     HashableInteger key(0);
 
@@ -179,7 +157,7 @@ TEST(PedigreeHashTable, InsertedAlready)
 
 TEST(PedigreeHashTable, CollidingHashes)
 {
-    HashTable<CollidingHashableInteger, int, 10> hashtable;
+    HashTable<CollidingHashableInteger, int> hashtable;
 
     CollidingHashableInteger key1(0), key2(1);
 
@@ -191,7 +169,7 @@ TEST(PedigreeHashTable, CollidingHashes)
 
 TEST(PedigreeHashTable, InsertionNoChains)
 {
-    HashTable<HashableInteger, int, 10> hashtable;
+    HashTable<HashableInteger, int> hashtable;
 
     for (size_t i = 0; i < 10; ++i)
     {
@@ -208,12 +186,12 @@ TEST(PedigreeHashTable, InsertionNoChains)
 
 TEST(PedigreeHashTable, InsertionWithChains)
 {
-    HashTable<ModuloTenHashableInteger, int, 10> hashtable;
+    HashTable<ModuloTenHashableInteger, int> hashtable;
 
     for (size_t i = 0; i < 20; ++i)
     {
         ModuloTenHashableInteger key(i);
-        hashtable.insert(key, 5 + i);
+        EXPECT_TRUE(hashtable.insert(key, 5 + i));
     }
 
     for (size_t i = 0; i < 20; ++i)
@@ -225,24 +203,24 @@ TEST(PedigreeHashTable, InsertionWithChains)
 
 TEST(PedigreeHashTable, RemoveChained)
 {
-    HashTable<CollidingHashableInteger, int, 10> hashtable;
+    HashTable<CollidingHashableInteger, int, -1, 4> hashtable;
 
     CollidingHashableInteger key1(0), key2(1), key3(2);
 
-    hashtable.insert(key1, 1);
-    hashtable.insert(key2, 2);
-    hashtable.insert(key3, 3);
+    EXPECT_TRUE(hashtable.insert(key1, 1));
+    EXPECT_TRUE(hashtable.insert(key2, 2));
+    EXPECT_TRUE(hashtable.insert(key3, 3));
 
     hashtable.remove(key2);
 
     EXPECT_EQ(hashtable.lookup(key1), 1);
-    EXPECT_EQ(hashtable.lookup(key2), 0);
+    EXPECT_EQ(hashtable.lookup(key2), -1);
     EXPECT_EQ(hashtable.lookup(key3), 3);
 }
 
 TEST(PedigreeHashTable, RemoveFirstInChain)
 {
-    HashTable<CollidingHashableInteger, int, 10> hashtable;
+    HashTable<CollidingHashableInteger, int> hashtable;
 
     CollidingHashableInteger key1(0), key2(1);
 

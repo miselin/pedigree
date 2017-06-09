@@ -23,12 +23,10 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
 
+#include <iostream>
+
 /** @addtogroup kernelutilities
  * @{ */
-
-#ifndef HASH_TABLE_ON_STACK
-#define HASH_TABLE_ON_STACK 0
-#endif
 
 /**
  * Hash table class.
@@ -40,10 +38,15 @@
  *
  * The key type 'K' should also be able to compare against other 'K'
  * types for equality.
+ *
+ * \todo check InitialBuckets for is a power of two
  */
-template <class K, class V, size_t Buckets = 100, V Default = V()>
+template <class K, class V, V Default = V(), size_t InitialBuckets = 4>
 class HashTable
 {
+    static_assert(
+        InitialBuckets > 0, "At least one initial bucket must be available.");
+
   public:
     /**
      * To determine how many buckets you need, simply identify the
@@ -51,21 +54,9 @@ class HashTable
      *
      * Hashes that fall outside this range will be silently ignored.
      */
-    HashTable()
+    HashTable() : m_Buckets(nullptr), m_nBuckets(0), m_nItems(0), m_nMask(0)
     {
-        if (!Buckets)
-        {
-            return;
-        }
-
-#if !HASH_TABLE_ON_STACK
-        m_Buckets = new bucket[Buckets];
-#endif
-
-        for (size_t i = 0; i < Buckets; ++i)
-        {
-            m_Buckets[i].set = false;
-        }
+        check();
     }
 
     /**
@@ -73,43 +64,14 @@ class HashTable
      */
     void clear()
     {
-        if (!Buckets)
-        {
-            return;
-        }
-
-        for (size_t i = 0; i < Buckets; ++i)
-        {
-            if (!m_Buckets[i].set)
-            {
-                continue;
-            }
-
-            bucket *b = m_Buckets[i].next;
-            while (b)
-            {
-                bucket *d = b;
-                b = b->next;
-                delete d;
-            }
-
-            m_Buckets[i].set = false;
-            m_Buckets[i].value = Default;
-        }
+        delete [] m_Buckets;
+        m_Buckets = nullptr;
+        m_nItems = 0;
     }
 
     virtual ~HashTable()
     {
-        if (!Buckets)
-        {
-            return;
-        }
-
         clear();
-
-#if !HASH_TABLE_ON_STACK
-        delete [] m_Buckets;
-#endif
     }
 
     /**
@@ -121,12 +83,12 @@ class HashTable
      */
     const V &lookup(const K &k) const
     {
-        if (!Buckets)
+        if ((!m_Buckets) || (!m_nItems))
         {
             return m_Default;
         }
 
-        size_t hash = k.hash() % Buckets;
+        size_t hash = k.hash() & m_nMask;
 
         const bucket *b = &m_Buckets[hash];
         if (!b->set)
@@ -136,20 +98,8 @@ class HashTable
 
         if (b->key != k)
         {
-            // Search the chain.
-            bucket *chain = b->next;
-            while (chain)
-            {
-                if (chain->key == k)
-                {
-                    b = chain;
-                    break;
-                }
-
-                chain = chain->next;
-            }
-
-            if (!chain)
+            b = findNextSet(hash, k);
+            if (!b)
             {
                 return m_Default;
             }
@@ -161,46 +111,43 @@ class HashTable
     /**
      * Insert the given value with the given key.
      */
-    bool insert(const K &k, const V &v, bool chain = true)
+    bool insert(const K &k, const V &v)
     {
-        if (!Buckets)
+        check();
+
+        // Handle resize and associated rehash if the table is full.
+        if (m_nItems >= (m_nBuckets - 1))
         {
-            return true;
+            size_t origCount = m_nBuckets;
+            m_nBuckets *= 2;
+            m_nMask = m_nBuckets - 1;
+            rehash(origCount);
         }
 
-        size_t hash = k.hash() % Buckets;
+        size_t hash = k.hash() & m_nMask;
 
         // Do we need to chain?
-        if (m_Buckets[hash].set)
+        bucket *b = &m_Buckets[hash];
+        if (b->set)
         {
-            // If key matches, this is more than a hash collision.
-            if (m_Buckets[hash].key == k)
+            // If key matches, this is more than just a hash collision.
+            if (b->key == k)
             {
                 return false;
             }
 
-            // Yes.
-            bucket *newb = new bucket;
-            newb->key = k;
-            newb->value = v;
-            newb->set = true;
-            newb->next = 0;
-
-            bucket *bucket = &m_Buckets[hash];
-            while (bucket->next)
+            // Probe for an empty bucket.
+            b = findNextEmpty(hash);
+            if (!b)
             {
-                bucket = bucket->next;
+                return false;
             }
+        }
 
-            bucket->next = newb;
-        }
-        else
-        {
-            m_Buckets[hash].set = true;
-            m_Buckets[hash].key = k;
-            m_Buckets[hash].value = v;
-            m_Buckets[hash].next = 0;
-        }
+        b->set = true;
+        b->key = k;
+        b->value = v;
+        ++m_nItems;
 
         return true;
     }
@@ -210,12 +157,12 @@ class HashTable
      */
     void remove(const K &k)
     {
-        if (!Buckets)
+        if (!m_Buckets)
         {
             return;
         }
 
-        size_t hash = k.hash() % Buckets;
+        size_t hash = k.hash() & m_nMask;
 
         bucket *b = &m_Buckets[hash];
         if (!b->set)
@@ -223,63 +170,194 @@ class HashTable
             return;
         }
 
+        bool didRemove = false;
+
         if (b->key == k)
         {
-            if (b->next)
-            {
-                // Carry the next entry into this position.
-                bucket *next = b->next;
-                m_Buckets[hash] = *next;
-                delete next;
-            }
-            else
-            {
-                // This entry is available, no chain present.
-                m_Buckets[hash].set = false;
-            }
+            b->set = false;
+            didRemove = true;
         }
         else
         {
-            // There's a chain, so we need to find the correct key in it.
-            bucket *p = b;
-            bucket *l = p;
-            while (p)
+            b = findNextSet(hash, k);
+            if (b)
             {
-                if (p->key == k)
-                {
-                    l->next = p->next;
-                    delete p;
-                    break;
-                }
+                b->set = false;
+                didRemove = true;
+            }
+        }
 
-                p = p->next;
+        if (didRemove)
+        {
+            --m_nItems;
+
+            if (m_nItems)
+            {
+                // Must rehash as we use linear probing for collision handling.
+                rehash();
             }
         }
     }
 
+    size_t count() const
+    {
+        return m_nItems;
+    }
+
+    /**
+     * Get the index of the next bucket to try from the given one.
+     *
+     * 'factor' is an in/out that specifies a factor to multiply by for
+     * non-linear probes. 'mult' is a multiplier to apply to 'factor' after
+     * calculation. Set 'mult' to 2 to get quadratic probes.
+     */
+    size_t calculateNextHash(size_t currentHash, size_t &factor, bool quadratic=false) const
+    {
+        size_t addend = factor;
+        if (quadratic)
+        {
+            // Next factor = N^2
+            addend = factor * factor;
+        }
+        size_t next = (currentHash + addend) & m_nMask;
+        ++factor;
+        return next;
+    }
+
   private:
+    /// Probe multiplier - 2 for quadratic probing.
+    static const bool QuadraticProbe = true;
+
     struct bucket
     {
-        bucket() : key(), value(Default), next(nullptr), set(false)
+        bucket() : key(), value(Default), set(false)
         {
         }
 
         K key;
         V value;
-
-        // Where hash collisions occur, we chain another value
-        // to the original bucket.
-        bucket *next;
-
         bool set;
     };
 
-#if HASH_TABLE_ON_STACK
-    bucket m_Buckets[Buckets];
-#else
+    void check()
+    {
+        if (m_Buckets == nullptr)
+        {
+            m_Buckets = new bucket[InitialBuckets];
+            m_nBuckets = InitialBuckets;
+            m_nMask = InitialBuckets - 1;
+        }
+    }
+
+    void rehash(size_t oldCount = 0)
+    {
+        if (oldCount == 0)
+        {
+            oldCount = m_nBuckets;
+        }
+
+        bucket *oldBuckets = m_Buckets;
+        m_Buckets = new bucket[m_nBuckets];
+        if (m_nItems)
+        {
+            // Performing a new insert, clear out the number of items as
+            // insert() will increment otherwise.
+            m_nItems = 0;
+
+            for (size_t i = 0; i < oldCount; ++i)
+            {
+                if (oldBuckets[i].set)
+                {
+                    insert(oldBuckets[i].key, oldBuckets[i].value);
+                }
+            }
+        }
+        delete [] oldBuckets;
+    }
+
+    size_t nextIndex(size_t i, size_t &index, size_t &step) const
+    {
+        if (QuadraticProbe)
+        {
+            index = (index + step) & m_nMask;
+            ++step;
+        }
+        else
+        {
+            index = i;
+        }
+
+        return index;
+    }
+
+    bucket *findNextEmpty(size_t currentHash)
+    {
+        size_t index = 0;
+        size_t step = 1;
+        for (size_t i = 0; i < m_nBuckets; ++i)
+        {
+            size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
+            bucket *b = &m_Buckets[nextHash];
+            if (!b->set)
+            {
+                return b;
+            }
+        }
+
+        return nullptr;
+    }
+
+    bucket *findNextSet(size_t currentHash, const K &k)
+    {
+        size_t index = 0;
+        size_t step = 1;
+        for (size_t i = 0; i < m_nBuckets; ++i)
+        {
+            size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
+            bucket *b = &m_Buckets[nextHash];
+
+            // Hash comparison is likely to be faster than raw object
+            // comparison so we save the latter for when we have a candidate.
+            if (b->set && (b->key.hash() == k.hash()))
+            {
+                if (b->key == k)
+                {
+                    return b;
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
+    const bucket *findNextSet(size_t currentHash, const K &k) const
+    {
+        size_t index = 0;
+        size_t step = 1;
+        for (size_t i = 0; i < m_nBuckets; ++i)
+        {
+            size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
+            const bucket *b = &m_Buckets[nextHash];
+
+            // Hash comparison is likely to be faster than raw object
+            // comparison so we save the latter for when we have a candidate.
+            if (b->set && (b->key.hash() == k.hash()))
+            {
+                if (b->key == k)
+                {
+                    return b;
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
     bucket *m_Buckets;
-#endif
     V m_Default = Default;
+    size_t m_nBuckets;
+    size_t m_nItems;
+    size_t m_nMask;
 };
 
 /** @} */
