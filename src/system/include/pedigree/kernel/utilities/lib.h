@@ -47,6 +47,8 @@ char *StringConcat(char *dest, const char *src);
 char *StringConcatN(char *dest, const char *src, size_t n);
 const char *StringFind(const char *str, int target) PURE;
 const char *StringReverseFind(const char *str, int target) PURE;
+int StringContains(const char *str, const char *search) PURE;
+int StringContainsN(const char *str, size_t len, const char *search, size_t slen) PURE;
 int VStringFormat(char *buf, const char *fmt, va_list arg);
 int StringFormat(char *buf, const char *fmt, ...) FORMAT(printf, 2, 3);
 unsigned long

@@ -148,7 +148,9 @@ String &String::operator+=(const char *s)
 bool String::operator==(const String &s) const
 {
     if (m_Length != s.m_Length)
+    {
         return false;
+    }
 
     const char *buf = extract();
     const char *other_buf = s.extract();
@@ -162,15 +164,23 @@ bool String::operator==(const char *s) const
     const char *buf = extract();
 
     if ((!m_Length) && (s == 0))
+    {
         return true;
+    }
     else if (s == 0)
+    {
         // m_Length > 0 but other buffer is null.
         return false;
+    }
     else if ((!m_Length) && *s)
+    {
         // Quick check when we're zero-length.
         return false;
+    }
     else
-        return !StringCompareN(buf, s, m_Length + 1);
+    {
+        return StringCompareN(buf, s, m_Length + 1) == 0;
+    }
 }
 
 size_t String::nextCharacter(size_t c)
@@ -225,6 +235,13 @@ void String::assign(const char *s, size_t len)
         m_Length = 0;
     else if (len)
     {
+        // Fix up length if the passed string is much smaller than the 'len'
+        // parameter (otherwise we think we have a giant string).
+        size_t trueLength = StringLength(s);
+        if (trueLength < len)
+        {
+            len = trueLength;
+        }
         m_Length = len;
         copyLength = len;
     }

@@ -346,6 +346,105 @@ const char *StringReverseFind(const char *str, int target)
     }
 }
 
+int StringContains(const char *str, const char *search)
+{
+    size_t alen = StringLength(str);
+    size_t blen = StringLength(search);
+    return StringContainsN(str, alen, search, blen);
+}
+
+static int isPrefix(const char *word, size_t wordLength, size_t pos)
+{
+    size_t suffixLength = wordLength - pos;
+	return StringCompareN(word, word + pos, suffixLength) == 0 ? 1 : 0;
+}
+
+static size_t suffixLength(const char *word, size_t wordLength, size_t pos)
+{
+    size_t i = 0;
+    for (; (word[pos-i] == word[wordLength - 1 - i]) && (i < pos); i++)
+        ;
+    return i;
+}
+
+int StringContainsN(const char *str, size_t len, const char *search, size_t slen)
+{
+    // Quick exit cases (these shouldn't really be "contains" queries).
+    if (len < slen)
+    {
+        return 0;
+    }
+    else if (!slen)
+    {
+        return 1;
+    }
+    else if (!len)
+    {
+        return 0;
+    }
+    else if (len == slen)
+    {
+        return StringCompareN(str, search, slen) == 0;
+    }
+
+    // Boyer-Moore string searching (around 2x faster than a naive search)
+    size_t delta1[256];
+    size_t *delta2 = (size_t *) malloc(slen * sizeof(size_t));
+
+    for (size_t i = 0; i < 256; ++i)
+    {
+        delta1[i] = slen;
+    }
+
+    // Build delta1 array (deltas of rightmost unique character in pattern).
+    for (size_t i = 0; i < slen; ++i)
+    {
+        delta1[(int) search[i]] = slen - 1 - i;
+    }
+
+    // Build delta2 array (full match alignment).
+    ByteSet(delta2, 0, slen * sizeof(size_t));
+
+    ssize_t lastPrefix = slen - 1;
+    for (ssize_t i = slen - 1; i >= 0; --i)
+    {
+        if (isPrefix(search, slen, i + 1))
+        {
+            lastPrefix = i + 1;
+        }
+        delta2[i] = lastPrefix + (slen - 1 - i);
+    }
+    for (size_t i = 0; i < slen - 1; ++i)
+    {
+        size_t suffixLen = suffixLength(search, slen, i);
+        if (search[i - suffixLen] != search[slen - 1 - suffixLen])
+        {
+            delta2[slen - 1 - suffixLen] = slen - 1 - i + suffixLen;
+        }
+    }
+
+    for (size_t i = slen - 1; i < len;)
+    {
+        ssize_t j = slen - 1;
+        while (j >= 0 && (str[i] == search[j]))
+        {
+            --i;
+            --j;
+        }
+
+        if (j < 0)
+        {
+            free(delta2);
+            return 1;
+        }
+
+        i += max(delta1[(int) str[i]], delta2[j]);
+    }
+
+    free(delta2);
+    return 0;
+}
+
 int StringCompareCase(
     const char *s1, const char *s2, int sensitive, size_t length,
     size_t *offset)

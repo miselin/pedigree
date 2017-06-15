@@ -111,13 +111,23 @@ class StaticString
 
     bool operator==(const char *pStr) const
     {
-        return (StringCompare(m_pData, pStr) == 0);
+        if (StringLength(pStr) != length())
+        {
+            return false;
+        }
+
+        return StringCompareN(m_pData, pStr, length()) == 0;
     }
 
     template <unsigned int N2>
     bool operator==(const StaticString<N2> &other) const
     {
-        return (StringCompare(m_pData, other) == 0);
+        if (other.length() != length())
+        {
+            return false;
+        }
+
+        return StringCompareN(m_pData, other.m_pData, length()) == 0;
     }
 
     int last(const char search) const
@@ -144,31 +154,13 @@ class StaticString
 
     bool contains(const char *other) const
     {
-        if (StringLength(other) >= length())
-            return (StringCompare(m_pData, other) == 0);
-
-        size_t mylen = length();
-        size_t itslen = StringLength(other);
-        for (size_t i = 0; i < mylen - itslen + 1; i++)
-            if (StringCompareN(&m_pData[i], other, StringLength(other)) == 0)
-                return true;
-        return false;
+        return contains(m_pData, other, length(), StringLength(other));
     }
 
     template <unsigned int N2>
     bool contains(const StaticString<N2> &other) const
     {
-        if (other.length() >= length())
-            return (StringCompare(m_pData, other) == 0);
-
-        size_t mylen = length();
-        size_t itslen = other.length();
-        for (size_t i = 0; i < mylen - itslen + 1; i++)
-            if (StringCompareN(
-                    &m_pData[i], other.m_pData, StringLength(other.m_pData)) ==
-                0)
-                return true;
-        return false;
+        return contains(m_pData, other.m_pData, length(), other.length());
     }
 
     int intValue(int nBase = 0) const
@@ -417,6 +409,11 @@ class StaticString
     }
 
   private:
+    static bool contains(const char *a, const char *b, size_t alen, size_t blen)
+    {
+        return StringContainsN(a, alen, b, blen) == 1;
+    }
+
     /**
      * Our actual static data.
      */

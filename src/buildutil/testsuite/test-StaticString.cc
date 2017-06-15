@@ -306,3 +306,13 @@ TEST(PedigreeStaticString, Pad)
     s.pad(10, 'x');
     EXPECT_STREQ(s, "helloxxxxx");
 }
+
+TEST(PedigreeStaticString, TooMuchAppending)
+{
+    StaticString<64> s("hello");
+    for (size_t i = 0; i < 64; ++i)
+    {
+        s.append(' ');
+    }
+    EXPECT_EQ(s.length(), 63);
+}

@@ -300,7 +300,7 @@ TEST(PedigreeString, AssignBigEmpty)
 {
     String s;
     s.assign("a", 1024);
-    EXPECT_EQ(s.size(), 1025);
+    EXPECT_EQ(s.size(), 64);
     EXPECT_EQ(s, "a");
 }
 

@@ -45,7 +45,9 @@ int StringCompareN(const char *p1, const char *p2, size_t n)
         return 0;
 
     register uintptr_t a, b, c;
-    asm volatile("repne cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (n) : "memory");
+    asm volatile("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (n) : "memory");
+
+    c = n - c - 1;
 
     return p1[c] - p2[c];
 }

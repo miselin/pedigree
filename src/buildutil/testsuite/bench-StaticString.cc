@@ -115,9 +115,60 @@ static void BM_CxxStaticStringAppendPaddedInteger(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
+static void BM_CxxStaticStringContainsCStr(benchmark::State &state)
+{
+    HugeStaticString s("llama llama llama llama llama llama alpaca! llama llama llama llama llama llama");
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(s.contains("alpaca!"));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_CxxStaticStringContainsCStrWorstCase(benchmark::State &state)
+{
+    HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(s.contains("aaaaaab"));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_CxxStaticStringContainsStaticString(benchmark::State &state)
+{
+    HugeStaticString s("llama llama llama llama llama llama alpaca! llama llama llama llama llama llama");
+    HugeStaticString other("alpaca!");
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(s.contains(other));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State &state)
+{
+    HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
+    HugeStaticString other("aaaaaab");
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(s.contains(other));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+
 BENCHMARK(BM_CxxStaticStringCreation);
 BENCHMARK(BM_CxxStaticStringCopy);
 BENCHMARK(BM_CxxStaticStringAppendString);
 BENCHMARK(BM_CxxStaticStringAppendInteger);
 BENCHMARK(BM_CxxStaticStringAppendHexInteger);
 BENCHMARK(BM_CxxStaticStringAppendPaddedInteger);
+BENCHMARK(BM_CxxStaticStringContainsCStr);
+BENCHMARK(BM_CxxStaticStringContainsStaticString);
+BENCHMARK(BM_CxxStaticStringContainsCStrWorstCase);
+BENCHMARK(BM_CxxStaticStringContainsStaticStringWorstCase);
