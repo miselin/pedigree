@@ -449,6 +449,29 @@ int StringCompareCase(
     const char *s1, const char *s2, int sensitive, size_t length,
     size_t *offset)
 {
+    // Case-sensitive compare is just strncmp, basically.
+    if (LIKELY(sensitive))
+    {
+        int n = StringCompareN(s1, s2, length);
+        if (!n || !offset)
+        {
+            return n;
+        }
+
+        // Search to get the offset.
+        /// \todo this is awful
+        for (size_t i = 0; i < length; ++i)
+        {
+            if (s1[i] != s2[i])
+            {
+                *offset = i;
+                break;
+            }
+        }
+
+        return n;
+    }
+
     if (!length)
     {
         return 0;
@@ -476,52 +499,32 @@ int StringCompareCase(
         offset = &local;
     }
 
-    if (LIKELY(sensitive))
+    // Case insensitive search.
+    size_t i = 0;
+    while (*s1 && *s2)
     {
-        size_t i = 0;
-        while (*s1 && *s2)
+        char c = *s1 - *s2;
+        if (c)
         {
-            char c = *s1 - *s2;
+            // Didn't match, check if that's because the case was wrong.
+            c = toLower(*s1) - toLower(*s2);
             if (c)
             {
                 break;
             }
-            else if (!--length)
-            {
-                break;
-            }
-
-            ++s1;
-            ++s2;
-            ++i;
         }
-
-        *offset = i;
-        return *s1 - *s2;
-    }
-    else
-    {
-        size_t i = 0;
-        while (*s1 && *s2)
+        else if (!--length)
         {
-            char c = toLower(*s1) - toLower(*s2);
-            if (c)
-            {
-                break;
-            }
-            else if (!--length)
-            {
-                break;
-            }
-
-            ++s1;
-            ++s2;
-            ++i;
+            break;
         }
 
-        *offset = i;
-        return toLower(*s1) - toLower(*s2);
+        ++s1;
+        ++s2;
+        ++i;
     }
+
+    *offset = i;
+    return toLower(*s1) - toLower(*s2);
 }
 
 #ifndef UTILITY_LINUX

@@ -175,6 +175,15 @@ static void BM_StringCompareCaseInsensitive(benchmark::State &state)
     memset(buf2, 'a', state.range_x());
     buf2[state.range_x() - 1] = '\0';
 
+    // aAaAaA etc... for truly testing the insensitive case
+    for (size_t i = 0; i < state.range_x() - 1; ++i)
+    {
+        if ((i % 2) == 0)
+        {
+            buf2[i] = 'A';
+        }
+    }
+
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(
