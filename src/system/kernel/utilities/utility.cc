@@ -55,7 +55,7 @@ const char *BaseName(const char *path)
 
     size_t baselength = len - (last_slash - path);
 
-    char *new_str = new char[baselength];
+    char *new_str = new char[baselength + 1];
     StringCopy(new_str, last_slash + 1);
     new_str[baselength] = 0;
 
