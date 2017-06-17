@@ -32,6 +32,7 @@
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
+#include "pedigree/kernel/linker/SymbolTable.h"
 
 static uint32_t elf_hash(const String &str)
 {
@@ -199,6 +200,54 @@ static void BM_SymbolsInsert_RadixTree(benchmark::State &state)
         int64_t(state.iterations()) * int64_t(symbols.size()));
 }
 
+static void BM_SymbolsInsert_Kernel(benchmark::State &state)
+{
+    SymbolTable *table = new SymbolTable(nullptr);
+    std::vector<String> symbols;
+
+    LoadSymbols(symbols);
+
+    while (state.KeepRunning())
+    {
+        state.PauseTiming();
+        delete table;
+        table = new SymbolTable(nullptr);
+        state.ResumeTiming();
+
+        for (auto &word : symbols)
+        {
+            table->insert(word, SymbolTable::Local, nullptr, 0xdeadbeef);
+        }
+    }
+
+    delete table;
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_SymbolsInsert_KernelGlobal(benchmark::State &state)
+{
+    SymbolTable *table = new SymbolTable(nullptr);
+    std::vector<String> symbols;
+
+    LoadSymbols(symbols);
+
+    while (state.KeepRunning())
+    {
+        state.PauseTiming();
+        delete table;
+        table = new SymbolTable(nullptr);
+        state.ResumeTiming();
+
+        for (auto &word : symbols)
+        {
+            table->insert(word, SymbolTable::Global, nullptr, 0xdeadbeef);
+        }
+    }
+
+    delete table;
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
 static void BM_SymbolsInsert_ElfHash(benchmark::State &state)
 {
     std::vector<String> symbols;
@@ -304,6 +353,60 @@ static void BM_SymbolsLookup_RadixTree(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
+static void BM_SymbolsLookup_KernelLocal(benchmark::State &state)
+{
+    SymbolTable table(nullptr);
+    std::vector<String> symbols;
+    const int64_t value = 1;
+
+    LoadSymbols(symbols);
+
+    for (auto &word : symbols)
+    {
+        table.insert(word, SymbolTable::Local, nullptr, 0xdeadbeef);
+    }
+
+    auto it = symbols.begin();
+    while (state.KeepRunning())
+    {
+        auto &word = *it;
+        benchmark::DoNotOptimize(table.lookup(word, nullptr));
+        if (++it == symbols.end())
+        {
+            it = symbols.begin();
+        }
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_SymbolsLookup_KernelGlobal(benchmark::State &state)
+{
+    SymbolTable table(nullptr);
+    std::vector<String> symbols;
+    const int64_t value = 1;
+
+    LoadSymbols(symbols);
+
+    for (auto &word : symbols)
+    {
+        table.insert(word, SymbolTable::Global, (Elf *) 1, 0xdeadbeef);
+    }
+
+    auto it = symbols.begin();
+    while (state.KeepRunning())
+    {
+        auto &word = *it;
+        benchmark::DoNotOptimize(table.lookup(word, nullptr));
+        if (++it == symbols.end())
+        {
+            it = symbols.begin();
+        }
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
 static void BM_SymbolsLookup_ElfHash(benchmark::State &state)
 {
     std::vector<String> symbols;
@@ -392,10 +495,14 @@ static void BM_SymbolsLookup_MurmurHash(benchmark::State &state)
 }
 
 BENCHMARK(BM_SymbolsInsert_RadixTree);
+BENCHMARK(BM_SymbolsInsert_Kernel);
+BENCHMARK(BM_SymbolsInsert_KernelGlobal);
 BENCHMARK(BM_SymbolsInsert_ElfHash);
 BENCHMARK(BM_SymbolsInsert_JenkinsHash);
 BENCHMARK(BM_SymbolsInsert_MurmurHash);
 BENCHMARK(BM_SymbolsLookup_RadixTree);
+BENCHMARK(BM_SymbolsLookup_KernelLocal);
+BENCHMARK(BM_SymbolsLookup_KernelGlobal);
 BENCHMARK(BM_SymbolsLookup_ElfHash);
 BENCHMARK(BM_SymbolsLookup_JenkinsHash);
 BENCHMARK(BM_SymbolsLookup_MurmurHash);
