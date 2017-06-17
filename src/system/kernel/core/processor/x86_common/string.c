@@ -39,6 +39,11 @@ int StringCompare(const char *p1, const char *p2)
 
 int StringCompareN(const char *p1, const char *p2, size_t n)
 {
+    return StringCompareNOffset(p1, p2, n, NULL);
+}
+
+int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
+{
     if (!n)
         return 0;
     if (p1 == p2)
@@ -51,6 +56,10 @@ int StringCompareN(const char *p1, const char *p2, size_t n)
             char c = p1[i] - p2[i];
             if (c)
             {
+                if (offset)
+                {
+                    *offset = i;
+                }
                 return c;
             }
         }
@@ -63,7 +72,12 @@ int StringCompareN(const char *p1, const char *p2, size_t n)
 
     c = n - c - 1;
 
-    return p1[c] - p2[c];
+    char d = p1[c] - p2[c];
+    if (d && offset)
+    {
+        *offset = c;
+    }
+    return d;
 }
 
 #endif

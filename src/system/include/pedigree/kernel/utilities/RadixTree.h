@@ -723,6 +723,13 @@ RadixTree<T>::Node::matchKey(const char *cpKey, size_t &offset) const
 
     const char *myKey = getKey();
 
+    // Do some quick checks early.
+    if ((m_bCaseSensitive && (cpKey[0] != myKey[0])) || ((!m_bCaseSensitive) && (toLower(cpKey[0]) != toLower(myKey[0]))))
+    {
+        // non-partial, first character didn't even match
+        return NoMatch;
+    }
+
     size_t i = 0;
     int r = StringCompareCase(
         cpKey, myKey, m_bCaseSensitive, m_Key.length() + 1, &i);
@@ -731,11 +738,6 @@ RadixTree<T>::Node::matchKey(const char *cpKey, size_t &offset) const
     {
         // exact match, all characters & null terminators matched
         return ExactMatch;
-    }
-    else if (i == 0)
-    {
-        // non-partial, first character didn't even match
-        return NoMatch;
     }
     else if (m_Key[i] == 0)
     {

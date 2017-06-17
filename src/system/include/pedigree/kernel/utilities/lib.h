@@ -43,6 +43,7 @@ char *StringCopy(char *dest, const char *src);
 char *StringCopyN(char *dest, const char *src, size_t len);
 int StringCompare(const char *p1, const char *p2) PURE;
 int StringCompareN(const char *p1, const char *p2, size_t n) PURE;
+int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset) PURE;
 char *StringConcat(char *dest, const char *src);
 char *StringConcatN(char *dest, const char *src, size_t n);
 const char *StringFind(const char *str, int target) PURE;

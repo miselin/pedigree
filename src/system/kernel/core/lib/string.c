@@ -172,6 +172,37 @@ WEAK int StringCompareN(const char *p1, const char *p2, size_t n)
     return *p1 - *p2;
 }
 
+WEAK int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
+{
+    if (!n)
+    {
+        return 0;
+    }
+    if (p1 == p2)
+    {
+        return 0;
+    }
+
+    size_t orig_n = n;
+
+    while (*p1 && *p2)
+    {
+        char c = *p1 - *p2;
+        if (c || !--n)
+            break;
+
+        ++p1;
+        ++p2;
+    }
+
+    char c = *p1 - *p2;
+    if (c && offset)
+    {
+        *offset = orig_n - n;
+    }
+    return c;
+}
+
 char *StringConcat(char *dest, const char *src)
 {
     size_t di = StringLength(dest);
@@ -452,24 +483,7 @@ int StringCompareCase(
     // Case-sensitive compare is just strncmp, basically.
     if (LIKELY(sensitive))
     {
-        int n = StringCompareN(s1, s2, length);
-        if (!n || !offset)
-        {
-            return n;
-        }
-
-        // Search to get the offset.
-        /// \todo this is awful
-        for (size_t i = 0; i < length; ++i)
-        {
-            if (s1[i] != s2[i])
-            {
-                *offset = i;
-                break;
-            }
-        }
-
-        return n;
+        return StringCompareNOffset(s1, s2, length, offset);
     }
 
     if (!length)
