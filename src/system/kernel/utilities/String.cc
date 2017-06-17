@@ -24,27 +24,22 @@
 
 String::String()
     : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
-      m_Static(), m_HeapData(true)
+      m_HeapData(true)
 {
+    m_Static[0] = '\0';
 }
 
-String::String(const char *s)
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
-      m_Static(), m_HeapData(true)
+String::String(const char *s) : String()
 {
     assign(s);
 }
 
-String::String(const char *s, size_t length)
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
-      m_Static(), m_HeapData(true)
+String::String(const char *s, size_t length) : String()
 {
     assign(s, length);
 }
 
-String::String(const String &x)
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
-      m_Static(), m_HeapData(true)
+String::String(const String &x) : String()
 {
     assign(x);
 }
@@ -338,7 +333,7 @@ void String::free()
     {
         delete[] m_Data;
     }
-    ByteSet(m_Static, 0, StaticSize);
+    m_Static[0] = '\0';  /// \note free does not clear old static data
     m_Data = 0;
     m_Length = 0;
     m_Size = 0;
