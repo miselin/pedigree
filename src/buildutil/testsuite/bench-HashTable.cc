@@ -92,7 +92,7 @@ static void BM_HashTableInsertPreallocate(benchmark::State &state)
 {
     int64_t value = 1;
 
-    HashTable<HashedInteger, int64_t, 0, 32768> table;
+    HashTable<HashedInteger, int64_t, 32768> table;
     while (state.KeepRunning())
     {
         state.PauseTiming();

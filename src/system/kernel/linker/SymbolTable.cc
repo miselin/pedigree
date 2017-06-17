@@ -20,12 +20,52 @@
 #include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 #ifdef THREADS
 #define RAII_LOCK LockGuard<Mutex> guard(m_Lock)
 #else
 #define RAII_LOCK
 #endif
+
+class MurmurHashedSymbol
+{
+  public:
+    MurmurHashedSymbol() : m_String()
+    {
+    }
+
+    MurmurHashedSymbol(const String &str) : m_String(str), m_Hash(0)
+    {
+        MurmurHash3_x86_32(static_cast<const char *>(m_String), m_String.length(), 0, &m_Hash);
+    }
+
+    const MurmurHashedSymbol &operator = (const MurmurHashedSymbol &other)
+    {
+        m_String = other.m_String;
+        m_Hash = other.m_Hash;
+        return *this;
+    }
+
+    uint32_t hash() const
+    {
+        return m_Hash;
+    }
+
+    bool operator==(const MurmurHashedSymbol &other) const
+    {
+        return *m_String == *other.m_String;
+    }
+
+    bool operator!=(const MurmurHashedSymbol &other) const
+    {
+        return *m_String != *other.m_String;
+    }
+
+  private:
+    String m_String;
+    uint32_t m_Hash;
+};
 
 SymbolTable::SymbolTable(Elf *pElf)
     : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
@@ -83,18 +123,20 @@ SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
 void SymbolTable::insertShared(
     String name, SharedPointer<SymbolTable::Symbol> symbol)
 {
+    MurmurHashedSymbol hashed(name);
+
     SharedPointer<symbolTree_t> tree = getOrInsertTree(symbol->getParent());
-    tree->insert(name, symbol);
+    tree->insert(hashed, symbol);
 
     // Insert global/weak as well - if the lookup fails in the ELF's table,
     // it'll fall back to these.
     if (symbol->getBinding() == Global)
     {
-        m_GlobalSymbols.insert(name, symbol);
+        m_GlobalSymbols.insert(hashed, symbol);
     }
     else if (symbol->getBinding() == Weak)
     {
-        m_WeakSymbols.insert(name, symbol);
+        m_WeakSymbols.insert(hashed, symbol);
     }
     return;
 }
@@ -108,6 +150,8 @@ void SymbolTable::eraseByElf(Elf *pParent)
 
     /// \todo wipe out global/weak symbols.
 
+    /// \todo HashTable needs iteration support
+#if 0
     for (auto it = m_GlobalSymbols.begin(); it != m_GlobalSymbols.end();)
     {
         if (it->getParent() == pParent)
@@ -131,6 +175,7 @@ void SymbolTable::eraseByElf(Elf *pParent)
             ++it;
         }
     }
+#endif
 }
 
 uintptr_t
@@ -138,12 +183,14 @@ SymbolTable::lookup(String name, Elf *pElf, Policy policy, Binding *pBinding)
 {
     RAII_LOCK;
 
+    MurmurHashedSymbol hashed(name);
+
     // Local.
     SharedPointer<Symbol> sym;
     SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
     if (symbolTree)
     {
-        sym = symbolTree->lookup(name);
+        sym = symbolTree->lookup(hashed);
         if (sym)
         {
             return sym->getValue();
@@ -151,14 +198,14 @@ SymbolTable::lookup(String name, Elf *pElf, Policy policy, Binding *pBinding)
     }
 
     // Global.
-    sym = m_GlobalSymbols.lookup(name);
+    sym = m_GlobalSymbols.lookup(hashed);
     if (sym)
     {
         return sym->getValue();
     }
 
     // Weak.
-    sym = m_WeakSymbols.lookup(name);
+    sym = m_WeakSymbols.lookup(hashed);
     if (sym)
     {
         return sym->getValue();

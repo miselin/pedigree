@@ -23,8 +23,6 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
 
-#include <iostream>
-
 /** @addtogroup kernelutilities
  * @{ */
 
@@ -41,22 +39,24 @@
  *
  * \todo check InitialBuckets for is a power of two
  */
-template <class K, class V, V Default = V(), size_t InitialBuckets = 4>
+template <class K, class V, size_t InitialBuckets = 4>
 class HashTable
 {
     static_assert(
         InitialBuckets > 0, "At least one initial bucket must be available.");
 
   public:
-    /**
-     * To determine how many buckets you need, simply identify the
-     * upper bound of the output of your hash function.
-     *
-     * Hashes that fall outside this range will be silently ignored.
-     */
-    HashTable() : m_Buckets(nullptr), m_nBuckets(0), m_nItems(0), m_nMask(0)
+    HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0)
     {
         check();
+    }
+
+    /**
+     * Constructor with custom default value.
+     */
+    HashTable(const V &customDefault) : HashTable()
+    {
+        m_Default = customDefault;
     }
 
     /**
@@ -230,7 +230,7 @@ class HashTable
 
     struct bucket
     {
-        bucket() : key(), value(Default), set(false)
+        bucket() : key(), value(), set(false)
         {
         }
 
@@ -354,7 +354,7 @@ class HashTable
     }
 
     bucket *m_Buckets;
-    V m_Default = Default;
+    V m_Default;
     size_t m_nBuckets;
     size_t m_nItems;
     size_t m_nMask;

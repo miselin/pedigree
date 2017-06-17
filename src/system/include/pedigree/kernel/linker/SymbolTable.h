@@ -25,8 +25,10 @@
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 
 class Elf;
+class MurmurHashedSymbol;
 
 /** This class allows quick access to symbol information held
  *  within ELF files. The lookup operation allows multiple
@@ -137,14 +139,14 @@ class SymbolTable
     /** Insert the given shared symbol. */
     void insertShared(String name, SharedPointer<Symbol> symbol);
 
-    typedef RadixTree<SharedPointer<Symbol>> symbolTree_t;
+    typedef HashTable<MurmurHashedSymbol, SharedPointer<Symbol>> symbolTree_t;
 
     /** Get or insert a Symbol tree. */
     SharedPointer<symbolTree_t> getOrInsertTree(Elf *);
 
     Tree<Elf *, SharedPointer<symbolTree_t>> m_LocalSymbols;
-    RadixTree<SharedPointer<Symbol>> m_GlobalSymbols;
-    RadixTree<SharedPointer<Symbol>> m_WeakSymbols;
+    symbolTree_t m_GlobalSymbols;
+    symbolTree_t m_WeakSymbols;
 
     Elf *m_pOriginatingElf;
 

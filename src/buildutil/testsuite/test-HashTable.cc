@@ -108,7 +108,7 @@ class ModuloTenHashableInteger : public HashableIntegerBase<10>
 
 TEST(PedigreeHashTable, NoOpRemoval)
 {
-    HashTable<HashableInteger, int, -1> hashtable;
+    HashTable<HashableInteger, int> hashtable(-1);
 
     HashableInteger key(0);
     EXPECT_EQ(hashtable.lookup(key), -1);
@@ -120,7 +120,7 @@ TEST(PedigreeHashTable, NoOpRemoval)
 
 TEST(PedigreeHashTable, AnotherNoOpRemoval)
 {
-    HashTable<HashableInteger, int, -1> hashtable;
+    HashTable<HashableInteger, int> hashtable(-1);
 
     HashableInteger key(3);
     EXPECT_EQ(hashtable.lookup(key), -1);
@@ -203,7 +203,7 @@ TEST(PedigreeHashTable, InsertionWithChains)
 
 TEST(PedigreeHashTable, RemoveChained)
 {
-    HashTable<CollidingHashableInteger, int, -1, 4> hashtable;
+    HashTable<CollidingHashableInteger, int, 4> hashtable(-1);
 
     CollidingHashableInteger key1(0), key2(1), key3(2);
 
