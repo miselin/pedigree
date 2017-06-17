@@ -39,7 +39,7 @@ int StringCompare(const char *p1, const char *p2)
 
 int StringCompareN(const char *p1, const char *p2, size_t n)
 {
-    return StringCompareNOffset(p1, p2, n, NULL);
+    return StringCompareNOffset(p1, p2, n, 0);
 }
 
 int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
