@@ -89,7 +89,7 @@ void SymbolTable::copyTable(Elf *pNewElf, const SymbolTable &newSymtab)
 }
 
 void SymbolTable::insert(
-    String name, Binding binding, Elf *pParent, uintptr_t value)
+    const String &name, Binding binding, Elf *pParent, uintptr_t value)
 {
     RAII_LOCK;
 
@@ -97,7 +97,7 @@ void SymbolTable::insert(
 }
 
 void SymbolTable::insertMultiple(
-    SymbolTable *pOther, String name, Binding binding, Elf *pParent,
+    SymbolTable *pOther, const String &name, Binding binding, Elf *pParent,
     uintptr_t value)
 {
     RAII_LOCK;
@@ -111,7 +111,7 @@ void SymbolTable::insertMultiple(
 }
 
 SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
-    String name, Binding binding, Elf *pParent, uintptr_t value)
+    const String &name, Binding binding, Elf *pParent, uintptr_t value)
 {
     Symbol *pSymbol = new Symbol(pParent, binding, value);
     SharedPointer<Symbol> newSymbol(pSymbol);
@@ -121,7 +121,7 @@ SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
 }
 
 void SymbolTable::insertShared(
-    String name, SharedPointer<SymbolTable::Symbol> symbol)
+    const String &name, SharedPointer<SymbolTable::Symbol> &symbol)
 {
     MurmurHashedSymbol hashed(name);
 
@@ -179,7 +179,7 @@ void SymbolTable::eraseByElf(Elf *pParent)
 }
 
 uintptr_t
-SymbolTable::lookup(String name, Elf *pElf, Policy policy, Binding *pBinding)
+SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBinding)
 {
     RAII_LOCK;
 

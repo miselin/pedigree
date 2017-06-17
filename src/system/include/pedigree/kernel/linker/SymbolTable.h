@@ -73,11 +73,11 @@ class SymbolTable
     void copyTable(Elf *pNewElf, const SymbolTable &newSymtab);
 
     /** Insert a symbol into the table. */
-    void insert(String name, Binding binding, Elf *pParent, uintptr_t value);
+    void insert(const String &name, Binding binding, Elf *pParent, uintptr_t value);
 
     /** Insert a symbol into two SymbolTables, using the memory once. */
     void insertMultiple(
-        SymbolTable *pOther, String name, Binding binding, Elf *pParent,
+        SymbolTable *pOther, const String &name, Binding binding, Elf *pParent,
         uintptr_t value);
 
     void eraseByElf(Elf *pParent);
@@ -95,7 +95,7 @@ class SymbolTable
      *
      *  \return The value of the found symbol. */
     uintptr_t lookup(
-        String name, Elf *pElf, Policy policy = LocalFirst,
+        const String &name, Elf *pElf, Policy policy = LocalFirst,
         Binding *pBinding = 0);
 
   private:
@@ -135,9 +135,9 @@ class SymbolTable
 
     /** Insert doer. */
     SharedPointer<Symbol>
-    doInsert(String name, Binding binding, Elf *pParent, uintptr_t value);
+    doInsert(const String &name, Binding binding, Elf *pParent, uintptr_t value);
     /** Insert the given shared symbol. */
-    void insertShared(String name, SharedPointer<Symbol> symbol);
+    void insertShared(const String &name, SharedPointer<Symbol> &symbol);
 
     typedef HashTable<MurmurHashedSymbol, SharedPointer<Symbol>> symbolTree_t;
 
