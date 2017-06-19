@@ -415,12 +415,12 @@ class Thread
     /** Gets whether this thread is interruptible or not. */
     bool isInterruptible();
 
+    /** Gets the per-processor scheduler for this Thread. */
+    class PerProcessorScheduler *getScheduler() const;
+
   protected:
     /** Sets the scheduler for the Thread. */
-    void setScheduler(class PerProcessorScheduler *pScheduler)
-    {
-        m_pScheduler = pScheduler;
-    }
+    void setScheduler(class PerProcessorScheduler *pScheduler);
 
     /** Sets or unsets the interruptible state of the Thread. */
     void setInterruptible(bool state);

@@ -864,4 +864,14 @@ void Thread::setInterruptible(bool state)
     m_bInterruptible = state;
 }
 
+void Thread::setScheduler(class PerProcessorScheduler *pScheduler)
+{
+    m_pScheduler = pScheduler;
+}
+
+PerProcessorScheduler *Thread::getScheduler() const
+{
+    return m_pScheduler;
+}
+
 #endif  // THREADS

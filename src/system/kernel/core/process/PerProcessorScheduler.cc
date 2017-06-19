@@ -170,8 +170,31 @@ void PerProcessorScheduler::schedule(
         pNextThread = m_pSchedulingAlgorithm->getNext(pCurrentThread);
         if (pNextThread == 0)
         {
+            bool needsIdle = false;
+
             // If we're supposed to be sleeping, this isn't a good place to be
             if (nextStatus != Thread::Ready)
+            {
+                needsIdle = true;
+            }
+            else
+            {
+                if (pCurrentThread->getScheduler() == this)
+                {
+                    // Nothing to switch to, but we aren't sleeping. Just return.
+                    pCurrentThread->getLock().release();
+                    Processor::setInterrupts(bWasInterrupts);
+                    return;
+                }
+                else
+                {
+                    // Current thread is switching cores, and no other thread
+                    // was available. So we have to go idle.
+                    needsIdle = true;
+                }
+            }
+
+            if (needsIdle)
             {
                 if (m_pIdleThread == 0)
                 {
@@ -182,13 +205,6 @@ void PerProcessorScheduler::schedule(
                 {
                     pNextThread = m_pIdleThread;
                 }
-            }
-            else
-            {
-                // Nothing to switch to, but we aren't sleeping. Just return.
-                pCurrentThread->getLock().release();
-                Processor::setInterrupts(bWasInterrupts);
-                return;
             }
         }
     }
@@ -297,7 +313,17 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
 
     Thread *pThread = Processor::information().getCurrentThread();
     if (!pThread)
+    {
+        Processor::setInterrupts(bWasInterrupts);
         return;
+    }
+
+    if (pThread->getScheduler() != this)
+    {
+        // Wrong scheduler - don't try to run an event for this thread.
+        Processor::setInterrupts(bWasInterrupts);
+        return;
+    }
 
     if (!pThread->isInterruptible())
     {
