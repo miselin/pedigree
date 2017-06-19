@@ -54,12 +54,12 @@ class MurmurHashedSymbol
 
     bool operator==(const MurmurHashedSymbol &other) const
     {
-        return *m_String == *other.m_String;
+        return m_String == other.m_String;
     }
 
     bool operator!=(const MurmurHashedSymbol &other) const
     {
-        return *m_String != *other.m_String;
+        return m_String != other.m_String;
     }
 
   private:
