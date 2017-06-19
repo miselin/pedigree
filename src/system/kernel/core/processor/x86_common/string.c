@@ -29,10 +29,14 @@ int StringCompare(const char *p1, const char *p2)
     if (p1 == p2)
         return 0;
 
-    register uintptr_t a, b, c;
-    asm volatile("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (~0UL) : "memory");
+    size_t l1 = StringLength(p1);
+    size_t l2 = StringLength(p2);
+    size_t l = min(l1, l2);
 
-    c = ~0UL - c - 1;
+    register uintptr_t a, b, c;
+    asm volatile("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (l + 1) : "memory");
+
+    c = l - c;
 
     return p1[c] - p2[c];
 }

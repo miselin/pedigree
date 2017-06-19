@@ -94,7 +94,10 @@ TEST(PedigreeStringLibrary, CompareOtherEmpty)
 
 TEST(PedigreeStringLibrary, CompareSame)
 {
-    EXPECT_EQ(StringCompare("abc", "abc"), 0);
+    // Have to avoid constant strings pointing to the same place
+    const char str_a[] = {'a', 'b', 'c', 0};
+    const char str_b[] = {'a', 'b', 'c', 0};
+    EXPECT_EQ(StringCompare(str_a, str_b), 0);
 }
 
 TEST(PedigreeStringLibrary, CompareLess)
@@ -142,12 +145,16 @@ TEST(PedigreeStringLibrary, CompareCaseOtherEmpty)
 
 TEST(PedigreeStringLibrary, CompareCaseSame)
 {
+    // Have to avoid constant strings pointing to the same place
+    const char str_lower[] = {'a', 'b', 'c', 0};
+    const char str_upper[] = {'A', 'B', 'C', 0};
+
     size_t off = 0;
-    EXPECT_EQ(StringCompareCase("abc", "abc", false, 3, &off), 0);
+    EXPECT_EQ(StringCompareCase(str_lower, str_lower, false, 3, &off), 0);
     EXPECT_EQ(off, 3);
-    EXPECT_EQ(StringCompareCase("ABC", "ABC", true, 3, &off), 0);
+    EXPECT_EQ(StringCompareCase(str_upper, str_upper, true, 3, &off), 0);
     EXPECT_EQ(off, 3);
-    EXPECT_EQ(StringCompareCase("ABC", "abc", true, 3, &off), 'A' - 'a');
+    EXPECT_EQ(StringCompareCase(str_upper, str_lower, true, 3, &off), 'A' - 'a');
     EXPECT_EQ(off, 0);
 }
 
