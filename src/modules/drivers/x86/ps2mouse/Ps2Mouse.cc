@@ -161,8 +161,8 @@ bool Ps2Mouse::setDefaults()
     // Tell the mouse to set defaults
     mouseWrite(SetDefaults);
 
-    m_IrqWait.acquire(1, 0, 500);
-    if (Processor::information().getCurrentThread()->wasInterrupted())
+    bool status = m_IrqWait.acquire(1, 0, 500);
+    if (Processor::information().getCurrentThread()->wasInterrupted() || !status)
     {
         // Read the acknowledgement byte
         uint8_t ack = mouseRead();
