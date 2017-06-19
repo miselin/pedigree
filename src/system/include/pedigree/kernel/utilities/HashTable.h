@@ -48,7 +48,6 @@ class HashTable
   public:
     HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0)
     {
-        check();
     }
 
     /**
@@ -202,26 +201,6 @@ class HashTable
     size_t count() const
     {
         return m_nItems;
-    }
-
-    /**
-     * Get the index of the next bucket to try from the given one.
-     *
-     * 'factor' is an in/out that specifies a factor to multiply by for
-     * non-linear probes. 'mult' is a multiplier to apply to 'factor' after
-     * calculation. Set 'mult' to 2 to get quadratic probes.
-     */
-    size_t calculateNextHash(size_t currentHash, size_t &factor, bool quadratic=false) const
-    {
-        size_t addend = factor;
-        if (quadratic)
-        {
-            // Next factor = N^2
-            addend = factor * factor;
-        }
-        size_t next = (currentHash + addend) & m_nMask;
-        ++factor;
-        return next;
     }
 
   private:
