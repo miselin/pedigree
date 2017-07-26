@@ -128,6 +128,7 @@
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Trace.h"
 
 #ifdef OPENFIRMWARE
 #include "pedigree/kernel/machine/openfirmware/Device.h"
@@ -287,6 +288,8 @@ static int loadModules(void *inf)
 extern "C" void _main(BootstrapStruct_t &bsInf) NORETURN;
 extern "C" void _main(BootstrapStruct_t &bsInf)
 {
+    TRACE("constructors");
+
     // Firstly call the constructors of all global objects.
     initialiseConstructors();
 
@@ -296,11 +299,17 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     g_LocksCommand.setReady();
 #endif
 
+    TRACE("Processor init");
+
     // Initialise the processor-specific interface
     Processor::initialise1(bsInf);
 
+    TRACE("log init");
+
     // Initialise the kernel log
     Log::instance().initialise1();
+
+    TRACE("Machine init");
 
     // Initialise the machine-specific interface
     Machine &machine = Machine::instance();
@@ -309,17 +318,26 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     machine.initialise();
 
 #if defined(DEBUGGER)
+    TRACE("Debugger init");
     Debugger::instance().initialise();
 #endif
 
+    TRACE("Machine init2");
+
     machine.initialise2();
+
+    TRACE("Log init2");
 
     // Initialise the kernel log's callbacks
     Log::instance().initialise2();
 
+    TRACE("Processor init2");
+
     // Initialise the processor-specific interface
     // Bootup of the other Application Processors and related tasks
     Processor::initialise2(bsInf);
+
+    TRACE("KernelElf init");
 
     // Initialise the Kernel Elf class
     if (KernelElf::instance().initialise(bsInf) == false)
@@ -330,9 +348,15 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
         panic("Initrd module not loaded!");
 #endif
 
+    TRACE("kernel syscall init");
+
     KernelCoreSyscallManager::instance().initialise();
 
+    TRACE("initial init done, enabling interrupts");
+
     Processor::setInterrupts(true);
+
+    TRACE("bootIO init");
 
     // Initialise the boot output.
     bootIO.initialise();
@@ -383,6 +407,8 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
 #endif
     bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
+    TRACE("creating graphics service");
+
 // Set up the graphics service for drivers to register with
 #ifndef NOGFX
     GraphicsService *pService = new GraphicsService;
@@ -392,6 +418,8 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     ServiceManager::instance().addService(
         String("graphics"), pService, pFeatures);
 #endif
+
+    TRACE("creating memory pressure handlers");
 
     // Set up SLAM recovery memory pressure handler.
     SlamRecovery recovery;
@@ -404,19 +432,25 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
         MemoryPressureManager::LowestPriority, &killer);
 
     // Set up the global info block manager.
+    TRACE("InfoBlockManager init");
     InfoBlockManager::instance().initialise();
 
     // Bring up the cache subsystem.
+    TRACE("CacheManager init");
     CacheManager::instance().initialise();
 
     // Initialise the input manager
+    TRACE("InputManager init");
     InputManager::instance().initialise();
 
 #ifdef THREADS
+    TRACE("ZombieQueue init");
     ZombieQueue::instance().initialise();
 #endif
 
 /// \todo Seed random number generator.
+
+    TRACE("starting module load thread");
 
 #if defined(THREADS)
     Thread *pThread = new Thread(
@@ -430,6 +464,8 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
 #ifdef DEBUGGER_RUN_AT_START
     Processor::breakpoint();
 #endif
+
+    TRACE("becoming idle");
 
 #ifdef THREADS
     // Add us as the idle thread for this CPU.

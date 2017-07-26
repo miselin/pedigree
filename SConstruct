@@ -84,6 +84,7 @@ opts.AddVariables(
     BoolVariable('asserts','Whether or not to enable runtime assertions.',1),
     BoolVariable('debug_logging','Whether to enable debug-level logging, which can dump massive amounts of data to the kernel log. Probable performance hit too, use at your own risk.',1),
     BoolVariable('superdebug', 'Super debug is like the debug_logging option, except even MORE verbose. Expect hundreds of thousands of lines of output to the kernel log.', 0),
+    BoolVariable('tracing', 'Enable kernel traces, which may output to the screen or a spare serial port.', 1),
     
     BoolVariable('usb_verbose_debug','When set, USB low-level drivers will dump massive amounts of debug information to the log. When not set, only layers such as mass storage will.',0),
 
@@ -763,7 +764,8 @@ additionalDefines = ['ipv4_forwarding', 'serial_is_file', 'installer',
                      'multiple_consoles', 'multiprocessor', 'smp', 'apic',
                      'acpi', 'debug_logging', 'superdebug', 'nogfx', 'mach_pc',
                      'usb_verbose_debug', 'travis', 'hosted',
-                     'memory_log_inline', 'asserts', 'valgrind', 'livecd']
+                     'memory_log_inline', 'asserts', 'valgrind', 'livecd',
+                     'tracing']
 for i in additionalDefines:
     if i not in env:
         continue
@@ -926,7 +928,7 @@ if env['hosted']:
     env['iso'] = False
 
     # Fix tar flags to not build compressed tarballs.
-    env['TAR_NOCOMPRESS'] = True
+    env['TAR_COMPRESS'] = False
 
     # Fix assembler config.
     if env['ARCH_TARGET'] in ('X86', 'X64'):
