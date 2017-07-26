@@ -38,9 +38,9 @@ def Extract(target, source, env):
     return r
 
 def Create(target, source, env):
-    compress = 'z'
-    if env.get('TAR_NOCOMPRESS', False):
-        compress = ''
+    compress = ''
+    if env.get('TAR_COMPRESS', True):
+        compress = 'z'
     args = [env['TAR'], '--transform', 's,.*/,,g', '-c%sPf' % compress,
             target[0].abspath]
     args.extend([x.abspath for x in source])
