@@ -138,6 +138,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         }
     }
 
+    Thread *pThread = Processor::information().getCurrentThread();
+
     //  Get PFE location and error code
     static LargeStaticString sError;
     sError.clear();
@@ -153,11 +155,17 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     sCode.clear();
     sCode.append("Details: CPU=");
     sCode.append(Processor::id());
-    sCode.append(" PID=");
-    sCode.append(
-        Processor::information().getCurrentThread()->getParent()->getId());
-    sCode.append(" TID=");
-    sCode.append(Processor::information().getCurrentThread()->getId());
+    if (pThread)
+    {
+        Process *pParent = pThread->getParent();
+        if (pParent)
+        {
+            sCode.append(" PID=");
+            sCode.append(pParent->getId());
+        }
+        sCode.append(" TID=");
+        sCode.append(pThread->getId());
+    }
     sCode.append(" ");
 
     if (!(code & PFE_PAGE_PRESENT))
@@ -205,7 +213,6 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     {
         //  Unrecoverable PFE in a process - Kill the process and yield
         // Processor::information().getCurrentThread()->getParent()->kill();
-        Thread *pThread = Processor::information().getCurrentThread();
         Process *pProcess = pThread->getParent();
         Subsystem *pSubsystem = pProcess->getSubsystem();
         if (pSubsystem && !state.kernelMode())

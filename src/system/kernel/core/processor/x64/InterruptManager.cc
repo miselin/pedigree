@@ -165,35 +165,41 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
 // User space processes have a subsystem, kernel ones do not.
 #ifdef THREADS
     Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    Subsystem *pSubsystem = pProcess->getSubsystem();
-    if (pSubsystem && !interruptState.kernelMode())
+    if (pThread)
     {
-        if (UNLIKELY(nIntNumber == 0))
+        Process *pProcess = pThread->getParent();
+        if (pProcess)
         {
-            pSubsystem->threadException(pThread, Subsystem::DivideByZero);
-            return;
-        }
-        else if (UNLIKELY(nIntNumber == 6))
-        {
-            pSubsystem->threadException(pThread, Subsystem::InvalidOpcode);
-            return;
-        }
-        else if (UNLIKELY(nIntNumber == 13))
-        {
-            pSubsystem->threadException(
-                pThread, Subsystem::GeneralProtectionFault);
-            return;
-        }
-        else if (UNLIKELY(nIntNumber == 16))
-        {
-            pSubsystem->threadException(pThread, Subsystem::FpuError);
-            return;
-        }
-        else if (UNLIKELY(nIntNumber == 19))
-        {
-            pSubsystem->threadException(pThread, Subsystem::SpecialFpuError);
-            return;
+            Subsystem *pSubsystem = pProcess->getSubsystem();
+            if (pSubsystem && !interruptState.kernelMode())
+            {
+                if (UNLIKELY(nIntNumber == 0))
+                {
+                    pSubsystem->threadException(pThread, Subsystem::DivideByZero);
+                    return;
+                }
+                else if (UNLIKELY(nIntNumber == 6))
+                {
+                    pSubsystem->threadException(pThread, Subsystem::InvalidOpcode);
+                    return;
+                }
+                else if (UNLIKELY(nIntNumber == 13))
+                {
+                    pSubsystem->threadException(
+                        pThread, Subsystem::GeneralProtectionFault);
+                    return;
+                }
+                else if (UNLIKELY(nIntNumber == 16))
+                {
+                    pSubsystem->threadException(pThread, Subsystem::FpuError);
+                    return;
+                }
+                else if (UNLIKELY(nIntNumber == 19))
+                {
+                    pSubsystem->threadException(pThread, Subsystem::SpecialFpuError);
+                    return;
+                }
+            }
         }
     }
 #endif
