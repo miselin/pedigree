@@ -40,6 +40,8 @@
 #define CONST __attribute__((const))
 /** Functions that should always be inlined */
 #define ALWAYS_INLINE __attribute__((always_inline))
+/** Functions that should never be inlined */
+#define NEVER_INLINE __attribute__((noinline))
 /** Specific alignment for a type/variable */
 #define ALIGN(x) __attribute__((aligned(x)))
 /** No padding for a type/variable */

@@ -122,7 +122,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         physical_uintptr_t allocate(size_t constraints);
         /** Free a physical page
          *\param[in] physicalAddress physical address of the page */
-        void free(uint64_t physicalAddress);
+        void free(uint64_t physicalAddress, size_t length);
         /** The destructor does nothing */
         inline ~PageStack()
         {
@@ -133,6 +133,16 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
             return m_FreePages;
         }
 
+        void setCapacity(size_t newCapacity)
+        {
+            m_DesiredCapacity = newCapacity;
+        }
+
+        void increaseCapacity(size_t by)
+        {
+            m_DesiredCapacity += by;
+        }
+
       private:
         /** The copy-constructor
          *\note Not implemented */
@@ -140,6 +150,19 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         /** The copy-constructor
          *\note Not implemented */
         PageStack &operator=(const PageStack &);
+
+        /**
+         * Potentially use the given page to map paging structures for future
+         * stack frees.
+         * \return true if the page was consumed, false otherwise.
+         */
+        bool maybeMap(size_t index, uint64_t physicalAddress);
+
+        /**
+         * Push the given page to the stack. Assumes maybeMap() has already
+         * been called and returned false.
+         */
+        void push(size_t index, uint64_t physicalAddress);
 
 /** The number of Stacks */
 #if defined(X86)
@@ -157,6 +180,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         size_t m_StackSize[StackCount];
         /** Current pages available. */
         size_t m_FreePages;
+        /** Current capacity (i.e. mapped pages). */
+        size_t m_Capacity;
+        /** Desired capacity. New pages will be mapped until demand is met. */
+        size_t m_DesiredCapacity;
     };
 
     /** The page stack */

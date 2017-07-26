@@ -37,6 +37,13 @@
 #include "../x64/utils.h"
 #endif
 
+#if defined(TRACK_PAGE_ALLOCATIONS)
+#include "pedigree/kernel/debugger/commands/AllocationCommand.h"
+#endif
+
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+
 #if defined(X86) && defined(DEBUGGER)
 #define USE_BITMAP
 #endif
@@ -45,12 +52,8 @@
 uint32_t g_PageBitmap[16384] = {0};
 #endif
 
-#if defined(TRACK_PAGE_ALLOCATIONS)
-#include "pedigree/kernel/debugger/commands/AllocationCommand.h"
-#endif
-
-#include "pedigree/kernel/core/SlamAllocator.h"
-#include "pedigree/kernel/process/MemoryPressureManager.h"
+size_t g_FreePages = 0;
+size_t g_AllocedPages = 0;
 
 X86CommonPhysicalMemoryManager X86CommonPhysicalMemoryManager::m_Instance;
 
@@ -194,7 +197,7 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
     g_PageBitmap[idx] &= ~(1 << bit);
 #endif
 
-    m_PageStack.free(page);
+    m_PageStack.free(page, getPageSize());
 
 #ifdef MEMORY_TRACING
     traceAllocation(
@@ -434,6 +437,8 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     void *MemoryMap = Info.getMemoryMap();
     if (!MemoryMap)
         panic("no memory map provided by the bootloader");
+
+    // Fill our stack with pages below the 4GB threshold.
     while (MemoryMap)
     {
         uint64_t addr = Info.getMemoryMapEntryAddress(MemoryMap);
@@ -444,26 +449,43 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
             " " << Hex << addr << " - " << (addr + length)
                 << ", type: " << type);
 
-        if (type == 1)
+        MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
+
+        if (type != 1)
         {
-            for (uint64_t i = addr; i < (addr + length); i += pageSize)
-            {
-                // Worry about regions > 4 GB once we've got regions under 4 GB
-                // completely done. We can't do anything over 4 GB because the
-                // PageStack class uses VirtualAddressSpace to map in its stack!
-                // Done in initialise64
-                if (i >= 0x100000000ULL)
-                    break;
-                if (i >= 0x1000000)
-                {
-                    m_PageStack.free(i);
-                    if (i >= top)
-                        top = i + pageSize;
-                }
-            }
+            continue;
         }
 
-        MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
+        // We don't want pages below 1MB, and don't want any over 4GB.
+        uint64_t rangeTop = addr + length;
+        if (rangeTop < 0x1000000)
+        {
+            // Entire region is below 1MB.
+            continue;
+        }
+        else if (rangeTop >= 0x100000000ULL)
+        {
+            // Region is too high.
+            continue;
+        }
+
+        if (addr < 0x1000000)
+        {
+            // Region crosses 1MB mark. Fix to base at 1MB instead.
+            length = rangeTop - 0x1000000;
+            addr = 0x1000000;
+        }
+
+        if (rangeTop >= top)
+        {
+            // Update the "top of memory" value.
+            top = rangeTop;
+        }
+
+        // Prepare the page stack for the additional pages we're giving it.
+        m_PageStack.increaseCapacity(length / pageSize);
+
+        m_PageStack.free(addr, length);
     }
 
     /// \todo do this in initialise64 too, copying any existing entries.
@@ -599,27 +621,23 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
     void *MemoryMap = Info.getMemoryMap();
     while (MemoryMap)
     {
-        if (Info.getMemoryMapEntryAddress(MemoryMap) >= 0x100000000ULL)
+        uint64_t addr = Info.getMemoryMapEntryAddress(MemoryMap);
+        uint64_t length = Info.getMemoryMapEntryLength(MemoryMap);
+        uint32_t type = Info.getMemoryMapEntryType(MemoryMap);
+
+        if (addr >= 0x100000000ULL)
         {
             NOTICE(
-                " " << Hex << Info.getMemoryMapEntryAddress(MemoryMap) << " - "
-                    << (Info.getMemoryMapEntryAddress(MemoryMap) +
-                        Info.getMemoryMapEntryLength(MemoryMap))
-                    << ", type: " << Info.getMemoryMapEntryType(MemoryMap));
+                " " << Hex << addr << " - "
+                    << (addr + length)
+                    << ", type: " << type);
 
-            if (Info.getMemoryMapEntryType(MemoryMap) == 1)
+            if (type == 1)
             {
-                for (uint64_t i = Info.getMemoryMapEntryAddress(MemoryMap);
-                     i < (Info.getMemoryMapEntryAddress(MemoryMap) +
-                          Info.getMemoryMapEntryLength(MemoryMap));
-                     i += getPageSize())
-                {
-                    m_PageStack.free(i);
-                }
+                m_PageStack.increaseCapacity(length / getPageSize());
+                m_PageStack.free(addr, length);
 
-                m_PhysicalRanges.free(
-                    Info.getMemoryMapEntryAddress(MemoryMap),
-                    Info.getMemoryMapEntryLength(MemoryMap));
+                m_PhysicalRanges.free(addr, length);
             }
         }
 
@@ -801,7 +819,7 @@ void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
                 virtualAddressSpace.getMapping(vAddr, pAddr, flags);
 
                 if (!pRegion->getNonRamMemory() && pAddr > 0x1000000)
-                    m_PageStack.free(pAddr);
+                    m_PageStack.free(pAddr, getPageSize());
 
                 virtualAddressSpace.unmap(vAddr);
             }
@@ -814,8 +832,6 @@ void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
     }
 }
 
-size_t g_FreePages = 0;
-size_t g_AllocedPages = 0;
 physical_uintptr_t
 X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
 {
@@ -862,66 +878,192 @@ X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
         if (m_FreePages)
             --m_FreePages;
     }
+
     return result;
 }
-void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress)
+
+template <class T>
+static void performPush(T *stack, size_t &stackSize, uint64_t physicalAddress, size_t count)
+{
+    size_t nextEntry = stackSize / sizeof(T);
+    T addend = 0;
+    for (size_t i = 0; i < count; ++i)
+    {
+        stack[nextEntry + i] = static_cast<T>(physicalAddress + addend);
+        addend += PhysicalMemoryManager::getPageSize();
+    }
+
+    stackSize += sizeof(T) * count;
+}
+
+void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, size_t length)
 {
     // Select the right stack
+    /// \todo make sure callers split any regions that cross over before calling
     size_t index = 0;
     if (physicalAddress >= 0x100000000ULL)
     {
 #if defined(X86)
         return;
 #elif defined(X64)
-        index = 1;
         if (physicalAddress >= 0x1000000000ULL)
-            index = 2;
-#endif
-    }
-    // Don't attempt to map address zero.
-    if (!m_Stack[index])
-        return;
-
-    // Expand the stack if necessary
-    if (m_StackMax[index] == m_StackSize[index])
-    {
-// Get the kernel virtual address-space
-#if defined(X86)
-        X86VirtualAddressSpace &AddressSpace =
-            static_cast<X86VirtualAddressSpace &>(
-                VirtualAddressSpace::getKernelAddressSpace());
-#elif defined(X64)
-        X64VirtualAddressSpace &AddressSpace =
-            static_cast<X64VirtualAddressSpace &>(
-                VirtualAddressSpace::getKernelAddressSpace());
-#endif
-
-        if (!index)
         {
-            if (AddressSpace.mapPageStructures(
-                    physicalAddress,
-                    adjust_pointer(m_Stack[index], m_StackMax[index]),
-                    VirtualAddressSpace::KernelMode |
-                        VirtualAddressSpace::Write) == true)
-                return;
+            index = 2;
         }
         else
         {
-#if defined(X64)
-            if (AddressSpace.mapPageStructuresAbove4GB(
-                    physicalAddress,
-                    adjust_pointer(m_Stack[index], m_StackMax[index]),
-                    VirtualAddressSpace::KernelMode |
-                        VirtualAddressSpace::Write) == true)
-                return;
-#else
-            FATAL("PageStack::free - index > 0 when not built as x86_64");
-#endif
+            index = 1;
         }
-
-        m_StackMax[index] += getPageSize();
+#endif
     }
 
+    // Don't attempt to map address zero.
+    if (UNLIKELY(!m_Stack[index]))
+    {
+        return;
+    }
+
+    uint64_t topPhysical = physicalAddress + length;
+
+    for (; physicalAddress < topPhysical; physicalAddress += getPageSize())
+    {
+        // Expand the stack if necessary.
+        if (!maybeMap(index, physicalAddress))
+        {
+            break;
+        }
+    }
+
+    size_t numPages = (topPhysical - physicalAddress) / getPageSize();
+
+    if (index == 0)
+    {
+        performPush(reinterpret_cast<uint32_t *>(m_Stack[index]), m_StackSize[index], physicalAddress, numPages);
+    }
+    else
+    {
+        performPush(reinterpret_cast<uint64_t *>(m_Stack[index]), m_StackSize[index], physicalAddress, numPages);
+    }
+
+    /// \note Testing.
+    g_FreePages += numPages;
+    if (g_AllocedPages > 0)
+    {
+        if (g_AllocedPages >= numPages)
+        {
+            g_AllocedPages -= numPages;
+        }
+        else
+        {
+            g_AllocedPages = 0;
+        }
+    }
+
+    m_FreePages += numPages;
+}
+
+X86CommonPhysicalMemoryManager::PageStack::PageStack()
+{
+    m_Capacity = 0;
+    m_DesiredCapacity = 0;
+
+    for (size_t i = 0; i < StackCount; i++)
+    {
+        m_StackMax[i] = 0;
+        m_StackSize[i] = 0;
+    }
+
+    // Set the locations for the page stacks in the virtual address space
+    m_Stack[0] = KERNEL_VIRTUAL_PAGESTACK_4GB;
+#if defined(X64)
+    m_Stack[1] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB1;
+    m_Stack[2] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB2;
+#endif
+
+    m_FreePages = 0;
+}
+
+bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t physicalAddress)
+{
+    bool mapped = false;
+
+    void *virtualAddress = adjust_pointer(m_Stack[index], m_StackMax[index]);
+
+#if defined(X86)
+    // Get the kernel virtual address-space
+    X86VirtualAddressSpace &AddressSpace =
+        static_cast<X86VirtualAddressSpace &>(
+            VirtualAddressSpace::getKernelAddressSpace());
+#elif defined(X64)
+    X64VirtualAddressSpace &AddressSpace =
+        static_cast<X64VirtualAddressSpace &>(
+            VirtualAddressSpace::getKernelAddressSpace());
+#endif
+
+    if (AddressSpace.isMapped(virtualAddress))
+    {
+        // This page is mapped, so we need to go ahead and start allocating the
+        // next page in the stack. This way we always have the entire stack
+        // mapped before we start pushing pages into it.
+        m_StackMax[index] += getPageSize();
+        virtualAddress = adjust_pointer(virtualAddress, getPageSize());
+
+        // Top of stack mapped, do we need to expand further?
+        if (m_Capacity >= m_DesiredCapacity)
+        {
+            // No need to map here.
+            return false;
+        }
+    }
+
+    if (!index)
+    {
+        if (AddressSpace.mapPageStructures(
+                physicalAddress,
+                virtualAddress,
+                VirtualAddressSpace::KernelMode |
+                    VirtualAddressSpace::Write) == true)
+        {
+            mapped = true;
+        }
+    }
+    else
+    {
+#if defined(X64)
+        if (AddressSpace.mapPageStructuresAbove4GB(
+                physicalAddress,
+                virtualAddress,
+                VirtualAddressSpace::KernelMode |
+                    VirtualAddressSpace::Write) == true)
+        {
+            mapped = true;
+        }
+#else
+        FATAL("PageStack::free - index > 0 when not built as x86_64");
+#endif
+    }
+
+    // Another page worth of entries is mapped - update capacity accordingly.
+    if (AddressSpace.isMapped(virtualAddress))
+    {
+        // This address is now valid for stack usage, so it adds capacity for
+        // significantly more pages to the stack.
+        size_t entrySize = sizeof(uint32_t);
+        if (index != 0)
+        {
+            entrySize = sizeof(uint64_t);
+        }
+        m_Capacity += getPageSize() / entrySize;
+    }
+
+    // Even if not mapped, we consumed another page.
+    ++m_Capacity;
+
+    return mapped;
+}
+
+void X86CommonPhysicalMemoryManager::PageStack::push(size_t index, uint64_t physicalAddress)
+{
     if (index == 0)
     {
         *(reinterpret_cast<uint32_t *>(m_Stack[0]) + m_StackSize[0] / 4) =
@@ -941,21 +1083,4 @@ void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress)
         g_AllocedPages--;
 
     ++m_FreePages;
-}
-X86CommonPhysicalMemoryManager::PageStack::PageStack()
-{
-    for (size_t i = 0; i < StackCount; i++)
-    {
-        m_StackMax[i] = 0;
-        m_StackSize[i] = 0;
-    }
-
-    // Set the locations for the page stacks in the virtual address space
-    m_Stack[0] = KERNEL_VIRTUAL_PAGESTACK_4GB;
-#if defined(X64)
-    m_Stack[1] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB1;
-    m_Stack[2] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB2;
-#endif
-
-    m_FreePages = 0;
 }
