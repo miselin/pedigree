@@ -29,7 +29,6 @@ esac
 $script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_DIR $compiler_build_options
 
 old=$(pwd)
-cd $script_dir
 
 # Fix up POSIX headers which sometimes get a recursive symlink.
 rm -f src/subsys/posix/include/include || true
@@ -40,6 +39,14 @@ set +e
 changed=`git status -s -uno`
 if [ -z "$changed" ]; then
     git pull --rebase > /dev/null 2>&1
+fi
+
+if [ -d "src/modules/drivers/cdi"]; then
+    cd src/modules/drivers/cdi
+    git pull
+    cd ${old}
+else
+    git clone git://git.tyndur.org/cdi.git src/modules/drivers/cdi || echo "Failed to clone cdi, cdi will not be part of your build."
 fi
 
 set -e
