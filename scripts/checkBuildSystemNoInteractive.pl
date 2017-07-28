@@ -23,7 +23,13 @@ for(my $i = 2; $i < @ARGV; $i++)
 {
     if($ARGV[$i] eq "osx-compat")
     {
-        $gcc_configure_special .= " --with-gmp=/opt/local --with-libiconv-prefix=/opt/local ";
+        my $brew_prefix = `brew --prefix 2>/dev/null`;
+        if ($?)
+        {
+            $brew_prefix = "/opt/local";
+        }
+        chomp $brew_prefix;
+        $gcc_configure_special .= " --with-gmp=$brew_prefix --with-libiconv-prefix=$brew_prefix ";
     }
     elsif($ARGV[$i] eq "libcpp")
     {

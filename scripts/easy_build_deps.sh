@@ -69,16 +69,21 @@ if [ ! -e $script_dir/.easy_os ]; then
                 sqlite texinfo scons genisoimage
             ;;
         osx|mac)
-            echo "Installing packages with macports, please wait..."
             if type port >/dev/null 2>&1; then
+                echo "Installing packages with macports, please wait..."
+
                 sudo port install mpfr libmpc gmp libiconv sqlite3 texinfo \
                     scons cdrtools wget mtools gnutar nasm
             elif type brew >/dev/null 2>&1; then
+                echo "Installing packages with Homebrew, please wait..."
+
                 # TODO(miselin): this fails if an older version of the package
                 # is already installed.
-                brew install scons gnu-tar wget xorriso sqlite3 mtools nasm
+                brew install scons gnu-tar wget xorriso sqlite3 nasm \
+                    gmp mpfr libmpc qemu e2fsprogs autoconf automake
+                    gettext
+                brew link -f gettext  # not linked by default
             fi
-
             real_os="osx"
             ;;
         openbsd)
