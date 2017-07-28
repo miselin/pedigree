@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -19,13 +18,14 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
 import os
+import platform
 
 Import(['env'])
 
 netwrap_bin = env['BUILDDIR'].File('netwrap')
-libnetwork = 'network'
-libnetstack = 'netstack'
-libconfig = 'config'
+libnetwork = 'pedigree-network'
+libnetstack = 'pedigree-netstack'
+libconfig = 'pedigree-config'
 
 build_env = env.Clone()
 
@@ -48,6 +48,14 @@ defines = [
 ]
 
 build_env.Append(CPPDEFINES=defines)
+
+
+def filtered_flag(x):
+    return x.startswith('_POSIX_C_SOURCE') or x.startswith('_XOPEN_SOURCE')
+
+# sqlite needs to not have POSIX_C_SOURCE and others as that breaks the build
+# on OSX - certain types don't get correctly defined.
+sqlite_cppdefines = [x for x in build_env['CPPDEFINES'] if not filtered_flag(x)]
 
 build_env.MergeFlags({
     'CXXFLAGS': ['-std=c++11', '-Os'],
@@ -96,10 +104,12 @@ libnetstack_sources = [
     '../../modules/system/network-stack/TcpStateBlock.cc',
 ]
 
-config = build_env.Library(libconfig, libconfig_sources)
+config = build_env.Library(libconfig, libconfig_sources, CPPDEFINES=sqlite_cppdefines)
 network = build_env.Library(libnetwork, libnetwork_sources)
 netstack = build_env.Library(libnetstack, libnetstack_sources)
 
 build_env['LIBS'] = [netstack, network, config] + build_env['LIBS']
 
-build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])
+# The actual netwrap binary only works on Linux.
+if platform.system() == 'Linux':
+    build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])

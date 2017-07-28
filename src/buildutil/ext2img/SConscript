@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -19,6 +18,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
 import os
+import platform
 
 Import(['env'])
 
@@ -39,6 +39,10 @@ header_paths = [
 
 build_env.Append(CPPPATH=header_paths)
 
+additional_libs = []
+if platform.system() == 'Linux':
+    additional_libs.append('rt')
+
 # Create a fake build environment (TODO: detect host architecture)
 defines = [
     'HOSTED', 'VFS_NOMMU', 'VFS_STANDALONE', 'EXT2_STANDALONE',
@@ -46,7 +50,7 @@ defines = [
 	'STANDALONE_MUTEXES',
 ]
 
-libs = ['ext2', 'vfs', 'part', 'utility', 'kernel', 'pthread', 'rt']
+libs = ['ext2', 'vfs', 'part', 'utility', 'kernel', 'pthread'] + additional_libs
 
 if env['HAVE_OPENSSL_SHA']:
     defines.append('HAVE_OPENSSL')

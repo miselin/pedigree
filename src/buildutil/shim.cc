@@ -26,7 +26,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/fcntl.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -40,6 +42,30 @@
 void *g_pBootstrapInfo = 0;
 
 Scheduler Scheduler::m_Instance;
+
+static int g_DevZero = -1;
+
+static int getDevZero()
+{
+    if (g_DevZero != -1)
+    {
+        return g_DevZero;
+    }
+
+    g_DevZero = open("/dev/zero", O_RDWR);
+    return g_DevZero;
+}
+
+static void closeDevZero()
+{
+    if (g_DevZero == -1)
+    {
+        return;
+    }
+
+    close(g_DevZero);
+    g_DevZero = -1;
+}
 
 namespace Time
 {
@@ -77,7 +103,8 @@ uintptr_t getHeapBase()
         return reinterpret_cast<uintptr_t>(base);
     }
 
-    base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int fd = getDevZero();
+    base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE, fd, 0);
     if (base == MAP_FAILED)
     {
         fprintf(
@@ -96,9 +123,10 @@ uintptr_t getHeapEnd()
 
 void getPageAt(void *addr)
 {
+    int fd = getDevZero();
     void *r = mmap(
         addr, 0x1000, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
+        MAP_PRIVATE | MAP_FIXED, fd, 0);
     if (r == MAP_FAILED)
     {
         fprintf(stderr, "map failed: %s\n", strerror(errno));
@@ -252,8 +280,9 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
         return;
     }
 
+    int fd = getDevZero();
     void *p = mmap(
-        0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
     if (p != MAP_FAILED)
     {
         alloc_start = reinterpret_cast<uintptr_t>(p);

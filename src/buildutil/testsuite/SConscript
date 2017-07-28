@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -19,6 +18,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
 import os
+import platform
 
 Import(['env'])
 
@@ -41,6 +41,10 @@ header_paths = [
 ]
 
 build_env.Append(CPPPATH=header_paths)
+
+additional_libs = []
+if platform.system() == 'Linux':
+    additional_libs.append('rt')
 
 # Create a fake build environment (TODO: detect host architecture)
 defines = [
@@ -76,9 +80,10 @@ libdebugger = coverage_env.StaticLibrary('debugger', [
 ])
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
-                     LIBS=['netstack', 'network', 'config', 'kernel_coverage',
+                     LIBS=['pedigree-netstack', 'pedigree-network',
+                           'pedigree-config', 'kernel_coverage',
                            libdebugger, 'utility_coverage', env['LIBGTEST'],
-                           'pthread', 'dl', 'rt'])
+                           'pthread', 'dl'] + additional_libs)
 
 if build_env['HAVE_BENCHMARK']:
     build_env.MergeFlags({
@@ -88,4 +93,4 @@ if build_env['HAVE_BENCHMARK']:
     })
 
     build_env.Program(benchmark_bin, Glob('bench-*.cc'),
-                      LIBS=['utility', 'benchmark', 'pthread', 'rt'])
+                      LIBS=['utility', 'benchmark', 'pthread'] + additional_libs)

@@ -52,7 +52,7 @@ if 'LIBGTEST' in env:
 # Make sure we can find libraries in the build directory.
 env.MergeFlags({
     'LIBPATH': [env['BUILDDIR']],
-    'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
+    'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600L'],
 })
 
 # Build utility libraries.
