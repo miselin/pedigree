@@ -77,12 +77,25 @@ if [ ! -e $script_dir/.easy_os ]; then
             elif type brew >/dev/null 2>&1; then
                 echo "Installing packages with Homebrew, please wait..."
 
-                # TODO(miselin): this fails if an older version of the package
-                # is already installed.
-                brew install scons gnu-tar wget xorriso sqlite3 nasm \
-                    gmp mpfr libmpc qemu e2fsprogs autoconf automake
-                    gettext
+                brew list scons &>/dev/null || brew install scons
+                brew list gnu-tar &>/dev/null || brew install gnu-tar
+                brew list wget &>/dev/null || brew install wget
+                brew list xorriso &>/dev/null || brew install xorriso
+                brew list sqlite3 &>/dev/null || brew install sqlite3
+                brew list nasm &>/dev/null || brew install nasm
+                brew list gmp &>/dev/null || brew install gmp
+                brew list mpfr &>/dev/null || brew install mpfr
+                brew list libmpc &>/dev/null || brew install libmpc
+                brew list qemu &>/dev/null || brew install qemu
+                brew list e2fsprogs &>/dev/null || brew install e2fsprogs
+                brew list autoconf &>/dev/null || brew install autoconf
+                brew list automake &>/dev/null || brew install automake
+                brew list gettext &>/dev/null || brew install gettext
+
+                set +e  # Avoid brew terminating the build due to link failures
                 brew link -f gettext  # not linked by default
+                brew link -f e2fsprogs
+                set -e
             fi
             real_os="osx"
             ;;
