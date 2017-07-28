@@ -155,6 +155,9 @@ opts.AddVariables(
     BoolVariable('clang_profile', 'If hosted, use clang instrumentation to profile.', 0),
     BoolVariable('instrumentation', 'Build with function instrumentation (SLOW).', 0),
 
+    # Build utility flags.
+    BoolVariable('buildutil_asan', 'Build all build utilities with asan.', 0),
+
     # Hosted build flags.
     BoolVariable('hosted_system_malloc', 'Use the system malloc instead of the Pedigree allocator.', 0),
 
@@ -296,7 +299,7 @@ host_env = conf.Finish()
 # TODO(miselin): figure out how best to detect asan presence.
 host_env['COVERAGE_CCFLAGS'] = ['-fprofile-arcs', '-ftest-coverage', '-O1']
 host_env['COVERAGE_LINKFLAGS'] = ['-fprofile-arcs', '-ftest-coverage']
-if env['force_asan'] or (host_env.Detect('valgrind') is None):
+if env['buildutil_asan'] or env['force_asan']:
     host_env['COVERAGE_CCFLAGS'] += ['-fsanitize=address']
     host_env['COVERAGE_LINKFLAGS'] += ['-fsanitize=address']
 
