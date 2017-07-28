@@ -41,7 +41,7 @@ die()
 }
 
 CPPFLAGS="-I$SRCDIR/src/subsys/posix/syscalls -I$SRCDIR/src/system/include -D$ARCH_TARGET" \
-CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer" \
+CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer" CROSS_COMPILE="$COMPILER_TARGET-" \
 ../configure --target=$COMPILER_TARGET --prefix="$TARGETDIR" \
     --syslibdir="$TARGETDIR/lib" --enable-shared \
     >>musl.log 2>&1 || die
