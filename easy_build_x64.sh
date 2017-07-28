@@ -41,9 +41,9 @@ if [ -z "$changed" ]; then
     git pull --rebase > /dev/null 2>&1
 fi
 
-if [ -d "src/modules/drivers/cdi"]; then
+if [ -d "src/modules/drivers/cdi" ]; then
     cd src/modules/drivers/cdi
-    git pull
+    git pull || echo "Failed to update cdi."
     cd ${old}
 else
     git clone git://git.tyndur.org/cdi.git src/modules/drivers/cdi || echo "Failed to clone cdi, cdi will not be part of your build."
