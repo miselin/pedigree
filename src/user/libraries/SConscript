@@ -60,6 +60,7 @@ lib_deps = {
 # Default include paths
 base_include_dirs = [
     EXTERNAL_INCLUDE_DIR,
+    '#src',
 ]
 
 custom_include_dirs = {

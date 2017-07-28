@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Png.h"
+#include "user/libraries/libtui/include/Png.h"
 
 #include <sys/klog.h>
 #include <unistd.h>
