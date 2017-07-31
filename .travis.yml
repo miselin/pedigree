@@ -17,6 +17,7 @@ matrix:
     - os: linux
     - compiler: clang
 script:
+  - pip install --user requests
   - ./easy_build_$EASY_BUILD.sh nosudo $OS
   - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
   - if [[ "$EASY_BUILD" != "tests" ]]; then ./scripts/runtest.py; fi
