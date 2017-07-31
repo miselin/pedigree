@@ -623,8 +623,8 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(
     uint64_t *pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
 
     // Is a page directory pointer table present?
-    if (conditionalTableEntryAllocation(pml4Entry, Flags) == true)
-        return true;
+    if (conditionalTableEntryAllocation(pml4Entry, Flags) == false)
+        return false;
 
     size_t pageDirectoryPointerIndex =
         PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
@@ -633,8 +633,8 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(
 
     // Is a page directory present?
     if (conditionalTableEntryAllocation(pageDirectoryPointerEntry, Flags) ==
-        true)
-        return true;
+        false)
+        return false;
 
     size_t pageDirectoryIndex = PAGE_DIRECTORY_INDEX(virtualAddress);
     uint64_t *pageDirectoryEntry = TABLE_ENTRY(
@@ -642,8 +642,8 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(
         pageDirectoryIndex);
 
     // Is a page table present?
-    if (conditionalTableEntryAllocation(pageDirectoryEntry, Flags) == true)
-        return true;
+    if (conditionalTableEntryAllocation(pageDirectoryEntry, Flags) == false)
+        return false;
 
     size_t pageTableIndex = PAGE_TABLE_INDEX(virtualAddress);
     uint64_t *pageTableEntry = TABLE_ENTRY(

@@ -483,10 +483,13 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
         }
 
         // Prepare the page stack for the additional pages we're giving it.
-        m_PageStack.increaseCapacity(length / pageSize);
+        m_PageStack.increaseCapacity((length / pageSize) + 1);
 
         m_PageStack.free(addr, length);
     }
+
+    // Stack with <4GB is done.
+    m_PageStack.markBelow4GReady();
 
     /// \todo do this in initialise64 too, copying any existing entries.
     m_PageMetadata = new struct page[top >> 12];
@@ -618,6 +621,8 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
     // NOTE: We must do the page-stack first, because the range-lists already
     // need the
     //       memory-management
+    size_t numPagesOver4G = 0;
+    uint64_t base = 0;
     void *MemoryMap = Info.getMemoryMap();
     while (MemoryMap)
     {
@@ -627,6 +632,11 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
 
         if (addr >= 0x100000000ULL)
         {
+            if (base == 0 || addr < base)
+            {
+                base = addr;
+            }
+
             NOTICE(
                 " " << Hex << addr << " - "
                     << (addr + length)
@@ -634,15 +644,34 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
 
             if (type == 1)
             {
-                m_PageStack.increaseCapacity(length / getPageSize());
+                size_t numPages = length / getPageSize();
+                m_PageStack.increaseCapacity(numPages);
                 m_PageStack.free(addr, length);
 
                 m_PhysicalRanges.free(addr, length);
+
+                numPagesOver4G += numPages;
             }
         }
 
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }
+
+    // Map physical memory above 4G into the kernel address space.
+    // Everything below 4G is already mapped using 2MB pages.
+    /// \todo this will break if there's over 64 TiB of RAM on the machine.
+    VirtualAddressSpace &kernelSpace =
+        VirtualAddressSpace::getKernelAddressSpace();
+    bool ok = kernelSpace.mapHuge(base, reinterpret_cast<void *>(0xFFFF800000000000 + base), numPagesOver4G, VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);
+    if (!ok)
+    {
+        FATAL("failed to map physical memory");
+    }
+
+    NOTICE(" --> " << numPagesOver4G << " pages exist above 4G!");
+
+    // Stacks >=4GB are done.
+    m_PageStack.markAbove4GReady();
 
 // Fill the range-lists (usable memory below 1/16MB & ACPI)
 #if defined(ACPI)
@@ -842,11 +871,33 @@ X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
     else if (constraints == X86CommonPhysicalMemoryManager::below64GB)
         index = 1;
     else
+    {
         index = 2;
 
-    if (index == 2 && m_StackMax[2] == m_StackSize[2])
+        // Degrade quietly if this stack is not ready.
+        if (!m_StackReady[index])
+        {
+            index = 1;
+
+            if (!m_StackReady[index])
+            {
+                index = 0;
+            }
+        }
+    }
+
+    // Wait for the stack to be ready. With constraints, this will block until
+    // a specific page stack is ready. With no constraints, this will just
+    // block until the first page stack is ready (which should almost always
+    // be the case).
+    while (!m_StackReady[index])
+    {
+        Processor::pause();
+    }
+
+    if (index == 2 && (m_StackMax[2] == m_StackSize[2] || !m_StackReady[2]))
         index = 1;
-    if (index == 1 && m_StackMax[1] == m_StackSize[1])
+    if (index == 1 && (m_StackMax[1] == m_StackSize[1] || !m_StackReady[1]))
         index = 0;
 #endif
 
@@ -971,6 +1022,7 @@ X86CommonPhysicalMemoryManager::PageStack::PageStack()
     {
         m_StackMax[i] = 0;
         m_StackSize[i] = 0;
+        m_StackReady[i] = false;
     }
 
     // Set the locations for the page stacks in the virtual address space
@@ -981,6 +1033,19 @@ X86CommonPhysicalMemoryManager::PageStack::PageStack()
 #endif
 
     m_FreePages = 0;
+}
+
+void X86CommonPhysicalMemoryManager::PageStack::markAbove4GReady()
+{
+    for (size_t i = 1; i < StackCount; ++i)
+    {
+        m_StackReady[i] = true;
+    }
+}
+
+void X86CommonPhysicalMemoryManager::PageStack::markBelow4GReady()
+{
+    m_StackReady[0] = true;
 }
 
 bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t physicalAddress)
@@ -999,22 +1064,6 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t 
         static_cast<X64VirtualAddressSpace &>(
             VirtualAddressSpace::getKernelAddressSpace());
 #endif
-
-    if (AddressSpace.isMapped(virtualAddress))
-    {
-        // This page is mapped, so we need to go ahead and start allocating the
-        // next page in the stack. This way we always have the entire stack
-        // mapped before we start pushing pages into it.
-        m_StackMax[index] += getPageSize();
-        virtualAddress = adjust_pointer(virtualAddress, getPageSize());
-
-        // Top of stack mapped, do we need to expand further?
-        if (m_Capacity >= m_DesiredCapacity)
-        {
-            // No need to map here.
-            return false;
-        }
-    }
 
     if (!index)
     {
@@ -1054,33 +1103,20 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t 
             entrySize = sizeof(uint64_t);
         }
         m_Capacity += getPageSize() / entrySize;
-    }
 
-    // Even if not mapped, we consumed another page.
-    ++m_Capacity;
+        // This page is mapped, so we need to go ahead and start allocating the
+        // next page in the stack. This way we always have the entire stack
+        // mapped before we start pushing pages into it.
+        m_StackMax[index] += getPageSize();
+        virtualAddress = adjust_pointer(virtualAddress, getPageSize());
+
+        // Top of stack mapped, do we need to expand further?
+        if (m_Capacity >= m_DesiredCapacity)
+        {
+            // No need to map here.
+            return false;
+        }
+    }
 
     return mapped;
-}
-
-void X86CommonPhysicalMemoryManager::PageStack::push(size_t index, uint64_t physicalAddress)
-{
-    if (index == 0)
-    {
-        *(reinterpret_cast<uint32_t *>(m_Stack[0]) + m_StackSize[0] / 4) =
-            static_cast<uint32_t>(physicalAddress);
-        m_StackSize[0] += 4;
-    }
-    else
-    {
-        *(reinterpret_cast<uint64_t *>(m_Stack[index]) +
-          m_StackSize[index] / 8) = physicalAddress;
-        m_StackSize[index] += 8;
-    }
-
-    /// \note Testing.
-    g_FreePages++;
-    if (g_AllocedPages > 0)
-        g_AllocedPages--;
-
-    ++m_FreePages;
 }

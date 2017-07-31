@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
 
 // Multiprocessor headers
 #if defined(MULTIPROCESSOR)
@@ -63,6 +64,24 @@ union pat
     } s;
     uint64_t x;
 };
+
+static int doInitialise64(void *param)
+{
+    BootstrapStruct_t *info = reinterpret_cast<BootstrapStruct_t *>(param);
+
+    // Initialise the 64-bit physical memory management
+    // This can be done in parallel with system startup, as other parts of the
+    // system that *need* pages above 4GB will be able to block until they are
+    // available, and otherwise page allocations will be adequately completed
+    // by the presence of pages under 4GB.
+    X86CommonPhysicalMemoryManager &physicalMemoryManager =
+        X86CommonPhysicalMemoryManager::instance();
+    physicalMemoryManager.initialise64(*info);
+
+    delete info;
+
+    return 0;
+}
 
 void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 {
@@ -178,10 +197,10 @@ void Processor::initialise2(const BootstrapStruct_t &Info)
 
     initialiseMultitasking();
 
-    // Initialise the 64-bit physical memory management
-    X86CommonPhysicalMemoryManager &physicalMemoryManager =
-        X86CommonPhysicalMemoryManager::instance();
-    physicalMemoryManager.initialise64(Info);
+    BootstrapStruct_t *copy = new BootstrapStruct_t;
+    *copy = Info;
+
+    pocketknife::runConcurrently(doInitialise64, copy);
 
     m_Initialised = 2;
 

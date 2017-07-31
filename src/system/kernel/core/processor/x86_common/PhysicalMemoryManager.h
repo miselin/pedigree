@@ -113,6 +113,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
      *constraint). */
     class PageStack
     {
+        friend class X86CommonPhysicalMemoryManager;
       public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;
@@ -143,6 +144,13 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
             m_DesiredCapacity += by;
         }
 
+      protected:
+        /** Mark all stacks tracking pages above 4GB mark ready. */
+        void markAbove4GReady();
+
+        /** Mark stacks tracking pages below 4GB mark ready. */
+        void markBelow4GReady();
+
       private:
         /** The copy-constructor
          *\note Not implemented */
@@ -157,12 +165,6 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
          * \return true if the page was consumed, false otherwise.
          */
         bool maybeMap(size_t index, uint64_t physicalAddress);
-
-        /**
-         * Push the given page to the stack. Assumes maybeMap() has already
-         * been called and returned false.
-         */
-        void push(size_t index, uint64_t physicalAddress);
 
 /** The number of Stacks */
 #if defined(X86)
@@ -184,6 +186,9 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         size_t m_Capacity;
         /** Desired capacity. New pages will be mapped until demand is met. */
         size_t m_DesiredCapacity;
+
+        /** Whether or not a particular stack is ready for use. */
+        Atomic<bool> m_StackReady[StackCount];
     };
 
     /** The page stack */
