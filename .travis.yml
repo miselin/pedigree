@@ -11,8 +11,8 @@ matrix:
   #   env: OS=ubuntu EASY_BUILD=hosted
   - os: linux
     env: OS=ubuntu EASY_BUILD=tests
-  - os: osx
-    env: OS=osx EASY_BUILD=x64
+  # - os: osx
+  #   env: OS=osx EASY_BUILD=x64
   exclude:
     - os: linux
     - compiler: clang
