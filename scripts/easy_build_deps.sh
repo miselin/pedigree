@@ -82,6 +82,7 @@ if [ ! -e $script_dir/.easy_os ]; then
                 brew list wget &>/dev/null || brew install wget
                 brew list xorriso &>/dev/null || brew install xorriso
                 brew list sqlite3 &>/dev/null || brew install sqlite3
+                brew list mtools &>/dev/null || brew install mtools
                 brew list nasm &>/dev/null || brew install nasm
                 brew list gmp &>/dev/null || brew install gmp
                 brew list mpfr &>/dev/null || brew install mpfr
