@@ -43,6 +43,10 @@ void BootIO::initialise()
             for (size_t i = 0; i < pVga->getNumRows() * pVga->getNumCols(); i++)
                 pFramebuffer[i] = 0;
     }
+
+    HugeStaticString str;
+    str += "BootIO is initialized!\n";
+    write(str, Black, Black);
 }
 
 void BootIO::write(HugeStaticString &str, Colour foreColour, Colour backColour)
