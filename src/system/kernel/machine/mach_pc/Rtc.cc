@@ -291,16 +291,20 @@ bool Rtc::initialise2()
     read(0x0C);  // Some RTC chips need the interrupt status to be cleared after
                  // changing the control register.
 
+    bool wasInterrupts = Processor::getInterrupts();
+    Processor::setInterrupts(true);
+
     // Calibrate against TSC (assumes constant TSC - need to check CPUID!)
     uint64_t tsc0, tsc1;
-    m_TickCount = 0;
 
     uint32_t edx, eax;
     asm volatile("rdtsc" : "=d"(edx), "=a"(eax)::"memory");
     tsc0 = (static_cast<uint64_t>(edx) << 32UL) | eax;
 
+    m_TickCount = 0;
+
     // Burn some cycles.
-    for (size_t i = 0; i < 1000; ++i)
+    for (size_t i = 0; i < 50; ++i)
     {
         Processor::haltUntilInterrupt();
     }
@@ -313,6 +317,8 @@ bool Rtc::initialise2()
     NOTICE("TSC ticks/ns: " << m_TscTicksPerNanosecond);
 
     m_Tsc0 = tsc1;
+
+    Processor::setInterrupts(wasInterrupts);
 
     return true;
 }
