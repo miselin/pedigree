@@ -51,7 +51,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     //
     // PhysicalMemoryManager Interface
     //
-    virtual physical_uintptr_t allocatePage();
+    virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
     virtual void freePage(physical_uintptr_t page);
     virtual bool allocateRegion(
         MemoryRegion &Region, size_t cPages, size_t pageConstraints,

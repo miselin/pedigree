@@ -22,7 +22,7 @@
 class StubbedPhysicalMemoryManager : public PhysicalMemoryManager
 {
   public:
-    virtual physical_uintptr_t allocatePage();
+    virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
     virtual void freePage(physical_uintptr_t page);
     virtual void pin(physical_uintptr_t page);
     virtual bool allocateRegion(
@@ -41,9 +41,9 @@ PhysicalMemoryManager &PhysicalMemoryManager::instance()
     return stub;
 }
 
-physical_uintptr_t StubbedPhysicalMemoryManager::allocatePage()
+physical_uintptr_t StubbedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
-    return ~0U;
+    return 0;
 }
 
 void StubbedPhysicalMemoryManager::freePage(physical_uintptr_t page)

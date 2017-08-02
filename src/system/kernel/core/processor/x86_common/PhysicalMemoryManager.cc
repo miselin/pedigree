@@ -81,7 +81,7 @@ size_t X86CommonPhysicalMemoryManager::freePageCount() const
     return m_PageStack.freePages();
 }
 
-physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage()
+physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
     static bool bDidHitWatermark = false;
     static bool bHandlingPressure = false;
@@ -122,7 +122,7 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage()
         }
     }
 
-    ptr = m_PageStack.allocate(0);
+    ptr = m_PageStack.allocate(pageConstraints);
     if (!ptr)
     {
         panic("Out of memory.");

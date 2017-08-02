@@ -77,11 +77,9 @@ class PhysicalMemoryManager
     {
         return PAGE_SIZE;
     }
-    /** Allocate a 'normal' page. Normal means that the page does not need to
-     *fullfill any constraints. These kinds of pages can be used to map normal
-     *memory into a virtual address space. \return physical address of the
-     *page or 0 if no page available */
-    virtual physical_uintptr_t allocatePage() = 0;
+    /** Allocate a single page with optional constraints.
+     * \return physical address of the page or 0 if no page available. */
+    virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0) = 0;
     /** Free a page allocated with the allocatePage() function
      *\param[in] page physical address of the page */
     virtual void freePage(physical_uintptr_t page) = 0;
