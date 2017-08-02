@@ -289,6 +289,11 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
         physical_uintptr_t physAddress, void *virtualAddress, size_t flags,
         bool locked = false);
 
+    /**
+     * Perform an unmap without taking the lock.
+     */
+    void unmapUnlocked(void *virtualAddress, bool requireMapped = true);
+
     /** Allocates a stack with a given size. */
     Stack *doAllocateStack(size_t sSize);
 

@@ -202,9 +202,73 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtu
         return VirtualAddressSpace::mapHuge(physAddress, virtualAddress, count, flags);
     }
 
-    /// \todo write this
+    LockGuard<Spinlock> guard(m_Lock);
 
-    return VirtualAddressSpace::mapHuge(physAddress, virtualAddress, count, flags);
+    size_t smallPageSize = PhysicalMemoryManager::getPageSize();
+
+    // Clean up any existing mapping before we go ahead and map the huge pages
+    for (size_t i = 0; i < count; ++i)
+    {
+        unmapUnlocked(adjust_pointer(virtualAddress, i * smallPageSize), false);
+    }
+
+    // Ensure correct page size for this mapping.
+    const size_t pageSize = hasHuge ? (1 << 30UL) : (1 << 21UL);
+
+    size_t Flags = toFlags(flags, true);
+    for (size_t i = 0; i < numHugePages; ++i)
+    {
+        size_t pml4Index = PML4_INDEX(virtualAddress);
+        uint64_t *pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
+
+        // Check if a page directory pointer table was present *before* the
+        // conditional allocation.
+        bool pdWasPresent = (*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT;
+
+        // Is a page directory pointer table present?
+        if (conditionalTableEntryAllocation(pml4Entry, flags) == false)
+        {
+            return false;
+        }
+
+        size_t pageDirectoryPointerIndex =
+            PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
+        uint64_t *pageDirectoryPointerEntry = TABLE_ENTRY(
+            PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), pageDirectoryPointerIndex);
+
+        /// \todo we should unmap everything in the region first, clean up tables etc
+
+        if (hasHuge)
+        {
+            // 1G pages.
+            /// \todo change define to mean huge
+            /// \todo sanity check physical address?
+            *pageDirectoryPointerEntry = physAddress | PAGE_2MB | Flags;
+        }
+        else
+        {
+            // 2 MB pages.
+
+            // Is a page directory present?
+            if (conditionalTableEntryAllocation(pageDirectoryPointerEntry, flags) ==
+                false)
+            {
+                return false;
+            }
+
+            size_t pageDirectoryIndex = PAGE_DIRECTORY_INDEX(virtualAddress);
+            uint64_t *pageDirectoryEntry = TABLE_ENTRY(
+                PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry),
+                pageDirectoryIndex);
+
+            *pageDirectoryEntry = physAddress | PAGE_2MB | Flags;
+        }
+
+        virtualAddress = adjust_pointer(virtualAddress, pageSize);
+        physAddress += pageSize;
+    }
+
+    return true;
 }
 
 bool X64VirtualAddressSpace::mapUnlocked(
@@ -312,6 +376,7 @@ void X64VirtualAddressSpace::getMapping(
     physAddress = PAGE_GET_PHYSICAL_ADDRESS(pageTableEntry);
     flags = fromFlags(PAGE_GET_FLAGS(pageTableEntry), true);
 }
+
 void X64VirtualAddressSpace::setFlags(void *virtualAddress, size_t newFlags)
 {
     LockGuard<Spinlock> guard(m_Lock);
@@ -330,16 +395,31 @@ void X64VirtualAddressSpace::setFlags(void *virtualAddress, size_t newFlags)
     // Flush TLB - modified the mapping for this address.
     Processor::invalidate(virtualAddress);
 }
+
 void X64VirtualAddressSpace::unmap(void *virtualAddress)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
+    unmapUnlocked(virtualAddress);
+}
+
+void X64VirtualAddressSpace::unmapUnlocked(void *virtualAddress, bool requireMapped)
+{
     // Get a pointer to the page-table entry (Also checks whether the page is
     // actually present or marked swapped out)
     uint64_t *pageTableEntry = 0;
     if (getPageTableEntry(virtualAddress, pageTableEntry) == false)
     {
-        panic("VirtualAddressSpace::unmap(): function misused");
+        // Not mapped! This is a panic for most cases, but private usage of
+        // unmap within X64VirtualAddressSpace is allowed to do this.
+        if (requireMapped)
+        {
+            panic("VirtualAddressSpace::unmap(): function misused");
+        }
+        else
+        {
+            return;
+        }
     }
 
     // Unmap the page
