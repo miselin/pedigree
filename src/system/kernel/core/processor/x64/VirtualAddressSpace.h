@@ -98,6 +98,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
 
     virtual bool
     map(physical_uintptr_t physAddress, void *virtualAddress, size_t flags);
+    virtual bool mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags);
     virtual void getMapping(
         void *virtualAddress, physical_uintptr_t &physAddress, size_t &flags);
     virtual void setFlags(void *virtualAddress, size_t newFlags);

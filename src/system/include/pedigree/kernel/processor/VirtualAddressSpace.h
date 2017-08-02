@@ -107,6 +107,14 @@ class VirtualAddressSpace
     virtual bool
     map(physical_uintptr_t physicalAddress, void *virtualAddress,
         size_t flags) = 0;
+    /** Map a region of memory using the largest possible frame size.
+     * Where possible the largest page size should be used, degrading into
+     * smaller page sizes as needed (e.g. 1 GB, 2 MB, 4K) to reduce the
+     * overhead of the mapping on the system.
+     * Default implementation calls map() in a loop.
+     * \return true if successful, false otherwise.
+     */
+    virtual bool mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags);
     /** Get the physical address and the flags associated with the specific
      *virtual address. \note This function is only valid on memory that was
      *mapped with VirtualAddressSpace::map() and that is still mapped or marked

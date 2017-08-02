@@ -174,6 +174,39 @@ bool X64VirtualAddressSpace::map(
     return mapUnlocked(physAddress, virtualAddress, flags, m_Lock.acquired());
 }
 
+bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags)
+{
+    uint32_t a, b, c, d;
+    Processor::cpuid(0x80000001UL, 0, a, b, c, d);
+
+    size_t numHugePages = 0;
+    bool hasHuge = d & (1 << 26);
+    if (hasHuge)
+    {
+        // 1 GB pages are available.
+        // NOTE: we intentionally let this truncate to zero, which will fall
+        // back to 2MB pages for mappings that are less than 1GB big.
+        /// \todo this does not handle non-1G-aligned counts.
+        numHugePages = count / (1 << (30UL - 12UL));
+    }
+
+    if (numHugePages == 0)
+    {
+        // Fall back to 2 MB pages.
+        numHugePages = count / (1 << (21UL - 12UL));
+    }
+
+    if (numHugePages == 0)
+    {
+        // Just map the normal way - less than 2MB!
+        return VirtualAddressSpace::mapHuge(physAddress, virtualAddress, count, flags);
+    }
+
+    /// \todo write this
+
+    return VirtualAddressSpace::mapHuge(physAddress, virtualAddress, count, flags);
+}
+
 bool X64VirtualAddressSpace::mapUnlocked(
     physical_uintptr_t physAddress, void *virtualAddress, size_t flags,
     bool locked)
@@ -624,7 +657,7 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(
 
     // Is a page directory pointer table present?
     if (conditionalTableEntryAllocation(pml4Entry, Flags) == false)
-        return false;
+        return true;
 
     size_t pageDirectoryPointerIndex =
         PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
@@ -634,7 +667,7 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(
     // Is a page directory present?
     if (conditionalTableEntryAllocation(pageDirectoryPointerEntry, Flags) ==
         false)
-        return false;
+        return true;
 
     size_t pageDirectoryIndex = PAGE_DIRECTORY_INDEX(virtualAddress);
     uint64_t *pageDirectoryEntry = TABLE_ENTRY(
@@ -643,7 +676,7 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(
 
     // Is a page table present?
     if (conditionalTableEntryAllocation(pageDirectoryEntry, Flags) == false)
-        return false;
+        return true;
 
     size_t pageTableIndex = PAGE_TABLE_INDEX(virtualAddress);
     uint64_t *pageTableEntry = TABLE_ENTRY(
@@ -1058,7 +1091,10 @@ bool X64VirtualAddressSpace::conditionalTableEntryAllocation(
             PhysicalMemoryManager::instance();
         uint64_t page = PMemoryManager.allocatePage();
         if (page == 0)
+        {
+            ERROR("OOM in X64VirtualAddressSpace::conditionalTableEntryAllocation!");
             return false;
+        }
 
         // Add the WRITE and USER flags so that these can be controlled
         // on a page-granularity level.
@@ -1068,7 +1104,7 @@ bool X64VirtualAddressSpace::conditionalTableEntryAllocation(
         // Map the page.
         *tableEntry = page | flags;
 
-        // Zero the page directory pointer table
+        // Zero the page directory pointer table.
         ByteSet(
             physicalAddress(reinterpret_cast<void *>(page)), 0,
             PhysicalMemoryManager::getPageSize());
