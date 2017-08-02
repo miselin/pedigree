@@ -69,7 +69,7 @@ bool BusMasterIde::initialise(IoBase *pBase)
         m_PrdTablePhys = m_PrdTableMemRegion.physicalAddress();
         NOTICE(
             "BusMasterIde: PRD table at v="
-            << reinterpret_cast<uintptr_t>(m_PrdTableMemRegion.virtualAddress())
+            << Hex << reinterpret_cast<uintptr_t>(m_PrdTableMemRegion.virtualAddress())
             << ", p=" << m_PrdTablePhys << ".");
     }
 
@@ -117,7 +117,14 @@ bool BusMasterIde::add(uintptr_t buffer, size_t nBytes)
                 va.getMapping(
                     reinterpret_cast<void *>(buffer + currOffset), physPage,
                     flags);
-                // NOTICE("v=" << (buffer + currOffset) << ", p=" << physPage);
+                // NOTICE("v=" << Hex << (buffer + currOffset) << ", p=" << physPage);
+
+                // DMA can only work with pages under 4G
+                if (physPage >= (1ULL << 32ULL))
+                {
+                    ERROR("BusMasterIde: physical pages must be in the first 4GB of address space [given page: " << Hex << physPage << "]!");
+                    return false;
+                }
 
                 // Add in whatever offset into the page we may have in the
                 // buffer parameter.

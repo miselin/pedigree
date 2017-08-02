@@ -26,6 +26,7 @@
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 #define READAHEAD_ENABLED 0
 
@@ -59,7 +60,7 @@ void ScsiDisk::cacheCallback(
 }
 
 ScsiDisk::ScsiDisk()
-    : Disk(), m_Cache(), m_Inquiry(0), m_nAlignPoints(0), m_NumBlocks(0),
+    : Disk(), m_Cache(PhysicalMemoryManager::below4GB), m_Inquiry(0), m_nAlignPoints(0), m_NumBlocks(0),
       m_BlockSize(0x1000), m_DeviceType(NoDevice)
 {
     m_Cache.setCallback(cacheCallback, this);
