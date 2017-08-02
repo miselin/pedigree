@@ -185,9 +185,9 @@ void CacheManager::trimThread()
 }
 #endif
 
-Cache::Cache()
+Cache::Cache(size_t pageConstraints)
     : m_Pages(), m_PageFilter(0xe80000, 11), m_pLruHead(0), m_pLruTail(0),
-      m_Lock(false), m_Callback(0), m_Nanoseconds(0)
+      m_Lock(false), m_Callback(0), m_Nanoseconds(0), m_PageConstraints(pageConstraints)
 {
     if (!g_AllocatorInited)
     {
@@ -384,7 +384,7 @@ bool Cache::map(uintptr_t virt) const
     // Will be part of the already-OK region in the allocator.
     return true;
 #else
-    physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
+    physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage(m_PageConstraints);
     return Processor::information().getVirtualAddressSpace().map(
         phys, reinterpret_cast<void *>(virt),
         VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);

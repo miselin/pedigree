@@ -172,7 +172,7 @@ class Cache
         CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
         void *meta);
 
-    Cache();
+    Cache(size_t pageConstraints = 0);
     virtual ~Cache();
 
     /** Set the write back callback to the given function. */
@@ -405,6 +405,9 @@ class Cache
 
     /** Are we currently in a critical section? */
     Atomic<size_t> m_bInCritical;
+
+    /** Constraints we need to apply to each page we allocate. */
+    size_t m_PageConstraints;
 
 #ifdef STANDALONE_CACHE
     /** Determines the range of addresses permitted for use for Cache. */
