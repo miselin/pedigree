@@ -140,9 +140,10 @@ inline void allocateAndMapAt(void *addr)
 #else
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
     physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-    va.map(
-        phys, addr,
-        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+    if (!va.map(phys, addr, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write))
+    {
+        FATAL("SlamAllocator: failed to allocate and map at " << addr);
+    }
 #endif
 }
 
