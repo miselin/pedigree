@@ -200,7 +200,7 @@ void Processor::initialise2(const BootstrapStruct_t &Info)
     BootstrapStruct_t *copy = new BootstrapStruct_t;
     *copy = Info;
 
-    pocketknife::runConcurrently(doInitialise64, copy);
+    doInitialise64(copy);
 
     m_Initialised = 2;
 
