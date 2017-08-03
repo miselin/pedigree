@@ -203,6 +203,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             SYSCALL_ERROR(Unimplemented);
             return -1;
         }
+#ifdef POSIX_VERBOSE_SYSCALLS
+        else
+        {
+            NOTICE("TRANSLATED syscall: Linux #" << syscallNumber << " -> Pedigree #" << which);
+        }
+#endif
 
         syscallNumber = which;
     }

@@ -1553,10 +1553,28 @@ int posix_uname(struct utsname *n)
         return -1;
     }
 
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+
     StringCopy(n->sysname, "Pedigree");
-    StringCopy(n->release, g_pBuildRevision);
-    StringCopy(n->version, "Foster");
+
+    if (pSubsystem->getAbi() == PosixSubsystem::LinuxAbi)
+    {
+        // Lie a bit to Linux ABI callers.
+        StringCopy(n->release, "2.6.32-generic");
+        StringCopy(n->version, g_pBuildRevision);
+    }
+    else
+    {
+        StringCopy(n->release, g_pBuildRevision);
+        StringCopy(n->version, "Foster");
+    }
+
     StringCopy(n->machine, g_pBuildTarget);
+
+    /// \todo: better handle node name
     StringCopy(n->nodename, "pedigree.local");
     return 0;
 }
