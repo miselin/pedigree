@@ -1054,6 +1054,12 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t 
 
     void *virtualAddress = adjust_pointer(m_Stack[index], m_StackMax[index]);
 
+    // Do we even need to do this mapping?
+    if (m_Capacity >= m_DesiredCapacity)
+    {
+        return false;
+    }
+
 #if defined(X86)
     // Get the kernel virtual address-space
     X86VirtualAddressSpace &AddressSpace =
