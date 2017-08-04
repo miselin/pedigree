@@ -88,6 +88,7 @@ libutility_sources = [
     os.path.join('utilities', 'BloomFilter.cc'),
     os.path.join('utilities', 'StaticString.cc'),
     os.path.join('utilities', 'RangeList.cc'),
+    os.path.join('utilities', 'ProducerConsumer.cc'),
     os.path.join('utilities', 'sha1', 'sha1.cc'),
     os.path.join('utilities', 'smhasher', 'MurmurHash3.cpp'),
     os.path.join('core', 'lib', 'demangle.cc'),
