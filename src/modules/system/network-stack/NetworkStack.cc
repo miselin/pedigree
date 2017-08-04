@@ -38,6 +38,9 @@ static TcpManager *g_TcpManager = 0;
 
 NetworkStack::NetworkStack()
     : RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
+#ifdef UTILITY_LINUX
+    , m_Lock(false)
+#endif
 {
     if (stack)
     {
@@ -47,6 +50,9 @@ NetworkStack::NetworkStack()
     stack = this;
 
     initialise();
+
+    /// \todo handle errors in Ethernet initialisation
+    Ethernet::instance().initialise();
 
 #if defined(X86_COMMON) || defined(HOSTED)
     // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
@@ -81,12 +87,14 @@ uint64_t NetworkStack::executeRequest(
     if (!pack)
         return 0;
 
-    uintptr_t packet = pack->buffer;
-    size_t packetSize = pack->packetLength;
-    Network *pCard = pack->pCard;
-    uint32_t offset = pack->offset;
+    // OK, we are now processing the packet.
+    // We hold a lock that allows us to handle concurrency (not an issue with
+    // a true RequestQueue, but is an issue on other environments).
+#if defined(THREADS) || defined(UTILITY_LINUX)
+    LockGuard<Mutex> guard(m_Lock);
+#endif
 
-    if (!packet || !packetSize)
+    if (!pack->getBuffer() || !pack->getLength())
     {
         delete pack;
         return 0;
@@ -97,11 +105,8 @@ uint64_t NetworkStack::executeRequest(
     /// packet
     ///       so we can pass it on to the correct handler, rather than assuming
     ///       Ethernet.
-    Ethernet::instance().receive(packetSize, packet, pCard, offset);
+    Ethernet::instance().receive(pack);
 
-    m_MemPool.free(packet);
-
-    delete pack;
     return 0;
 }
 
@@ -113,24 +118,22 @@ void NetworkStack::receive(
 
     pCard->gotPacket();
 
+    Packet *p = new Packet;
+
     // Some cards might be giving us a DMA address or something, so we copy
     // before passing on to the worker thread...
-    uint8_t *safePacket = reinterpret_cast<uint8_t *>(m_MemPool.allocateNow());
-    if (!safePacket)
+    if (!p->copyFrom(packet, nBytes))
     {
         ERROR("Network Stack: Out of memory pool space, dropping incoming "
               "packet");
         pCard->droppedPacket();
         return;
     }
-    MemoryCopy(safePacket, reinterpret_cast<void *>(packet), nBytes);
-    Packet *p = new Packet;
-    p->buffer = reinterpret_cast<uintptr_t>(safePacket);
-    p->packetLength = nBytes;
-    p->pCard = pCard;
-    p->offset = offset;
 
-    addAsyncRequest(0, reinterpret_cast<uint64_t>(p));
+    p->m_pCard = pCard;
+    p->m_Offset = offset;
+
+    uint64_t result = addRequest(0, reinterpret_cast<uint64_t>(p));
 }
 
 void NetworkStack::registerDevice(Network *pDevice)
@@ -158,6 +161,31 @@ void NetworkStack::deRegisterDevice(Network *pDevice)
             m_Children.erase(it);
             break;
         }
+}
+
+NetworkStack::Packet::Packet() = default;
+
+NetworkStack::Packet::~Packet()
+{
+    // Packet destroyed, clean up our buffer if it existed.
+    if (m_Buffer)
+    {
+        NetworkStack::instance().m_MemPool.free(m_Buffer);
+    }
+}
+
+bool NetworkStack::Packet::copyFrom(uintptr_t otherPacket, size_t size)
+{
+    uint8_t *safePacket = reinterpret_cast<uint8_t *>(NetworkStack::instance().m_MemPool.allocateNow());
+    if (!safePacket)
+    {
+        return false;
+    }
+    MemoryCopy(safePacket, reinterpret_cast<void *>(otherPacket), size);
+
+    m_Buffer = reinterpret_cast<uintptr_t>(safePacket);
+    m_PacketLength = size;
+    return true;
 }
 
 #ifndef NO_NETWORK_SERVICES

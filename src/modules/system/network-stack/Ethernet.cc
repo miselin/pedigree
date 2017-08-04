@@ -29,24 +29,22 @@
 
 Ethernet Ethernet::ethernetInstance;
 
-Ethernet::Ethernet()
-{
-    //
-}
+Ethernet::Ethernet() = default;
+Ethernet::~Ethernet() = default;
 
-Ethernet::~Ethernet()
+void Ethernet::receive(NetworkStack::Packet *packet)
+    // size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
 {
-    //
-}
-
-void Ethernet::receive(
-    size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
-{
-    if (!packet || !nBytes || !pCard)
+    if (!packet || !packet->getBuffer() || !packet->getLength() || !packet->getCard())
         return;
 
+    uintptr_t packetBuffer = packet->getBuffer();
+    size_t nBytes = packet->getLength();
+    Network *pCard = packet->getCard();
+    size_t offset = packet->getOffset();
+
     // Check for filtering
-    if (!NetworkFilter::instance().filter(1, packet, nBytes))
+    if (!NetworkFilter::instance().filter(1, packetBuffer, nBytes))
     {
         pCard->droppedPacket();
         return;  // Drop the packet.
@@ -54,21 +52,22 @@ void Ethernet::receive(
 
     // grab the header
     ethernetHeader *ethHeader =
-        reinterpret_cast<ethernetHeader *>(packet + offset);
+        reinterpret_cast<ethernetHeader *>(packetBuffer + offset);
 
 #ifndef DISABLE_RAWNET
     // dump this packet into the RAW sockets
-    RawManager::instance().receive(packet, nBytes, 0, -1, pCard);
+    RawManager::instance().receive(packetBuffer, nBytes, 0, -1, pCard);
 #endif
 
     // what type is the packet?
+    bool queued = false;
     switch (BIG_TO_HOST16(ethHeader->type))
     {
         case ETH_ARP:
             // NOTICE("ARP packet!");
 
             Arp::instance().receive(
-                nBytes, packet, pCard, sizeof(ethernetHeader));
+                nBytes, packetBuffer, pCard, sizeof(ethernetHeader));
 
             break;
 
@@ -77,19 +76,10 @@ void Ethernet::receive(
             break;
 
         case ETH_IPV4:
-            // NOTICE("IPv4 packet!");
-
-            Ipv4::instance().receive(
-                nBytes, packet, pCard, sizeof(ethernetHeader));
-
-            break;
-
         case ETH_IPV6:
-            // NOTICE("IPv6 packet!");
-
-            Ipv6::instance().receive(
-                nBytes, packet, pCard, sizeof(ethernetHeader));
-
+            // IP protocol packets are queued for asynchronous handling.
+            queued = true;
+            produce(reinterpret_cast<uint64_t>(packet));
             break;
 
         default:
@@ -98,6 +88,11 @@ void Ethernet::receive(
                 << Hex << BIG_TO_HOST16(ethHeader->type) << "!");
             pCard->badPacket();
             break;
+    }
+
+    if (!queued)
+    {
+        delete packet;  // all done
     }
 }
 
@@ -168,4 +163,42 @@ void Ethernet::send(
     // and dump it into any raw sockets (note the -1 for protocol - this means
     // WIRE level endpoints) RawManager::instance().receive(packAddr, newSize,
     // 0, -1, pCard);
+}
+
+void Ethernet::consume(uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+{
+    NetworkStack::Packet *packet = reinterpret_cast<NetworkStack::Packet *>(p0);
+    if (!packet)
+    {
+        ERROR("Null packet given to Ethernet::consume()");
+        return;
+    }
+
+    uintptr_t packetBuffer = packet->getBuffer();
+    size_t nBytes = packet->getLength();
+    Network *pCard = packet->getCard();
+    size_t offset = packet->getOffset();
+
+    // grab the header
+    ethernetHeader *ethHeader =
+        reinterpret_cast<ethernetHeader *>(packetBuffer + offset);
+
+    uint16_t type = BIG_TO_HOST16(ethHeader->type);
+
+    if (type == ETH_IPV4)
+    {
+        Ipv4::instance().receive(
+            nBytes, packetBuffer, pCard, sizeof(ethernetHeader));
+    }
+    else if (type == ETH_IPV6)
+    {
+        Ipv6::instance().receive(
+            nBytes, packetBuffer, pCard, sizeof(ethernetHeader));
+    }
+    else
+    {
+        ERROR("Ethernet: unhandled packet type in consume()");
+    }
+
+    delete packet;
 }

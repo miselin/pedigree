@@ -23,6 +23,7 @@
 #include "NetworkStack.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/ProducerConsumer.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
@@ -34,7 +35,7 @@
 /**
  * The Pedigree network stack - Ethernet layer
  */
-class Ethernet
+class Ethernet : public ProducerConsumer
 {
   public:
     Ethernet();
@@ -47,8 +48,7 @@ class Ethernet
     }
 
     /** Packet arrival callback */
-    void
-    receive(size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset);
+    void receive(NetworkStack::Packet *packet);
 
     /** Sends an ethernet packet */
     static void send(
@@ -71,6 +71,8 @@ class Ethernet
 
   private:
     static Ethernet ethernetInstance;
+
+    void consume(uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
 
     struct ethernetHeader
     {

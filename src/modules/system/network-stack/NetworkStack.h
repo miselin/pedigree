@@ -78,16 +78,47 @@ class NetworkStack : public RequestQueue
         return m_MemPool;
     }
 
+    /** Abstraction for a packet. */
+    class Packet
+    {
+        friend class NetworkStack;
+
+        public:
+            Packet();
+            virtual ~Packet();
+
+            uintptr_t getBuffer() const
+            {
+                return m_Buffer;
+            }
+
+            size_t getLength() const
+            {
+                return m_PacketLength;
+            }
+
+            Network *getCard() const
+            {
+                return m_pCard;
+            }
+
+            uint32_t getOffset() const
+            {
+                return m_Offset;
+            }
+
+        private:
+            bool copyFrom(uintptr_t otherPacket, size_t size);
+
+            uintptr_t m_Buffer;
+            size_t m_PacketLength;
+            Network *m_pCard;
+            uint32_t m_Offset;
+            Mutex m_Pushed;
+    };
+
   private:
     static NetworkStack *stack;
-
-    struct Packet
-    {
-        uintptr_t buffer;
-        size_t packetLength;
-        Network *pCard;
-        uint32_t offset;
-    };
 
     virtual uint64_t executeRequest(
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
@@ -101,6 +132,10 @@ class NetworkStack : public RequestQueue
 
     /** Networking memory pool */
     MemoryPool m_MemPool;
+
+#if defined(THREADS) || defined(UTILITY_LINUX)
+    Mutex m_Lock;
+#endif
 };
 
 #endif
