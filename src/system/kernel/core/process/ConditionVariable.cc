@@ -57,30 +57,27 @@ bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
     // Safe now to release the mutex as we're about to sleep.
     mutex.release();
 
-    while (true)
+    uintptr_t ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    me->setDebugState(Thread::CondWait, ra);
+    Processor::information().getScheduler().sleep(&m_Lock);
+    me->setDebugState(Thread::None, 0);
+
+    bool interrupted = me->wasInterrupted();
+
+    // Woken up by something. Remove any alarm we have pending as we're
+    // finishing our wait now.
+    Time::removeAlarm(alarmHandle);
+
+    me->setInterrupted(false);
+
+    if (interrupted)
     {
-        uintptr_t ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-        me->setDebugState(Thread::CondWait, ra);
-        Processor::information().getScheduler().sleep(&m_Lock);
-        me->setDebugState(Thread::None, 0);
-
-        if (timeout == 0)
-        {
-            break;
-        }
-        else if (me->wasInterrupted())
-        {
-            // Timeout
-            Time::removeAlarm(alarmHandle);
-            return false;
-        }
-        else if (me->getUnwindState() != Thread::Continue)
-        {
-            Time::removeAlarm(alarmHandle);
-            return false;
-        }
-
-        me->setInterrupted(false);
+        // Timeout.
+        return false;
+    }
+    else if (me->getUnwindState() != Thread::Continue)
+    {
+        return false;
     }
 
     // We just got woken by something, so let the caller check the condition.
