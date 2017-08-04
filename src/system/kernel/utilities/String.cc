@@ -223,7 +223,7 @@ void String::assign(const String &x)
     assert(*this == x);
 #endif
 }
-void String::assign(const char *s, size_t len)
+void String::assign(const char *s, size_t len, bool unsafe)
 {
     size_t copyLength = 0;
     if (!s || !*s)
@@ -232,10 +232,13 @@ void String::assign(const char *s, size_t len)
     {
         // Fix up length if the passed string is much smaller than the 'len'
         // parameter (otherwise we think we have a giant string).
-        size_t trueLength = StringLength(s);
-        if (trueLength < len)
+        if (!unsafe)
         {
-            len = trueLength;
+            size_t trueLength = StringLength(s);
+            if (trueLength < len)
+            {
+                len = trueLength;
+            }
         }
         m_Length = len;
         copyLength = len;

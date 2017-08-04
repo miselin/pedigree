@@ -123,7 +123,13 @@ class String
     void Format(const char *format, ...) FORMAT(printf, 2, 3);
 
     void assign(const String &x);
-    void assign(const char *s, size_t len = 0);
+    /** Assign a buffer to this string.
+     * Optionally, unsafe can be passed which will completely trust the len
+     * parameter. This may be useful for cases where the input string is not
+     * necessarily known to have a null terminator, as otherwise assign() will
+     * attempt to find the length of the given string to reduce memory usage.
+     */
+    void assign(const char *s, size_t len = 0, bool unsafe = false);
     void reserve(size_t size);
     void free();
 
