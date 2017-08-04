@@ -26,21 +26,34 @@ namespace pocketknife
 {
 void runConcurrently(int (*func)(void *), void *param)
 {
+#ifdef THREADS
     Process *parent = Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(parent, func, param);
     pThread->detach();
+#else
+    func(param);
+#endif
 }
 
 void *runConcurrentlyAttached(int (*func)(void *), void *param)
 {
+#ifdef THREADS
     Process *parent = Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(parent, func, param);
     return pThread;
+#else
+    int result = func(param);
+    return reinterpret_cast<void *>(result);
+#endif
 }
 
 int attachTo(void *handle)
 {
+#ifdef THREADS
     Thread *pThread = reinterpret_cast<Thread *>(handle);
     return pThread->join();
+#else
+    return reinterpret_cast<int>(handle);
+#endif
 }
 }
