@@ -251,20 +251,49 @@ Mutex::~Mutex()
 
 bool Mutex::acquire()
 {
+    errno = 0;
+
     pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
-    return pthread_mutex_lock(mutex) == 0;
+    int r = pthread_mutex_lock(mutex);
+    if (r == 0)
+    {
+        return true;
+    }
+    else
+    {
+        perror("pthread_mutex_lock");
+    }
+
+    return false;
 }
 
 bool Mutex::tryAcquire()
 {
     pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
-    return pthread_mutex_trylock(mutex) == 0;
+    int r = pthread_mutex_trylock(mutex);
+    if (r == 0)
+    {
+        return true;
+    }
+    else if (r != EBUSY)
+    {
+        errno = r;
+        perror("pthread_mutex_trylock");
+    }
+
+    return false;
 }
 
 void Mutex::release()
 {
+    errno = 0;
+
     pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
-    pthread_mutex_unlock(mutex);
+    int r = pthread_mutex_unlock(mutex);
+    if (r != 0)
+    {
+        perror("pthread_mutex_unlock");
+    }
 }
 
 /** Cache implementation. */

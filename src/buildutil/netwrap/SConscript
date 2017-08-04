@@ -23,6 +23,7 @@ import platform
 Import(['env'])
 
 netwrap_bin = env['BUILDDIR'].File('netwrap')
+tcpecho_bin = env['BUILDDIR'].File('tcpecho')
 libnetwork = 'pedigree-network'
 libnetstack = 'pedigree-netstack'
 libconfig = 'pedigree-config'
@@ -113,3 +114,4 @@ build_env['LIBS'] = [netstack, network, config] + build_env['LIBS']
 # The actual netwrap binary only works on Linux.
 if platform.system() == 'Linux':
     build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])
+    build_env.Program(tcpecho_bin, ['tcpecho.cc', 'TunWrapper.cc'])
