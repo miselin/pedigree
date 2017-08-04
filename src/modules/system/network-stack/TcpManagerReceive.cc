@@ -66,28 +66,14 @@ void TcpManager::receive(
         }
     }
 
-    // fill current segment information
-    stateBlock->seg_seq = BIG_TO_HOST32(header->seqnum);
-    stateBlock->seg_ack = BIG_TO_HOST32(header->acknum);
-    stateBlock->seg_len = payloadSize;
-    stateBlock->seg_wnd = BIG_TO_HOST16(header->winsize);
-    stateBlock->seg_up = BIG_TO_HOST16(header->urgptr);
-    stateBlock->seg_prc = 0;  // IP header contains precedence information
-    stateBlock->rcv_wnd = stateBlock->seg_wnd;
-
-    if (stateBlock->endpoint)
-    {
-        stateBlock->snd_wnd =
-            stateBlock->endpoint->m_ShadowDataStream.getRemainingSize();
-    }
-
     // Parse options.
     uint32_t tcp_mss = stateBlock->tcp_mss;
+    uint32_t tcp_ws = stateBlock->tcp_ws;
     uint32_t headerLength = (header->offset * 4);
     if (((header->flags & Tcp::SYN) != 0) && (headerLength > 20))
     {
         size_t offset = 20;
-        uint8_t *opts = reinterpret_cast<uint8_t *>(header + offset);
+        uint8_t *opts = reinterpret_cast<uint8_t *>(header) + offset;
         NOTICE(
             "offset=" << offset << ", headerlen=" << headerLength
                       << " [opts=" << *opts << "]");
@@ -100,16 +86,35 @@ void TcpManager::receive(
             {
                 len = 1;
             }
-            if (code == 2)  // MSS
+            else if (code == 2)  // MSS
             {
-                tcp_mss = BIG_TO_HOST16((opts[2] << 8) | opts[3]);
+                tcp_mss = LITTLE_TO_HOST16((opts[2] << 8) | opts[3]);
+            }
+            else if (code == 3)  // Window scaling
+            {
+                tcp_ws = 1 << opts[2];
             }
 
             offset += len;
-            opts = &reinterpret_cast<uint8_t *>(header)[offset];
+            opts = reinterpret_cast<uint8_t *>(header) + offset;
 
             NOTICE("NEW offset=" << offset << ", headerlen=" << headerLength);
         }
+    }
+
+    // fill current segment information
+    stateBlock->seg_seq = BIG_TO_HOST32(header->seqnum);
+    stateBlock->seg_ack = BIG_TO_HOST32(header->acknum);
+    stateBlock->seg_len = payloadSize;
+    stateBlock->seg_wnd = BIG_TO_HOST16(header->winsize) * tcp_ws;
+    stateBlock->seg_up = BIG_TO_HOST16(header->urgptr);
+    stateBlock->seg_prc = 0;  // IP header contains precedence information
+    stateBlock->rcv_wnd = stateBlock->seg_wnd;
+
+    if (stateBlock->endpoint)
+    {
+        stateBlock->snd_wnd =
+            stateBlock->endpoint->m_ShadowDataStream.getRemainingSize();
     }
 
     stateBlock->fin_ack = false;
@@ -121,6 +126,7 @@ void TcpManager::receive(
     // RFC793, page 65 onwards
     Tcp::TcpState oldState = stateBlock->currentState;
 #if TCP_DEBUG
+    NOTICE("==== TCP Packet ====");
     NOTICE(
         "TCP Packet arrived while stateBlock in "
         << Tcp::stateString(stateBlock->currentState)
@@ -238,6 +244,7 @@ void TcpManager::receive(
                 newStateBlock->rcv_up = 0;
 
                 newStateBlock->tcp_mss = tcp_mss;
+                newStateBlock->tcp_ws = tcp_ws;
 
                 newStateBlock->seg_seq = newStateBlock->rcv_nxt;
 
@@ -655,6 +662,7 @@ void TcpManager::receive(
                                 (stateBlock->snd_wl1 == stateBlock->seg_seq &&
                                  stateBlock->snd_wl2 <= stateBlock->seg_ack))
                             {
+                                NOTICE("Updating send window (why?)");
                                 stateBlock->snd_wnd = stateBlock->seg_wnd;
                                 stateBlock->snd_wl1 = stateBlock->seg_seq;
                                 stateBlock->snd_wl2 = stateBlock->seg_ack;
@@ -758,7 +766,7 @@ void TcpManager::receive(
                 {
                     // Packet has come in out-of-order - send dup ACK with the
                     // expected sequence number.
-                    WARNING(" + (sequence out of order)");
+                    WARNING(" + (sequence out of order - expected " << stateBlock->rcv_nxt << " but got " << stateBlock->seg_seq << " instead)");
                     if (!Tcp::send(
                             from, handle.localPort, handle.remotePort,
                             stateBlock->snd_nxt, stateBlock->rcv_nxt, Tcp::ACK,
@@ -770,10 +778,17 @@ void TcpManager::receive(
                 }
                 else if (stateBlock->seg_len)
                 {
-                    NOTICE(
-                        " + Payload: "
-                        << String(reinterpret_cast<const char *>(payload), 16)
-                        << "...");
+                    // Safely load payload for rendering.
+                    String payloadDump;
+                    size_t dumpSize = 16;
+                    if (dumpSize > stateBlock->seg_len)
+                    {
+                        // Avoid too-big payload dump.
+                        dumpSize = stateBlock->seg_len;
+                    }
+                    payloadDump.assign(reinterpret_cast<const char *>(payload), dumpSize, true);
+
+                    NOTICE(" + Payload: " << payloadDump << "...");
                     if (stateBlock->endpoint)
                     {
                         // Limit the amount of data to the window we have
@@ -927,6 +942,7 @@ void TcpManager::receive(
         {
             stateBlock->endpoint->stateChanged(stateBlock->currentState);
         }
+
         stateBlock->cond.signal();
     }
 

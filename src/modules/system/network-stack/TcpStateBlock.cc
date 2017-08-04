@@ -25,7 +25,7 @@ StateBlock::StateBlock()
       snd_una(0), snd_wnd(0), snd_up(0), snd_wl1(0), snd_wl2(0), rcv_nxt(0),
       rcv_wnd(0), rcv_up(0), irs(0), seg_seq(0), seg_ack(0), seg_len(0),
       seg_wnd(0), seg_up(0), seg_prc(0), fin_ack(false), fin_seq(0),
-      tcp_mss(536),           // (standard default for MSS)
+      tcp_mss(536), tcp_ws(1),  // (standard default for MSS)
       numEndpointPackets(0),  /// \todo Remove, obsolete
       lock(false), cond(), endpoint(0), connId(0), retransmitQueue(),
       nRemovedFromRetransmit(0), waitingForTimeout(false), didTimeout(false),
@@ -115,6 +115,15 @@ bool StateBlock::sendSegment(Segment *seg)
 bool StateBlock::sendSegment(
     uint8_t flags, size_t nBytes, uintptr_t payload, bool addToRetransmitQueue)
 {
+    /// \todo push bytes into a buffer that is consumed by a thread that, when
+    ///       the connection state is sane (e.g. receiver window has capacity,
+    ///       bandwidth delay etc) pulls a segment from the buffer and sends it.
+    ///       Then when a segment gets acked we can just remove the bytes from
+    ///       the buffer instead of storing them in a retransmit queue. The
+    ///       thread could also wake up periodically to send retransmits if not
+    ///       acked, as the bytes won't be removed from the buffer until they
+    ///       actually get acked.
+
     // split the passed buffer up into segments based on the MSS and send each
     size_t offset;
     for (offset = 0; offset < (nBytes == 0 ? 1 : nBytes); offset += tcp_mss)
@@ -134,6 +143,10 @@ bool StateBlock::sendSegment(
         seg_seq = snd_nxt;
         snd_nxt += segmentSize;
         snd_wnd = endpoint->m_ShadowDataStream.getRemainingSize();
+
+        /// \todo we need to figure out if the bytes in flight could lead to
+        ///       the remote window being full, and delay sending our segments
+        ///       if so. This would be the snd_una value.
 
         seg->seg_seq = seg_seq;
         seg->seg_ack = rcv_nxt;

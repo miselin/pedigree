@@ -99,6 +99,7 @@ class StateBlock
 
     // Connection information
     uint32_t tcp_mss;  // maximum segment size
+    uint32_t tcp_ws;  // window scaling factor
 
     // Number of packets we've deposited into our Endpoint
     // (decremented when a packet is picked up by the receiver)

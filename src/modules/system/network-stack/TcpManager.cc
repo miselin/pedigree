@@ -229,9 +229,21 @@ size_t TcpManager::Connect(
             if (!stateBlock->cond.wait(
                     stateBlock->lock, 15 * Time::Multiplier::SECOND))
             {
-                timedOut = true;
+                if (stateBlock->currentState != Tcp::ESTABLISHED)
+                {
+                    timedOut = true;
+                }
+                else
+                {
+                    ERROR("TcpManager::Connect hit a ConditionVariable timeout, but the connection seems to be established!");
+                }
                 break;
             }
+        }
+        else
+        {
+            // Connected!
+            break;
         }
     }
     stateBlock->lock.release();
@@ -281,6 +293,9 @@ void TcpManager::Shutdown(size_t connectionId, bool bOnlyStopReceive)
         stateBlock->seg_wnd = 0;
         stateBlock->sendSegment(Tcp::FIN | Tcp::ACK, 0, 0, true);
         stateBlock->snd_nxt++;
+
+        // State change.
+        stateBlock->cond.signal();
     }
     /** CLOSE_WAIT: FIN received - reply **/
     else if (stateBlock->currentState == Tcp::CLOSE_WAIT)
@@ -291,6 +306,9 @@ void TcpManager::Shutdown(size_t connectionId, bool bOnlyStopReceive)
         stateBlock->seg_wnd = 0;
         stateBlock->sendSegment(Tcp::FIN | Tcp::ACK, 0, 0, true);
         stateBlock->snd_nxt++;
+
+        // State change.
+        stateBlock->cond.signal();
     }
 }
 
@@ -318,6 +336,9 @@ void TcpManager::Disconnect(size_t connectionId)
         stateBlock->seg_wnd = 0;
         stateBlock->sendSegment(Tcp::FIN | Tcp::ACK, 0, 0, true);
         stateBlock->snd_nxt++;
+
+        // State change.
+        stateBlock->cond.signal();
     }
     // received a FIN already
     else if (stateBlock->currentState == Tcp::CLOSE_WAIT)
@@ -328,6 +349,9 @@ void TcpManager::Disconnect(size_t connectionId)
         stateBlock->seg_wnd = 0;
         stateBlock->sendSegment(Tcp::FIN | Tcp::ACK, 0, 0, true);
         stateBlock->snd_nxt++;
+
+        // State change.
+        stateBlock->cond.signal();
     }
     // LISTEN socket closing
     else if (stateBlock->currentState == Tcp::LISTEN)
@@ -335,6 +359,9 @@ void TcpManager::Disconnect(size_t connectionId)
         NOTICE("Disconnect called on a LISTEN socket\n");
         stateBlock->currentState = Tcp::CLOSED;
         removeConn(stateBlock->connId);
+
+        // State change.
+        stateBlock->cond.signal();
     }
     else if (stateBlock->currentState == Tcp::LAST_ACK)
     {
@@ -347,6 +374,9 @@ void TcpManager::Disconnect(size_t connectionId)
         stateBlock->sendSegment(Tcp::RST, 0, 0, true);
         stateBlock->currentState = Tcp::CLOSED;
         removeConn(stateBlock->connId);
+
+        // State change.
+        stateBlock->cond.signal();
     }
     else
     {
