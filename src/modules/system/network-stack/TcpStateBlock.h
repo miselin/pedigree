@@ -35,6 +35,23 @@ class TcpEndpoint;
 
 /// \todo Eventify.
 
+/**
+ * \todo Okay, this needs to change.
+ *
+ * We need a thread running that uses a condition variable to wait for data in
+ * the outgoing data stream. Then, when woken, it needs to check the receiver's
+ * window to figure out if it even can send a segment. When the receiver's
+ * window changes, we need to signal the condition variable as well, allowing
+ * the thread to handle the dynamically changing nature of the TCP states during
+ * the connection.
+ *
+ * As bytes are transmitted they need to be also copied into another stream,
+ * with its own thread & condition variable used to track acks. The condition
+ * variable can have a timeout of the retransmit delay, and if it times out we
+ * can simply go ahead and retransmit a segment from the front of the queue.
+ * When an ack arrives, we remove the acked bytes from the queue.
+ */
+
 /// This is passed a given StateBlock and its sole purpose is to remove it
 /// from the system. It's called as a thread when the TIME_WAIT timeout expires
 /// to enable the block to be freed without requiring intervention.
