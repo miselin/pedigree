@@ -101,7 +101,7 @@ void TunWrapper::run(int fd)
 
     while (1)
     {
-        int ready = poll(&pfd, 1, -1);
+        int ready = poll(&pfd, 1, 2000);
         if (ready < 0)
         {
             if (errno == EINTR)

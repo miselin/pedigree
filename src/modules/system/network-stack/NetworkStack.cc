@@ -23,6 +23,12 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
 
+#include "lwip/include/lwip/init.h"
+#include "lwip/include/lwip/netif.h"
+#include "lwip/include/lwip/etharp.h"
+#include "lwip/include/lwip/ethip6.h"
+#include "lwip/include/netif/ethernet.h"
+
 #include "Ethernet.h"
 #include "Ipv6.h"
 #ifndef DISABLE_TCP
@@ -35,6 +41,47 @@ static NetworkStack *g_NetworkStack = 0;
 #ifndef DISABLE_TCP
 static TcpManager *g_TcpManager = 0;
 #endif
+
+static err_t linkOutput(struct netif *netif, struct pbuf *p)
+{
+    Network *pDevice = reinterpret_cast<Network *>(netif->state);
+
+    size_t totalLength = p->tot_len;
+
+    // pull the chain of pbufs into a single packet to transmit
+    size_t offset = 0;
+    char *output = new char[totalLength];
+
+    pbuf_copy_partial(p, output, totalLength, 0);
+
+    // transmit!
+    err_t e = ERR_OK;
+    if (!pDevice->send(totalLength, reinterpret_cast<uintptr_t>(output)))
+    {
+        e = ERR_IF;
+    }
+
+    delete [] output;
+
+    return e;
+}
+
+static err_t netifInit(struct netif *netif)
+{
+    Network *pDevice = reinterpret_cast<Network *>(netif->state);
+    StationInfo info = pDevice->getStationInfo();
+
+    /// \todo a lot of this is hardcoded, which is not great
+    netif->hwaddr_len = 6;
+    MemoryCopy(netif->hwaddr, info.mac.getMac(), 6);
+    netif->mtu = 1400;
+    netif->flags = NETIF_FLAG_UP | NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
+    netif->linkoutput = linkOutput;
+    netif->output = etharp_output;
+    netif->output_ip6 = ethip6_output;
+
+    return ERR_OK;
+}
 
 NetworkStack::NetworkStack()
     : RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
@@ -83,10 +130,6 @@ uint64_t NetworkStack::executeRequest(
     uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
     uint64_t p6, uint64_t p7, uint64_t p8)
 {
-    Packet *pack = reinterpret_cast<Packet *>(p1);
-    if (!pack)
-        return 0;
-
     // OK, we are now processing the packet.
     // We hold a lock that allows us to handle concurrency (not an issue with
     // a true RequestQueue, but is an issue on other environments).
@@ -94,35 +137,41 @@ uint64_t NetworkStack::executeRequest(
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
-    if (!pack->getBuffer() || !pack->getLength())
-    {
-        delete pack;
-        return 0;
-    }
+    struct pbuf *p = reinterpret_cast<struct pbuf *>(p1);
+    struct netif *iface = reinterpret_cast<struct netif *>(p2);
 
-    // Pass onto the ethernet layer
-    /// \todo We should accept a parameter here that specifies the type of
-    /// packet
-    ///       so we can pass it on to the correct handler, rather than assuming
-    ///       Ethernet.
-    Ethernet::instance().receive(pack);
-
-    return 0;
+    iface->input(p, iface);
 }
 
 void NetworkStack::receive(
     size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
 {
-    if (!packet || !nBytes)
+    struct netif *iface = getInterface(pCard);
+    if (!iface)
+    {
+        ERROR("Network Stack: no lwIP interface for received packet");
+        pCard->droppedPacket();
         return;
+    }
 
-    pCard->gotPacket();
+    packet += offset;
 
-    Packet *p = new Packet;
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, nBytes, PBUF_POOL);
+    if (p != 0)
+    {
+        struct pbuf *buf = p;
+        while (buf != nullptr)
+        {
+            size_t copyLength = buf->len;
+            MemoryCopy(buf->payload, reinterpret_cast<void *>(packet), buf->len);
 
-    // Some cards might be giving us a DMA address or something, so we copy
-    // before passing on to the worker thread...
-    if (!p->copyFrom(packet, nBytes))
+            packet += buf->len;
+            nBytes -= buf->len;
+
+            buf = buf->next;
+        }
+    }
+    else
     {
         ERROR("Network Stack: Out of memory pool space, dropping incoming "
               "packet");
@@ -130,15 +179,28 @@ void NetworkStack::receive(
         return;
     }
 
-    p->m_pCard = pCard;
-    p->m_Offset = offset;
-
-    uint64_t result = addRequest(0, reinterpret_cast<uint64_t>(p));
+    uint64_t result = addRequest(0, reinterpret_cast<uint64_t>(p), reinterpret_cast<uintptr_t>(iface));
 }
 
 void NetworkStack::registerDevice(Network *pDevice)
 {
     m_Children.pushBack(pDevice);
+
+    struct netif *iface = new struct netif;
+    ByteSet(iface, 0, sizeof(*iface));
+
+    ip4_addr_t ipaddr;
+    ip4_addr_t netmask;
+    ip4_addr_t gateway;
+
+    // for dhcp/auto configuration
+    ByteSet(&ipaddr, 0, sizeof(ipaddr));
+    ByteSet(&netmask, 0, sizeof(netmask));
+    ByteSet(&gateway, 0, sizeof(gateway));
+
+    m_Interfaces.insert(pDevice, iface);
+
+    netif_add(iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, ethernet_input);
 }
 
 Network *NetworkStack::getDevice(size_t n)
@@ -161,6 +223,16 @@ void NetworkStack::deRegisterDevice(Network *pDevice)
             m_Children.erase(it);
             break;
         }
+
+    struct netif *iface = m_Interfaces.lookup(pDevice);
+    m_Interfaces.remove(pDevice);
+
+    if (iface != nullptr)
+    {
+        netif_remove(iface);
+
+        delete iface;
+    }
 }
 
 NetworkStack::Packet::Packet() = default;
@@ -195,6 +267,8 @@ extern ServiceFeatures *g_pIpv6Features;
 
 static bool entry()
 {
+    lwip_init();
+
     g_NetworkStack = new NetworkStack();
 #ifndef DISABLE_TCP
     g_TcpManager = new TcpManager();
@@ -227,4 +301,4 @@ static void exit()
 }
 
 // NetManager exposes a Filesystem, and so needs the vfs module.
-MODULE_INFO("network-stack", &entry, &exit, "config", "vfs");
+MODULE_INFO("network-stack", &entry, &exit, "config", "vfs", "lwip");

@@ -27,6 +27,7 @@ tcpecho_bin = env['BUILDDIR'].File('tcpecho')
 libnetwork = 'pedigree-network'
 libnetstack = 'pedigree-netstack'
 libconfig = 'pedigree-config'
+liblwip = 'lwip'
 
 build_env = env.Clone()
 
@@ -35,6 +36,7 @@ header_paths = [
     env.Dir('#src'),
     env.Dir('#src/modules'),
     env.Dir('#src/modules/system'),
+    env.Dir('#src/modules/system/lwip/include'),
     env.Dir('#src/system/include'),
     env.Dir('#src/system/kernel/core'),
 ]
@@ -105,11 +107,22 @@ libnetstack_sources = [
     '../../modules/system/network-stack/TcpStateBlock.cc',
 ]
 
+liblwip_sources = [
+    Glob('../../modules/system/lwip/*.c'),
+    Glob('../../modules/system/lwip/*.cc'),
+    Glob('../../modules/system/lwip/core/*.c'),
+    Glob('../../modules/system/lwip/core/ipv4/*.c'),
+    Glob('../../modules/system/lwip/core/ipv6/*.c'),
+    Glob('../../modules/system/lwip/api/*.c'),
+    Glob('../../modules/system/lwip/netif/*.c'),
+]
+
 config = build_env.Library(libconfig, libconfig_sources, CPPDEFINES=sqlite_cppdefines)
 network = build_env.Library(libnetwork, libnetwork_sources)
 netstack = build_env.Library(libnetstack, libnetstack_sources)
+lwip = build_env.Library(liblwip, liblwip_sources)
 
-build_env['LIBS'] = [netstack, network, config] + build_env['LIBS']
+build_env['LIBS'] = [netstack, network, config, lwip] + build_env['LIBS']
 
 # The actual netwrap binary only works on Linux.
 if platform.system() == 'Linux':

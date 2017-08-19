@@ -158,6 +158,7 @@ module_subdirs = [
     'filesystems',
     'mountroot',
     'nics',
+    'lwip',
 ]
 
 if env['pcap']:
@@ -253,7 +254,8 @@ def dma_fix(s):
 # Custom subdirectories for specific modules
 custom_subdirs = {
     'dma'           : [dma_fix(env['ARCH_TARGET']).lower()],
-    'linker'        : [arch_subdir]
+    'linker'        : [arch_subdir],
+    'lwip'          : ['api', 'core', 'core/ipv4', 'core/ipv6'],
 }
 
 # Custom files to add to the file list
@@ -273,7 +275,8 @@ custom_incpath = {
     'mountroot'     : ['#/src/system/kernel'],
     'splash'        : ['#/src/system/kernel'], # For nogfx
     'linker'        : ['#/src/modules/system/linker'],
-    'usb-glue'      : ['#/src/system/kernel/machine/arm_beagle'] # TODO: handle other machine types
+    'usb-glue'      : ['#/src/system/kernel/machine/arm_beagle'], # TODO: handle other machine types
+    'lwip'          : ['#/src/modules/system/lwip/include'],
 }
 
 # Custom library paths for specific modules

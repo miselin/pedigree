@@ -26,6 +26,10 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/Tree.h"
+
+// lwIP network interface type
+struct netif;
 
 /**
  * The Pedigree network stack
@@ -117,6 +121,12 @@ class NetworkStack : public RequestQueue
             Mutex m_Pushed;
     };
 
+    /** Get an interface for a card. */
+    struct netif *getInterface(Network *pCard) const
+    {
+        return m_Interfaces.lookup(pCard);
+    }
+
   private:
     static NetworkStack *stack;
 
@@ -136,6 +146,9 @@ class NetworkStack : public RequestQueue
 #if defined(THREADS) || defined(UTILITY_LINUX)
     Mutex m_Lock;
 #endif
+
+    /** lwIP interfaces for each of our cards. */
+    Tree<Network *, struct netif *> m_Interfaces;
 };
 
 #endif

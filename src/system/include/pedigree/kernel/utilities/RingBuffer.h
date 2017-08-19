@@ -59,7 +59,8 @@ class RingBuffer
 
     /// Constructor - pass in the desired size of the ring buffer.
     RingBuffer(size_t ringSize)
-        : m_RingSize(ringSize), m_WriteCondition(), m_ReadCondition(), m_Ring()
+        : m_RingSize(ringSize), m_WriteCondition(), m_ReadCondition(), m_Ring(),
+        m_Lock(false)
     {
     }
 
@@ -117,7 +118,7 @@ class RingBuffer
         while (true)
         {
             // Wait for room in the buffer if we're full.
-            if (m_Ring.count() >= m_RingSize)
+            if (m_Ring.count() == 0)
             {
                 while (!m_ReadCondition.wait(m_Lock))
                     ;
@@ -249,6 +250,7 @@ class RingBuffer
     /// Trigger event for threads waiting on us.
     void notifyMonitors()
     {
+#ifdef THREADS
         m_Lock.acquire();
         for (typename List<MonitorTarget *>::Iterator it =
                  m_MonitorTargets.begin();
@@ -261,6 +263,7 @@ class RingBuffer
         }
         m_MonitorTargets.clear();
         m_Lock.release();
+#endif
     }
 
     size_t m_RingSize;

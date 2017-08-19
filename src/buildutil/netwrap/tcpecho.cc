@@ -48,6 +48,13 @@
 #include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/utilities/pocketknife.h"
 
+#include "modules/system/lwip/include/lwip/init.h"
+#include "modules/system/lwip/include/lwip/netif.h"
+#include "modules/system/lwip/include/lwip/ip_addr.h"
+#include "modules/system/lwip/include/lwip/tcp.h"
+#include "modules/system/lwip/include/lwip/api.h"
+#include "modules/system/lwip/include/lwip/tcpip.h"
+
 static jmp_buf g_jb;
 
 class StreamingStderrLogger : public Log::LogCallback
@@ -64,66 +71,138 @@ static void sigint(int signo)
     siglongjmp(g_jb, 1);
 }
 
-static int echo_server_conn(void *p)
+static err_t echo_server_rx(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
-    ConnectionBasedEndpoint *pClient =
-        reinterpret_cast<ConnectionBasedEndpoint *>(p);
+    struct pbuf *q = p;
+    bool needDisconnect = false;
+    size_t totalBytes = 0;
+    while (q != nullptr)
+    {
+        u16_t sndbufSize = tcp_sndbuf(pcb);
+        NOTICE("send buffer size: " << sndbufSize);
+
+        tcp_recved(pcb, totalBytes);
+
+        /// \todo check for errors
+        err_t e = tcp_write(pcb, q->payload, q->len, q->next ? TCP_WRITE_FLAG_MORE : 0);
+        if (e != ERR_OK)
+        {
+            ERROR("failed to send some data!");
+        }
+
+        totalBytes += q->len;
+
+        char *buf = reinterpret_cast<char *>(q->payload);
+        for (size_t i = 0; i < q->len; ++i)
+        {
+            if (buf[i] == '\x01')
+            {
+                NOTICE("TCPECHO Client Complete.");
+                needDisconnect = true;
+                break;
+            }
+        }
+
+        q = q->next;
+    }
+
+    // yep, handled this data fine
+    tcp_recved(pcb, totalBytes);
+
+    if (needDisconnect)
+    {
+        tcp_close(pcb);
+    }
+
+    return ERR_OK;
+}
+
+static int echo_server_conn(void *arg)
+{
+    struct netconn *connection = reinterpret_cast<struct netconn *>(arg);
+
+    err_t err = 0;
 
     bool running = true;
     while (running)
     {
-        while (running && pClient->dataReady(true))
+        NOTICE("CLIENT: performing a recv!");
+        struct netbuf *buf = nullptr;
+        if ((err = netconn_recv(connection, &buf)) != ERR_OK)
         {
-            char buff[512];
-
-            // Just echo the incoming bytes.
-            /// \todo handle disconnects?
-            ssize_t rxbytes = pClient->recv(reinterpret_cast<uintptr_t>(buff), 512, true, false);
-            NOTICE("TCPECHO RX: " << rxbytes << " bytes.");
-            ssize_t txbytes = pClient->send(rxbytes, reinterpret_cast<uintptr_t>(buff));
-            NOTICE("TCPECHO TX: " << txbytes << " bytes.");
-
-            for (size_t i = 0; i < rxbytes; ++i)
+            if (err == ERR_RST || err == ERR_CLSD)
             {
-                if (buff[i] == '\x01')
+                WARNING("Unexpected disconnection from remote client.");
+                running = false;
+            }
+            else
+            {
+                ERROR("error in recv: " << lwip_strerr(err));
+            }
+            continue;
+        }
+
+        NOTICE("CLIENT: echoing data back to client");
+
+        do
+        {
+            // echo all bytes we receive back
+            void *data = nullptr;
+            u16_t len = 0;
+            netbuf_data(buf, &data, &len);
+
+            if (running)
+            {
+                // check for a possible end of data
+                for (u16_t i = 0; i < len; ++i)
                 {
-                    NOTICE("TCPECHO Client Complete.");
-                    running = false;
-                    break;
+                    if (reinterpret_cast<char *>(data)[i] == '\x01')
+                    {
+                        running = false;
+                        break;
+                    }
                 }
             }
+
+            netconn_write(connection, data, len, NETCONN_COPY);
         }
+        while (netbuf_next(buf) >= 0);
+
+        netbuf_delete(buf);
     }
 
-    // Start closing connection.
-    pClient->shutdown(Endpoint::ShutBoth);
+    // all finished
+    netconn_close(connection);
+    netconn_delete(connection);
 
-    return 0;
+    return ERR_OK;
 }
 
 static int echo_server(void *p)
 {
-    ConnectionBasedEndpoint *pEndpoint = static_cast<ConnectionBasedEndpoint *>(
-        TcpManager::instance().getEndpoint(
-            8080, RoutingTable::instance().DefaultRoute()));
-    if (!pEndpoint)
-    {
-        WARNING("Echo server can't start, couldn't get a TCP endpoint.");
-        return -1;
-    }
+    struct netconn *server = netconn_new(NETCONN_TCP);
 
-    pEndpoint->listen();
+    ip_addr_t ipaddr;
+    ByteSet(&ipaddr, 0, sizeof(ipaddr));
 
-    NOTICE("Listening for TCP connections on port 8080...");
+    netconn_bind(server, &ipaddr, 8080);
+
+    netconn_listen(server);
 
     while (1)
     {
-        ConnectionBasedEndpoint *pClient =
-            static_cast<ConnectionBasedEndpoint *>(pEndpoint->accept());
-        if (!pClient)
-            continue;
-
-        pocketknife::runConcurrently(echo_server_conn, pClient);
+        NOTICE("waiting for a connection");
+        struct netconn *connection;
+        if (netconn_accept(server, &connection) == ERR_OK)
+        {
+            NOTICE("accepting connection!");
+            // pocketknife::runConcurrently(echo_server_conn, reinterpret_cast<void *>(connection));
+            echo_server_conn(connection);
+        }
+        else
+        {
+            NOTICE("accept() failed");
+        }
     }
 
     return 0;
@@ -155,6 +234,13 @@ static int open_tun(const char *interface)
     return fd;
 }
 
+static Mutex tcpipInitPending(false);
+
+static void tcpipInitComplete(void *)
+{
+    tcpipInitPending.release();
+}
+
 static void mainloop(int fd)
 {
     struct in_addr in;
@@ -164,6 +250,13 @@ static void mainloop(int fd)
         perror("Cannot set up IP address");
         return;
     }
+
+    tcpipInitPending.acquire();
+
+    // make sure the multi threaded lwIP implementation is ready to go
+    tcpip_init(tcpipInitComplete, nullptr);
+
+    tcpipInitPending.acquire();
 
     NetworkStack *stack = new NetworkStack();
     TcpManager *tcpManager = new TcpManager();
@@ -186,6 +279,21 @@ static void mainloop(int fd)
     TunWrapper *wrapper = new TunWrapper();
     wrapper->setStationInfo(info);
     NetworkStack::instance().registerDevice(wrapper);
+
+    struct netif *iface = NetworkStack::instance().getInterface(wrapper);
+
+    ip4_addr_t ipaddr;
+    ip4_addr_t netmask;
+    ip4_addr_t gateway;
+    ByteSet(&gateway, 0, sizeof(gateway));
+
+    ipaddr.addr = in.s_addr;
+    netmask.addr = info.subnetMask.getIp();
+
+    netif_set_addr(iface, &ipaddr, &netmask, &gateway);
+    netif_set_default(iface);
+    netif_set_link_up(iface);
+    netif_set_up(iface);
 
     DeviceHashTree::instance().fill(wrapper);
 
