@@ -74,20 +74,20 @@ static void BM_ListPopFront(benchmark::State &state)
     {
         state.PauseTiming();
         list.clear();
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             list.pushFront(value);
         }
         state.ResumeTiming();
 
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             list.popFront();
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 static void BM_ListPopBack(benchmark::State &state)
@@ -99,20 +99,20 @@ static void BM_ListPopBack(benchmark::State &state)
     {
         state.PauseTiming();
         list.clear();
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             list.pushFront(value);
         }
         state.ResumeTiming();
 
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             list.popBack();
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 BENCHMARK(BM_ListPushFront);

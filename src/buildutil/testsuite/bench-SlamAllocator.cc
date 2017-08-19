@@ -40,7 +40,7 @@ static void BM_SlamAllocatorBackForth(benchmark::State &state)
 
 static void BM_SlamAllocatorAllocations(benchmark::State &state)
 {
-    int64_t allocationSize = state.range_x();
+    int64_t allocationSize = state.range(0);
     while (state.KeepRunning())
     {
         state.PauseTiming();
@@ -48,15 +48,15 @@ static void BM_SlamAllocatorAllocations(benchmark::State &state)
         allocator.initialise();
         state.ResumeTiming();
 
-        for (size_t i = 0; i < state.range_y(); ++i)
+        for (size_t i = 0; i < state.range(1); ++i)
         {
-            allocator.allocate(state.range_x());
+            allocator.allocate(state.range(0));
         }
     }
 
-    int64_t items = int64_t(state.iterations()) * int64_t(state.range_y());
+    int64_t items = int64_t(state.iterations()) * int64_t(state.range(1));
     state.SetItemsProcessed(items);
-    state.SetComplexityN(state.range_y());
+    state.SetComplexityN(state.range(1));
 }
 
 BENCHMARK(BM_SlamAllocatorBackForth);

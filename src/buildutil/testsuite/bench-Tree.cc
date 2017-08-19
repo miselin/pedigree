@@ -54,15 +54,15 @@ static void BM_TreeInsert(benchmark::State &state)
     while (state.KeepRunning())
     {
         Tree<int64_t, int64_t> tree;
-        for (int64_t i = 0; i < state.range_x(); ++i)
+        for (int64_t i = 0; i < state.range(0); ++i)
         {
             tree.insert(i, value);
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_TreeInsertReverse(benchmark::State &state)
@@ -72,22 +72,22 @@ static void BM_TreeInsertReverse(benchmark::State &state)
     while (state.KeepRunning())
     {
         Tree<int64_t, int64_t> tree;
-        for (int64_t i = state.range_x(); i >= 0; --i)
+        for (int64_t i = state.range(0); i >= 0; --i)
         {
             tree.insert(i, value);
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_TreeLookupSingle(benchmark::State &state)
 {
     Tree<int64_t, int64_t> tree;
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         tree.insert(i, RandomNumber());
     }
@@ -104,7 +104,7 @@ static void BM_TreeLookup(benchmark::State &state)
 {
     Tree<int64_t, int64_t> tree;
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         tree.insert(RandomNumber(), RandomNumber());
     }
@@ -112,18 +112,18 @@ static void BM_TreeLookup(benchmark::State &state)
     int64_t a = 0;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(tree.lookup(a++ % state.range_x()));
+        benchmark::DoNotOptimize(tree.lookup(a++ % state.range(0)));
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range_x());
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_TreeLookupWithFilter(benchmark::State &state)
 {
     Tree<int64_t, int64_t> tree;
 
-    size_t n = state.range_x();
+    size_t n = state.range(0);
     // ln(0.001) - where p (failure rate) = 0.001
     // ln(2) ~= 0.6931
     size_t m = -((n * -6.9078) / (0.6931 * 0.6931));
@@ -131,7 +131,7 @@ static void BM_TreeLookupWithFilter(benchmark::State &state)
 
     BloomFilter<int64_t> filter(m, k);
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         int64_t key = RandomNumber();
         tree.insert(key, RandomNumber());
@@ -142,10 +142,10 @@ static void BM_TreeLookupWithFilter(benchmark::State &state)
     while (state.KeepRunning())
     {
         // 100% hit rate (all keys exist)
-        int64_t key = a++ % state.range_x();
+        int64_t key = a++ % state.range(0);
         if (filter.contains(key))
         {
-            benchmark::DoNotOptimize(tree.lookup(a++ % state.range_x()));
+            benchmark::DoNotOptimize(tree.lookup(a++ % state.range(0)));
         }
         else
         {
@@ -154,7 +154,7 @@ static void BM_TreeLookupWithFilter(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range_x());
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_TreeFailedLookupWithFilter(benchmark::State &state)
@@ -162,7 +162,7 @@ static void BM_TreeFailedLookupWithFilter(benchmark::State &state)
     /// \todo rethink this
     Tree<int64_t, int64_t> tree;
 
-    size_t n = state.range_x();
+    size_t n = state.range(0);
     // ln(0.001) - where p (failure rate) = 0.001
     // ln(2) ~= 0.6931
     size_t m = -((n * -6.9078) / (0.6931 * 0.6931));
@@ -170,7 +170,7 @@ static void BM_TreeFailedLookupWithFilter(benchmark::State &state)
 
     BloomFilter<int64_t> filter(m, k);
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         tree.insert(i, RandomNumber());
         filter.add(i);
@@ -187,7 +187,7 @@ static void BM_TreeFailedLookupWithFilter(benchmark::State &state)
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range_x());
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_TreeLookupDoesNotExist(benchmark::State &state)
@@ -195,7 +195,7 @@ static void BM_TreeLookupDoesNotExist(benchmark::State &state)
     /// \todo rethink this
     Tree<int64_t, int64_t> tree;
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         tree.insert(i, RandomNumber());
     }

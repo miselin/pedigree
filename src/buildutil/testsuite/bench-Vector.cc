@@ -88,20 +88,20 @@ static void BM_VectorPopFront(benchmark::State &state)
     {
         state.PauseTiming();
         vector.clear();
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             vector.pushBack(value);
         }
         state.ResumeTiming();
 
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             vector.popFront();
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 static void BM_VectorPopBack(benchmark::State &state)
@@ -113,20 +113,20 @@ static void BM_VectorPopBack(benchmark::State &state)
     {
         state.PauseTiming();
         vector.clear();
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             vector.pushBack(value);
         }
         state.ResumeTiming();
 
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             vector.popBack();
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 // Vector is *not fast* to do huge amounts of insertions/deletions in, so we

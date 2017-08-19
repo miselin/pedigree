@@ -47,18 +47,18 @@ static void BM_RangeListAllocate(benchmark::State &state)
     {
         state.PauseTiming();
         RangeList<int64_t> list;
-        list.free(0, state.range_x());
+        list.free(0, state.range(0));
         state.ResumeTiming();
 
         int64_t addr;
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             benchmark::DoNotOptimize(list.allocate(1, addr));
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 static void BM_RangeListFree(benchmark::State &state)
@@ -70,14 +70,14 @@ static void BM_RangeListFree(benchmark::State &state)
         state.ResumeTiming();
 
         int64_t addr;
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             list.free(i, 1);
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 static void BM_RangeListScatter(benchmark::State &state)
@@ -89,7 +89,7 @@ static void BM_RangeListScatter(benchmark::State &state)
         state.ResumeTiming();
 
         int64_t addr;
-        for (size_t i = 0; i < state.range_x(); ++i)
+        for (size_t i = 0; i < state.range(0); ++i)
         {
             if (i % 2)
             {
@@ -103,7 +103,7 @@ static void BM_RangeListScatter(benchmark::State &state)
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 BENCHMARK(BM_RangeListAllocate)->Range(1, 2 << 24);

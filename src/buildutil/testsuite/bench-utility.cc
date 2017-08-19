@@ -28,63 +28,63 @@
 
 static void BM_Utility_Checksum(benchmark::State &state)
 {
-    auto *buf = new uint8_t[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new uint8_t[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum(buf, state.range_x()));
+        benchmark::DoNotOptimize(checksum(buf, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 
 static void BM_Utility_Checksum16(benchmark::State &state)
 {
-    auto *buf = new uint8_t[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new uint8_t[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum16(buf, state.range_x()));
+        benchmark::DoNotOptimize(checksum16(buf, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 
 static void BM_Utility_Checksum32(benchmark::State &state)
 {
-    auto *buf = new uint8_t[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new uint8_t[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum32(buf, state.range_x()));
+        benchmark::DoNotOptimize(checksum32(buf, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 static void BM_Utility_Checksum32Naive(benchmark::State &state)
 {
-    auto *buf = new uint8_t[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new uint8_t[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum32_naive(buf, state.range_x()));
+        benchmark::DoNotOptimize(checksum32_naive(buf, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
@@ -107,50 +107,50 @@ static void BM_Utility_ChecksumPage(benchmark::State &state)
 
 static void BM_Utility_HashElf(benchmark::State &state)
 {
-    auto *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(elfHash(buf, state.range_x()));
+        benchmark::DoNotOptimize(elfHash(buf, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 
 static void BM_Utility_HashJenkins(benchmark::State &state)
 {
-    auto *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(jenkinsHash(buf, state.range_x()));
+        benchmark::DoNotOptimize(jenkinsHash(buf, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 
 static void BM_Utility_HashMurmur(benchmark::State &state)
 {
-    auto *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    auto *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
         uint64_t result[2];
-        MurmurHash3_x64_128(buf, state.range_x(), 0, result);
+        MurmurHash3_x64_128(buf, state.range(0), 0, result);
         benchmark::DoNotOptimize(result);
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }

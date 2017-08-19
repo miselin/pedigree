@@ -50,15 +50,15 @@ static void BM_ExtensibleBitmapSetLinear(benchmark::State &state)
         ExtensibleBitmap bitmap;
         state.ResumeTiming();
 
-        for (int i = 0; i < state.range_x(); ++i)
+        for (int i = 0; i < state.range(0); ++i)
         {
             bitmap.set(i);
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_ExtensibleBitmapSetRandomly(benchmark::State &state)
@@ -70,21 +70,21 @@ static void BM_ExtensibleBitmapSetRandomly(benchmark::State &state)
         ExtensibleBitmap bitmap;
         state.ResumeTiming();
 
-        for (int i = 0; i < state.range_x(); ++i)
+        for (int i = 0; i < state.range(0); ++i)
         {
             bitmap.set(RandomNumber());
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 static void BM_ExtensibleBitmapTestLinear(benchmark::State &state)
 {
     ExtensibleBitmap bitmap;
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         if (i % 2)
         {
@@ -94,22 +94,22 @@ static void BM_ExtensibleBitmapTestLinear(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        for (int i = 0; i < state.range_x(); ++i)
+        for (int i = 0; i < state.range(0); ++i)
         {
             benchmark::DoNotOptimize(bitmap.test(i));
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_ExtensibleBitmapTestRandomly(benchmark::State &state)
 {
     ExtensibleBitmap bitmap;
 
-    for (size_t i = 0; i < state.range_x(); ++i)
+    for (size_t i = 0; i < state.range(0); ++i)
     {
         if (i % 2)
         {
@@ -119,14 +119,14 @@ static void BM_ExtensibleBitmapTestRandomly(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        for (int i = 0; i < state.range_x(); ++i)
+        for (int i = 0; i < state.range(0); ++i)
         {
             benchmark::DoNotOptimize(bitmap.test(RandomNumber()));
         }
     }
 
     state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 BENCHMARK(BM_ExtensibleBitmapSetLinear)->Range(8, 8 << 16)->Complexity();

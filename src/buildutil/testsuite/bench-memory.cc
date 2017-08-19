@@ -27,17 +27,17 @@
 
 static void BM_Memory_MemoryCopy(benchmark::State &state)
 {
-    char *src = new char[state.range_x()];
-    char *dest = new char[state.range_x()];
-    memset(src, 'a', state.range_x());
+    char *src = new char[state.range(0)];
+    char *dest = new char[state.range(0)];
+    memset(src, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        MemoryCopy(dest, src, state.range_x());
+        MemoryCopy(dest, src, state.range(0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] dest;
     delete[] src;
@@ -45,33 +45,33 @@ static void BM_Memory_MemoryCopy(benchmark::State &state)
 
 static void BM_Memory_OverlappedMemoryCopy(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        MemoryCopy(buf + 1, buf, state.range_x() - 1);
+        MemoryCopy(buf + 1, buf, state.range(0) - 1);
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 
 static void BM_Memory_ForwardMemoryCopy(benchmark::State &state)
 {
-    char *src = new char[state.range_x()];
-    char *dest = new char[state.range_x()];
-    memset(src, 'a', state.range_x());
+    char *src = new char[state.range(0)];
+    char *dest = new char[state.range(0)];
+    memset(src, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        ForwardMemoryCopy(dest, src, state.range_x());
+        ForwardMemoryCopy(dest, src, state.range(0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] dest;
     delete[] src;
@@ -79,30 +79,30 @@ static void BM_Memory_ForwardMemoryCopy(benchmark::State &state)
 
 static void BM_Memory_ByteSet(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
-        ByteSet(buf, 0xAB, state.range_x());
+        ByteSet(buf, 0xAB, state.range(0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
 
 static void BM_Memory_ByteSetZero(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
-        ByteSet(buf, 0, state.range_x());
+        ByteSet(buf, 0, state.range(0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf;
 }
@@ -110,16 +110,16 @@ static void BM_Memory_ByteSetZero(benchmark::State &state)
 static void BM_Memory_WordSet(benchmark::State &state)
 {
     const int factor = 2;
-    char *buf = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
-        WordSet(buf, 0xAB, state.range_x() / factor);
+        WordSet(buf, 0xAB, state.range(0) / factor);
     }
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) *
-        int64_t((state.range_x() / factor) * factor));
+        int64_t((state.range(0) / factor) * factor));
 
     delete[] buf;
 }
@@ -127,16 +127,16 @@ static void BM_Memory_WordSet(benchmark::State &state)
 static void BM_Memory_DoubleWordSet(benchmark::State &state)
 {
     const int factor = 4;
-    char *buf = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
-        DoubleWordSet(buf, 0xAB, state.range_x() / factor);
+        DoubleWordSet(buf, 0xAB, state.range(0) / factor);
     }
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) *
-        int64_t((state.range_x() / factor) * factor));
+        int64_t((state.range(0) / factor) * factor));
 
     delete[] buf;
 }
@@ -144,16 +144,16 @@ static void BM_Memory_DoubleWordSet(benchmark::State &state)
 static void BM_Memory_QuadWordSet(benchmark::State &state)
 {
     const int factor = 8;
-    char *buf = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
-        QuadWordSet(buf, 0xAB, state.range_x() / factor);
+        QuadWordSet(buf, 0xAB, state.range(0) / factor);
     }
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) *
-        int64_t((state.range_x() / factor) * factor));
+        int64_t((state.range(0) / factor) * factor));
 
     delete[] buf;
 }
@@ -162,14 +162,14 @@ static void BM_Memory_MemoryCompare(benchmark::State &state)
 {
     // Two buffers with the same contents, which is the worst case for memcmp
     // performance (because every single byte will be visited).
-    char *buf1 = new char[state.range_x()];
-    char *buf2 = new char[state.range_x()];
-    memset(buf1, 'a', state.range_x());
-    memset(buf2, 'a', state.range_x());
+    char *buf1 = new char[state.range(0)];
+    char *buf2 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    memset(buf2, 'a', state.range(0));
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(MemoryCompare(buf1, buf2, state.range_x()));
+        benchmark::DoNotOptimize(MemoryCompare(buf1, buf2, state.range(0)));
 
         // Poke the buffers to break the compiler's optimisations
         // (MemoryCompare is a pure function, so without an edit we literally
@@ -179,7 +179,7 @@ static void BM_Memory_MemoryCompare(benchmark::State &state)
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
+        int64_t(state.iterations()) * int64_t(state.range(0)));
 
     delete[] buf1;
     delete[] buf2;

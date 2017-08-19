@@ -29,9 +29,9 @@
 
 static void BM_StringLength(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
-    buf[state.range_x() - 1] = '\0';
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0) - 1] = '\0';
 
     while (state.KeepRunning())
     {
@@ -39,8 +39,8 @@ static void BM_StringLength(benchmark::State &state)
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] buf;
 }
@@ -61,10 +61,10 @@ static void BM_StringLengthConstant(benchmark::State &state)
 
 static void BM_StringCopy(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
-    buf[state.range_x() - 1] = '\0';
-    char *dest = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0) - 1] = '\0';
+    char *dest = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
@@ -72,8 +72,8 @@ static void BM_StringCopy(benchmark::State &state)
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] dest;
     delete[] buf;
@@ -81,19 +81,19 @@ static void BM_StringCopy(benchmark::State &state)
 
 static void BM_StringCopyN(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
-    buf[state.range_x() - 1] = '\0';
-    char *dest = new char[state.range_x()];
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0) - 1] = '\0';
+    char *dest = new char[state.range(0)];
 
     while (state.KeepRunning())
     {
-        StringCopyN(dest, buf, state.range_x());
+        StringCopyN(dest, buf, state.range(0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] dest;
     delete[] buf;
@@ -101,12 +101,12 @@ static void BM_StringCopyN(benchmark::State &state)
 
 static void BM_StringCompare(benchmark::State &state)
 {
-    char *buf1 = new char[state.range_x()];
-    memset(buf1, 'a', state.range_x());
-    buf1[state.range_x() - 1] = '\0';
-    char *buf2 = new char[state.range_x()];
-    memset(buf2, 'a', state.range_x());
-    buf2[state.range_x() - 1] = '\0';
+    char *buf1 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    buf1[state.range(0) - 1] = '\0';
+    char *buf2 = new char[state.range(0)];
+    memset(buf2, 'a', state.range(0));
+    buf2[state.range(0) - 1] = '\0';
 
     while (state.KeepRunning())
     {
@@ -114,8 +114,8 @@ static void BM_StringCompare(benchmark::State &state)
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] buf2;
     delete[] buf1;
@@ -123,21 +123,21 @@ static void BM_StringCompare(benchmark::State &state)
 
 static void BM_StringCompareN(benchmark::State &state)
 {
-    char *buf1 = new char[state.range_x()];
-    memset(buf1, 'a', state.range_x());
-    buf1[state.range_x() - 1] = '\0';
-    char *buf2 = new char[state.range_x()];
-    memset(buf2, 'a', state.range_x());
-    buf2[state.range_x() - 1] = '\0';
+    char *buf1 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    buf1[state.range(0) - 1] = '\0';
+    char *buf2 = new char[state.range(0)];
+    memset(buf2, 'a', state.range(0));
+    buf2[state.range(0) - 1] = '\0';
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(StringCompareN(buf1, buf2, state.range_x()));
+        benchmark::DoNotOptimize(StringCompareN(buf1, buf2, state.range(0)));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] buf2;
     delete[] buf1;
@@ -145,22 +145,22 @@ static void BM_StringCompareN(benchmark::State &state)
 
 static void BM_StringCompareCaseSensitive(benchmark::State &state)
 {
-    char *buf1 = new char[state.range_x()];
-    memset(buf1, 'a', state.range_x());
-    buf1[state.range_x() - 1] = '\0';
-    char *buf2 = new char[state.range_x()];
-    memset(buf2, 'a', state.range_x());
-    buf2[state.range_x() - 1] = '\0';
+    char *buf1 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    buf1[state.range(0) - 1] = '\0';
+    char *buf2 = new char[state.range(0)];
+    memset(buf2, 'a', state.range(0));
+    buf2[state.range(0) - 1] = '\0';
 
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(
-            StringCompareCase(buf1, buf2, 1, state.range_x(), 0));
+            StringCompareCase(buf1, buf2, 1, state.range(0), 0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] buf2;
     delete[] buf1;
@@ -168,15 +168,15 @@ static void BM_StringCompareCaseSensitive(benchmark::State &state)
 
 static void BM_StringCompareCaseInsensitive(benchmark::State &state)
 {
-    char *buf1 = new char[state.range_x()];
-    memset(buf1, 'a', state.range_x());
-    buf1[state.range_x() - 1] = '\0';
-    char *buf2 = new char[state.range_x()];
-    memset(buf2, 'a', state.range_x());
-    buf2[state.range_x() - 1] = '\0';
+    char *buf1 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    buf1[state.range(0) - 1] = '\0';
+    char *buf2 = new char[state.range(0)];
+    memset(buf2, 'a', state.range(0));
+    buf2[state.range(0) - 1] = '\0';
 
     // aAaAaA etc... for truly testing the insensitive case
-    for (size_t i = 0; i < state.range_x() - 1; ++i)
+    for (size_t i = 0; i < state.range(0) - 1; ++i)
     {
         if ((i % 2) == 0)
         {
@@ -187,12 +187,12 @@ static void BM_StringCompareCaseInsensitive(benchmark::State &state)
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(
-            StringCompareCase(buf1, buf2, 0, state.range_x(), 0));
+            StringCompareCase(buf1, buf2, 0, state.range(0), 0));
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 
     delete[] buf2;
     delete[] buf1;
@@ -200,9 +200,9 @@ static void BM_StringCompareCaseInsensitive(benchmark::State &state)
 
 static void BM_StringFind(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
-    buf[state.range_x() - 1] = '\0';
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0) - 1] = '\0';
 
     while (state.KeepRunning())
     {
@@ -211,15 +211,15 @@ static void BM_StringFind(benchmark::State &state)
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 }
 
 static void BM_StringReverseFind(benchmark::State &state)
 {
-    char *buf = new char[state.range_x()];
-    memset(buf, 'a', state.range_x());
-    buf[state.range_x() - 1] = '\0';
+    char *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+    buf[state.range(0) - 1] = '\0';
 
     while (state.KeepRunning())
     {
@@ -228,8 +228,8 @@ static void BM_StringReverseFind(benchmark::State &state)
     }
 
     state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(state.range_x()));
-    state.SetComplexityN(state.range_x());
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetComplexityN(state.range(0));
 }
 
 BENCHMARK(BM_StringLength)->Range(8, 8 << 16)->Complexity();
