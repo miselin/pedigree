@@ -64,7 +64,12 @@ bool TunWrapper::send(size_t nBytes, uintptr_t buffer)
         return false;
     }
 
-    return write(m_Fd, reinterpret_cast<void *>(buffer), nBytes) == nBytes;
+    // make sure our writes are atomic where possible
+    lock.acquire();
+    ssize_t written = write(m_Fd, reinterpret_cast<void *>(buffer), nBytes);
+    lock.release();
+
+    return written == nBytes;
 }
 
 bool TunWrapper::setStationInfo(StationInfo info)
@@ -157,8 +162,14 @@ void TunWrapper::packetPusher()
         }
 
         packet *p = m_Packets.popFront();
+
+        lock.release();
+
         NetworkStack::instance().receive(
             p->bytes, reinterpret_cast<uintptr_t>(p->buffer), this, 0);
+
+        lock.acquire();
+
         delete p;
     }
     lock.release();

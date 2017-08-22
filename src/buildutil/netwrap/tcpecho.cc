@@ -126,7 +126,6 @@ static int echo_server_conn(void *arg)
     bool running = true;
     while (running)
     {
-        NOTICE("CLIENT: performing a recv!");
         struct netbuf *buf = nullptr;
         if ((err = netconn_recv(connection, &buf)) != ERR_OK)
         {
@@ -141,8 +140,6 @@ static int echo_server_conn(void *arg)
             }
             continue;
         }
-
-        NOTICE("CLIENT: echoing data back to client");
 
         do
         {
