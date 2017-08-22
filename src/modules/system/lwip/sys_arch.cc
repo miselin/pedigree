@@ -25,6 +25,7 @@
 #include <pedigree/kernel/utilities/pocketknife.h>
 #include <pedigree/kernel/process/Semaphore.h>
 #include <pedigree/kernel/process/Mutex.h>
+#include <pedigree/kernel/process/Thread.h>
 #include <pedigree/kernel/processor/Processor.h>
 #include <pedigree/kernel/Log.h>
 #include <pedigree/kernel/utilities/RingBuffer.h>
@@ -62,6 +63,7 @@ struct thread_meta
 {
     lwip_thread_fn thread;
     void *arg;
+    char name[64];
 };
 
 static int thread_shim(void *arg)
@@ -77,6 +79,7 @@ sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread, void *arg, 
     auto meta = new struct thread_meta;
     meta->thread = thread;
     meta->arg = arg;
+    StringCopy(meta->name, name);
     pocketknife::runConcurrently(thread_shim, meta);
     return meta;
 }
@@ -257,7 +260,6 @@ err_t sys_mutex_new(sys_mutex_t *mutex)
 
 void sys_mutex_lock(sys_mutex_t *mutex)
 {
-    NOTICE(__FUNCTION__ << " [" << mutex << "]");
     Mutex *m = reinterpret_cast<Mutex *>(*mutex);
     while (!m->acquire())
         ;
@@ -265,7 +267,6 @@ void sys_mutex_lock(sys_mutex_t *mutex)
 
 void sys_mutex_unlock(sys_mutex_t *mutex)
 {
-    NOTICE(__FUNCTION__ << " [" << mutex << "]");
     Mutex *m = reinterpret_cast<Mutex *>(*mutex);
     m->release();
 }
@@ -290,7 +291,8 @@ void sys_mutex_set_invalid(sys_mutex_t *mutex)
 sys_prot_t sys_arch_protect()
 {
 #ifdef UTILITY_LINUX
-    g_Protection.acquire(true);
+    while (!g_Protection.acquire(true))
+        ;
 #else
     bool was = Processor::getInterrupts();
     Processor::setInterrupts(false);

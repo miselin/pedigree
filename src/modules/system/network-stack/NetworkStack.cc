@@ -27,6 +27,7 @@
 #include "lwip/include/lwip/netif.h"
 #include "lwip/include/lwip/etharp.h"
 #include "lwip/include/lwip/ethip6.h"
+#include "lwip/include/lwip/tcpip.h"
 #include "lwip/include/netif/ethernet.h"
 
 #include "Ethernet.h"
@@ -141,6 +142,8 @@ uint64_t NetworkStack::executeRequest(
     struct netif *iface = reinterpret_cast<struct netif *>(p2);
 
     iface->input(p, iface);
+
+    return 0;
 }
 
 void NetworkStack::receive(
@@ -200,7 +203,7 @@ void NetworkStack::registerDevice(Network *pDevice)
 
     m_Interfaces.insert(pDevice, iface);
 
-    netif_add(iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, ethernet_input);
+    netif_add(iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, tcpip_input);
 }
 
 Network *NetworkStack::getDevice(size_t n)

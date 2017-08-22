@@ -296,6 +296,7 @@ default_incpath = [
     '#/src/system/include',
     '#/src/modules/system',
     '#/src/modules/drivers/common',
+    '#/src/modules/system/lwip/include',  # needed for lwip headers
 ]
 
 env_clone = env.Clone()

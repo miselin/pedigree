@@ -82,7 +82,7 @@ libdebugger = coverage_env.Library('debugger', [
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
                      LIBS=['pedigree-netstack', 'pedigree-network',
-                           'pedigree-config', 'kernel_coverage',
+                           'pedigree-config', 'lwip', 'kernel_coverage',
                            libdebugger, 'vfs', 'utility_coverage', env['LIBGTEST'],
                            'pthread', 'dl'] + additional_libs)
 

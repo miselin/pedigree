@@ -32,6 +32,9 @@
 /// \todo should be architecture specific
 #define MEM_ALIGNMENT 8
 
+/// \todo only needs to be 1 if sizeof(void*) > 4
+#define IPV6_FRAG_COPYHEADER 1
+
 #define LWIP_RAW 1
 #define LWIP_IPV6 1
 #define LWIP_NETCONN 1
@@ -42,7 +45,7 @@
 
 // We can safely do this rather than use an mbox as packets are pushed into
 // a RequestQueue, not directly pushed from an IRQ context.
-#define LWIP_TCPIP_CORE_LOCKING_INPUT 1
+#define LWIP_TCPIP_CORE_LOCKING_INPUT 0
 
 #define LWIP_RANDOMIZE_INITIAL_LOCAL_PORTS 1
 

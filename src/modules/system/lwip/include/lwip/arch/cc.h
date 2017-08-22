@@ -83,6 +83,7 @@ typedef int sys_prot_t;
 #define IP_DEBUG LWIP_DBG_ON
 #define INET_DEBUG LWIP_DBG_ON
 #define TCP_DEBUG LWIP_DBG_ON
+#define TCPIP_DEBUG LWIP_DBG_ON
 #endif
 
 #endif  // LWIP_ARCH_CC_H
