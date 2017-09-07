@@ -208,10 +208,12 @@ extern "C" void __cxa_guard_release()
 #if !(defined(HOSTED) && defined(HOSTED_SYSTEM_MALLOC))
 #ifdef HOSTED
 #define MALLOC _malloc
+#define CALLOC _calloc
 #define FREE _free
 #define REALLOC _realloc
 #else
 #define MALLOC malloc
+#define CALLOC calloc
 #define FREE free
 #define REALLOC realloc
 #endif
@@ -219,7 +221,15 @@ extern "C" void __cxa_guard_release()
 extern "C" void *MALLOC(size_t sz)
 {
     return reinterpret_cast<void *>(
-        new uint8_t[sz]);  // SlamAllocator::instance().allocate(sz));
+        new uint8_t[sz]);
+}
+
+extern "C" void *CALLOC(size_t num, size_t sz)
+{
+    void *result = reinterpret_cast<void *>(
+        new uint8_t[num * sz]);
+    ByteSet(result, 0, num * sz);
+    return result;
 }
 
 extern "C" void FREE(void *p)
