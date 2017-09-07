@@ -27,6 +27,7 @@
 #include <assert.h>
 #else
 #include <pedigree/kernel/utilities/assert.h>
+#include <pedigree/kernel/utilities/utility.h>
 #endif
 
 typedef uint8_t u8_t;
@@ -54,17 +55,15 @@ typedef int sys_prot_t;
 
 #define LWIP_CHKSUM_ALGORITHM 2
 
-/*
-#define LWIP_PLATFORM_DIAG(x)
-
-#define LWIP_PLATFORM_ASSERT(x) assert(0)
-*/
-
+#ifdef UTILITY_LINUX
 #include <stdio.h>
 
 #define LWIP_PLATFORM_DIAG(msg) printf msg ; fflush(stdout);
-
 #define LWIP_PLATFORM_ASSERT(msg) fprintf(stderr, "Assertion failed; %s:%d %s\n", __LINE__, __FILE__, msg); assert(0)
+#else
+#define LWIP_PLATFORM_DIAG(msg) Noticef msg ;
+#define LWIP_PLATFORM_ASSERT(msg) Errorf("Assertion failed: %s", msg); assert(0)
+#endif
 
 #define PACK_STRUCT_STRUCT PACKED
 

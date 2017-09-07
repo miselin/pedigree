@@ -59,6 +59,10 @@
 
 #define LWIP_IPV6_DHCP6 1
 
+#define LWIP_NETIF_STATUS_CALLBACK 1
+#define LWIP_NETIF_LINK_CALLBACK 1
+#define LWIP_NETIF_HWADDRHINT 1
+
 
 // General tuning
 #define TCP_MSS 1400
