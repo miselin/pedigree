@@ -123,7 +123,7 @@ bool Elf::applyRelocation(
                 "Relocation failed for symbol \""
                 << pStr << "\" (relocation=" << R_TYPE(rel.info) << ")");
             WARNING(
-                "Relocation at " << address << " (offset=" << rel.offset
+                "Relocation at " << Hex << address << " (offset=" << rel.offset
                                  << ")...");
         }
 
@@ -141,7 +141,10 @@ bool Elf::applyRelocation(
     uint64_t *pResult = reinterpret_cast<uint64_t *>(address);
     uint64_t result = *pResult;
 
-    switch (R_TYPE(rel.info))
+    uint64_t tmp = 0;
+    uint8_t r_type = R_TYPE(rel.info);
+
+    switch (r_type)
     {
         case R_X86_64_NONE:
             break;
@@ -170,7 +173,24 @@ bool Elf::applyRelocation(
             break;
         case R_X86_64_32:
         case R_X86_64_32S:
-            result = (result & 0xFFFFFFFF00000000) | ((S + A) & 0xFFFFFFFF);
+            tmp = S + A;
+
+            if ((r_type == R_X86_64_32) && ((tmp & 0xFFFFFFFF00000000ULL) != 0))
+            {
+                ERROR("Relocation for symbol '" << symbolName << "' will be truncated to fit!");
+            }
+            else if (r_type == R_X86_64_32S)
+            {
+                // did this sign extend?
+                uint64_t sign = (tmp & 0x80000000ULL) >> 31ULL;
+                uint64_t top = (tmp & 0xFFFFFFFF00000000ULL) >> 32ULL;
+                if ((sign * 0xFFFFFFFFUL) != top)
+                {
+                    ERROR("Relocation for symbol '" << symbolName << "' will be truncated to fit (sign-extension was incorrect)");
+                }
+            }
+
+            result = (result & 0xFFFFFFFF00000000) | (tmp & 0xFFFFFFFFUL);
             break;
         default:
             ERROR(

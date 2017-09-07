@@ -797,7 +797,7 @@ static int executeModuleThread(void *mod)
     {
         if (!module->elf.finaliseModule(module->buffer, module->buflen))
         {
-            FATAL("KERNELELF: Module relocation failed");
+            FATAL("KERNELELF: Module relocation failed for module " << module->name);
             return false;
         }
 
