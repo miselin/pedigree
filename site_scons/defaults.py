@@ -24,7 +24,8 @@ import SCons
 #------------------------- All Architectures -------------------------#
 
 # Generic entry-level flags (that everyone should have)
-generic_flags = ['-fno-builtin', '-nostdlib', '-ffreestanding', '-O3']
+generic_flags = ['-fno-builtin', '-nostdlib', '-ffreestanding', '-O3',
+                 '-fno-common']
 generic_cflags = ['-std=gnu99']
 generic_cxxflags = ['-std=gnu++11', '-fno-exceptions', '-fno-rtti',
                     '-fno-asynchronous-unwind-tables']
