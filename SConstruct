@@ -307,12 +307,13 @@ host_env = conf.Finish()
 host_env['COVERAGE_CCFLAGS'] = ['-fprofile-arcs', '-ftest-coverage', '-O1']
 host_env['COVERAGE_LINKFLAGS'] = ['-fprofile-arcs', '-ftest-coverage']
 if env['buildutil_asan'] or env['force_asan']:
-    host_env['COVERAGE_CCFLAGS'] += ['-fsanitize=address']
-    host_env['COVERAGE_LINKFLAGS'] += ['-fsanitize=address']
+    sanitize = 'address'
+    host_env['COVERAGE_CCFLAGS'] += ['-fsanitize=%s' % sanitize]
+    host_env['COVERAGE_LINKFLAGS'] += ['-fsanitize=%s' % sanitize]
 
     host_env.MergeFlags({
-        'CCFLAGS': ['-fsanitize=address'],
-        'LINKFLAGS': ['-fsanitize=address'],
+        'CCFLAGS': ['-fsanitize=%s' % sanitize],
+        'LINKFLAGS': ['-fsanitize=%s' % sanitize],
     })
 host_env['HAS_PROFILE_RT'] = profile_rt
 host_env['HAS_GCOV'] = gcov
@@ -1107,6 +1108,17 @@ if env['iwyu']:
 if env['gcc_profile_compilation']:
     env.MergeFlags({
         'CCFLAGS': ['-ftime-report'],
+    })
+
+if not env['nocolour']:
+    env.MergeFlags({
+        'CCFLAGS': ['-fdiagnostics-color'],
+        'LINKFLAGS': ['-fdiagnostics-color'],
+    })
+
+    host_env.MergeFlags({
+        'CCFLAGS': ['-fdiagnostics-color'],
+        'LINKFLAGS': ['-fdiagnostics-color'],
     })
 
 # Fix images directory to be a SCons Dir
