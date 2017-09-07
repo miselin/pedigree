@@ -149,6 +149,9 @@ class NetworkStack : public RequestQueue
 
     /** lwIP interfaces for each of our cards. */
     Tree<Network *, struct netif *> m_Interfaces;
+
+    /** Next interface number to assign. */
+    size_t m_NextInterfaceNumber;
 };
 
 #endif

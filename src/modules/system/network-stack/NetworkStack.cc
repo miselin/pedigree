@@ -23,7 +23,6 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include "lwip/include/lwip/init.h"
 #include "lwip/include/lwip/netif.h"
 #include "lwip/include/lwip/etharp.h"
 #include "lwip/include/lwip/ethip6.h"
@@ -35,6 +34,7 @@
 #ifndef DISABLE_TCP
 #include "TcpManager.h"
 #endif
+#include "Filter.h"
 
 NetworkStack *NetworkStack::stack = 0;
 
@@ -55,6 +55,13 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
 
     pbuf_copy_partial(p, output, totalLength, 0);
 
+    // Check for filtering
+    if (!NetworkFilter::instance().filter(1, reinterpret_cast<uintptr_t>(output), totalLength))
+    {
+        pDevice->droppedPacket();
+        return ERR_IF;  // Drop the packet.
+    }
+
     // transmit!
     err_t e = ERR_OK;
     if (!pDevice->send(totalLength, reinterpret_cast<uintptr_t>(output)))
@@ -65,6 +72,12 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
     delete [] output;
 
     return e;
+}
+
+void netifStatusUpdate(struct netif *netif)
+{
+    // something updated
+    NOTICE("netifStatusUpdate");
 }
 
 static err_t netifInit(struct netif *netif)
@@ -81,6 +94,8 @@ static err_t netifInit(struct netif *netif)
     netif->output = etharp_output;
     netif->output_ip6 = ethip6_output;
 
+    netif_set_status_callback(netif, netifStatusUpdate);
+
     return ERR_OK;
 }
 
@@ -89,6 +104,7 @@ NetworkStack::NetworkStack()
 #ifdef UTILITY_LINUX
     , m_Lock(false)
 #endif
+    , m_NextInterfaceNumber(0)
 {
     if (stack)
     {
@@ -149,6 +165,15 @@ uint64_t NetworkStack::executeRequest(
 void NetworkStack::receive(
     size_t nBytes, uintptr_t packet, Network *pCard, uint32_t offset)
 {
+    packet += offset;
+
+    // Check for filtering before doing anything else
+    if (!NetworkFilter::instance().filter(1, packet, nBytes))
+    {
+        pCard->droppedPacket();
+        return;  // Drop the packet.
+    }
+
     struct netif *iface = getInterface(pCard);
     if (!iface)
     {
@@ -156,8 +181,6 @@ void NetworkStack::receive(
         pCard->droppedPacket();
         return;
     }
-
-    packet += offset;
 
     struct pbuf *p = pbuf_alloc(PBUF_RAW, nBytes, PBUF_POOL);
     if (p != 0)
@@ -187,6 +210,17 @@ void NetworkStack::receive(
 
 void NetworkStack::registerDevice(Network *pDevice)
 {
+#if defined(THREADS) || defined(UTILITY_LINUX)
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+
+    size_t interfaceNumber = m_NextInterfaceNumber++;
+
+    if (interfaceNumber >= 0xFFU)
+    {
+        FATAL("Too many network interfaces!");
+    }
+
     m_Children.pushBack(pDevice);
 
     struct netif *iface = new struct netif;
@@ -200,6 +234,10 @@ void NetworkStack::registerDevice(Network *pDevice)
     ByteSet(&ipaddr, 0, sizeof(ipaddr));
     ByteSet(&netmask, 0, sizeof(netmask));
     ByteSet(&gateway, 0, sizeof(gateway));
+
+    iface->name[0] = 'e';
+    iface->name[1] = 'n';
+    iface->num = interfaceNumber;
 
     m_Interfaces.insert(pDevice, iface);
 
@@ -270,8 +308,6 @@ extern ServiceFeatures *g_pIpv6Features;
 
 static bool entry()
 {
-    lwip_init();
-
     g_NetworkStack = new NetworkStack();
 #ifndef DISABLE_TCP
     g_TcpManager = new TcpManager();
