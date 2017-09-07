@@ -281,6 +281,8 @@ size_t TcpEndpoint::depositTcpPayload(
 
 bool TcpEndpoint::dataReady(bool block, uint32_t tmout)
 {
+    Time::Timestamp timeout = tmout * Time::Multiplier::SECOND;
+
     if (TcpManager::instance().getState(m_ConnId) == Tcp::LISTEN)
     {
         if (block)
@@ -295,10 +297,10 @@ bool TcpEndpoint::dataReady(bool block, uint32_t tmout)
 
             while (!m_IncomingConnectionCount)
             {
-                if (!cond.wait(
-                        m_IncomingConnectionLock,
-                        tmout * Time::Multiplier::SECOND))
+                ConditionVariable::WaitResult result = cond.wait(m_IncomingConnectionLock, timeout);
+                if (result.hasError())
                 {
+                    /// \todo be more specific about handling errors
                     return false;
                 }
             }

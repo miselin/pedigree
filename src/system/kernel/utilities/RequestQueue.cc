@@ -373,8 +373,8 @@ int RequestQueue::work()
         if (!pReq)
         {
             // Need to wait for another request.
-            while (!m_RequestQueueCondition.wait(m_RequestQueueMutex))
-                ;
+            /// \todo should handle errors properly here
+            m_RequestQueueCondition.wait(m_RequestQueueMutex);
             continue;
         }
 

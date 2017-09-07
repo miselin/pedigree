@@ -17,54 +17,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MUTEX_H
-#define MUTEX_H
+#define PEDIGREE_EXTERNAL_SOURCE 1
 
-#ifdef STANDALONE_MUTEXES
+#include <gtest/gtest.h>
 
-#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Result.h"
 
-class Mutex
+TEST(PedigreeResult, OkState)
 {
-  public:
-    Mutex(bool bLocked = false);
-    ~Mutex();
+    Result<int, int> r = Result<int, int>::withValue(1024);
+    EXPECT_EQ(r.value(), 1024);
+    EXPECT_FALSE(r.hasError());
+}
 
-    bool acquire();
-    bool tryAcquire();
-    void release();
-
-    ssize_t getValue();
-
-    void *getPrivate() const
-    {
-        return m_Private;
-    }
-
-  private:
-    void *m_Private;
-};
-
-#else
-
-#ifdef THREADS
-
-#include "pedigree/kernel/process/Semaphore.h"
-
-/**
- * A mutex, or binary semaphore
- */
-class Mutex : public Semaphore
+TEST(PedigreeResult, ErrorState)
 {
-  public:
-    /** Constructor */
-    Mutex(bool bLocked = false);
-    /** Destructor */
-    ~Mutex();
-};
-
-#endif  // THREADS
-
-#endif  // STANDALONE_MUTEXES
-
-#endif  // MUTEX_H
+    Result<int, int> r = Result<int, int>::withError(1024);
+    EXPECT_EQ(r.error(), 1024);
+    EXPECT_TRUE(r.hasError());
+}

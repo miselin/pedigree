@@ -85,6 +85,13 @@ bool delay(Timestamp nanoseconds)
     return true;
 }
 
+Timestamp getTimeNanoseconds(bool sync)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+
+    return (ts.tv_sec * Multiplier::SECOND) + ts.tv_nsec;
+}
 }  // Time
 
 extern "C" void panic(const char *s)
@@ -194,14 +201,22 @@ ConditionVariable::~ConditionVariable()
     delete cond;
 }
 
-bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
+ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
+{
+    Time::Timestamp zero = Time::INFINITY;
+    return wait(mutex, zero);
+}
+
+ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
 {
     pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
     pthread_mutex_t *m =
         reinterpret_cast<pthread_mutex_t *>(mutex.getPrivate());
 
+    Error err = NoError;
+
     int r = 0;
-    if (timeout == 0)
+    if (timeout == Time::INFINITY)
     {
         r = pthread_cond_wait(cond, m);
     }
@@ -213,8 +228,35 @@ bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
         ts.tv_nsec += timeout % Time::Multiplier::SECOND;
 
         r = pthread_cond_timedwait(cond, m, &ts);
+
+        if (r == ETIMEDOUT)
+        {
+            // no more time remaining
+            timeout = 0;
+            err = TimedOut;
+        }
+        else
+        {
+            struct timespec ts2;
+            clock_gettime(CLOCK_REALTIME, &ts2);
+
+            // Need to calculate the time remaining.
+            uint64_t sec = ts.tv_sec - ts2.tv_sec;
+            uint64_t nsec = ts.tv_nsec - ts2.tv_nsec;
+
+            timeout = (sec * Time::Multiplier::SECOND) + nsec;
+        }
     }
-    return r == 0;
+
+    if (err != NoError)
+    {
+        return Result<bool, Error>::withError(err);
+    }
+    else
+    {
+        /// \todo should capture more error states
+        return Result<bool, Error>::withValue(r == 0);
+    }
 }
 
 void ConditionVariable::signal()
@@ -293,6 +335,23 @@ void Mutex::release()
     if (r != 0)
     {
         perror("pthread_mutex_unlock");
+    }
+}
+
+ssize_t Mutex::getValue()
+{
+    // ugh.
+    pthread_mutex_t *mutex = reinterpret_cast<pthread_mutex_t *>(m_Private);
+    int r = pthread_mutex_trylock(mutex);
+    if (r == 0)
+    {
+        // was unlocked
+        pthread_mutex_unlock(mutex);
+        return 1;
+    }
+    else
+    {
+        return 0;
     }
 }
 

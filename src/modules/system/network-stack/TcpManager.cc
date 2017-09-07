@@ -220,23 +220,18 @@ size_t TcpManager::Connect(
     if (!bBlock)
         return connId;  // connection in progress - assume it works
 
+    Time::Timestamp timeout = 15 * Time::Multiplier::SECOND;
+
     bool timedOut = false;
     stateBlock->lock.acquire();
     while (true)
     {
         if (stateBlock->currentState != Tcp::ESTABLISHED)
         {
-            if (!stateBlock->cond.wait(
-                    stateBlock->lock, 15 * Time::Multiplier::SECOND))
+            ConditionVariable::WaitResult result = stateBlock->cond.wait(stateBlock->lock, timeout);
+            if (result.hasError())
             {
-                if (stateBlock->currentState != Tcp::ESTABLISHED)
-                {
-                    timedOut = true;
-                }
-                else
-                {
-                    ERROR("TcpManager::Connect hit a ConditionVariable timeout, but the connection seems to be established!");
-                }
+                timedOut = true;
                 break;
             }
         }

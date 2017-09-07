@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Result.h"
 
 class Mutex;
 class Thread;
@@ -33,13 +34,34 @@ class Thread;
 class ConditionVariable
 {
   public:
+    enum Error
+    {
+        NoError,
+        TimedOut,
+        ThreadTerminating,
+        MutexNotLocked,
+        MutexNotAcquired
+    };
+
+    typedef Result<bool, Error> WaitResult;
+
     ConditionVariable();
     ~ConditionVariable();
 
-    /** Wait for a signal on the condition variable.
+    /** Wait for a signal on the condition variable with a specific timeout.
+     *
+     * If the given timeout is non-zero, it specifies a timeout for the wait
+     * operation. If the operation times out, the value will be set to zero.
+     * If the operation succeeds before the timeout expires, the value will be
+     * the amount of time remaining in the timeout.
+     *
      * \param[in] mutex an acquired mutex protecting the resource.
-     * \param[in] timeout a timeout in nanoseconds to add (or zero for none). */
-    bool wait(Mutex &mutex, Time::Timestamp timeout = 0);
+     * \param[inout] timeout a timeout in nanoseconds to wait (or zero for none).
+     */
+    WaitResult wait(Mutex &mutex, Time::Timestamp &timeout);
+
+    /** Wait for a signal on the condition variable with no timeout. */
+    WaitResult wait(Mutex &mutex);
 
     /** Wake up at least one thread that is currently waiting. */
     void signal();

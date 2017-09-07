@@ -34,13 +34,21 @@ ConditionVariable::~ConditionVariable()
     broadcast();
 }
 
-bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
+ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
 {
+    Time::Timestamp zero = Time::INFINITY;
+    return wait(mutex, zero);
+}
+
+ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
+{
+    Time::Timestamp startTime = Time::getTimeNanoseconds();
+
     if (mutex.getValue())
     {
         // Mutex must be acquired.
         WARNING("ConditionVariable::wait called without a locked mutex");
-        return false;
+        return Result<bool, Error>::withError(MutexNotLocked);
     }
 
     Thread *me = Processor::information().getCurrentThread();
@@ -49,7 +57,7 @@ bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
     m_Waiters.pushBack(me);
 
     void *alarmHandle = nullptr;
-    if (timeout > 0)
+    if (timeout != Time::INFINITY)
     {
         alarmHandle = Time::addAlarm(timeout);
     }
@@ -70,19 +78,56 @@ bool ConditionVariable::wait(Mutex &mutex, Time::Timestamp timeout)
 
     me->setInterrupted(false);
 
+    Error err = NoError;
+
+    bool r = false;
     if (interrupted)
     {
         // Timeout.
-        return false;
+        err = TimedOut;
     }
     else if (me->getUnwindState() != Thread::Continue)
     {
-        return false;
+        // Thread needs to quit.
+        err = ThreadTerminating;
+    }
+    else
+    {
+        // We just got woken by something! Time to re-check the condition.
+        /// \todo this is actually buggy as it won't respect the timeout
+        r = mutex.acquire();
+        if (!r)
+        {
+            err = MutexNotAcquired;
+        }
     }
 
-    // We just got woken by something, so let the caller check the condition.
-    // They will re-enter if the condition is not met.
-    return mutex.acquire();
+    Time::Timestamp endTime = Time::getTimeNanoseconds();
+
+    // Update timeout value to suit. We want to be able to make consecutive
+    // calls to wait() without changing the timeout value to allow for wakeups
+    // with an unchanged time limit.
+    if (timeout != Time::INFINITY)
+    {
+        Time::Timestamp timeConsumed = endTime - startTime;
+        if (timeConsumed >= timeout)
+        {
+            timeout = 0;
+        }
+        else
+        {
+            timeout -= timeConsumed;
+        }
+    }
+
+    if (err != NoError)
+    {
+        return Result<bool, Error>::withError(err);
+    }
+    else
+    {
+        return Result<bool, Error>::withValue(r);
+    }
 }
 
 void ConditionVariable::signal()

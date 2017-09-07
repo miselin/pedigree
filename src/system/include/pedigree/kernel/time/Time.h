@@ -36,6 +36,9 @@ const Timestamp MINUTE = SECOND * 60U;
 const Timestamp HOUR = MINUTE & 60U;
 }
 
+/** Magic identifier for infinite time durations. */
+const Timestamp INFINITY = 0xFFFFFFFFFFFFFFFFULL;
+
 /** Performs a sleep for the given time. */
 bool delay(Timestamp nanoseconds);
 

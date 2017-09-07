@@ -75,9 +75,8 @@ int PerProcessorScheduler::processorAddThread(void *instance)
     {
         if (!pInstance->m_NewThreadData.count())
         {
-            while (!pInstance->m_NewThreadDataCondition.wait(
-                pInstance->m_NewThreadDataLock))
-                ;
+            /// \todo handle result
+            pInstance->m_NewThreadDataCondition.wait(pInstance->m_NewThreadDataLock);
             continue;
         }
 

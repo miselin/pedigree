@@ -17,54 +17,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MUTEX_H
-#define MUTEX_H
+#define PEDIGREE_EXTERNAL_SOURCE 1
 
-#ifdef STANDALONE_MUTEXES
+#include <gtest/gtest.h>
 
-#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
 
-class Mutex
+TEST(PedigreeConditionVariable, Timeout)
 {
-  public:
-    Mutex(bool bLocked = false);
-    ~Mutex();
+    Mutex m;
+    ConditionVariable cond;
 
-    bool acquire();
-    bool tryAcquire();
-    void release();
+    m.acquire();
 
-    ssize_t getValue();
+    Time::Timestamp timeout = 500;
 
-    void *getPrivate() const
-    {
-        return m_Private;
-    }
+    ConditionVariable::WaitResult result = cond.wait(m, timeout);
 
-  private:
-    void *m_Private;
-};
-
-#else
-
-#ifdef THREADS
-
-#include "pedigree/kernel/process/Semaphore.h"
-
-/**
- * A mutex, or binary semaphore
- */
-class Mutex : public Semaphore
-{
-  public:
-    /** Constructor */
-    Mutex(bool bLocked = false);
-    /** Destructor */
-    ~Mutex();
-};
-
-#endif  // THREADS
-
-#endif  // STANDALONE_MUTEXES
-
-#endif  // MUTEX_H
+    EXPECT_TRUE(result.hasError());
+    EXPECT_EQ(result.error(), ConditionVariable::TimedOut);
+}

@@ -70,7 +70,7 @@ class RingBuffer
     }
 
     /// write - write a byte to the ring buffer.
-    void write(T obj)
+    void write(const T &obj, Time::Timestamp &timeout)
     {
         m_Lock.acquire();
         while (true)
@@ -78,8 +78,13 @@ class RingBuffer
             // Wait for room in the buffer if we're full.
             if (m_Ring.count() >= m_RingSize)
             {
-                while (!m_WriteCondition.wait(m_Lock))
-                    ;
+                ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock, timeout);
+                if (result.hasError())
+                {
+                    /// \todo oh dear, writes are always assumed to succeed
+                    return;
+                }
+
                 continue;
             }
 
@@ -95,24 +100,39 @@ class RingBuffer
         m_ReadCondition.signal();
     }
 
+    void write(const T &obj)
+    {
+        Time::Timestamp timeout = Time::INFINITY;
+        write(obj, timeout);
+    }
+
     /// write - write the given number of objects to the ring buffer.
-    size_t write(T *obj, size_t n)
+    size_t write(const T *obj, size_t n, Time::Timestamp &timeout)
     {
         if (n > m_RingSize)
             n = m_RingSize;
 
-        for (size_t i = 0; i < n; ++i)
+        size_t i;
+        for (i = 0; i < n && timeout > 0; ++i)
         {
-            write(obj[i]);
+            write(obj[i], timeout);
         }
 
-        return n;
+        return i;  // return actual count written
+    }
+
+    size_t write(const T *obj, size_t n)
+    {
+        Time::Timestamp timeout = Time::INFINITY;
+        return write(obj, n, timeout);
     }
 
     /// read - read a byte from the ring buffer.
-    T read()
+    T read(Time::Timestamp &timeout)
     {
-        T ret;
+        T ret = T();
+
+        Time::Timestamp origTimeout = timeout;
 
         m_Lock.acquire();
         while (true)
@@ -120,8 +140,13 @@ class RingBuffer
             // Wait for room in the buffer if we're full.
             if (m_Ring.count() == 0)
             {
-                while (!m_ReadCondition.wait(m_Lock))
-                    ;
+                ConditionVariable::WaitResult result = m_ReadCondition.wait(m_Lock, timeout);
+                if (result.hasError())
+                {
+                    /// \todo need to allow read() to fail - use Result<>
+                    return ret;
+                }
+
                 continue;
             }
 
@@ -139,18 +164,31 @@ class RingBuffer
         return ret;
     }
 
+    T read()
+    {
+        Time::Timestamp timeout = 0;
+        return read(timeout);
+    }
+
     /// read - read up to the given number of objects from the ring buffer
-    size_t read(T *out, size_t n)
+    size_t read(T *out, size_t n, Time::Timestamp &timeout)
     {
         if (n > m_RingSize)
             n = m_RingSize;
 
-        for (size_t i = 0; i < n; ++i)
+        size_t i;
+        for (i = 0; i < n && timeout > 0; ++i)
         {
-            out[i] = read();
+            out[i] = read(timeout);
         }
 
-        return n;
+        return i;
+    }
+
+    size_t read(T *out, size_t n)
+    {
+        Time::Timestamp timeout = Time::INFINITY;
+        return read(out, n, timeout);
     }
 
     /// dataReady - is data ready for reading from the ring buffer?
@@ -168,7 +206,7 @@ class RingBuffer
     }
 
     /// waitFor - block until the given condition is true (readable/writeable)
-    bool waitFor(RingBufferWait::WaitType wait)
+    bool waitFor(RingBufferWait::WaitType wait, Time::Timestamp &timeout)
     {
         m_Lock.acquire();
         if (wait == RingBufferWait::Writing)
@@ -181,8 +219,11 @@ class RingBuffer
                     return true;
                 }
 
-                while (!m_WriteCondition.wait(m_Lock))
-                    ;
+                ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock, timeout);
+                if (result.hasError())
+                {
+                    return false;
+                }
             }
         }
         else
@@ -195,13 +236,22 @@ class RingBuffer
                     return true;
                 }
 
-                while (!m_ReadCondition.wait(m_Lock))
-                    ;
+                ConditionVariable::WaitResult result = m_ReadCondition.wait(m_Lock, timeout);
+                if (result.hasError())
+                {
+                    return false;
+                }
             }
         }
 
         m_Lock.release();
         return false;
+    }
+
+    bool waitFor(RingBufferWait::WaitType wait)
+    {
+        Time::Timestamp timeout = Time::INFINITY;
+        return waitFor(wait, timeout);
     }
 
     /**

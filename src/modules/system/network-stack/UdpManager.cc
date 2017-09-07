@@ -182,8 +182,11 @@ bool UdpEndpoint::dataReady(bool block, uint32_t tmout)
 
         while (m_DataQueue.count() == 0)
         {
-            while (!m_Condition.wait(m_Lock))
-                ;
+            ConditionVariable::WaitResult result = m_Condition.wait(m_Lock);
+            if (result.hasError())
+            {
+                return false;
+            }
         }
     }
 

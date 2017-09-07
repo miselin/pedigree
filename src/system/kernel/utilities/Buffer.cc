@@ -88,8 +88,11 @@ Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
             }
 
             // No, we need to wait.
-            while (!m_WriteCondition.wait(m_Lock))
-                ;
+            ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock);
+            if (result.hasError())
+            {
+                return countSoFar;
+            }
             continue;
         }
 
@@ -243,8 +246,11 @@ size_t Buffer<T, allowShortOperation>::read(T *buffer, size_t count, bool block)
             }
 
             // No, we need to wait.
-            while (!m_ReadCondition.wait(m_Lock))
-                ;
+            ConditionVariable::WaitResult result = m_ReadCondition.wait(m_Lock);
+            if (result.hasError())
+            {
+                return countSoFar;
+            }
             continue;
         }
 
@@ -387,8 +393,11 @@ bool Buffer<T, allowShortOperation>::canWrite(bool block)
     // We can get woken here if we stop being able to write.
     while (m_bCanWrite && m_DataSize >= m_BufferSize)
     {
-        while (!m_WriteCondition.wait(m_Lock))
-            ;
+        ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock);
+        if (result.hasError())
+        {
+            return false;
+        }
     }
 
     return m_bCanWrite;
@@ -412,8 +421,12 @@ bool Buffer<T, allowShortOperation>::canRead(bool block)
     // We can get woken here if we stop being able to read.
     while (m_bCanRead && !m_DataSize)
     {
-        while (!m_ReadCondition.wait(m_Lock))
-            ;
+        ConditionVariable::WaitResult result = m_ReadCondition.wait(m_Lock);
+        if (result.hasError())
+        {
+            /// \todo handle errors better
+            return false;
+        }
     }
 
     return m_bCanRead;

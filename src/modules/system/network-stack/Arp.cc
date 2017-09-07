@@ -128,6 +128,9 @@ uint64_t Arp::executeRequest(
     req->complete = false;
     send(req->destIp, pCard);
 
+    // 5s timeout by default (should be configurable)
+    Time::Timestamp timeout = 5 * Time::Multiplier::SECOND;
+
     // Wait for the reply
     req->mutex.acquire();
     while (true)
@@ -138,8 +141,12 @@ uint64_t Arp::executeRequest(
         }
 
         // TODO: this doesn't time out!
-        while (!req->cond.wait(req->mutex))
-            ;
+        ConditionVariable::WaitResult result = req->cond.wait(req->mutex, timeout);
+        if (result.hasError())
+        {
+            // timed out!
+            break;
+        }
     }
     req->mutex.release();
     return req->success ? 1 : 0;

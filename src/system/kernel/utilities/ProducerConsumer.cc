@@ -99,12 +99,16 @@ void ProducerConsumer::consumerThread()
 
     while (m_Running)
     {
-        while (!m_Condition.wait(m_Lock))
-            ;
+        /// \todo should really use the result here.
+        m_Condition.wait(m_Lock);
 
         if (!m_Running)
         {
             break;
+        }
+        else if (!m_Tasks.size())
+        {
+            continue;
         }
 
         Task *task = m_Tasks.popFront();

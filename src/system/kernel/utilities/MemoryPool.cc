@@ -212,8 +212,12 @@ uintptr_t MemoryPool::allocateDoer(bool canBlock)
                 return 0;
             }
 
-            while (!m_Condition.wait(m_Lock))
-                ;
+            ConditionVariable::WaitResult result = m_Condition.wait(m_Lock);
+            if (result.hasError())
+            {
+                /// \todo better error handling
+                return 0;
+            }
             continue;
         }
 #else

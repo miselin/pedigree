@@ -21,6 +21,7 @@
 #include <lwip/arch/sys_arch.h>
 #include <lwip/err.h>
 #include <lwip/sys.h>
+#include <lwip/errno.h>
 
 #include <pedigree/kernel/utilities/pocketknife.h>
 #include <pedigree/kernel/process/Semaphore.h>
@@ -29,6 +30,9 @@
 #include <pedigree/kernel/processor/Processor.h>
 #include <pedigree/kernel/Log.h>
 #include <pedigree/kernel/utilities/RingBuffer.h>
+
+// errno for lwIP usage, this is not ideal as it'll be exposed to ALL modules.
+int errno;
 
 #ifdef UTILITY_LINUX
 #include <time.h>
@@ -225,8 +229,26 @@ u32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)
 
 u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
 {
-    *msg = (*mbox)->buffer.read();
-    return 0;  /// \todo time waited
+    Time::Timestamp begin = Time::getTimeNanoseconds();
+
+    Time::Timestamp timeoutMs = 0;
+    if (timeout == 0)
+    {
+        timeoutMs = Time::INFINITY;
+    }
+    else
+    {
+        timeout * Time::Multiplier::MILLISECOND;
+    }
+
+    *msg = (*mbox)->buffer.read(timeoutMs);
+    if (*msg == NULL)
+    {
+        return SYS_ARCH_TIMEOUT;
+    }
+
+    Time::Timestamp end = Time::getTimeNanoseconds();
+    return (end - begin) / Time::Multiplier::MILLISECOND;
 }
 
 err_t sys_mbox_trypost(sys_mbox_t *mbox, void *msg)
