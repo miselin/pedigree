@@ -43,7 +43,7 @@ driver_common_subdirs = [
     # Pedigree-specific NICs
     '3c90x',
     # 'rtl8139',
-    'loopback',
+    # 'loopback',
 
     # Pedigree-specific SCSI layer
     'scsi',
@@ -260,7 +260,8 @@ custom_subdirs = {
 
 # Custom files to add to the file list
 custom_files = {
-    'linker'        : [os.path.join(arch_subdir, 'asm-' + arch_subdir + '.s')]
+    'linker'        : [os.path.join(arch_subdir, 'asm-' + arch_subdir + '.s')],
+    'lwip'          : ['netif/ethernet.c', 'netif/ethernetif.c'],
 }
 
 if env['hosted']:
