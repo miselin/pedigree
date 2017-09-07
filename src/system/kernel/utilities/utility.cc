@@ -17,6 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define IMPLEMENTING_LOG_FORMAT_FUNCTIONS
+
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
@@ -147,4 +150,56 @@ uint32_t jenkinsHash(const char *buffer, size_t length)
     h ^= h >> 11;
     h += h << 15;
     return h;
+}
+
+#define LOG_FORMAT_COMMON   \
+    char buf[1024]; \
+    int i = 0; \
+    va_list ap; \
+    va_start(ap, fmt); \
+    i = VStringFormat(buf, fmt, ap); \
+    va_end(ap); \
+    if (i && (buf[i - 1] == '\n')) buf[i - 1] = '\0';
+
+int Debugf(const char *fmt, ...)
+{
+    LOG_FORMAT_COMMON
+
+    DEBUG_LOG("debugf: " << buf);
+
+    return i;
+}
+
+int Noticef(const char *fmt, ...)
+{
+    LOG_FORMAT_COMMON
+
+    NOTICE("noticef: " << buf);
+
+    return i;
+}
+
+int Warningf(const char *fmt, ...)
+{
+    LOG_FORMAT_COMMON
+
+    WARNING("warningf: " << buf);
+
+    return i;
+}
+
+int Errorf(const char *fmt, ...)
+{
+    LOG_FORMAT_COMMON
+
+    ERROR("errorf: " << buf);
+
+    return i;
+}
+
+int Fatalf(const char *fmt, ...)
+{
+    LOG_FORMAT_COMMON
+
+    FATAL("fatalf: " << buf);
 }

@@ -55,6 +55,17 @@ int StringFormat(char *buf, const char *fmt, ...) FORMAT(printf, 2, 3);
 unsigned long
 StringToUnsignedLong(const char *nptr, char const **endptr, int base);
 
+// Performs NOTICE/ERROR/etc() on the formatted output, which allows the
+// Pedigree log to be used from C code.
+#if !defined(__cplusplus) || defined(IMPLEMENTING_LOG_FORMAT_FUNCTIONS)
+// DO NOT use in C++ code, except to implement.
+int Debugf(const char *fmt, ...) FORMAT(printf, 1, 2);
+int Noticef(const char *fmt, ...) FORMAT(printf, 1, 2);
+int Warningf(const char *fmt, ...) FORMAT(printf, 1, 2);
+int Errorf(const char *fmt, ...) FORMAT(printf, 1, 2);
+int Fatalf(const char *fmt, ...) FORMAT(printf, 1, 2) NORETURN;
+#endif
+
 // Compares the two strings with optional case-sensitivity. The offset out
 // parameter holds the offset of a failed match in the case of a non-zero
 // return, or the length of the string otherwise.
