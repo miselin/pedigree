@@ -334,7 +334,7 @@ int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
     }
 
     N_NOTICE(
-        "posix_connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address)
+        "connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address)
                          << ", " << addrlen << ")");
 
     Process *pProcess =
@@ -434,7 +434,7 @@ int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
 
 ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
 {
-    N_NOTICE("posix_send");
+    N_NOTICE("send");
 
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(buff), bufflen,
@@ -446,7 +446,7 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
     }
 
     N_NOTICE(
-        "posix_send(" << sock << ", " << buff << ", " << bufflen << ", "
+        "send(" << sock << ", " << buff << ", " << bufflen << ", "
                       << flags << ")");
 
     Process *pProcess =
@@ -509,7 +509,7 @@ ssize_t posix_sendto(
     int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address,
     socklen_t addrlen)
 {
-    N_NOTICE("posix_sendto");
+    N_NOTICE("sendto");
 
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(buff), bufflen,
@@ -521,7 +521,7 @@ ssize_t posix_sendto(
     }
 
     N_NOTICE(
-        "posix_sendto(" << sock << ", " << buff << ", " << bufflen << ", "
+        "sendto(" << sock << ", " << buff << ", " << bufflen << ", "
                         << flags << ", " << address << ", " << addrlen << ")");
 
     Process *pProcess =
@@ -606,7 +606,7 @@ ssize_t posix_sendto(
 
 ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
 {
-    N_NOTICE("posix_recv");
+    N_NOTICE("recv");
 
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(buff), bufflen,
@@ -618,7 +618,7 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     }
 
     N_NOTICE(
-        "posix_recv(" << sock << ", " << buff << ", " << bufflen << ", "
+        "recv(" << sock << ", " << buff << ", " << bufflen << ", "
                       << flags << ")");
 
     Process *pProcess =
@@ -687,12 +687,6 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
 
         meta->pb = pb;
         meta->buf = buf;
-
-        N_NOTICE(" -> recv is pulling new data from the netconn");
-    }
-    else
-    {
-        N_NOTICE(" -> recv is referencing unconsumed data from a previous call");
     }
 
     // now we read some things.
@@ -711,9 +705,6 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     }
     else
     {
-        N_NOTICE("offset=" << meta->offset << " / len=" << len << " / tot_len = " << meta->pb->tot_len << " / total read now = " << (meta->offset + len));
-        N_NOTICE("  [partial reads completed, all pending data is consumed]");
-
         if (meta->buf == nullptr)
         {
             pbuf_free(meta->pb);
@@ -753,7 +744,7 @@ ssize_t posix_recvfrom(
     }
 
     N_NOTICE(
-        "posix_recvfrom(" << sock << ", " << buff << ", " << bufflen << ", "
+        "recvfrom(" << sock << ", " << buff << ", " << bufflen << ", "
                           << flags << ", " << address << ", " << addrlen);
 
     Process *pProcess =
@@ -807,7 +798,7 @@ ssize_t posix_recvfrom(
 
 int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 {
-    N_NOTICE("posix_bind");
+    N_NOTICE("bind");
 
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(address), addrlen,
@@ -819,7 +810,7 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
     }
 
     N_NOTICE(
-        "posix_bind(" << sock << ", " << address << ", " << addrlen << ")");
+        "bind(" << sock << ", " << address << ", " << addrlen << ")");
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -939,7 +930,7 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
 int posix_listen(int sock, int backlog)
 {
-    N_NOTICE("posix_listen(" << sock << ", " << backlog << ")");
+    N_NOTICE("listen(" << sock << ", " << backlog << ")");
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -983,7 +974,7 @@ int posix_listen(int sock, int backlog)
 
 int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
 {
-    N_NOTICE("posix_accept");
+    N_NOTICE("accept");
 
     if (!(PosixSubsystem::checkAddress(
               reinterpret_cast<uintptr_t>(address),
@@ -998,7 +989,7 @@ int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
     }
 
     N_NOTICE(
-        "posix_accept(" << sock << ", " << address << ", " << addrlen << ")");
+        "accept(" << sock << ", " << address << ", " << addrlen << ")");
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -1063,7 +1054,7 @@ int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
 
 int posix_shutdown(int socket, int how)
 {
-    N_NOTICE("posix_shutdown(" << socket << ", " << how << ")");
+    N_NOTICE("shutdown(" << socket << ", " << how << ")");
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -1111,7 +1102,7 @@ int posix_shutdown(int socket, int how)
 int posix_getpeername(
     int socket, struct sockaddr *address, socklen_t *address_len)
 {
-    N_NOTICE("posix_getpeername");
+    N_NOTICE("getpeername");
 
     if (!(PosixSubsystem::checkAddress(
               reinterpret_cast<uintptr_t>(address),
@@ -1126,7 +1117,7 @@ int posix_getpeername(
     }
 
     N_NOTICE(
-        "posix_getpeername(" << socket << ", " << address << ", " << address_len
+        "getpeername(" << socket << ", " << address << ", " << address_len
                              << ")");
 
     Process *pProcess =
@@ -1168,7 +1159,7 @@ int posix_getpeername(
 int posix_getsockname(
     int socket, struct sockaddr *address, socklen_t *address_len)
 {
-    N_NOTICE("posix_getsockname");
+    N_NOTICE("getsockname");
 
     if (!(PosixSubsystem::checkAddress(
               reinterpret_cast<uintptr_t>(address),
@@ -1183,7 +1174,7 @@ int posix_getsockname(
     }
 
     N_NOTICE(
-        "posix_getsockname(" << socket << ", " << address << ", " << address_len
+        "getsockname(" << socket << ", " << address << ", " << address_len
                              << ")");
 
     Process *pProcess =

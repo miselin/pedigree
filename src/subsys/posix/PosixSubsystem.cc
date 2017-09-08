@@ -152,10 +152,9 @@ FileDescriptor::~FileDescriptor()
         file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
 
-    if (socket)
-    {
-        netconn_delete(socket);
-    }
+    /// \todo how do we make sure sockets get cleaned up properly?
+    /// we can't delete here as this is called on fork()/execve() and that
+    /// would destroy existing sockets in other processes
 }
 
 PosixSubsystem::PosixSubsystem(PosixSubsystem &s)
