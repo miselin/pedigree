@@ -22,7 +22,9 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/LockGuard.h"
 
 struct PcapHeader
 {
@@ -52,6 +54,8 @@ struct PcapRecord
 
 static size_t g_FilterEntry = 0;
 
+static Mutex g_PcapMutex(false);
+
 static Serial *getSerial() PURE;
 static Serial *getSerial()
 {
@@ -72,10 +76,19 @@ static Serial *getSerial()
 
 static bool filterCallback(uintptr_t packet, size_t size)
 {
+    LockGuard<Mutex> guard(g_PcapMutex);
+
     Serial *pSerial = getSerial();
     if (!pSerial)
     {
         return true;
+    }
+
+    // 256K is the max packet we ever want to capture.
+    if (size >= 262144)
+    {
+        ERROR("pcap: packet is way too big - size is " << size);
+        return true;  // don't write to the serial port at all.
     }
 
     static uint64_t time = 0;
@@ -113,6 +126,8 @@ static bool filterCallback(uintptr_t packet, size_t size)
 
 static bool entry()
 {
+    LockGuard<Mutex> guard(g_PcapMutex);
+
     Serial *pSerial = getSerial();
     if (!pSerial)
     {
