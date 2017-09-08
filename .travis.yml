@@ -54,7 +54,7 @@ addons:
       - e2fsprogs
       - qemu
       - nasm
-      - uboot-mkimage
+      - u-boot-tools
       - valgrind
       - python-requests
       - g++-6
