@@ -18,6 +18,7 @@
  */
 
 #include "poll-syscalls.h"
+#include "net-syscalls.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/assert.h"
 
@@ -71,7 +72,6 @@ PollEvent::~PollEvent()
 
 void PollEvent::fire()
 {
-    NOTICE("adding " << m_nREvent << " to revents!");
     m_pFd->revents |= m_nREvent;
 
     m_pSemaphore->release();
@@ -131,16 +131,35 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
         return -1;
     }
 
+    // Now checked, and it is safe to continue.
+    return posix_poll_safe(fds, nfds, timeout);
+}
+
+int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
+{
+    F_NOTICE("poll_safe(" << Dec << nfds << ", " << timeout << Hex << ")");
+
     // Investigate the timeout parameter.
     TimeoutType timeoutType;
     size_t timeoutSecs = timeout / 1000;
     size_t timeoutUSecs = (timeout % 1000) * 1000;
     if (timeout < 0)
+    {
         timeoutType = InfiniteTimeout;
+
+        // Fix timeout to be truly infinite
+        // (negative timeout may divide incorrectly)
+        timeoutSecs = 0;
+        timeoutUSecs = 0;
+    }
     else if (timeout == 0)
+    {
         timeoutType = ReturnImmediately;
+    }
     else
+    {
         timeoutType = SpecificTimeout;
+    }
 
     // Grab the subsystem for this process
     Process *pProcess =
@@ -157,7 +176,7 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
-    ssize_t nRet = 0;
+
     // Can be interrupted while waiting for sem - EINTR.
     Semaphore sem(0, true);
     Spinlock reentrancyLock;
@@ -177,83 +196,90 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
         if (!pFd)
         {
             // Error - no such file descriptor.
-            ERROR("select: no such file descriptor (" << Dec << i << ")");
+            ERROR("poll: no such file descriptor (" << Dec << me->fd << ")");
             me->revents |= POLLNVAL;
             bError = true;
-            ++nRet;
             continue;
         }
 
-        if (me->events & POLLIN)
+        bool checkWrite = false;
+
+        // Check POLLIN, POLLOUT (almost exactly the same code for both).
+        /// \todo should move this into a function instead of a loop here.
+        for (size_t j = 0; j < 2; ++j)
         {
-            // Has the file already got data in it?
-            /// \todo Specify read/write/error to select and monitor.
-            if (pFd->file->select(false, 0))
+            short event = POLLIN;
+            if (checkWrite)
             {
-                me->revents |= POLLIN;
-                bWillReturnImmediately = true;
-                nRet++;
+                event = POLLOUT;
             }
-            else if (!bWillReturnImmediately)
-            {
-                // Need to set up a PollEvent.
-                PollEvent *pEvent = new PollEvent(&sem, me, POLLIN, pFd->file);
-                reentrancyLock.acquire();
-                pFd->file->monitor(
-                    Processor::information().getCurrentThread(), pEvent);
-                events.pushBack(pEvent);
 
-                // Quickly check again now we've added the monitoring event,
-                // to avoid a race condition where we could miss the event.
-                //
-                /// \note This is safe because the event above can only be
-                ///       dispatched to this thread, and while we hold the
-                ///       reentrancy spinlock that cannot happen!
-                if (pFd->file->select(false, 0))
+            if (me->events & event)
+            {
+                if (pFd->file)
                 {
-                    me->revents |= POLLIN;
-                    bWillReturnImmediately = true;
-                    nRet++;
+                    // Has the file already got data in it?
+                    /// \todo Specify read/write/error to select and monitor.
+                    if (pFd->file->select(checkWrite, 0))
+                    {
+                        me->revents |= event;
+                        bWillReturnImmediately = true;
+                    }
+                    else if (!bWillReturnImmediately)
+                    {
+                        // Need to set up a PollEvent.
+                        PollEvent *pEvent = new PollEvent(&sem, me, event, pFd->file);
+                        reentrancyLock.acquire();
+                        pFd->file->monitor(
+                            Processor::information().getCurrentThread(), pEvent);
+                        events.pushBack(pEvent);
+
+                        // Quickly check again now we've added the monitoring event,
+                        // to avoid a race condition where we could miss the event.
+                        //
+                        /// \note This is safe because the event above can only be
+                        ///       dispatched to this thread, and while we hold the
+                        ///       reentrancy spinlock that cannot happen!
+                        if (pFd->file->select(checkWrite, 0))
+                        {
+                            me->revents |= event;
+                            bWillReturnImmediately = true;
+                        }
+
+                        reentrancyLock.release();
+                    }
                 }
-
-                reentrancyLock.release();
-            }
-        }
-        if (me->events & POLLOUT)
-        {
-            // Has the file already got data in it?
-            /// \todo Specify read/write/error to select and monitor.
-            if (pFd->file->select(true, 0))
-            {
-                me->revents |= POLLOUT;
-                bWillReturnImmediately = true;
-                nRet++;
-            }
-            else if (!bWillReturnImmediately)
-            {
-                // Need to set up a PollEvent.
-                PollEvent *pEvent = new PollEvent(&sem, me, POLLOUT, pFd->file);
-                reentrancyLock.acquire();
-                pFd->file->monitor(
-                    Processor::information().getCurrentThread(), pEvent);
-                events.pushBack(pEvent);
-
-                // Quickly check again now we've added the monitoring event,
-                // to avoid a race condition where we could miss the event.
-                //
-                /// \note This is safe because the event above can only be
-                ///       dispatched to this thread, and while we hold the
-                ///       reentrancy spinlock that cannot happen!
-                if (pFd->file->select(true, 0))
+                else if (pFd->socket)
                 {
-                    me->revents |= POLLOUT;
-                    bWillReturnImmediately = true;
-                    nRet++;
-                }
+                    struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
 
-                reentrancyLock.release();
+                    meta->lock.acquire();
+                    if (checkWrite && meta->send)
+                    {
+                        // Can immediately write.
+                        me->revents |= POLLOUT;
+                        bWillReturnImmediately = true;
+                    }
+                    if ((!checkWrite) && (meta->recv || meta->pb))
+                    {
+                        // Can immediately read.
+                        me->revents |= POLLIN;
+                        bWillReturnImmediately = true;
+                    }
+
+                    if (!bWillReturnImmediately)
+                    {
+                        // Need to wait for socket data.
+                        /// \todo this is buggy as it'll return for the wrong events!
+                        meta->semaphores.pushBack(&sem);
+                    }
+                    meta->lock.release();
+                }
             }
+
+            checkWrite = true;
         }
+
         if (me->events & POLLERR)
         {
             F_NOTICE("    -> POLLERR not yet supported");
@@ -261,24 +287,65 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
     }
 
     // Grunt work is done, now time to cleanup.
-    if (!bWillReturnImmediately && !bError)
+    while (!bWillReturnImmediately && !bError)
     {
         // We got here because there is a specific or infinite timeout and
         // no FD was ready immediately.
         //
         // We wait on the semaphore 'sem': Its address has been given to all
         // the events and will be raised whenever an FD has action.
-        assert(nRet == 0);
         bool bResult = sem.acquire(1, timeoutSecs, timeoutUSecs);
 
         // Did we actually get the semaphore or did we timeout?
         if (bResult)
         {
             // We were signalled, so one more FD ready.
-            nRet++;
             // While the semaphore is nonzero, more FDs are ready.
             while (sem.tryAcquire())
-                nRet++;
+                ;
+
+            // Good to go for checking why we were woken (for sockets).
+            // We only break out of the main poll() loop if a file was polled,
+            // or a socket actually emits an expected event. This works better
+            // as for sockets in particular, we'll get woken up for ALL events,
+            // not just the ones we care about polling for.
+            bool ok = false;
+            for (size_t i = 0; i < nfds; ++i)
+            {
+                struct pollfd *me = &fds[i];
+                FileDescriptor *pFd = pSubsystem->getFileDescriptor(me->fd);
+                if (!pFd)
+                {
+                    continue;
+                }
+
+                if (pFd->socket)
+                {
+                    struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
+
+                    meta->lock.acquire();
+                    if (meta->send && (me->events & POLLOUT))
+                    {
+                        me->revents |= POLLOUT;
+                        ok = true;
+                    }
+                    if ((meta->recv || meta->pb) && (me->events & POLLIN))
+                    {
+                        me->revents |= POLLIN;
+                        ok = true;
+                    }
+                    meta->lock.release();
+                }
+                else if (pFd->file)
+                {
+                    ok = true;
+                }
+            }
+
+            if (ok)
+            {
+                break;
+            }
         }
         else
         {
@@ -294,6 +361,8 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
             {
                 // OK. Timeout - not an error state.
             }
+
+            break;
         }
     }
 
@@ -326,15 +395,43 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
             EventNumbers::PollEvent, false);
     }
 
+    // Prepare return value (number of fds with events).
+    size_t nRet = 0;
     for (size_t i = 0; i < nfds; ++i)
     {
         F_NOTICE(
             "    -> pollfd[" << i << "]: fd=" << fds[i].fd
                              << ", events=" << fds[i].events
                              << ", revents=" << fds[i].revents);
+
+        if (fds[i].revents != 0)
+        {
+            ++nRet;
+        }
+
+        // Clean up socket Semaphores that we registered, if any.
+        FileDescriptor *pFd = pSubsystem->getFileDescriptor(fds[i].fd);
+        if (!pFd)
+        {
+            continue;
+        }
+
+        if (pFd->socket)
+        {
+            struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
+            meta->lock.acquire();
+            for (auto it = meta->semaphores.begin(); it != meta->semaphores.end(); ++it)
+            {
+                if ((*it) == &sem)
+                {
+                    it = meta->semaphores.erase(it);
+                }
+            }
+            meta->lock.release();
+        }
     }
 
-    F_NOTICE("    -> " << Dec << ((bError) ? -1 : nRet) << Hex);
+    F_NOTICE("    -> " << Dec << ((bError) ? -1 : (int)nRet) << Hex);
     F_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
 
     return (bError) ? -1 : nRet;

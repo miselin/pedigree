@@ -18,6 +18,7 @@
  */
 
 #include "select-syscalls.h"
+#include "poll-syscalls.h"
 #include "net-syscalls.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/assert.h"
@@ -136,6 +137,7 @@ int posix_select(
     int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
     timeval *timeout)
 {
+    F_NOTICE("select(" << nfds << ", " << readfds << ", " << writefds << ", " << errorfds << ", " << timeout << ")");
     bool bValidAddresses = true;
     if (readfds)
         bValidAddresses =
@@ -164,279 +166,111 @@ int posix_select(
         return -1;
     }
 
-    // Investigate the timeout parameter.
-    TimeoutType timeoutType;
-    size_t timeoutSecs = 0, timeoutUSecs = 0;
-    if (timeout == 0)
-        timeoutType = InfiniteTimeout;
-    else if (timeout->tv_sec == 0 && timeout->tv_usec == 0)
-        timeoutType = ReturnImmediately;
-    else
+    // Count the actual number of fds we have.
+    size_t trueFdCount = 0;
+    for (int i = 0; i < nfds; ++i)
     {
-        timeoutType = SpecificTimeout;
-        timeoutSecs = timeout->tv_sec + (timeout->tv_usec / 1000000);
-        timeoutUSecs = timeout->tv_usec % 1000000;
-    }
-
-    F_NOTICE(
-        "select(" << Dec << nfds << ", ?, ?, ?, {"
-                  << timeoutTypeName(timeoutType) << ", " << timeoutSecs << "})"
-                  << Hex);
-
-    Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-
-    if ((nfds == 0) && (timeout == 0))
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    List<SelectEvent *> events;
-
-    bool bError = false;
-    bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
-    ssize_t nRet = 0;
-    // Can be interrupted while waiting for sem - EINTR.
-    Semaphore sem(0, true);
-    Spinlock reentrancyLock;
-
-    // Walk the fd_sets.
-    for (int i = 0; i < nfds; i++)
-    {
-        // valid fd?
-        FileDescriptor *pFd = 0;
         if ((readfds && FD_ISSET(i, readfds)) ||
             (writefds && FD_ISSET(i, writefds)) ||
             (errorfds && FD_ISSET(i, errorfds)))
         {
-            pFd = pSubsystem->getFileDescriptor(i);
-            if (!pFd)
-            {
-                // Error - no such file descriptor.
-                ERROR("select: no such file descriptor (" << Dec << i << ")");
-                bError = true;
-                break;
-            }
+            F_NOTICE("fd " << i << " is acceptable");
+            ++trueFdCount;
         }
-        else
+    }
+
+    // Set up pollfds
+    struct pollfd *fds = new struct pollfd[trueFdCount];
+    size_t j = 0;
+    for (int i = 0; i < nfds; ++i)
+    {
+        bool checkRead = readfds && FD_ISSET(i, readfds);
+        bool checkWrite = writefds && FD_ISSET(i, writefds);
+        bool checkError = errorfds && FD_ISSET(i, errorfds);
+
+        if (!(checkRead || checkWrite || checkError))
         {
             continue;
         }
 
-        File *pFile = pFd->file;
-        if (pFd->so_domain == AF_UNIX)
-        {
-            // Special magic for UNIX sockets. Yay.
-            if (pFd->so_local && (readfds && FD_ISSET(i, readfds)))
-            {
-                // Check local socket for readability.
-                pFile = pFd->so_local;
-            }
-        }
+        F_NOTICE("registering fd " << i << " in slot " << j);
 
-        if (!pFile && !pFd->socket)
-        {
-            ERROR("select: a file descriptor was given that did not have a "
-                  "file object.");
-            bError = true;
-            break;
-        }
+        fds[j].fd = i;
+        fds[j].events = 0;
+        if (checkRead) fds[j].events |= POLLIN;
+        if (checkWrite) fds[j].events |= POLLOUT;
+        if (checkError) fds[j].events |= POLLERR;
+        fds[j].revents = 0;
 
-        fd_set *checks[2] = {readfds, writefds};
-
-        for (size_t j = 0; j < 2 && !bWillReturnImmediately; ++j)
-        {
-            F_NOTICE(" -> check " << (j ? "writable" : "readable") << " fd=" << i);
-
-            if (!checks[j])
-            {
-                continue;
-            }
-            else if (!FD_ISSET(i, checks[j]))
-            {
-                continue;
-            }
-
-            if (pFile)
-            {
-                // Has the file already got data in it?
-                /// \todo Specify read/write/error to select and monitor.
-                if (pFile->select(j > 0, 0))
-                {
-                    bWillReturnImmediately = true;
-                    nRet++;
-                }
-                else if (bWillReturnImmediately)
-                    FD_CLR(i, checks[j]);
-                else
-                {
-                    FD_CLR(i, checks[j]);
-                    // Need to set up a SelectEvent.
-                    SelectEvent *pEvent = new SelectEvent(&sem, checks[j], i, pFile);
-                    reentrancyLock.acquire();
-                    pFile->monitor(pThread, pEvent);
-                    events.pushBack(pEvent);
-
-                    // Quickly check again now we've added the monitoring event,
-                    // to avoid a race condition where we could miss the event.
-                    //
-                    /// \note This is safe because the event above can only be
-                    ///       dispatched to this thread, and while we hold the
-                    ///       reentrancy spinlock that cannot happen!
-                    if (pFile->select(j > 0, 0))
-                    {
-                        bWillReturnImmediately = true;
-                        nRet++;
-                    }
-
-                    reentrancyLock.release();
-                }
-            }
-            else if (pFd->socket)
-            {
-                struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
-
-                meta->lock.acquire();
-                if ((j && meta->send) || ((!j) && (meta->recv || meta->pb)))
-                {
-                    // Immediately readable or writable.
-                    bWillReturnImmediately = true;
-                    nRet++;
-
-                    // Fix up opposite fd_set
-                    if (j && checks[0])
-                    {
-                        FD_CLR(i, checks[0]);
-                    }
-                    if ((!j) && checks[1])
-                    {
-                        FD_CLR(i, checks[1]);
-                    }
-                }
-                else
-                {
-                    meta->semaphores.pushBack(&sem);
-                }
-                meta->lock.release();
-            }
-        }
-
-        if (errorfds && FD_ISSET(i, errorfds))
-        {
-            F_NOTICE(" -> check error fd=" << i);
-
-            FD_CLR(i, errorfds);
-        }
+        ++j;
     }
 
-    // Grunt work is done, now time to cleanup.
-    if (!bWillReturnImmediately && !bError)
+    // Default to infinite wait, but handle immediate wait or a specific timeout too.
+    int timeoutMs = -1;
+    if (timeout)
     {
-        // We got here because there is a specific or infinite timeout and
-        // no FD was ready immediately.
-        //
-        // We wait on the semaphore 'sem': Its address has been given to all
-        // the events and will be raised whenever an FD has action.
-        assert(nRet == 0);
-        bool bResult = sem.acquire(1, timeoutSecs, timeoutUSecs);
+        timeoutMs = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);
+    }
 
-        // Did we actually get the semaphore or did we timeout?
-        if (bResult)
+    // Go!
+    F_NOTICE(" -> redirecting select() to poll() with " << trueFdCount << " actual fds");
+    int r = posix_poll_safe(fds, trueFdCount, timeoutMs);
+
+    // Fill fd_sets as needed.
+    j = 0;
+    for (int i = 0; i < nfds; ++i)
+    {
+        /// \todo this could be done MUCH better
+        bool checkRead = readfds && FD_ISSET(i, readfds);
+        bool checkWrite = writefds && FD_ISSET(i, writefds);
+        bool checkError = errorfds && FD_ISSET(i, errorfds);
+
+        if (!(checkRead || checkWrite || checkError))
         {
-            // We were signalled, so one more FD ready.
-            nRet++;
-            // While the semaphore is nonzero, more FDs are ready.
-            while (sem.tryAcquire())
-                nRet++;
+            continue;
         }
-        else
+
+        if (checkRead)
         {
-            // The timeout event sets the interrupted state, so while this
-            // looks unusual, the condition is caused by an interrupted sleep
-            // due to something other than timeout.
-            if (!pThread->wasInterrupted())
+            if (fds[j].revents & POLLIN)
             {
-                SYSCALL_ERROR(Interrupted);
-                bError = true;
+                FD_SET(i, readfds);
             }
             else
             {
-                // OK. Timeout - not an error state.
+                FD_CLR(i, readfds);
             }
         }
-    }
 
-    // Only do cleanup and lock acquire/release if we set events up.
-    if (events.count())
-    {
-        // Block any more events being sent to us so we can safely clean up.
-        reentrancyLock.acquire();
-        pThread->inhibitEvent(EventNumbers::SelectEvent, true);
-        reentrancyLock.release();
-
-        // Cull monitor targets first. While we're doing this, events might be
-        // sent to this thread, but they're inhibited. We need to cull first to
-        // stop further events getting created.
-        for (auto pEvent : events)
+        if (checkWrite)
         {
-            pEvent->getFile()->cullMonitorTargets(pThread);
-        }
-
-        // Cull any leftover events that came in while we were culling monitor
-        // targets, so we don't have any leftover events in Thread queues.
-        pThread->cullEvent(EventNumbers::SelectEvent);
-
-        // Now, we can finally clean up our events.
-        for (auto pEvent : events)
-        {
-            delete pEvent;
-        }
-
-        // Cleanup is complete, stop inhibiting events now.
-        pThread->inhibitEvent(EventNumbers::SelectEvent, false);
-    }
-
-    // Clean up socket metadata.
-    for (int i = 0; i < nfds; i++)
-    {
-        // valid fd?
-        FileDescriptor *pFd = 0;
-        if ((readfds && FD_ISSET(i, readfds)) ||
-            (writefds && FD_ISSET(i, writefds)) ||
-            (errorfds && FD_ISSET(i, errorfds)))
-        {
-            pFd = pSubsystem->getFileDescriptor(i);
-        }
-
-        if (!pFd)
-        {
-            continue;
-        }
-
-        if (pFd->socket)
-        {
-            struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
-            meta->lock.acquire();
-            for (auto it = meta->semaphores.begin(); it != meta->semaphores.end(); ++it)
+            if (fds[j].revents & POLLOUT)
             {
-                if ((*it) == &sem)
-                {
-                    it = meta->semaphores.erase(it);
-                }
+                FD_SET(i, writefds);
             }
-            meta->lock.release();
+            else
+            {
+                FD_CLR(i, writefds);
+            }
         }
+
+        if (checkError)
+        {
+            if (fds[j].revents & POLLERR)
+            {
+                FD_SET(i, errorfds);
+            }
+            else
+            {
+                FD_CLR(i, errorfds);
+            }
+        }
+
+        ++j;
     }
 
-    F_NOTICE("    -> select returns " << Dec << ((bError) ? -1 : nRet) << Hex);
+    delete [] fds;
 
-    return (bError) ? -1 : nRet;
+    F_NOTICE(" -> select via poll returns " << r);
+    return r;
 }
