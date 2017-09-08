@@ -46,6 +46,8 @@
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/linker/Elf.h"
 
+#include "modules/system/lwip/include/lwip/api.h"
+
 #include "file-syscalls.h"
 
 #include <signal.h>
@@ -68,7 +70,7 @@ extern void pedigree_init_pthreads();
 
 /// Default constructor
 FileDescriptor::FileDescriptor()
-    : file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), so_domain(0),
+    : socket(0), file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), so_domain(0),
       so_type(0), so_local(0), lockedFile(0)
 {
 }
@@ -77,7 +79,7 @@ FileDescriptor::FileDescriptor()
 FileDescriptor::FileDescriptor(
     File *newFile, uint64_t newOffset, size_t newFd, int fdFlags, int flFlags,
     LockedFile *lf)
-    : file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
+    : socket(0), file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
       flflags(flFlags), lockedFile(lf)
 {
     if (file)
@@ -89,7 +91,7 @@ FileDescriptor::FileDescriptor(
 
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor &desc)
-    : file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
+    : socket(desc.socket), file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
       flflags(desc.flflags), lockedFile(0)
 {
     if (file)
@@ -101,7 +103,7 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0)
+    : socket(0), file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0)
 {
     if (!desc)
         return;
@@ -121,6 +123,7 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
 /// Assignment operator implementation
 FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
 {
+    socket = desc.socket;
     file = desc.file;
     offset = desc.offset;
     fd = desc.fd;
@@ -147,6 +150,11 @@ FileDescriptor::~FileDescriptor()
             delete lockedFile;
         }
         file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
+    }
+
+    if (socket)
+    {
+        netconn_delete(socket);
     }
 }
 

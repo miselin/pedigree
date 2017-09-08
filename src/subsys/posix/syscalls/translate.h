@@ -159,6 +159,9 @@ inline long posix_translate_syscall(long which)
             pedigree_translation = POSIX_GETPEERNAME;
             break;
         // ...
+        case SYS_setsockopt:
+            pedigree_translation = POSIX_SETSOCKOPT;
+            break;
         case SYS_getsockopt:
             pedigree_translation = POSIX_GETSOCKOPT;
             break;

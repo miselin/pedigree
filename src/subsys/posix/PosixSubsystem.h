@@ -32,6 +32,8 @@
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 
+#include "modules/system/lwip/include/lwip/api.h"
+
 class File;
 class LockedFile;
 
@@ -149,6 +151,9 @@ class FileDescriptor
 
     /// Destructor - decreases file reference count
     virtual ~FileDescriptor();
+
+    /// Socket data (if non-null, most other fields are invalid).
+    struct netconn *socket;
 
     /// Our open file pointer
     File *file;

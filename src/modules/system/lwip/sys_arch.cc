@@ -113,12 +113,24 @@ void sys_sem_free(sys_sem_t *sem)
 #else
     Semaphore *s = reinterpret_cast<Semaphore *>(*sem);
     delete s;
+    *sem = nullptr;
 #endif
 }
 
 int sys_sem_valid(sys_sem_t *sem)
 {
+#ifdef UTILITY_LINUX
     return 1;
+#else
+    if (*sem)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+#endif
 }
 
 void sys_sem_set_invalid(sys_sem_t *sem)
@@ -188,14 +200,16 @@ u32_t sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
         return SYS_ARCH_TIMEOUT;
     }
 #else
+    Time::Timestamp begin = Time::getTimeNanoseconds();
+
     Semaphore *s = reinterpret_cast<Semaphore *>(*sem);
-    if (!s->acquire(0, timeout * 1000))  // ms -> us
+    if (!s->acquire(1, timeout * 1000))  // ms -> us
     {
         return SYS_ARCH_TIMEOUT;
     }
 
-    /// \todo need to return the time waited for the semaphore!
-    return 0;
+    Time::Timestamp end = Time::getTimeNanoseconds();
+    return (end - begin) / Time::Multiplier::MILLISECOND;
 #endif
 }
 

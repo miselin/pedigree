@@ -18,6 +18,7 @@
  */
 
 #include "select-syscalls.h"
+#include "net-syscalls.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/assert.h"
 
@@ -241,7 +242,7 @@ int posix_select(
             }
         }
 
-        if (!pFile)
+        if (!pFile && !pFd->socket)
         {
             ERROR("select: a file descriptor was given that did not have a "
                   "file object.");
@@ -249,122 +250,91 @@ int posix_select(
             break;
         }
 
-        if (readfds && FD_ISSET(i, readfds))
+        fd_set *checks[2] = {readfds, writefds};
+
+        for (size_t j = 0; j < 2 && !bWillReturnImmediately; ++j)
         {
-            F_NOTICE(" -> check readable fd=" << i);
+            F_NOTICE(" -> check " << (j ? "writable" : "readable") << " fd=" << i);
 
-            // Has the file already got data in it?
-            /// \todo Specify read/write/error to select and monitor.
-            if (pFile->select(false, 0))
+            if (!checks[j])
             {
-                bWillReturnImmediately = true;
-                nRet++;
+                continue;
             }
-            else if (bWillReturnImmediately)
-                FD_CLR(i, readfds);
-            else
+            else if (!FD_ISSET(i, checks[j]))
             {
-                FD_CLR(i, readfds);
-                // Need to set up a SelectEvent.
-                SelectEvent *pEvent = new SelectEvent(&sem, readfds, i, pFile);
-                reentrancyLock.acquire();
-                pFile->monitor(pThread, pEvent);
-                events.pushBack(pEvent);
+                continue;
+            }
 
-                // Quickly check again now we've added the monitoring event,
-                // to avoid a race condition where we could miss the event.
-                //
-                /// \note This is safe because the event above can only be
-                ///       dispatched to this thread, and while we hold the
-                ///       reentrancy spinlock that cannot happen!
-                if (pFile->select(false, 0))
+            if (pFile)
+            {
+                // Has the file already got data in it?
+                /// \todo Specify read/write/error to select and monitor.
+                if (pFile->select(j > 0, 0))
                 {
                     bWillReturnImmediately = true;
                     nRet++;
                 }
-
-                reentrancyLock.release();
-            }
-        }
-        if (writefds && FD_ISSET(i, writefds))
-        {
-            F_NOTICE(" -> check writable fd=" << i);
-
-            // Has the file already got data in it?
-            /// \todo Specify read/write/error to select and monitor.
-            if (pFile->select(true, 0))
-            {
-                bWillReturnImmediately = true;
-                nRet++;
-            }
-            else if (bWillReturnImmediately)
-                FD_CLR(i, writefds);
-            else
-            {
-                FD_CLR(i, writefds);
-                // Need to set up a SelectEvent.
-                SelectEvent *pEvent = new SelectEvent(&sem, writefds, i, pFile);
-                reentrancyLock.acquire();
-                pFile->monitor(pThread, pEvent);
-                events.pushBack(pEvent);
-
-                // Quickly check again now we've added the monitoring event,
-                // to avoid a race condition where we could miss the event.
-                //
-                /// \note This is safe because the event above can only be
-                ///       dispatched to this thread, and while we hold the
-                ///       reentrancy spinlock that cannot happen!
-                if (pFile->select(true, 0))
+                else if (bWillReturnImmediately)
+                    FD_CLR(i, checks[j]);
+                else
                 {
+                    FD_CLR(i, checks[j]);
+                    // Need to set up a SelectEvent.
+                    SelectEvent *pEvent = new SelectEvent(&sem, checks[j], i, pFile);
+                    reentrancyLock.acquire();
+                    pFile->monitor(pThread, pEvent);
+                    events.pushBack(pEvent);
+
+                    // Quickly check again now we've added the monitoring event,
+                    // to avoid a race condition where we could miss the event.
+                    //
+                    /// \note This is safe because the event above can only be
+                    ///       dispatched to this thread, and while we hold the
+                    ///       reentrancy spinlock that cannot happen!
+                    if (pFile->select(j > 0, 0))
+                    {
+                        bWillReturnImmediately = true;
+                        nRet++;
+                    }
+
+                    reentrancyLock.release();
+                }
+            }
+            else if (pFd->socket)
+            {
+                struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
+
+                meta->lock.acquire();
+                if ((j && meta->send) || ((!j) && (meta->recv || meta->pb)))
+                {
+                    // Immediately readable or writable.
                     bWillReturnImmediately = true;
                     nRet++;
-                }
 
-                reentrancyLock.release();
+                    // Fix up opposite fd_set
+                    if (j && checks[0])
+                    {
+                        FD_CLR(i, checks[0]);
+                    }
+                    if ((!j) && checks[1])
+                    {
+                        FD_CLR(i, checks[1]);
+                    }
+                }
+                else
+                {
+                    meta->semaphores.pushBack(&sem);
+                }
+                meta->lock.release();
             }
         }
+
         if (errorfds && FD_ISSET(i, errorfds))
         {
             F_NOTICE(" -> check error fd=" << i);
 
             FD_CLR(i, errorfds);
         }
-        /*
-        if (errorfds && FD_ISSET(i, errorfds))
-        {
-            // Has the file already got data in it?
-            /// \todo Specify read/write/error to select and monitor.
-            if (pFd->file->select(false, 0))
-            {
-                bWillReturnImmediately = true;
-                nRet ++;
-            }
-            else if (bWillReturnImmediately)
-                FD_CLR(i, errorfds);
-            else
-            {
-                FD_CLR(i, errorfds);
-                // Need to set up a SelectEvent.
-                SelectEvent *pEvent = new SelectEvent(&sem, errorfds, i,
-        pFd->file); reentrancyLock.acquire(); pFd->file->monitor(pThread,
-        pEvent); events.pushBack(pEvent);
-
-                // Quickly check again now we've added the monitoring event,
-                // to avoid a race condition where we could miss the event.
-                //
-                /// \note This is safe because the event above can only be
-                ///       dispatched to this thread, and while we hold the
-                ///       reentrancy spinlock that cannot happen!
-                if (pFd->file->select(false, 0))
-                {
-                    bWillReturnImmediately = true;
-                    nRet ++;
-                }
-
-                reentrancyLock.release();
-            }
-        }
-        */
     }
 
     // Grunt work is done, now time to cleanup.
@@ -432,6 +402,38 @@ int posix_select(
 
         // Cleanup is complete, stop inhibiting events now.
         pThread->inhibitEvent(EventNumbers::SelectEvent, false);
+    }
+
+    // Clean up socket metadata.
+    for (int i = 0; i < nfds; i++)
+    {
+        // valid fd?
+        FileDescriptor *pFd = 0;
+        if ((readfds && FD_ISSET(i, readfds)) ||
+            (writefds && FD_ISSET(i, writefds)) ||
+            (errorfds && FD_ISSET(i, errorfds)))
+        {
+            pFd = pSubsystem->getFileDescriptor(i);
+        }
+
+        if (!pFd)
+        {
+            continue;
+        }
+
+        if (pFd->socket)
+        {
+            struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
+            meta->lock.acquire();
+            for (auto it = meta->semaphores.begin(); it != meta->semaphores.end(); ++it)
+            {
+                if ((*it) == &sem)
+                {
+                    it = meta->semaphores.erase(it);
+                }
+            }
+            meta->lock.release();
+        }
     }
 
     F_NOTICE("    -> select returns " << Dec << ((bError) ? -1 : nRet) << Hex);

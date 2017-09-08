@@ -646,6 +646,12 @@ int posix_read(int fd, char *ptr, int len)
         return -1;
     }
 
+    if (pFd->socket)
+    {
+        // Need to redirect to socket implementation.
+        return posix_recv(fd, ptr, len, 0);
+    }
+
     if (pFd->file->isDirectory())
     {
         SYSCALL_ERROR(IsADirectory);
@@ -685,7 +691,7 @@ int posix_read(int fd, char *ptr, int len)
 
     if (ptr && len)
     {
-        F_NOTICE(" -> read: '" << String(ptr, len) << "'");
+        F_NOTICE(" -> read: '" << String(ptr, len - 1) << "'");
     }
 
     F_NOTICE("    -> " << Dec << nRead << Hex);
@@ -710,7 +716,7 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     if (ptr)
     {
         F_NOTICE(
-            "write(" << fd << ", " << String(ptr, len) << ", " << len << ")");
+            "write(" << fd << ", " << String(ptr, len - 1) << ", " << len << ")");
     }
 
     // Lookup this process.
@@ -730,6 +736,12 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
+    }
+
+    if (pFd->socket)
+    {
+        // Need to redirect to socket implementation.
+        return posix_send(fd, ptr, len, 0);
     }
 
     // Copy to kernel.

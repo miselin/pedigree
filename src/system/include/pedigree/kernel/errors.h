@@ -63,9 +63,13 @@ enum PosixError
     ProtocolNotAvailable = 92,   // ENOPROTOOPT
     OperationNotSupported = 95,  // ENOTSUP
     ConnectionAborted = 103,     // ECONNABORTED
+    ConnectionReset = 104,       // ECONNRESET
+    NoMoreBuffers = 105,         // ENOBUFS
     IsConnected = 106,           // EISCONN
+    NotConnected = 107,          // ENOTCONN
     TimedOut = 110,              // ETIMEDOUT
     ConnectionRefused = 111,     // ECONNREFUSED
+    HostUnreachable = 113,       // EHOSTUNREACH
     Already = 114,               // EALREADY
     InProgress = 115,            // EINPROGRESS
 };

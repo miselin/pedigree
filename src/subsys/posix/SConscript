@@ -113,6 +113,7 @@ include = [
     '#/src/modules',
     '#/src/system/include',
     '#/src/modules/system',
+    '#/src/modules/system/lwip/include',
     '#/src/subsys/pedigree-c',
     '#src/subsys/posix',
     # Last attempt for missing files is in the disk image's /include

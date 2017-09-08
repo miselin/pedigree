@@ -540,6 +540,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_times(reinterpret_cast<struct tms *>(p1));
         case POSIX_GETRUSAGE:
             return posix_getrusage(p1, reinterpret_cast<struct rusage *>(p2));
+        case POSIX_SETSOCKOPT:
+            return posix_setsockopt(
+                p1, p2, p3, reinterpret_cast<const void *>(p4), p5);
         case POSIX_GETSOCKOPT:
             return posix_getsockopt(
                 p1, p2, p3, reinterpret_cast<void *>(p4),

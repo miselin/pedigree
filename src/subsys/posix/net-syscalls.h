@@ -23,10 +23,33 @@
 #include "logging.h"
 #include "modules/system/vfs/File.h"
 
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/utilities/List.h"
+
 #include <sys/socket.h>
 #include <sys/types.h>
 
 struct sockaddr;
+
+struct netconnMetadata
+{
+    netconnMetadata();
+
+    ssize_t recv;
+    ssize_t send;
+    bool error;
+
+    Mutex lock;
+    List<Semaphore *> semaphores;
+
+    size_t offset;
+    struct pbuf *pb;
+    struct netbuf *buf;
+};
+
+/// Get metadata for a given lwIP connection.
+struct netconnMetadata *getNetconnMetadata(struct netconn *conn);
 
 int posix_socket(int domain, int type, int protocol);
 int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen);
@@ -51,6 +74,8 @@ int posix_getpeername(
 int posix_getsockname(
     int socket, struct sockaddr *address, socklen_t *address_len);
 
+int posix_setsockopt(
+    int sock, int level, int optname, const void *optvalue, socklen_t optlen);
 int posix_getsockopt(
     int sock, int level, int optname, void *optvalue, socklen_t *optlen);
 

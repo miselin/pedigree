@@ -128,10 +128,10 @@ static void destroy()
 
 #if defined(X86_COMMON)
 #define __MOD_DEPS "vfs", "posix", "linker", "users"
-#define __MOD_DEPS_OPT "gfx-deps", "mountroot"
+#define __MOD_DEPS_OPT "gfx-deps", "mountroot", "confignics"
 #else
 #define __MOD_DEPS "vfs", "posix", "linker", "users"
-#define __MOD_DEPS_OPT "mountroot"
+#define __MOD_DEPS_OPT "mountroot", "confignics"
 #endif
 MODULE_INFO("init", &init, &destroy, __MOD_DEPS);
 #ifdef __MOD_DEPS_OPT

@@ -74,5 +74,6 @@ static void destroy()
 #ifdef ARM_COMMON
 MODULE_INFO("posix", &init, &destroy, "console", "mountroot");
 #else
-MODULE_INFO("posix", &init, &destroy, "console", "network-stack", "mountroot");
+MODULE_INFO("posix", &init, &destroy, "console", "network-stack", "mountroot",
+    "lwip");
 #endif

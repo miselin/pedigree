@@ -31,6 +31,10 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
+#include "modules/system/lwip/include/lwip/api.h"
+#include "modules/system/lwip/include/lwip/ip_addr.h"
+#include "modules/system/lwip/include/lwip/tcp.h"
+
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixSubsystem.h>
 #include <UnixFilesystem.h>
@@ -42,6 +46,178 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <netinet/tcp.h>
+
+static Tree<struct netconn *, struct netconnMetadata *> g_NetconnMetadata;
+
+netconnMetadata::netconnMetadata() : recv(0), send(0), error(false), lock(false), semaphores(), offset(0), pb(nullptr), buf(nullptr)
+{
+}
+
+static void netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
+{
+    struct netconnMetadata *meta = getNetconnMetadata(conn);
+
+    meta->lock.acquire();
+
+    switch(evt)
+    {
+        case NETCONN_EVT_RCVPLUS:
+            NOTICE("RCV+");
+            ++(meta->recv);
+            break;
+        case NETCONN_EVT_RCVMINUS:
+            NOTICE("RCV-");
+            if (meta->recv)
+            {
+                --(meta->recv);
+            }
+            break;
+        case NETCONN_EVT_SENDPLUS:
+            NOTICE("SND+");
+            meta->send = 1;
+            break;
+        case NETCONN_EVT_SENDMINUS:
+            NOTICE("SND-");
+            meta->send = 0;
+            break;
+        case NETCONN_EVT_ERROR:
+            NOTICE("ERR");
+            meta->error = true;  /// \todo figure out how to bubble errors
+            break;
+        default:
+            NOTICE("Unknown error.");
+    }
+
+    for (auto &it : meta->semaphores)
+    {
+        it->release();
+    }
+
+    meta->lock.release();
+}
+
+static void lwipToSyscallError(err_t err)
+{
+    if (err != ERR_OK)
+    {
+        N_NOTICE(" -> lwip strerror gives '" << lwip_strerr(err) << "'");
+    }
+    // Based on lwIP's err_to_errno_table.
+    switch(err)
+    {
+        case ERR_OK:
+            break;
+        case ERR_MEM:
+            SYSCALL_ERROR(OutOfMemory);
+            break;
+        case ERR_BUF:
+            SYSCALL_ERROR(NoMoreBuffers);
+            break;
+        case ERR_TIMEOUT:
+            SYSCALL_ERROR(TimedOut);
+            break;
+        case ERR_RTE:
+            SYSCALL_ERROR(HostUnreachable);
+            break;
+        case ERR_INPROGRESS:
+            SYSCALL_ERROR(InProgress);
+            break;
+        case ERR_VAL:
+            SYSCALL_ERROR(InvalidArgument);
+            break;
+        case ERR_WOULDBLOCK:
+            SYSCALL_ERROR(NoMoreProcesses);
+            break;
+        case ERR_USE:
+            // address in use
+            SYSCALL_ERROR(InvalidArgument);
+            break;
+        case ERR_ALREADY:
+            SYSCALL_ERROR(Already);
+            break;
+        case ERR_ISCONN:
+            SYSCALL_ERROR(IsConnected);
+            break;
+        case ERR_CONN:
+            SYSCALL_ERROR(NotConnected);
+            break;
+        case ERR_IF:
+            // no error
+            break;
+        case ERR_ABRT:
+            SYSCALL_ERROR(ConnectionAborted);
+            break;
+        case ERR_RST:
+            SYSCALL_ERROR(ConnectionReset);
+            break;
+        case ERR_CLSD:
+            SYSCALL_ERROR(NotConnected);
+            break;
+        case ERR_ARG:
+            SYSCALL_ERROR(IoError);
+            break;
+    }
+}
+
+static bool isSaneSocket(FileDescriptor *f)
+{
+    if (!f)
+    {
+        N_NOTICE(" -> isSaneSocket: descriptor is null");
+        SYSCALL_ERROR(BadFileDescriptor);
+        return false;
+    }
+
+    if (!(f->file || f->socket))
+    {
+        N_NOTICE(" -> isSaneSocket: both file and socket members are null");
+        SYSCALL_ERROR(BadFileDescriptor);
+        return false;
+    }
+
+    if (f->file && f->socket)
+    {
+        N_NOTICE(" -> isSaneSocket: both file and socket members are non-null");
+        SYSCALL_ERROR(BadFileDescriptor);
+        return false;
+    }
+
+    return true;
+}
+
+static ip_addr_t sockaddrToIpaddr(const struct sockaddr *saddr, uint16_t &port)
+{
+    ip_addr_t result;
+    ByteSet(&result, 0, sizeof(result));
+
+    if (saddr->sa_family == AF_INET)
+    {
+        const struct sockaddr_in *sin = reinterpret_cast<const struct sockaddr_in *>(saddr);
+        result.u_addr.ip4.addr = sin->sin_addr.s_addr;
+        result.type = IPADDR_TYPE_V4;
+
+        port = BIG_TO_HOST16(sin->sin_port);
+    }
+    else
+    {
+        ERROR("sockaddrToIpaddr: only AF_INET is supported at the moment.");
+    }
+
+    return result;
+}
+
+struct netconnMetadata *getNetconnMetadata(struct netconn *conn)
+{
+    struct netconnMetadata *result = g_NetconnMetadata.lookup(conn);
+    if (!result)
+    {
+        result = new struct netconnMetadata;
+        g_NetconnMetadata.insert(conn, result);
+    }
+
+    return result;
+}
 
 int posix_socket(int domain, int type, int protocol)
 {
@@ -60,40 +236,48 @@ int posix_socket(int domain, int type, int protocol)
 
     size_t fd = pSubsystem->getFd();
 
+    netconn_type connType = NETCONN_INVALID;
+
     File *file = 0;
+    struct netconn *conn = 0;
     bool valid = true;
+
+    /// \todo need to verify type parameter (e.g. SOCK_DGRAM is no good for TCP)
     if (domain == AF_INET)
     {
-        if ((type == SOCK_DGRAM && protocol == 0) ||
-            (type == SOCK_DGRAM && protocol == IPPROTO_UDP))
-            file =
-                NetManager::instance().newEndpoint(NETMAN_TYPE_UDP, protocol);
-        else if (
-            (type == SOCK_STREAM && protocol == 0) ||
-            (type == SOCK_STREAM && protocol == IPPROTO_TCP))
-            file =
-                NetManager::instance().newEndpoint(NETMAN_TYPE_TCP, protocol);
-        else if (type == SOCK_RAW)
+        switch (protocol)
         {
-            file =
-                NetManager::instance().newEndpoint(NETMAN_TYPE_RAW, protocol);
-        }
-        else
-        {
-            SYSCALL_ERROR(InvalidArgument);
-            valid = false;
+            case IPPROTO_TCP:
+                connType = NETCONN_TCP;
+                break;
+            case IPPROTO_UDP:
+                connType = NETCONN_UDP;
+                break;
+            default:
+                valid = false;
         }
     }
-    /*
-    else if (domain == PF_SOCKET)
+    else if (domain == AF_INET6)
     {
-        // raw wire-level sockets
-        file = NetManager::instance().newEndpoint(NETMAN_TYPE_RAW, 0xff);
+        switch (protocol)
+        {
+            case IPPROTO_TCP:
+                connType = NETCONN_TCP_IPV6;
+                break;
+            case IPPROTO_UDP:
+                connType = NETCONN_UDP_IPV6;
+                break;
+            default:
+                valid = false;
+        }
     }
-    */
+    else if (domain == AF_PACKET)
+    {
+        connType = NETCONN_RAW;
+    }
     else if (domain == AF_UNIX)
     {
-        file = 0;
+        // OK
     }
     else
     {
@@ -105,10 +289,26 @@ int posix_socket(int domain, int type, int protocol)
     if (!valid)
     {
         N_NOTICE(" -> invalid socket parameters");
+        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
+    if (domain != AF_UNIX)
+    {
+        NOTICE("creating new connection!");
+        conn = netconn_new_with_callback(connType, netconnCallback);
+        if (!conn)
+        {
+            /// \todo get the real error
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+
+        NOTICE("connection is " << conn);
+    }
+
     FileDescriptor *f = new FileDescriptor;
+    f->socket = conn;
     f->file = file;
     f->offset = 0;
     f->fd = fd;
@@ -148,158 +348,88 @@ int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file || (f->so_domain == AF_UNIX))
+    if (!isSaneSocket(f))
     {
-        if (f && ((!f->file) || (f->file == f->so_local)) &&
-            (f->so_domain == AF_UNIX))
-        {
-            if (address->sa_family != AF_UNIX)
-            {
-                // EAFNOSUPPORT
-                N_NOTICE(" -> address family unsupported");
-                return -1;
-            }
-
-            // Valid state. But no socket, so do the magic here.
-            struct sockaddr_un *un =
-                reinterpret_cast<struct sockaddr_un *>(address);
-            String pathname;
-            normalisePath(pathname, un->sun_path);
-
-            N_NOTICE(" -> unix connect: '" << pathname << "'");
-
-            f->file = VFS::instance().find(pathname);
-            if (!f->file)
-            {
-                SYSCALL_ERROR(DoesNotExist);
-                N_NOTICE(" -> unix socket '" << pathname << "' doesn't exist");
-                return -1;
-            }
-
-            if (!f->file->isSocket())
-            {
-                /// \todo wrong error
-                SYSCALL_ERROR(DoesNotExist);
-                N_NOTICE(
-                    " -> target '" << pathname << "' is not a unix socket");
-                return -1;
-            }
-
-            f->so_remotePath = pathname;
-
-            return 0;
-        }
-
-        SYSCALL_ERROR(BadFileDescriptor);
-        N_NOTICE(" -> bad fd");
         return -1;
     }
-    Socket *s = static_cast<Socket *>(f->file);
-    if (f->so_domain != address->sa_family)
+
+    if (f->so_domain == AF_UNIX)
+    {
+        if (address->sa_family != AF_UNIX)
+        {
+            // EAFNOSUPPORT
+            N_NOTICE(" -> address family unsupported");
+            return -1;
+        }
+
+        // Valid state. But no socket, so do the magic here.
+        struct sockaddr_un *un =
+            reinterpret_cast<struct sockaddr_un *>(address);
+        String pathname;
+        normalisePath(pathname, un->sun_path);
+
+        N_NOTICE(" -> unix connect: '" << pathname << "'");
+
+        f->file = VFS::instance().find(pathname);
+        if (!f->file)
+        {
+            SYSCALL_ERROR(DoesNotExist);
+            N_NOTICE(" -> unix socket '" << pathname << "' doesn't exist");
+            return -1;
+        }
+
+        if (!f->file->isSocket())
+        {
+            /// \todo wrong error
+            SYSCALL_ERROR(DoesNotExist);
+            N_NOTICE(
+                " -> target '" << pathname << "' is not a unix socket");
+            return -1;
+        }
+
+        f->so_remotePath = pathname;
+
+        return 0;
+    }
+    else if (f->so_domain != address->sa_family)
     {
         // EAFNOSUPPORT
-        N_NOTICE(" -> address family unsupported");
+        N_NOTICE(" -> incorrect address family passed to connect()");
         return -1;
     }
 
-    Endpoint *p = s->getEndpoint();
+    struct netconn *conn = f->socket;
 
-    // Sanity check connection-based endpoints for EALREADY, EISCONN.
-    if (p->getType() == Endpoint::ConnectionBased)
+    /// \todo need to figure out if we've already done a bind()
+    ip_addr_t ipaddr;
+    ByteSet(&ipaddr, 0, sizeof(ipaddr));
+    err_t err = netconn_bind(conn, &ipaddr, 0);  // bind to any address
+    if (err != ERR_OK)
     {
-        ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-        auto endpointState = ce->state();
-
-        // Check for some bad states.
-        if (endpointState != ConnectionBasedEndpoint::CLOSED)
-        {
-            if (endpointState == ConnectionBasedEndpoint::CONNECTING)
-            {
-                // EALREADY - connection attempt in progress
-                SYSCALL_ERROR(Already);
-                N_NOTICE(" -> connection attempt in progress already");
-                return -1;
-            }
-            else if (ce->isConnected())
-            {
-                // EISCONN - already connected
-                SYSCALL_ERROR(IsConnected);
-                N_NOTICE(" -> already connected");
-                return -1;
-            }
-        }
+        N_NOTICE(" -> lwip error when binding before connect");
+        lwipToSyscallError(err);
+        return -1;
     }
 
+    uint16_t port = 0;
+    ipaddr = sockaddrToIpaddr(address, port);
+
+    // set blocking status if needed
     bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
+    netconn_set_nonblocking(conn, blocking ? 0 : 1);
 
-    bool success = false;
-    if (f->so_domain == AF_INET)
+    N_NOTICE("using socket " << conn << "!");
+    N_NOTICE(" -> connecting to remote " << ipaddr_ntoa(&ipaddr) << " on port " << Dec << port);
+
+    err = netconn_connect(conn, &ipaddr, port);
+    if (err != ERR_OK)
     {
-        Endpoint::RemoteEndpoint remoteHost;
-
-        struct sockaddr_in *sin =
-            reinterpret_cast<struct sockaddr_in *>(address);
-        IpAddress dest(sin->sin_addr.s_addr);
-        Network *iface = RoutingTable::instance().DetermineRoute(&dest);
-        if (!iface || !iface->isConnected())
-        {
-            // Can't use this interface...
-            N_NOTICE(" -> interface not connected");
-            return false;
-        }
-        StationInfo iface_info = iface->getStationInfo();
-
-        remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
-        remoteHost.ip.setIp(sin->sin_addr.s_addr);
-
-        N_NOTICE(
-            " -> connecting to " << dest.toString() << ":" << Dec
-                                 << remoteHost.remotePort);
-
-        if (p->getType() == Endpoint::ConnectionBased)
-        {
-            ConnectionBasedEndpoint *ce =
-                static_cast<ConnectionBasedEndpoint *>(p);
-
-            success = ce->connect(remoteHost, blocking);
-
-            if (!blocking)
-            {
-                SYSCALL_ERROR(InProgress);
-                N_NOTICE(" -> connection now in progress");
-                return -1;
-            }
-            else
-            {
-                N_NOTICE(" -> was a blocking connect");
-            }
-        }
-        else if (p->getType() == Endpoint::Connectionless)
-        {
-            // connect on a UDP socket sets a remote address and port for
-            // send/recv to send to multiple addresses and receive from multiple
-            // clients sendto and recvfrom must be used
-
-            ConnectionlessEndpoint *ce =
-                static_cast<ConnectionlessEndpoint *>(p);
-
-            // If no bind has been done, allocate a port and bind.
-            ce->setLocalIp(iface_info.ipv4);
-            if (!ce->getLocalPort())
-                ce->setLocalPort(0);
-            ce->setRemotePort(remoteHost.remotePort);
-            ce->setRemoteIp(remoteHost.ip);
-            success = true;
-        }
-        else
-        {
-            // ?
-            success = true;
-        }
+        N_NOTICE(" -> lwip error");
+        lwipToSyscallError(err);
+        return -1;
     }
 
-    N_NOTICE(" -> success=" << success);
-    return success ? 0 : -1;
+    return 0;
 }
 
 ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
@@ -330,12 +460,12 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    else if (f->so_domain == AF_UNIX)
+
+    if (f->so_domain == AF_UNIX)
     {
         return f->file->write(
             reinterpret_cast<uintptr_t>(
@@ -343,36 +473,36 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
             bufflen, reinterpret_cast<uintptr_t>(buff),
             (f->flflags & O_NONBLOCK) == 0);
     }
-
-    Socket *s = static_cast<Socket *>(f->file);
-
-    Endpoint *p = s->getEndpoint();
-
-    bool success = false;
-    if (s->getProtocol() == NETMAN_TYPE_TCP)
+    else if (f->socket)
     {
-        ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-        return ce->send(bufflen, reinterpret_cast<uintptr_t>(buff));
-    }
-    else if (s->getProtocol() == NETMAN_TYPE_UDP)
-    {
-        ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
+        struct netconnMetadata *meta = getNetconnMetadata(f->socket);
 
-        // special handling - need to check for a remote host
-        IpAddress remoteIp = p->getRemoteIp();
-        if (remoteIp.getIp() != 0)
+        // Handle non-blocking sockets that would block to send.
+        bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
+        if (!blocking && !meta->send)
         {
-            Endpoint::RemoteEndpoint remoteHost;
-            remoteHost.remotePort = p->getRemotePort();
-            remoteHost.ip = remoteIp;
-            int num = ce->send(
-                bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
-
-            success = num >= 0;
+            // Can't safely send.
+            SYSCALL_ERROR(NoMoreProcesses);
+            return -1;
         }
-    }
 
-    return success ? bufflen : -1;
+        /// \todo flags
+        size_t bytesWritten = 0;
+        err_t err = netconn_write_partly(f->socket, buff, bufflen, 0, &bytesWritten);
+        if (err != ERR_OK)
+        {
+            N_NOTICE(" -> lwip failed in netconn_write");
+            lwipToSyscallError(err);
+            return -1;
+        }
+
+        return bytesWritten;
+    }
+    else
+    {
+        // invalid somehow
+        return -1;
+    }
 }
 
 ssize_t posix_sendto(
@@ -405,9 +535,8 @@ ssize_t posix_sendto(
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
 
@@ -460,64 +589,18 @@ ssize_t posix_sendto(
             bufflen, reinterpret_cast<uintptr_t>(buff),
             (f->flflags & O_NONBLOCK) == 0);
         N_NOTICE(" -> " << result);
+
+        return result;
     }
 
-    Socket *s = static_cast<Socket *>(f->file);
-    if (!s)
-    {
-        return -1;
-    }
+    uint16_t port = 0;
+    ip_addr_t ipaddr = sockaddrToIpaddr(address, port);
 
-    Endpoint *p = s->getEndpoint();
-    if (!p)
-    {
-        return -1;
-    }
+    /// \todo netconn_sendto
 
-    if (s->getProtocol() == NETMAN_TYPE_TCP)
-    {
-        /// \todo I need to write a sendto for TcpManager and TcpEndpoint
-        ///       which probably means UDP gets a free sendto as well.
-        ///       Until then, this is NOT valid according to the standards.
-        ERROR("TCP sendto called, but not implemented properly!");
-        ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-        return ce->send(bufflen, reinterpret_cast<uintptr_t>(buff));
-    }
-    else if (
-        s->getProtocol() == NETMAN_TYPE_UDP ||
-        s->getProtocol() == NETMAN_TYPE_RAW)
-    {
-        ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
+    N_NOTICE(" -> sendto() not implemented with lwIP");
 
-        Endpoint::RemoteEndpoint remoteHost;
-        bool remoteOk = false;
-        if (address)
-        {
-            const struct sockaddr_in *sin =
-                reinterpret_cast<const struct sockaddr_in *>(address);
-            remoteHost.remotePort = BIG_TO_HOST16(sin->sin_port);
-            remoteHost.ip.setIp(sin->sin_addr.s_addr);
-            remoteOk = true;
-        }
-        else
-        {
-            // special handling - need to check for a remote host
-            IpAddress remoteIp = p->getRemoteIp();
-            if (remoteIp.getIp() != 0)
-            {
-                remoteHost.remotePort = p->getRemotePort();
-                remoteHost.ip = remoteIp;
-                remoteOk = true;
-            }
-        }
-
-        if (remoteOk)
-        {
-            return ce->send(
-                bufflen, reinterpret_cast<uintptr_t>(buff), remoteHost, false);
-        }
-    }
-
+    SYSCALL_ERROR(Unimplemented);
     return -1;
 }
 
@@ -549,45 +632,105 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    else if (f->so_domain == AF_UNIX)
+
+    if (f->so_domain == AF_UNIX)
     {
         return f->so_local->read(
             0, bufflen, reinterpret_cast<uintptr_t>(buff),
             (f->flflags & O_NONBLOCK) == 0);
     }
-    Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint *p = s->getEndpoint();
+    err_t err = ERR_OK;
 
+    struct netconnMetadata *meta = getNetconnMetadata(f->socket);
+
+    // Handle non-blocking sockets having nothing pending on the socket.
     bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
+    if (!blocking && !meta->recv && !meta->pb)
+    {
+        // No pending data to receive.
+        SYSCALL_ERROR(NoMoreProcesses);
+        return -1;
+    }
 
-    int ret = -1;
-    if (s->getProtocol() == NETMAN_TYPE_TCP)
+    if (meta->pb == nullptr)
     {
-        ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-        ret = ce->recv(
-            reinterpret_cast<uintptr_t>(buff), bufflen, blocking,
-            flags & MSG_PEEK);
+        struct pbuf *pb = nullptr;
+        struct netbuf *buf = nullptr;
+
+        // No partial data present from a previous read. Read new data from
+        // the socket.
+        if (NETCONNTYPE_GROUP(netconn_type(f->socket)) == NETCONN_TCP)
+        {
+            err = netconn_recv_tcp_pbuf(f->socket, &pb);
+        }
+        else
+        {
+            err = netconn_recv(f->socket, &buf);
+        }
+
+        if (err != ERR_OK)
+        {
+            N_NOTICE(" -> lwIP error");
+            lwipToSyscallError(err);
+            return -1;
+        }
+
+        if (pb == nullptr && buf != nullptr)
+        {
+            pb = buf->p;
+        }
+
+        meta->pb = pb;
+        meta->buf = buf;
+
+        N_NOTICE(" -> recv is pulling new data from the netconn");
     }
-    else if (s->getProtocol() == NETMAN_TYPE_UDP)
+    else
     {
-        /// \todo Actually, we only should read this data if it's from the IP
-        /// specified
-        ///       during connect - otherwise we fail (UDP should use
-        ///       sendto/recvfrom) However, to do that we need to tell recv not
-        ///       to remove from the queue and instead peek at the message (in
-        ///       other words, we need flags)
-        ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
-        Endpoint::RemoteEndpoint remoteHost;
-        ret = ce->recv(
-            reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
+        N_NOTICE(" -> recv is referencing unconsumed data from a previous call");
     }
-    return ret;
+
+    // now we read some things.
+    size_t len = meta->offset + bufflen;
+    if (len > meta->pb->tot_len)
+    {
+        len = meta->pb->tot_len - meta->offset;
+    }
+
+    pbuf_copy_partial(meta->pb, buff, len, meta->offset);
+
+    // partial read?
+    if ((meta->offset + len) < meta->pb->tot_len)
+    {
+        meta->offset += len;
+    }
+    else
+    {
+        N_NOTICE("offset=" << meta->offset << " / len=" << len << " / tot_len = " << meta->pb->tot_len << " / total read now = " << (meta->offset + len));
+        N_NOTICE("  [partial reads completed, all pending data is consumed]");
+
+        if (meta->buf == nullptr)
+        {
+            pbuf_free(meta->pb);
+        }
+        else
+        {
+            // will indirectly clean up meta->pb as it's a member of the netbuf
+            netbuf_free(meta->buf);
+        }
+
+        meta->pb = nullptr;
+        meta->buf = nullptr;
+        meta->offset = 0;
+    }
+
+    N_NOTICE(" -> " << len);
+    return len;
 }
 
 ssize_t posix_recvfrom(
@@ -624,9 +767,8 @@ ssize_t posix_recvfrom(
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
 
@@ -659,59 +801,8 @@ ssize_t posix_recvfrom(
         return r;
     }
 
-    Socket *s = static_cast<Socket *>(f->file);
-
-    Endpoint *p = s->getEndpoint();
-
-    bool blocking = !((f->flflags & O_NONBLOCK) == O_NONBLOCK);
-
-    int ret = -1;
-    if (s->getProtocol() == NETMAN_TYPE_TCP)
-    {
-        ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-
-        ret = ce->recv(
-            reinterpret_cast<uintptr_t>(buff), bufflen, blocking,
-            flags & MSG_PEEK);
-
-        if (address)
-        {
-            struct sockaddr_in *sin =
-                reinterpret_cast<struct sockaddr_in *>(address);
-            sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
-            sin->sin_addr.s_addr = p->getRemoteIp().getIp();
-            if (addrlen)
-            {
-                *addrlen = sizeof(struct sockaddr_in);
-            }
-        }
-    }
-    else if (
-        s->getProtocol() == NETMAN_TYPE_UDP ||
-        s->getProtocol() == NETMAN_TYPE_RAW)
-    {
-        ConnectionlessEndpoint *ce = static_cast<ConnectionlessEndpoint *>(p);
-
-        Endpoint::RemoteEndpoint remoteHost;
-        ret = ce->recv(
-            reinterpret_cast<uintptr_t>(buff), bufflen, blocking, &remoteHost);
-
-        if (address)
-        {
-            struct sockaddr_in *sin =
-                reinterpret_cast<struct sockaddr_in *>(address);
-            sin->sin_port = HOST_TO_BIG16(remoteHost.remotePort);
-            sin->sin_addr.s_addr = remoteHost.ip.getIp();
-            sin->sin_family = AF_INET;
-            if (addrlen)
-            {
-                *addrlen = sizeof(struct sockaddr_in);
-            }
-        }
-    }
-
-    N_NOTICE("  -> " << Dec << ret << Hex);
-    return ret;
+    SYSCALL_ERROR(Unimplemented);
+    return -1;
 }
 
 int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
@@ -741,117 +832,109 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        if (f && (!f->file) && (f->so_domain == AF_UNIX))
-        {
-            if (address->sa_family != AF_UNIX)
-            {
-                // EAFNOSUPPORT
-                return -1;
-            }
-
-            // Valid state. But no socket, so do the magic here.
-            const struct sockaddr_un *un =
-                reinterpret_cast<const struct sockaddr_un *>(address);
-
-            String adjusted_pathname;
-            normalisePath(adjusted_pathname, un->sun_path);
-
-            N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
-
-            File *cwd = Processor::information()
-                            .getCurrentThread()
-                            ->getParent()
-                            ->getCwd();
-            if (adjusted_pathname.endswith('/'))
-            {
-                // uh, that's a directory
-                SYSCALL_ERROR(IsADirectory);
-                return -1;
-            }
-
-            File *parentDirectory = cwd;
-
-            const char *pDirname =
-                DirectoryName(static_cast<const char *>(adjusted_pathname));
-            const char *pBasename =
-                BaseName(static_cast<const char *>(adjusted_pathname));
-
-            String basename(pBasename);
-            delete[] pBasename;
-
-            if (pDirname)
-            {
-                // Reorder rfind result to be from beginning of string.
-                String dirname(pDirname);
-                delete[] pDirname;
-
-                N_NOTICE(" -> dirname=" << dirname);
-
-                parentDirectory = VFS::instance().find(dirname);
-                if (!parentDirectory)
-                {
-                    N_NOTICE(
-                        " -> parent directory '" << dirname
-                                                 << "' doesn't exist");
-                    SYSCALL_ERROR(DoesNotExist);
-                    return -1;
-                }
-            }
-
-            if (!parentDirectory->isDirectory())
-            {
-                SYSCALL_ERROR(NotADirectory);
-                return -1;
-            }
-
-            Directory *pDir = Directory::fromFile(parentDirectory);
-
-            UnixSocket *socket = new UnixSocket(
-                basename, parentDirectory->getFilesystem(), parentDirectory);
-            if (!pDir->addEphemeralFile(socket))
-            {
-                /// \todo errno?
-                delete socket;
-                return false;
-            }
-
-            N_NOTICE(" -> basename=" << basename);
-
-            // HERE: set UnixSocket mode (dgram, stream) for correct operation
-
-            // bind() then connect().
-            f->so_local = f->file = socket;
-            f->so_localPath = adjusted_pathname;
-
-            return 0;
-        }
-
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint *p = s->getEndpoint();
-    if (p)
+    if (address->sa_family != f->so_domain)
     {
-        int ret = -1;
-        if (s->getProtocol() == NETMAN_TYPE_TCP ||
-            s->getProtocol() == NETMAN_TYPE_UDP)
+        // EAFNOSUPPORT
+        return -1;
+    }
+
+    if (f->so_domain == AF_UNIX)
+    {
+
+        // Valid state. But no socket, so do the magic here.
+        const struct sockaddr_un *un =
+            reinterpret_cast<const struct sockaddr_un *>(address);
+
+        String adjusted_pathname;
+        normalisePath(adjusted_pathname, un->sun_path);
+
+        N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
+
+        File *cwd = Processor::information()
+                        .getCurrentThread()
+                        ->getParent()
+                        ->getCwd();
+        if (adjusted_pathname.endswith('/'))
         {
-            const struct sockaddr_in *sin =
-                reinterpret_cast<const struct sockaddr_in *>(address);
-
-            p->setLocalPort(BIG_TO_HOST16(sin->sin_port));
-
-            ret = 0;
+            // uh, that's a directory
+            SYSCALL_ERROR(IsADirectory);
+            return -1;
         }
 
-        return ret;
+        File *parentDirectory = cwd;
+
+        const char *pDirname =
+            DirectoryName(static_cast<const char *>(adjusted_pathname));
+        const char *pBasename =
+            BaseName(static_cast<const char *>(adjusted_pathname));
+
+        String basename(pBasename);
+        delete[] pBasename;
+
+        if (pDirname)
+        {
+            // Reorder rfind result to be from beginning of string.
+            String dirname(pDirname);
+            delete[] pDirname;
+
+            N_NOTICE(" -> dirname=" << dirname);
+
+            parentDirectory = VFS::instance().find(dirname);
+            if (!parentDirectory)
+            {
+                N_NOTICE(
+                    " -> parent directory '" << dirname
+                                             << "' doesn't exist");
+                SYSCALL_ERROR(DoesNotExist);
+                return -1;
+            }
+        }
+
+        if (!parentDirectory->isDirectory())
+        {
+            SYSCALL_ERROR(NotADirectory);
+            return -1;
+        }
+
+        Directory *pDir = Directory::fromFile(parentDirectory);
+
+        UnixSocket *socket = new UnixSocket(
+            basename, parentDirectory->getFilesystem(), parentDirectory);
+        if (!pDir->addEphemeralFile(socket))
+        {
+            /// \todo errno?
+            delete socket;
+            return false;
+        }
+
+        N_NOTICE(" -> basename=" << basename);
+
+        // HERE: set UnixSocket mode (dgram, stream) for correct operation
+
+        // bind() then connect().
+        f->so_local = f->file = socket;
+        f->so_localPath = adjusted_pathname;
+
+        return 0;
     }
-    else
+
+    uint16_t port = 0;
+    ip_addr_t ipaddr = sockaddrToIpaddr(address, port);
+
+    err_t err = netconn_bind(f->socket, &ipaddr, port);
+    if (err != ERR_OK)
+    {
+        N_NOTICE(" -> lwIP error");
+        lwipToSyscallError(err);
         return -1;
+    }
+
+    return 0;
 }
 
 int posix_listen(int sock, int backlog)
@@ -869,17 +952,11 @@ int posix_listen(int sock, int backlog)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!(f && f->file))
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    if (!f->file->isSocket())
-    {
-        /// \todo should be ENOTSOCK
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
+
     if (f->so_type != SOCK_STREAM)
     {
         SYSCALL_ERROR(InvalidArgument);
@@ -893,19 +970,11 @@ int posix_listen(int sock, int backlog)
         return -1;
     }
 
-    Socket *s = static_cast<Socket *>(f->file);
-
-    Endpoint *p = s->getEndpoint();
-    if (p->getType() != Endpoint::ConnectionBased)
+    err_t err = netconn_listen_with_backlog(f->socket, backlog);
+    if (err != ERR_OK)
     {
-        SYSCALL_ERROR(OperationNotSupported);
-        return -1;
-    }
-
-    ConnectionBasedEndpoint *ce = static_cast<ConnectionBasedEndpoint *>(p);
-    if (!ce->listen())
-    {
-        N_NOTICE(" -> listen failed");
+        N_NOTICE(" -> lwIP error");
+        lwipToSyscallError(err);
         return -1;
     }
 
@@ -942,39 +1011,52 @@ int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    Socket *s1 = static_cast<Socket *>(f->file);
-    if (!s1)
+    if (!isSaneSocket(f))
+    {
         return -1;
+    }
 
-    Socket *s = static_cast<Socket *>(NetManager::instance().accept(s1));
-    if (!s)
+    /// \todo check family
+
+    struct netconn *new_conn = nullptr;
+
+    err_t err = netconn_accept(f->socket, &new_conn);
+    if (err != ERR_OK)
+    {
+        N_NOTICE(" -> lwIP error");
+        lwipToSyscallError(err);
         return -1;
+    }
 
-    // add into the descriptor table
+    // get the new peer
+    ip_addr_t peer;
+    uint16_t port;
+    err = netconn_peer(new_conn, &peer, &port);
+    if (err != ERR_OK)
+    {
+        netconn_delete(new_conn);
+        lwipToSyscallError(err);
+        return -1;
+    }
+
+    /// \todo handle other families
+    struct sockaddr_in *sin =
+        reinterpret_cast<struct sockaddr_in *>(address);
+    sin->sin_family = AF_INET;
+    sin->sin_port = HOST_TO_BIG16(port);
+    sin->sin_addr.s_addr = peer.u_addr.ip4.addr;
+    *addrlen = sizeof(sockaddr_in);
+
     size_t fd = pSubsystem->getFd();
 
-    Endpoint *e = s->getEndpoint();  // NetManager::instance().getEndpoint(f);
-
-    if (address && addrlen)
-    {
-        if (s->getProtocol() == NETMAN_TYPE_TCP ||
-            s->getProtocol() == NETMAN_TYPE_UDP)
-        {
-            struct sockaddr_in *sin =
-                reinterpret_cast<struct sockaddr_in *>(address);
-            sin->sin_port = HOST_TO_BIG16(e->getRemotePort());
-            sin->sin_addr.s_addr = e->getRemoteIp().getIp();
-
-            *addrlen = sizeof(struct sockaddr_in);
-        }
-    }
-
-    FileDescriptor *desc = new FileDescriptor(s, 0, fd, 0, O_RDWR);
-    if (desc)
-    {
-        NOTICE("posix_accept: new socket is fd " << Dec << fd << Hex << ".");
-        pSubsystem->addFileDescriptor(fd, desc);
-    }
+    FileDescriptor *desc = new FileDescriptor;
+    desc->socket = new_conn;
+    desc->file = 0;
+    desc->offset = 0;
+    desc->fd = fd;
+    desc->so_domain = f->so_domain;
+    desc->so_type = f->so_type;
+    pSubsystem->addFileDescriptor(fd, desc);
 
     return static_cast<int>(fd);
 }
@@ -994,31 +1076,36 @@ int posix_shutdown(int socket, int how)
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
-    Socket *s = static_cast<Socket *>(f->file);
-    if (!s)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
 
-    Endpoint *e = s->getEndpoint();
-    Endpoint::ShutdownType howType;
-    if (how == SHUT_RD)
-        howType = Endpoint::ShutReceiving;
-    else if (how == SHUT_WR)
-        howType = Endpoint::ShutSending;
-    else if (how == SHUT_RDWR)
-        howType = Endpoint::ShutBoth;
+    /// \todo unix sockets don't do this
+
+    int rx = 0;
+    int tx = 0;
+    if (how == SHUT_RDWR)
+    {
+        rx = tx = 1;
+    }
+    else if (how == SHUT_RD)
+    {
+        rx = 1;
+    }
     else
     {
-        SYSCALL_ERROR(InvalidArgument);
+        tx = 1;
+    }
+
+    err_t err = netconn_shutdown(f->socket, rx, tx);
+    if (err != ERR_OK)
+    {
+        lwipToSyscallError(err);
         return -1;
     }
 
-    if (e->shutdown(howType))
-        return 0;
-    else
-        return -1;
+    return 0;
 }
 
 int posix_getpeername(
@@ -1053,39 +1140,28 @@ int posix_getpeername(
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
-        N_NOTICE(" -> bad descriptor");
-        return -1;
-    }
-    Socket *s = static_cast<Socket *>(f->file);
-
-    Endpoint *p = s->getEndpoint();
-    if (s->getProtocol() == NETMAN_TYPE_TCP)
-    {
-        /// \todo this may not be accurate.
-        /// \todo IPv6?
-        struct sockaddr_in *sin =
-            reinterpret_cast<struct sockaddr_in *>(address);
-        sin->sin_family = AF_INET;
-        sin->sin_port = HOST_TO_BIG16(p->getRemotePort());
-        sin->sin_addr.s_addr = p->getRemoteIp().getIp();
-        *address_len = sizeof(struct sockaddr_in);
-
-        N_NOTICE(
-            " -> remote peer is " << p->getRemoteIp().toString() << ":" << Dec
-                                  << p->getRemotePort());
-    }
-    else
-    {
-        /// \todo NotConnected more correct?
-        SYSCALL_ERROR(OperationNotSupported);
-        N_NOTICE(" -> unsupported protocol");
         return -1;
     }
 
-    N_NOTICE(" -> OK");
+    ip_addr_t peer;
+    uint16_t port;
+    err_t err = netconn_peer(f->socket, &peer, &port);
+    if (err != ERR_OK)
+    {
+        lwipToSyscallError(err);
+        return -1;
+    }
+
+    /// \todo handle other families
+    struct sockaddr_in *sin =
+        reinterpret_cast<struct sockaddr_in *>(address);
+    sin->sin_family = AF_INET;
+    sin->sin_port = HOST_TO_BIG16(port);
+    sin->sin_addr.s_addr = peer.u_addr.ip4.addr;
+    *address_len = sizeof(sockaddr_in);
+
     return 0;
 }
 
@@ -1121,23 +1197,87 @@ int posix_getsockname(
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
-    Socket *s = static_cast<Socket *>(f->file);
 
-    Endpoint *p = s->getEndpoint();
-    /// \todo this may not be accurate.
-    /// \todo IPv6?
-    struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(address);
+    ip_addr_t self;
+    uint16_t port;
+    err_t err = netconn_addr(f->socket, &self, &port);
+    if (err != ERR_OK)
+    {
+        lwipToSyscallError(err);
+        return -1;
+    }
+
+    /// \todo handle other families
+    struct sockaddr_in *sin =
+        reinterpret_cast<struct sockaddr_in *>(address);
     sin->sin_family = AF_INET;
-    sin->sin_port = HOST_TO_BIG16(p->getLocalPort());
-    sin->sin_addr.s_addr = p->getLocalIp().getIp();
-    *address_len = sizeof(struct sockaddr_in);
+    sin->sin_port = HOST_TO_BIG16(port);
+    sin->sin_addr.s_addr = self.u_addr.ip4.addr;
+    *address_len = sizeof(sockaddr_in);
 
     return 0;
+}
+
+int posix_setsockopt(
+    int sock, int level, int optname, const void *optvalue, socklen_t optlen)
+{
+    N_NOTICE("setsockopt(" << sock << ", " << level << ", " << optname << ", " << optvalue << ", " << optlen << ")");
+
+    if (!(PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(optvalue), optlen,
+            PosixSubsystem::SafeWrite)))
+    {
+        N_NOTICE("getsockopt -> invalid address");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    // Valid socket?
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for one or both of the processes!");
+        return -1;
+    }
+
+    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    if (!isSaneSocket(f))
+    {
+        return -1;
+    }
+
+    if (level == IPPROTO_TCP)
+    {
+        if (optname == TCP_NODELAY)
+        {
+            N_NOTICE(" -> TCP_NODELAY");
+            const uint32_t *val = reinterpret_cast<const uint32_t *>(optvalue);
+            N_NOTICE("  --> val=" << *val);
+
+            // TCP_NODELAY controls Nagle's algorithm usage
+            if (*val)
+            {
+                tcp_nagle_disable(f->socket->pcb.tcp);
+            }
+            else
+            {
+                tcp_nagle_enable(f->socket->pcb.tcp);
+            }
+        }
+    }
+
+    /// \todo this will have actually useful things to do
+
+    // SO_ERROR etc
+    /// \todo implement with lwIP functionality
+    return -1;
 }
 
 int posix_getsockopt(
@@ -1178,46 +1318,14 @@ int posix_getsockopt(
     }
 
     FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!f || !f->file)
+    if (!isSaneSocket(f))
     {
-        SYSCALL_ERROR(BadFileDescriptor);
-        N_NOTICE(" -> bad file descriptor");
         return -1;
     }
 
-    Socket *s = static_cast<Socket *>(f->file);
-
-    if (level != SOL_SOCKET)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        N_NOTICE(" -> invalid argument, level is not SOL_SOCKET");
-        return -1;
-    }
-
-    switch (optname)
-    {
-        case SO_ERROR:
-        {
-            Endpoint *p = s->getEndpoint();
-            int err = static_cast<int>(p->getError());
-            N_NOTICE(" -> getting error [" << err << "]");
-            /// \todo handle optlen < sizeof(socklen_t)!
-            *reinterpret_cast<uint32_t *>(optvalue) = err;
-            *optlen = sizeof(socklen_t);
-            p->resetError();
-            break;
-        }
-
-        default:
-            N_NOTICE(" -> unknown optname " << optname);
-
-            // Combination of level/optname not supported otherwise.
-            SYSCALL_ERROR(ProtocolNotAvailable);
-            return -1;
-    }
-
-    N_NOTICE(" -> 0");
-    return 0;
+    // SO_ERROR etc
+    /// \todo implement with lwIP functionality
+    return -1;
 }
 
 int posix_sethostname(const char *name, size_t len)
