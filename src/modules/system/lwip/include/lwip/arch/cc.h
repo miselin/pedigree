@@ -59,10 +59,10 @@ typedef int sys_prot_t;
 #include <stdio.h>
 
 #define LWIP_PLATFORM_DIAG(msg) printf msg ; fflush(stdout);
-#define LWIP_PLATFORM_ASSERT(msg) fprintf(stderr, "Assertion failed; %s:%d %s\n", __LINE__, __FILE__, msg); assert(0)
+#define LWIP_PLATFORM_ASSERT(msg) fprintf(stderr, "Assertion failed; %s:%d %s\n", __FILE__, __LINE__, msg); assert(0)
 #else
 #define LWIP_PLATFORM_DIAG(msg) Noticef msg ;
-#define LWIP_PLATFORM_ASSERT(msg) Errorf("Assertion failed: %s", msg); assert(0)
+#define LWIP_PLATFORM_ASSERT(msg) Errorf("Assertion failed; %s:%d %s", __FILE__, __LINE__, msg); assert(0)
 #endif
 
 #define PACK_STRUCT_STRUCT PACKED
