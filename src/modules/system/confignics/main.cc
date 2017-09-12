@@ -59,6 +59,8 @@ static int configureInterfaces()
         ByteSet(&gateway, 0, sizeof(gateway));
 
         netif_set_addr(iface, &ipaddr, &netmask, &gateway);
+        netif_set_ip6_autoconfig_enabled(iface, 1);
+        netif_create_ip6_linklocal_address(iface, 1);
         netif_set_link_up(iface);
         netif_set_up(iface);
 
