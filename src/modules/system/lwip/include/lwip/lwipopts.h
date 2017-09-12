@@ -63,7 +63,6 @@
 #define LWIP_NETIF_LINK_CALLBACK 1
 #define LWIP_NETIF_HWADDRHINT 1
 
-
 // General tuning
 #define TCP_MSS 1400
 #define TCP_WND 32768

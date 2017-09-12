@@ -337,7 +337,12 @@ class StaticString
 
     void append(const char *str, size_t nLen = 0, char c = ' ')
     {
+        /// \todo this is unsafe - StringLength is unconstrained.
         size_t length2 = StringLength(str);
+        if (nLen && (length2 > nLen))
+        {
+            length2 = nLen;
+        }
 
         // Pad, if needed
         if (nLen > length2)
@@ -352,7 +357,12 @@ class StaticString
         }
 
         // Add the string
-        StringConcatN(m_pData, str, N - length() - 1);
+        size_t maxChars = N - length() - 1;
+        if (maxChars > length2)
+        {
+            maxChars = length2;
+        }
+        StringConcatN(m_pData, str, maxChars);
         m_Length += length2;
 
         if (m_Length >= N)
