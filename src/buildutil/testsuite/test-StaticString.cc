@@ -244,6 +244,14 @@ TEST(PedigreeStaticString, AppendCharTooLong)
     EXPECT_STREQ(s, "hello");
 }
 
+TEST(PedigreeStaticString, AppendString)
+{
+    char append[4] = {'a', 'b', 0x7f, 0x7f};
+    StaticString<64> s("hello ");
+    s.append(append, 2);
+    EXPECT_STREQ(s, "hello ab");
+}
+
 TEST(PedigreeStaticString, AppendStaticString)
 {
     StaticString<64> s("hello");

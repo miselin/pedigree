@@ -212,3 +212,15 @@ TEST(PedigreeStringLibrary, StringReverseFind)
     EXPECT_STREQ(StringReverseFind("ccc", 'c'), "c");  // proper reverse find
     EXPECT_EQ(StringReverseFind("abc", 'd'), nullptr);
 }
+
+TEST(PedigreeStringLibrary, StringContains)
+{
+    EXPECT_EQ(StringContains("abc", "d"), 0);
+    EXPECT_EQ(StringContains("abc", "b"), 1);
+    EXPECT_EQ(StringContains("hello world", "llo"), 1);
+    EXPECT_EQ(StringContains("hello world", " "), 1);
+    EXPECT_EQ(StringContains("hello world", "world"), 1);
+    EXPECT_EQ(StringContains("hello world", "hello world"), 1);
+    EXPECT_EQ(StringContains("hello world", "hello world!"), 0);
+    EXPECT_EQ(StringContains("hello world", "hi"), 0);
+}
