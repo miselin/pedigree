@@ -1113,7 +1113,9 @@ if env['gcc_profile_compilation']:
 if not env['nocolour']:
     env.MergeFlags({
         'CCFLAGS': ['-fdiagnostics-color'],
+        'TARGET_CCFLAGS': ['-fdiagnostics-color'],
         'LINKFLAGS': ['-fdiagnostics-color'],
+        'TARGET_LINKFLAGS': ['-fdiagnostics-color'],
     })
 
     host_env.MergeFlags({
