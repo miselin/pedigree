@@ -221,6 +221,8 @@ custom_cflags = {
 
 # Custom C/C++ flags for specific modules.
 custom_ccflags = {
+    # Disable -Waddress for lwip as a bunch of its macros trip it up.
+    'lwip': ['-Wno-address'],
 }
 
 # Custom CXXFLAGS for specific modules
