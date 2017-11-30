@@ -15,6 +15,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/time/Time.h"
 
 #include "pedigree/kernel/utilities/TimeoutGuard.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -387,6 +388,11 @@ void cdi_sleep_ms(uint32_t ms)
 {
     Semaphore sem(0);
     sem.acquire(1, 0, ms * 1000);
+}
+
+uint64_t cdi_elapsed_ms()
+{
+    return Time::getTimeNanoseconds();
 }
 
 uint8_t cdi_cmos_read(uint8_t index)
