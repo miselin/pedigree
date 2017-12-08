@@ -21,16 +21,16 @@
 #define NET_SYSCALLS_H
 
 #include "logging.h"
-#include "modules/system/vfs/File.h"
 
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/utilities/List.h"
 
 #include <sys/socket.h>
 #include <sys/types.h>
 
 struct sockaddr;
+
+class Semaphore;
 
 struct netconnMetadata
 {
@@ -46,6 +46,123 @@ struct netconnMetadata
     size_t offset;
     struct pbuf *pb;
     struct netbuf *buf;
+};
+
+class NetworkSyscalls
+{
+    public:
+        NetworkSyscalls(int domain, int type, int protocol);
+        virtual ~NetworkSyscalls();
+
+        /// Implementation-specific final socket creation logic,
+        /// implementations must set a SYSCALL_ERROR on failure.
+        virtual bool create();
+        virtual int connect(struct sockaddr *address, socklen_t addrlen) = 0;
+
+        virtual ssize_t sendto(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t addrlen) = 0;
+        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen) = 0;
+
+        virtual int listen(int backlog) = 0;
+        virtual int bind(const struct sockaddr *address, socklen_t addrlen) = 0;
+        virtual int accept(struct sockaddr *address, socklen_t *addrlen) = 0;
+
+        virtual int shutdown(int socket, int how);
+
+        virtual int posix_getpeername(struct sockaddr *address, socklen_t *address_len) = 0;
+        virtual int posix_getsockname(struct sockaddr *address, socklen_t *address_len) = 0;
+
+        virtual int posix_setsockopt(int level, int optname, const void *optvalue, socklen_t optlen) = 0;
+        virtual int posix_getsockopt(int level, int optname, void *optvalue, socklen_t *optlen) = 0;
+
+        void associate(FileDescriptor *fd);
+
+        int getDomain() const
+        {
+            return m_Domain;
+        }
+
+        int getType() const
+        {
+            return m_Type;
+        }
+
+        int getProtocol() const
+        {
+            return m_Protocol;
+        }
+
+        FileDescriptor *getFileDescriptor() const
+        {
+            return m_Fd;
+        }
+
+    protected:
+        int m_Domain;
+        int m_Type;
+        int m_Protocol;
+
+        FileDescriptor *m_Fd;
+};
+
+class LwipSocketSyscalls : public NetworkSyscalls
+{
+    public:
+        LwipSocketSyscalls(int domain, int type, int protocol);
+        virtual ~LwipSocketSyscalls();
+
+        /// Implementation-specific final socket creation logic.
+        virtual bool create();
+        virtual int connect(struct sockaddr *address, socklen_t addrlen);
+
+        virtual ssize_t sendto(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t addrlen);
+        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen);
+
+        virtual int listen(int backlog);
+        virtual int bind(const struct sockaddr *address, socklen_t addrlen);
+        virtual int accept(struct sockaddr *address, socklen_t *addrlen);
+
+        virtual int shutdown(int socket, int how);
+
+        virtual int posix_getpeername(struct sockaddr *address, socklen_t *address_len);
+        virtual int posix_getsockname(struct sockaddr *address, socklen_t *address_len);
+
+        virtual int posix_setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
+        virtual int posix_getsockopt(int level, int optname, void *optvalue, socklen_t *optlen);
+
+    private:
+        struct netconn *m_Socket;
+};
+
+class UnixSocketSyscalls : public NetworkSyscalls
+{
+    public:
+        UnixSocketSyscalls(int domain, int type, int protocol);
+        virtual ~UnixSocketSyscalls();
+
+        /// Implementation-specific final socket creation logic.
+        virtual bool create();
+        virtual int connect(struct sockaddr *address, socklen_t addrlen);
+
+        virtual ssize_t sendto(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t addrlen);
+        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen);
+
+        virtual int listen(int backlog);
+        virtual int bind(const struct sockaddr *address, socklen_t addrlen);
+        virtual int accept(struct sockaddr *address, socklen_t *addrlen);
+
+        virtual int shutdown(int socket, int how);
+
+        virtual int posix_getpeername(struct sockaddr *address, socklen_t *address_len);
+        virtual int posix_getsockname(struct sockaddr *address, socklen_t *address_len);
+
+        virtual int posix_setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
+        virtual int posix_getsockopt(int level, int optname, void *optvalue, socklen_t *optlen);
+
+    private:
+        UnixSocket *m_Socket;
+
+        String so_localPath;
+        String so_remotePath;
 };
 
 /// Get metadata for a given lwIP connection.

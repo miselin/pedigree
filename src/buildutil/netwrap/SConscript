@@ -24,10 +24,12 @@ Import(['env'])
 
 netwrap_bin = env['BUILDDIR'].File('netwrap')
 tcpecho_bin = env['BUILDDIR'].File('tcpecho')
+unixsockets_bin = env['BUILDDIR'].File('unixsockettest')
 libnetwork = 'pedigree-network'
 libnetstack = 'pedigree-netstack'
 libconfig = 'pedigree-config'
 liblwip = 'lwip'
+libposix = 'posix'
 
 build_env = env.Clone()
 
@@ -39,6 +41,7 @@ header_paths = [
     env.Dir('#src/modules/system/lwip/include'),
     env.Dir('#src/system/include'),
     env.Dir('#src/system/kernel/core'),
+    env.Dir('#src/subsys/posix'),
 ]
 
 build_env.Append(CPPPATH=header_paths)
@@ -65,7 +68,7 @@ build_env.MergeFlags({
     'CCFLAGS': ['-g3', '-ggdb'],
     'LINKFLAGS': ['-g3', '-ggdb'],
     'LIBS': ['kernel', 'utility', 'pthread', 'dl', 'rt'],
-    'LIBPATH': ['..'],  # buildutil, parent libraries
+    'LIBPATH': ['..', '../ext2img'],  # buildutil, parent libraries
 })
 
 libconfig_sources = [
@@ -117,10 +120,20 @@ liblwip_sources = [
     Glob('../../modules/system/lwip/netif/*.c'),
 ]
 
+libposix_sources = [
+    '../../subsys/posix/FileDescriptor.cc',
+    '../../subsys/posix/FileDescriptor.h',
+    '../../subsys/posix/UnixFilesystem.cc',
+    '../../subsys/posix/UnixFilesystem.h',
+    '../../subsys/posix/net-syscalls.cc',
+    '../../subsys/posix/net-syscalls.h',
+]
+
 config = build_env.Library(libconfig, libconfig_sources, CPPDEFINES=sqlite_cppdefines)
 network = build_env.Library(libnetwork, libnetwork_sources)
 netstack = build_env.Library(libnetstack, libnetstack_sources)
 lwip = build_env.Library(liblwip, liblwip_sources)
+posix = build_env.Library(libposix, libposix_sources)
 
 build_env['LIBS'] = [netstack, network, config, lwip] + build_env['LIBS']
 
@@ -128,3 +141,5 @@ build_env['LIBS'] = [netstack, network, config, lwip] + build_env['LIBS']
 if platform.system() == 'Linux':
     build_env.Program(netwrap_bin, ['main.cc', 'TunWrapper.cc'])
     build_env.Program(tcpecho_bin, ['tcpecho.cc', 'TunWrapper.cc'])
+    unix = build_env.Program(unixsockets_bin, ['unixsockets.cc'], LIBS=[posix, 'vfs'] + build_env['LIBS'])
+    env.Depends('vfs', unix)

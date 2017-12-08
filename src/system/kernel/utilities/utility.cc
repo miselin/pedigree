@@ -47,7 +47,10 @@ const char *BaseName(const char *path)
     const char *last_slash = StringReverseFind(path, '/');
     if (last_slash == nullptr)
     {
-        return path;
+        // Uphold our contract - return from BaseName must be free-able
+        char *new_str = new char[len + 1];
+        StringCopy(new_str, path);
+        return new_str;
     }
 
     if (!last_slash[1])

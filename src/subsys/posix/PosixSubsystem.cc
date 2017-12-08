@@ -36,6 +36,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 
 #include "PosixProcess.h"
+#include "FileDescriptor.h"
 #include "logging.h"
 
 #include "modules/system/linker/DynamicLinker.h"
@@ -61,101 +62,10 @@
 typedef Tree<size_t, PosixSubsystem::SignalHandler *> sigHandlerTree;
 typedef Tree<size_t, FileDescriptor *> FdMap;
 
-RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
-
 ProcessGroupManager ProcessGroupManager::m_Instance;
 
 extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
-
-/// Default constructor
-FileDescriptor::FileDescriptor()
-    : socket(0), file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), so_domain(0),
-      so_type(0), so_local(0), lockedFile(0)
-{
-}
-
-/// Parameterised constructor
-FileDescriptor::FileDescriptor(
-    File *newFile, uint64_t newOffset, size_t newFd, int fdFlags, int flFlags,
-    LockedFile *lf)
-    : socket(0), file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
-      flflags(flFlags), lockedFile(lf)
-{
-    if (file)
-    {
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
-    }
-}
-
-/// Copy constructor
-FileDescriptor::FileDescriptor(FileDescriptor &desc)
-    : socket(desc.socket), file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
-      flflags(desc.flflags), lockedFile(0)
-{
-    if (file)
-    {
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
-    }
-}
-
-/// Pointer copy constructor
-FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : socket(0), file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0)
-{
-    if (!desc)
-        return;
-
-    file = desc->file;
-    offset = desc->offset;
-    fd = desc->fd;
-    fdflags = desc->fdflags;
-    flflags = desc->flflags;
-    if (file)
-    {
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
-    }
-}
-
-/// Assignment operator implementation
-FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
-{
-    socket = desc.socket;
-    file = desc.file;
-    offset = desc.offset;
-    fd = desc.fd;
-    fdflags = desc.fdflags;
-    flflags = desc.flflags;
-    if (file)
-    {
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
-    }
-    return *this;
-}
-
-/// Destructor - decreases file reference count
-FileDescriptor::~FileDescriptor()
-{
-    if (file)
-    {
-        // Unlock the file we have a lock on, release from the global lock table
-        if (lockedFile)
-        {
-            g_PosixGlobalLockedFiles.remove(file->getFullPath());
-            lockedFile->unlock();
-            delete lockedFile;
-        }
-        file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
-    }
-
-    /// \todo how do we make sure sockets get cleaned up properly?
-    /// we can't delete here as this is called on fork()/execve() and that
-    /// would destroy existing sockets in other processes
-}
 
 PosixSubsystem::PosixSubsystem(PosixSubsystem &s)
     : Subsystem(s), m_SignalHandlers(), m_SignalHandlersLock(), m_FdMap(),
@@ -682,7 +592,7 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
         default:
             NOTICE("    (Unknown)");
             // Unknown exception
-            ERROR_NOLOCK(
+            ERROR(
                 "Unknown exception type in threadException - POSIX subsystem");
             break;
     }

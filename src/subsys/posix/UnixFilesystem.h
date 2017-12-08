@@ -24,9 +24,13 @@
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
 
+#include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
 
+class Mutex;
+
 #define MAX_UNIX_DGRAM_BACKLOG 65536
+#define MAX_UNIX_STREAM_QUEUE 65536
 
 /**
  * UnixFilesystem: UNIX sockets.
@@ -108,7 +112,7 @@ class UnixFilesystem : public Filesystem
 class UnixSocket : public File
 {
   public:
-    UnixSocket(String name, Filesystem *pFs, File *pParent);
+    UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other = nullptr);
     virtual ~UnixSocket();
 
     virtual uint64_t read(
@@ -125,6 +129,21 @@ class UnixSocket : public File
         return true;
     }
 
+    UnixSocket *getOther() const
+    {
+        return m_pOther;
+    }
+
+    // Bind this socket to another socket.
+    // The other socket should not already be bound.
+    bool bind(UnixSocket *other);
+
+    // Add a new socket for a client/server connection (for accept())
+    void addSocket(UnixSocket *socket);
+
+    // Get the next socket in the listening queue (for non-datagram sockets).
+    UnixSocket *getSocket(bool block = false);
+
   private:
     struct buf
     {
@@ -133,8 +152,26 @@ class UnixSocket : public File
         char *remotePath;  // Path of the socket that dumped data here, if any.
     };
 
-    /// \todo stream sockets
-    RingBuffer<struct buf *> m_RingBuffer;
+    // For datagram sockets.
+
+    // Note: "servers" own the actual UNIX socket address, while clients get a
+    // virtual address to track their existence (or are bound to a specific
+    // name themselves).
+    RingBuffer<struct buf *> m_Datagrams;
+
+    // For stream sockets.
+
+    // Other side of the connection (for stream sockets).
+    UnixSocket *m_pOther;
+
+    // Data stream.
+    Buffer<uint8_t, true> m_Stream;
+
+    // List of sockets pending accept() on this socket.
+    List<UnixSocket *> m_PendingSockets;
+    
+    // Mutual exclusion for this socket.
+    Mutex m_Mutex;
 };
 
 /**

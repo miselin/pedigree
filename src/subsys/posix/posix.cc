@@ -33,7 +33,7 @@
 
 static PosixSyscallManager g_PosixSyscallManager;
 
-static UnixFilesystem *g_pUnixFilesystem = 0;
+UnixFilesystem *g_pUnixFilesystem = 0;
 static RamFs *g_pRunFilesystem = 0;
 
 DevFs *g_pDevFs = 0;

@@ -30,6 +30,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
+#include <FileDescriptor.h>
 
 #include "console-syscalls.h"
 #include "file-syscalls.h"

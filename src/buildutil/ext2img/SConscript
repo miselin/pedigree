@@ -50,12 +50,6 @@ defines = [
 	'STANDALONE_MUTEXES',
 ]
 
-libs = ['ext2', 'vfs', 'part', 'utility', 'kernel', 'pthread'] + additional_libs
-
-if env['HAVE_OPENSSL_SHA']:
-    defines.append('HAVE_OPENSSL')
-    libs.append('crypto')
-
 build_env.Append(CPPDEFINES=defines)
 
 build_env.MergeFlags({
@@ -89,9 +83,15 @@ partition_sources = [
 
 # Build components from Pedigree to merge into a working VFS layer that uses
 # an ext2 filesystem.
-build_env.Library('vfs', [VFS_DIR.File(f) for f in vfs_sources])
-build_env.Library('ext2', [EXT2_DIR.File(f) for f in ext2_sources])
-build_env.Library('part', [PART_DIR.File(f) for f in partition_sources])
+vfs_lib = build_env.Library('vfs', [VFS_DIR.File(f) for f in vfs_sources])
+ext2_lib = build_env.Library('ext2', [EXT2_DIR.File(f) for f in ext2_sources])
+part_lib = build_env.Library('part', [PART_DIR.File(f) for f in partition_sources])
+
+libs = [ext2_lib, vfs_lib, part_lib, 'utility', 'kernel', 'pthread'] + additional_libs
+
+if env['HAVE_OPENSSL_SHA']:
+    defines.append('HAVE_OPENSSL')
+    libs.append('crypto')
 
 build_env.Program(ext2img_bin, ['main.cc', 'DiskImage.cc', 'stubs.cc'],
     LIBS=libs)

@@ -21,6 +21,7 @@
 #define _POSIX_KERNEL_LOGGING_H
 
 // Logs to the kernel log with the current PID.
+#ifdef THREADS
 #define POSIX_VERBOSE_LOG(f, x)                                                \
     do                                                                         \
     {                                                                          \
@@ -33,6 +34,14 @@
             "[" << f << ":\t" << Dec << ____pid << ":" << ____tid << "."       \
                 << ____level << Hex << "]\t" << x);                            \
     } while (0)
+#else
+#define POSIX_VERBOSE_LOG(f, x)                                                \
+    do                                                                         \
+    {                                                                          \
+        NOTICE(                                                                \
+            "[" << f << "]\t" << x);                                           \
+    } while (0)
+#endif
 
 // POSIX_LOG_FACILITIES is an integer for which each bit indicates a particular
 // category to enable verbose logging for.

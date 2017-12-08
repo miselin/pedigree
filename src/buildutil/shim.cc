@@ -467,3 +467,14 @@ size_t Processor::id()
 void Processor::pause()
 {
 }
+
+bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
+{
+    if (onDevFs)
+    {
+        *onDevFs = false;
+    }
+
+    nameToOpen = name;
+    return true;
+}

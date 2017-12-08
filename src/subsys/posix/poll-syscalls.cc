@@ -43,6 +43,7 @@
 
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixSubsystem.h>
+#include <FileDescriptor.h>
 
 static void pollEventHandler(uint8_t *pBuffer);
 

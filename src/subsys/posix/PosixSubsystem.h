@@ -35,7 +35,9 @@
 #include "modules/system/lwip/include/lwip/api.h"
 
 class File;
+class UnixSocket;
 class LockedFile;
+class FileDescriptor;
 
 // Grabs a subsystem for use.
 #define GRAB_POSIX_SUBSYSTEM(returnValue)                                 \
@@ -124,63 +126,6 @@ class ProcessGroupManager
      * Bitmap of available group IDs.
      */
     ExtensibleBitmap m_GroupIds;
-};
-
-/** Abstraction of a file descriptor, which defines an open file
- * and related flags.
- */
-class FileDescriptor
-{
-  public:
-    /// Default constructor
-    FileDescriptor();
-
-    /// Parameterised constructor
-    FileDescriptor(
-        File *newFile, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF,
-        int fdFlags = 0, int flFlags = 0, LockedFile *lf = 0);
-
-    /// Copy constructor
-    FileDescriptor(FileDescriptor &desc);
-
-    /// Pointer copy constructor
-    FileDescriptor(FileDescriptor *desc);
-
-    /// Assignment operator implementation
-    FileDescriptor &operator=(FileDescriptor &desc);
-
-    /// Destructor - decreases file reference count
-    virtual ~FileDescriptor();
-
-    /// Socket data (if non-null, most other fields are invalid).
-    struct netconn *socket;
-
-    /// Our open file pointer
-    File *file;
-
-    /// Offset within the file for I/O
-    uint64_t offset;
-
-    /// Descriptor number
-    size_t fd;
-
-    /// File descriptor flags (fcntl)
-    int fdflags;
-
-    /// File status flags (fcntl)
-    int flflags;
-
-    /// Socket metadata.
-    uint32_t so_domain;
-    int so_type;
-    File *so_local;  // For file-oriented sockets (eg, UNIX), the local bind().
-
-    /// Full file paths, used by UNIX sockets.
-    String so_localPath;
-    String so_remotePath;
-
-    /// Locked file, non-zero if there is an advisory lock on the file
-    LockedFile *lockedFile;
 };
 
 /** Defines the compatibility layer for the POSIX Subsystem */

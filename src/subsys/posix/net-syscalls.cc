@@ -17,14 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/system/network-stack/NetManager.h"
-#include "modules/system/network-stack/NetworkStack.h"
-#include "modules/system/network-stack/RoutingTable.h"
-#include "modules/system/network-stack/Tcp.h"
-#include "modules/system/network-stack/UdpManager.h"
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS  // don't need them here
+
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
-#include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
@@ -37,18 +33,26 @@
 
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixSubsystem.h>
+#include <FileDescriptor.h>
 #include <UnixFilesystem.h>
 
 #include "file-syscalls.h"
 #include "net-syscalls.h"
 
 #include <fcntl.h>
+
+#ifndef UTILITY_LINUX
 #include <netdb.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <netinet/tcp.h>
+#endif
+
+#include <sys/un.h>
+#include <netinet/in.h>
 
 static Tree<struct netconn *, struct netconnMetadata *> g_NetconnMetadata;
+
+extern UnixFilesystem *g_pUnixFilesystem;
 
 netconnMetadata::netconnMetadata() : recv(0), send(0), error(false), lock(false), semaphores(), offset(0), pb(nullptr), buf(nullptr)
 {
@@ -89,10 +93,13 @@ static void netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t le
             NOTICE("Unknown error.");
     }
 
+    /// \todo need a way to do this with lwip when threads are off
+#ifdef THREADS
     for (auto &it : meta->semaphores)
     {
         it->release();
     }
+#endif
 
     meta->lock.release();
 }
@@ -160,13 +167,91 @@ static void lwipToSyscallError(err_t err)
     }
 }
 
-static bool isSaneSocket(FileDescriptor *f)
+#ifdef UTILITY_LINUX
+#include <vector>
+
+std::vector<FileDescriptor *> g_Descriptors;
+
+static FileDescriptor *getDescriptor(int socket)
+{
+    if (socket >= g_Descriptors.size())
+    {
+        return nullptr;
+    }
+
+    return g_Descriptors[socket];
+}
+
+static void addDescriptor(int socket, FileDescriptor *f)
+{
+    FileDescriptor *old = getDescriptor(socket);
+    if (old)
+    {
+        delete old;
+    }
+
+    if (socket > g_Descriptors.capacity())
+    {
+        g_Descriptors.reserve(socket + 1);
+    }
+
+    g_Descriptors.insert(g_Descriptors.begin() + socket, f);
+}
+
+static size_t getAvailableDescriptor()
+{
+    return g_Descriptors.size();
+}
+#else
+/// \todo move these into a common area, this code is duplicated EVERYWHERE
+static PosixSubsystem *getSubsystem()
+{
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
+    PosixSubsystem *pSubsystem =
+        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+    if (!pSubsystem)
+    {
+        ERROR("No subsystem for one or both of the processes!");
+        return nullptr;
+    }
+
+    return pSubsystem;
+}
+
+static FileDescriptor *getDescriptor(int socket)
+{
+    PosixSubsystem *pSubsystem = getSubsystem();
+    return pSubsystem->getFileDescriptor(socket);
+}
+
+static void addDescriptor(int socket, FileDescriptor *f)
+{
+    PosixSubsystem *pSubsystem = getSubsystem();
+    pSubsystem->addFileDescriptor(socket, f);
+}
+
+static size_t getAvailableDescriptor()
+{
+    PosixSubsystem *pSubsystem = getSubsystem();
+    return pSubsystem->getFd();
+}
+#endif
+
+/// Pass is_create = true to indicate that the operation is permitted to
+// operate if the socket does not yet have valid members (i.e. before a bind).
+static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
 {
     if (!f)
     {
         N_NOTICE(" -> isSaneSocket: descriptor is null");
         SYSCALL_ERROR(BadFileDescriptor);
         return false;
+    }
+
+    if (is_create)
+    {
+        return true;
     }
 
     if (!(f->file || f->socket))
@@ -207,6 +292,25 @@ static ip_addr_t sockaddrToIpaddr(const struct sockaddr *saddr, uint16_t &port)
     return result;
 }
 
+/// Bind an unnamed socket to the given file descriptor if one doesn't exist
+/// yet, so things like sendto() can work immediately after socket().
+static void autobindUnnamedUnixSocket(FileDescriptor *f)
+{
+    if (f->so_domain != AF_UNIX)
+    {
+        return;
+    }
+
+    // Need to create a local socket if we don't already have one
+    // (i.e. not bound yet).
+    if (!f->so_local)
+    {
+        // Create a new unnamed socket.
+        f->so_local = new UnixSocket(String(), g_pUnixFilesystem, nullptr);
+        f->so_localPath = String();  // unnamed.
+    }
+}
+
 struct netconnMetadata *getNetconnMetadata(struct netconn *conn)
 {
     struct netconnMetadata *result = g_NetconnMetadata.lookup(conn);
@@ -219,30 +323,36 @@ struct netconnMetadata *getNetconnMetadata(struct netconn *conn)
     return result;
 }
 
-int posix_socket(int domain, int type, int protocol)
+NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol) : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Fd(nullptr) {}
+
+NetworkSyscalls::~NetworkSyscalls() = default;
+
+bool NetworkSyscalls::create()
 {
-    N_NOTICE("socket(" << domain << ", " << type << ", " << protocol << ")");
+    return true;
+}
 
-    // Lookup this process.
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
+int NetworkSyscalls::shutdown(int socket, int how)
+{
+    return 0;
+}
+
+
+LwipSocketSyscalls::LwipSocketSyscalls(int domain, int type, int protocol) : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr) {}
+
+LwipSocketSyscalls::~LwipSocketSyscalls()
+{
+    if (m_Socket)
     {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
+        netconn_delete(new_conn);
+        m_Socket = nullptr;
     }
+}
 
-    size_t fd = pSubsystem->getFd();
-
+bool LwipSocketSyscalls::create()
+{
     netconn_type connType = NETCONN_INVALID;
 
-    File *file = 0;
-    struct netconn *conn = 0;
-    bool valid = true;
-
-    /// \todo need to verify type parameter (e.g. SOCK_DGRAM is no good for TCP)
     if (domain == AF_INET)
     {
         switch (protocol)
@@ -253,8 +363,6 @@ int posix_socket(int domain, int type, int protocol)
             case IPPROTO_UDP:
                 connType = NETCONN_UDP;
                 break;
-            default:
-                valid = false;
         }
     }
     else if (domain == AF_INET6)
@@ -267,54 +375,183 @@ int posix_socket(int domain, int type, int protocol)
             case IPPROTO_UDP:
                 connType = NETCONN_UDP_IPV6;
                 break;
-            default:
-                valid = false;
         }
     }
     else if (domain == AF_PACKET)
     {
         connType = NETCONN_RAW;
     }
-    else if (domain == AF_UNIX)
-    {
-        // OK
-    }
     else
     {
-        WARNING("domain = " << domain << " - not known!");
+        WARNING("LwipSocketSyscalls: domain " << domain << " is not known!");
         SYSCALL_ERROR(InvalidArgument);
-        valid = false;
+        return false;
     }
 
-    if (!valid)
+    if (connType == NETCONN_INVALID)
     {
-        N_NOTICE(" -> invalid socket parameters");
+        N_NOTICE("LwipSocketSyscalls: invalid socket creation parameters");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    if (domain != AF_UNIX)
+    m_Socket = netconn_new_with_callback(connType, netconnCallback);
+    if (!m_Socket)
     {
-        NOTICE("creating new connection!");
-        conn = netconn_new_with_callback(connType, netconnCallback);
-        if (!conn)
-        {
-            /// \todo get the real error
-            SYSCALL_ERROR(InvalidArgument);
-            return -1;
-        }
+        lwipToSyscallError(err);
+        return false;
+    }
 
-        NOTICE("connection is " << conn);
+    return true;
+}
+
+int LwipSocketSyscalls::connect(struct sockaddr *address, socklen_t addrlen)
+{
+    /// \todo need to figure out if we've already done a bind()
+    ip_addr_t ipaddr;
+    ByteSet(&ipaddr, 0, sizeof(ipaddr));
+    err_t err = netconn_bind(m_socket, &ipaddr, 0);  // bind to any address
+    if (err != ERR_OK)
+    {
+        N_NOTICE(" -> lwip error when binding before connect");
+        lwipToSyscallError(err);
+        return -1;
+    }
+
+    uint16_t port = 0;
+    ipaddr = sockaddrToIpaddr(address, port);
+
+    // set blocking status if needed
+    bool blocking = !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
+    netconn_set_nonblocking(m_Socket, blocking ? 0 : 1);
+
+    N_NOTICE("using socket " << m_Socket << "!");
+    N_NOTICE(" -> connecting to remote " << ipaddr_ntoa(&ipaddr) << " on port " << Dec << port);
+
+    err = netconn_connect(m_Socket, &ipaddr, port);
+    if (err != ERR_OK)
+    {
+        N_NOTICE(" -> lwip error");
+        lwipToSyscallError(err);
+        return -1;
+    }
+
+    return 0;
+}
+
+ssize_t LwipSocketSyscalls::sendto(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t addrlen)
+{
+    //
+}
+
+ssize_t LwipSocketSyscalls::recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen)
+{
+    //
+}
+
+int LwipSocketSyscalls::listen(int backlog)
+{
+    //
+}
+
+int LwipSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
+{
+    //
+}
+
+int LwipSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
+{
+    //
+}
+
+int LwipSocketSyscalls::shutdown(int socket, int how)
+{
+    //
+}
+
+int LwipSocketSyscalls::posix_getpeername(struct sockaddr *address, socklen_t *address_len)
+{
+    //
+}
+
+int LwipSocketSyscalls::posix_getsockname(struct sockaddr *address, socklen_t *address_len)
+{
+    //
+}
+
+int LwipSocketSyscalls::posix_setsockopt(int level, int optname, const void *optvalue, socklen_t optlen)
+{
+    //
+}
+
+int LwipSocketSyscalls::posix_getsockopt(int level, int optname, void *optvalue, socklen_t *optlen)
+{
+    //
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+int posix_socket(int domain, int type, int protocol)
+{
+    N_NOTICE("socket(" << domain << ", " << type << ", " << protocol << ")");
+
+    size_t fd = getAvailableDescriptor();
+
+    netconn_type connType = NETCONN_INVALID;
+
+    File *file = nullptr;
+    struct netconn *conn = nullptr;
+    bool valid = true;
+
+    NetworkSyscalls *syscalls;
+
+    if (domain == AF_UNIX)
+    {
+        syscalls = new UnixSocketSyscalls(domain, type, protocol);
+    }
+    else
+    {
+        syscalls = new LwipSocketSyscalls(domain, type, protocol);
+    }
+
+    if (!syscalls->create())
+    {
+        return -1;
     }
 
     FileDescriptor *f = new FileDescriptor;
-    f->socket = conn;
-    f->file = file;
-    f->offset = 0;
+    f->networkImpl = syscalls;
     f->fd = fd;
-    f->so_domain = domain;
-    f->so_type = type;
-    pSubsystem->addFileDescriptor(fd, f);
+    addDescriptor(fd, f);
+    syscalls->associate(f);
 
     N_NOTICE("  -> " << Dec << fd << Hex);
     return static_cast<int>(fd);
@@ -337,18 +574,8 @@ int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
         "connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address)
                          << ", " << addrlen << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!isSaneSocket(f))
+    FileDescriptor *f = getDescriptor(sock);
+    if (!isSaneSocket(f, true))
     {
         return -1;
     }
@@ -362,7 +589,9 @@ int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
             return -1;
         }
 
-        // Valid state. But no socket, so do the magic here.
+        autobindUnnamedUnixSocket(f);
+
+        // Valid state. Need to find the target socket.
         struct sockaddr_un *un =
             reinterpret_cast<struct sockaddr_un *>(address);
         String pathname;
@@ -385,6 +614,15 @@ int posix_connect(int sock, struct sockaddr *address, socklen_t addrlen)
             N_NOTICE(
                 " -> target '" << pathname << "' is not a unix socket");
             return -1;
+        }
+
+        if (f->so_type == SOCK_STREAM)
+        {
+            // Add a new unnamed socket for this connection on the server side.
+            UnixSocket *remote = new UnixSocket(String(), g_pUnixFilesystem, nullptr);
+            UnixSocket *server = static_cast<UnixSocket *>(f->file);
+            server->addSocket(remote);
+            f->so_local->bind(remote);
         }
 
         f->so_remotePath = pathname;
@@ -449,17 +687,7 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
         "send(" << sock << ", " << buff << ", " << bufflen << ", "
                       << flags << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -524,17 +752,10 @@ ssize_t posix_sendto(
         "sendto(" << sock << ", " << buff << ", " << bufflen << ", "
                         << flags << ", " << address << ", " << addrlen << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
+    FileDescriptor *f = getDescriptor(sock);
 
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    autobindUnnamedUnixSocket(f);
+
     if (!isSaneSocket(f))
     {
         return -1;
@@ -577,6 +798,7 @@ ssize_t posix_sendto(
         else
         {
             // Assume we're connect()'d, write to socket.
+            /// \todo handle no connect() call yet - error out
             pFile = f->file;
         }
 
@@ -621,17 +843,7 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
         "recv(" << sock << ", " << buff << ", " << bufflen << ", "
                       << flags << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -747,17 +959,7 @@ ssize_t posix_recvfrom(
         "recvfrom(" << sock << ", " << buff << ", " << bufflen << ", "
                           << flags << ", " << address << ", " << addrlen);
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -778,6 +980,7 @@ ssize_t posix_recvfrom(
         }
 
         // this will load sun_path into sun_path automatically
+        /// \todo what happens if sun_path is empty?
         un->sun_family = AF_UNIX;
         ssize_t r = pFile->read(
             reinterpret_cast<uintptr_t>(un->sun_path), bufflen,
@@ -812,18 +1015,8 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
     N_NOTICE(
         "bind(" << sock << ", " << address << ", " << addrlen << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
-    if (!isSaneSocket(f))
+    FileDescriptor *f = getDescriptor(sock);
+    if (!isSaneSocket(f, true))
     {
         return -1;
     }
@@ -836,20 +1029,25 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
     if (f->so_domain == AF_UNIX)
     {
+        /// \todo unbind existing socket if one exists.
 
         // Valid state. But no socket, so do the magic here.
         const struct sockaddr_un *un =
             reinterpret_cast<const struct sockaddr_un *>(address);
+
+        if (SUN_LEN(un) == sizeof(sa_family_t))
+        {
+            // Bind an unnamed address.
+            autobindUnnamedUnixSocket(f);
+            return 0;
+        }
 
         String adjusted_pathname;
         normalisePath(adjusted_pathname, un->sun_path);
 
         N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
 
-        File *cwd = Processor::information()
-                        .getCurrentThread()
-                        ->getParent()
-                        ->getCwd();
+        File *cwd = VFS::instance().find(String("."));
         if (adjusted_pathname.endswith('/'))
         {
             // uh, that's a directory
@@ -905,10 +1103,8 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
 
         N_NOTICE(" -> basename=" << basename);
 
-        // HERE: set UnixSocket mode (dgram, stream) for correct operation
-
         // bind() then connect().
-        f->so_local = f->file = socket;
+        f->so_local = socket;
         f->so_localPath = adjusted_pathname;
 
         return 0;
@@ -932,17 +1128,7 @@ int posix_listen(int sock, int backlog)
 {
     N_NOTICE("listen(" << sock << ", " << backlog << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -956,9 +1142,8 @@ int posix_listen(int sock, int backlog)
 
     if (f->so_domain == AF_UNIX)
     {
-        SYSCALL_ERROR(OperationNotSupported);
-        N_NOTICE(" -> listen not supported for unix sockets yet");
-        return -1;
+        /// \todo set a flag on the UnixSocket so read/write fail.
+        return 0;
     }
 
     err_t err = netconn_listen_with_backlog(f->socket, backlog);
@@ -991,63 +1176,90 @@ int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
     N_NOTICE(
         "accept(" << sock << ", " << address << ", " << addrlen << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;
     }
 
-    /// \todo check family
-
     struct netconn *new_conn = nullptr;
+    File *file = nullptr;
+    UnixSocket *so_local = nullptr;
 
-    err_t err = netconn_accept(f->socket, &new_conn);
-    if (err != ERR_OK)
+    if (f->so_domain == AF_UNIX)
     {
-        N_NOTICE(" -> lwIP error");
-        lwipToSyscallError(err);
-        return -1;
+        if (f->so_type != SOCK_STREAM)
+        {
+            SYSCALL_ERROR(OperationNotSupported);
+            return -1;
+        }
+
+        /// \todo don't block if we aren't allowed to
+        UnixSocket *remote = f->so_local->getSocket(true);
+        if (remote)
+        {
+            if (remote->getParent())
+            {
+                // Named.
+                String name = remote->getFullPath();
+
+                struct sockaddr_un *sun =
+                    reinterpret_cast<struct sockaddr_un *>(address);
+                StringCopy(sun->sun_path, name);
+                *addrlen = sizeof(sa_family_t) + name.length();
+            }
+            else
+            {
+                *addrlen = sizeof(sa_family_t);
+            }
+
+            so_local = remote;
+            file = remote->getOther();
+        }
+    }
+    else
+    {
+        /// \todo check family
+
+        err_t err = netconn_accept(f->socket, &new_conn);
+        if (err != ERR_OK)
+        {
+            N_NOTICE(" -> lwIP error");
+            lwipToSyscallError(err);
+            return -1;
+        }
+
+        // get the new peer
+        ip_addr_t peer;
+        uint16_t port;
+        err = netconn_peer(new_conn, &peer, &port);
+        if (err != ERR_OK)
+        {
+            netconn_delete(new_conn);
+            lwipToSyscallError(err);
+            return -1;
+        }
+
+        /// \todo handle other families
+        struct sockaddr_in *sin =
+            reinterpret_cast<struct sockaddr_in *>(address);
+        sin->sin_family = AF_INET;
+        sin->sin_port = HOST_TO_BIG16(port);
+        sin->sin_addr.s_addr = peer.u_addr.ip4.addr;
+        *addrlen = sizeof(sockaddr_in);
     }
 
-    // get the new peer
-    ip_addr_t peer;
-    uint16_t port;
-    err = netconn_peer(new_conn, &peer, &port);
-    if (err != ERR_OK)
-    {
-        netconn_delete(new_conn);
-        lwipToSyscallError(err);
-        return -1;
-    }
-
-    /// \todo handle other families
-    struct sockaddr_in *sin =
-        reinterpret_cast<struct sockaddr_in *>(address);
-    sin->sin_family = AF_INET;
-    sin->sin_port = HOST_TO_BIG16(port);
-    sin->sin_addr.s_addr = peer.u_addr.ip4.addr;
-    *addrlen = sizeof(sockaddr_in);
-
-    size_t fd = pSubsystem->getFd();
+    size_t fd = getAvailableDescriptor();
 
     FileDescriptor *desc = new FileDescriptor;
     desc->socket = new_conn;
-    desc->file = 0;
+    desc->file = file;
     desc->offset = 0;
     desc->fd = fd;
     desc->so_domain = f->so_domain;
     desc->so_type = f->so_type;
-    pSubsystem->addFileDescriptor(fd, desc);
+    desc->so_local = so_local;
+    addDescriptor(fd, desc);
 
     return static_cast<int>(fd);
 }
@@ -1056,20 +1268,16 @@ int posix_shutdown(int socket, int how)
 {
     N_NOTICE("shutdown(" << socket << ", " << how << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
+    FileDescriptor *f = getDescriptor(socket);
     if (!isSaneSocket(f))
     {
         return -1;
+    }
+
+    if (f->so_domain == AF_UNIX)
+    {
+        /// \todo make this a thing
+        return 0;
     }
 
     /// \todo unix sockets don't do this
@@ -1120,20 +1328,28 @@ int posix_getpeername(
         "getpeername(" << socket << ", " << address << ", " << address_len
                              << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
+    FileDescriptor *f = getDescriptor(socket);
     if (!isSaneSocket(f))
     {
         return -1;
+    }
+
+    if (f->so_domain == AF_UNIX)
+    {
+        UnixSocket *socket = static_cast<UnixSocket *>(f->file);
+
+        /// \todo peer name needs to be connected socket not the unnamed accept() socket?
+        if (f->so_type == SOCK_STREAM)
+        {
+            socket = f->so_local->getOther();  // get peer
+        }
+
+        String name = socket->getFullPath();
+
+        struct sockaddr_un *sun =
+            reinterpret_cast<struct sockaddr_un *>(address);
+        StringCopy(sun->sun_path, name);
+        *address_len = sizeof(sa_family_t) + name.length();
     }
 
     ip_addr_t peer;
@@ -1177,20 +1393,28 @@ int posix_getsockname(
         "getsockname(" << socket << ", " << address << ", " << address_len
                              << ")");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(socket);
+    FileDescriptor *f = getDescriptor(socket);
     if (!isSaneSocket(f))
     {
         return -1;
+    }
+
+    if (f->so_domain == AF_UNIX)
+    {
+        UnixSocket *socket = static_cast<UnixSocket *>(f->file);
+
+        /// \todo socket name needs to be server socket not the unnamed accept()ed socket?
+        if (f->so_type == SOCK_STREAM)
+        {
+            socket = f->so_local;  // get self
+        }
+
+        String name = socket->getFullPath();
+
+        struct sockaddr_un *sun =
+            reinterpret_cast<struct sockaddr_un *>(address);
+        StringCopy(sun->sun_path, name);
+        *address_len = sizeof(sa_family_t) + name.length();
     }
 
     ip_addr_t self;
@@ -1227,18 +1451,7 @@ int posix_setsockopt(
         return -1;
     }
 
-    // Valid socket?
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -1246,6 +1459,7 @@ int posix_setsockopt(
 
     if (level == IPPROTO_TCP)
     {
+#ifdef TCP_NODELAY
         if (optname == TCP_NODELAY)
         {
             N_NOTICE(" -> TCP_NODELAY");
@@ -1262,6 +1476,7 @@ int posix_setsockopt(
                 tcp_nagle_enable(f->socket->pcb.tcp);
             }
         }
+#endif
     }
 
     /// \todo this will have actually useful things to do
@@ -1297,18 +1512,7 @@ int posix_getsockopt(
         return -1;
     }
 
-    // Valid socket?
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for one or both of the processes!");
-        return -1;
-    }
-
-    FileDescriptor *f = pSubsystem->getFileDescriptor(sock);
+    FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
         return -1;

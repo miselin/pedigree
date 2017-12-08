@@ -1251,6 +1251,8 @@ int posix_setpgid(int pid_, int pgid)
     /// \todo pid == child, but child not in this session = EPERM
     if (pid != pProcess->getId())
     {
+        // Need to find the other process, join it to the group
+
         /// \todo We actually have no way of finding children of a process
         /// sanely.
         SYSCALL_ERROR(PermissionDenied);

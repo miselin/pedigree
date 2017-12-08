@@ -19,10 +19,11 @@
 
 #include "UnixFilesystem.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Mutex.h"
 
-UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent)
-    : File(name, 0, 0, 0, 0, pFs, 0, pParent),
-      m_RingBuffer(MAX_UNIX_DGRAM_BACKLOG)
+UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other)
+    : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Datagrams(MAX_UNIX_DGRAM_BACKLOG),
+      m_pOther(other), m_Stream(MAX_UNIX_STREAM_QUEUE), m_PendingSockets(), m_Mutex(false)
 {
 }
 
@@ -32,37 +33,61 @@ UnixSocket::~UnixSocket()
 
 int UnixSocket::select(bool bWriting, int timeout)
 {
-    if (timeout)
+    if (m_pOther)
     {
-        while (!m_RingBuffer.waitFor(
-            bWriting ? RingBufferWait::Writing : RingBufferWait::Reading))
-            ;
-        return 1;
-    }
-    else if (bWriting)
-    {
-        return m_RingBuffer.canWrite();
+        if (bWriting)
+        {
+            if (m_Stream.canWrite(timeout == 1))
+            {
+                return true;
+            }
+        }
+        else if (m_pOther->m_Stream.canRead(timeout == 1))
+        {
+            return true;
+        }
+
+        return false;
     }
     else
     {
-        return m_RingBuffer.dataReady();
+        if (timeout)
+        {
+            return m_Datagrams.waitFor(bWriting ? RingBufferWait::Writing : RingBufferWait::Reading);
+        }
+        else if (bWriting)
+        {
+            return m_Datagrams.canWrite();
+        }
+        else
+        {
+            return m_Datagrams.dataReady();
+        }
     }
 }
 
 uint64_t UnixSocket::read(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    if (m_pOther)
+    {
+        return m_pOther->m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+    }
+
     if (bCanBlock)
     {
-        if (!m_RingBuffer.waitFor(RingBufferWait::Reading))
-            return 0;  // Interrupted.
+        if (!select(false, 1))
+        {
+            return 0;  // Interrupted
+        }
     }
-    else if (!m_RingBuffer.dataReady())
+    else if (!select(false, 0))
     {
+        // No data available.
         return 0;
     }
 
-    struct buf *b = m_RingBuffer.read();
+    struct buf *b = m_Datagrams.read();
     if (size > b->len)
         size = b->len;
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);
@@ -84,13 +109,21 @@ uint64_t UnixSocket::read(
 uint64_t UnixSocket::write(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    if (m_pOther)
+    {
+        return m_Stream.write(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+    }
+
     if (bCanBlock)
     {
-        if (!m_RingBuffer.waitFor(RingBufferWait::Writing))
-            return 0;  // Interrupted.
+        if (!select(true, 1))
+        {
+            return 0;  // Interrupted
+        }
     }
-    else if (!m_RingBuffer.canWrite())
+    else if (!select(true, 0))
     {
+        // No data available.
         return 0;
     }
 
@@ -104,11 +137,49 @@ uint64_t UnixSocket::write(
         b->remotePath = new char[255];
         StringCopyN(b->remotePath, reinterpret_cast<char *>(location), 255);
     }
-    m_RingBuffer.write(b);
+    m_Datagrams.write(b);
 
     dataChanged();
 
     return size;
+}
+
+bool UnixSocket::bind(UnixSocket *other)
+{
+    if (other->m_pOther)
+    {
+        ERROR("UnixSocket: trying to bind a socket that's already bound");
+        return false;
+    }
+
+    m_pOther = other;
+    other->m_pOther = this;
+
+    return true;
+}
+
+void UnixSocket::addSocket(UnixSocket *socket)
+{
+    LockGuard<Mutex> guard(m_Mutex);
+
+    m_PendingSockets.pushBack(socket);
+
+    // No data moving on listen sockets so we use the stream buffer as a signaling primitive.
+    uint8_t c = 0;
+    m_Stream.write(&c, 1);
+}
+
+UnixSocket *UnixSocket::getSocket(bool block)
+{
+    LockGuard<Mutex> guard(m_Mutex);
+
+    uint8_t c = 0;
+    if (m_Stream.read(&c, 1, block) != 1)
+    {
+        return nullptr;
+    }
+
+    return m_PendingSockets.popFront();
 }
 
 UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)

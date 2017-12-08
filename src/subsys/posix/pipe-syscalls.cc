@@ -26,6 +26,7 @@
 
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixSubsystem.h>
+#include <FileDescriptor.h>
 
 #include "modules/Module.h"
 
