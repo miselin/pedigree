@@ -29,6 +29,20 @@ UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *
 
 UnixSocket::~UnixSocket()
 {
+    // unbind from the other side of our connection if needed
+    if (m_pOther)
+    {
+        /// \todo update read/write to handle the other socket going away correctly
+        assert(m_pOther->m_pOther == this);
+        m_pOther->m_pOther = nullptr;
+    }
+
+    // remove name on disk that points to us
+    if (getName().length() > 0)
+    {
+        Directory *parent = Directory::fromFile(getParent());
+        parent->remove(getName());
+    }
 }
 
 int UnixSocket::select(bool bWriting, int timeout)
@@ -69,8 +83,15 @@ int UnixSocket::select(bool bWriting, int timeout)
 uint64_t UnixSocket::read(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    String remote;
+    return recvfrom(size, buffer, bCanBlock, remote);
+}
+
+uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String &from)
+{
     if (m_pOther)
     {
+        from = String();
         return m_pOther->m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
     }
 
@@ -93,14 +114,10 @@ uint64_t UnixSocket::read(
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);
     if (b->remotePath)
     {
-        if (location)
-        {
-            StringCopyN(reinterpret_cast<char *>(location), b->remotePath, 255);
-        }
-
-        delete[] b->remotePath;
+        from = b->remotePath;
+        delete [] b->remotePath;
     }
-    delete[] b->pBuffer;
+    delete [] b->pBuffer;
     delete b;
 
     return size;

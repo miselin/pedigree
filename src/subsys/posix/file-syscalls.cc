@@ -647,7 +647,7 @@ int posix_read(int fd, char *ptr, int len)
         return -1;
     }
 
-    if (pFd->socket)
+    if (pFd->networkImpl)
     {
         // Need to redirect to socket implementation.
         return posix_recv(fd, ptr, len, 0);
@@ -739,7 +739,7 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
         return -1;
     }
 
-    if (pFd->socket)
+    if (pFd->networkImpl)
     {
         // Need to redirect to socket implementation.
         return posix_send(fd, ptr, len, 0);

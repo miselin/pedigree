@@ -250,31 +250,26 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         reentrancyLock.release();
                     }
                 }
-                else if (pFd->socket)
+                else if (pFd->networkImpl && pFd->networkImpl->canPoll())
                 {
-                    struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
+                    bool checkingWrite = checkWrite;
+                    bool checkingRead = !checkWrite;
+                    bool checkingError = false;
 
-                    meta->lock.acquire();
-                    if (checkWrite && meta->send)
-                    {
-                        // Can immediately write.
-                        me->revents |= POLLOUT;
-                        bWillReturnImmediately = true;
-                    }
-                    if ((!checkWrite) && (meta->recv || meta->pb))
-                    {
-                        // Can immediately read.
-                        me->revents |= POLLIN;
-                        bWillReturnImmediately = true;
-                    }
+                    bWillReturnImmediately = pFd->networkImpl->poll(checkingWrite, checkingRead, checkingError, &sem);
 
-                    if (!bWillReturnImmediately)
+                    if (bWillReturnImmediately)
                     {
-                        // Need to wait for socket data.
-                        /// \todo this is buggy as it'll return for the wrong events!
-                        meta->semaphores.pushBack(&sem);
+                        if (checkingWrite)
+                        {
+                            me->revents |= POLLOUT;
+                        }
+
+                        if (checkingRead)
+                        {
+                            me->revents |= POLLIN;
+                        }
                     }
-                    meta->lock.release();
                 }
             }
 
@@ -320,22 +315,25 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     continue;
                 }
 
-                if (pFd->socket)
+                if (pFd->networkImpl && pFd->networkImpl->canPoll())
                 {
-                    struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
+                    bool checkingWrite = true;
+                    bool checkingRead = true;
+                    bool checkingError = false;
 
-                    meta->lock.acquire();
-                    if (meta->send && (me->events & POLLOUT))
+                    pFd->networkImpl->poll(checkingWrite, checkingRead, checkingError, nullptr);
+
+                    if (checkingWrite && (me->events & POLLOUT))
                     {
                         me->revents |= POLLOUT;
                         ok = true;
                     }
-                    if ((meta->recv || meta->pb) && (me->events & POLLIN))
+
+                    if (checkingRead && (me->events & POLLIN))
                     {
                         me->revents |= POLLIN;
                         ok = true;
                     }
-                    meta->lock.release();
                 }
                 else if (pFd->file)
                 {
@@ -417,18 +415,9 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             continue;
         }
 
-        if (pFd->socket)
+        if (pFd->networkImpl && pFd->networkImpl->canPoll())
         {
-            struct netconnMetadata *meta = getNetconnMetadata(pFd->socket);
-            meta->lock.acquire();
-            for (auto it = meta->semaphores.begin(); it != meta->semaphores.end(); ++it)
-            {
-                if ((*it) == &sem)
-                {
-                    it = meta->semaphores.erase(it);
-                }
-            }
-            meta->lock.release();
+            pFd->networkImpl->unPoll(&sem);
         }
     }
 

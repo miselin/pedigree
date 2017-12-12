@@ -18,6 +18,7 @@
  */
 
 #include "FileDescriptor.h"
+#include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
 
 #include "modules/system/vfs/File.h"
 
@@ -31,8 +32,8 @@ RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
 
 /// Default constructor
 FileDescriptor::FileDescriptor()
-    : socket(0), file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), so_domain(0),
-      so_type(0), so_local(0), lockedFile(0)
+    : file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), lockedFile(0),
+      networkImpl(nullptr)
 {
 }
 
@@ -40,9 +41,10 @@ FileDescriptor::FileDescriptor()
 FileDescriptor::FileDescriptor(
     File *newFile, uint64_t newOffset, size_t newFd, int fdFlags, int flFlags,
     LockedFile *lf)
-    : socket(0), file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
-      flflags(flFlags), lockedFile(lf)
+    : file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
+      flflags(flFlags), lockedFile(lf), networkImpl(nullptr)
 {
+    /// \todo need a copy constructor for networkImpl
     if (file)
     {
 #if ENABLE_LOCKED_FILES
@@ -54,8 +56,8 @@ FileDescriptor::FileDescriptor(
 
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor &desc)
-    : socket(desc.socket), file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
-      flflags(desc.flflags), lockedFile(0)
+    : file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
+      flflags(desc.flflags), lockedFile(0), networkImpl(desc.networkImpl)
 {
     if (file)
     {
@@ -68,7 +70,7 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : socket(0), file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0)
+    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0)
 {
     if (!desc)
         return;
@@ -78,6 +80,7 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
     fd = desc->fd;
     fdflags = desc->fdflags;
     flflags = desc->flflags;
+    networkImpl = desc->networkImpl;
     if (file)
     {
 #if ENABLE_LOCKED_FILES
@@ -90,12 +93,12 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
 /// Assignment operator implementation
 FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
 {
-    socket = desc.socket;
     file = desc.file;
     offset = desc.offset;
     fd = desc.fd;
     fdflags = desc.fdflags;
     flflags = desc.flflags;
+    networkImpl = desc.networkImpl;
     if (file)
     {
 #if ENABLE_LOCKED_FILES
@@ -109,9 +112,9 @@ FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
 /// Destructor - decreases file reference count
 FileDescriptor::~FileDescriptor()
 {
-#if ENABLE_LOCKED_FILES
     if (file)
     {
+#if ENABLE_LOCKED_FILES
         // Unlock the file we have a lock on, release from the global lock table
         if (lockedFile)
         {
@@ -119,11 +122,9 @@ FileDescriptor::~FileDescriptor()
             lockedFile->unlock();
             delete lockedFile;
         }
+#endif
         file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
 
-    /// \todo how do we make sure sockets get cleaned up properly?
-    /// we can't delete here as this is called on fork()/execve() and that
-    /// would destroy existing sockets in other processes
-#endif
+    /// \note sockets are cleaned up by their reference count hitting zero (SharedPointer)
 }

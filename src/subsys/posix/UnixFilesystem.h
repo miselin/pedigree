@@ -122,6 +122,8 @@ class UnixSocket : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
+    uint64_t recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String &from);
+
     virtual int select(bool bWriting = false, int timeout = 0);
 
     virtual bool isSocket() const

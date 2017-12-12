@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 
 class File;
 class LockedFile;
@@ -53,9 +54,6 @@ class FileDescriptor
     /// Destructor - decreases file reference count
     virtual ~FileDescriptor();
 
-    /// Socket data (if non-null, most other fields are invalid).
-    struct netconn *socket;
-
     /// Our open file pointer
     File *file;
 
@@ -71,24 +69,11 @@ class FileDescriptor
     /// File status flags (fcntl)
     int flflags;
 
-    /// Socket metadata.
-    uint32_t so_domain;
-    int so_type;
-    UnixSocket *so_local;  // For file-oriented sockets (eg, UNIX), the local bind().
-
-    /// Socket direction (for UNIX stream sockets).
-    /// true = client -> server, false = server -> client
-    bool so_c2s;
-
-    /// Full file paths, used by UNIX sockets.
-    String so_localPath;
-    String so_remotePath;
-
     /// Locked file, non-zero if there is an advisory lock on the file
     LockedFile *lockedFile;
 
     /// Network syscall implementation for this descriptor (if it's a socket).
-    class NetworkSyscalls *networkImpl;
+    SharedPointer<class NetworkSyscalls> networkImpl;
 };
 
 #endif
