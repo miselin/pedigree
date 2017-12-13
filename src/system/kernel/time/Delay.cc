@@ -103,8 +103,19 @@ void *addAlarm(Timestamp nanoseconds)
 
 void removeAlarm(void *handle)
 {
+    assert(handle != nullptr);
+
+    Thread *pThread = Processor::information().getCurrentThread();
     Event *pEvent = reinterpret_cast<Event *>(handle);
     Machine::instance().getTimer()->removeAlarm(pEvent);
+
+    // Handle a race condition where the timeout triggers but hasn't been
+    // handled by the time we clean up the alarm. That leaves the deleted event
+    // in this thread's event queue. We also do so after removing the alarm
+    // from the Machine implementation so that we don't get new events added
+    // after our cull.
+    pThread->cullEvent(pEvent);
+
     delete pEvent;
 }
 }

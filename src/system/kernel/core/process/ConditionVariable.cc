@@ -74,7 +74,10 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
 
     // Woken up by something. Remove any alarm we have pending as we're
     // finishing our wait now.
-    Time::removeAlarm(alarmHandle);
+    if (alarmHandle)
+    {
+        Time::removeAlarm(alarmHandle);
+    }
 
     me->setInterrupted(false);
 
