@@ -83,6 +83,12 @@ int Pipe::select(bool bWriting, int timeout)
 uint64_t
 Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    // Need to read what's left in the pipe then EOF if there's no more readers!
+    if (m_nWriters == 0)
+    {
+        bCanBlock = false;
+    }
+
     uint8_t *pBuf = reinterpret_cast<uint8_t *>(buffer);
     return m_Buffer.read(pBuf, size, bCanBlock);
 }
@@ -90,6 +96,12 @@ Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 uint64_t
 Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    if (m_nReaders == 0)
+    {
+        // no more readers, abort the write
+        return 0;
+    }
+
     uint8_t *pBuf = reinterpret_cast<uint8_t *>(buffer);
     uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
     if (result)

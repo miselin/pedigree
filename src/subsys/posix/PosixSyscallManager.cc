@@ -413,6 +413,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_setsid();
         case POSIX_SETPGID:
             return posix_setpgid(static_cast<int>(p1), static_cast<int>(p2));
+        case POSIX_GETPGID:
+            return posix_getpgid(static_cast<int>(p1));
         case POSIX_GETPGRP:
             return posix_getpgrp();
         case POSIX_SIGALTSTACK:
@@ -695,6 +697,14 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_setreuid(p1, p2);
         case POSIX_SETREGID:
             return posix_setregid(p1, p2);
+        case POSIX_SETRESUID:
+            return posix_setresuid(p1, p2, p3);
+        case POSIX_SETRESGID:
+            return posix_setresgid(p1, p2, p3);
+        case POSIX_GETRESUID:
+            return posix_getresuid(reinterpret_cast<uid_t *>(p1), reinterpret_cast<uid_t *>(p2), reinterpret_cast<uid_t *>(p3));
+        case POSIX_GETRESGID:
+            return posix_getresgid(reinterpret_cast<gid_t *>(p1), reinterpret_cast<gid_t *>(p2), reinterpret_cast<gid_t *>(p3));
         case POSIX_STATFS:
             return posix_statfs(
                 reinterpret_cast<const char *>(p1),

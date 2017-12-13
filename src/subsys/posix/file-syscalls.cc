@@ -690,9 +690,13 @@ int posix_read(int fd, char *ptr, int len)
         pFd->offset += nRead;
     }
 
-    if (ptr && len)
+    if (ptr && nRead)
     {
-        F_NOTICE(" -> read: '" << String(ptr, len - 1) << "'");
+        // Need to use unsafe for String::assign so StringLength doesn't get
+        // called, as this does not always end up zero-terminated.
+        String debug;
+        debug.assign(ptr, nRead, true);
+        F_NOTICE(" -> read: '" << debug << "'");
     }
 
     F_NOTICE("    -> " << Dec << nRead << Hex);
@@ -714,10 +718,14 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
         return -1;
     }
 
-    if (ptr)
+    if (ptr && len > 0)
     {
+        // Need to use unsafe for String::assign so StringLength doesn't get
+        // called, as this does not always end up zero-terminated.
+        String debug;
+        debug.assign(ptr, len - 1, true);
         F_NOTICE(
-            "write(" << fd << ", " << String(ptr, len - 1) << ", " << len << ")");
+            "write(" << fd << ", " << debug << ", " << len << ")");
     }
 
     // Lookup this process.
@@ -998,16 +1006,19 @@ int posix_getcwd(char *buf, size_t maxlen)
 
 int posix_stat(const char *name, struct stat *st)
 {
+    F_NOTICE("stat(" << name << ") => fstatat");
     return posix_fstatat(AT_FDCWD, name, st, 0);
 }
 
 int posix_fstat(int fd, struct stat *st)
 {
+    F_NOTICE("fstat(" << fd << ") => fstatat");
     return posix_fstatat(fd, 0, st, AT_EMPTY_PATH);
 }
 
 int posix_lstat(char *name, struct stat *st)
 {
+    F_NOTICE("lstat(" << name << ") => fstatat");
     return posix_fstatat(AT_FDCWD, name, st, AT_SYMLINK_NOFOLLOW);
 }
 
@@ -1458,9 +1469,44 @@ int posix_ioctl(int fd, int command, void *buf)
             return 0;
         }
 
+        // VT_GETMODE
+        case 0x5601:
+            {
+                F_NOTICE(" -> VT_GETMODE (stubbed)");
+                struct vt_mode *mode = reinterpret_cast<struct vt_mode *>(buf);
+                mode->mode = VT_AUTO;
+                mode->waitv = 0;
+                mode->relsig = 0;
+                mode->acqsig = 0;
+                mode->frsig = 0;
+            }
+            return 0;
+
+        // VT_SETMODE
+        case 0x5602:
+            F_NOTICE(" -> VT_SETMODE (stubbed)");
+            return 0;
+
         // VT_GETSTATE
         case 0x5603:
             F_NOTICE(" -> VT_GETSTATE (stubbed)");
+            return 0;
+
+        // VT_ACTIVATE
+        case 0x5606:
+            /// \todo same thing as meta+F1, meta+F2 etc (switch terminal)
+            F_NOTICE(" -> VT_ACTIVATE (stubbed)");
+            return 0;
+
+        // VT_WAITACTIVE
+        case 0x5607:
+            // no-op on Pedigree so far
+            return 0;
+
+        // KDSETMODE
+        case 0x4b3a:
+            /// \todo what do we do when switching to graphics mode?
+            F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
             return 0;
     }
 
@@ -1473,6 +1519,8 @@ int posix_ioctl(int fd, int command, void *buf)
 
 int posix_chdir(const char *path)
 {
+    F_NOTICE("chdir");
+
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(path), PATH_MAX,
             PosixSubsystem::SafeRead))
@@ -1679,7 +1727,7 @@ int posix_fcntl(int fd, int cmd, void *arg)
         case F_SETFL:
             F_NOTICE("  -> set flags " << arg);
             f->flflags =
-                reinterpret_cast<size_t>(arg) & (O_APPEND | O_NONBLOCK);
+                reinterpret_cast<size_t>(arg) & (O_APPEND | O_NONBLOCK | O_CLOEXEC);
             F_NOTICE("  -> new flags " << f->flflags);
             return 0;
         case F_GETLK:   // Get record-locking information
@@ -3354,6 +3402,7 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     File *cwd = check_dirfd(dirfd, flags);
     if (!cwd)
     {
+        F_NOTICE(" -> current working directory could not be determined");
         return -1;
     }
 
@@ -3374,6 +3423,8 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     F_NOTICE(
         "fstatat(" << dirfd << ", " << (pathname ? pathname : "(n/a)") << ", "
                    << buf << ", " << flags << ")");
+
+    F_NOTICE("  -> cwd=" << cwd->getFullPath());
 
     if (!buf)
     {
@@ -3410,6 +3461,8 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     {
         String realPath;
         normalisePath(realPath, pathname);
+
+        F_NOTICE(" -> finding file with real path " << realPath << " in " << cwd->getFullPath());
 
         file = findFileWithAbiFallbacks(realPath, cwd);
         if (!file)

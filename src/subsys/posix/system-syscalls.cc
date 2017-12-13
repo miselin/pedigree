@@ -334,11 +334,13 @@ long posix_clone(
         PosixProcess *p = static_cast<PosixProcess *>(pParentProcess);
         pProcess->setProcessGroup(p->getProcessGroup());
 
+        // default to being a member of the group
+        pProcess->setGroupMembership(PosixProcess::Member);
+
         // Do not adopt leadership status.
         if (p->getGroupMembership() == PosixProcess::Leader)
         {
             SC_NOTICE("fork parent was a group leader.");
-            pProcess->setGroupMembership(PosixProcess::Member);
         }
         else
         {
@@ -1234,8 +1236,6 @@ int posix_setpgid(int pid_, int pgid)
 
     // Are we already a leader of a session?
     PosixProcess *pProcess = static_cast<PosixProcess *>(pBaseProcess);
-    ProcessGroup *pGroup = pProcess->getProcessGroup();
-    PosixSession *pSession = pProcess->getSession();
 
     // Handle zero PID and PGID.
     if (!pid)
@@ -1247,17 +1247,65 @@ int posix_setpgid(int pid_, int pgid)
         pgid = pid;
     }
 
+    ProcessGroup *pGroup = pProcess->getProcessGroup();
+    PosixSession *pSession = pProcess->getSession();
+
     // Is this us or a child of us?
     /// \todo pid == child, but child not in this session = EPERM
     if (pid != pProcess->getId())
     {
-        // Need to find the other process, join it to the group
+        // Find the target process - it's not us
+        Process *pTargetProcess = nullptr;
+        for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
+        {
+            Process *check = Scheduler::instance().getProcess(i);
+            if (check->getType() != Process::Posix)
+                continue;
 
-        /// \todo We actually have no way of finding children of a process
-        /// sanely.
-        SYSCALL_ERROR(PermissionDenied);
-        SC_NOTICE(" -> EPERM");
-        return 0;
+            if (check->getId() == pid)
+            {
+                pTargetProcess = check;
+                break;
+            }
+        }
+
+        if (!pTargetProcess)
+        {
+            SC_NOTICE("  -> process doesn't exist");
+            SYSCALL_ERROR(NoSuchProcess);
+            return -1;
+        }
+
+        // Is this process a child of us?
+        Process *parent = pTargetProcess->getParent();
+        while (parent != nullptr)
+        {
+            if (parent == pProcess)
+            {
+                // ok!
+                break;
+            }
+        }
+
+        if (parent != pProcess)
+        {
+            // Not a child!
+            SC_NOTICE("  -> target process is not a descendant of the current process");
+            SYSCALL_ERROR(NoSuchProcess);
+            return -1;
+        }
+
+        if (static_cast<PosixProcess *>(pTargetProcess)->getSession() != pSession)
+        {
+            SC_NOTICE("  -> target process is in a different session");
+            SYSCALL_ERROR(NotEnoughPermissions);
+            return -1;
+        }
+
+        pBaseProcess = pTargetProcess;
+        pProcess = static_cast<PosixProcess *>(pTargetProcess);
+        pGroup = pProcess->getProcessGroup();
+        pSession = pProcess->getSession();
     }
 
     if (pGroup && (pGroup->processGroupId == pgid))
@@ -1310,6 +1358,53 @@ int posix_setpgid(int pid_, int pgid)
 
     SC_NOTICE(" -> OK, created!");
     return 0;
+}
+
+int posix_getpgid(int pid)
+{
+    if (!pid)
+    {
+        return posix_getpgrp();
+    }
+
+    size_t pid_ = pid;
+
+    SC_NOTICE("getpgid(" << pid << ")");
+
+    // Find the target process - it's not us
+    Process *pTargetProcess = nullptr;
+    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
+    {
+        Process *check = Scheduler::instance().getProcess(i);
+        if (check->getType() != Process::Posix)
+            continue;
+
+        if (check->getId() == pid_)
+        {
+            pTargetProcess = check;
+            break;
+        }
+    }
+
+    if (!pTargetProcess)
+    {
+        SC_NOTICE(" -> target process not found");
+        SYSCALL_ERROR(NoSuchProcess);
+        return -1;
+    }
+
+    PosixProcess *pProcess = static_cast<PosixProcess *>(pTargetProcess);
+    ProcessGroup *pGroup = pProcess->getProcessGroup();
+
+    if (pGroup)
+    {
+        SC_NOTICE(" -> " << pGroup->processGroupId);
+        return pGroup->processGroupId;
+    }
+
+    SC_NOTICE(" -> target process did not have a group");
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
 }
 
 int posix_getpgrp()
@@ -1804,6 +1899,63 @@ int posix_setregid(gid_t rgid, gid_t egid)
                 ->getParent()
                 ->setEffectiveGroup(effectiveGroup);
         }
+    }
+
+    return 0;
+}
+
+int posix_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+{
+    SC_NOTICE("setresuid(" << ruid << ", " << euid << ", " << suid << ")");
+    return posix_setreuid(ruid, euid);
+}
+
+int posix_setresgid(gid_t rgid, gid_t egid, gid_t sgid)
+{
+    SC_NOTICE("setresgid(" << rgid << ", " << egid << ", " << sgid << ")");
+    return posix_setregid(rgid, egid);
+    return 0;
+}
+
+int posix_getresuid(uid_t *ruid, uid_t *euid, uid_t *suid)
+{
+    SC_NOTICE("getresuid");
+
+    if (ruid)
+    {
+        *ruid = posix_getuid();
+    }
+
+    if (euid)
+    {
+        *euid = posix_geteuid();
+    }
+
+    if (suid)
+    {
+        *suid = 0;
+    }
+
+    return 0;
+}
+
+int posix_getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid)
+{
+    SC_NOTICE("getresgid");
+
+    if (rgid)
+    {
+        *rgid = posix_getgid();
+    }
+
+    if (egid)
+    {
+        *egid = posix_getegid();
+    }
+
+    if (sgid)
+    {
+        *sgid = 0;
     }
 
     return 0;

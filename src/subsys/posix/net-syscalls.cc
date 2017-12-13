@@ -24,6 +24,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
@@ -267,6 +268,13 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
         "send(" << sock << ", " << buff << ", " << bufflen << ", "
                       << flags << ")");
 
+    if (buff && bufflen)
+    {
+        String debug;
+        debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
+        N_NOTICE(" -> sending: '" << debug << "'");
+    }
+
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
     {
@@ -294,6 +302,13 @@ ssize_t posix_sendto(
     N_NOTICE(
         "sendto(" << sock << ", " << buff << ", " << bufflen << ", "
                         << flags << ", " << address << ", " << addrlen << ")");
+
+    if (buff && bufflen)
+    {
+        String debug;
+        debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
+        N_NOTICE(" -> sending: '" << debug << "'");
+    }
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -327,7 +342,17 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
         return -1;
     }
 
-    return f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
+    ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
+
+    if (buff && n > 0)
+    {
+        String debug;
+        debug.assign(reinterpret_cast<const char *>(buff), n, true);
+        N_NOTICE(" -> received: '" << debug << "'");
+    }
+
+    N_NOTICE(" -> " << n);
+    return n;
 }
 
 ssize_t posix_recvfrom(
@@ -359,7 +384,17 @@ ssize_t posix_recvfrom(
         return -1;
     }
 
-    return f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
+    ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
+
+    if (buff && n > 0)
+    {
+        String debug;
+        debug.assign(reinterpret_cast<const char *>(buff), n, true);
+        N_NOTICE(" -> received: '" << debug << "'");
+    }
+
+    N_NOTICE(" -> " << n);
+    return n;
 }
 
 int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
@@ -641,6 +676,8 @@ LwipSocketSyscalls::~LwipSocketSyscalls()
 {
     if (m_Socket)
     {
+        m_SyscallObjects.remove(m_Socket);
+
         netconn_delete(m_Socket);
         m_Socket = nullptr;
     }
@@ -758,17 +795,25 @@ ssize_t LwipSocketSyscalls::sendto(const void *buffer, size_t bufferlen, int fla
     // Can we send without blocking?
     if (!isBlocking() && !m_Metadata.send)
     {
+        N_NOTICE(" -> send queue full, would block");
         SYSCALL_ERROR(NoMoreProcesses);
         return -1;
     }
 
+    // Copy buffer from userspace before passing it into lwIP.
+    char *data = new char[bufferlen];
+    MemoryCopy(data, buffer, bufferlen);
+
     size_t bytesWritten = 0;
-    err = netconn_write_partly(m_Socket, buffer, bufferlen, 0, &bytesWritten);
+    err = netconn_write_partly(m_Socket, data, bufferlen, NETCONN_COPY | NETCONN_MORE, &bytesWritten);
     if (err != ERR_OK)
     {
+        delete [] data;
         lwipToSyscallError(err);
         return -1;
     }
+
+    delete [] data;
 
     return bytesWritten;
 }
@@ -783,10 +828,19 @@ ssize_t LwipSocketSyscalls::recvfrom(void *buffer, size_t bufferlen, int flags, 
     }
 
     // No data to read right now.
-    if (!isBlocking() && !m_Metadata.recv && !m_Metadata.pb)
+    if (!isBlocking())
     {
-        SYSCALL_ERROR(NoMoreProcesses);
-        return -1;
+        if (!(m_Metadata.recv || m_Metadata.pb))
+        {
+            // If an app tightly calls recv() and keeps hitting here, it'll
+            // burn a lot of cycles for no good reason. Instead, reschedule to
+            // reduce that tight spin.
+            Scheduler::instance().yield();
+
+            N_NOTICE(" -> no more data available, would block");
+            SYSCALL_ERROR(NoMoreProcesses);
+            return -1;
+        }
     }
 
     err_t err;
@@ -818,6 +872,7 @@ ssize_t LwipSocketSyscalls::recvfrom(void *buffer, size_t bufferlen, int flags, 
             pb = buf->p;
         }
 
+        m_Metadata.offset = 0;
         m_Metadata.pb = pb;
         m_Metadata.buf = buf;
     }
@@ -966,6 +1021,7 @@ int LwipSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address
     err_t err = netconn_peer(m_Socket, &peer, &port);
     if (err != ERR_OK)
     {
+        N_NOTICE(" -> getpeername failed");
         lwipToSyscallError(err);
         return -1;
     }
@@ -1059,16 +1115,16 @@ bool LwipSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
     m_Metadata.lock.acquire();
 #endif
 
-    if (read)
-    {
-        read = m_Metadata.send != 0;
-        ok = ok || read;
-    }
-
     if (write)
     {
-        write = m_Metadata.recv || m_Metadata.pb;
+        write = m_Metadata.send != 0;
         ok = ok || write;
+    }
+
+    if (read)
+    {
+        read = m_Metadata.recv || m_Metadata.pb;
+        ok = ok || read;
     }
 
     if (error)
@@ -1095,15 +1151,17 @@ void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 {
 #ifdef THREADS
     m_Metadata.lock.acquire();
-#endif
-    for (auto it = m_Metadata.semaphores.begin(); it != m_Metadata.semaphores.end(); ++it)
+    for (auto it = m_Metadata.semaphores.begin(); it != m_Metadata.semaphores.end();)
     {
         if ((*it) == waiter)
         {
             it = m_Metadata.semaphores.erase(it);
         }
+        else
+        {
+            ++it;
+        }
     }
-#ifdef THREADS
     m_Metadata.lock.release();
 #endif
 }
@@ -1123,30 +1181,30 @@ void LwipSocketSyscalls::netconnCallback(struct netconn *conn, enum netconn_evt 
     switch(evt)
     {
         case NETCONN_EVT_RCVPLUS:
-            NOTICE("RCV+");
+            N_NOTICE("RCV+");
             ++(obj->m_Metadata.recv);
             break;
         case NETCONN_EVT_RCVMINUS:
-            NOTICE("RCV-");
+            N_NOTICE("RCV-");
             if (obj->m_Metadata.recv)
             {
                 --(obj->m_Metadata.recv);
             }
             break;
         case NETCONN_EVT_SENDPLUS:
-            NOTICE("SND+");
+            N_NOTICE("SND+");
             obj->m_Metadata.send = 1;
             break;
         case NETCONN_EVT_SENDMINUS:
-            NOTICE("SND-");
+            N_NOTICE("SND-");
             obj->m_Metadata.send = 0;
             break;
         case NETCONN_EVT_ERROR:
-            NOTICE("ERR");
+            N_NOTICE("ERR");
             obj->m_Metadata.error = true;  /// \todo figure out how to bubble errors
             break;
         default:
-            NOTICE("Unknown error.");
+            N_NOTICE("Unknown netconn callback error.");
     }
 
     /// \todo need a way to do this with lwip when threads are off

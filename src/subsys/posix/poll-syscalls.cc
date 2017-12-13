@@ -256,7 +256,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     bool checkingRead = !checkWrite;
                     bool checkingError = false;
 
-                    bWillReturnImmediately = pFd->networkImpl->poll(checkingWrite, checkingRead, checkingError, &sem);
+                    bWillReturnImmediately = bWillReturnImmediately || pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, &sem);
 
                     if (bWillReturnImmediately)
                     {
@@ -285,6 +285,8 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     // Grunt work is done, now time to cleanup.
     while (!bWillReturnImmediately && !bError)
     {
+        F_NOTICE("    -> no fds ready yet, poll will block");
+
         // We got here because there is a specific or infinite timeout and
         // no FD was ready immediately.
         //
@@ -317,11 +319,11 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 
                 if (pFd->networkImpl && pFd->networkImpl->canPoll())
                 {
-                    bool checkingWrite = true;
-                    bool checkingRead = true;
+                    bool checkingWrite = me->events & POLLOUT;
+                    bool checkingRead = me->events & POLLIN;
                     bool checkingError = false;
 
-                    pFd->networkImpl->poll(checkingWrite, checkingRead, checkingError, nullptr);
+                    pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, nullptr);
 
                     if (checkingWrite && (me->events & POLLOUT))
                     {

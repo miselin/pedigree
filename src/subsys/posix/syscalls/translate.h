@@ -310,11 +310,20 @@ inline long posix_translate_syscall(long which)
             pedigree_translation = POSIX_SETGROUPS;
             break;
         case SYS_setresuid:
-            pedigree_translation = POSIX_SETREUID;
-            break;  /// \todo implement me
+            pedigree_translation = POSIX_SETRESUID;
+            break;
+        case SYS_getresuid:
+            pedigree_translation = POSIX_GETRESUID;
+            break;
         case SYS_setresgid:
-            pedigree_translation = POSIX_SETREGID;
-            break;  /// \todo implement me
+            pedigree_translation = POSIX_SETRESGID;
+            break;
+        case SYS_getresgid:
+            pedigree_translation = POSIX_GETRESGID;
+            break;
+        case SYS_getpgid:
+            pedigree_translation = POSIX_GETPGID;
+            break;
         // ...
         case SYS_utime:
             pedigree_translation = POSIX_UTIME;

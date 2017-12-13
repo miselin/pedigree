@@ -390,46 +390,29 @@ void PosixSubsystem::exit(int code)
     {
         PosixProcess *p = static_cast<PosixProcess *>(pProcess);
         ProcessGroup *pGroup = p->getProcessGroup();
-        if (pGroup && (p->getGroupMembership() == PosixProcess::Member))
+        if (pGroup)
         {
-            for (List<PosixProcess *>::Iterator it = pGroup->Members.begin();
-                 it != pGroup->Members.end(); it++)
+            if (p->getGroupMembership() == PosixProcess::Member)
             {
-                if ((*it) == p)
+                for (List<PosixProcess *>::Iterator it = pGroup->Members.begin();
+                     it != pGroup->Members.end(); it++)
                 {
-                    it = pGroup->Members.erase(it);
-                    break;
+                    if ((*it) == p)
+                    {
+                        it = pGroup->Members.erase(it);
+                        break;
+                    }
                 }
             }
-        }
-        else if (pGroup && (p->getGroupMembership() == PosixProcess::Leader))
-        {
-            // Pick a new process to be the leader, remove this one from the
-            // list
-            PosixProcess *pNewLeader = 0;
-            for (List<PosixProcess *>::Iterator it = pGroup->Members.begin();
-                 it != pGroup->Members.end();)
+            else if (p->getGroupMembership() == PosixProcess::Leader)
             {
-                if ((*it) == p)
-                    it = pGroup->Members.erase(it);
-                else
-                {
-                    if (!pNewLeader)
-                        pNewLeader = *it;
-                    ++it;
-                }
+                // Group loses a leader, this is fine
+                pGroup->Leader = nullptr;
             }
 
-            // Set the new leader
-            if (pNewLeader)
+            if (!pGroup->Members.size())
             {
-                pNewLeader->setGroupMembership(PosixProcess::Leader);
-                pGroup->Leader = pNewLeader;
-            }
-            else
-            {
-                // No new leader! Destroy the group, we're the last process in
-                // it.
+                // Destroy the group, we were the last process in it.
                 delete pGroup;
                 pGroup = 0;
             }

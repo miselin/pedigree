@@ -27,6 +27,19 @@
 struct termios;
 struct winsize;
 
+struct vt_mode {
+    char mode;
+    char waitv;
+    short relsig;
+    short acqsig;
+    short frsig;
+};
+
+// vt_mode modes
+#define VT_AUTO 0
+#define VT_PROCESS 1
+#define VT_ACKACQ 2
+
 int posix_tcgetattr(int fd, struct termios *p);
 int posix_tcsetattr(int fd, int optional_actions, struct termios *p);
 int console_getwinsize(File *file, struct winsize *buf);

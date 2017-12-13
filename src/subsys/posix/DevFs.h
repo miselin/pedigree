@@ -33,6 +33,8 @@
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 
+#define DEVFS_NUMTTYS 7
+
 class DevFs;
 class DevFsDirectory;
 
@@ -251,6 +253,8 @@ class DevFs : public Filesystem
 
     void handleInput(InputManager::InputNotification &in);
 
+    bool switchTty(size_t n);
+
     TextIO *getCurrentTty() const;
     File *getCurrentTtyFile() const;
 
@@ -282,8 +286,8 @@ class DevFs : public Filesystem
 
     size_t m_NextInode;
 
-    TextIO *m_pTtys[7];
-    File *m_pTtyFiles[7];
+    TextIO *m_pTtys[DEVFS_NUMTTYS];
+    File *m_pTtyFiles[DEVFS_NUMTTYS];
     size_t m_CurrentTty;
 };
 

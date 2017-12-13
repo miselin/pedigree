@@ -563,7 +563,7 @@ bool DevFs::initialise(Disk *pDisk)
     }
 
     // create tty2-6 as non-overloaded TextIO instances
-    for (size_t i = 1; i < 6; ++i)
+    for (size_t i = 1; i < DEVFS_NUMTTYS; ++i)
     {
         String ttyname;
         ttyname.Format("tty%u", i + 1);
@@ -659,11 +659,23 @@ void DevFs::handleInput(InputManager::InputNotification &in)
             return;
         }
 
-        // switch primary accordingly
-        m_pTtys[m_CurrentTty]->unmarkPrimary();
-        m_CurrentTty = newTty;
-        m_pTtys[m_CurrentTty]->markPrimary();
+        switchTty(newTty);
     }
+}
+
+bool DevFs::switchTty(size_t n)
+{
+    if (n >= DEVFS_NUMTTYS)
+    {
+        return false;
+    }
+
+    // switch primary accordingly
+    m_pTtys[m_CurrentTty]->unmarkPrimary();
+    m_CurrentTty = n;
+    m_pTtys[m_CurrentTty]->markPrimary();
+
+    return true;
 }
 
 TextIO *DevFs::getCurrentTty() const

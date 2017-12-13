@@ -73,6 +73,7 @@ int pedigree_sigret();
 int posix_setsid();
 int posix_setpgid(int pid, int pgid);
 int posix_getpgrp();
+int posix_getpgid(int pid);
 
 mode_t posix_umask(mode_t mask);
 
@@ -102,6 +103,11 @@ int posix_setpriority(int which, int who, int prio);
 
 int posix_setreuid(uid_t ruid, uid_t euid);
 int posix_setregid(gid_t rgid, gid_t egid);
+
+int posix_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+int posix_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+int posix_getresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
+int posix_getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
 
 int posix_get_robust_list(
     int pid, struct robust_list_head **head_ptr, size_t *len_ptr);
