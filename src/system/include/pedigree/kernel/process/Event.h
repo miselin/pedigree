@@ -21,6 +21,11 @@
 #define EVENT_H
 
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+
+#ifdef THREADS
+class Thread;
+#endif
 
 /** The maximum size of one event, serialized. */
 #define EVENT_LIMIT 4096
@@ -114,6 +119,14 @@ class Event
     Event(const Event &other);
     Event &operator=(const Event &other);
 
+#ifdef THREADS
+    /** Register a thread with this object (to detect deletion while Thread still knows about it). */
+    void registerThread(Thread *thread);
+
+    /** Deregister a thread with this object. */
+    void deregisterThread(Thread *thread);
+#endif
+
   protected:
     /** Handler address. */
     uintptr_t m_HandlerAddress;
@@ -126,6 +139,11 @@ class Event
 
     /** Magic number for verification. */
     size_t m_Magic;
+
+#ifdef THREADS
+    /** Associated threads that have us in their queue. */
+    List<Thread *> m_Threads;
+#endif
 };
 
 #endif

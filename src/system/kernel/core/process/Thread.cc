@@ -543,6 +543,7 @@ void Thread::sendEvent(Event *pEvent)
     // Only need the lock to adjust the queue of events.
     m_Lock.acquire();
     m_EventQueue.pushBack(pEvent);
+    pEvent->registerThread(this);
     m_Lock.release();
 
     if (m_Status == Sleeping && m_bInterruptible)
@@ -571,7 +572,7 @@ void Thread::cullEvent(Event *pEvent)
 
     bool bDelete = false;
     for (List<Event *>::Iterator it = m_EventQueue.begin();
-         it != m_EventQueue.end(); it++)
+         it != m_EventQueue.end();)
     {
         if (*it == pEvent)
         {
@@ -581,7 +582,13 @@ void Thread::cullEvent(Event *pEvent)
             }
             it = m_EventQueue.erase(it);
         }
+        else
+        {
+            ++it;
+        }
     }
+
+    pEvent->deregisterThread(this);
 
     // Delete last to avoid double frees.
     if (bDelete)
@@ -601,6 +608,7 @@ void Thread::cullEvent(size_t eventNumber)
         {
             Event *pEvent = *it;
             it = m_EventQueue.erase(it);
+            pEvent->deregisterThread(this);
             if (pEvent->isDeletable())
                 delete pEvent;
         }
@@ -625,9 +633,14 @@ Event *Thread::getNextEvent()
         if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(e->getNumber()) ||
             (e->getSpecificNestingLevel() != ~0UL &&
              e->getSpecificNestingLevel() != m_nStateLevel))
+        {
             m_EventQueue.pushBack(e);
+        }
         else
+        {
+            e->deregisterThread(this);
             return e;
+        }
     }
 
     return 0;

@@ -20,6 +20,8 @@
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
 
 #include "pedigree/kernel/Log.h"
 
@@ -27,11 +29,25 @@ Event::Event(
     uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel)
     : m_HandlerAddress(handlerAddress), m_bIsDeletable(isDeletable),
       m_NestingLevel(specificNestingLevel), m_Magic(EVENT_MAGIC)
+#ifdef THREADS
+      , m_Threads()
+#endif
 {
 }
 
 Event::~Event()
 {
+#ifdef THREADS
+    if (m_Threads.count())
+    {
+        ERROR("UNSAFE EVENT DELETION");
+        for (auto it : m_Threads)
+        {
+            ERROR(" => Pending delivery to thread " << it << " (" << it->getParent()->getId() << ":" << it->getId() << ").");
+        }
+        FATAL("Unsafe event deletion: " << m_Threads.count() << " threads reference it!");
+    }
+#endif
 }
 
 uintptr_t Event::getTrampoline()
@@ -77,6 +93,9 @@ size_t Event::getEventType(uint8_t *pBuffer)
 Event::Event(const Event &other)
     : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel)
 {
+#ifdef THREADS
+    m_Threads.clear();
+#endif
 }
 
 Event &Event::operator=(const Event &other)
@@ -84,5 +103,31 @@ Event &Event::operator=(const Event &other)
     m_HandlerAddress = other.m_HandlerAddress;
     m_bIsDeletable = other.m_bIsDeletable;
     m_NestingLevel = other.m_NestingLevel;
+#ifdef THREADS
+    m_Threads.clear();
+#endif
     return *this;
 }
+
+#ifdef THREADS
+void Event::registerThread(Thread *thread)
+{
+    m_Threads.pushBack(thread);
+}
+
+void Event::deregisterThread(Thread *thread)
+{
+    for (List<Thread *>::Iterator it = m_Threads.begin();
+         it != m_Threads.end();)
+    {
+        if (*it == thread)
+        {
+            it = m_Threads.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+#endif
