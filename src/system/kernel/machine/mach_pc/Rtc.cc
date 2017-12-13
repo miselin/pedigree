@@ -79,15 +79,17 @@ void Rtc::removeAlarm(Event *pEvent)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
-    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
-         it++)
+    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();)
     {
         if ((*it)->m_pEvent == pEvent)
         {
             Alarm *pAlarm = *it;
-            m_Alarms.erase(it);
+            it = m_Alarms.erase(it);
             delete pAlarm;
-            return;
+        }
+        else
+        {
+            ++it;
         }
     }
 }
