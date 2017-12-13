@@ -28,6 +28,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "subsys/posix/PosixProcess.h"
 #include "subsys/posix/PosixSubsystem.h"
+#include "subsys/posix/FileDescriptor.h"
 
 static void error(const char *s)
 {
