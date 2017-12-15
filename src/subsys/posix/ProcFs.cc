@@ -111,6 +111,112 @@ uint64_t MeminfoFile::write(
     return 0;
 }
 
+PciDevicesFile::PciDevicesFile(size_t inode, Filesystem *pParentFS, File *pParent)
+    : File(String("devices"), 0, 0, 0, inode, pParentFS, 0, pParent),
+      m_Contents()
+{
+    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
+    setUidOnly(0);
+    setGidOnly(0);
+
+    resync();
+}
+
+PciDevicesFile::~PciDevicesFile()
+{
+}
+
+size_t PciDevicesFile::getSize()
+{
+    return m_Contents.length();
+}
+
+uint64_t PciDevicesFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    resync();
+
+    if (location >= m_Contents.length())
+    {
+        return 0;  // EOF
+    }
+    else if ((location + size) > m_Contents.length())
+    {
+        size = m_Contents.length() - location;
+    }
+
+    char *destination = reinterpret_cast<char *>(buffer);
+    const char *source = static_cast<const char *>(m_Contents);
+
+    StringCopy(destination, source);
+
+    return size;
+}
+
+uint64_t PciDevicesFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
+void PciDevicesFile::resync()
+{
+    m_Contents = String();
+
+    auto printer = [this] (Device *p) -> Device * {
+        String initial;
+        initial.Format("%02x%02x\t%04x%04x\t%x",
+                p->getPciBusPosition(),
+                (p->getPciDevicePosition() << 4) | p->getPciFunctionNumber(),
+                p->getPciVendorId(),
+                p->getPciDeviceId(),
+                p->getInterruptNumber());
+
+        String resStart;
+        String resLength;
+        for (size_t i = 0; i < 7; ++i)
+        {
+            String thisResStart;
+            String thisResLength;
+
+            if (i < p->addresses().count())
+            {
+                size_t length = p->addresses()[i]->m_Size;
+
+                uintptr_t address = p->addresses()[i]->m_Address;
+                uintptr_t flags = 0;
+                if (p->addresses()[i]->m_IsIoSpace)
+                {
+                    flags = 1;
+                }
+
+                /// \todo need to add some flags here
+                thisResStart.Format("\t%16lx", address | flags);
+                thisResLength.Format("\t%16lx", length ? length + 1 : 0);
+            }
+            else
+            {
+                thisResStart.Format("\t%16lx", 0);
+                thisResLength.Format("\t%16lx", 0);
+            }
+
+            resStart += thisResStart;
+            resLength += thisResLength;
+        }
+
+        m_Contents += initial;
+        m_Contents += resStart;
+        m_Contents += resLength;
+        m_Contents += "\t";  /// \todo add driver name here if known?
+        m_Contents += "\n";
+
+        return p;
+    };
+
+    auto callback = pedigree_std::make_callable(printer);
+    Device::foreach(callback, nullptr);
+}
+
 MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent)
     : File(String("mounts"), 0, 0, 0, inode, pParentFS, 0, pParent)
 {
@@ -214,35 +320,40 @@ String UptimeFile::generateString()
 }
 
 ConstantFile::ConstantFile(
-    String name, String value, size_t inode, Filesystem *pParentFS,
+    String name, const char *value, size_t size, size_t inode, Filesystem *pParentFS,
     File *pParent)
-    : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents(value)
+    : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents()
 {
     setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
     setUidOnly(0);
     setGidOnly(0);
+
+    m_Contents = new char[size];
+    m_Size = size;
+    MemoryCopy(m_Contents, value, size);
 }
 
 ConstantFile::~ConstantFile()
 {
+    delete [] m_Contents;
 }
 
 uint64_t ConstantFile::read(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if (location >= m_Contents.length())
+    if (location >= m_Size)
     {
         return 0;  // EOF
     }
-    else if ((location + size) > m_Contents.length())
+    else if ((location + size) > m_Size)
     {
-        size = m_Contents.length() - location;
+        size = m_Size - location;
     }
 
     char *destination = reinterpret_cast<char *>(buffer);
-    const char *source = static_cast<const char *>(m_Contents);
+    const char *source = m_Contents + location;
 
-    StringCopy(destination, source);
+    MemoryCopy(destination, source, size);
 
     return size;
 }
@@ -255,7 +366,7 @@ uint64_t ConstantFile::write(
 
 size_t ConstantFile::getSize()
 {
-    return m_Contents.length();
+    return m_Size;
 }
 
 ProcFs::~ProcFs()
@@ -298,8 +409,9 @@ bool ProcFs::initialise(Disk *pDisk)
     UptimeFile *uptime = new UptimeFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(uptime->getName(), uptime);
 
+    String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
     ConstantFile *pFilesystems = new ConstantFile(
-        String("filesystems"), String("\text2\nnodev\tproc\nnodev\ttmpfs\n"),
+        String("filesystems"), fs, fs.length(),
         getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
@@ -308,7 +420,7 @@ bool ProcFs::initialise(Disk *pDisk)
     cmdline += " noswap quiet";  // ensure we get into single user mode in Linux
                                  // userspaces
     ConstantFile *pCmdline = new ConstantFile(
-        String("cmdline"), cmdline, getNextInode(), this, m_pRoot);
+        String("cmdline"), cmdline, cmdline.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
     // /proc/version contains some extra version info (not same as uname)
@@ -317,8 +429,103 @@ bool ProcFs::initialise(Disk *pDisk)
         "Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser,
         g_pBuildMachine, g_pBuildTime);
     ConstantFile *pVersion = new ConstantFile(
-        String("version"), version, getNextInode(), this, m_pRoot);
+        String("version"), version, version.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pVersion->getName(), pVersion);
+
+    ProcFsDirectory *pBusDir = new ProcFsDirectory(String("bus"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+    ProcFsDirectory *pPciDir = new ProcFsDirectory(String("pci"), 0, 0, 0, getNextInode(), this, 0, pBusDir);
+
+    pBusDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+    pPciDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+
+    m_pRoot->addEntry(pBusDir->getName(), pBusDir);
+    pBusDir->addEntry(pPciDir->getName(), pPciDir);
+
+    // Load PCI devices into bus/pci/devices file
+    auto printer = [pPciDir, this] (Device *p) -> Device * {
+        String bus;
+        bus.Format("%02x", p->getPciBusPosition());
+
+        // create config space file for this 
+        File *d = VFS::instance().find(bus, pPciDir);
+        if (!d)
+        {
+            ProcFsDirectory *dir = new ProcFsDirectory(bus, 0, 0, 0, getNextInode(), this, 0, pPciDir);
+            pPciDir->addEntry(dir->getName(), dir);
+
+            d = dir;
+        }
+
+        ProcFsDirectory *dir = static_cast<ProcFsDirectory *>(Directory::fromFile(d));
+
+        String fn;
+        fn.Format("%02x.%01x", p->getPciDevicePosition(), p->getPciFunctionNumber());
+
+        // Sometimes the device file already exists, avoid creating duplicate files
+        File *e = VFS::instance().find(fn, dir);
+        if (!e)
+        {
+            PciBus::ConfigSpace space = p->getPciConfigHeader();
+
+            ConstantFile *cf = new ConstantFile(fn, reinterpret_cast<const char *>(&space), sizeof(space), getNextInode(), this, dir);
+            dir->addEntry(cf->getName(), cf);
+        }
+
+        String initial;
+        initial.Format("%02x%02x\t%04x%04x\t%x",
+                p->getPciBusPosition(),
+                (p->getPciDevicePosition() << 4) | p->getPciFunctionNumber(),
+                p->getPciVendorId(),
+                p->getPciDeviceId(),
+                p->getInterruptNumber());
+
+        String resStart;
+        String resLength;
+        for (size_t i = 0; i < 7; ++i)
+        {
+            String thisResStart;
+            String thisResLength;
+
+            if (i < p->addresses().count())
+            {
+                size_t length = p->addresses()[i]->m_Size;
+
+                uintptr_t address = p->addresses()[i]->m_Address;
+                uintptr_t flags = 0;
+                if (p->addresses()[i]->m_IsIoSpace)
+                {
+                    flags = 1;
+                }
+
+                /// \todo need to add some flags here
+                thisResStart.Format("\t%16lx", address | flags);
+                thisResLength.Format("\t%16lx", length ? length + 1 : 0);
+            }
+            else
+            {
+                thisResStart.Format("\t%16lx", 0);
+                thisResLength.Format("\t%16lx", 0);
+            }
+
+            resStart += thisResStart;
+            resLength += thisResLength;
+        }
+
+        m_PciDevices += initial;
+        m_PciDevices += resStart;
+        m_PciDevices += resLength;
+        m_PciDevices += "\t";  /// \todo add driver name here if known?
+        m_PciDevices += "\n";
+
+        return p;
+    };
+
+    auto callback = pedigree_std::make_callable(printer);
+    Device::foreach(callback, nullptr);
+
+    ConstantFile *pPciDevices = new ConstantFile(
+        String("devices"), m_PciDevices, m_PciDevices.length(), getNextInode(), this, pPciDir);
+    pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
 
     return true;
 }

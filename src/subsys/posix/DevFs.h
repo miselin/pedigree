@@ -202,6 +202,32 @@ class Tty0File : public File
     DevFs *m_pDevFs;
 };
 
+class MemFile : public File
+{
+  public:
+    MemFile(String name, size_t inode, Filesystem *pParentFS, File *pParentNode)
+        : File(name, 0, 0, 0, inode, pParentFS, 0, pParentNode)
+    {
+        setPermissionsOnly(
+            FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+        setUidOnly(0);
+        setGidOnly(0);
+    }
+    ~MemFile()
+    {
+    }
+
+    virtual uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    virtual uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+
+    virtual physical_uintptr_t getPhysicalPage(size_t offset);
+    virtual void returnPhysicalPage(size_t offset);
+};
+
 /** This class provides slightly more flexibility for adding files to a
  * directory. */
 class DevFsDirectory : public Directory

@@ -113,4 +113,7 @@ int posix_get_robust_list(
     int pid, struct robust_list_head **head_ptr, size_t *len_ptr);
 int posix_set_robust_list(struct robust_list_head *head, size_t len);
 
+int posix_ioperm(unsigned long from, unsigned long num, int turn_on);
+int posix_iopl(int level);
+
 #endif

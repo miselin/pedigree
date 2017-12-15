@@ -38,6 +38,8 @@ struct X64TaskStateSegment
     uint64_t res2;
     uint16_t res3;
     uint16_t ioPermBitmap;
+
+    char ioPermBitmapData[65536 / 8];  // 64k ports, 8 bytes per char
 } PACKED;
 
 /** @} */

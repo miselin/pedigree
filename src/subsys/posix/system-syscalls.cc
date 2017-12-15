@@ -2003,3 +2003,17 @@ int posix_set_robust_list(struct robust_list_head *head, size_t len)
 
     return 0;
 }
+
+int posix_ioperm(unsigned long from, unsigned long num, int turn_on)
+{
+    SC_NOTICE("ioperm(" << from << ", " << num << ", " << turn_on << ")");
+
+    /// \todo set the io permissions bitmap properly and use this to enable stuff
+    return 0;
+}
+
+int posix_iopl(int level)
+{
+    SC_NOTICE("iopl(" << level << ")");
+    return 0;
+}

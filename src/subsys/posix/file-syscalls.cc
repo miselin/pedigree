@@ -1253,6 +1253,16 @@ int posix_ioctl(int fd, int command, void *buf)
 
     switch (command)
     {
+        // KDGETLED
+        case 0x4B31:
+            F_NOTICE(" -> KDGETLED (stubbed), arg=" << buf);
+            return 0;
+
+        // KDSETLED
+        case 0x4B32:
+            F_NOTICE(" -> KDSETLED (stubbed), arg=" << buf);
+            return 0;
+
         case 0x4B33:  // KDGKBTYPE
         {
             if (ConsoleManager::instance().isConsole(f->file))
@@ -1267,6 +1277,22 @@ int posix_ioctl(int fd, int command, void *buf)
                 return -1;
             }
         }
+
+        // KDSETMODE
+        case 0x4b3a:
+            /// \todo what do we do when switching to graphics mode?
+            F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
+            return 0;
+
+        // KDSKBMODE
+        case 0x4B45:
+            F_NOTICE(" -> KDSKBMODE (stubbed), arg=" << buf);
+            return 0;
+
+        // KDKBDREP
+        case 0x4B52:
+            F_NOTICE(" -> KDKBDREP (stubbed), arg=" << buf);
+            return 0;
 
         case TCGETS:
         {
@@ -1501,12 +1527,6 @@ int posix_ioctl(int fd, int command, void *buf)
         // VT_WAITACTIVE
         case 0x5607:
             // no-op on Pedigree so far
-            return 0;
-
-        // KDSETMODE
-        case 0x4b3a:
-            /// \todo what do we do when switching to graphics mode?
-            F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
             return 0;
     }
 

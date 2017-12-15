@@ -20,8 +20,9 @@
 #ifndef PCI_COMMON_H
 #define PCI_COMMON_H
 
-#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
+
+class Device;
 
 /** Architecture-independent interface to a PCI bus */
 class PciBus
@@ -76,6 +77,33 @@ class PciBus
     void writeConfigSpace(
         uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
         uint32_t data);
+
+    struct ConfigSpace
+    {
+        uint16_t vendor;
+        uint16_t device;
+        uint16_t command;
+        uint16_t status;
+        uint8_t revision;
+        uint8_t progif;
+        uint8_t subclass;
+        uint8_t class_code;
+        uint8_t cache_line_size;
+        uint8_t latency_timer;
+        uint8_t header_type;
+        uint8_t bist;
+        uint32_t bar[6];
+        uint32_t cardbus_pointer;
+        uint16_t subsys_vendor;
+        uint16_t subsys_id;
+        uint32_t rom_base_address;
+        uint32_t reserved0;
+        uint32_t reserved1;
+        uint8_t interrupt_line;
+        uint8_t interrupt_pin;
+        uint8_t min_grant;
+        uint8_t max_latency;
+    } __attribute__((packed));
 
   private:
     static PciBus m_Instance;

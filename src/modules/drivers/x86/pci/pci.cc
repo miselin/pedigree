@@ -50,37 +50,10 @@ union ConfigAddress
     uint32_t raw;
 };
 
-struct ConfigSpace
-{
-    uint16_t vendor;
-    uint16_t device;
-    uint16_t command;
-    uint16_t status;
-    uint8_t revision;
-    uint8_t progif;
-    uint8_t subclass;
-    uint8_t class_code;
-    uint8_t cache_line_size;
-    uint8_t latency_timer;
-    uint8_t header_type;
-    uint8_t bist;
-    uint32_t bar[6];
-    uint32_t cardbus_pointer;
-    uint16_t subsys_vendor;
-    uint16_t subsys_id;
-    uint32_t rom_base_address;
-    uint32_t reserved0;
-    uint32_t reserved1;
-    uint8_t interrupt_line;
-    uint8_t interrupt_pin;
-    uint8_t min_grant;
-    uint8_t max_latency;
-} __attribute__((packed));
-
-static void readConfigSpace(Device *pDev, ConfigSpace *pCs)
+static void readConfigSpace(Device *pDev, PciBus::ConfigSpace *pCs)
 {
     uint32_t *pCs32 = reinterpret_cast<uint32_t *>(pCs);
-    for (unsigned int i = 0; i < sizeof(ConfigSpace) / 4; i++)
+    for (unsigned int i = 0; i < sizeof(PciBus::ConfigSpace) / 4; i++)
     {
         pCs32[i] = PciBus::instance().readConfigSpace(pDev, i);
     }
@@ -140,7 +113,7 @@ static bool entry()
                     // break;
                 }
 
-                ConfigSpace cs;
+                PciBus::ConfigSpace cs;
                 readConfigSpace(pDevice, &cs);
 
                 if (cs.header_type & 0x80)
@@ -216,6 +189,8 @@ static bool entry()
                 pDevice->setInterruptNumber(cs.interrupt_line);
                 pBus->addChild(pDevice);
                 pDevice->setParent(pBus);
+
+                pDevice->setPciConfigHeader(cs);
             }
         }
 

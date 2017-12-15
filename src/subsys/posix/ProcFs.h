@@ -61,6 +61,27 @@ class MeminfoFile : public File
     Mutex m_Lock;
 };
 
+class PciDevicesFile : public File
+{
+  public:
+    PciDevicesFile(size_t inode, Filesystem *pParentFS, File *pParent);
+    ~PciDevicesFile();
+
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+
+    virtual size_t getSize();
+
+  private:
+    void resync();
+
+    String m_Contents;
+};
+
 class MountFile : public File
 {
   public:
@@ -100,7 +121,7 @@ class ConstantFile : public File
 {
   public:
     ConstantFile(
-        String name, String value, size_t inode, Filesystem *pParentFS,
+        String name, const char *value, size_t size, size_t inode, Filesystem *pParentFS,
         File *pParent);
     ~ConstantFile();
 
@@ -114,7 +135,8 @@ class ConstantFile : public File
     virtual size_t getSize();
 
   private:
-    String m_Contents;
+    char *m_Contents;
+    size_t m_Size;
 };
 
 /** This class provides slightly more flexibility for adding files to a
@@ -138,6 +160,7 @@ class ProcFsDirectory : public Directory
 
     void addEntry(String name, File *pFile)
     {
+        NOTICE("ProcFsDirectory::addEntry: " << name);
         addDirectoryEntry(name, pFile);
     }
 };
@@ -196,6 +219,8 @@ class ProcFs : public Filesystem
     Tree<size_t, ProcFsDirectory *> m_pProcessDirectories;
 
     size_t m_NextInode;
+
+    String m_PciDevices;
 };
 
 #endif  // PROCFS_H

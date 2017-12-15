@@ -33,6 +33,7 @@
 #ifdef OPENFIRMWARE
 #include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 #endif
+#include "pedigree/kernel/machine/Pci.h"
 
 /**
  * Represents a node in the device tree. This could either be a bus (non-leaf
@@ -191,6 +192,16 @@ class Device
         m_VendorId = vendorId;
         m_DeviceId = deviceId;
         m_ProgInterface = progIf;
+    }
+    /** Set the PCI configuration header. */
+    void setPciConfigHeader(const PciBus::ConfigSpace &space)
+    {
+        m_ConfigHeader = space;
+    }
+    /** Returns the PCI configuration header in full. */
+    inline PciBus::ConfigSpace getPciConfigHeader() const
+    {
+        return m_ConfigHeader;
     }
     /** Returns the PCI class code. */
     inline uint8_t getPciClassCode()
@@ -361,6 +372,8 @@ class Device
     /** OpenFirmware device handle. */
     OFHandle m_OfHandle;
 #endif
+    /** PCI config header. */
+    PciBus::ConfigSpace m_ConfigHeader;
     /** PCI Device class */
     uint8_t m_ClassCode;
     /** PCI subclass */

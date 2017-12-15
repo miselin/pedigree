@@ -101,14 +101,14 @@ class File
     /** Get the physical address for the given offset into the file.
      * Returns (physical_uintptr_t) ~0 if the offset isn't in the cache.
      */
-    physical_uintptr_t getPhysicalPage(size_t offset);
+    virtual physical_uintptr_t getPhysicalPage(size_t offset);
 
     /**
      * Specifies that the system is done with the physical page retrieved
      * from getPhysicalPage now. Allows the physical page to be evicted
      * from the file cache again.
      */
-    void returnPhysicalPage(size_t offset);
+    virtual void returnPhysicalPage(size_t offset);
 
     /**
      * Sync all cached pages for the file back to disk.

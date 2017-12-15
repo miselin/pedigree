@@ -18,6 +18,7 @@
  */
 
 #include "gdt.h"
+#include "pedigree/kernel/stddef.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/x64/tss.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -124,6 +125,10 @@ void X64GdtManager::initialiseTss(X64TaskStateSegment *pTss)
     ByteSet(reinterpret_cast<void *>(pTss), 0, sizeof(X64TaskStateSegment));
 
     pTss->ist[1] = reinterpret_cast<uint64_t>(g_SafeStack) + 8192;
+
+    // All entries will be zero by default (all ports accessible to all IOPLs)
+    /// \todo this should change
+    pTss->ioPermBitmap = offsetof(X64TaskStateSegment, ioPermBitmapData);
 }
 
 void X64GdtManager::initialiseDoubleFaultTss(X64TaskStateSegment *pTss)

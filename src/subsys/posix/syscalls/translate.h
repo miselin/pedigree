@@ -368,6 +368,13 @@ inline long posix_translate_syscall(long which)
             pedigree_translation = POSIX_SETHOSTNAME;
             break;
         // ...
+        case SYS_iopl:
+            pedigree_translation = POSIX_IOPL;
+            break;
+        case SYS_ioperm:
+            pedigree_translation = POSIX_IOPERM;
+            break;
+        // ...
         case SYS_gettid:
             pedigree_translation = POSIX_GETTID;
             break;

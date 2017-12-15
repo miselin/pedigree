@@ -458,6 +458,35 @@ File *Tty0File::open()
     return m_pDevFs->getCurrentTtyFile();
 }
 
+uint64_t MemFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    ERROR("MemFile: read() attempted");
+    return 0;
+}
+
+uint64_t MemFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    ERROR("MemFile: write() attempted");
+    return 0;
+}
+
+physical_uintptr_t MemFile::getPhysicalPage(size_t offset)
+{
+#if 0
+    NOTICE("MemFile: giving matching physical page for offset " << Hex << offset);
+#endif
+
+    // offset is literally the physical page for /dev/mem
+    return offset & ~0xFFF;
+}
+
+void MemFile::returnPhysicalPage(size_t offset)
+{
+    // no-op
+}
+
 DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);
@@ -491,6 +520,10 @@ bool DevFs::initialise(Disk *pDisk)
         new ZeroFile(String("zero"), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pNull->getName(), pNull);
     m_pRoot->addEntry(pZero->getName(), pZero);
+
+    // Create the /dev/mem device.
+    MemFile *pMem = new MemFile(String("mem"), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pMem->getName(), pMem);
 
     // Create the /dev/pts directory for ptys to go into.
     DevFsDirectory *pPts = new DevFsDirectory(

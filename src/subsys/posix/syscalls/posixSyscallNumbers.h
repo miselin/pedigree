@@ -267,4 +267,7 @@
 #define POSIX_GETRESUID 257
 #define POSIX_GETRESGID 258
 
+#define POSIX_IOPERM 259
+#define POSIX_IOPL 260
+
 #endif

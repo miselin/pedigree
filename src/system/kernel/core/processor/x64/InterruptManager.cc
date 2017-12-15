@@ -220,6 +220,23 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
         e.append(": \"");
         e.append(g_ExceptionNames[nIntNumber]);
         e.append("\"");
+
+#ifdef THREADS
+        e.append(" CPU=");
+        e.append(Processor::id());
+        if (pThread)
+        {
+            Process *pParent = pThread->getParent();
+            if (pParent)
+            {
+                e.append(" PID=");
+                e.append(pParent->getId());
+            }
+            e.append(" TID=");
+            e.append(pThread->getId());
+        }
+#endif
+
         if (nIntNumber == 14)
         {
             uint64_t cr2;

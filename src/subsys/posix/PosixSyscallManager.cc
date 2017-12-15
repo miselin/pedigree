@@ -713,6 +713,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_fstatfs(p1, reinterpret_cast<struct statfs *>(p2));
         case POSIX_SETHOSTNAME:
             return posix_sethostname(reinterpret_cast<const char *>(p1), p2);
+        case POSIX_IOPERM:
+            return posix_ioperm(p1, p2, p3);
+        case POSIX_IOPL:
+            return posix_iopl(p1);
         case POSIX_CREAT:
             return posix_open(
                 reinterpret_cast<const char *>(p1),
