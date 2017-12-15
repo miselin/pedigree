@@ -687,6 +687,20 @@ bool LwipSocketSyscalls::create()
 {
     netconn_type connType = NETCONN_INVALID;
 
+    // fix up some defaults that make sense for inet[6] sockets
+    if (!m_Protocol)
+    {
+        N_NOTICE("LwipSocketSyscalls: using default protocol for socket type");
+        if (m_Type == SOCK_DGRAM)
+        {
+            m_Protocol = IPPROTO_UDP;
+        }
+        else if (m_Type == SOCK_STREAM)
+        {
+            m_Protocol = IPPROTO_TCP;
+        }
+    }
+
     if (m_Domain == AF_INET)
     {
         switch (m_Protocol)
@@ -726,7 +740,7 @@ bool LwipSocketSyscalls::create()
     {
         N_NOTICE("LwipSocketSyscalls: invalid socket creation parameters");
         SYSCALL_ERROR(InvalidArgument);
-        return -1;
+        return false;
     }
 
     // Socket already exists? No need to do the rest.
