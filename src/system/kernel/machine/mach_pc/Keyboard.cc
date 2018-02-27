@@ -37,6 +37,10 @@
 
 #include "pedigree/kernel/core/SlamAllocator.h"
 
+#ifdef MEMORY_TRACING
+extern void toggleTracingAllocations();
+#endif
+
 X86Keyboard::X86Keyboard(uint32_t portBase)
     : m_bDebugState(false), m_Escape(KeymapManager::EscapeNone), m_pBase(0),
       m_IrqId(0), m_LedState(0)
@@ -109,10 +113,17 @@ bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
 #endif
     if (scancode == 0x57)  // F11
     {
+#ifdef MEMORY_TRACING
+        WARNING("Toggling allocation tracing.");
+        toggleTracingAllocations();
+#else
 #ifdef TRACK_PAGE_ALLOCATIONS
         g_AllocationCommand.checkpoint();
 #endif
         g_SlamCommand.clean();
+#endif
+
+        return true;
     }
     if (scancode == 0x58)  // F12
     {
