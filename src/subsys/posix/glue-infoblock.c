@@ -37,6 +37,8 @@
 static struct InfoBlock *infoBlock = 0;
 static int hasInfoBlock = 0;
 
+struct getcpu_cache;
+
 #define CHECK_INFO_BLOCK      \
     if (UNLIKELY(!infoBlock)) \
     getInfoBlock()
@@ -100,7 +102,7 @@ int __vdso_gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
-int __vdso_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *tcache)
+int __vdso_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *cache)
 {
     if (cpu)
     {

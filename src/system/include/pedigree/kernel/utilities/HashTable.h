@@ -60,7 +60,7 @@ class HashTable
 
     struct IteratorNode
     {
-        IteratorNode(const HashTable *parent) : parent(parent), pos(0), startPos(0)
+        IteratorNode(const HashTable *parent) : startPos(0), pos(0), parent(parent)
         {
             bool ok = false;
 
