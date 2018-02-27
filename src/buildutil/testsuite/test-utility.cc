@@ -36,7 +36,7 @@ TEST(PedigreeUtility, BaseName)
     EXPECT_STREQ(BaseName("/a/b/c"), "c");
     EXPECT_STREQ(BaseName("/a/b/"), nullptr);
     EXPECT_STREQ(BaseName("/a/b"), "b");
-    EXPECT_EQ(BaseName("c"), "c");
+    EXPECT_STREQ(BaseName("c"), "c");
 }
 
 TEST(PedigreeUtility, Fletcher16)
