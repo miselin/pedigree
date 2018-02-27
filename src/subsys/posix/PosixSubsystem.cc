@@ -1508,6 +1508,7 @@ bool PosixSubsystem::invoke(
     if (pVdso)
     {
         NOTICE("Adding AT_SYSINFO_EHDR [@" << Hex << vdsoAddress << "]!");
+        STACK_PUSH2(loaderStack, 0, 32);  // AT_SYSINFO - not present
         STACK_PUSH2(loaderStack, vdsoAddress, 33);  // AT_SYSINFO_EHDR
     }
 
