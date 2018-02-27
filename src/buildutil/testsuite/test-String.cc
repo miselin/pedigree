@@ -482,3 +482,22 @@ TEST(PedigreeString, Find)
     EXPECT_EQ(s.find('!'), -1);
     EXPECT_EQ(s.rfind('!'), -1);
 }
+
+TEST(PedigreeString, UnicodeConversion)
+{
+    uint32_t a = 'a';
+    uint32_t b = 0x263a;  // 16-bit, U+263A (smiling face)
+    uint32_t c = 0x1f389;  // U+1F389 (party popper)
+
+    char buf[5];
+    ByteSet(buf, 0, 5);
+
+    String::Utf32ToUtf8(a, buf);
+    EXPECT_STREQ(buf, "a");
+
+    String::Utf32ToUtf8(b, buf);
+    EXPECT_STREQ(buf, "☺");
+
+    String::Utf32ToUtf8(c, buf);
+    EXPECT_STREQ(buf, "🎉");
+}
