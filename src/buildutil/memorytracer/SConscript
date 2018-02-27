@@ -22,7 +22,7 @@ import os
 
 Import(['env'])
 
-memorytracer_bin = os.path.join(env['BUILDDIR'], 'memorytracer')
+memorytracer_bin = env['BUILDDIR'].File('memorytracer')
 
 build_env = env.Clone()
 

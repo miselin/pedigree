@@ -31,6 +31,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
+#include <set>
 
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 
@@ -94,19 +95,51 @@ std::string symbolToName(uintptr_t function)
     return result;
 }
 
-bool processRecord(AllocationTraceEntry &record, dataset_t &dataset)
+static void performBacktrace(const AllocationTraceEntry &entry)
+{
+    for (size_t i = 0; i < num_backtrace_entries; ++i)
+    {
+        if (!entry.data.bt[i])
+        {
+            break;
+        }
+
+        uintptr_t caller = extendPointer(entry.data.bt[i]);
+        std::cout << "    " << symbolToName(caller) << std::endl;
+    }
+}
+
+bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<uintptr_t> *seen_pointers)
 {
     if (record.data.type == Free)
     {
         auto it = dataset.find(record.data.ptr);
         if (it == dataset.end())
         {
-            /// \todo add more info
-            std::cerr << "A double free has been detected." << std::endl;
-            return false;
-        }
+            bool doublefree = true;
+            if (seen_pointers)
+            {
+                // if the pointer has never been allocated in this trace, we
+                // skip this as we might be missing the allocation record (e.g.
+                // if a trace is started after system startup)
+                if (seen_pointers->find(record.data.ptr) == seen_pointers->end())
+                {
+                    doublefree = false;
+                }
+            }
 
-        dataset.erase(it);
+            if (doublefree)
+            {
+                /// \todo add more info
+                std::cerr << "A double free has been detected [" << std::hex << record.data.ptr << "]." << std::endl;
+                performBacktrace(record);
+                return false;
+            }
+        }
+        else
+        {
+            dataset.erase(it);
+        }
         return true;
     }
     else if (record.data.type == Allocation)
@@ -116,6 +149,7 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset)
         {
             /// \todo add more info
             std::cerr << "A pointer was allocated twice." << std::endl;
+            performBacktrace(record);
             return false;
         }
 
@@ -123,19 +157,28 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset)
         *entry = record;
 
         dataset.insert(std::make_pair(record.data.ptr, entry));
+
+        if (seen_pointers)
+        {
+            seen_pointers->insert(record.data.ptr);
+        }
     }
 
     return true;
 }
 
 int processRecords(
-    FILE *fp, int max_records, bool reverse, bool common_callsites)
+    FILE *fp, int max_records, bool reverse, bool common_callsites, bool seen)
 {
     // Dataset of pointers -> metadata.
     dataset_t dataset;
 
     // Total allocation counter.
     size_t totalAllocs = 0;
+    size_t totalRecords = 0;
+
+    std::set<uintptr_t> seenPointersSet;
+    std::set<uintptr_t> *seenPointers = seen ? &seenPointersSet : nullptr;
 
     // Read several records at a time.
     AllocationTraceEntry *records = new AllocationTraceEntry[RECORDS_PER_READ];
@@ -151,20 +194,24 @@ int processRecords(
                 ++totalAllocs;
             }
 
-            if (!processRecord(records[i], dataset))
+            if (!processRecord(records[i], dataset, seenPointers))
             {
                 err = true;
                 break;
             }
         }
 
+        totalRecords += record_count;
+
         if (err)
-            break;
+        {
+            return -1;
+        }
     }
     delete[] records;
 
     std::cout << "This data file contains " << totalAllocs
-              << " allocations in total." << std::endl;
+              << " allocations in total (" << totalRecords << " total records)." << std::endl;
 
     // All that remains in the dataset is the unfreed memory.
     std::vector<dataset_pair_t> vec(dataset.begin(), dataset.end());
@@ -227,16 +274,7 @@ int processRecords(
                       << " entries, a total of " << it->second->size
                       << " bytes:" << std::endl;
 
-            for (size_t i = 0; i < num_backtrace_entries; ++i)
-            {
-                if (!it->second->entry->data.bt[i])
-                {
-                    break;
-                }
-
-                uintptr_t caller = extendPointer(it->second->entry->data.bt[i]);
-                std::cout << "    " << symbolToName(caller) << std::endl;
-            }
+            performBacktrace(*it->second->entry);
 
             std::cout << std::endl;
         }
@@ -271,16 +309,8 @@ int processRecords(
             std::cout << it->second->data.sz << " bytes left unfreed @"
                       << std::hex << extendPointer(it->first) << std::dec << "."
                       << std::endl;
-            for (size_t i = 0; i < num_backtrace_entries; ++i)
-            {
-                if (!it->second->data.bt[i])
-                {
-                    break;
-                }
 
-                uintptr_t caller = extendPointer(it->second->data.bt[i]);
-                std::cout << "    " << symbolToName(caller) << std::endl;
-            }
+            performBacktrace(*it->second);
 
             std::cout << std::endl;
         }
@@ -299,7 +329,8 @@ int processRecords(
 }
 
 int handleFile(
-    const char *filename, int max_records, bool reverse, bool common_callsites)
+    const char *filename, int max_records, bool reverse, bool common_callsites,
+    bool seen)
 {
     FILE *fp = fopen(filename, "rb");
     if (!fp)
@@ -309,7 +340,7 @@ int handleFile(
         return 1;
     }
 
-    int rc = processRecords(fp, max_records, reverse, common_callsites);
+    int rc = processRecords(fp, max_records, reverse, common_callsites, seen);
 
     fclose(fp);
     return rc;
@@ -337,6 +368,9 @@ void usage()
     std::cerr << "  --reverse, -r    Show results in reverse (smallest first, "
                  "or lower count first)."
               << std::endl;
+    std::cerr << "  --seen, -s       Ignore double frees unless an address "
+                 "has been allocated at least once in the trace."
+              << std::endl;
     std::cerr << std::endl;
 }
 
@@ -351,6 +385,7 @@ int main(int argc, char *argv[])
     const char *input_file = 0;
     bool reverse = false;
     bool callers = false;
+    bool seen = false;
     int maximum = 10;
     const struct option long_options[] = {
         {"input-file", required_argument, 0, 'i'},
@@ -358,6 +393,7 @@ int main(int argc, char *argv[])
         {"version", no_argument, 0, 'v'},
         {"callers", no_argument, 0, 'c'},
         {"reverse", no_argument, 0, 'r'},
+        {"seen", no_argument, 0, 's'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0},
     };
@@ -365,7 +401,7 @@ int main(int argc, char *argv[])
     opterr = 1;
     while (1)
     {
-        int c = getopt_long(argc, argv, "i:m::vVhcr", long_options, NULL);
+        int c = getopt_long(argc, argv, "i:m::vVhcrs", long_options, NULL);
         if (c < 0)
         {
             break;
@@ -410,6 +446,10 @@ int main(int argc, char *argv[])
                 callers = true;
                 break;
 
+            case 's':
+                seen = true;
+                break;
+
             case 'v':
             case 'V':
                 version();
@@ -437,5 +477,5 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    return handleFile(input_file, maximum, reverse, callers);
+    return handleFile(input_file, maximum, reverse, callers, seen);
 }
