@@ -66,6 +66,7 @@ Pipe::~Pipe()
     // this is useful for cases where ZombieQueue destroys us before we get a
     // chance to actually return from decreaseRefCount (which accesses the lock)
     m_Lock.acquire();
+    m_Lock.release();
 }
 
 int Pipe::select(bool bWriting, int timeout)

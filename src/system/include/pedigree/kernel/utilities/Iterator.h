@@ -137,7 +137,7 @@ class Iterator
     /** Dereference operator yields the element value */
     T &operator->()
     {
-        return m_Node->value;
+        return *this;
     }
 
     /** Conversion Operator to a constant iterator */

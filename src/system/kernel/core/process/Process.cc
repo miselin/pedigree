@@ -128,7 +128,7 @@ Process::~Process()
     }
 
     // Block until we are the only one touching this Process object.
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     // Guards things like removeThread.
     m_State = Terminating;

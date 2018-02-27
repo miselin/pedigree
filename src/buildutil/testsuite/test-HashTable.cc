@@ -19,6 +19,8 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include <list>
+
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/HashTable.h"
@@ -231,4 +233,26 @@ TEST(PedigreeHashTable, RemoveFirstInChain)
 
     EXPECT_EQ(hashtable.lookup(key1), 0);
     EXPECT_EQ(hashtable.lookup(key2), 2);
+}
+
+TEST(PedigreeHashTable, ForwardIteration)
+{
+    HashTable<CollidingHashableInteger, int> hashtable(1234);
+
+    CollidingHashableInteger key1(0), key2(1), key3(2), key4(3);
+
+    EXPECT_TRUE(hashtable.insert(key1, 1));
+    EXPECT_TRUE(hashtable.insert(key2, 2));
+    EXPECT_TRUE(hashtable.insert(key3, 3));
+    EXPECT_TRUE(hashtable.insert(key4, 4));
+
+    std::list<int> results;
+    std::list<int> expected = {1, 2, 3, 4};
+    for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
+    {
+        results.push_back(*it);
+    }
+    results.sort();
+
+    EXPECT_EQ(results, expected);
 }

@@ -228,7 +228,7 @@ Cache::~Cache()
 
 uintptr_t Cache::lookup(uintptr_t key)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     // Check against the bloom filter first, before we hit the tree.
     if (!m_PageFilter.contains(key))
@@ -251,7 +251,7 @@ uintptr_t Cache::lookup(uintptr_t key)
 
 uintptr_t Cache::insert(uintptr_t key)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     // We check the bloom filter to avoid hitting the tree, which is useful
     // as this is quite a hot path at times.
@@ -303,7 +303,7 @@ uintptr_t Cache::insert(uintptr_t key)
 
 uintptr_t Cache::insert(uintptr_t key, size_t size)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (size % 4096)
     {
@@ -394,7 +394,7 @@ bool Cache::map(uintptr_t virt) const
 
 bool Cache::exists(uintptr_t key, size_t length)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     bool result = true;
     for (size_t i = 0; i < length; i += 0x1000)
@@ -423,7 +423,7 @@ bool Cache::evict(uintptr_t key)
 
 void Cache::empty()
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     // Remove anything older than the given time threshold.
     for (Tree<uintptr_t, CachePage *>::Iterator it = m_Pages.begin();
@@ -520,7 +520,7 @@ bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
 
 bool Cache::pin(uintptr_t key)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key))
     {
@@ -541,7 +541,7 @@ bool Cache::pin(uintptr_t key)
 
 void Cache::release(uintptr_t key)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key))
     {
@@ -569,7 +569,7 @@ void Cache::release(uintptr_t key)
 
 size_t Cache::trim(size_t count)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!count)
         return 0;
@@ -591,7 +591,7 @@ void Cache::sync(uintptr_t key, bool async)
     if (!m_Callback)
         return;
 
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key))
     {
@@ -627,7 +627,7 @@ void Cache::sync(uintptr_t key, bool async)
 
 void Cache::triggerChecksum(uintptr_t key)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key))
     {
@@ -847,7 +847,7 @@ void Cache::checksum(const void *data, size_t len, uint64_t out[2])
 
 void Cache::markEditing(uintptr_t key, size_t length)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (length % 4096)
     {
@@ -882,7 +882,7 @@ void Cache::markEditing(uintptr_t key, size_t length)
 
 void Cache::markNoLongerEditing(uintptr_t key, size_t length)
 {
-    LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (length % 4096)
     {

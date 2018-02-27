@@ -754,6 +754,28 @@ int posix_settimeofday(const timeval *tv, const struct timezone *tz)
     return 0;
 }
 
+time_t posix_time(time_t *tval)
+{
+    SC_NOTICE("time");
+
+    if (tval && !PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(tval), sizeof(time_t),
+            PosixSubsystem::SafeWrite))
+    {
+        SC_NOTICE(" -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    time_t result = Time::getTime();
+    if (tval)
+    {
+        *tval = result;
+    }
+
+    return result;
+}
+
 clock_t posix_times(struct tms *tm)
 {
     if (!PosixSubsystem::checkAddress(

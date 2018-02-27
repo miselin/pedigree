@@ -151,7 +151,7 @@ void PosixSyscallManager::initialise()
 
     SyscallManager::instance().registerSyscallHandler(linux, this);
     SyscallManager::instance().registerSyscallHandler(posix, this);
-    PageFaultHandler::instance().registerHandler(g_LinuxVsyscallHandler);
+    // PageFaultHandler::instance().registerHandler(g_LinuxVsyscallHandler);
 }
 
 uintptr_t PosixSyscallManager::call(
@@ -743,6 +743,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_SETRLIMIT:
             return posix_setrlimit(
                 p1, reinterpret_cast<const struct rlimit *>(p2));
+        case POSIX_TIME:
+            return posix_time(reinterpret_cast<time_t *>(p1));
 
         default:
             ERROR(

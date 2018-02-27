@@ -466,7 +466,7 @@ void PerProcessorScheduler::eventHandlerReturned()
     Processor::setInterrupts(false);
 
     Thread *pThread = Processor::information().getCurrentThread();
-    pThread->popState();
+    pThread->popState(false);  // can't safely clean, we're on the stack
 
     Processor::restoreState(pThread->state());
     // Not reached.

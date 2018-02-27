@@ -52,6 +52,8 @@ crtn_objname = kerneldir.File('crtn.o')
 libpedigree_c_objname = builddir.File('libpedigree-c.a')
 libpedigree_c_shobjname = builddir.File('libpedigree-c.so')
 
+libvdso_shobjname = builddir.File('libvdso.so')
+
 env.Alias("subsys", posix_objname)
 if not env['posix_musl']:
     libc_objname = builddir.File('libc.so')
@@ -71,7 +73,8 @@ else:
 
 # To include new files just add to the list, or Glob("*.cpp")
 posix_files = [
-    Glob("*.cc")
+    Glob("*.cc"),
+    'vsyscall-amd64.s',  # TODO: fix this up for other architectures
 ]
 
 glue_files = [
@@ -100,6 +103,8 @@ glue_files += ["setjmp" + suffix + ".s"]
 
 pthread_files = ['glue-pthread.c']
 
+vdso_files = [env.File('glue-infoblock.c'), env.File('glue-infoblock.ld')]
+
 # CRTI/CRTN
 crti_files = ["crti" + suffix + ".s"]
 crtn_files = ["crtn" + suffix + ".s"]
@@ -116,6 +121,7 @@ include = [
     '#/src/modules/system/lwip/include',
     '#/src/subsys/pedigree-c',
     '#src/subsys/posix',
+    ".",  # build directory
     # Last attempt for missing files is in the disk image's /include
     # os.path.join(imagesdir, 'include'),
 ]
@@ -230,3 +236,35 @@ else:
         env.Alias("libs", [buildLibc, buildLibm])
 
         SConscript(os.path.join('newlib', 'SConscript'), exports=['userspace_env'])
+
+# Build the VDSO object.
+vdso_env_clone = posix_env.Clone()
+vdso_env_clone.MergeFlags('-fPIC -mcmodel=small')
+vdso = vdso_env_clone.SharedLibrary(libvdso_shobjname, vdso_files[0],
+        LINKFLAGS=['-Wl,-soname,linux-vdso.so.1',
+                   '-Wl,--version-script,$VERSIONSCRIPT',
+                   '-Wl,--hash-style=both',
+                   '-Wl,-Bsymbolic',
+                   ],
+        VERSIONSCRIPT=vdso_files[1])
+
+
+def create_vdso_h(target, source, env):
+    source = source[0].path
+
+    with open(source, 'rb') as fs:
+        fs_data = fs.read()
+
+        with open(target[0].path, 'w') as fd:
+            fd.write('const unsigned char __vdso_so[] = {')
+            for b in fs_data:
+                fd.write('0x%02x,' % (ord(b),))
+            fd.write('};\n')
+
+            fd.write('const int __vdso_so_len = %d;' % (len(fs_data),))
+            fd.write('const int __vdso_so_pages = %d;' % (
+                (len(fs_data) + 0x1000) / 0x1000,))
+
+
+# Turn the shared library into a header file.
+env.Command('vdso.h', vdso, Action(create_vdso_h, env.get('TARCOMSTR')))

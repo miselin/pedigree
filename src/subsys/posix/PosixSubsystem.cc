@@ -53,6 +53,12 @@
 
 #include <signal.h>
 
+#include <vdso.h>  // Header with the vdso.so binary in it.
+
+extern char __posix_compat_vsyscall_base;
+
+#define POSIX_VSYSCALL_ADDRESS 0xffffffffff600000
+
 #define O_RDONLY 0
 #define O_WRONLY 1
 #define O_RDWR 2
@@ -605,18 +611,16 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler *handler)
     while (!m_SignalHandlersLock.acquire())
         ;
 
+    SignalHandler *removal = nullptr;
+
     sig %= 32;
     if (handler)
     {
-        SignalHandler *tmp;
-        tmp = m_SignalHandlers.lookup(sig);
-        if (tmp)
+        removal = m_SignalHandlers.lookup(sig);
+        if (removal)
         {
             // Remove from the list
             m_SignalHandlers.remove(sig);
-
-            // Destroy the SignalHandler struct
-            delete tmp;
         }
 
         // Insert into the signal handler table
@@ -626,6 +630,13 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler *handler)
     }
 
     m_SignalHandlersLock.release();
+
+    // Complete the destruction of the handler (waiting for deletion) with no
+    // lock held.
+    if (removal)
+    {
+        delete removal;
+    }
 }
 
 /**
@@ -1301,9 +1312,20 @@ bool PosixSubsystem::invoke(
     }
     else
     {
+        /*
         ERROR("PosixSubsystem::invoke: target does not have a dynamic linker");
         SYSCALL_ERROR(ExecFormatError);
         return false;
+        */
+
+        // No interpreter, just invoke the binary directly.
+        /// \todo do we need to relocate at all?
+        interpreterFile = originalFile;
+
+        // No longer need the DynamicLinker instance.
+        delete pLinker;
+        pLinker = 0;
+        pProcess->setLinker(pLinker);
     }
 
     // Wipe out old address space.
@@ -1398,6 +1420,38 @@ bool PosixSubsystem::invoke(
     while (pThread->getStateLevel())
         pThread->popState();
 
+    // Allocate some space for the VDSO
+    MemoryMappedObject::Permissions vdsoPerms = MemoryMappedObject::Read |
+                                                MemoryMappedObject::Write |
+                                                MemoryMappedObject::Exec;
+    uintptr_t vdsoAddress = 0;
+    MemoryMappedObject *pVdso = MemoryMapManager::instance().mapAnon(
+        vdsoAddress, __vdso_so_pages * PhysicalMemoryManager::getPageSize(),
+        vdsoPerms);
+    if (!pVdso)
+    {
+        ERROR("PosixSubsystem::invoke: failed to map VDSO");
+    }
+    else
+    {
+        // All good, copy in the VDSO ELF image now.
+        MemoryCopy(reinterpret_cast<void *>(vdsoAddress), __vdso_so, __vdso_so_len);
+
+        // Readjust permissions to remove write access now that the image is loaded.
+        MemoryMapManager::instance().setPermissions(
+            vdsoAddress, __vdso_so_pages * PhysicalMemoryManager::getPageSize(),
+            vdsoPerms & ~MemoryMappedObject::Write);
+    }
+
+    // Map in the vsyscall space.
+    if (!Processor::information().getVirtualAddressSpace().isMapped(reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS)))
+    {
+        physical_uintptr_t vsyscallBase = 0;
+        size_t vsyscallFlags = 0;
+        Processor::information().getVirtualAddressSpace().getMapping(&__posix_compat_vsyscall_base, vsyscallBase, vsyscallFlags);
+        Processor::information().getVirtualAddressSpace().map(vsyscallBase, reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS), VirtualAddressSpace::Execute);
+    }
+
     // We can now build the auxiliary vector to pass to the dynamic linker.
     VirtualAddressSpace::Stack *stack =
         Processor::information().getVirtualAddressSpace().allocateStack();
@@ -1443,12 +1497,19 @@ bool PosixSubsystem::invoke(
         loaderStack, reinterpret_cast<uintptr_t>(platform), 15);  // AT_PLATFORM
     STACK_PUSH2(
         loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
-    STACK_PUSH2(loaderStack, 0, 15);                            // AT_SECURE
+    STACK_PUSH2(loaderStack, 0, 23);                            // AT_SECURE
     /// \todo get from pProcess
-    STACK_PUSH2(loaderStack, 0, 15);  // AT_EGID
-    STACK_PUSH2(loaderStack, 0, 15);  // AT_GID
-    STACK_PUSH2(loaderStack, 0, 15);  // AT_EUID
-    STACK_PUSH2(loaderStack, 0, 15);  // AT_UID
+    STACK_PUSH2(loaderStack, 0, 14);  // AT_EGID
+    STACK_PUSH2(loaderStack, 0, 13);  // AT_GID
+    STACK_PUSH2(loaderStack, 0, 12);  // AT_EUID
+    STACK_PUSH2(loaderStack, 0, 11);  // AT_UID
+
+    // Push the vDSO shared object.
+    if (pVdso)
+    {
+        NOTICE("Adding AT_SYSINFO_EHDR [@" << Hex << vdsoAddress << "]!");
+        STACK_PUSH2(loaderStack, vdsoAddress, 33);  // AT_SYSINFO_EHDR
+    }
 
     // ELF parts in the aux vector.
     STACK_PUSH2(loaderStack, originalEntryPoint, 9);        // AT_ENTRY

@@ -75,7 +75,7 @@ void runKernelDestructors()
 }
 
 #ifdef MEMORY_TRACING
-static bool traceAllocations = true;
+static bool traceAllocations = false;
 void startTracingAllocations()
 {
     traceAllocations = true;
@@ -84,6 +84,11 @@ void startTracingAllocations()
 void stopTracingAllocations()
 {
     traceAllocations = false;
+}
+
+void toggleTracingAllocations()
+{
+    traceAllocations = !traceAllocations;
 }
 
 static volatile int g_TraceLock = 0;
@@ -99,32 +104,42 @@ void traceAllocation(
     entry.data.type = type;
     entry.data.sz = size & 0xFFFFFFFFU;
     entry.data.ptr = reinterpret_cast<uintptr_t>(ptr) & 0xFFFFFFFFU;
+    for (size_t i = 0; i < MemoryTracing::num_backtrace_entries; ++i)
+    {
+        entry.data.bt[i] = 0;
+    }
 
-#define BT_FRAME(N)                                                    \
+#define BT_FRAME(M, N)                                                 \
     do                                                                 \
     {                                                                  \
         if (!__builtin_frame_address(N))                               \
         {                                                              \
-            entry.data.bt[N] = 0;                                      \
+            entry.data.bt[M] = 0;                                      \
             break;                                                     \
         }                                                              \
-        entry.data.bt[N] =                                             \
+        entry.data.bt[M] =                                             \
             reinterpret_cast<uintptr_t>(__builtin_return_address(N)) & \
             0xFFFFFFFFU;                                               \
     } while (0)
 
-    BT_FRAME(0);
-    BT_FRAME(1);
-    BT_FRAME(2);
-    BT_FRAME(3);
-    BT_FRAME(4);
+    // we want to skip the allocate()/free() call and get a little bit of context
+    if (MemoryTracing::num_backtrace_entries >= 1)
+        BT_FRAME(0, 1);
+    if (MemoryTracing::num_backtrace_entries >= 2)
+        BT_FRAME(1, 2);
+    if (MemoryTracing::num_backtrace_entries >= 3)
+        BT_FRAME(2, 3);
+    if (MemoryTracing::num_backtrace_entries >= 4)
+        BT_FRAME(3, 4);
+    if (MemoryTracing::num_backtrace_entries >= 5)
+        BT_FRAME(4, 5);
 
     __asm__ __volatile__("pushfq; cli" ::: "memory");
 
     for (size_t i = 0; i < sizeof entry.buf; ++i)
     {
         __asm__ __volatile__(
-            "outb %%al, %%dx" ::"Nd"(0x2F8), "a"(entry.buf[i]));
+            "outb %%al, %%dx" ::"Nd"(0x2E8), "a"(entry.buf[i]));
     }
 
     __asm__ __volatile__("popf" ::: "memory");

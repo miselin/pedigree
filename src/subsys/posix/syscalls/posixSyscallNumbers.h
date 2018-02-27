@@ -270,4 +270,6 @@
 #define POSIX_IOPERM 259
 #define POSIX_IOPL 260
 
+#define POSIX_TIME 261
+
 #endif

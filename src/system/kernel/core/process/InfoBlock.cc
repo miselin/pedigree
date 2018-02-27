@@ -77,10 +77,11 @@ bool InfoBlockManager::initialise()
     return Machine::instance().getTimer()->registerHandler(this);
 }
 
-void InfoBlockManager::timer(uint64_t delta, InterruptState &state)
+void InfoBlockManager::timer(uint64_t, InterruptState &)
 {
     // Update the timestamp in the info block.
     m_pInfoBlock->now = Time::getTimeNanoseconds();
+    m_pInfoBlock->now_s = Time::getTime();
 }
 
 void InfoBlockManager::setPid(size_t value)

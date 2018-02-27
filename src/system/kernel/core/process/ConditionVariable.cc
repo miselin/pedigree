@@ -125,6 +125,22 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
 
     if (err != NoError)
     {
+        // Remove us from the waiter list (error condition)
+        // This is important as for things like timeouts we would otherwise
+        // keep the reference in m_Waiters and it would never be cleaned up
+        // until a broadcast() finally happens.
+        LockGuard<Spinlock> guard(m_Lock);
+        for (auto it = m_Waiters.begin(); it != m_Waiters.end();)
+        {
+            if ((*it) == me)
+            {
+                it = m_Waiters.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
         return Result<bool, Error>::withError(err);
     }
     else

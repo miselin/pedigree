@@ -457,7 +457,6 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
         ++m_Second;
         m_Nanosecond -= Time::Multiplier::SECOND;
 
-#ifndef MEMORY_TRACING  // Memory tracing uses serial line 1.
 #ifdef MEMORY_LOGGING_ENABLED
         Serial *pSerial = Machine::instance().getSerial(1);
         NormalStaticString memoryLogStr;
@@ -477,6 +476,7 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
             Process *pProcess = Scheduler::instance().getProcess(i);
             LargeStaticString processListStr;
 
+            ssize_t heapK = pProcess->getHeapUsage() / 1024;
             ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
             ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
             ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
@@ -489,10 +489,11 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
             processListStr.append(physK, 10);
             processListStr.append("K S=");
             processListStr.append(shrK, 10);
-            processListStr.append("\n");
+            processListStr.append("K Heap=");
+            processListStr.append(heapK, 10);
+            processListStr.append("K\n");
             pSerial->write(processListStr);
         }
-#endif
 #endif
 
         if (UNLIKELY(m_Second == 60))

@@ -354,6 +354,15 @@ class MemoryMappedFile : public MemoryMappedObject
     virtual bool compact();
 
   private:
+    /** Track a new mapping. */
+    void trackMapping(uintptr_t, physical_uintptr_t);
+
+    /** Stop tracking a mapping. */
+    void untrackMapping(uintptr_t);
+
+    /** Get a specific mapping. */
+    physical_uintptr_t getMapping(uintptr_t);
+
     /** Backing file. */
     File *m_pBacking;
 

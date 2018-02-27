@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/Iterator.h"
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -42,11 +43,129 @@
 template <class K, class V, size_t InitialBuckets = 4>
 class HashTable
 {
+   private:
     static_assert(
         InitialBuckets > 0, "At least one initial bucket must be available.");
 
-  public:
-    HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0)
+    struct bucket
+    {
+        bucket() : key(), value(), set(false)
+        {
+        }
+
+        K key;
+        V value;
+        bool set;
+    };
+
+    struct IteratorNode
+    {
+        IteratorNode(const HashTable *parent) : parent(parent), pos(0), startPos(0)
+        {
+            bool ok = false;
+
+            if (!parent->m_Buckets)
+            {
+                // Nothing useful to be done here, this is a pointless iterator
+                value = parent->m_Default;
+                return;
+            }
+
+            // find first set node for our initial iteration
+            while (true)
+            {
+                if (parent->m_Buckets[pos].set)
+                {
+                    value = parent->m_Buckets[pos].value;
+                    ok = true;
+                    break;
+                }
+
+                pos = nextPos();
+                if (pos == startPos)
+                {
+                    break;
+                }
+            }
+
+            if (!ok)
+            {
+                value = parent->m_Default;
+            }
+            else
+            {
+                startPos = pos;
+            }
+        }
+
+        V value;
+        size_t startPos;
+        size_t pos;
+        const HashTable *parent;
+
+        size_t nextPos() const
+        {
+            // wrap around
+            size_t r = (pos + 1) % parent->m_nBuckets;
+            return r;
+        }
+
+        size_t prevPos() const
+        {
+            size_t r = 0;
+            if (!pos)
+            {
+                // wrap around
+                r = parent->m_nBuckets - 1;
+            }
+            else
+            {
+                r = pos - 1;
+            }
+
+            return r;
+        }
+
+        IteratorNode *next()
+        {
+            while (true)
+            {
+                pos = nextPos();
+                if (pos == startPos)
+                {
+                    return nullptr;
+                }
+                else if (parent->m_Buckets[pos].set)
+                {
+                    value = parent->m_Buckets[pos].value;
+                    return this;
+                }
+            }
+        }
+
+        IteratorNode *previous()
+        {
+            while (true)
+            {
+                pos = prevPos();
+                if (pos == startPos)
+                {
+                    return nullptr;
+                }
+                else if (parent->m_Buckets[pos].set)
+                {
+                    value = parent->m_Buckets[pos].value;
+                    return this;
+                }
+            }
+        }
+    };
+
+   public:
+    typedef ::Iterator<V, IteratorNode> Iterator;
+    typedef typename Iterator::Const ConstIterator;
+
+    HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0), m_Begin(nullptr)
     {
     }
 
@@ -146,7 +265,14 @@ class HashTable
         b->set = true;
         b->key = k;
         b->value = v;
+        bool wasEmpty = m_nItems == 0;
         ++m_nItems;
+
+        if (wasEmpty)
+        {
+            // Re-create begin node now that we have an item.
+            m_Begin = new IteratorNode(this);
+        }
 
         return true;
     }
@@ -203,20 +329,29 @@ class HashTable
         return m_nItems;
     }
 
+    Iterator begin()
+    {
+        return m_nItems ? Iterator(m_Begin) : end();
+    }
+
+    ConstIterator begin() const
+    {
+        return m_nItems ? ConstIterator(m_Begin) : end();
+    }
+
+    Iterator end()
+    {
+        return Iterator(0);
+    }
+
+    ConstIterator end() const
+    {
+        return ConstIterator(0);
+    }
+
   private:
     /// Probe multiplier - 2 for quadratic probing.
     static const bool QuadraticProbe = true;
-
-    struct bucket
-    {
-        bucket() : key(), value(), set(false)
-        {
-        }
-
-        K key;
-        V value;
-        bool set;
-    };
 
     void check()
     {
@@ -337,6 +472,8 @@ class HashTable
     size_t m_nBuckets;
     size_t m_nItems;
     size_t m_nMask;
+
+    IteratorNode *m_Begin;
 };
 
 /** @} */

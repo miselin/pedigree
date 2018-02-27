@@ -182,6 +182,11 @@ class Tree
      *\param[in] value the element */
     void insert(K key, E value)
     {
+        if (contains(key))
+        {
+            return;  // Key already in tree.
+        }
+
         Node *n = new Node;
         n->key = key;
         n->element = value;
@@ -192,18 +197,14 @@ class Tree
 
         bool inserted = false;
 
-        if (lookup(key))
-        {
-            delete n;
-            return;  // Key already in tree.
-        }
-
         if (root == 0)
         {
             root = n;  // We are the root node.
 
             if (m_Begin)
+            {
                 delete m_Begin;
+            }
             m_Begin = new IteratorNode(root, 0, nItems);
         }
         else
@@ -245,7 +246,9 @@ class Tree
             {
                 int b = balanceFactor(currentNode);
                 if ((b < -1) || (b > 1))
+                {
                     rebalanceNode(currentNode);
+                }
                 currentNode = currentNode->parent;
             }
         }
@@ -268,6 +271,23 @@ class Tree
                 n = n->rightChild;
         }
         return 0;
+    }
+
+    /** Reports whether a given key exists in the tree.
+     *\return true if the key exists, false otherwise. */
+    bool contains(K key) const
+    {
+        Node *n = root;
+        while (n != 0)
+        {
+            if (n->key == key)
+                return true;
+            else if (n->key > key)
+                n = n->leftChild;
+            else
+                n = n->rightChild;
+        }
+        return false;
     }
 
     /** Attempts to remove an element with the given key. */

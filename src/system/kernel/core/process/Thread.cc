@@ -206,17 +206,7 @@ Thread::~Thread()
     // Clean up allocated stacks at each level.
     for (size_t i = 0; i < MAX_NESTED_EVENTS; i++)
     {
-        if (m_StateLevels[i].m_pKernelStack)
-            VirtualAddressSpace::getKernelAddressSpace().freeStack(
-                m_StateLevels[i].m_pKernelStack);
-        else if (m_StateLevels[i].m_pAuxillaryStack)
-            VirtualAddressSpace::getKernelAddressSpace().freeStack(
-                m_StateLevels[i].m_pAuxillaryStack);
-        if (m_StateLevels[i].m_pUserStack && m_pParent)
-            // Can't use Processor::getCurrent.. as by the time we're called
-            // we may have switched address spaces to allow the thread to die.
-            m_pParent->getAddressSpace()->freeStack(
-                m_StateLevels[i].m_pUserStack);
+        cleanStateLevel(i);
     }
 
     // Clean up TLS base.
@@ -234,7 +224,7 @@ Thread::~Thread()
 
         // Give the address space back to the process.
         uintptr_t base = reinterpret_cast<uintptr_t>(m_pTlsBase);
-        m_pParent->m_Lock.acquire();
+        m_pParent->m_Lock.acquire(true);
         if (m_pParent->getAddressSpace()->getDynamicStart())
             m_pParent->getDynamicSpaceAllocator().free(base, THREAD_TLS_SIZE);
         else
@@ -453,8 +443,10 @@ SchedulerState &Thread::pushState()
     return *(m_StateLevels[m_nStateLevel - 1].m_State);
 }
 
-void Thread::popState()
+void Thread::popState(bool clean)
 {
+    size_t origStateLevel = m_nStateLevel;
+
     if (m_nStateLevel == 0)
     {
         ERROR("Thread: Potential error: popStack() called with state level 0!");
@@ -464,6 +456,11 @@ void Thread::popState()
     m_nStateLevel--;
 
     setKernelStack();
+
+    if (clean)
+    {
+        cleanStateLevel(origStateLevel);
+    }
 }
 
 VirtualAddressSpace::Stack *Thread::getStateUserStack()
@@ -885,6 +882,33 @@ void Thread::setScheduler(class PerProcessorScheduler *pScheduler)
 PerProcessorScheduler *Thread::getScheduler() const
 {
     return m_pScheduler;
+}
+
+void Thread::cleanStateLevel(size_t level)
+{
+    if (m_StateLevels[level].m_pKernelStack)
+    {
+        VirtualAddressSpace::getKernelAddressSpace().freeStack(
+            m_StateLevels[level].m_pKernelStack);
+        m_StateLevels[level].m_pKernelStack = 0;
+    }
+    else if (m_StateLevels[level].m_pAuxillaryStack)
+    {
+        VirtualAddressSpace::getKernelAddressSpace().freeStack(
+            m_StateLevels[level].m_pAuxillaryStack);
+        m_StateLevels[level].m_pAuxillaryStack = 0;
+    }
+
+    if (m_StateLevels[level].m_pUserStack && m_pParent)
+    {
+        // Can't use Processor::getCurrent.. as by the time we're called
+        // we may have switched address spaces to allow the thread to die.
+        m_pParent->getAddressSpace()->freeStack(
+            m_StateLevels[level].m_pUserStack);
+        m_StateLevels[level].m_pUserStack = 0;
+    }
+
+    m_StateLevels[level].m_InhibitMask.reset();
 }
 
 #endif  // THREADS

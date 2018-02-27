@@ -115,38 +115,6 @@ class JenkinsHashedSymbol
     uint32_t hash_;
 };
 
-class MurmurHashedSymbol
-{
-  public:
-    MurmurHashedSymbol() : str_()
-    {
-    }
-
-    MurmurHashedSymbol(const String *str) : str_(str), hash_(0)
-    {
-        hash_ = murmur_hash(*str_);
-    }
-
-    uint32_t hash() const
-    {
-        return hash_;
-    }
-
-    bool operator==(const MurmurHashedSymbol &other) const
-    {
-        return *str_ == *other.str_;
-    }
-
-    bool operator!=(const MurmurHashedSymbol &other) const
-    {
-        return *str_ != *other.str_;
-    }
-
-  private:
-    const String *str_;
-    uint32_t hash_;
-};
-
 extern template class RadixTree<int64_t>;
 extern template class HashTable<ElfHashedSymbol, int64_t>;
 extern template class HashTable<JenkinsHashedSymbol, int64_t>;

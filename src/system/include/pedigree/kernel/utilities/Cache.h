@@ -391,7 +391,7 @@ class Cache
     static Spinlock m_AllocatorLock;
 
     /** Lock for this cache. */
-    Mutex m_Lock;
+    Spinlock m_Lock;
 
     /** Callback to be called in the write-back timer handler. */
     writeback_t m_Callback;

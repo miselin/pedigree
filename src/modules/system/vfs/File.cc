@@ -154,6 +154,10 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         }
         if (buff == FILE_BAD_BLOCK)
         {
+#ifdef THREADS
+            m_Lock.release();
+#endif
+
             buff = readBlock(block * blockSize);
             if (!buff)
             {
@@ -163,6 +167,10 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
                     << ")");
                 return n;
             }
+
+#ifdef THREADS
+            m_Lock.acquire();
+#endif
             if (!m_bDirect)
             {
                 setCachedPage(block, buff);
@@ -212,6 +220,10 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         }
         if (buff == FILE_BAD_BLOCK)
         {
+#ifdef THREADS
+            m_Lock.release();
+#endif
+
             buff = readBlock(block * blockSize);
             if (!buff)
             {
@@ -221,6 +233,11 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
                     << ")");
                 return n;
             }
+
+#ifdef THREADS
+            m_Lock.acquire();
+#endif
+
             if (!m_bDirect)
             {
                 setCachedPage(block, buff);

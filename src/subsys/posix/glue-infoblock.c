@@ -17,19 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// Contains implementations of syscalls that use global info blocks.
+// Contains implementations of syscalls that use global info blocks instead of
+// native syscalls proper.
 
-#include "posixSyscallNumbers.h"
-
-#include "errno.h"
-#define errno (*__errno())
-extern int *__errno(void);
-
-#include "posix-syscall.h"
-
-#include "newlib.h"
-
+#include <errno.h>
+#include <stdint.h>
 #include <string.h>
+#include <unistd.h>
+#include <syslog.h>
+#include <time.h>
+#include <sys/time.h>
+
+#include "syscalls/posixSyscallNumbers.h"
+#include "syscalls/posix-syscall.h"
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/InfoBlock.h"
@@ -58,28 +58,7 @@ static void getInfoBlock()
     }
 }
 
-int gettimeofday(struct timeval *tv, void *tz)
-{
-    CHECK_INFO_BLOCK;
-    if (!hasInfoBlock)
-        return syscall2(POSIX_GETTIMEOFDAY, (long) tv, (long) tz);
-
-    if (!tv)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-
-    // 'now' is in nanoseconds.
-    /// \todo use tz
-    uint64_t now = infoBlock->now;
-    tv->tv_sec = now / 1000000000U;
-    tv->tv_usec = now / 1000U;
-
-    return 0;
-}
-
-int clock_gettime(clockid_t clock_id, struct timespec *tp)
+int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
@@ -99,30 +78,77 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
     return 0;
 }
 
-int getpid()
+int __vdso_gettimeofday(struct timeval *tv, void *tz)
 {
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
-        return (long) syscall0(POSIX_GETPID);
+        return syscall2(POSIX_GETTIMEOFDAY, (long) tv, (long) tz);
 
-    /// \todo this would make more sense on a process-specific infoblock, but
-    ///       we don't have that yet.
-    return infoBlock->pid;
-}
-
-int uname(struct utsname *n)
-{
-    CHECK_INFO_BLOCK;
-    if (!hasInfoBlock)
+    if (!tv)
+    {
+        errno = EINVAL;
         return -1;
+    }
 
-    if (!n)
-        return -1;
+    // 'now' is in nanoseconds.
+    /// \todo use tz
+    uint64_t now = infoBlock->now;
+    tv->tv_sec = now / 1000000000U;
+    tv->tv_usec = now / 1000U;
 
-    strcpy(n->sysname, infoBlock->sysname);
-    strcpy(n->release, infoBlock->release);
-    strcpy(n->version, infoBlock->version);
-    strcpy(n->machine, infoBlock->machine);
-    strcpy(n->nodename, "pedigree.local");
+    syslog(LOG_INFO, "VDSO -> gettimeofday");
     return 0;
 }
+
+int __vdso_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *tcache)
+{
+    if (cpu)
+    {
+        *cpu = 0;
+    }
+
+    if (node)
+    {
+        *node = 0;
+    }
+
+    return 0;
+}
+
+time_t __vdso_time(time_t *tloc)
+{
+    CHECK_INFO_BLOCK;
+    if (!hasInfoBlock)
+    {
+        // Fall back to gettimeofday
+        struct timeval tv;
+        int r = __vdso_gettimeofday(&tv, NULL);
+        if (r < 0)
+        {
+            return r;
+        }
+
+        return tv.tv_sec;
+    }
+
+    if (tloc)
+    {
+        *tloc = infoBlock->now_s;
+    }
+
+    return infoBlock->now_s;
+}
+
+__asm__(".symver __vdso_clock_gettime,__vdso_clock_gettime@LINUX_2.6");
+__asm__(".symver __vdso_gettimeofday,__vdso_gettimeofday@LINUX_2.6");
+__asm__(".symver __vdso_getcpu,__vdso_getcpu@LINUX_2.6");
+__asm__(".symver __vdso_time,__vdso_time@LINUX_2.6");
+
+int clock_gettime(clockid_t, struct timespec *)
+    __attribute__((weak, alias("__vdso_clock_gettime")));
+int gettimeofday(struct timeval *, void *)
+    __attribute__((weak, alias("__vdso_gettimeofday")));
+int getcpu(unsigned *, unsigned *, struct getcpu_cache *)
+    __attribute__((weak, alias("__vdso_getcpu")));
+time_t time(time_t *)
+    __attribute__((weak, alias("__vdso_time")));

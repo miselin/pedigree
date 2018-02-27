@@ -329,8 +329,7 @@ MemoryMappedObject *MemoryMappedFile::clone()
         m_Permissions);
     pResult->m_Mappings = m_Mappings;
 
-    for (Tree<uintptr_t, uintptr_t>::Iterator it = m_Mappings.begin();
-         it != m_Mappings.end(); ++it)
+    for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
     {
         // Bump reference count on backing file page if needed.
         size_t fileOffset = (it.key() - m_Address) + m_Offset;
@@ -374,10 +373,10 @@ MemoryMappedObject *MemoryMappedFile::split(uintptr_t at)
     // Fix up mapping metadata.
     for (uintptr_t virt = at; virt < oldEnd; virt += pageSz)
     {
-        physical_uintptr_t old = m_Mappings.lookup(virt);
-        m_Mappings.remove(virt);
+        physical_uintptr_t old = getMapping(virt);
+        untrackMapping(virt);
 
-        pResult->m_Mappings.insert(virt, old);
+        pResult->trackMapping(virt, old);
     }
 
     return pResult;
@@ -419,7 +418,7 @@ bool MemoryMappedFile::remove(size_t length)
             va.getMapping(v, phys, flags);
             va.unmap(v);
 
-            physical_uintptr_t p = m_Mappings.lookup(virt);
+            physical_uintptr_t p = getMapping(virt);
             if (p == ~0UL)
             {
                 size_t fileOffset = (virt - oldStart) + oldOffset;
@@ -435,7 +434,7 @@ bool MemoryMappedFile::remove(size_t length)
                 PhysicalMemoryManager::instance().freePage(phys);
         }
 
-        m_Mappings.remove(virt);
+        untrackMapping(virt);
     }
 
     return false;
@@ -452,8 +451,7 @@ void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms)
     else
     {
         // Adjust any existing mappings in this object.
-        for (Tree<uintptr_t, uintptr_t>::Iterator it = m_Mappings.begin();
-             it != m_Mappings.end(); ++it)
+        for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
         {
             void *v = reinterpret_cast<void *>(it.key());
             if (va.isMapped(v))
@@ -545,7 +543,7 @@ void MemoryMappedFile::sync(uintptr_t at, bool async)
 
         size_t fileOffset = (at - m_Address) + m_Offset;
 
-        physical_uintptr_t p = m_Mappings.lookup(at);
+        physical_uintptr_t p = getMapping(at);
         if (p == ~0UL)
         {
             m_pBacking->sync(fileOffset, async);
@@ -580,7 +578,7 @@ void MemoryMappedFile::invalidate(uintptr_t at)
     size_t fileOffset = (at - m_Address) + m_Offset;
 
     // Check for already-invalidated.
-    physical_uintptr_t p = m_Mappings.lookup(at);
+    physical_uintptr_t p = getMapping(at);
     if (p == ~0UL)
         return;
     else
@@ -592,7 +590,7 @@ void MemoryMappedFile::invalidate(uintptr_t at)
             // Clean up old...
             va.unmap(v);
             PhysicalMemoryManager::instance().freePage(p);
-            m_Mappings.remove(at);
+            untrackMapping(at);
 
             // Get new...
             physical_uintptr_t newBacking =
@@ -606,7 +604,7 @@ void MemoryMappedFile::invalidate(uintptr_t at)
 
             // Bring in the new backing page.
             va.map(newBacking, v, VirtualAddressSpace::Shared | extraFlags);
-            m_Mappings.insert(at, ~0UL);
+            trackMapping(at, ~0UL);
         }
     }
 }
@@ -622,8 +620,7 @@ void MemoryMappedFile::unmap()
     if (!m_Mappings.count())
         return;
 
-    for (Tree<uintptr_t, uintptr_t>::Iterator it = m_Mappings.begin();
-         it != m_Mappings.end(); ++it)
+    for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
     {
         void *v = reinterpret_cast<void *>(it.key());
         if (!va.isMapped(v))
@@ -723,7 +720,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
             return false;
         }
 
-        m_Mappings.insert(address, ~0);
+        trackMapping(address, ~0);
     }
     else
     {
@@ -734,7 +731,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
 
             // One less reference to the backing page.
             m_pBacking->returnPhysicalPage(fileOffset);
-            m_Mappings.remove(address);
+            untrackMapping(address);
         }
 
         // Okay, map in the new page, and copy across the backing file data.
@@ -762,7 +759,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
                 pageSz - nRead - 1);
         }
 
-        m_Mappings.insert(address, newPhys);
+        trackMapping(address, newPhys);
     }
 
     return true;
@@ -785,7 +782,7 @@ bool MemoryMappedFile::compact()
         // Yes - can we get any dirty pages?
         for (uintptr_t addr = base; addr < end; addr += pageSz)
         {
-            physical_uintptr_t p = m_Mappings.lookup(addr);
+            physical_uintptr_t p = getMapping(addr);
             if (p != ~0UL)
                 continue;
 
@@ -808,7 +805,7 @@ bool MemoryMappedFile::compact()
 
             // Unpin the page, allowing the cache subsystem to evict it.
             m_pBacking->returnPhysicalPage(fileOffset);
-            m_Mappings.remove(addr);
+            untrackMapping(addr);
 
             bReleased = true;
         }
@@ -819,7 +816,7 @@ bool MemoryMappedFile::compact()
     {
         for (uintptr_t addr = base; addr < end; addr += pageSz)
         {
-            physical_uintptr_t p = m_Mappings.lookup(addr);
+            physical_uintptr_t p = getMapping(addr);
             if (p != ~0UL)
                 continue;
 
@@ -839,13 +836,28 @@ bool MemoryMappedFile::compact()
 
             // Unpin the page, allowing the cache subsystem to evict it.
             m_pBacking->returnPhysicalPage(fileOffset);
-            m_Mappings.remove(addr);
+            untrackMapping(addr);
 
             bReleased = true;
         }
     }
 
     return bReleased;
+}
+
+void MemoryMappedFile::trackMapping(uintptr_t addr, physical_uintptr_t phys)
+{
+    m_Mappings.insert(addr, phys);
+}
+
+void MemoryMappedFile::untrackMapping(uintptr_t addr)
+{
+    m_Mappings.remove(addr);
+}
+
+physical_uintptr_t MemoryMappedFile::getMapping(uintptr_t addr)
+{
+    return m_Mappings.lookup(addr);
 }
 
 MemoryMapManager::MemoryMapManager() : m_MmObjectLists(), m_Lock()

@@ -282,6 +282,11 @@ class Process
         m_State = Terminating;
     }
 
+    void trackHeap(ssize_t nBytes)
+    {
+        m_Metadata.heapUsage += nBytes;
+    }
+
     void trackPages(ssize_t nVirtual, ssize_t nPhysical, ssize_t nShared)
     {
         m_Metadata.virtualPages += nVirtual;
@@ -354,6 +359,10 @@ class Process
     }
 
     /** Get process usage. */
+    ssize_t getHeapUsage() const
+    {
+        return m_Metadata.heapUsage;
+    }
     ssize_t getVirtualPageCount() const
     {
         return m_Metadata.virtualPages;
@@ -493,6 +502,8 @@ class Process
         {
         }
 
+        /// Bytes used in the kernel heap by this process.
+        ssize_t heapUsage;
         /// Virtual address space consumed, including that which would trigger
         /// a successful trap to page data in.
         ssize_t virtualPages;

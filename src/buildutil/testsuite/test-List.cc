@@ -199,6 +199,44 @@ TEST(PedigreeList, ErasingEnd)
     EXPECT_EQ(x.count(), 0);
 }
 
+TEST(PedigreeList, ErasingAll)
+{
+    List<int> x;
+    x.pushBack(2);
+    x.pushBack(4);
+    x.pushBack(6);
+    x.pushBack(8);
+
+    for (List<int>::Iterator it = x.begin(); it != x.end();)
+    {
+        it = x.erase(it);
+    }
+
+    EXPECT_EQ(x.count(), 0);
+}
+TEST(PedigreeList, ErasingSome)
+{
+    List<int> x;
+    x.pushBack(2);
+    x.pushBack(3);
+    x.pushBack(4);
+    x.pushBack(5);
+
+    for (List<int>::Iterator it = x.begin(); it != x.end();)
+    {
+        if (((*it) % 2) == 0)
+        {
+            it = x.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    EXPECT_EQ(x.count(), 2);
+}
+
 TEST(PedigreeList, ErasingReverse)
 {
     List<int> x;

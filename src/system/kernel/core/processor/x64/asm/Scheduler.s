@@ -186,12 +186,13 @@ _ZN9Processor10jumpKernelEPVmmmmmmm:
     mov     qword [r10], 1
 .no_lock:
 
-    ;; Push return address.
+    ;; Create new stack frame
+    xor     rbp, rbp
+
+    ;; Push return address to emulate a call.
     mov     r10, _ZN6Thread12threadExitedEv
     push    r10
 
-    ;; New stack frame.
-    xor     rbp, rbp
     ;; Enable interrupts and jump.
     sti
     jmp     rax
@@ -258,10 +259,14 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64Scheduler
     ; Release the lock.
     mov qword [rdx], 1
 .no_lock:
-    
     ; Load new stack and call deleteThread from it - RSI already set from above
     mov rsp, [rcx + 80]
-    push rcx
+
+    ; Switching stacks, entirely new stack frame. When the thread is destroyed
+    ; the stack may be freed, resulting in an inaccessible frame anyway.
+    xor rbp, rbp
+
+    push rcx  ; pass in new state for the replacement thread
     call _ZN21PerProcessorScheduler12deleteThreadEP6Thread
     pop rcx
     

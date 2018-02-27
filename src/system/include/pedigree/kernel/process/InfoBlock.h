@@ -31,6 +31,9 @@ struct InfoBlock
     /// Current timestamp in nanoseconds since the UNIX epoch.
     uint64_t now;
 
+    /// Current timestamp in seconds since the UNIX epoch.
+    uint64_t now_s;
+
     /// Current process' ID.
     size_t pid;
 

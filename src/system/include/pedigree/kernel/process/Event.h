@@ -24,6 +24,8 @@
 #include "pedigree/kernel/utilities/List.h"
 
 #ifdef THREADS
+#include "pedigree/kernel/Spinlock.h"
+
 class Thread;
 #endif
 
@@ -125,7 +127,13 @@ class Event
 
     /** Deregister a thread with this object. */
     void deregisterThread(Thread *thread);
+
+    /** Gets the count of threads with this event currently pending delivery. */
+    size_t pendingCount();
 #endif
+
+    /** Waits until this event is no longer in any thread queues. */
+    virtual void waitForDeliveries();
 
   protected:
     /** Handler address. */
@@ -143,6 +151,9 @@ class Event
 #ifdef THREADS
     /** Associated threads that have us in their queue. */
     List<Thread *> m_Threads;
+
+    /** Spinlock for controlling access to the thread list. */
+    Spinlock m_Lock;
 #endif
 };
 

@@ -389,6 +389,9 @@ inline long posix_translate_syscall(long which)
             pedigree_translation = POSIX_FGETXATTR;
             break;
         // ...
+        case SYS_time:
+            pedigree_translation = POSIX_TIME;
+            break;
         case SYS_futex:
             pedigree_translation = POSIX_FUTEX;
             break;

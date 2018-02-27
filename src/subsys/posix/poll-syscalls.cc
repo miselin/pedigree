@@ -230,9 +230,11 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     {
                         // Need to set up a PollEvent.
                         PollEvent *pEvent = new PollEvent(&sem, me, event, pFd->file);
-                        reentrancyLock.acquire();
                         pFd->file->monitor(
                             Processor::information().getCurrentThread(), pEvent);
+
+                        reentrancyLock.acquire();
+
                         events.pushBack(pEvent);
 
                         // Quickly check again now we've added the monitoring event,

@@ -34,7 +34,7 @@ enum AllocationTrace
     PageFree = 'X',
 };
 
-const int num_backtrace_entries = 5;
+const int num_backtrace_entries = 4;
 
 union AllocationTraceEntry
 {

@@ -36,6 +36,11 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/assert.h"
 
+#ifdef THREADS
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#endif
+
 #ifdef MULTIPROCESSOR
 #define ATOMIC_MEMORY_ORDER __ATOMIC_RELEASE
 #define ATOMIC_CAS_WEAK true
@@ -1098,6 +1103,13 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
 #endif
 #endif
 
+#ifdef THREADS
+    if (Processor::m_Initialised == 2)
+    {
+        Processor::information().getCurrentThread()->getParent()->trackHeap(nBytes);
+    }
+#endif
+
 #ifdef MEMORY_TRACING
     traceAllocation(
         reinterpret_cast<void *>(ret), MemoryTracing::Allocation, origSize);
@@ -1182,6 +1194,13 @@ void SlamAllocator::free(uintptr_t mem)
     size_t size =
         pCache->objectSize() - sizeof(AllocHeader) - sizeof(AllocFooter);
     ByteSet(reinterpret_cast<void *>(mem), 0xAB, size);
+#endif
+
+#ifdef THREADS
+    if (Processor::m_Initialised == 2)
+    {
+        Processor::information().getCurrentThread()->getParent()->trackHeap(-pCache->objectSize());
+    }
 #endif
 
     // Free now.

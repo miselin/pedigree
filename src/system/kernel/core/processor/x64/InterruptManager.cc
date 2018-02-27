@@ -254,7 +254,7 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
 
             uint64_t cr2;
             asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
-            NOTICE_NOLOCK("  -> #DF possibly caused by #PF at " << cr2 << ".");
+            NOTICE_NOLOCK("  -> #DF possibly caused by #PF at " << Hex << cr2 << ".");
         }
 
         // Write the failure into the kernel log before launching the debugger.

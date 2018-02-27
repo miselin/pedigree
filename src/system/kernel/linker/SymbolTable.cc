@@ -28,45 +28,6 @@
 #define RAII_LOCK
 #endif
 
-class MurmurHashedSymbol
-{
-  public:
-    MurmurHashedSymbol() : m_String()
-    {
-    }
-
-    MurmurHashedSymbol(const String &str) : m_String(str), m_Hash(0)
-    {
-        MurmurHash3_x86_32(static_cast<const char *>(m_String), m_String.length(), 0, &m_Hash);
-    }
-
-    const MurmurHashedSymbol &operator = (const MurmurHashedSymbol &other)
-    {
-        m_String = other.m_String;
-        m_Hash = other.m_Hash;
-        return *this;
-    }
-
-    uint32_t hash() const
-    {
-        return m_Hash;
-    }
-
-    bool operator==(const MurmurHashedSymbol &other) const
-    {
-        return m_String == other.m_String;
-    }
-
-    bool operator!=(const MurmurHashedSymbol &other) const
-    {
-        return m_String != other.m_String;
-    }
-
-  private:
-    String m_String;
-    uint32_t m_Hash;
-};
-
 SymbolTable::SymbolTable(Elf *pElf)
     : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
       m_pOriginatingElf(pElf)
@@ -223,4 +184,40 @@ SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p)
     tree = SharedPointer<symbolTree_t>::allocate();
     m_LocalSymbols.insert(p, tree);
     return tree;
+}
+
+MurmurHashedSymbol::MurmurHashedSymbol() : m_String()
+{
+}
+
+MurmurHashedSymbol::MurmurHashedSymbol(const String &str) : m_String(str), m_Hash(0)
+{
+    MurmurHash3_x86_32(static_cast<const char *>(m_String), m_String.length(), 0, &m_Hash);
+}
+
+MurmurHashedSymbol::MurmurHashedSymbol(const String *str) : m_String(*str), m_Hash(0)
+{
+    MurmurHash3_x86_32(static_cast<const char *>(m_String), m_String.length(), 0, &m_Hash);
+}
+
+const MurmurHashedSymbol &MurmurHashedSymbol::operator = (const MurmurHashedSymbol &other)
+{
+    m_String = other.m_String;
+    m_Hash = other.m_Hash;
+    return *this;
+}
+
+uint32_t MurmurHashedSymbol::hash() const
+{
+    return m_Hash;
+}
+
+bool MurmurHashedSymbol::operator==(const MurmurHashedSymbol &other) const
+{
+    return m_String == other.m_String;
+}
+
+bool MurmurHashedSymbol::operator!=(const MurmurHashedSymbol &other) const
+{
+    return m_String != other.m_String;
 }

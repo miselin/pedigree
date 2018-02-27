@@ -1490,7 +1490,7 @@ int posix_ioctl(int fd, int command, void *buf)
             F_NOTICE(" -> VT_OPENQRY (stubbed)");
 
             int *ibuf = reinterpret_cast<int *>(buf);
-            *ibuf = 2;  // tty2 is free (maybe)
+            *ibuf = 1;  // tty2 is free (maybe)
 
             return 0;
         }

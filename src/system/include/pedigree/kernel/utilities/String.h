@@ -40,7 +40,7 @@ class String
   public:
     /** The default constructor does nothing */
     String();
-    explicit String(const char *s);
+    String(const char *s);
     String(const char *s, size_t length);
     String(const String &x);
     String(String &&x);

@@ -149,8 +149,10 @@ class Thread
     SchedulerState &pushState();
 
     /** Decreases the state nesting level by one, popping both the state stack
-       and the inhibit mask stack.*/
-    void popState();
+       and the inhibit mask stack. If clean == true, the stacks and other
+       resources will also be cleaned up. Pass clean = false if losing the
+       stack would be dangerous in a particular context. */
+    void popState(bool clean = true);
 
     VirtualAddressSpace::Stack *getStateUserStack();
 
@@ -430,6 +432,9 @@ class Thread
     Thread(const Thread &);
     /** Assignment operator */
     Thread &operator=(const Thread &);
+
+    /** Cleans up the given state level. */
+    void cleanStateLevel(size_t level);
 
     /** A level of thread state */
     struct StateLevel

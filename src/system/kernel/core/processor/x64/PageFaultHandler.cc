@@ -144,11 +144,11 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     static LargeStaticString sError;
     sError.clear();
     sError.append("Page Fault Exception at 0x");
-    sError.append(cr2, 16, 8, '0');
+    sError.append(cr2, 16, 16, '0');
     sError.append(", EIP 0x");
-    sError.append(state.getInstructionPointer(), 16, 8, '0');
+    sError.append(state.getInstructionPointer(), 16, 16, '0');
     sError.append(", error code 0x");
-    sError.append(code, 16, 4, '0');
+    sError.append(code, 16, 8, '0');
 
     //  Extract error code information
     static LargeStaticString sCode;

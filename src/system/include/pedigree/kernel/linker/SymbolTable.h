@@ -155,4 +155,23 @@ class SymbolTable
 #endif
 };
 
+class MurmurHashedSymbol
+{
+  public:
+    MurmurHashedSymbol();
+    MurmurHashedSymbol(const String &str);
+    MurmurHashedSymbol(const String *str);
+
+    const MurmurHashedSymbol &operator = (const MurmurHashedSymbol &other);
+
+    uint32_t hash() const;
+
+    bool operator==(const MurmurHashedSymbol &other) const;
+    bool operator!=(const MurmurHashedSymbol &other) const;
+
+  private:
+    String m_String;
+    uint32_t m_Hash;
+};
+
 #endif

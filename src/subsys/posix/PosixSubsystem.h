@@ -251,7 +251,10 @@ class PosixSubsystem : public Subsystem
         ~SignalHandler()
         {
             if (pEvent)
+            {
+                pEvent->waitForDeliveries();
                 delete pEvent;
+            }
         }
 
         SignalHandler &operator=(const SignalHandler &s)
