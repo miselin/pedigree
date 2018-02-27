@@ -100,7 +100,7 @@ static err_t netifInit(struct netif *netif)
 }
 
 NetworkStack::NetworkStack()
-    : RequestQueue(), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
+    : RequestQueue("Network Stack"), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
 #ifdef UTILITY_LINUX
     , m_Lock(false)
 #endif

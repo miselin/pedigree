@@ -23,18 +23,23 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 #include "pedigree/kernel/utilities/assert.h"
 
-RequestQueue::RequestQueue()
+RequestQueue::RequestQueue(const String &name)
     : m_Stop(false),
 #ifdef THREADS
       m_RequestQueueMutex(false), m_pThread(0), m_Halted(false),
 #endif
-      m_nMaxAsyncRequests(256), m_nAsyncRequests(0)
+      m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_Name(name)
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
         m_pRequestQueue[i] = 0;
+
+#ifdef THREADS
+    m_OverrunChecker.queue = this;
+#endif
 }
 
 RequestQueue::~RequestQueue()
@@ -59,6 +64,13 @@ void RequestQueue::initialise()
     m_pThread =
         new Thread(pProcess, &trampoline, reinterpret_cast<void *>(this));
     m_Halted = false;
+
+    // Add our timer so we can figure out if we're not keeping up with synchronous requests
+    Timer *t = Machine::instance().getTimer();
+    if (t)
+    {
+        t->registerHandler(&m_OverrunChecker);
+    }
 #else
     WARNING("RequestQueue: This build does not support threads");
 #endif
@@ -70,7 +82,30 @@ void RequestQueue::destroy()
     // Halt the queue - we're done.
     halt();
 
-/// \todo We really should clean up the queue.
+    // Clean up the queue in full.
+    m_RequestQueueMutex.acquire();
+    for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; ++i)
+    {
+        Request *pRequest = m_pRequestQueue[i];
+
+        // No more requests at this priority, we're cleaning up.
+        m_pRequestQueue[i] = 0;
+
+        while (pRequest)
+        {
+            // Cancel the request, let the owner clean up.
+            pRequest->bReject = true;
+            pRequest->mutex.release();
+            pRequest = pRequest->next;
+        }
+    }
+    m_RequestQueueMutex.release();
+
+    Timer *t = Machine::instance().getTimer();
+    if (t)
+    {
+        t->unregisterHandler(&m_OverrunChecker);
+    }
 #endif
 }
 
@@ -154,6 +189,8 @@ uint64_t RequestQueue::addRequest(
         pReq->pThread->addRequest(pReq);
     }
 
+    ++m_nTotalRequests;
+
     // One more item now available.
     m_RequestQueueCondition.signal();
     m_RequestQueueMutex.release();
@@ -174,6 +211,10 @@ uint64_t RequestQueue::addRequest(
 
     // Wait for the request to be satisfied. This should sleep the thread.
     pReq->mutex.acquire();
+
+    m_RequestQueueMutex.acquire();
+    --m_nTotalRequests;
+    m_RequestQueueMutex.release();
 
     // Don't use the Thread object if it may be already freed
     if (!pReq->bReject)
@@ -259,7 +300,7 @@ uint64_t RequestQueue::addAsyncRequest(
     // already overloaded with async requests.
     if (m_nAsyncRequests >= m_nMaxAsyncRequests)
     {
-        ERROR("RequestQueue: a request queue is not keeping up with demand for "
+        ERROR("RequestQueue: '" << m_Name << "' is not keeping up with demand for "
               "async requests");
         ERROR(
             " -> priority=" << priority << ", p1=" << Hex << p1 << ", p2=" << p2
@@ -434,6 +475,31 @@ int RequestQueue::work()
     return 0;
 #endif
 }
+
+#ifdef THREADS
+void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta, InterruptState &)
+{
+    m_Tick += delta;
+    if (delta < Time::Multiplier::SECOND)
+    {
+        return;
+    }
+
+    m_Tick -= Time::Multiplier::SECOND;
+
+    queue->m_RequestQueueMutex.acquire();
+    size_t lastSize = m_LastQueueSize;
+    size_t currentSize = queue->m_nTotalRequests;
+    m_LastQueueSize = currentSize;
+    queue->m_RequestQueueMutex.release();
+
+    if (lastSize < currentSize)
+    {
+        FATAL("RequestQueue '" << queue->m_Name << "' is NOT keeping up with incoming requests [1s ago we had " << lastSize << " requests, now have " << currentSize << "]!");
+    }
+
+}
+#endif
 
 bool RequestQueue::isRequestValid(const Request *r)
 {

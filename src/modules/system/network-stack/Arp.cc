@@ -27,7 +27,7 @@
 
 Arp Arp::arpInstance;
 
-Arp::Arp() : RequestQueue(), m_ArpCache(), m_ArpRequests()
+Arp::Arp() : RequestQueue("ARP"), m_ArpCache(), m_ArpRequests()
 {
     // By now threading should be active, as we're a module.
     initialise();

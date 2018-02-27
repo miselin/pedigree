@@ -23,6 +23,10 @@
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#ifdef THREADS
+#include "pedigree/kernel/machine/TimerHandler.h"
+#endif
 
 class Thread;
 
@@ -36,9 +40,27 @@ class RequestQueue
 {
     friend class Thread;
 
+#ifdef THREADS
+    class RequestQueueOverrunChecker : public TimerHandler
+    {
+        friend class RequestQueue;
+
+        RequestQueueOverrunChecker() : m_LastQueueSize(0), m_Tick(0), queue(0)
+        {};
+
+        private:
+            virtual void timer(uint64_t delta, InterruptState &state);
+
+            size_t m_LastQueueSize;
+            uint64_t m_Tick;
+
+            RequestQueue *queue;
+    };
+#endif
+
   public:
     /** Creates a new RequestQueue. */
-    RequestQueue();
+    RequestQueue(const String &name);
     virtual ~RequestQueue();
 
     // Action to perform when a duplicate request is found in the queue.
@@ -181,10 +203,16 @@ class RequestQueue
 
     bool m_Halted;
     Mutex m_HaltAcknowledged;
+
+    RequestQueueOverrunChecker m_OverrunChecker;
 #endif
 
     size_t m_nMaxAsyncRequests;
     size_t m_nAsyncRequests;
+
+    size_t m_nTotalRequests;
+
+    String m_Name;
 };
 
 #endif
