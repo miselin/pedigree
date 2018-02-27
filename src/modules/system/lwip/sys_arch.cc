@@ -252,7 +252,7 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
     }
     else
     {
-        timeout * Time::Multiplier::MILLISECOND;
+        timeoutMs = timeout * Time::Multiplier::MILLISECOND;
     }
 
     *msg = (*mbox)->buffer.read(timeoutMs);
@@ -329,6 +329,8 @@ sys_prot_t sys_arch_protect()
 #ifdef UTILITY_LINUX
     while (!g_Protection.acquire(true))
         ;
+
+    return 0;
 #else
     bool was = Processor::getInterrupts();
     Processor::setInterrupts(false);
