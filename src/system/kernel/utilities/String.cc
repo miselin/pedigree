@@ -452,6 +452,42 @@ List<SharedPointer<String>> String::tokenise(char token)
     return list;
 }
 
+size_t String::Utf32ToUtf8(uint32_t utf32, char *utf8)
+{
+    // clear out the string before conversion
+    ByteSet(utf8, 0, 4);
+
+    size_t nbuf = 0;
+    if (utf32 <= 0x7F)
+    {
+        utf8[0] = utf32 & 0x7F;
+        nbuf = 1;
+    }
+    else if (utf32 <= 0x7FF)
+    {
+        utf8[0] = 0xC0 | ((utf32 >> 6) & 0x1F);
+        utf8[1] = 0x80 | (utf32 & 0x3F);
+        nbuf = 2;
+    }
+    else if (utf32 <= 0xFFFF)
+    {
+        utf8[0] = 0xE0 | ((utf32 >> 12) & 0x0F);
+        utf8[1] = 0x80 | ((utf32 >> 6) & 0x3F);
+        utf8[2] = 0x80 | (utf32 & 0x3F);
+        nbuf = 3;
+    }
+    else if (utf32 <= 0x10FFFF)
+    {
+        utf8[0] = 0xF0 | ((utf32 >> 18) & 0x07);
+        utf8[1] = 0x80 | ((utf32 >> 12) & 0x3F);
+        utf8[2] = 0x80 | ((utf32 >> 6) & 0x3F);
+        utf8[3] = 0x80 | (utf32 & 0x3F);
+        nbuf = 4;
+    }
+
+    return nbuf;
+}
+
 void String::tokenise(char token, List<SharedPointer<String>> &output)
 {
     const char *orig_buffer = extract();

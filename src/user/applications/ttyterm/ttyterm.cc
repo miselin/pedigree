@@ -193,7 +193,7 @@ void handle_input(Input::InputNotification &note)
             }
             else if (utf32 <= 0x10FFFF)
             {
-                buf[0] = 0xE0 | ((utf32 >> 18) & 0x07);
+                buf[0] = 0xF0 | ((utf32 >> 18) & 0x07);
                 buf[1] = 0x80 | ((utf32 >> 12) & 0x3F);
                 buf[2] = 0x80 | ((utf32 >> 6) & 0x3F);
                 buf[3] = 0x80 | (utf32 & 0x3F);
