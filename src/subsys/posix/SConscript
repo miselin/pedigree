@@ -67,9 +67,12 @@ if not env['posix_musl']:
         env.Depends(libc_objname, "crt")
         env.Depends(libc_objname, glue_objname)
         env.Depends(libc_objname, libpedigree_c_objname)
-        env.Depends(libpedigree_c_shobjname, libc_objname)
 else:
     libc_objname = builddir.Dir('musl').Dir('lib').File('libc.so')
+
+if env['build_libs']:
+    env.Depends(libpedigree_c_shobjname, libc_objname)
+    env.Depends(libvdso_shobjname, libc_objname)
 
 # To include new files just add to the list, or Glob("*.cpp")
 posix_files = [
@@ -244,6 +247,7 @@ vdso = vdso_env_clone.SharedLibrary(libvdso_shobjname, vdso_files[0],
                    '-Wl,--version-script,$VERSIONSCRIPT',
                    '-Wl,--hash-style=both',
                    '-Wl,-Bsymbolic',
+                   '-nostdlib',
                    ],
         VERSIONSCRIPT=vdso_files[1])
 

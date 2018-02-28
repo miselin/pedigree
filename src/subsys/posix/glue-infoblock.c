@@ -20,13 +20,14 @@
 // Contains implementations of syscalls that use global info blocks instead of
 // native syscalls proper.
 
-#include <errno.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <syslog.h>
 #include <time.h>
 #include <sys/time.h>
+
+#define POSIX_WITHOUT_ERRNO  // avoid any libc dependency
 
 #include "syscalls/posixSyscallNumbers.h"
 #include "syscalls/posix-syscall.h"
@@ -54,7 +55,6 @@ static void getInfoBlock()
     else
     {
         // Failed, but don't call this syscall again.
-        syslog(LOG_INFO, "infoblock: no info block available");
         infoBlock = (struct InfoBlock *) ~0U;
         hasInfoBlock = 0;
     }
@@ -64,15 +64,12 @@ int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
-        return syscall2(POSIX_CLOCK_GETTIME, clock_id, (long) tp);
-
-    if (!tp)
     {
-        errno = EINVAL;
-        return -1;
+        return syscall2(POSIX_CLOCK_GETTIME, clock_id, (long) tp);
     }
 
     // 'now' is in nanoseconds.
+    /// \todo only do this for CLOCK_MONOTONIC and CLOCK_REALTIME
     uint64_t now = infoBlock->now;
     tp->tv_sec = now / 1000000000U;
     tp->tv_nsec = now % 1000000000U;
@@ -84,21 +81,20 @@ int __vdso_gettimeofday(struct timeval *tv, void *tz)
 {
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
-        return syscall2(POSIX_GETTIMEOFDAY, (long) tv, (long) tz);
-
-    if (!tv)
     {
-        errno = EINVAL;
-        return -1;
+        return syscall2(POSIX_GETTIMEOFDAY, (long) tv, (long) tz);
     }
 
-    // 'now' is in nanoseconds.
-    /// \todo use tz
-    uint64_t now = infoBlock->now;
-    tv->tv_sec = now / 1000000000U;
-    tv->tv_usec = now / 1000U;
+    if (tv)
+    {
+        // 'now' is in nanoseconds.
+        uint64_t now = infoBlock->now;
+        tv->tv_sec = now / 1000000000U;
+        tv->tv_usec = now / 1000U;
+    }
 
-    syslog(LOG_INFO, "VDSO -> gettimeofday");
+    /// \todo use tz
+
     return 0;
 }
 
@@ -122,15 +118,8 @@ time_t __vdso_time(time_t *tloc)
     CHECK_INFO_BLOCK;
     if (!hasInfoBlock)
     {
-        // Fall back to gettimeofday
-        struct timeval tv;
-        int r = __vdso_gettimeofday(&tv, NULL);
-        if (r < 0)
-        {
-            return r;
-        }
-
-        return tv.tv_sec;
+        // syscall fallback
+        return syscall1(POSIX_TIME, (long) tloc);
     }
 
     if (tloc)

@@ -24,7 +24,11 @@
 // !
 #define SERVICE 1
 #define SERVICE_INIT
+#ifdef POSIX_WITHOUT_ERRNO
+#define SERVICE_ERROR int err
+#else
 #define SERVICE_ERROR errno
+#endif
 
 #include "pedigree/kernel/processor/syscall-stubs.h"
 
