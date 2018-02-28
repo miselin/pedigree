@@ -1,12 +1,14 @@
 
-// Linker script to make sure vdso has a single read-only loadable segment,
-// with all needed sections for loading at runtime.
+/**
+ * Linker script to make sure vdso has a single read-only loadable segment,
+ * with all needed sections for loading at runtime.
+ */
 
 SECTIONS
 {
     . = SIZEOF_HEADERS;
 
-    // typical sections for a shared object
+    /* typical sections for a shared object */
     .hash : { *(.hash) } :text
     .gnu.hash : { *(.gnu.hash) }
     .dynsym : { *(.dynsym) }
@@ -17,13 +19,13 @@ SECTIONS
 
     .note : { *(.note.*) } :text :note
 
-    // keep exception frame around
+    /* keep exception frame around */
     .eh_frame_hdr : { *(.eh_frame_hdr) } :text :eh_frame_hdr
     .eh_frame : { KEEP (*(.eh_frame)) } :text
 
     .dynamic : { *(.dynamic) } :text :dynamic
 
-    // all kinds of data
+    /* all kinds of data */
     .rodata : { *(.rodata*) } :text
     .data : {
           *(.data*)
@@ -35,14 +37,13 @@ SECTIONS
           *(.gnu.linkonce.b.*)
     }
 
-    . = ALIGN(0x100); // text away from data
+    . = ALIGN(0x100); /* text, stay away from data */
     .text : { *(.text*) } :text =0x90909090
 }
 
 PHDRS
 {
-    text            PT_LOAD     FLAGS(5) FILEHDR PHDRS; // r+x
-    dynamic         PT_DYNAMIC  FLAGS(4); // only r
-    note            PT_NOTE     FLAGS(4); // only r
+    text            PT_LOAD     FLAGS(5) FILEHDR PHDRS; /* r+x */    dynamic         PT_DYNAMIC  FLAGS(4); /* only r */
+    note            PT_NOTE     FLAGS(4); /* only r */
     eh_frame_hdr    PT_GNU_EH_FRAME;
 }
