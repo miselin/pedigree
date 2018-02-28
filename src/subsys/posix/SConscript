@@ -105,7 +105,11 @@ glue_files += ["setjmp" + suffix + ".s"]
 
 pthread_files = ['glue-pthread.c']
 
-vdso_files = [env.File('glue-infoblock.c'), env.File('glue-infoblock.ld')]
+vdso_files = [
+    env.File('glue-infoblock.c'),
+    env.File('glue-infoblock.ld'),
+    env.File('vdso.ld'),
+]
 
 # CRTI/CRTN
 crti_files = ["crti" + suffix + ".s"]
@@ -248,8 +252,10 @@ vdso = vdso_env_clone.SharedLibrary(libvdso_shobjname, vdso_files[0],
                    '-Wl,--hash-style=both',
                    '-Wl,-Bsymbolic',
                    '-nostdlib',
+                   '-Wl,-T$LINKERSCRIPT',
                    ],
-        VERSIONSCRIPT=vdso_files[1])
+        VERSIONSCRIPT=vdso_files[1],
+        LINKERSCRIPT=vdso_files[2])
 
 
 def create_vdso_h(target, source, env):

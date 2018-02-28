@@ -1014,7 +1014,8 @@ bool PosixSubsystem::loadElf(
         }
 
         NOTICE(
-            "PHDR[" << i << "]: @" << Hex << base << " -> " << base + length);
+            pFile->getName() << " PHDR[" << i << "]: @" << Hex << base <<
+            " -> " << base + length);
         MemoryMappedObject *pObject = MemoryMapManager::instance().mapFile(
             pFile, base, length, perms, offset);
         if (!pObject)
