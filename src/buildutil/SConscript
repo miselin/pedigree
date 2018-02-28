@@ -39,7 +39,6 @@ env['SHOBJSUFFIX'] = '.build.os'
 subdirs = [
     'ext2img',
     'netwrap',
-    'vdsotest',
 ]
 
 if env['instrumentation']:
@@ -50,6 +49,10 @@ if env['memory_tracing']:
 
 if 'LIBGTEST' in env:
     subdirs.append('testsuite')
+
+if env['build_modules']:
+    # Need POSIX subsystem to be able to build vdsotest (for vdso.h)
+    subdirs.append('vdsotest')
 
 # Make sure our choice of optimization flag is the only one.
 for possible in ('-O3', '-O2', '-O1', '-O0', '-Os'):

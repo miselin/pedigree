@@ -389,6 +389,8 @@ if env['build_images']:
 if env['build_configdb'] and not env['build_modules']:
     raise SCons.Errors.UserError('build_configdb requires build_modules=1.')
 
+host_env['build_modules'] = env.get('build_modules', False)
+
 
 def check_for(env, var, name, bins=None, required=False):
     # Already cached?
