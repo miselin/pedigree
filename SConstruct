@@ -490,6 +490,7 @@ env['PEDIGREE_BUILD_APPS'] = env['BUILDDIR'].Dir('apps')
 
 # Add host build output path.
 host_env['BUILDDIR'] = env['HOST_BUILDDIR']
+host_env['BUILDDIR_PEDIGREE'] = env['BUILDDIR']
 
 # Set up compilers and in particular the cross-compile environment.
 if (not env['build_tests_only']) and (env['CROSS'] or env['ON_PEDIGREE']):

@@ -170,6 +170,8 @@ class CppFile(SourceFile):
         'BSD', 'Berkeley', 'University',
         # 2-clause BSD doesn't talk about the university.
         'this list of conditions',
+        # Don't touch Creative Commons stuff
+        'creativecommons.org',
     ]
 
     def license_header(self):

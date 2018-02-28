@@ -39,6 +39,7 @@ env['SHOBJSUFFIX'] = '.build.os'
 subdirs = [
     'ext2img',
     'netwrap',
+    'vdsotest',
 ]
 
 if env['instrumentation']:
