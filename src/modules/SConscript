@@ -128,7 +128,7 @@ cdi_dir = env.Dir('.').srcnode().Dir('drivers').Dir('cdi')
 if cdi_dir.exists():
     env['cdi_driver_list'] = cdi_drivers
 else:
-    print 'CDI drivers are not present, CDI will not be present in this build.'
+    print('CDI drivers are not present, CDI will not be present in this build.')
     env['cdi_driver_list'] = []
     if 'cdi' in driver_common_subdirs:
         driver_common_subdirs.remove('cdi')

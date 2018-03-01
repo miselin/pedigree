@@ -19,7 +19,5 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 Import(['env'])
 
-print env['BUILDDIR'].abspath
-
 env.Program('vdsotest', ['test_vdso.cc', 'parse_vdso.c'],
             CPPPATH=[env['BUILDDIR_PEDIGREE']])
