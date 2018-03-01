@@ -27,47 +27,16 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define POSIX_WITHOUT_ERRNO  // avoid any libc dependency
-
-#include "syscalls/posixSyscallNumbers.h"
-#include "syscalls/posix-syscall.h"
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/InfoBlock.h"
 
-static struct InfoBlock *infoBlock = 0;
-static int hasInfoBlock = 0;
+/// \todo this is hardcoded for x64
+static struct InfoBlock *infoBlock = (struct InfoBlock *) 0xFFFFFFFF8FFF0000;
 
 struct getcpu_cache;
 
-#define CHECK_INFO_BLOCK      \
-    if (UNLIKELY(!infoBlock)) \
-    getInfoBlock()
-
-static void getInfoBlock()
-{
-    uintptr_t loc = syscall0(POSIX_PEDIGREE_GET_INFO_BLOCK);
-    if (loc)
-    {
-        infoBlock = (struct InfoBlock *) loc;
-        hasInfoBlock = 1;
-    }
-    else
-    {
-        // Failed, but don't call this syscall again.
-        infoBlock = (struct InfoBlock *) ~0U;
-        hasInfoBlock = 0;
-    }
-}
-
 int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
-    CHECK_INFO_BLOCK;
-    if (!hasInfoBlock)
-    {
-        return syscall2(POSIX_CLOCK_GETTIME, clock_id, (long) tp);
-    }
-
     // 'now' is in nanoseconds.
     /// \todo only do this for CLOCK_MONOTONIC and CLOCK_REALTIME
     uint64_t now = infoBlock->now;
@@ -79,12 +48,6 @@ int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp)
 
 int __vdso_gettimeofday(struct timeval *tv, void *tz)
 {
-    CHECK_INFO_BLOCK;
-    if (!hasInfoBlock)
-    {
-        return syscall2(POSIX_GETTIMEOFDAY, (long) tv, (long) tz);
-    }
-
     if (tv)
     {
         // 'now' is in nanoseconds.
@@ -115,13 +78,6 @@ int __vdso_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *cache)
 
 time_t __vdso_time(time_t *tloc)
 {
-    CHECK_INFO_BLOCK;
-    if (!hasInfoBlock)
-    {
-        // syscall fallback
-        return syscall1(POSIX_TIME, (long) tloc);
-    }
-
     if (tloc)
     {
         *tloc = infoBlock->now_s;
