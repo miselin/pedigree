@@ -42,9 +42,11 @@ header_paths = [
 
 build_env.Append(CPPPATH=header_paths)
 
+pre_additional_libs = []
 additional_libs = []
 if platform.system() == 'Linux':
-    additional_libs.append('rt')
+    pre_additional_libs.extend(['pedigree-netstack', 'lwip'])
+    additional_libs.extend(['rt'])
 
 # Create a fake build environment (TODO: detect host architecture)
 defines = [
@@ -81,10 +83,10 @@ libdebugger = coverage_env.Library('debugger', [
 ])
 
 coverage_env.Program(testsuite_bin, Glob('test-*.cc'),
-                     LIBS=['pedigree-netstack', 'pedigree-network',
-                           'pedigree-config', 'lwip', 'kernel_coverage',
-                           libdebugger, 'vfs', 'utility_coverage', env['LIBGTEST'],
-                           'pthread', 'dl'] + additional_libs)
+                     LIBS=pre_additional_libs + ['pedigree-network', 'pedigree-config',
+                                                 'kernel_coverage', libdebugger, 'vfs',
+                                                 'utility_coverage', env['LIBGTEST'],
+                                                 'pthread', 'dl'] + additional_libs)
 
 if build_env['HAVE_BENCHMARK']:
     build_env.MergeFlags({

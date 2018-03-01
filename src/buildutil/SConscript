@@ -21,6 +21,8 @@ from __future__ import print_function
 
 
 import os
+import platform
+import sys
 
 import SCons
 
@@ -38,8 +40,16 @@ env['SHOBJSUFFIX'] = '.build.os'
 
 subdirs = [
     'ext2img',
-    'netwrap',
 ]
+
+# Some build utils are only viable on Linux for now e.g. they use tun/tap,
+# reference vdso and ELF headers, and so on
+if platform.system() == 'Linux':
+    subdirs.append('netwrap')
+
+    # Also need POSIX subsystem to be able to build vdsotest (for vdso.h)
+    if env['build_modules']:
+        subdirs.append('vdsotest')
 
 if env['instrumentation']:
     subdirs.append('instrument')
@@ -49,10 +59,6 @@ if env['memory_tracing']:
 
 if 'LIBGTEST' in env:
     subdirs.append('testsuite')
-
-if env['build_modules']:
-    # Need POSIX subsystem to be able to build vdsotest (for vdso.h)
-    subdirs.append('vdsotest')
 
 # Make sure our choice of optimization flag is the only one.
 for possible in ('-O3', '-O2', '-O1', '-O0', '-Os'):
