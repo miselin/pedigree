@@ -181,7 +181,7 @@ bool DynamicLinker::loadProgram(
         // Extreme validation
         if (!*it)
             continue;
-        if (m_LoadedObjects.lookup(String(*it)))
+        if (m_LoadedObjects.lookup(String(*it)).hasValue())
         {
             WARNING("Object `" << *it << "' has already been loaded");
             continue;
@@ -298,7 +298,7 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
         // Extreme validation
         if (!*it)
             continue;
-        if (m_LoadedObjects.lookup(String(*it)))
+        if (m_LoadedObjects.lookup(String(*it)).hasValue())
         {
             WARNING("Object `" << *it << "' has already been loaded");
             continue;

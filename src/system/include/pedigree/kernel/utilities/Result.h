@@ -47,19 +47,24 @@ class Result
 
         const T &value() const
         {
-            assert(!m_HasError);
+            assert(hasValue());
             return m_Value;
         }
 
         const E &error() const
         {
-            assert(m_HasError);
+            assert(hasError());
             return m_Error;
         }
 
         bool hasError() const
         {
-            return m_Error;
+            return m_HasError;
+        }
+
+        bool hasValue() const
+        {
+            return !hasError();
         }
 
     private:

@@ -42,7 +42,7 @@ Ndp::~Ndp()
 
 void Ndp::addEntry(IpAddress addr, MacAddress mac)
 {
-    if (m_LookupCache.lookup(addr.toString()))
+    if (m_LookupCache.lookup(addr.toString()).hasValue())
         return;
 
     MacAddress *pNew = new MacAddress(mac);
@@ -318,10 +318,10 @@ bool Ndp::routerSolicit(Network *pCard)
 bool Ndp::neighbourSolicit(IpAddress addr, MacAddress *pMac, Network *pCard)
 {
     // Easy lookup?
-    MacAddress *p;
-    if ((p = m_LookupCache.lookup(addr.toString())))
+    RadixTree<MacAddress *>::LookupType result = m_LookupCache.lookup(addr.toString());
+    if (result.hasValue())
     {
-        *pMac = *p;
+        *pMac = *result.value();
         return true;
     }
 

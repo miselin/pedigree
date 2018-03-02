@@ -40,20 +40,20 @@ ConfigurationManager &ConfigurationManager::instance()
 size_t ConfigurationManager::createTable(String configStore, String table)
 {
     // Lookup the backend
-    ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if (!backend)
+    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    if (!result.hasValue())
         return 0;
-    return backend->createTable(table);
+    return result.value()->createTable(table);
 }
 
 void ConfigurationManager::insert(
     String configStore, String table, String key, ConfigValue &value)
 {
     // Lookup the backend
-    ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if (!backend)
+    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    if (!result.hasValue())
         return;
-    return backend->insert(table, key, value);
+    return result.value()->insert(table, key, value);
 }
 
 ConfigValue &
@@ -62,30 +62,30 @@ ConfigurationManager::select(String configStore, String table, String key)
     static ConfigValue v;
 
     // Lookup the backend
-    ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if (!backend)
+    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    if (!result.hasValue())
         return v;
-    return backend->select(table, key);
+    return result.value()->select(table, key);
 }
 
 void ConfigurationManager::watch(
     String configStore, String table, String key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
-    ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if (!backend)
+    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    if (!result.hasValue())
         return;
-    return backend->watch(table, key, watcher);
+    return result.value()->watch(table, key, watcher);
 }
 
 void ConfigurationManager::unwatch(
     String configStore, String table, String key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
-    ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if (!backend)
+    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    if (!result.hasValue())
         return;
-    return backend->unwatch(table, key, watcher);
+    return result.value()->unwatch(table, key, watcher);
 }
 
 bool ConfigurationManager::installBackend(
@@ -113,16 +113,16 @@ bool ConfigurationManager::installBackend(
 void ConfigurationManager::removeBackend(String configStore)
 {
     // Lookup the backend
-    ConfigurationBackend *backend = m_Backends.lookup(configStore);
-    if (!backend)
+    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    if (!result.hasValue())
         return;
 
     // Remove it from the list and free used memory
     m_Backends.remove(configStore);
-    delete backend;
+    delete result.value();
 }
 
 bool ConfigurationManager::backendExists(String configStore)
 {
-    return (m_Backends.lookup(configStore) != 0);
+    return m_Backends.lookup(configStore).hasValue();
 }

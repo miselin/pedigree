@@ -37,12 +37,12 @@ size_t MemoryBackend::createTable(String table)
 
 void MemoryBackend::insert(String table, String key, ConfigValue &value)
 {
-    Table *pT = m_Tables.lookup(table);
-    if (!pT)
+    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
+    if (!result.hasValue())
         return;
 
     ConfigValue *pConfigValue = new ConfigValue(value);
-    pT->m_Rows.insert(key, pConfigValue);
+    result.value()->m_Rows.insert(key, pConfigValue);
 }
 
 ConfigValue &MemoryBackend::select(String table, String key)
@@ -50,13 +50,13 @@ ConfigValue &MemoryBackend::select(String table, String key)
     static ConfigValue v;
     v.type = Invalid;
 
-    Table *pT = m_Tables.lookup(table);
-    if (!pT)
+    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
+    if (!result.hasValue())
         return v;
 
-    ConfigValue *pV = pT->m_Rows.lookup(key);
-    if (pV)
-        return *pV;
+    RadixTree<ConfigValue *>::LookupType val = result.value()->m_Rows.lookup(key);
+    if (val.hasValue())
+        return *val.value();
     else
         return v;
 }
@@ -64,18 +64,18 @@ ConfigValue &MemoryBackend::select(String table, String key)
 void MemoryBackend::watch(
     String table, String key, ConfigurationWatcher watcher)
 {
-    Table *pT = m_Tables.lookup(table);
-    if (!pT)
+    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
+    if (!result.hasValue())
         return;
 
-    ConfigValue *pV = pT->m_Rows.lookup(key);
-    if (pV)
+    RadixTree<ConfigValue *>::LookupType val = result.value()->m_Rows.lookup(key);
+    if (val.hasValue())
     {
         for (int i = 0; i < MAX_WATCHERS; i++)
         {
-            if (pV->watchers[i] == 0)
+            if (val.value()->watchers[i] == 0)
             {
-                pV->watchers[i] = watcher;
+                val.value()->watchers[i] = watcher;
                 break;
             }
         }
@@ -85,18 +85,18 @@ void MemoryBackend::watch(
 void MemoryBackend::unwatch(
     String table, String key, ConfigurationWatcher watcher)
 {
-    Table *pT = m_Tables.lookup(table);
-    if (!pT)
+    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
+    if (!result.hasValue())
         return;
 
-    ConfigValue *pV = pT->m_Rows.lookup(key);
-    if (pV)
+    RadixTree<ConfigValue *>::LookupType val = result.value()->m_Rows.lookup(key);
+    if (val.hasValue())
     {
         for (int i = 0; i < MAX_WATCHERS; i++)
         {
-            if (pV->watchers[i] == watcher)
+            if (val.value()->watchers[i] == watcher)
             {
-                pV->watchers[i] = 0;
+                val.value()->watchers[i] = 0;
                 break;
             }
         }

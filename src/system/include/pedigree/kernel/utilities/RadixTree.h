@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/IteratorAdapter.h"
+#include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/String.h"
 
 /**\file  RadixTree.h
@@ -56,7 +57,8 @@ class RadixTree
 
         Node(bool bCaseSensitive)
             : m_Key(), value(T()), m_Children(), m_pParent(0),
-              m_bCaseSensitive(bCaseSensitive), m_pParentTree(0)
+              m_bCaseSensitive(bCaseSensitive), m_pParentTree(0),
+              m_bHasValue(false)
         {
         }
 
@@ -115,6 +117,12 @@ class RadixTree
         inline void setValue(const T &pV)
         {
             value = pV;
+            m_bHasValue = true;
+        }
+        inline void removeValue()
+        {
+            value = T();
+            m_bHasValue = false;
         }
         inline const T &getValue() const
         {
@@ -127,6 +135,10 @@ class RadixTree
         inline Node *getParent() const
         {
             return m_pParent;
+        }
+        inline bool hasValue() const
+        {
+            return m_bHasValue;
         }
 
         void dump(void (*emit_line)(const char *s)) const;
@@ -147,6 +159,12 @@ class RadixTree
         /** Link back to the node's RadixTree instance. */
         RadixTree *m_pParentTree;
 
+        /** Do we have a value?
+         * Some nodes are intermediates caused by a split but don't yet have a
+         * value, and it is incorrect to return something for them.
+         */
+        bool m_bHasValue;
+
       private:
         Node(const Node &);
         Node &operator=(const Node &);
@@ -164,6 +182,7 @@ class RadixTree
     typedef ::Iterator<T, Node> Iterator;
     /** Type of the constant bidirectional iterator */
     typedef typename Iterator::Const ConstIterator;
+    typedef Result<T, bool> LookupType;
 
     /** The default constructor, does nothing */
     RadixTree();
@@ -187,8 +206,9 @@ class RadixTree
      *\param[in] value the element */
     void insert(const String &key, const T &value);
     /** Attempts to find an element with the given key.
-     *\return the element found, or NULL if not found. */
-    T lookup(const String &key) const;
+     *\return A Result that either has the found item, or an error if the item
+     *        is not found */
+    Result<T, bool> lookup(const String &key) const;
     /** Attempts to remove an element with the given key. */
     void remove(const String &key);
 
@@ -254,6 +274,10 @@ class RadixTree
     {
         if (p)
         {
+            // wipe out info that shouldn't go back to the pool
+            p->m_Key = String();
+            p->value = T();
+            p->m_bHasValue = false;
             m_NodePool.deallocate(p);
         }
     }
@@ -340,10 +364,12 @@ void RadixTree<T>::insert(const String &key, const T &value)
         {
             case Node::ExactMatch:
             {
-                /// \todo should only increment m_nItems if this is the first
-                ///       time the value has been set here.
+                if (!pNode->hasValue())
+                {
+                    m_nItems++;
+                }
+
                 pNode->setValue(value);
-                m_nItems++;
                 return;
             }
             case Node::NoMatch:
@@ -430,11 +456,11 @@ void RadixTree<T>::insert(const String &key, const T &value)
 }
 
 template <class T>
-T RadixTree<T>::lookup(const String &key) const
+Result<T, bool> RadixTree<T>::lookup(const String &key) const
 {
     if (!m_pRoot)
     {
-        return T();
+        return LookupType::withError(true);
     }
 
     Node *pNode = m_pRoot;
@@ -447,10 +473,17 @@ T RadixTree<T>::lookup(const String &key) const
         switch (pNode->matchKey(cpKey, offset))
         {
             case Node::ExactMatch:
-                return pNode->getValue();
+                if (!pNode->hasValue())
+                {
+                    // No value here, exact match on key. This can happen in
+                    // cases where we needed to create a node to split a key
+                    // but nothing was attached to the split node.
+                    return LookupType::withError(true);
+                }
+                return LookupType::withValue(pNode->getValue());
             case Node::NoMatch:
             case Node::PartialMatch:
-                return T();
+                return LookupType::withError(true);
             case Node::OverMatch:
             {
                 cpKey += pNode->m_Key.length();
@@ -463,7 +496,9 @@ T RadixTree<T>::lookup(const String &key) const
                     break;
                 }
                 else
-                    return T();
+                {
+                    return LookupType::withError(true);
+                }
             }
         }
     }
@@ -488,7 +523,7 @@ void RadixTree<T>::remove(const String &key)
     // special case here so it doesn't get deleted.
     if (*cpKey == 0)
     {
-        m_pRoot->setValue(0);
+        m_pRoot->removeValue();
         return;
     }
 
@@ -502,7 +537,7 @@ void RadixTree<T>::remove(const String &key)
                 // Delete this node. If we set the value to zero, it is
                 // effectively removed from the map. There are only certain
                 // cases in which we can delete the node completely, however.
-                pNode->setValue(0);
+                pNode->removeValue();
                 m_nItems--;
 
                 // We have the invariant that the tree is always optimised. This
@@ -532,14 +567,12 @@ void RadixTree<T>::remove(const String &key)
                         if (pNode == m_pRoot)
                             return;
 
-                        if (pNode->m_Children.count() == 1 &&
-                            pNode->getValue() == 0)
+                        if (pNode->m_Children.count() == 1 && !pNode->hasValue())
                             // Break out of this loop and get caught in the next
                             // if(pNode->m_nChildren == 1)
                             break;
 
-                        if (pNode->m_Children.count() == 0 &&
-                            pNode->getValue() == 0)
+                        if (pNode->m_Children.count() == 0 && !pNode->hasValue())
                         {
                             // Leaf node, can just delete.
                             pParent = pNode->getParent();

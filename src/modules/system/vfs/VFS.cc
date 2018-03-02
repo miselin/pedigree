@@ -121,9 +121,11 @@ void VFS::addAlias(Filesystem *pFs, const String &alias)
 
 void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
-    Filesystem *pFs = m_Aliases.lookup(oldAlias);
-    if (pFs)
+    RadixTree<Filesystem *>::LookupType result = m_Aliases.lookup(oldAlias);
+    if (result.hasValue())
     {
+        Filesystem *pFs = result.value();
+
         m_Aliases.insert(newAlias, pFs);
 
         if (m_Mounts.lookup(pFs) == 0)
@@ -156,7 +158,8 @@ String VFS::getUniqueAlias(const String &alias)
 
 bool VFS::aliasExists(const String &alias)
 {
-    return (m_Aliases.lookup(alias) != 0);
+    RadixTree<Filesystem *>::LookupType result = m_Aliases.lookup(alias);
+    return result.hasValue();
 }
 
 void VFS::removeAlias(const String &alias)
@@ -201,7 +204,8 @@ void VFS::removeAllAliases(Filesystem *pFs)
 
 Filesystem *VFS::lookupFilesystem(const String &alias)
 {
-    return m_Aliases.lookup(alias);
+    RadixTree<Filesystem *>::LookupType result = m_Aliases.lookup(alias);
+    return result.hasValue() ? result.value() : nullptr;
 }
 
 File *VFS::find(const String &path, File *pStartNode)

@@ -81,22 +81,24 @@ File *Directory::lookup(const String &s) const
         return 0;
     }
 
-    DirectoryEntry *entry = m_Cache.lookup(s);
-    if (!entry)
+    RadixTree<DirectoryEntry *>::LookupType result = m_Cache.lookup(s);
+    if (result.hasValue())
     {
-        return nullptr;
+        return result.value()->get();
     }
     else
     {
-        return entry->get();
+        return nullptr;
     }
 }
 
 void Directory::remove(const String &s)
 {
-    DirectoryEntry *v = m_Cache.lookup(s);
-    if (v)
+    RadixTree<DirectoryEntry *>::LookupType result = m_Cache.lookup(s);
+    if (result.hasValue())
     {
+        DirectoryEntry *v = result.value();
+
         m_Cache.remove(s);
 
         for (auto it = m_LinearCache.begin(); it != m_LinearCache.end(); ++it)
@@ -151,7 +153,7 @@ bool Directory::addEphemeralFile(File *pFile)
     }
 
     String name = pFile->getName();
-    if (m_Cache.lookup(name))
+    if (m_Cache.lookup(name).hasValue())
     {
         // already exists!
         return false;

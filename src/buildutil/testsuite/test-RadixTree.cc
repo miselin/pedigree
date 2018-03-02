@@ -36,8 +36,14 @@ TEST(PedigreeRadixTree, CopyConstruction)
     x.insert(String("foo"), 1);
     RadixTree<int> y(x);
     EXPECT_EQ(x.count(), y.count());
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(y.lookup(String("foo")), 1);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = y.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
 }
 
 TEST(PedigreeRadixTree, Assignment)
@@ -46,24 +52,41 @@ TEST(PedigreeRadixTree, Assignment)
     x.insert(String("foo"), 1);
     y = x;
     EXPECT_EQ(x.count(), y.count());
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(y.lookup(String("foo")), 1);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = y.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
 }
 
 TEST(PedigreeRadixTree, CaseSensitive)
 {
     RadixTree<int> x(true);
     x.insert(String("foo"), 1);
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(x.lookup(String("Foo")), 0);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("Foo"));
+    EXPECT_TRUE(result.hasError());
 }
 
 TEST(PedigreeRadixTree, CaseInsensitive)
 {
     RadixTree<int> x(false);
     x.insert(String("foo"), 1);
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(x.lookup(String("Foo")), 1);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("Foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
 }
 
 TEST(PedigreeRadixTree, Clear)
@@ -78,7 +101,8 @@ TEST(PedigreeRadixTree, Clear)
 TEST(PedigreeRadixTree, EmptyLookup)
 {
     RadixTree<int> x;
-    EXPECT_EQ(x.lookup(String("foo")), 0);
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_TRUE(result.hasError());
 }
 
 TEST(PedigreeRadixTree, EmptyRemove)
@@ -99,7 +123,9 @@ TEST(PedigreeRadixTree, PartialMatchMiss)
 {
     RadixTree<int> x;
     x.insert(String("foobar"), 1);
-    EXPECT_EQ(x.lookup(String("foo")), 0);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_TRUE(result.hasError());
 }
 
 TEST(PedigreeRadixTree, Removal)
@@ -109,8 +135,12 @@ TEST(PedigreeRadixTree, Removal)
     x.insert(String("bar"), 2);
     x.remove(String("foo"));
     EXPECT_EQ(x.count(), 1);
-    EXPECT_EQ(x.lookup(String("foo")), 0);
-    EXPECT_EQ(x.lookup(String("bar")), 2);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_TRUE(result.hasError());
+
+    result = x.lookup(String("bar"));
+    EXPECT_EQ(result.value(), 2);
 }
 
 TEST(PedigreeRadixTree, RemovalBigRoot)
@@ -133,11 +163,26 @@ TEST(PedigreeRadixTree, Prefixes)
     x.insert(String("toaster"), 3);
     x.insert(String("toasting"), 4);
     x.insert(String("toastier"), 5);
-    EXPECT_EQ(x.lookup(String("toast")), 1);
-    EXPECT_EQ(x.lookup(String("toasted")), 2);
-    EXPECT_EQ(x.lookup(String("toaster")), 3);
-    EXPECT_EQ(x.lookup(String("toasting")), 4);
-    EXPECT_EQ(x.lookup(String("toastier")), 5);
+
+    RadixTree<int>::LookupType result = x.lookup(String("toast"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("toasted"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
+
+    result = x.lookup(String("toaster"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("toasting"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
+
+    result = x.lookup(String("toastier"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 5);
 }
 
 TEST(PedigreeRadixTree, SplitKeys)
@@ -148,11 +193,26 @@ TEST(PedigreeRadixTree, SplitKeys)
     x.insert(String("foobarbaz"), 3);
     x.insert(String("foobarbazqux"), 4);
     x.insert(String("foobarbazquux"), 5);
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(x.lookup(String("foobar")), 2);
-    EXPECT_EQ(x.lookup(String("foobarbaz")), 3);
-    EXPECT_EQ(x.lookup(String("foobarbazqux")), 4);
-    EXPECT_EQ(x.lookup(String("foobarbazquux")), 5);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("foobar"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
+
+    result = x.lookup(String("foobarbaz"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("foobarbazqux"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
+
+    result = x.lookup(String("foobarbazquux"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 5);
 }
 
 TEST(PedigreeRadixTree, SplitKeysBackwards)
@@ -163,11 +223,26 @@ TEST(PedigreeRadixTree, SplitKeysBackwards)
     x.insert(String("foo"), 1);
     x.insert(String("foobar"), 2);
     x.insert(String("foobarbaz"), 3);
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(x.lookup(String("foobar")), 2);
-    EXPECT_EQ(x.lookup(String("foobarbaz")), 3);
-    EXPECT_EQ(x.lookup(String("foobarbazqux")), 4);
-    EXPECT_EQ(x.lookup(String("foobarbazquux")), 5);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("foobar"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
+
+    result = x.lookup(String("foobarbaz"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("foobarbazqux"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
+
+    result = x.lookup(String("foobarbazquux"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 5);
 }
 
 TEST(PedigreeRadixTree, Override)
@@ -175,7 +250,10 @@ TEST(PedigreeRadixTree, Override)
     RadixTree<int> x;
     x.insert(String("foo"), 1);
     x.insert(String("foo"), 2);
-    EXPECT_EQ(x.lookup(String("foo")), 2);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
 }
 
 TEST(PedigreeRadixTree, CaseInsensitiveSplitKeys)
@@ -183,8 +261,14 @@ TEST(PedigreeRadixTree, CaseInsensitiveSplitKeys)
     RadixTree<int> x(false);
     x.insert(String("foo"), 1);
     x.insert(String("Foobar"), 2);
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(x.lookup(String("Foobar")), 2);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("Foobar"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
 }
 
 TEST(PedigreeRadixTree, CaseInsensitiveBackwardSplitKeys)
@@ -192,8 +276,14 @@ TEST(PedigreeRadixTree, CaseInsensitiveBackwardSplitKeys)
     RadixTree<int> x(false);
     x.insert(String("Foobar"), 2);
     x.insert(String("foo"), 1);
-    EXPECT_EQ(x.lookup(String("foo")), 1);
-    EXPECT_EQ(x.lookup(String("Foobar")), 2);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("Foobar"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
 }
 
 TEST(PedigreeRadixTree, Iteration)
@@ -235,9 +325,54 @@ TEST(PedigreeRadixTree, SplitThis)
     x.insert(String("x86_64-pedigree-ld"), 1);
     x.insert(String("x86_64-pedigree-objdump"), 1);
 
-    EXPECT_EQ(x.lookup(String("x86_64-pedigree-gcc")), 1);
-    EXPECT_EQ(x.lookup(String("x86_64-pedigree-g++")), 1);
-    EXPECT_EQ(x.lookup(String("x86_64-pedigree-gcc-4.8.2")), 1);
-    EXPECT_EQ(x.lookup(String("x86_64-pedigree-ld")), 1);
-    EXPECT_EQ(x.lookup(String("x86_64-pedigree-objdump")), 1);
+    RadixTree<int>::LookupType result = x.lookup(String("x86_64-pedigree-gcc"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("x86_64-pedigree-g++"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("x86_64-pedigree-gcc-4.8.2"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("x86_64-pedigree-ld"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("x86_64-pedigree-objdump"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+}
+
+TEST(PedigreeRadixTree, LibrariesIssue)
+{
+    RadixTree<int> x;
+    // create directory layout that seems to blow up ext2img
+    x.insert(String("."), 1);
+    x.insert(String(".."), 1);
+    x.insert(String("lost+found"), 1);
+    x.insert(String("keymaps"), 1);
+    x.insert(String("linux"), 1);
+    x.insert(String("docs"), 1);
+    x.insert(String("libraries"), 1);
+    x.insert(String("applications"), 1);
+    x.insert(String("include"), 1);
+    x.insert(String("support"), 1);
+    x.insert(String("fonts"), 1);
+    x.insert(String("usr"), 1);
+    x.insert(String("doc"), 1);
+    x.insert(String("initscripts"), 1);
+    x.insert(String("lib64"), 1);
+    x.insert(String("system"), 1);
+
+    // this should work
+    RadixTree<int>::LookupType result = x.lookup(String("libraries"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    // this should not as 'lib' hasn't been created yet
+    result = x.lookup(String("lib"));
+    EXPECT_TRUE(result.hasError());
 }

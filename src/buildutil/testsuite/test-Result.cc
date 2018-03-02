@@ -28,6 +28,7 @@ TEST(PedigreeResult, OkState)
     Result<int, int> r = Result<int, int>::withValue(1024);
     EXPECT_EQ(r.value(), 1024);
     EXPECT_FALSE(r.hasError());
+    EXPECT_TRUE(r.hasValue());
 }
 
 TEST(PedigreeResult, ErrorState)
@@ -35,4 +36,5 @@ TEST(PedigreeResult, ErrorState)
     Result<int, int> r = Result<int, int>::withError(1024);
     EXPECT_EQ(r.error(), 1024);
     EXPECT_TRUE(r.hasError());
+    EXPECT_FALSE(r.hasValue());
 }

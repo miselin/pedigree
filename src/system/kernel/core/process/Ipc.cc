@@ -39,19 +39,20 @@ static RadixTree<IpcEndpoint *> __endpoints;
 
 IpcEndpoint *Ipc::getEndpoint(String &name)
 {
-    return __endpoints.lookup(name);
+    RadixTree<IpcEndpoint *>::LookupType result = __endpoints.lookup(name);
+    return result.hasValue() ? result.value() : nullptr;
 }
 
 void Ipc::createEndpoint(String &name)
 {
-    if (__endpoints.lookup(name))
+    if (__endpoints.lookup(name).hasValue())
         return;
     __endpoints.insert(name, new IpcEndpoint(name));
 }
 
 void Ipc::removeEndpoint(String &name)
 {
-    if (!__endpoints.lookup(name))
+    if (!__endpoints.lookup(name).hasValue())
         return;
     __endpoints.remove(name);
 }
