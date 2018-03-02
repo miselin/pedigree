@@ -271,5 +271,7 @@
 #define POSIX_IOPL 260
 
 #define POSIX_TIME 261
+#define POSIX_GETITIMER 262
+#define POSIX_SETITIMER 263
 
 #endif

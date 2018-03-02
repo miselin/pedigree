@@ -119,11 +119,15 @@ inline long posix_translate_syscall(long which)
         case SYS_nanosleep:
             pedigree_translation = POSIX_NANOSLEEP;
             break;
-        // ...
+        case SYS_getitimer:
+            pedigree_translation = POSIX_GETITIMER;
+            break;
         case SYS_alarm:
             pedigree_translation = POSIX_ALARM;
             break;
-        // ...
+        case SYS_setitimer:
+            pedigree_translation = POSIX_SETITIMER;
+            break;
         case SYS_getpid:
             pedigree_translation = POSIX_GETPID;
             break;

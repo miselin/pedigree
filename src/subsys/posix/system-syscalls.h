@@ -117,4 +117,7 @@ int posix_set_robust_list(struct robust_list_head *head, size_t len);
 int posix_ioperm(unsigned long from, unsigned long num, int turn_on);
 int posix_iopl(int level);
 
+int posix_getitimer(int which, struct itimerval *curr_value);
+int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value);
+
 #endif

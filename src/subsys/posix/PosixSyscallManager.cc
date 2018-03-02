@@ -745,6 +745,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 p1, reinterpret_cast<const struct rlimit *>(p2));
         case POSIX_TIME:
             return posix_time(reinterpret_cast<time_t *>(p1));
+        case POSIX_GETITIMER:
+            return posix_getitimer(p1, reinterpret_cast<struct itimerval *>(p2));
+        case POSIX_SETITIMER:
+            return posix_setitimer(p1, reinterpret_cast<const struct itimerval *>(p2), reinterpret_cast<struct itimerval *>(p3));
 
         default:
             ERROR(

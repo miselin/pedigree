@@ -2039,3 +2039,38 @@ int posix_iopl(int level)
     SC_NOTICE("iopl(" << level << ")");
     return 0;
 }
+
+int posix_getitimer(int which, struct itimerval *curr_value)
+{
+    POSIX_VERBOSE_LOG("test", "posix_getitimer(" << which << ", " << curr_value << ")");
+    return 0;
+}
+
+int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value)
+{
+    POSIX_VERBOSE_LOG("test", "posix_setitimer(" << which << ", " << new_value << ", " << old_value << ")");
+
+    if (which == ITIMER_REAL)
+    {
+        NOTICE(" -> ITIMER_REAL");
+    }
+    else if (which == ITIMER_VIRTUAL)
+    {
+        NOTICE(" -> ITIMER_VIRTUAL");
+    }
+    else if (which == ITIMER_PROF)
+    {
+        NOTICE(" -> ITIMER_VIRTUAL");
+    }
+    else
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    NOTICE(" -> period = " << new_value->it_interval.tv_sec << "s " << new_value->it_interval.tv_usec << "us");
+    NOTICE(" -> value = " << new_value->it_value.tv_sec << "s " << new_value->it_value.tv_usec << "us");
+
+    return 0;
+}
+
