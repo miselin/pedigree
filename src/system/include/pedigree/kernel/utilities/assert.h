@@ -20,6 +20,10 @@
 #ifndef KERNEL_ASSERT_H
 #define KERNEL_ASSERT_H
 
+#ifdef UTILITY_LINUX
+// Redirect to system assert.h
+#include <assert.h>
+#else
 #include "pedigree/kernel/compiler.h"
 #include <stdint.h>
 
@@ -69,6 +73,7 @@ bool _assert_ptr_valid(uintptr_t x);
 
 #ifdef __cplusplus
 }
+#endif
 #endif
 
 /** @} */
