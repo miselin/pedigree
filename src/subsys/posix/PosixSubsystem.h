@@ -198,6 +198,9 @@ class PosixSubsystem : public Subsystem
     /** A thread has thrown an exception! */
     virtual void threadException(Thread *pThread, ExceptionType eType);
 
+    /** Send a POSIX signal to the given thread. */
+    virtual void sendSignal(Thread *pThread, int signal);
+
     /** Alternate signal stack */
     /// \todo Figure out how to make this work for more than just the current
     /// process (ie, work

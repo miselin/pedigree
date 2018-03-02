@@ -22,6 +22,8 @@
 
 #include "modules/system/vfs/VFS.h"
 
+#include <signal.h>
+
 ProcessGroup::~ProcessGroup()
 {
     // Remove all processes in the list from this group
@@ -43,7 +45,9 @@ ProcessGroup::~ProcessGroup()
 
 PosixProcess::PosixProcess()
     : Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup),
-      m_Mask(0)
+      m_Mask(0), m_RealIntervalTimer(this, IntervalTimer::Hardware),
+      m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
+      m_ProfileIntervalTimer(this, IntervalTimer::Profile)
 {
     registerProcess();
 }
@@ -51,7 +55,10 @@ PosixProcess::PosixProcess()
 /** Copy constructor. */
 PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite)
     : Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
-      m_GroupMembership(NoGroup), m_Mask(0)
+      m_GroupMembership(NoGroup), m_Mask(0),
+      m_RealIntervalTimer(this, IntervalTimer::Hardware),
+      m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
+      m_ProfileIntervalTimer(this, IntervalTimer::Profile)
 {
     if (pParent->getType() == Posix)
     {
@@ -180,4 +187,170 @@ void PosixProcess::unregisterProcess()
 
     ProcFs *pProcFs = static_cast<ProcFs *>(pFs);
     pProcFs->removeProcess(this);
+}
+
+IntervalTimer &PosixProcess::getRealIntervalTimer()
+{
+    return m_RealIntervalTimer;
+}
+
+IntervalTimer &PosixProcess::getVirtualIntervalTimer()
+{
+    return m_VirtualIntervalTimer;
+}
+
+IntervalTimer &PosixProcess::getProfileIntervalTimer()
+{
+    return m_ProfileIntervalTimer;
+}
+
+void PosixProcess::reportTimesUpdated(Time::Timestamp user, Time::Timestamp system)
+{
+    m_VirtualIntervalTimer.adjustValue(-user);
+    m_ProfileIntervalTimer.adjustValue(-(user + system));
+}
+
+IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode) :
+    m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0), m_Lock(false)
+{
+    if (m_Mode == Hardware)
+    {
+        Timer *t = Machine::instance().getTimer();
+        if (t)
+        {
+            t->registerHandler(this);
+        }
+    }
+}
+
+IntervalTimer::~IntervalTimer()
+{
+    if (m_Mode == Hardware)
+    {
+        Timer *t = Machine::instance().getTimer();
+        if (t)
+        {
+            t->unregisterHandler(this);
+        }
+    }
+}
+
+void IntervalTimer::setInterval(Time::Timestamp interval, Time::Timestamp *prevInterval)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    if (prevInterval)
+    {
+        *prevInterval = m_Interval;
+    }
+    m_Interval = interval;
+}
+
+void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp *prevValue)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    if (prevValue)
+    {
+        *prevValue = m_Value;
+    }
+    m_Value = value;
+}
+
+void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestamp value, Time::Timestamp *prevInterval, Time::Timestamp *prevValue)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    if (prevInterval)
+    {
+        *prevInterval = m_Interval;
+    }
+
+    if (prevValue)
+    {
+        *prevValue = m_Value;
+    }
+
+    m_Interval = interval;
+    m_Value = value;
+}
+
+void IntervalTimer::getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    interval = m_Interval;
+    value = m_Value;
+}
+
+void IntervalTimer::adjustValue(int64_t adjustment)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    m_Value += adjustment;
+}
+
+Time::Timestamp IntervalTimer::getInterval() const
+{
+    return m_Interval;
+}
+
+Time::Timestamp IntervalTimer::getValue() const
+{
+    return m_Value;
+}
+
+void IntervalTimer::timer(uint64_t delta, InterruptState &state)
+{
+    if (m_Mode != Hardware)
+    {
+        return;
+    }
+
+    bool needsSignal = false;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+
+        if (!m_Value)
+        {
+            // Zero value = disarmed.
+            return;
+        }
+
+
+        if (m_Value < delta)
+        {
+            m_Value = m_Interval;
+
+            needsSignal = true;
+        }
+        else
+        {
+            m_Value -= delta;
+        }
+    }
+
+    signal();
+}
+
+void IntervalTimer::signal()
+{
+    int signal = -1;
+    switch (m_Mode)
+    {
+        case Hardware:
+            signal = SIGALRM;
+            break;
+        case Virtual:
+            signal = SIGVTALRM;
+            break;
+        case Profile:
+            signal = SIGPROF;
+            break;
+    }
+
+    /// \todo sanity check that this is absolutely a PosixSubsystem
+    PosixSubsystem *pSubsystem =
+        static_cast<PosixSubsystem *>(m_Process->getSubsystem());
+    pSubsystem->sendSignal(m_Process->getThread(0), signal);
 }

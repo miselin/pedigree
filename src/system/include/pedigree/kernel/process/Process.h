@@ -335,12 +335,16 @@ class Process
             Time::Timestamp diff = now - m_LastUserspaceEntry;
             m_LastUserspaceEntry = now;
             m_Metadata.userTime += diff;
+
+            reportTimesUpdated(diff, 0);
         }
         else
         {
             Time::Timestamp diff = now - m_LastKernelEntry;
             m_LastKernelEntry = now;
             m_Metadata.kernelTime += diff;
+
+            reportTimesUpdated(0, diff);
         }
     }
 
@@ -409,6 +413,9 @@ class Process
   private:
     Process(const Process &);
     Process &operator=(const Process &);
+
+    /** Called when process times are updated. */
+    virtual void reportTimesUpdated(Time::Timestamp user, Time::Timestamp system) {};
 
     /**
      * Our list of threads.

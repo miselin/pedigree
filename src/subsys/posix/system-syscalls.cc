@@ -2042,25 +2042,32 @@ int posix_iopl(int level)
 
 int posix_getitimer(int which, struct itimerval *curr_value)
 {
-    POSIX_VERBOSE_LOG("test", "posix_getitimer(" << which << ", " << curr_value << ")");
-    return 0;
-}
+    SC_NOTICE("posix_getitimer(" << which << ", " << curr_value << ")");
 
-int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value)
-{
-    POSIX_VERBOSE_LOG("test", "posix_setitimer(" << which << ", " << new_value << ", " << old_value << ")");
+    PosixProcess *pProcess = static_cast<PosixProcess *>(
+        Processor::information().getCurrentThread()->getParent());
 
+    /// \todo check address for safety
+
+    Time::Timestamp interval = 0;
+    Time::Timestamp value = 0;
+
+    IntervalTimer &itimer = pProcess->getRealIntervalTimer();
     if (which == ITIMER_REAL)
     {
-        NOTICE(" -> ITIMER_REAL");
+        SC_NOTICE(" -> ITIMER_REAL");
     }
     else if (which == ITIMER_VIRTUAL)
     {
-        NOTICE(" -> ITIMER_VIRTUAL");
+        SC_NOTICE(" -> ITIMER_VIRTUAL");
+
+        itimer = pProcess->getVirtualIntervalTimer();
     }
     else if (which == ITIMER_PROF)
     {
-        NOTICE(" -> ITIMER_VIRTUAL");
+        SC_NOTICE(" -> ITIMER_VIRTUAL");
+
+        itimer = pProcess->getProfileIntervalTimer();
     }
     else
     {
@@ -2068,8 +2075,73 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
         return -1;
     }
 
-    NOTICE(" -> period = " << new_value->it_interval.tv_sec << "s " << new_value->it_interval.tv_usec << "us");
-    NOTICE(" -> value = " << new_value->it_value.tv_sec << "s " << new_value->it_value.tv_usec << "us");
+    itimer.getIntervalAndValue(interval, value);
+
+    curr_value->it_interval.tv_sec = interval / Time::Multiplier::Second;
+    curr_value->it_interval.tv_usec = (interval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+
+    curr_value->it_value.tv_sec = value / Time::Multiplier::Second;
+    curr_value->it_value.tv_usec = (value % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+
+    SC_NOTICE(" -> period = " << curr_value->it_interval.tv_sec << "s " << curr_value->it_interval.tv_usec << "us");
+    SC_NOTICE(" -> value = " << curr_value->it_value.tv_sec << "s " << curr_value->it_value.tv_usec << "us");
+
+    return 0;
+}
+
+int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value)
+{
+    SC_NOTICE("posix_setitimer(" << which << ", " << new_value << ", " << old_value << ")");
+    SC_NOTICE(" -> period = " << new_value->it_interval.tv_sec << "s " << new_value->it_interval.tv_usec << "us");
+    SC_NOTICE(" -> value = " << new_value->it_value.tv_sec << "s " << new_value->it_value.tv_usec << "us");
+
+    /// \todo check addresses for safety
+
+    PosixProcess *pProcess = static_cast<PosixProcess *>(
+        Processor::information().getCurrentThread()->getParent());
+
+    Time::Timestamp interval = 0;
+    Time::Timestamp value = 0;
+
+    Time::Timestamp prevInterval = 0;
+    Time::Timestamp prevValue = 0;
+
+    interval = (new_value->it_interval.tv_sec * Time::Multiplier::Second) + (new_value->it_interval.tv_usec * Time::Multiplier::Microsecond);
+    value = (new_value->it_value.tv_sec * Time::Multiplier::Second) + (new_value->it_value.tv_usec * Time::Multiplier::Microsecond);
+
+    IntervalTimer &itimer = pProcess->getRealIntervalTimer();
+    if (which == ITIMER_REAL)
+    {
+        SC_NOTICE(" -> ITIMER_REAL");
+    }
+    else if (which == ITIMER_VIRTUAL)
+    {
+        SC_NOTICE(" -> ITIMER_VIRTUAL");
+
+        itimer = pProcess->getVirtualIntervalTimer();
+    }
+    else if (which == ITIMER_PROF)
+    {
+        SC_NOTICE(" -> ITIMER_VIRTUAL");
+
+        itimer = pProcess->getProfileIntervalTimer();
+    }
+    else
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    itimer.setIntervalAndValue(interval, value, &prevInterval, &prevValue);
+
+    if (old_value)
+    {
+        old_value->it_interval.tv_sec = prevInterval / Time::Multiplier::Second;
+        old_value->it_interval.tv_usec = (prevInterval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+
+        old_value->it_value.tv_sec = prevValue / Time::Multiplier::Second;
+        old_value->it_value.tv_usec = (prevValue % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+    }
 
     return 0;
 }

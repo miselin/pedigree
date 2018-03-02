@@ -23,8 +23,8 @@
 #include "PosixSubsystem.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
-
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 
 class PosixProcess;
 
@@ -68,6 +68,54 @@ class ProcessGroup
   private:
     ProcessGroup(const ProcessGroup &);
     ProcessGroup &operator=(ProcessGroup &);
+};
+
+class IntervalTimer : public TimerHandler
+{
+   public:
+    enum Mode
+    {
+        /// Hardware-backed timer (wall time).
+        Hardware = 0,
+        /// CPU time in user mode only.
+        Virtual,
+        /// CPU time in user and system.
+        Profile
+    };
+
+    /// Setting hw=true will use hardware. hw=false requires adjust() to be
+    /// called to be able to trigger timers.
+    IntervalTimer(PosixProcess *pProcess, Mode mode = Hardware);
+    virtual ~IntervalTimer();
+
+    /// Set the interval for the timer, which is loaded once the timer expires.
+    /// Set zero to make a non-reloading timer.
+    void setInterval(Time::Timestamp interval, Time::Timestamp *prevInterval = nullptr);
+
+    /// Set the current value of the timer.
+    void setTimerValue(Time::Timestamp value, Time::Timestamp *prevValue = nullptr);
+
+    /// Set both interval and value atomically.
+    void setIntervalAndValue(Time::Timestamp interval, Time::Timestamp value, Time::Timestamp *prevInterval = nullptr, Time::Timestamp *prevValue = nullptr);
+
+    void getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value);
+
+    /// Adjust the current value directly.
+    void adjustValue(int64_t adjustment);
+
+    Time::Timestamp getInterval() const;
+    Time::Timestamp getValue() const;
+
+   private:
+    virtual void timer(uint64_t delta, InterruptState &state);
+
+    void signal();
+
+    PosixProcess *m_Process;
+    Mode m_Mode;
+    Time::Timestamp m_Value;
+    Time::Timestamp m_Interval;
+    Spinlock m_Lock;
 };
 
 class PosixProcess : public Process
@@ -118,10 +166,16 @@ class PosixProcess : public Process
     const RobustListData &getRobustList() const;
     void setRobustList(const RobustListData &data);
 
+    IntervalTimer &getRealIntervalTimer();
+    IntervalTimer &getVirtualIntervalTimer();
+    IntervalTimer &getProfileIntervalTimer();
+
   private:
     // Register with other systems e.g. procfs
     void registerProcess();
     void unregisterProcess();
+
+    virtual void reportTimesUpdated(Time::Timestamp user, Time::Timestamp system);
 
     PosixProcess(const PosixProcess &);
     PosixProcess &operator=(const PosixProcess &);
@@ -131,6 +185,10 @@ class PosixProcess : public Process
     Membership m_GroupMembership;
     uint32_t m_Mask;
     RobustListData m_RobustListData;
+
+    IntervalTimer m_RealIntervalTimer;
+    IntervalTimer m_VirtualIntervalTimer;
+    IntervalTimer m_ProfileIntervalTimer;
 };
 
 #endif

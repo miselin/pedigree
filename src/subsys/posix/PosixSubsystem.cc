@@ -493,6 +493,98 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
         "PosixSubsystem::threadException -> "
         << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
 
+    // What was the exception?
+    int signal = -1;
+    switch (eType)
+    {
+        case PageFault:
+            NOTICE("    (Page fault)");
+            // Send SIGSEGV
+            signal = SIGSEGV;
+            break;
+        case InvalidOpcode:
+            NOTICE("    (Invalid opcode)");
+            // Send SIGILL
+            signal = SIGILL;
+            break;
+        case GeneralProtectionFault:
+            NOTICE("    (General Fault)");
+            // Send SIGBUS
+            signal = SIGBUS;
+            break;
+        case DivideByZero:
+            NOTICE("    (Division by zero)");
+            // Send SIGFPE
+            signal = SIGFPE;
+            break;
+        case FpuError:
+            NOTICE("    (FPU error)");
+            // Send SIGFPE
+            signal = SIGFPE;
+            break;
+        case SpecialFpuError:
+            NOTICE("    (FPU error - special)");
+            // Send SIGFPE
+            signal = SIGFPE;
+            break;
+        case TerminalInput:
+            NOTICE("    (Attempt to read from terminal by non-foreground "
+                   "process)");
+            // Send SIGTTIN
+            signal = SIGTTIN;
+            break;
+        case TerminalOutput:
+            NOTICE("    (Output to terminal by non-foreground process)");
+            // Send SIGTTOU
+            signal = SIGTTOU;
+            break;
+        case Continue:
+            NOTICE("    (Continuing a stopped process)");
+            // Send SIGCONT
+            signal = SIGCONT;
+            break;
+        case Stop:
+            NOTICE("    (Stopping a process)");
+            // Send SIGTSTP
+            signal = SIGTSTP;
+            break;
+        case Interrupt:
+            NOTICE("    (Interrupting a process)");
+            // Send SIGINT
+            signal = SIGINT;
+            break;
+        case Quit:
+            NOTICE("    (Requesting quit)");
+            // Send SIGTERM
+            signal = SIGTERM;
+            break;
+        case Child:
+            NOTICE("    (Child status changed)");
+            // Send SIGCHLD
+            signal = SIGCHLD;
+            break;
+        case Pipe:
+            NOTICE("    (Pipe broken)");
+            // Send SIGPIPE
+            signal = SIGPIPE;
+            break;
+        default:
+            NOTICE("    (Unknown)");
+            // Unknown exception
+            ERROR(
+                "Unknown exception type in threadException - POSIX subsystem");
+            break;
+    }
+
+    sendSignal(pThread, signal);
+}
+
+void PosixSubsystem::sendSignal(Thread *pThread, int signal)
+{
+    NOTICE(
+        "PosixSubsystem::sendSignal #" << signal << " -> pid:tid "
+        << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
+
     Process *pProcess = pThread->getParent();
     if (pProcess->getType() != Process::Posix)
     {
@@ -504,86 +596,10 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     // What was the exception?
-    SignalHandler *sig = 0;
-    switch (eType)
+    SignalHandler *sig = pSubsystem->getSignalHandler(signal);
+    if (!sig)
     {
-        case PageFault:
-            NOTICE("    (Page fault)");
-            // Send SIGSEGV
-            sig = pSubsystem->getSignalHandler(SIGSEGV);
-            break;
-        case InvalidOpcode:
-            NOTICE("    (Invalid opcode)");
-            // Send SIGILL
-            sig = pSubsystem->getSignalHandler(SIGILL);
-            break;
-        case GeneralProtectionFault:
-            NOTICE("    (General Fault)");
-            // Send SIGBUS
-            sig = pSubsystem->getSignalHandler(SIGBUS);
-            break;
-        case DivideByZero:
-            NOTICE("    (Division by zero)");
-            // Send SIGFPE
-            sig = pSubsystem->getSignalHandler(SIGFPE);
-            break;
-        case FpuError:
-            NOTICE("    (FPU error)");
-            // Send SIGFPE
-            sig = pSubsystem->getSignalHandler(SIGFPE);
-            break;
-        case SpecialFpuError:
-            NOTICE("    (FPU error - special)");
-            // Send SIGFPE
-            sig = pSubsystem->getSignalHandler(SIGFPE);
-            break;
-        case TerminalInput:
-            NOTICE("    (Attempt to read from terminal by non-foreground "
-                   "process)");
-            // Send SIGTTIN
-            sig = pSubsystem->getSignalHandler(SIGTTIN);
-            break;
-        case TerminalOutput:
-            NOTICE("    (Output to terminal by non-foreground process)");
-            // Send SIGTTOU
-            sig = pSubsystem->getSignalHandler(SIGTTOU);
-            break;
-        case Continue:
-            NOTICE("    (Continuing a stopped process)");
-            // Send SIGCONT
-            sig = pSubsystem->getSignalHandler(SIGCONT);
-            break;
-        case Stop:
-            NOTICE("    (Stopping a process)");
-            // Send SIGTSTP
-            sig = pSubsystem->getSignalHandler(SIGTSTP);
-            break;
-        case Interrupt:
-            NOTICE("    (Interrupting a process)");
-            // Send SIGINT
-            sig = pSubsystem->getSignalHandler(SIGINT);
-            break;
-        case Quit:
-            NOTICE("    (Requesting quit)");
-            // Send SIGTERM
-            sig = pSubsystem->getSignalHandler(SIGTERM);
-            break;
-        case Child:
-            NOTICE("    (Child status changed)");
-            // Send SIGCHLD
-            sig = pSubsystem->getSignalHandler(SIGCHLD);
-            break;
-        case Pipe:
-            NOTICE("    (Pipe broken)");
-            // Send SIGPIPE
-            sig = pSubsystem->getSignalHandler(SIGPIPE);
-            break;
-        default:
-            NOTICE("    (Unknown)");
-            // Unknown exception
-            ERROR(
-                "Unknown exception type in threadException - POSIX subsystem");
-            break;
+        ERROR("Unknown signal in sendSignal - POSIX subsystem");
     }
 
     // If we're good to go, send the signal.
