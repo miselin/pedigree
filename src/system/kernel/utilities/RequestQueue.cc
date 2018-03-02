@@ -364,8 +364,10 @@ int RequestQueue::trampoline(void *p)
 
 RequestQueue::Request *RequestQueue::getNextRequest()
 {
+#ifdef THREADS
     // Must have the lock to be here.
     assert(!m_RequestQueueMutex.getValue());
+#endif
 
     // Get the most important queue with data in.
     /// \todo Stop possible starvation here.
