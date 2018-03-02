@@ -37,7 +37,13 @@ template <class T, class M, T *(*create)(const M &), void (*destroy)(T *)>
 class LazyEvaluate
 {
     public:
-        LazyEvaluate(const M &metadata) : m_Metadata(metadata), m_Field(nullptr) {}
+        // Default constructor builds a version that can never be evaluated.
+        LazyEvaluate() : m_Metadata(), m_Field(nullptr), m_Ok(false) {}
+        // Lazy variant (only evaluates on access)
+        LazyEvaluate(const M &metadata) : m_Metadata(metadata), m_Field(nullptr), m_Ok(true) {}
+        // Explicit variants (if the result of evaluation is known already)
+        LazyEvaluate(T *value) : m_Metadata(), m_Field(value), m_Ok(true) {}
+        LazyEvaluate(T *value, const M &metadata) : m_Metadata(metadata), m_Field(value), m_Ok(true) {}
         virtual ~LazyEvaluate()
         {
             reset();
@@ -45,7 +51,7 @@ class LazyEvaluate
 
         bool active() const
         {
-            return m_Field != nullptr;
+            return m_Ok && (m_Field != nullptr);
         }
 
         void reset()
@@ -59,7 +65,7 @@ class LazyEvaluate
 
         T *get()
         {
-            if (!active())
+            if (m_Ok && !active())
             {
                 m_Field = create(m_Metadata);
             }
@@ -77,9 +83,21 @@ class LazyEvaluate
             return *get();
         }
 
+        operator bool() const
+        {
+            // !ok = default constructed
+            return m_Ok;
+        }
+
+        operator T *()
+        {
+            return get();
+        }
+
     private:
         M m_Metadata;
         T *m_Field;
+        bool m_Ok;
 };
 
 

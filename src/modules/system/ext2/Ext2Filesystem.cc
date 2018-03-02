@@ -956,6 +956,8 @@ bool Ext2Filesystem::releaseInode(uint32_t inode)
 
 Inode *Ext2Filesystem::getInode(uint32_t inode)
 {
+    assert(inode > 0);
+
     inode--;  // Inode zero is undefined, so it's not used.
 
     uint32_t inodesPerGroup =

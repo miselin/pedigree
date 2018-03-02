@@ -56,7 +56,7 @@ File *Directory::getChild(size_t n)
         return 0;
     }
 
-    return m_LinearCache[n];
+    return m_LinearCache[n]->get();
 }
 
 size_t Directory::getNumChildren()
@@ -81,27 +81,53 @@ File *Directory::lookup(const String &s) const
         return 0;
     }
 
-    return m_Cache.lookup(s);
+    DirectoryEntry *entry = m_Cache.lookup(s);
+    if (!entry)
+    {
+        return nullptr;
+    }
+    else
+    {
+        return entry->get();
+    }
 }
 
 void Directory::remove(const String &s)
 {
-    m_Cache.remove(s);
-
-    for (auto it = m_LinearCache.begin(); it != m_LinearCache.end(); ++it)
+    DirectoryEntry *v = m_Cache.lookup(s);
+    if (v)
     {
-        if ((*it)->getName() == s)
+        m_Cache.remove(s);
+
+        for (auto it = m_LinearCache.begin(); it != m_LinearCache.end(); ++it)
         {
-            m_LinearCache.erase(it);
-            return;
+            if ((*it) == v)
+            {
+                m_LinearCache.erase(it);
+                break;
+            }
         }
+
+        delete v;
     }
 }
 
 void Directory::addDirectoryEntry(const String &name, File *pTarget)
 {
-    m_Cache.insert(name, pTarget);
-    m_LinearCache.pushBack(pTarget);
+    DirectoryEntry *entry = new DirectoryEntry(pTarget);
+
+    m_Cache.insert(name, entry);
+    m_LinearCache.pushBack(entry);
+
+    m_bCachePopulated = true;
+}
+
+void Directory::addDirectoryEntry(const String &name, const DirectoryEntryMetadata &meta)
+{
+    DirectoryEntry *entry = new DirectoryEntry(meta);
+
+    m_Cache.insert(name, entry);
+    m_LinearCache.pushBack(entry);
 
     m_bCachePopulated = true;
 }
@@ -125,15 +151,39 @@ bool Directory::addEphemeralFile(File *pFile)
     }
 
     String name = pFile->getName();
-    if (m_Cache.lookup(name) != 0)
+    if (m_Cache.lookup(name))
     {
         // already exists!
         return false;
     }
 
     /// \todo removal will still want to hit the Filesystem here! not good!
-    m_Cache.insert(name, pFile);
-    m_LinearCache.pushBack(pFile);
+    DirectoryEntry *entry = new DirectoryEntry(pFile);
+
+    m_Cache.insert(name, entry);
+    m_LinearCache.pushBack(entry);
 
     return true;
+}
+
+File *Directory::evaluateEntry(const DirectoryEntryMetadata &meta)
+{
+    if (!meta.pDirectory)
+    {
+        return nullptr;
+    }
+    return meta.pDirectory->convertToFile(meta);
+}
+
+void Directory::destroyEntry(File *file)
+{
+    /// \todo figure out how to destroy File objects!
+    // Thinking maybe something on VFS that tracks File objects and once they
+    // hit zero references, they get culled (i.e. once no more file descriptors
+    // etc are present)
+}
+
+File *Directory::convertToFile(const DirectoryEntryMetadata &meta)
+{
+    return nullptr;
 }

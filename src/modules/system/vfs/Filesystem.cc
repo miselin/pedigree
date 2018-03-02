@@ -266,7 +266,8 @@ bool Filesystem::remove(String path, File *pStartNode)
             // Are the entries only ., ..?
             for (auto it : removalDir->getCache())
             {
-                if (it->getName() != "." && it->getName() != "..")
+                String name = (*it)->getName();
+                if (name != "." && name != "..")
                 {
                     SYSCALL_ERROR(NotEmpty);
                     return false;
@@ -275,7 +276,7 @@ bool Filesystem::remove(String path, File *pStartNode)
 
             for (auto it : removalDir->getCache())
             {
-                pFs->remove(removalDir, it);
+                pFs->remove(removalDir, it->get());
             }
         }
     }

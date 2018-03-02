@@ -22,6 +22,7 @@
 #include "Ext2Filesystem.h"
 #include "Ext2Symlink.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/stddef.h"
 
 Ext2Directory::Ext2Directory(
     const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,
@@ -289,6 +290,7 @@ void Ext2Directory::cacheDirectoryContents()
     for (i = 0; i < m_Blocks.count(); i++)
     {
         ensureBlockLoaded(i);
+
         // Grab the block and pin it while we parse it.
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
         pDir = reinterpret_cast<Dir *>(buffer);
@@ -296,10 +298,9 @@ void Ext2Directory::cacheDirectoryContents()
         while (reinterpret_cast<uintptr_t>(pDir) <
                buffer + m_pExt2Fs->m_BlockSize)
         {
-            Dir *pNextDir = reinterpret_cast<Dir *>(
-                reinterpret_cast<uintptr_t>(pDir) +
-                LITTLE_TO_HOST16(pDir->d_reclen));
+            size_t reclen = LITTLE_TO_HOST16(pDir->d_reclen);
 
+            Dir *pNextDir = adjust_pointer(pDir, reclen);
             if (pDir->d_inode == 0)
             {
                 if (pDir == pNextDir)
@@ -313,37 +314,52 @@ void Ext2Directory::cacheDirectoryContents()
                 continue;
             }
 
-            size_t namelen = pDir->d_namelen;
+            // we only need inode + file type fields, to save memory
+            size_t copylen = offsetof(Dir, d_name);
 
-            uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
-            Inode *inode = m_pExt2Fs->getInode(inodeNum);
+            DirectoryEntryMetadata meta;
+            meta.pDirectory = this;
+            meta.opaque = new char[copylen];
+            MemoryCopy(meta.opaque, pDir, copylen);
+
+            size_t namelen = pDir->d_namelen;
 
             // Can we get the file type from the directory entry?
             size_t fileType = EXT2_UNKNOWN;
+            bool ok = true;
             if (m_pExt2Fs->checkRequiredFeature(2))
             {
-                // Directory entry holds file type.
                 fileType = pDir->d_file_type;
+                switch (fileType)
+                {
+                    case EXT2_FILE:
+                    case EXT2_DIRECTORY:
+                    case EXT2_SYMLINK:
+                        break;
+                    default:
+                        ERROR("EXT2: Directory entry has unsupported file type: " << pDir->d_file_type);
+                        ok = false;
+                        break;
+                }
             }
             else
             {
-                // Inode holds file type.
+                uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
+                Inode *inode = m_pExt2Fs->getInode(inodeNum);
+
+                // Acceptable file type?
                 size_t inode_ftype = inode->i_mode & 0xF000;
                 switch (inode_ftype)
                 {
                     case EXT2_S_IFLNK:
-                        fileType = EXT2_SYMLINK;
-                        break;
                     case EXT2_S_IFREG:
-                        fileType = EXT2_FILE;
-                        break;
                     case EXT2_S_IFDIR:
-                        fileType = EXT2_DIRECTORY;
                         break;
                     default:
                         ERROR(
                             "EXT2: Inode has unsupported file type: "
                             << inode_ftype << ".");
+                        ok = false;
                         break;
                 }
 
@@ -352,32 +368,15 @@ void Ext2Directory::cacheDirectoryContents()
                 namelen |= pDir->d_file_type << 8;
             }
 
-            // Grab filename from the entry.
-            String sFilename(pDir->d_name, namelen);
-
-            File *pFile = 0;
-            switch (fileType)
+            if (!ok)
             {
-                case EXT2_FILE:
-                    pFile = new Ext2File(
-                        sFilename, inodeNum, inode, m_pExt2Fs, this);
-                    break;
-                case EXT2_DIRECTORY:
-                    pFile = new Ext2Directory(
-                        sFilename, inodeNum, inode, m_pExt2Fs, this);
-                    break;
-                case EXT2_SYMLINK:
-                    pFile = new Ext2Symlink(
-                        sFilename, inodeNum, inode, m_pExt2Fs, this);
-                    break;
-                default:
-                    ERROR(
-                        "EXT2: Unrecognised file type for '"
-                        << sFilename << "': " << pDir->d_file_type);
+                delete [] reinterpret_cast<char *>(meta.opaque);
             }
-
-            // Add to cache.
-            addDirectoryEntry(sFilename, pFile);
+            else
+            {
+                meta.filename = String(pDir->d_name, namelen);
+                addDirectoryEntry(meta.filename, meta);
+            }
 
             // Next.
             pDir = pNextDir;
@@ -396,4 +395,65 @@ void Ext2Directory::fileAttributeChanged()
         m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
     static_cast<Ext2Node *>(this)->updateMetadata(
         getUid(), getGid(), permissionsToMode(getPermissions()));
+}
+
+File *Ext2Directory::convertToFile(const DirectoryEntryMetadata &meta)
+{
+    Dir *pDir = reinterpret_cast<Dir *>(meta.opaque);
+
+    uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
+    Inode *inode = m_pExt2Fs->getInode(inodeNum);
+
+    // Can we get the file type from the directory entry?
+    size_t fileType = EXT2_UNKNOWN;
+    if (m_pExt2Fs->checkRequiredFeature(2))
+    {
+        // Directory entry holds file type.
+        fileType = pDir->d_file_type;
+    }
+    else
+    {
+        // Inode holds file type.
+        size_t inode_ftype = inode->i_mode & 0xF000;
+        switch (inode_ftype)
+        {
+            case EXT2_S_IFLNK:
+                fileType = EXT2_SYMLINK;
+                break;
+            case EXT2_S_IFREG:
+                fileType = EXT2_FILE;
+                break;
+            case EXT2_S_IFDIR:
+                fileType = EXT2_DIRECTORY;
+                break;
+            default:
+                // this should have been validated previously
+                FATAL("Bad inode file type in Ext2Directory::convertToFile");
+                break;
+        }
+    }
+
+    File *pFile = 0;
+    switch (fileType)
+    {
+        case EXT2_FILE:
+            pFile = new Ext2File(
+                meta.filename, inodeNum, inode, m_pExt2Fs, this);
+            break;
+        case EXT2_DIRECTORY:
+            pFile = new Ext2Directory(
+                meta.filename, inodeNum, inode, m_pExt2Fs, this);
+            break;
+        case EXT2_SYMLINK:
+            pFile = new Ext2Symlink(
+                meta.filename, inodeNum, inode, m_pExt2Fs, this);
+            break;
+        default:
+            // this should have been validated previously
+            FATAL("Bad file type in Ext2Directory::convertToFile");
+            break;
+    }
+
+    delete [] reinterpret_cast<char *>(pDir);
+    return pFile;
 }

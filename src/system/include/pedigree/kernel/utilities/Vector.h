@@ -31,9 +31,6 @@
 template <class T>
 class Vector
 {
-    static_assert(
-        sizeof(T) <= 16, "Vector<T> should not be used with large objects");
-
   public:
     /** Random-access iterator for the Vector */
     typedef T *Iterator;

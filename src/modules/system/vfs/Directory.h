@@ -25,8 +25,15 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/LazyEvaluate.h"
 
-/** A Directory node. */
+/**
+ * A Directory node.
+ *
+ * \todo Need to add a way to count # of times a particular lookup has happened
+ *       so we can potentially offer a way to cull directory entries that are
+ *       otherwise just consuming space.
+ **/
 class Directory : public File
 {
     friend class Filesystem;
@@ -104,15 +111,36 @@ class Directory : public File
      */
     bool addEphemeralFile(File *pFile);
 
+  protected:
+    struct DirectoryEntryMetadata
+    {
+        DirectoryEntryMetadata() : pDirectory(nullptr), filename(), opaque(nullptr) {}
+
+        // These two should always be known at metadata creation time.
+        Directory *pDirectory;
+        String filename;
+
+        // Space for anything else to be stored by the filesystem.
+        void *opaque;
+    };
+
   private:
+    static File *evaluateEntry(const DirectoryEntryMetadata &meta);
+    static void destroyEntry(File *file);
+
+  protected:
+    typedef LazyEvaluate<File, DirectoryEntryMetadata, evaluateEntry, destroyEntry> DirectoryEntry;
+
+  private:
+
     /** Directory contents cache. */
-    RadixTree<File *> m_Cache;
+    RadixTree<DirectoryEntry *> m_Cache;
 
     /**
      * Directory contents, mirroring m_Cache but allowing for improved
      * Nth item lookups to be performed.
      */
-    Vector<File *> m_LinearCache;
+    Vector<DirectoryEntry *> m_LinearCache;
 
     /**
      * Whether the directory cache is populated with entries or still needs to
@@ -125,7 +153,7 @@ class Directory : public File
 
   protected:
     /** Provides subclasses with direct access to the directory's listing. */
-    virtual const RadixTree<File *> &getCache()
+    virtual const RadixTree<DirectoryEntry *> &getCache()
     {
         return m_Cache;
     }
@@ -136,8 +164,14 @@ class Directory : public File
         m_bCachePopulated = true;
     }
 
-    /** Add an entry to the direectory. */
+    /** Add an entry to the directory. */
     void addDirectoryEntry(const String &name, File *pTarget);
+
+    /** Add a lazily-evaluated entry to the directory. */
+    void addDirectoryEntry(const String &name, const DirectoryEntryMetadata &meta);
+
+    /** Convert given metadata into a useful File object. */
+    virtual File *convertToFile(const DirectoryEntryMetadata &meta);
 };
 
 #endif
