@@ -97,12 +97,12 @@ static bool filterCallback(uintptr_t packet, size_t size)
 
     // Don't care about timing in Wireshark but do care about ordering, and
     // so we want timestamps to always increase.
-    time += Time::Multiplier::MILLISECOND;
+    time += Time::Multiplier::Millisecond;
 
     PcapRecord header;
-    header.ts_sec = time / Time::Multiplier::SECOND;
+    header.ts_sec = time / Time::Multiplier::Second;
     header.ts_usec =
-        (time % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
+        (time % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
     header.stored_length = size;
     header.orig_length = size;
 
