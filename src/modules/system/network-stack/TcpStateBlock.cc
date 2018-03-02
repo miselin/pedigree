@@ -224,7 +224,7 @@ void StateBlock::startCleanup()
     if (!waitingForTimeout)
     {
         Time::runAfter(
-            performCleanupTrampoline, this, Time::Multiplier::MINUTE * 2);
+            performCleanupTrampoline, this, Time::Multiplier::Minute * 2);
         waitingForTimeout = true;
     }
 }

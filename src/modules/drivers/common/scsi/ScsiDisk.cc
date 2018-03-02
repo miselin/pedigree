@@ -131,7 +131,7 @@ bool ScsiDisk::initialise(ScsiController *pController, size_t nUnit)
             }
         }
 
-        Time::delay(100 * Time::Multiplier::MILLISECOND);
+        Time::delay(100 * Time::Multiplier::Millisecond);
 
         // Attempt to see if the unit is ready again
         if (!unitReady())
@@ -142,7 +142,7 @@ bool ScsiDisk::initialise(ScsiController *pController, size_t nUnit)
                 << s->SenseKey << ", asc=" << s->Asc << ", ascq=" << s->AscQ
                 << "]");
 
-            Time::delay(100 * Time::Multiplier::MILLISECOND);
+            Time::delay(100 * Time::Multiplier::Millisecond);
 
             if (!unitReady())
             {

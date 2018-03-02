@@ -66,7 +66,7 @@ void UsbHubDevice::initialiseDriver()
             setPortFeature(i, PortPower);
 
             // Delay while the power goes on
-            Time::delay(50 * Time::Multiplier::MILLISECOND);
+            Time::delay(50 * Time::Multiplier::Millisecond);
 
             // Done.
             portStatus = getPortStatus(i);
@@ -128,7 +128,7 @@ bool UsbHubDevice::portReset(uint8_t nPort, bool bErrorResponse)
     setPortFeature(nPort, PortReset);
 
     // Delay while the reset completes
-    Time::delay(50 * Time::Multiplier::MILLISECOND);
+    Time::delay(50 * Time::Multiplier::Millisecond);
 
     // Done with reset
     clearPortFeature(nPort, PortReset);

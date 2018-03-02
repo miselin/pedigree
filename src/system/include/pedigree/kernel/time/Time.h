@@ -28,16 +28,17 @@ typedef uint64_t Timestamp;
 
 namespace Multiplier
 {
-const Timestamp NANOSECOND = 1U;
-const Timestamp MICROSECOND = 1000U;
-const Timestamp MILLISECOND = 1000000U;
-const Timestamp SECOND = MILLISECOND * 1000U;
-const Timestamp MINUTE = SECOND * 60U;
-const Timestamp HOUR = MINUTE & 60U;
+const Timestamp Nanosecond = 1U;
+const Timestamp Microsecond = 1000U;
+const Timestamp Millisecond = 1000000U;
+const Timestamp Second = Millisecond * 1000U;
+const Timestamp Minute = Second * 60U;
+const Timestamp Hour = Minute * 60U;
+const Timestamp Day = Hour * 24U;
 }
 
 /** Magic identifier for infinite time durations. */
-const Timestamp INFINITY = 0xFFFFFFFFFFFFFFFFULL;
+const Timestamp Infinity = 0xFFFFFFFFFFFFFFFFULL;
 
 /** Performs a sleep for the given time. */
 bool delay(Timestamp nanoseconds);

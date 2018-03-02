@@ -607,7 +607,7 @@ int posix_sleep(uint32_t seconds)
     SG_NOTICE("sleep");
 
     uint64_t startTick = Machine::instance().getTimer()->getTickCount();
-    Time::delay(seconds * Time::Multiplier::SECOND);
+    Time::delay(seconds * Time::Multiplier::Second);
 
     /// \todo delay() won't stop until the time completes, but we should be
     ///       interruptible such that we can return the time elapsed before the
@@ -634,7 +634,7 @@ int posix_usleep(size_t useconds)
 {
     SG_NOTICE("usleep");
 
-    Time::delay(useconds * Time::Multiplier::MICROSECOND);
+    Time::delay(useconds * Time::Multiplier::Microsecond);
 
     /// \todo delay() won't stop until the time completes, but we should be
     ///       interruptible such that we can return the time elapsed before the
@@ -663,7 +663,7 @@ int posix_nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
                      << ".");
 
     Time::Timestamp ts =
-        (rqtp->tv_sec * Time::Multiplier::SECOND) + rqtp->tv_nsec;
+        (rqtp->tv_sec * Time::Multiplier::Second) + rqtp->tv_nsec;
     Time::delay(ts);
 
     if (rmtp)

@@ -36,7 +36,7 @@ Timestamp getTimeNanoseconds(bool sync)
     Timer *pTimer = Machine::instance().getTimer();
     if (sync)
         pTimer->synchronise();
-    Timestamp r = pTimer->getUnixTimestamp() * Multiplier::SECOND;
+    Timestamp r = pTimer->getUnixTimestamp() * Multiplier::Second;
     r += pTimer->getNanosecond();
     return r;
 }

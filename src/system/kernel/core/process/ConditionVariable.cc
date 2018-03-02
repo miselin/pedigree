@@ -36,7 +36,7 @@ ConditionVariable::~ConditionVariable()
 
 ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
 {
-    Time::Timestamp zero = Time::INFINITY;
+    Time::Timestamp zero = Time::Infinity;
     return wait(mutex, zero);
 }
 
@@ -57,7 +57,7 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
     m_Waiters.pushBack(me);
 
     void *alarmHandle = nullptr;
-    if (timeout != Time::INFINITY)
+    if (timeout != Time::Infinity)
     {
         alarmHandle = Time::addAlarm(timeout);
     }
@@ -110,7 +110,7 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
     // Update timeout value to suit. We want to be able to make consecutive
     // calls to wait() without changing the timeout value to allow for wakeups
     // with an unchanged time limit.
-    if (timeout != Time::INFINITY)
+    if (timeout != Time::Infinity)
     {
         Time::Timestamp timeConsumed = endTime - startTime;
         if (timeConsumed >= timeout)

@@ -67,8 +67,8 @@ void Rtc::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 
     // Figure out when to trigger the alarm.
     uint64_t target = m_TickCount;
-    uint64_t delta = alarmSecs * Time::Multiplier::SECOND;
-    delta += alarmUsecs * Time::Multiplier::MICROSECOND;
+    uint64_t delta = alarmSecs * Time::Multiplier::Second;
+    delta += alarmUsecs * Time::Multiplier::Microsecond;
     target += delta;
     Alarm *pAlarm =
         new Alarm(pEvent, target, Processor::information().getCurrentThread());
@@ -445,17 +445,17 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
         }
     }
 
-    if (UNLIKELY(m_Nanosecond >= Time::Multiplier::MILLISECOND))
+    if (UNLIKELY(m_Nanosecond >= Time::Multiplier::Millisecond))
     {
         // Every millisecond, unblock any interrupts which were halted and halt
         // any which need to be halted.
         Machine::instance().getIrqManager()->tick();
     }
 
-    if (UNLIKELY(m_Nanosecond >= Time::Multiplier::SECOND))
+    if (UNLIKELY(m_Nanosecond >= Time::Multiplier::Second))
     {
         ++m_Second;
-        m_Nanosecond -= Time::Multiplier::SECOND;
+        m_Nanosecond -= Time::Multiplier::Second;
 
 #ifdef MEMORY_LOGGING_ENABLED
         Serial *pSerial = Machine::instance().getSerial(1);

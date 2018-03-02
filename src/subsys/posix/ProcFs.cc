@@ -79,7 +79,7 @@ void MeminfoFile::updateThread()
             freeKb + allocKb, freeKb, freeKb);
         m_Lock.release();
 
-        Time::delay(1 * Time::Multiplier::SECOND);
+        Time::delay(1 * Time::Multiplier::Second);
     }
 }
 

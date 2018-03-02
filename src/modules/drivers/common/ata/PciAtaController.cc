@@ -277,7 +277,7 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     }
 
     Time::delay(
-        2 * Time::Multiplier::MILLISECOND);  // Wait 2 ms after clearing.
+        2 * Time::Multiplier::Millisecond);  // Wait 2 ms after clearing.
 
     if (masterCommand)
         ataWait(masterCommand, masterControl);

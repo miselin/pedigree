@@ -59,7 +59,7 @@ u32_t sys_now()
 
     return (spec.tv_sec * 1000) + (spec.tv_nsec / 1000000);
 #else
-    return Time::getTimeNanoseconds() / Time::Multiplier::MILLISECOND;
+    return Time::getTimeNanoseconds() / Time::Multiplier::Millisecond;
 #endif
 }
 
@@ -209,7 +209,7 @@ u32_t sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
     }
 
     Time::Timestamp end = Time::getTimeNanoseconds();
-    return (end - begin) / Time::Multiplier::MILLISECOND;
+    return (end - begin) / Time::Multiplier::Millisecond;
 #endif
 }
 
@@ -248,11 +248,11 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
     Time::Timestamp timeoutMs = 0;
     if (timeout == 0)
     {
-        timeoutMs = Time::INFINITY;
+        timeoutMs = Time::Infinity;
     }
     else
     {
-        timeoutMs = timeout * Time::Multiplier::MILLISECOND;
+        timeoutMs = timeout * Time::Multiplier::Millisecond;
     }
 
     *msg = (*mbox)->buffer.read(timeoutMs);
@@ -262,7 +262,7 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
     }
 
     Time::Timestamp end = Time::getTimeNanoseconds();
-    return (end - begin) / Time::Multiplier::MILLISECOND;
+    return (end - begin) / Time::Multiplier::Millisecond;
 }
 
 err_t sys_mbox_trypost(sys_mbox_t *mbox, void *msg)

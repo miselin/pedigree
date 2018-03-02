@@ -90,7 +90,7 @@ bool delay(Timestamp nanoseconds)
 void *addAlarm(Timestamp nanoseconds)
 {
     Event *pEvent = new DelayTimerEvent();
-    uint64_t usecs = nanoseconds / Multiplier::MICROSECOND;
+    uint64_t usecs = nanoseconds / Multiplier::Microsecond;
     if (!usecs)
         ++usecs;  /// \todo perhaps change addAlarm to take ns.
 

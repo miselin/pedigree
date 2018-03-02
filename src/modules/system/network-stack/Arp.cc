@@ -129,7 +129,7 @@ uint64_t Arp::executeRequest(
     send(req->destIp, pCard);
 
     // 5s timeout by default (should be configurable)
-    Time::Timestamp timeout = 5 * Time::Multiplier::SECOND;
+    Time::Timestamp timeout = 5 * Time::Multiplier::Second;
 
     // Wait for the reply
     req->mutex.acquire();

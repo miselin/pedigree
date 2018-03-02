@@ -281,7 +281,7 @@ size_t TcpEndpoint::depositTcpPayload(
 
 bool TcpEndpoint::dataReady(bool block, uint32_t tmout)
 {
-    Time::Timestamp timeout = tmout * Time::Multiplier::SECOND;
+    Time::Timestamp timeout = tmout * Time::Multiplier::Second;
 
     if (TcpManager::instance().getState(m_ConnId) == Tcp::LISTEN)
     {

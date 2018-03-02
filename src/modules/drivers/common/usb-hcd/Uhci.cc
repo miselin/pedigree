@@ -132,13 +132,13 @@ Uhci::Uhci(Device *pDev)
     // configured flag, as we are no longer configured properly.
     m_pBase->write16(m_pBase->read16(UHCI_CMD) & ~0x41, UHCI_CMD);
     while (!(m_pBase->read16(UHCI_STS) & UHCI_STS_HALT))
-        Time::delay(10 * Time::Multiplier::MILLISECOND);
+        Time::delay(10 * Time::Multiplier::Millisecond);
     m_pBase->write16(m_pBase->read16(UHCI_STS), UHCI_STS);
 
     // Reset the host controller
     m_pBase->write16(m_pBase->read16(UHCI_CMD) | UHCI_CMD_HCRES, UHCI_CMD);
     while (m_pBase->read16(UHCI_CMD) & UHCI_CMD_HCRES)
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
 
     // Write frame list pointer
     m_pBase->write32(m_pFrameListPhys, UHCI_FRLP);
@@ -152,17 +152,17 @@ Uhci::Uhci(Device *pDev)
     // Start the controller: 64-byte reclamation and CF set, as well as run bit.
     // Also, force a global resume of all ports out of any form of suspend state
     m_pBase->write16(0xC1 | 0x10, UHCI_CMD);
-    Time::delay(10 * Time::Multiplier::MILLISECOND);
+    Time::delay(10 * Time::Multiplier::Millisecond);
     m_pBase->write16(0xC1, UHCI_CMD);
     while (m_pBase->read16(UHCI_STS) & UHCI_STS_HALT)
-        Time::delay(10 * Time::Multiplier::MILLISECOND);
+        Time::delay(10 * Time::Multiplier::Millisecond);
 
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("USB: UHCI: Reset complete");
 #endif
 
     // Give time for ports to resume and stabilise.
-    Time::delay(100 * Time::Multiplier::MILLISECOND);
+    Time::delay(100 * Time::Multiplier::Millisecond);
 
     for (size_t i = 0; i < 8; i++)
     {
@@ -724,14 +724,14 @@ bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
             m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & ~UHCI_PORTSC_ENABLE,
             UHCI_PORTSC + (nPort * 2));
         while (m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & UHCI_PORTSC_ENABLE)
-            Time::delay(10 * Time::Multiplier::MILLISECOND);
+            Time::delay(10 * Time::Multiplier::Millisecond);
     }
 
     // Perform a reset of the port
     m_pBase->write16(
         m_pBase->read16(UHCI_PORTSC + (nPort * 2)) | UHCI_PORTSC_PRES,
         UHCI_PORTSC + (nPort * 2));
-    Time::delay(50 * Time::Multiplier::MILLISECOND);
+    Time::delay(50 * Time::Multiplier::Millisecond);
     m_pBase->write16(
         m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & ~UHCI_PORTSC_PRES,
         UHCI_PORTSC + (nPort * 2));
@@ -740,7 +740,7 @@ bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
     m_pBase->write16(
         m_pBase->read16(UHCI_PORTSC + (nPort * 2)) | UHCI_PORTSC_ENABLE,
         UHCI_PORTSC + (nPort * 2));
-    Time::delay((bErrorResponse ? 500 : 100) * Time::Multiplier::MILLISECOND);
+    Time::delay((bErrorResponse ? 500 : 100) * Time::Multiplier::Millisecond);
 
     // Check that the device is completely enabled
     if (!(m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & UHCI_PORTSC_ENABLE))
@@ -831,7 +831,7 @@ void Uhci::timer(uint64_t delta, InterruptState &state)
 {
     m_nPortCheckTicks += delta;
 
-    // We check the ports once in a millisecond
+    // We check the ports once in a Millisecond
     if (m_nPortCheckTicks >= 1000000)
     {
         // Reset the counter
@@ -859,14 +859,14 @@ void Uhci::stop()
 {
     m_pBase->write16(m_pBase->read16(UHCI_CMD) & ~1, UHCI_CMD);
     while (!(m_pBase->read16(UHCI_STS) & UHCI_STS_HALT))
-        Time::delay(10 * Time::Multiplier::MILLISECOND);
+        Time::delay(10 * Time::Multiplier::Millisecond);
 }
 
 void Uhci::start()
 {
     m_pBase->write16(m_pBase->read16(UHCI_CMD) | 1, UHCI_CMD);
     while (m_pBase->read16(UHCI_STS) & UHCI_STS_HALT)
-        Time::delay(10 * Time::Multiplier::MILLISECOND);
+        Time::delay(10 * Time::Multiplier::Millisecond);
 }
 
 #endif

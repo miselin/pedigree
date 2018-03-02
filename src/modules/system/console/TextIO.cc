@@ -1654,7 +1654,7 @@ void TextIO::flipThread()
         flip(true, !bBlinkOn);
 
         // Wait for the next trigger time.
-        Time::delay(m_NextInterval * Time::Multiplier::MILLISECOND);
+        Time::delay(m_NextInterval * Time::Multiplier::Millisecond);
     }
 }
 

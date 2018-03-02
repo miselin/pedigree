@@ -34,7 +34,7 @@ int TcpManager::sequenceIncrementer(void *param)
             LockGuard<Mutex> guard(m->m_SequenceMutex);
             m->m_NextTcpSequence += 64000;
         }
-        Time::delay(500 * Time::Multiplier::MILLISECOND);
+        Time::delay(500 * Time::Multiplier::Millisecond);
     }
     return 0;
 }
@@ -220,7 +220,7 @@ size_t TcpManager::Connect(
     if (!bBlock)
         return connId;  // connection in progress - assume it works
 
-    Time::Timestamp timeout = 15 * Time::Multiplier::SECOND;
+    Time::Timestamp timeout = 15 * Time::Multiplier::Second;
 
     bool timedOut = false;
     stateBlock->lock.acquire();

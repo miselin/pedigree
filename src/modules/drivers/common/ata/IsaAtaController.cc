@@ -66,10 +66,10 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
 
     // Perform a software reset.
     m_pControlRegs->write8(0x04, 6);  // Assert SRST
-    Time::delay(5 * Time::Multiplier::MILLISECOND);
+    Time::delay(5 * Time::Multiplier::Millisecond);
 
     m_pControlRegs->write8(0, 6);  // Negate SRST
-    Time::delay(5 * Time::Multiplier::MILLISECOND);
+    Time::delay(5 * Time::Multiplier::Millisecond);
 
     // Poll until BSY is clear. Until BSY is clear, no other bits in the
     // alternate status register are considered valid.

@@ -102,7 +102,7 @@ class RingBuffer
 
     void write(const T &obj)
     {
-        Time::Timestamp timeout = Time::INFINITY;
+        Time::Timestamp timeout = Time::Infinity;
         write(obj, timeout);
     }
 
@@ -123,7 +123,7 @@ class RingBuffer
 
     size_t write(const T *obj, size_t n)
     {
-        Time::Timestamp timeout = Time::INFINITY;
+        Time::Timestamp timeout = Time::Infinity;
         return write(obj, n, timeout);
     }
 
@@ -187,7 +187,7 @@ class RingBuffer
 
     size_t read(T *out, size_t n)
     {
-        Time::Timestamp timeout = Time::INFINITY;
+        Time::Timestamp timeout = Time::Infinity;
         return read(out, n, timeout);
     }
 
@@ -250,7 +250,7 @@ class RingBuffer
 
     bool waitFor(RingBufferWait::WaitType wait)
     {
-        Time::Timestamp timeout = Time::INFINITY;
+        Time::Timestamp timeout = Time::Infinity;
         return waitFor(wait, timeout);
     }
 

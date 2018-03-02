@@ -482,12 +482,12 @@ int RequestQueue::work()
 void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta, InterruptState &)
 {
     m_Tick += delta;
-    if (delta < Time::Multiplier::SECOND)
+    if (delta < Time::Multiplier::Second)
     {
         return;
     }
 
-    m_Tick -= Time::Multiplier::SECOND;
+    m_Tick -= Time::Multiplier::Second;
 
     queue->m_RequestQueueMutex.acquire();
     size_t lastSize = m_LastQueueSize;

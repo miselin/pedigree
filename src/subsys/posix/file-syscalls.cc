@@ -2345,8 +2345,8 @@ int posix_utime(const char *path, const struct utimbuf *times)
     Time::Timestamp modifyTime;
     if (times)
     {
-        accessTime = times->actime * Time::Multiplier::SECOND;
-        modifyTime = times->modtime * Time::Multiplier::SECOND;
+        accessTime = times->actime * Time::Multiplier::Second;
+        modifyTime = times->modtime * Time::Multiplier::Second;
     }
     else
     {
@@ -2896,11 +2896,11 @@ int posix_futimesat(
         struct timeval access = times[0];
         struct timeval modify = times[1];
 
-        accessTime = access.tv_sec * Time::Multiplier::SECOND;
-        accessTime += access.tv_usec * Time::Multiplier::MICROSECOND;
+        accessTime = access.tv_sec * Time::Multiplier::Second;
+        accessTime += access.tv_usec * Time::Multiplier::Microsecond;
 
-        modifyTime = modify.tv_sec * Time::Multiplier::SECOND;
-        modifyTime += modify.tv_usec * Time::Multiplier::MICROSECOND;
+        modifyTime = modify.tv_sec * Time::Multiplier::Second;
+        modifyTime += modify.tv_usec * Time::Multiplier::Microsecond;
     }
     else
     {

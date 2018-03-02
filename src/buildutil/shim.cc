@@ -79,8 +79,8 @@ bool delay(Timestamp nanoseconds)
 {
     /// \todo this isn't quite right
     struct timespec ts;
-    ts.tv_sec = nanoseconds / Multiplier::SECOND;
-    ts.tv_nsec = nanoseconds % Multiplier::SECOND;
+    ts.tv_sec = nanoseconds / Multiplier::Second;
+    ts.tv_nsec = nanoseconds % Multiplier::Second;
     nanosleep(&ts, nullptr);
     return true;
 }
@@ -90,7 +90,7 @@ Timestamp getTimeNanoseconds(bool sync)
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
 
-    return (ts.tv_sec * Multiplier::SECOND) + ts.tv_nsec;
+    return (ts.tv_sec * Multiplier::Second) + ts.tv_nsec;
 }
 }  // Time
 
@@ -203,7 +203,7 @@ ConditionVariable::~ConditionVariable()
 
 ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
 {
-    Time::Timestamp zero = Time::INFINITY;
+    Time::Timestamp zero = Time::Infinity;
     return wait(mutex, zero);
 }
 
@@ -216,7 +216,7 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
     Error err = NoError;
 
     int r = 0;
-    if (timeout == Time::INFINITY)
+    if (timeout == Time::Infinity)
     {
         r = pthread_cond_wait(cond, m);
     }
@@ -224,8 +224,8 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
     {
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout / Time::Multiplier::SECOND;
-        ts.tv_nsec += timeout % Time::Multiplier::SECOND;
+        ts.tv_sec += timeout / Time::Multiplier::Second;
+        ts.tv_nsec += timeout % Time::Multiplier::Second;
 
         r = pthread_cond_timedwait(cond, m, &ts);
 
@@ -244,7 +244,7 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timest
             uint64_t sec = ts.tv_sec - ts2.tv_sec;
             uint64_t nsec = ts.tv_nsec - ts2.tv_nsec;
 
-            timeout = (sec * Time::Multiplier::SECOND) + nsec;
+            timeout = (sec * Time::Multiplier::Second) + nsec;
         }
     }
 

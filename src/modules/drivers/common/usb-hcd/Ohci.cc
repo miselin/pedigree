@@ -118,7 +118,7 @@ Ohci::Ohci(Device *pDev)
             status | OhciCommandRequestOwnership, OhciCommandStatus);
         while ((control = m_pBase->read32(OhciControl)) &
                OhciControlInterruptRoute)
-            Time::delay(1 * Time::Multiplier::MILLISECOND);
+            Time::delay(1 * Time::Multiplier::Millisecond);
     }
     else
     {
@@ -135,7 +135,7 @@ Ohci::Ohci(Device *pDev)
 
     // Perform a reset via the UHCI Control register.
     m_pBase->write32(control & ~OhciControlStateFunctionalMask, OhciControl);
-    Time::delay(200 * Time::Multiplier::MILLISECOND);
+    Time::delay(200 * Time::Multiplier::Millisecond);
 
     // Grab the FM Interval register (5.1.1.4, OHCI spec).
     uint32_t interval = m_pBase->read32(OhciFmInterval);
@@ -143,7 +143,7 @@ Ohci::Ohci(Device *pDev)
     // Perform a full hardware reset.
     m_pBase->write32(OhciCommandHcReset, OhciCommandStatus);
     while (m_pBase->read32(OhciCommandStatus) & OhciCommandHcReset)
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
 
     // We now have 2 ms to complete all operations before we start the
     // controller. 5.1.1.4, OHCI spec.
@@ -219,7 +219,7 @@ Ohci::Ohci(Device *pDev)
             m_pBase->write32(OhciRhPortStsPower, OhciRhPortStatus + (i * 4));
 
             // Wait as long as it needs
-            Time::delay(powerWait * Time::Multiplier::MILLISECOND);
+            Time::delay(powerWait * Time::Multiplier::Millisecond);
         }
 
         DEBUG_LOG("OHCI: Determining if there's a device on this port");
@@ -1079,7 +1079,7 @@ bool Ohci::portReset(uint8_t nPort, bool bErrorResponse)
         OhciRhPortStatus + (nPort * 4));
     while (
         !(m_pBase->read32(OhciRhPortStatus + (nPort * 4)) & OhciRhPortStsResCh))
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
     m_pBase->write32(OhciRhPortStsResCh, OhciRhPortStatus + (nPort * 4));
 
     // Enable the port if not already enabled

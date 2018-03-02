@@ -831,12 +831,12 @@ int posix_getrusage(int who, struct rusage *r)
     Time::Timestamp kernel = pProcess->getKernelTime();
 
     ByteSet(r, 0, sizeof(struct rusage));
-    r->ru_utime.tv_sec = user / Time::Multiplier::SECOND;
+    r->ru_utime.tv_sec = user / Time::Multiplier::Second;
     r->ru_utime.tv_usec =
-        (user % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
-    r->ru_stime.tv_sec = kernel / Time::Multiplier::SECOND;
+        (user % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+    r->ru_stime.tv_sec = kernel / Time::Multiplier::Second;
     r->ru_stime.tv_usec =
-        (kernel % Time::Multiplier::SECOND) / Time::Multiplier::MICROSECOND;
+        (kernel % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
 
     return 0;
 }

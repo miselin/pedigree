@@ -196,7 +196,7 @@ bool Ehci::initialiseController()
                 {
                     legsup =
                         PciBus::instance().readConfigSpace(this, dwordOffset);
-                    Time::delay(5 * Time::Multiplier::MILLISECOND);
+                    Time::delay(5 * Time::Multiplier::Millisecond);
                 }
             }
 
@@ -216,7 +216,7 @@ bool Ehci::initialiseController()
             ~(EHCI_CMD_ASYNCLE | EHCI_CMD_PERIODICLE),
         m_nOpRegsOffset + EHCI_CMD);
     while (m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & 0xC000)
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
 
     uint32_t status = m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
     if (!(status & EHCI_STS_HALTED))
@@ -229,7 +229,7 @@ bool Ehci::initialiseController()
             m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) & ~EHCI_CMD_RUN,
             m_nOpRegsOffset + EHCI_CMD);
         while (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & EHCI_STS_HALTED))
-            Time::delay(5 * Time::Multiplier::MILLISECOND);
+            Time::delay(5 * Time::Multiplier::Millisecond);
     }
 
 #ifdef USB_VERBOSE_DEBUG
@@ -238,7 +238,7 @@ bool Ehci::initialiseController()
     // Write host controller reset command and wait for it to complete
     m_pBase->write32(EHCI_CMD_HCRES, m_nOpRegsOffset + EHCI_CMD);
     while (m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) & EHCI_CMD_HCRES)
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG(
         "USB: EHCI: Reset complete, status: "
@@ -267,7 +267,7 @@ bool Ehci::initialiseController()
     // one
     m_pBase->write32(m_pFrameListPhys, m_nOpRegsOffset + EHCI_PERIODICLP);
 
-    Time::delay(5 * Time::Multiplier::MILLISECOND);
+    Time::delay(5 * Time::Multiplier::Millisecond);
 
     // Create a dummy QH and qTD
     m_QHBitmap.set(0);
@@ -319,7 +319,7 @@ bool Ehci::initialiseController()
         m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) | EHCI_CMD_RUN,
         m_nOpRegsOffset + EHCI_CMD);
     while (m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & EHCI_STS_HALTED)
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
 
     // Set up the RequestQueue
     initialise();
@@ -341,7 +341,7 @@ bool Ehci::initialiseController()
         m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) | EHCI_CMD_ASYNCLE,
         m_nOpRegsOffset + EHCI_CMD);
     while (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & 0x8000))
-        Time::delay(5 * Time::Multiplier::MILLISECOND);
+        Time::delay(5 * Time::Multiplier::Millisecond);
 
     // Search for ports with devices and initialise them
     for (size_t i = 0; i < m_nPorts; i++)
@@ -358,7 +358,7 @@ bool Ehci::initialiseController()
         {
             m_pBase->write32(
                 EHCI_PORTSC_PPOW, m_nOpRegsOffset + EHCI_PORTSC + i * 4);
-            Time::delay(20 * Time::Multiplier::MILLISECOND);
+            Time::delay(20 * Time::Multiplier::Millisecond);
 #ifdef USB_VERBOSE_DEBUG
             DEBUG_LOG(
                 "USB: EHCI: Port "
@@ -374,7 +374,7 @@ bool Ehci::initialiseController()
             m_nOpRegsOffset + EHCI_PORTSC + (i * 4));
         while (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (i * 4)) &
                EHCI_PORTSC_PRES)
-            Time::delay(5 * Time::Multiplier::MILLISECOND);
+            Time::delay(5 * Time::Multiplier::Millisecond);
 
         executeRequest(i);
     }
@@ -998,7 +998,7 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
                 EHCI_PORTSC_PRES,
             m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4));
 
-        Time::delay(50 * Time::Multiplier::MILLISECOND);
+        Time::delay(50 * Time::Multiplier::Millisecond);
 
         // Unset the reset bit
         m_pBase->write32(
@@ -1009,7 +1009,7 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
         // Wait for the reset to complete
         while (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) &
                EHCI_PORTSC_PRES)
-            Time::delay(5 * Time::Multiplier::MILLISECOND);
+            Time::delay(5 * Time::Multiplier::Millisecond);
 
 #ifdef USB_VERBOSE_DEBUG
         DEBUG_LOG(
