@@ -20,46 +20,7 @@
 #ifndef POLL_SYSCALLS_H
 #define POLL_SYSCALLS_H
 
-#include "file-syscalls.h"
-#include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/eventNumbers.h"
-
-#include <poll.h>
-
-/** Event class for passing to File::monitor. */
-class PollEvent : public Event
-{
-  public:
-    /** The constructor takes a semaphore that it should signal when it fires,
-        and an fd_set with an index to set. */
-    PollEvent();
-    PollEvent(
-        Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile);
-    virtual ~PollEvent();
-
-    void fire();
-
-    File *getFile()
-    {
-        return m_pFile;
-    }
-
-    //
-    // Event interface
-    //
-    virtual size_t serialize(uint8_t *pBuffer);
-    static bool unserialize(uint8_t *pBuffer, PollEvent &event);
-    virtual size_t getNumber()
-    {
-        return EventNumbers::PollEvent;
-    }
-
-  private:
-    Semaphore *m_pSemaphore;
-    struct pollfd *m_pFd;
-    int m_nREvent;
-    File *m_pFile;
-};
+#include <poll.h>  // for pollfd
 
 int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout);
 

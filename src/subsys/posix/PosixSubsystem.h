@@ -39,33 +39,25 @@ class File;
 class UnixSocket;
 class LockedFile;
 class FileDescriptor;
+class PosixSubsystem;
+
+extern PosixSubsystem *getSubsystem();
+extern FileDescriptor *getDescriptor(int fd);
+extern void addDescriptor(int fd, FileDescriptor *f);
+extern size_t getAvailableDescriptor();
 
 // Grabs a subsystem for use.
 #define GRAB_POSIX_SUBSYSTEM(returnValue)                                 \
-    PosixSubsystem *pSubsystem = 0;                                       \
+    PosixSubsystem *pSubsystem = getSubsystem();                          \
+    if (!pSubsystem)                                                      \
     {                                                                     \
-        Process *pProcess =                                               \
-            Processor::information().getCurrentThread()->getParent();     \
-        pSubsystem =                                                      \
-            reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem()); \
-        if (!pSubsystem)                                                  \
-        {                                                                 \
-            ERROR("No subsystem for this process!");                      \
-            return (returnValue);                                         \
-        }                                                                 \
+        return (returnValue);                                             \
     }
 #define GRAB_POSIX_SUBSYSTEM_NORET                                        \
-    PosixSubsystem *pSubsystem = 0;                                       \
+    PosixSubsystem *pSubsystem = getSubsystem();                          \
+    if (!pSubsystem)                                                      \
     {                                                                     \
-        Process *pProcess =                                               \
-            Processor::information().getCurrentThread()->getParent();     \
-        pSubsystem =                                                      \
-            reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem()); \
-        if (!pSubsystem)                                                  \
-        {                                                                 \
-            ERROR("No subsystem for this process!");                      \
-            return;                                                       \
-        }                                                                 \
+        return;                                                           \
     }
 
 /** A map linking full paths to (advisory) locked files */

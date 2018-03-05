@@ -22,7 +22,6 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/assert.h"
 
-#include "modules/system/console/Console.h"
 #include "modules/system/network-stack/NetManager.h"
 #include "modules/system/network-stack/Tcp.h"
 #include "modules/system/vfs/Directory.h"
@@ -44,8 +43,9 @@
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixSubsystem.h>
 #include <FileDescriptor.h>
+#include "subsys/posix/PollEvent.h"
 
-static void pollEventHandler(uint8_t *pBuffer);
+extern void pollEventHandler(uint8_t *pBuffer);
 
 enum TimeoutType
 {
@@ -53,68 +53,6 @@ enum TimeoutType
     SpecificTimeout,
     InfiniteTimeout
 };
-
-PollEvent::PollEvent()
-    : Event(0, false), m_pSemaphore(0), m_pFd(0), m_nREvent(0), m_pFile(0)
-{
-}
-
-PollEvent::PollEvent(
-    Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile)
-    : Event(reinterpret_cast<uintptr_t>(&pollEventHandler), false),
-      m_pSemaphore(pSemaphore), m_pFd(fd), m_nREvent(revent), m_pFile(pFile)
-{
-    assert(pSemaphore);
-}
-
-PollEvent::~PollEvent()
-{
-}
-
-void PollEvent::fire()
-{
-    m_pFd->revents |= m_nREvent;
-
-    m_pSemaphore->release();
-}
-
-size_t PollEvent::serialize(uint8_t *pBuffer)
-{
-    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
-    pBuf[0] = EventNumbers::PollEvent;
-    pBuf[1] = reinterpret_cast<size_t>(m_pSemaphore);
-    pBuf[2] = reinterpret_cast<size_t>(m_pFd);
-    pBuf[3] = static_cast<size_t>(m_nREvent);
-    pBuf[4] = reinterpret_cast<size_t>(m_pFile);
-
-    return 5 * sizeof(size_t);
-}
-
-bool PollEvent::unserialize(uint8_t *pBuffer, PollEvent &event)
-{
-    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
-    if (pBuf[0] != EventNumbers::PollEvent)
-        return false;
-
-    event.m_pSemaphore = reinterpret_cast<Semaphore *>(pBuf[1]);
-    event.m_pFd = reinterpret_cast<struct pollfd *>(pBuf[2]);
-    event.m_nREvent = static_cast<int>(pBuf[3]);
-    event.m_pFile = reinterpret_cast<File *>(pBuf[4]);
-
-    return true;
-}
-
-void pollEventHandler(uint8_t *pBuffer)
-{
-    PollEvent e;
-    if (!PollEvent::unserialize(pBuffer, e))
-    {
-        FATAL("PollEventHandler: unable to unserialize event!");
-    }
-    e.fire();
-}
 
 /** poll: determine if a set of file descriptors are writable/readable.
  *
@@ -162,9 +100,15 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         timeoutType = SpecificTimeout;
     }
 
+#ifndef THREADS
+    timeoutType = ReturnImmediately;
+#endif
+
+#ifdef THREADS
     // Grab the subsystem for this process
+    Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
+        pThread->getParent();
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
@@ -172,15 +116,23 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         ERROR("No subsystem for this process!");
         return -1;
     }
+#else
+    Thread *pThread = nullptr;
+#endif
 
     List<PollEvent *> events;
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
 
+#ifdef THREADS
     // Can be interrupted while waiting for sem - EINTR.
     Semaphore sem(0, true);
     Spinlock reentrancyLock;
+    Semaphore *pSem = &sem;
+#else
+    Semaphore *pSem = nullptr;
+#endif
 
     for (unsigned int i = 0; i < nfds; i++)
     {
@@ -193,7 +145,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
 
         // valid fd?
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(me->fd);
+        FileDescriptor *pFd = getDescriptor(me->fd);
         if (!pFd)
         {
             // Error - no such file descriptor.
@@ -226,12 +178,13 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         me->revents |= event;
                         bWillReturnImmediately = true;
                     }
+#ifdef THREADS
                     else if (!bWillReturnImmediately)
                     {
                         // Need to set up a PollEvent.
                         PollEvent *pEvent = new PollEvent(&sem, me, event, pFd->file);
                         pFd->file->monitor(
-                            Processor::information().getCurrentThread(), pEvent);
+                            pThread, pEvent);
 
                         reentrancyLock.acquire();
 
@@ -251,6 +204,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 
                         reentrancyLock.release();
                     }
+#endif
                 }
                 else if (pFd->networkImpl)
                 {
@@ -261,7 +215,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         bool checkingRead = !checkWrite;
                         bool checkingError = false;
 
-                        bool pollResult = pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, &sem);
+                        bool pollResult = pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, pSem);
                         if (pollResult)
                         {
                             bWillReturnImmediately = pollResult;
@@ -292,6 +246,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
     }
 
+#ifdef THREADS
     // Grunt work is done, now time to cleanup.
     while (!bWillReturnImmediately && !bError)
     {
@@ -328,7 +283,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             for (size_t i = 0; i < nfds; ++i)
             {
                 struct pollfd *me = &fds[i];
-                FileDescriptor *pFd = pSubsystem->getFileDescriptor(me->fd);
+                FileDescriptor *pFd = getDescriptor(me->fd);
                 if (!pFd)
                 {
                     continue;
@@ -383,25 +338,30 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             break;
         }
     }
+#endif
 
     // Only do cleanup and lock acquire/release if we set events up.
     if (events.count())
     {
         // Block any more events being sent to us so we can safely clean up.
+#ifdef THREADS
         reentrancyLock.acquire();
-        Processor::information().getCurrentThread()->inhibitEvent(
+        pThread->inhibitEvent(
             EventNumbers::PollEvent, true);
         reentrancyLock.release();
+#endif
 
         for (auto pEvent : events)
         {
             pEvent->getFile()->cullMonitorTargets(
-                Processor::information().getCurrentThread());
+                pThread);
         }
 
         // Ensure there are no events still pending for this thread.
-        Processor::information().getCurrentThread()->cullEvent(
+#ifdef THREADS
+        pThread->cullEvent(
             EventNumbers::PollEvent);
+#endif
 
         for (auto pEvent : events)
         {
@@ -409,8 +369,10 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
 
         // Cleanup is complete, stop inhibiting events now.
-        Processor::information().getCurrentThread()->inhibitEvent(
+#ifdef THREADS
+        pThread->inhibitEvent(
             EventNumbers::PollEvent, false);
+#endif
     }
 
     // Prepare return value (number of fds with events).
@@ -428,7 +390,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
 
         // Clean up socket Semaphores that we registered, if any.
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(fds[i].fd);
+        FileDescriptor *pFd = getDescriptor(fds[i].fd);
         if (!pFd)
         {
             continue;
@@ -436,7 +398,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 
         if (pFd->networkImpl && pFd->networkImpl->canPoll())
         {
-            pFd->networkImpl->unPoll(&sem);
+            pFd->networkImpl->unPoll(pSem);
         }
     }
 
