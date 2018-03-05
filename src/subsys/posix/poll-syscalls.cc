@@ -197,7 +197,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         if (!pFd)
         {
             // Error - no such file descriptor.
-            ERROR("poll: no such file descriptor (" << Dec << me->fd << ")");
+            F_NOTICE("poll: no such file descriptor (" << Dec << me->fd << ")");
             me->revents |= POLLNVAL;
             bError = true;
             continue;
@@ -252,24 +252,32 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         reentrancyLock.release();
                     }
                 }
-                else if (pFd->networkImpl && pFd->networkImpl->canPoll())
+                else if (pFd->networkImpl)
                 {
-                    bool checkingWrite = checkWrite;
-                    bool checkingRead = !checkWrite;
-                    bool checkingError = false;
-
-                    bWillReturnImmediately = bWillReturnImmediately || pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, &sem);
-
-                    if (bWillReturnImmediately)
+                    if (pFd->networkImpl->canPoll())
                     {
-                        if (checkingWrite)
+
+                        bool checkingWrite = checkWrite;
+                        bool checkingRead = !checkWrite;
+                        bool checkingError = false;
+
+                        bool pollResult = pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, &sem);
+                        if (pollResult)
                         {
-                            me->revents |= POLLOUT;
+                            bWillReturnImmediately = pollResult;
                         }
 
-                        if (checkingRead)
+                        if (bWillReturnImmediately)
                         {
-                            me->revents |= POLLIN;
+                            if (checkingWrite)
+                            {
+                                me->revents |= POLLOUT;
+                            }
+
+                            if (checkingRead)
+                            {
+                                me->revents |= POLLIN;
+                            }
                         }
                     }
                 }
