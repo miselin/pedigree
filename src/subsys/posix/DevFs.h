@@ -33,6 +33,8 @@
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 
+#include "subsys/posix/VirtualTerminal.h"
+
 #define DEVFS_NUMTTYS 7
 
 class DevFs;
@@ -288,7 +290,7 @@ class DevFsDirectory : public Directory
 class DevFs : public Filesystem
 {
   public:
-    DevFs() : m_pRoot(0), m_pTty(0)
+    DevFs() : m_pRoot(0), m_pTty(0), m_VtManager(0)
     {
     }
 
@@ -310,10 +312,10 @@ class DevFs : public Filesystem
 
     void handleInput(InputManager::InputNotification &in);
 
-    bool switchTty(size_t n);
-
-    TextIO *getCurrentTty() const;
-    File *getCurrentTtyFile() const;
+    VirtualTerminalManager &getTerminalManager()
+    {
+        return *m_VtManager;
+    }
 
   protected:
     virtual bool createFile(File *parent, String filename, uint32_t mask)
@@ -346,6 +348,8 @@ class DevFs : public Filesystem
     TextIO *m_pTtys[DEVFS_NUMTTYS];
     File *m_pTtyFiles[DEVFS_NUMTTYS];
     size_t m_CurrentTty;
+
+    VirtualTerminalManager *m_VtManager;
 };
 
 #endif

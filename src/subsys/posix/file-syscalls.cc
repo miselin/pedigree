@@ -39,6 +39,8 @@
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Keyboard.h"
 
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixProcess.h>
@@ -1291,11 +1293,54 @@ int posix_ioctl(int fd, int command, void *buf)
         case 0x4b3a:
             /// \todo what do we do when switching to graphics mode?
             F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
+            if (buf == (void*)1)
+            {
+                g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Graphics);
+            }
+            else
+            {
+                g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Text);
+            }
+            return 0;
+
+        // KDGETMODE
+        case 0x4b3b:
+            {
+                F_NOTICE(" -> KDGETMODE");
+                switch (g_pDevFs->getTerminalManager().getSystemMode())
+                {
+                    case VirtualTerminalManager::Graphics:
+                        *reinterpret_cast<int *>(buf) = 1;
+                        break;
+                    case VirtualTerminalManager::Text:
+                        *reinterpret_cast<int *>(buf) = 0;
+                        break;
+                }
+            }
+            return 0;
+
+        // KDGKBMODE
+        case 0x4b44:
+            F_NOTICE(" -> KDGKBMODE (stubbed), arg=" << buf);
             return 0;
 
         // KDSKBMODE
         case 0x4B45:
             F_NOTICE(" -> KDSKBMODE (stubbed), arg=" << buf);
+            return 0;
+
+        // KDGKBENT
+        case 0x4B46:
+            {
+                F_NOTICE(" -> KDGKBENT (stubbed), arg=" << buf);
+                struct kbentry *kbent = reinterpret_cast<struct kbentry *>(buf);
+                kbent->kb_value = kbent->kb_index;
+            }
+            return 0;
+
+        // KDSKBENT
+        case 0x4B47:
+            F_NOTICE(" -> KDSKBENT (stubbed), arg=" << buf);
             return 0;
 
         // KDKBDREP
@@ -1492,14 +1537,23 @@ int posix_ioctl(int fd, int command, void *buf)
             return 0;
         }
 
-        /// \todo move this into ConsoleFile or something
         // VT_OPENQRY
         case 0x5600:
         {
             F_NOTICE(" -> VT_OPENQRY (stubbed)");
 
             int *ibuf = reinterpret_cast<int *>(buf);
-            *ibuf = 1;  // tty2 is free (maybe)
+
+            size_t newTty = g_pDevFs->getTerminalManager().openInactive();
+            if (newTty != ~0U)
+            {
+                NOTICE("VT_OPENQRY => " << newTty);
+                *ibuf = newTty + 1;
+            }
+            else
+            {
+                *ibuf = -1;
+            }
 
             return 0;
         }
@@ -1508,29 +1562,69 @@ int posix_ioctl(int fd, int command, void *buf)
         case 0x5601:
             {
                 F_NOTICE(" -> VT_GETMODE (stubbed)");
+
+                /// \todo this should actually use the tty number of the file descriptor
+                size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
+
                 struct vt_mode *mode = reinterpret_cast<struct vt_mode *>(buf);
-                mode->mode = VT_AUTO;
-                mode->waitv = 0;
-                mode->relsig = 0;
-                mode->acqsig = 0;
-                mode->frsig = 0;
+                *mode = g_pDevFs->getTerminalManager().getTerminalMode(currentTty);
             }
             return 0;
 
         // VT_SETMODE
         case 0x5602:
-            F_NOTICE(" -> VT_SETMODE (stubbed)");
+            {
+                F_NOTICE(" -> VT_SETMODE (stubbed)");
+
+                const struct vt_mode *mode = reinterpret_cast<const struct vt_mode *>(buf);
+
+                /// \todo this should actually use the tty number of the file descriptor
+                size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
+                g_pDevFs->getTerminalManager().setTerminalMode(currentTty, *mode);
+            }
             return 0;
 
         // VT_GETSTATE
         case 0x5603:
-            F_NOTICE(" -> VT_GETSTATE (stubbed)");
+            {
+                F_NOTICE(" -> VT_GETSTATE (stubbed)");
+
+                struct vt_stat *stat = reinterpret_cast<struct vt_stat *>(buf);
+                *stat = g_pDevFs->getTerminalManager().getState();
+            }
+            return 0;
+
+        // VT_RELDISP
+        case 0x5605:
+            {
+                F_NOTICE(" -> VT_RELDISP (stubbed)");
+
+                NOTICE("VT_RELDISP");
+                uintptr_t ibuf = reinterpret_cast<uintptr_t>(buf);
+                if (ibuf == 0)
+                {
+                    NOTICE(" -> switch disallowed");
+                    g_pDevFs->getTerminalManager().reportPermission(VirtualTerminalManager::Disallowed);
+                }
+                else if (ibuf == 1)
+                {
+                    NOTICE(" -> switch allowed");
+                    g_pDevFs->getTerminalManager().reportPermission(VirtualTerminalManager::Allowed);
+                }
+                else
+                {
+                    NOTICE(" -> switch acknowledged");
+                }
+            }
             return 0;
 
         // VT_ACTIVATE
         case 0x5606:
-            /// \todo same thing as meta+F1, meta+F2 etc (switch terminal)
-            F_NOTICE(" -> VT_ACTIVATE (stubbed)");
+            {
+                uintptr_t ttyNum = reinterpret_cast<uintptr_t>(buf);
+                F_NOTICE(" -> VT_ACTIVATE -> " << ttyNum);
+                g_pDevFs->getTerminalManager().activate(ttyNum - 1);
+            }
             return 0;
 
         // VT_WAITACTIVE

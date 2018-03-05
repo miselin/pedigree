@@ -27,12 +27,27 @@
 struct termios;
 struct winsize;
 
-struct vt_mode {
+struct vt_mode
+{
     char mode;
     char waitv;
     short relsig;
     short acqsig;
     short frsig;
+};
+
+struct vt_stat
+{
+    unsigned short v_active;
+    unsigned short v_signal;
+    unsigned short v_state;
+};
+
+struct kbentry
+{
+    unsigned char kb_table;
+    unsigned char kb_index;
+    unsigned short kb_value;
 };
 
 // vt_mode modes

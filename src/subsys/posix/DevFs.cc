@@ -468,7 +468,7 @@ uint64_t Tty0File::write(
 File *Tty0File::open()
 {
     // easy - just return the currently-active VT
-    return m_pDevFs->getCurrentTtyFile();
+    return m_pDevFs->getTerminalManager().getCurrentTerminalFile();
 }
 
 uint64_t MemFile::read(
@@ -504,6 +504,7 @@ DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);
 
+    delete m_VtManager;
     delete m_pTty;
     delete m_pRoot;
 }
@@ -572,6 +573,25 @@ bool DevFs::initialise(Disk *pDisk)
         delete pFb;
     }
 
+    m_VtManager = new VirtualTerminalManager(m_pRoot);
+    if (!m_VtManager->initialise())
+    {
+        WARNING("POSIX: no /dev/tty - VT manager failed to initialise");
+        delete m_VtManager;
+        m_VtManager = nullptr;
+    }
+
+    // tty0 == current console
+    Tty0File *pTty0 =
+        new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
+    m_pRoot->addEntry(pTty0->getName(), pTty0);
+
+    // console == current console
+    Tty0File *pConsole =
+        new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
+    m_pRoot->addEntry(pConsole->getName(), pConsole);
+
+#if 0
     // Create /dev/textui for the text-only UI device.
     m_pTty = new TextIO(String("textui"), getNextInode(), this, m_pRoot);
     m_pTty->markPrimary();
@@ -640,6 +660,7 @@ bool DevFs::initialise(Disk *pDisk)
             m_pTtyFiles[i] = nullptr;
         }
     }
+#endif
 
     Pipe *initctl =
         new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
@@ -709,31 +730,6 @@ void DevFs::handleInput(InputManager::InputNotification &in)
             return;
         }
 
-        switchTty(newTty);
+        m_VtManager->activate(newTty);
     }
-}
-
-bool DevFs::switchTty(size_t n)
-{
-    if (n >= DEVFS_NUMTTYS)
-    {
-        return false;
-    }
-
-    // switch primary accordingly
-    m_pTtys[m_CurrentTty]->unmarkPrimary();
-    m_CurrentTty = n;
-    m_pTtys[m_CurrentTty]->markPrimary();
-
-    return true;
-}
-
-TextIO *DevFs::getCurrentTty() const
-{
-    return m_pTtys[m_CurrentTty];
-}
-
-File *DevFs::getCurrentTtyFile() const
-{
-    return m_pTtyFiles[m_CurrentTty];
 }
