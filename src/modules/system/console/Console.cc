@@ -21,6 +21,7 @@
 #include "modules/Module.h"
 #include "modules/system/vfs/VFS.h"
 
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 

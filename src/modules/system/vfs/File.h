@@ -21,8 +21,6 @@
 #define FILE_H
 
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -33,6 +31,9 @@
 #include "pedigree/kernel/utilities/Vector.h"
 
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+
+class Thread;
+class Event;
 
 // RWX for owner.
 #define FILE_UR 0001
@@ -272,17 +273,10 @@ class File
 /** Causes the event pEvent to be dispatched to pThread when activity occurs
     on this File. Activity includes the file becoming available for reading,
     writing or erroring. */
-#ifdef THREADS
-    void monitor(Thread *pThread, Event *pEvent)
-    {
-        m_Lock.acquire();
-        m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
-        m_Lock.release();
-    }
+    void monitor(Thread *pThread, Event *pEvent);
 
     /** Walks the monitor-target queue, removing all for \p pThread .*/
     void cullMonitorTargets(Thread *pThread);
-#endif
 
     /** Does this File object support the given integer-based command? */
     virtual bool supports(const int command)

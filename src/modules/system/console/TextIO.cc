@@ -22,9 +22,12 @@
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "TextIO.h"
+
+class Process;
 
 /// \todo these come from somewhere - expose them properly
 #define ALT_KEY (1ULL << 60)

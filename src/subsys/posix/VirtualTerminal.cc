@@ -33,6 +33,9 @@ VirtualTerminalManager::VirtualTerminalManager(DevFsDirectory *parentDir) :
     {
         m_Terminals[i].textio = nullptr;
         m_Terminals[i].file = nullptr;
+#ifdef THREADS
+        m_Terminals[i].owner = nullptr;
+#endif
 
         ByteSet(&m_Terminals[i].mode, 0, sizeof(m_Terminals[i].mode));
         m_Terminals[i].mode.mode = VT_AUTO;
@@ -220,6 +223,7 @@ void VirtualTerminalManager::setTerminalMode(size_t n, struct vt_mode mode)
     NOTICE("setTerminalMode #" << n);
     m_Terminals[n].mode = mode;
 
+#ifdef THREADS
     if (mode.mode == VT_PROCESS)
     {
         m_Terminals[n].owner = Processor::information().getCurrentThread()->getParent();
@@ -228,6 +232,7 @@ void VirtualTerminalManager::setTerminalMode(size_t n, struct vt_mode mode)
     {
         m_Terminals[n].owner = nullptr;
     }
+#endif
 }
 
 struct vt_stat VirtualTerminalManager::getState() const
@@ -277,6 +282,7 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
         return;
     }
 
+#ifdef THREADS
     Process *pProcess = m_Terminals[n].owner;
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
@@ -288,4 +294,5 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
 
     NOTICE("VirtualTerminalManager: signaling VT #" << n);
     pSubsystem->sendSignal(pProcess->getThread(0), acq ? mode.acqsig : mode.relsig);
+#endif
 }

@@ -27,6 +27,7 @@
 #define MAX_VT  64
 
 class DevFsDirectory;
+class Process;
 
 class VirtualTerminalManager
 {
@@ -89,7 +90,9 @@ class VirtualTerminalManager
             File *file;
             struct vt_mode mode;
 
+#ifdef THREADS
             Process *owner;
+#endif
         };
 
         VirtualTerminal m_Terminals[MAX_VT];

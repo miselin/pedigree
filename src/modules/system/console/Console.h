@@ -40,6 +40,8 @@ class ConsoleManager;
 class ConsoleMasterFile;
 class ConsoleSlaveFile;
 
+class Process;
+
 class ConsoleFile : public File
 {
     friend class ConsoleMasterFile;

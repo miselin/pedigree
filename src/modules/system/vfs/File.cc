@@ -23,7 +23,9 @@
 #include "VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 
 void File::writeCallback(
@@ -506,9 +508,18 @@ void File::dataChanged()
 #endif
 }
 
+void File::monitor(Thread *pThread, Event *pEvent)
+{
 #ifdef THREADS
+    m_Lock.acquire();
+    m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
+    m_Lock.release();
+#endif
+}
+
 void File::cullMonitorTargets(Thread *pThread)
 {
+#ifdef THREADS
     LockGuard<Mutex> guard(m_Lock);
 
     for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
@@ -525,8 +536,8 @@ void File::cullMonitorTargets(Thread *pThread)
                 return;
         }
     }
-}
 #endif
+}
 
 void File::getFilesystemLabel(HugeStaticString &s)
 {
