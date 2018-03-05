@@ -900,7 +900,7 @@ bool PosixSubsystem::checkAccess(
 
 bool PosixSubsystem::loadElf(
     File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress,
-    uintptr_t &finalAddress)
+    uintptr_t &finalAddress, bool &relocated)
 {
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -966,6 +966,8 @@ bool PosixSubsystem::loadElf(
         startAddress = newAddress;
 
         newAddress = unalignedStartAddress;
+
+        relocated = true;
     }
     else
     {
@@ -1392,9 +1394,10 @@ bool PosixSubsystem::invoke(
     // Load the target application first.
     uintptr_t originalLoadedAddress = 0;
     uintptr_t originalFinalAddress = 0;
+    bool originalRelocated = false;
     if (!loadElf(
             originalFile, originalBase, originalLoadedAddress,
-            originalFinalAddress))
+            originalFinalAddress, originalRelocated))
     {
         /// \todo cleanup
         ERROR("PosixSubsystem::invoke: failed to load target");
@@ -1405,9 +1408,10 @@ bool PosixSubsystem::invoke(
     // Now load the interpreter.
     uintptr_t interpreterLoadedAddress = 0;
     uintptr_t interpreterFinalAddress = 0;
+    bool interpreterRelocated = false;
     if (!loadElf(
             interpreterFile, interpreterBase, interpreterLoadedAddress,
-            interpreterFinalAddress))
+            interpreterFinalAddress, interpreterRelocated))
     {
         /// \todo cleanup
         ERROR("PosixSubsystem::invoke: failed to load interpreter");
@@ -1423,6 +1427,15 @@ bool PosixSubsystem::invoke(
     Elf::extractEntryPoint(
         reinterpret_cast<uint8_t *>(interpreterBase),
         interpreterFile->getSize(), interpreterEntryPoint);
+
+    if (originalRelocated)
+    {
+        originalEntryPoint += originalLoadedAddress;
+    }
+    if (interpreterRelocated)
+    {
+        interpreterEntryPoint += interpreterLoadedAddress;
+    }
 
     // Pull out the ELF header information for the original image.
     Elf::ElfHeader_t *originalHeader =

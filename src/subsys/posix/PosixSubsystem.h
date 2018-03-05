@@ -540,7 +540,7 @@ class PosixSubsystem : public Subsystem
     /** Load an ELF's PT_LOAD sections into the address space. */
     bool loadElf(
         File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress,
-        uintptr_t &finalAddress);
+        uintptr_t &finalAddress, bool &relocated);
 
     /** Invokes the given command - actual implementation. */
     bool invoke(
