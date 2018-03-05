@@ -302,11 +302,18 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         //
         // We wait on the semaphore 'sem': Its address has been given to all
         // the events and will be raised whenever an FD has action.
-        bool bResult = sem.acquire(1, timeoutSecs, timeoutUSecs);
+        Semaphore::SemaphoreResult result = sem.acquireWithResult(1, timeoutSecs, timeoutUSecs);
 
         // Did we actually get the semaphore or did we timeout?
-        if (bResult)
+        if (result.hasValue())
         {
+            // If we didn't actually get the Semaphore but there's not any
+            // other error state, just go around for another go.
+            if (!result.value())
+            {
+                continue;
+            }
+
             // We were signalled, so one more FD ready.
             // While the semaphore is nonzero, more FDs are ready.
             while (sem.tryAcquire())
@@ -360,17 +367,17 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
         else
         {
-            // The timeout event sets the interrupted state, so while this
-            // looks unusual, the condition is caused by an interrupted sleep
-            // due to something other than timeout.
-            if (!Processor::information().getCurrentThread()->wasInterrupted())
+            if (result.error() == Semaphore::TimedOut)
             {
-                SYSCALL_ERROR(Interrupted);
-                bError = true;
+                // timed out, not an error
+                F_NOTICE(" -> poll interrupted by timeout");
             }
             else
             {
-                // OK. Timeout - not an error state.
+                // generic interrupt
+                F_NOTICE(" -> poll interrupted by external event");
+                SYSCALL_ERROR(Interrupted);
+                bError = true;
             }
 
             break;
