@@ -112,7 +112,20 @@ class UnixFilesystem : public Filesystem
 class UnixSocket : public File
 {
   public:
-    UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other = nullptr);
+    enum SocketType
+    {
+        Streaming,
+        Datagram
+    };
+
+    enum SocketState
+    {
+        Listening,  // listening for connections
+        Inactive,  // unbound
+        Active  // bound, ready for data transfer
+    };
+
+    UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other = nullptr, SocketType type = Datagram);
     virtual ~UnixSocket();
 
     virtual uint64_t read(
@@ -152,13 +165,33 @@ class UnixSocket : public File
     // Remove a waiter semaphore.
     void removeWaiter(Semaphore *waiter);
 
+    // Get this socket's type
+    SocketType getType() const
+    {
+        return m_Type;
+    }
+
+    // Get this socket's state
+    SocketState getState() const
+    {
+        return m_State;
+    }
+
+    // Mark this socket a listening socket
+    bool markListening();
+
   private:
+    typedef Buffer<uint8_t, true> UnixSocketStream;
+
     struct buf
     {
         char *pBuffer;
         uint64_t len;
         char *remotePath;  // Path of the socket that dumped data here, if any.
     };
+
+    SocketType m_Type;
+    SocketState m_State;
 
     // For datagram sockets.
 
@@ -173,7 +206,7 @@ class UnixSocket : public File
     UnixSocket *m_pOther;
 
     // Data stream.
-    Buffer<uint8_t, true> m_Stream;
+    UnixSocketStream m_Stream;
 
     // List of sockets pending accept() on this socket.
     List<UnixSocket *> m_PendingSockets;

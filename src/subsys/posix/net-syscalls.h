@@ -24,9 +24,12 @@
 
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
 #include "modules/system/lwip/include/lwip/api.h"
+
+#include "subsys/posix/UnixFilesystem.h"
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -203,6 +206,8 @@ class UnixSocketSyscalls : public NetworkSyscalls
 
     private:
         UnixSocket *getRemote() const;
+
+        UnixSocket::SocketType getSocketType() const;
 
         UnixSocket *m_Socket;
         UnixSocket *m_Remote;  // other side of the unix socket

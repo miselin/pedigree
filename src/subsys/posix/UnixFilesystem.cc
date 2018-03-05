@@ -20,21 +20,32 @@
 #include "UnixFilesystem.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Thread.h"
 
-UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other)
-    : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Datagrams(MAX_UNIX_DGRAM_BACKLOG),
-      m_pOther(other), m_Stream(MAX_UNIX_STREAM_QUEUE), m_PendingSockets(), m_Mutex(false)
+UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other, SocketType type)
+    : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
+      m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other), m_Stream(MAX_UNIX_STREAM_QUEUE),
+      m_PendingSockets(), m_Mutex(false)
 {
+    if (m_Type == Datagram)
+    {
+        // Datagram sockets are always active, they don't bind to each other.
+        m_State = Active;
+    }
 }
 
 UnixSocket::~UnixSocket()
 {
     // unbind from the other side of our connection if needed
-    if (m_pOther)
+    if (m_Type == Streaming)
     {
-        /// \todo update read/write to handle the other socket going away correctly
-        assert(m_pOther->m_pOther == this);
-        m_pOther->m_pOther = nullptr;
+        if (m_pOther)
+        {
+            /// \todo update read/write to handle the other socket going away correctly
+            assert(m_pOther->m_pOther == this);
+            m_pOther->m_pOther = nullptr;
+            m_pOther->m_State = Inactive;
+        }
     }
 
     // remove name on disk that points to us
@@ -47,16 +58,21 @@ UnixSocket::~UnixSocket()
 
 int UnixSocket::select(bool bWriting, int timeout)
 {
-    if (m_pOther)
+    if (m_Type == Streaming)
     {
+        if (m_State == Inactive)
+        {
+            return false;
+        }
+
         if (bWriting)
         {
-            if (m_Stream.canWrite(timeout == 1))
+            if (m_pOther->m_Stream.canWrite(timeout == 1))
             {
                 return true;
             }
         }
-        else if (m_pOther->m_Stream.canRead(timeout == 1))
+        else if (m_Stream.canRead(timeout == 1))
         {
             return true;
         }
@@ -89,10 +105,15 @@ uint64_t UnixSocket::read(
 
 uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String &from)
 {
+    if (m_State != Active)
+    {
+        return 0;
+    }
+
     if (m_pOther)
     {
         from = String();
-        return m_pOther->m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+        return m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
     }
 
     if (bCanBlock)
@@ -128,7 +149,7 @@ uint64_t UnixSocket::write(
 {
     if (m_pOther)
     {
-        return m_Stream.write(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+        return m_pOther->m_Stream.write(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
     }
 
     if (bCanBlock)
@@ -169,8 +190,16 @@ bool UnixSocket::bind(UnixSocket *other)
         return false;
     }
 
+    if (m_State != Inactive)
+    {
+        return false;
+    }
+
     m_pOther = other;
     other->m_pOther = this;
+
+    m_State = Active;
+    m_pOther->m_State = Active;
 
     return true;
 }
@@ -178,6 +207,12 @@ bool UnixSocket::bind(UnixSocket *other)
 void UnixSocket::addSocket(UnixSocket *socket)
 {
     LockGuard<Mutex> guard(m_Mutex);
+
+    if (m_State != Listening)
+    {
+        // not listening
+        return;
+    }
 
     m_PendingSockets.pushBack(socket);
 
@@ -189,6 +224,12 @@ void UnixSocket::addSocket(UnixSocket *socket)
 UnixSocket *UnixSocket::getSocket(bool block)
 {
     LockGuard<Mutex> guard(m_Mutex);
+
+    if (m_State != Listening)
+    {
+        // not listening
+        return nullptr;
+    }
 
     uint8_t c = 0;
     if (m_Stream.read(&c, 1, block) != 1)
@@ -202,11 +243,37 @@ UnixSocket *UnixSocket::getSocket(bool block)
 void UnixSocket::addWaiter(Semaphore *waiter)
 {
     m_Stream.monitor(waiter);
+    if (m_pOther)
+    {
+        m_pOther->m_Stream.monitor(waiter);
+    }
 }
 
 void UnixSocket::removeWaiter(Semaphore *waiter)
 {
     m_Stream.cullMonitorTargets(waiter);
+    if (m_pOther)
+    {
+        m_pOther->m_Stream.cullMonitorTargets(waiter);
+    }
+}
+
+bool UnixSocket::markListening()
+{
+    if (m_Type != Streaming)
+    {
+        // can't listen() on a non-streaming socket
+        return false;
+    }
+
+    if (m_State != Inactive)
+    {
+        // can't listen on a bound socket
+        return false;
+    }
+
+    m_State = Listening;
+    return true;
 }
 
 UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)

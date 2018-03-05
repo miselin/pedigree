@@ -1151,21 +1151,18 @@ bool LwipSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
     if (write)
     {
         write = m_Metadata.send != 0;
-        NOTICE("lwip: check write, m_Metadata.send = " << m_Metadata.send);
         ok = ok || write;
     }
 
     if (read)
     {
         read = m_Metadata.recv || m_Metadata.pb;
-        NOTICE("lwip: check read, m_Metadata.recv = " << m_Metadata.send << " m_Metadata.pb = " << m_Metadata.pb);
         ok = ok || read;
     }
 
     if (error)
     {
         error = m_Metadata.error;
-        NOTICE("lwip: check error, m_Metadata.error = " << m_Metadata.error);
         ok = ok || error;
     }
 
@@ -1338,7 +1335,7 @@ bool UnixSocketSyscalls::create()
     }
 
     // Create an unnamed unix socket by default.
-    m_Socket = new UnixSocket(String(), g_pUnixFilesystem, nullptr);
+    m_Socket = new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType());
 
     return true;
 }
@@ -1377,7 +1374,7 @@ int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
         N_NOTICE(" -> stream");
 
         // Create the remote for accept() on the server side.
-        UnixSocket *remote = new UnixSocket(String(), g_pUnixFilesystem, nullptr);
+        UnixSocket *remote = new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, UnixSocket::Streaming);
         m_Remote->addSocket(remote);
 
         // Bind our local socket to the remote side
@@ -1484,8 +1481,15 @@ ssize_t UnixSocketSyscalls::recvfrom(void *buffer, size_t bufferlen, int flags, 
 
 int UnixSocketSyscalls::listen(int backlog)
 {
-    /// \todo track that we're now listening
-    /// \todo maybe don't allow listening on an unnamed socket
+    if (m_Socket->getType() != UnixSocket::Streaming)
+    {
+        // EOPNOTSUPP
+        return -1;
+    }
+
+    /// \todo bind to an unnamed socket if we aren't already bound
+
+    m_Socket->markListening();
     return 0;
 }
 
@@ -1555,7 +1559,7 @@ int UnixSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
 
     /// \todo does this actually create a findable file?
     UnixSocket *socket = new UnixSocket(
-        basename, parentDirectory->getFilesystem(), parentDirectory);
+        basename, parentDirectory->getFilesystem(), parentDirectory, nullptr, getSocketType());
     if (!pDir->addEphemeralFile(socket))
     {
         /// \todo errno?
@@ -1753,4 +1757,14 @@ UnixSocket *UnixSocketSyscalls::getRemote() const
     }
 
     return remote;
+}
+
+UnixSocket::SocketType UnixSocketSyscalls::getSocketType() const
+{
+    if (getType() == SOCK_STREAM)
+    {
+        return UnixSocket::Streaming;
+    }
+
+    return UnixSocket::Datagram;
 }
