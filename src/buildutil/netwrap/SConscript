@@ -127,6 +127,10 @@ libposix_sources = [
     '../../subsys/posix/UnixFilesystem.h',
     '../../subsys/posix/net-syscalls.cc',
     '../../subsys/posix/net-syscalls.h',
+    '../../subsys/posix/poll-syscalls.cc',
+    '../../subsys/posix/poll-syscalls.h',
+    '../../subsys/posix/util.cc',
+    '../../subsys/posix/PosixSubsystem.h',
 ]
 
 config = build_env.Library(libconfig, libconfig_sources, CPPDEFINES=sqlite_cppdefines)

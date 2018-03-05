@@ -26,6 +26,7 @@
 #include "modules/system/vfs/VFS.h"
 
 #include "subsys/posix/net-syscalls.h"
+#include "subsys/posix/poll-syscalls.h"
 #include "subsys/posix/UnixFilesystem.h"
 #include "subsys/posix/PosixSubsystem.h"
 
@@ -33,8 +34,22 @@
 
 UnixFilesystem *g_pUnixFilesystem = 0;
 
+class StreamingStderrLogger : public Log::LogCallback
+{
+  public:
+    /// printString is used directly as well as in this callback object,
+    /// therefore we simply redirect to it.
+    void callback(const char *str)
+    {
+        fprintf(stderr, "%s", str);
+    }
+};
+
 int main(int argc, char **argv)
 {
+    StreamingStderrLogger logger;
+    Log::instance().installCallback(&logger, true);
+
     char buf[128];
 
     g_pUnixFilesystem = new UnixFilesystem();
@@ -178,6 +193,16 @@ int main(int argc, char **argv)
 
     memset(&sun_misc, 0, sizeof(sun_misc));
 
+    struct pollfd fds[1];
+    fds[0].fd = s1;
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
+    rc = posix_poll(fds, 1, 0);
+    if (rc <= 0)
+    {
+        fprintf(stderr, "WARNING: poll did not indicate readable on UNIX socket: %d [%s]\n", errno, strerror(errno));
+    }
+
     int fd2 = posix_accept(s1, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc);
     if (fd2 < 0)
     {
@@ -199,6 +224,8 @@ int main(int argc, char **argv)
     assert(posix_recv(s2, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
+
+    fprintf(stderr, "All OK\n");
 
     return 0;
 }
