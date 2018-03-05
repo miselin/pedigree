@@ -226,6 +226,9 @@ class X64SyscallState
     inline void setSyscallReturnValue(uintptr_t val);
     inline void setSyscallErrno(uintptr_t val);
 
+    inline uint64_t getFlags() const;
+    inline void setFlags(uint64_t newFlags);
+
   public:
     /** The R15 general purpose register */
     uint64_t m_R15;
@@ -500,6 +503,14 @@ void X64SyscallState::setSyscallReturnValue(uintptr_t val)
 void X64SyscallState::setSyscallErrno(uintptr_t val)
 {
     m_Rbx = val;
+}
+uint64_t X64SyscallState::getFlags() const
+{
+    return m_RFlagsR11;
+}
+void X64SyscallState::setFlags(uint64_t newFlags)
+{
+    m_RFlagsR11 = newFlags;
 }
 
 X64ProcessorState::X64ProcessorState()
