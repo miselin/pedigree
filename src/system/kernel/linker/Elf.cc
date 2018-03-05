@@ -160,9 +160,11 @@ Elf::Elf(const Elf &elf)
 
 bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
 {
+#ifdef VERBOSE_KERNEL
     NOTICE(
         "Elf::createNeededOnly: buffer at "
         << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len " << length);
+#endif
     if (!pBuffer || !length)
         return false;
 
@@ -239,8 +241,10 @@ bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
                 m_sInterpreter =
                     String(reinterpret_cast<char *>(&pBuffer[pInterp->offset]));
 
+#ifdef VERBOSE_KERNEL
                 NOTICE(
                     "ELF::createNeededOnly interpreter is " << m_sInterpreter);
+#endif
             }
         }
 

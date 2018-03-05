@@ -33,6 +33,7 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 
 #include "modules/system/lwip/include/lwip/api.h"
+#include "subsys/posix/logging.h"
 
 class File;
 class UnixSocket;
@@ -103,8 +104,10 @@ class ProcessGroupManager
     void setGroupId(size_t gid)
     {
         if (m_GroupIds.test(gid))
-            WARNING("ProcessGroupManager: setGroupId called on a group ID that "
+        {
+            PS_NOTICE("ProcessGroupManager: setGroupId called on a group ID that "
                     "existed already!");
+        }
         m_GroupIds.set(gid);
     }
 
@@ -199,7 +202,7 @@ class PosixSubsystem : public Subsystem
     virtual void threadException(Thread *pThread, ExceptionType eType);
 
     /** Send a POSIX signal to the given thread. */
-    virtual void sendSignal(Thread *pThread, int signal);
+    virtual void sendSignal(Thread *pThread, int signal, bool yield=true);
 
     /** Alternate signal stack */
     /// \todo Figure out how to make this work for more than just the current

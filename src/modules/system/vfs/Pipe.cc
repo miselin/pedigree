@@ -42,7 +42,9 @@ class ZombiePipe : public ZombieObject
 Pipe::Pipe()
     : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
+#ifdef VERBOSE_KERNEL
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
+#endif
 }
 
 Pipe::Pipe(
@@ -54,9 +56,11 @@ Pipe::Pipe(
           pParent),
       m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
 {
+#ifdef VERBOSE_KERNEL
     NOTICE(
         "Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe "
                      << Hex << this);
+#endif
 }
 
 Pipe::~Pipe()
@@ -193,9 +197,11 @@ void Pipe::decreaseRefCount(bool bIsWriter)
                                  .getCurrentThread()
                                  ->getParent()
                                  ->getId();
+#ifdef VERBOSE_KERNEL
                 NOTICE(
                     "Adding pipe [" << pid << "] " << this
                                     << " to ZombieQueue");
+#endif
                 ZombieQueue::instance().addObject(new ZombiePipe(this));
                 bDataChanged = false;
             }

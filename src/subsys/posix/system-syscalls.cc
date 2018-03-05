@@ -198,42 +198,42 @@ long posix_clone(
     // Basic warnings to start with.
     if (flags & CLONE_CHILD_CLEARTID)
     {
-        WARNING(" -> CLONE_CHILD_CLEARTID is not yet supported!");
+        SC_NOTICE(" -> CLONE_CHILD_CLEARTID is not yet supported!");
     }
     if (flags & CLONE_PARENT)
     {
-        WARNING(" -> CLONE_PARENT is not yet supported!");
+        SC_NOTICE(" -> CLONE_PARENT is not yet supported!");
     }
     if (flags & CLONE_VFORK)
     {
         // Halts parent until child ruins execve() or exit(), just like vfork.
         // We should support this properly.
-        WARNING(" -> CLONE_VFORK is not yet supported!");
+        SC_NOTICE(" -> CLONE_VFORK is not yet supported!");
     }
 
 #if 0
-    if (flags & CLONE_VM) NOTICE("\t\t-> CLONE_VM");
-    if (flags & CLONE_FS) NOTICE("\t\t-> CLONE_FS");
-    if (flags & CLONE_FILES) NOTICE("\t\t-> CLONE_FILES");
-    if (flags & CLONE_SIGHAND) NOTICE("\t\t-> CLONE_SIGHAND");
-    if (flags & CLONE_PTRACE) NOTICE("\t\t-> CLONE_PTRACE");
-    if (flags & CLONE_VFORK) NOTICE("\t\t-> CLONE_VFORK");
-    if (flags & CLONE_PARENT) NOTICE("\t\t-> CLONE_PARENT");
-    if (flags & CLONE_THREAD) NOTICE("\t\t-> CLONE_THREAD");
-    if (flags & CLONE_NEWNS) NOTICE("\t\t-> CLONE_NEWNS");
-    if (flags & CLONE_SYSVSEM) NOTICE("\t\t-> CLONE_SYSVSEM");
-    if (flags & CLONE_SETTLS) NOTICE("\t\t-> CLONE_SETTLS");
-    if (flags & CLONE_PARENT_SETTID) NOTICE("\t\t-> CLONE_PARENT_SETTID");
-    if (flags & CLONE_CHILD_CLEARTID) NOTICE("\t\t-> CLONE_CHILD_CLEARTID");
-    if (flags & CLONE_DETACHED) NOTICE("\t\t-> CLONE_DETACHED");
-    if (flags & CLONE_UNTRACED) NOTICE("\t\t-> CLONE_UNTRACED");
-    if (flags & CLONE_CHILD_SETTID) NOTICE("\t\t-> CLONE_CHILD_SETTID");
-    if (flags & CLONE_NEWUTS) NOTICE("\t\t-> CLONE_NEWUTS");
-    if (flags & CLONE_NEWIPC) NOTICE("\t\t-> CLONE_NEWIPC");
-    if (flags & CLONE_NEWUSER) NOTICE("\t\t-> CLONE_NEWUSER");
-    if (flags & CLONE_NEWPID) NOTICE("\t\t-> CLONE_NEWPID");
-    if (flags & CLONE_NEWNET) NOTICE("\t\t-> CLONE_NEWNET");
-    if (flags & CLONE_IO) NOTICE("\t\t-> CLONE_IO");
+    if (flags & CLONE_VM) SC_NOTICE("\t\t-> CLONE_VM");
+    if (flags & CLONE_FS) SC_NOTICE("\t\t-> CLONE_FS");
+    if (flags & CLONE_FILES) SC_NOTICE("\t\t-> CLONE_FILES");
+    if (flags & CLONE_SIGHAND) SC_NOTICE("\t\t-> CLONE_SIGHAND");
+    if (flags & CLONE_PTRACE) SC_NOTICE("\t\t-> CLONE_PTRACE");
+    if (flags & CLONE_VFORK) SC_NOTICE("\t\t-> CLONE_VFORK");
+    if (flags & CLONE_PARENT) SC_NOTICE("\t\t-> CLONE_PARENT");
+    if (flags & CLONE_THREAD) SC_NOTICE("\t\t-> CLONE_THREAD");
+    if (flags & CLONE_NEWNS) SC_NOTICE("\t\t-> CLONE_NEWNS");
+    if (flags & CLONE_SYSVSEM) SC_NOTICE("\t\t-> CLONE_SYSVSEM");
+    if (flags & CLONE_SETTLS) SC_NOTICE("\t\t-> CLONE_SETTLS");
+    if (flags & CLONE_PARENT_SETTID) SC_NOTICE("\t\t-> CLONE_PARENT_SETTID");
+    if (flags & CLONE_CHILD_CLEARTID) SC_NOTICE("\t\t-> CLONE_CHILD_CLEARTID");
+    if (flags & CLONE_DETACHED) SC_NOTICE("\t\t-> CLONE_DETACHED");
+    if (flags & CLONE_UNTRACED) SC_NOTICE("\t\t-> CLONE_UNTRACED");
+    if (flags & CLONE_CHILD_SETTID) SC_NOTICE("\t\t-> CLONE_CHILD_SETTID");
+    if (flags & CLONE_NEWUTS) SC_NOTICE("\t\t-> CLONE_NEWUTS");
+    if (flags & CLONE_NEWIPC) SC_NOTICE("\t\t-> CLONE_NEWIPC");
+    if (flags & CLONE_NEWUSER) SC_NOTICE("\t\t-> CLONE_NEWUSER");
+    if (flags & CLONE_NEWPID) SC_NOTICE("\t\t-> CLONE_NEWPID");
+    if (flags & CLONE_NEWNET) SC_NOTICE("\t\t-> CLONE_NEWNET");
+    if (flags & CLONE_IO) SC_NOTICE("\t\t-> CLONE_IO");
 #endif
 
     if ((flags & CLONE_VM) == CLONE_VM)
@@ -796,7 +796,7 @@ clock_t posix_times(struct tms *tm)
     tm->tms_utime = pProcess->getUserTime();
     tm->tms_stime = pProcess->getKernelTime();
 
-    NOTICE(
+    SC_NOTICE(
         "times: u=" << pProcess->getUserTime()
                     << ", s=" << pProcess->getKernelTime());
 
@@ -1694,7 +1694,7 @@ int posix_uname(struct utsname *n)
     StringCopy(n->machine, g_pBuildTarget);
 
     /// \todo: better handle node name
-    StringCopy(n->nodename, "pedigree.local");
+    StringCopy(n->nodename, "pedigree");
     return 0;
 }
 
@@ -2083,8 +2083,8 @@ int posix_getitimer(int which, struct itimerval *curr_value)
     curr_value->it_value.tv_sec = value / Time::Multiplier::Second;
     curr_value->it_value.tv_usec = (value % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
 
-    SC_NOTICE(" -> period = " << curr_value->it_interval.tv_sec << "s " << curr_value->it_interval.tv_usec << "us");
-    SC_NOTICE(" -> value = " << curr_value->it_value.tv_sec << "s " << curr_value->it_value.tv_usec << "us");
+    SC_NOTICE(" -> period = " << Dec << curr_value->it_interval.tv_sec << "s " << curr_value->it_interval.tv_usec << "us");
+    SC_NOTICE(" -> value = " << Dec << curr_value->it_value.tv_sec << "s " << curr_value->it_value.tv_usec << "us");
 
     return 0;
 }
@@ -2092,8 +2092,8 @@ int posix_getitimer(int which, struct itimerval *curr_value)
 int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value)
 {
     SC_NOTICE("posix_setitimer(" << which << ", " << new_value << ", " << old_value << ")");
-    SC_NOTICE(" -> period = " << new_value->it_interval.tv_sec << "s " << new_value->it_interval.tv_usec << "us");
-    SC_NOTICE(" -> value = " << new_value->it_value.tv_sec << "s " << new_value->it_value.tv_usec << "us");
+    SC_NOTICE(" -> period = " << Dec << new_value->it_interval.tv_sec << "s " << new_value->it_interval.tv_usec << "us");
+    SC_NOTICE(" -> value = " << Dec << new_value->it_value.tv_sec << "s " << new_value->it_value.tv_usec << "us");
 
     /// \todo check addresses for safety
 
@@ -2145,4 +2145,3 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
 
     return 0;
 }
-

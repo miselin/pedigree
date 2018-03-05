@@ -282,32 +282,42 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 {
     Uninterruptible while_checking;
 
+#ifdef VERBOSE_KERNEL
     PS_NOTICE(
         "PosixSubsystem::checkAddress(" << Hex << addr << ", " << Dec << extent
                                         << ", " << Hex << flags << ")");
+#endif
 
     // No memory access expected, all good.
     if (!extent)
     {
+#ifdef VERBOSE_KERNEL
         PS_NOTICE("  -> zero extent, address is sane.");
+#endif
         return true;
     }
 
     uintptr_t aa = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+#ifdef VERBOSE_KERNEL
     PS_NOTICE(" -> ret: " << aa);
+#endif
 
     // Check address range.
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     if ((addr < va.getUserStart()) || (addr >= va.getKernelStart()))
     {
+#ifdef VERBOSE_KERNEL
         PS_NOTICE("  -> outside of user address area.");
+#endif
         return false;
     }
 
     // Short-circuit if this is a memory mapped region.
     if (MemoryMapManager::instance().contains(addr, extent))
     {
+#ifdef VERBOSE_KERNEL
         PS_NOTICE("  -> inside memory map.");
+#endif
         return true;
     }
 
@@ -317,7 +327,9 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         void *pAddr = reinterpret_cast<void *>(addr + i);
         if (!va.isMapped(pAddr))
         {
+#ifdef VERBOSE_KERNEL
             PS_NOTICE("  -> page " << Hex << pAddr << " is not mapped.");
+#endif
             return false;
         }
 
@@ -330,13 +342,17 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
             if (!(vFlags & (VirtualAddressSpace::Write |
                             VirtualAddressSpace::CopyOnWrite)))
             {
+#ifdef VERBOSE_KERNEL
                 PS_NOTICE("  -> not writeable.");
+#endif
                 return false;
             }
         }
     }
 
+#ifdef VERBOSE_KERNEL
     PS_NOTICE("  -> mapped and available.");
+#endif
     return true;
 }
 
@@ -345,6 +361,7 @@ void PosixSubsystem::exit(int code)
     Thread *pThread = Processor::information().getCurrentThread();
 
     Process *pProcess = pThread->getParent();
+    NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ")");
     pProcess->markTerminating();
 
     if (pProcess->getExitStatus() == 0 ||     // Normal exit.
@@ -353,7 +370,6 @@ void PosixSubsystem::exit(int code)
         pProcess->setExitStatus((code & 0xFF) << 8);
     if (code)
     {
-        WARNING("Sending unexpected exit event (" << code << ") to thread");
         pThread->unexpectedExit();
     }
 
@@ -473,7 +489,7 @@ bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
 
     if (sig && sig->pEvent)
     {
-        NOTICE("PosixSubsystem - killing " << pThread->getParent()->getId());
+        PS_NOTICE("PosixSubsystem - killing " << pThread->getParent()->getId());
 
         // Send the kill event
         /// \todo we probably want to avoid allocating a new stack..
@@ -489,7 +505,7 @@ bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
 
 void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
 {
-    NOTICE(
+    PS_NOTICE(
         "PosixSubsystem::threadException -> "
         << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
 
@@ -498,78 +514,78 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
     switch (eType)
     {
         case PageFault:
-            NOTICE("    (Page fault)");
+            PS_NOTICE("    (Page fault)");
             // Send SIGSEGV
             signal = SIGSEGV;
             break;
         case InvalidOpcode:
-            NOTICE("    (Invalid opcode)");
+            PS_NOTICE("    (Invalid opcode)");
             // Send SIGILL
             signal = SIGILL;
             break;
         case GeneralProtectionFault:
-            NOTICE("    (General Fault)");
+            PS_NOTICE("    (General Fault)");
             // Send SIGBUS
             signal = SIGBUS;
             break;
         case DivideByZero:
-            NOTICE("    (Division by zero)");
+            PS_NOTICE("    (Division by zero)");
             // Send SIGFPE
             signal = SIGFPE;
             break;
         case FpuError:
-            NOTICE("    (FPU error)");
+            PS_NOTICE("    (FPU error)");
             // Send SIGFPE
             signal = SIGFPE;
             break;
         case SpecialFpuError:
-            NOTICE("    (FPU error - special)");
+            PS_NOTICE("    (FPU error - special)");
             // Send SIGFPE
             signal = SIGFPE;
             break;
         case TerminalInput:
-            NOTICE("    (Attempt to read from terminal by non-foreground "
+            PS_NOTICE("    (Attempt to read from terminal by non-foreground "
                    "process)");
             // Send SIGTTIN
             signal = SIGTTIN;
             break;
         case TerminalOutput:
-            NOTICE("    (Output to terminal by non-foreground process)");
+            PS_NOTICE("    (Output to terminal by non-foreground process)");
             // Send SIGTTOU
             signal = SIGTTOU;
             break;
         case Continue:
-            NOTICE("    (Continuing a stopped process)");
+            PS_NOTICE("    (Continuing a stopped process)");
             // Send SIGCONT
             signal = SIGCONT;
             break;
         case Stop:
-            NOTICE("    (Stopping a process)");
+            PS_NOTICE("    (Stopping a process)");
             // Send SIGTSTP
             signal = SIGTSTP;
             break;
         case Interrupt:
-            NOTICE("    (Interrupting a process)");
+            PS_NOTICE("    (Interrupting a process)");
             // Send SIGINT
             signal = SIGINT;
             break;
         case Quit:
-            NOTICE("    (Requesting quit)");
+            PS_NOTICE("    (Requesting quit)");
             // Send SIGTERM
             signal = SIGTERM;
             break;
         case Child:
-            NOTICE("    (Child status changed)");
+            PS_NOTICE("    (Child status changed)");
             // Send SIGCHLD
             signal = SIGCHLD;
             break;
         case Pipe:
-            NOTICE("    (Pipe broken)");
+            PS_NOTICE("    (Pipe broken)");
             // Send SIGPIPE
             signal = SIGPIPE;
             break;
         default:
-            NOTICE("    (Unknown)");
+            PS_NOTICE("    (Unknown)");
             // Unknown exception
             ERROR(
                 "Unknown exception type in threadException - POSIX subsystem");
@@ -579,9 +595,9 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
     sendSignal(pThread, signal);
 }
 
-void PosixSubsystem::sendSignal(Thread *pThread, int signal)
+void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
 {
-    NOTICE(
+    PS_NOTICE(
         "PosixSubsystem::sendSignal #" << signal << " -> pid:tid "
         << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
 
@@ -605,20 +621,41 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal)
     // If we're good to go, send the signal.
     if (sig && sig->pEvent)
     {
-        Thread *pCurrentThread = Processor::information().getCurrentThread();
+        NOTICE(
+            "PosixSubsystem::sendSignal #" << signal << " -> pid:tid "
+            << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
 
-        pThread->sendEvent(sig->pEvent);
-
-        if (pCurrentThread == pThread)
+        // Is this process already pending a delivery of the given signal?
+        if (pThread->hasEvent(sig->pEvent))
         {
-            // Attempt to execute the new event immediately.
-            Processor::information().getScheduler().checkEventState(0);
+            // yep! we need to drop this generated signal instead of sending it
+            // again to the target thread
+            WARNING("PosixSubsystem::sendSignal dropping signal as a previous generation has not delivered yet.");
         }
         else
         {
-            // Yield so the event can fire.
-            Scheduler::instance().yield();
+            pThread->sendEvent(sig->pEvent);
+
+            if (yield)
+            {
+                Thread *pCurrentThread = Processor::information().getCurrentThread();
+                if (pCurrentThread == pThread)
+                {
+                    // Attempt to execute the new event immediately.
+                    Processor::information().getScheduler().checkEventState(0);
+                }
+                else
+                {
+                    // Yield so the event can fire.
+                    Scheduler::instance().yield();
+                }
+            }
         }
+    }
+    else
+    {
+        // PS_NOTICE("No event configured for signal #" << signal << ", silently dropping!");
+        NOTICE("No event configured for signal #" << signal << ", silently dropping!");
     }
 }
 
@@ -1031,7 +1068,7 @@ bool PosixSubsystem::loadElf(
             perms |= MemoryMappedObject::Write;
         }
 
-        NOTICE(
+        PS_NOTICE(
             pFile->getName() << " PHDR[" << i << "]: @" << Hex << base <<
             " -> " << base + length);
         MemoryMappedObject *pObject = MemoryMapManager::instance().mapFile(
@@ -1103,6 +1140,8 @@ bool PosixSubsystem::invoke(
 bool PosixSubsystem::parseShebang(
     File *pFile, File *&pOutFile, List<SharedPointer<String>> &argv)
 {
+    PS_NOTICE("Attempting to parse shebang in " << pFile->getFullPath());
+
     // Try and read the shebang, if any.
     /// \todo this loop could terminate MUCH faster
     String fileContents;
@@ -1136,12 +1175,10 @@ bool PosixSubsystem::parseShebang(
         }
     }
 
-    NOTICE("checking: " << fileContents);
-
     // Is this even a shebang line?
     if (!fileContents.startswith("#!"))
     {
-        NOTICE("no shebang found");
+        PS_NOTICE("no shebang found");
         return true;
     }
 
@@ -1154,7 +1191,7 @@ bool PosixSubsystem::parseShebang(
     if (!additionalArgv.count())
     {
         // Not a true shebang line.
-        NOTICE("split didn't find anything");
+        PS_NOTICE("split didn't find anything");
         return true;
     }
 
@@ -1172,7 +1209,7 @@ bool PosixSubsystem::parseShebang(
     if (!pNewTarget)
     {
         // No, we cannot.
-        NOTICE("target not found");
+        PS_NOTICE("target not found");
         SYSCALL_ERROR(DoesNotExist);
         return false;
     }
@@ -1181,7 +1218,7 @@ bool PosixSubsystem::parseShebang(
     // pushFront.
     for (auto it = additionalArgv.rbegin(); it != additionalArgv.rend(); ++it)
     {
-        NOTICE(
+        PS_NOTICE(
             "shebang: inserting " << **it << " [l=" << (*it)->length() << "]");
         argv.pushFront(*it);
     }
@@ -1200,7 +1237,7 @@ static File *traverseForInvoke(File *pFile)
     }
     if (!pFile)
     {
-        ERROR("PosixSubsystem::invoke: symlink traversal failed");
+        PS_NOTICE("PosixSubsystem::invoke: symlink traversal failed");
         SYSCALL_ERROR(DoesNotExist);
         return 0;
     }
@@ -1208,7 +1245,7 @@ static File *traverseForInvoke(File *pFile)
     // Check for directory.
     if (pFile->isDirectory())
     {
-        ERROR("PosixSubsystem::invoke: target is a directory");
+        PS_NOTICE("PosixSubsystem::invoke: target is a directory");
         SYSCALL_ERROR(IsADirectory);
         return 0;
     }
@@ -1225,9 +1262,15 @@ bool PosixSubsystem::invoke(
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
-    NOTICE(
-        "PosixSubsystem::invoke(" << name << ") [pid=" << pProcess->getId()
-                                  << "]");
+#ifdef POSIX_VERBOSE_SUBSYSTEM
+    PS_NOTICE(
+        "PosixSubsystem::invoke(" << name << ")");
+#else
+    // smaller message that always shows up to make tracking progress in logs
+    // easier, but without all the extra bits that come with more verbose
+    // notices (like pids, thread ids, etc).
+    NOTICE("invoke: " << name << " [pid=" << pProcess->getId() << "]");
+#endif
 
     // Grab the thread we're going to return into - need to tweak it.
     Thread *pThread = pProcess->getThread(0);
@@ -1246,7 +1289,7 @@ bool PosixSubsystem::invoke(
     File *originalFile = findFileWithAbiFallbacks(String(name));
     if (!originalFile)
     {
-        ERROR("PosixSubsystem::invoke: could not find file '" << name << "'");
+        PS_NOTICE("PosixSubsystem::invoke: could not find file '" << name << "'");
         SYSCALL_ERROR(DoesNotExist);
         return false;
     }
@@ -1265,14 +1308,14 @@ bool PosixSubsystem::invoke(
     Elf *validElf = new Elf();
     if (!validElf->validate(validateBuffer, nBytes))
     {
-        WARNING(
+        PS_NOTICE(
             "PosixSubsystem::invoke: '"
             << name << "' is not an ELF binary, looking for shebang...");
 
         File *shebangFile = 0;
         if (!parseShebang(originalFile, shebangFile, argv))
         {
-            ERROR(
+            PS_NOTICE(
                 "PosixSubsystem::invoke: failed to parse shebang line in '"
                 << name << "'");
             return false;
@@ -1317,35 +1360,24 @@ bool PosixSubsystem::invoke(
         interpreterFile = traverseForInvoke(interpreterFile);
         if (!interpreterFile)
         {
-            ERROR(
+            PS_NOTICE(
                 "PosixSubsystem::invoke: could not find interpreter '"
                 << interpreter << "'");
             SYSCALL_ERROR(ExecFormatError);
             return false;
         }
-
-        // No longer need the DynamicLinker instance.
-        delete pLinker;
-        pLinker = 0;
-        pProcess->setLinker(pLinker);
     }
     else
     {
-        /*
-        ERROR("PosixSubsystem::invoke: target does not have a dynamic linker");
-        SYSCALL_ERROR(ExecFormatError);
-        return false;
-        */
-
         // No interpreter, just invoke the binary directly.
         /// \todo do we need to relocate at all?
         interpreterFile = originalFile;
-
-        // No longer need the DynamicLinker instance.
-        delete pLinker;
-        pLinker = 0;
-        pProcess->setLinker(pLinker);
     }
+
+    // No longer need the DynamicLinker instance.
+    delete pLinker;
+    pLinker = 0;
+    pProcess->setLinker(pLinker);
 
     // Wipe out old address space.
     MemoryMapManager::instance().unmapAll();
@@ -1376,7 +1408,7 @@ bool PosixSubsystem::invoke(
         originalFile, originalBase, originalFile->getSize(), perms);
     if (!pOriginal)
     {
-        ERROR("PosixSubsystem::invoke: failed to map target");
+        PS_NOTICE("PosixSubsystem::invoke: failed to map target");
         SYSCALL_ERROR(OutOfMemory);
         return false;
     }
@@ -1385,7 +1417,7 @@ bool PosixSubsystem::invoke(
         interpreterFile, interpreterBase, interpreterFile->getSize(), perms);
     if (!pInterpreter)
     {
-        ERROR("PosixSubsystem::invoke: failed to map interpreter");
+        PS_NOTICE("PosixSubsystem::invoke: failed to map interpreter");
         MemoryMapManager::instance().unmap(pOriginal);
         SYSCALL_ERROR(OutOfMemory);
         return false;
@@ -1400,7 +1432,7 @@ bool PosixSubsystem::invoke(
             originalFinalAddress, originalRelocated))
     {
         /// \todo cleanup
-        ERROR("PosixSubsystem::invoke: failed to load target");
+        PS_NOTICE("PosixSubsystem::invoke: failed to load target");
         SYSCALL_ERROR(ExecFormatError);
         return false;
     }
@@ -1414,7 +1446,7 @@ bool PosixSubsystem::invoke(
             interpreterFinalAddress, interpreterRelocated))
     {
         /// \todo cleanup
-        ERROR("PosixSubsystem::invoke: failed to load interpreter");
+        PS_NOTICE("PosixSubsystem::invoke: failed to load interpreter");
         SYSCALL_ERROR(ExecFormatError);
         return false;
     }
@@ -1460,7 +1492,7 @@ bool PosixSubsystem::invoke(
         vdsoPerms);
     if (!pVdso)
     {
-        ERROR("PosixSubsystem::invoke: failed to map VDSO");
+        PS_NOTICE("PosixSubsystem::invoke: failed to map VDSO");
     }
     else
     {
@@ -1494,6 +1526,7 @@ bool PosixSubsystem::invoke(
         STACK_PUSH(loaderStack, 0);
         STACK_PUSH_COPY(
             loaderStack, static_cast<const char *>(*it), it->length());
+        PS_NOTICE("env[" << envc << "]: " << *it);
         envs[envc++] = reinterpret_cast<char *>(loaderStack);
     }
 
@@ -1505,7 +1538,7 @@ bool PosixSubsystem::invoke(
         STACK_PUSH(loaderStack, 0);
         STACK_PUSH_COPY(
             loaderStack, static_cast<const char *>(*it), it->length());
-        NOTICE("argv[" << argc << "]: " << *it);
+        PS_NOTICE("argv[" << argc << "]: " << *it);
         argvs[argc++] = reinterpret_cast<char *>(loaderStack);
     }
 
@@ -1537,7 +1570,6 @@ bool PosixSubsystem::invoke(
     // Push the vDSO shared object.
     if (pVdso)
     {
-        NOTICE("Adding AT_SYSINFO_EHDR [@" << Hex << vdsoAddress << "]!");
         STACK_PUSH2(loaderStack, 0, 32);  // AT_SYSINFO - not present
         STACK_PUSH2(loaderStack, vdsoAddress, 33);  // AT_SYSINFO_EHDR
     }
@@ -1576,10 +1608,9 @@ bool PosixSubsystem::invoke(
     MemoryMapManager::instance().unmap(pOriginal);
     pInterpreter = pOriginal = 0;
 
-    // Initialise the sigret and pthreads shizzle if not already done for this
-    // process (the calls detect).
+    // Initialise the sigret if not already done for this process
     pedigree_init_sigret();
-    pedigree_init_pthreads();
+    // pedigree_init_pthreads();
 
     Processor::setInterrupts(true);
     pProcess->recordTime(true);
@@ -1590,7 +1621,7 @@ bool PosixSubsystem::invoke(
         Thread *pThread = new Thread(
             pProcess,
             reinterpret_cast<Thread::ThreadStartFunc>(
-                interpreterEntryPoint + interpreterLoadedAddress),
+                interpreterEntryPoint),
             0, loaderStack);
         pThread->detach();
 
@@ -1612,7 +1643,7 @@ bool PosixSubsystem::invoke(
 
         // Jump to the new process.
         Processor::jumpUser(
-            0, interpreterEntryPoint + interpreterLoadedAddress,
+            0, interpreterEntryPoint,
             reinterpret_cast<uintptr_t>(loaderStack));
     }
 

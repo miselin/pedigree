@@ -96,7 +96,9 @@ bool DynamicLinker::loadProgram(
 
     String fileName;
     pFile->getName(fileName);
+#ifdef VERBOSE_KERNEL
     NOTICE("DynamicLinker::loadProgram(" << fileName << ")");
+#endif
 
     Elf *programElf = new Elf();
 
