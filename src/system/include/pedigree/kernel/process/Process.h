@@ -417,6 +417,9 @@ class Process
     /** Called when process times are updated. */
     virtual void reportTimesUpdated(Time::Timestamp user, Time::Timestamp system) {};
 
+    /** Called when the process is terminated to allow for subclass cleanup. */
+    virtual void processTerminated() {};
+
     /**
      * Our list of threads.
      */

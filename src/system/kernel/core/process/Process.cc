@@ -230,10 +230,12 @@ void Process::kill()
 {
     m_Lock.acquire();
 
+#ifdef VERBOSE_KERNEL
     if (m_pParent)
         NOTICE("Kill: " << m_Id << " (parent: " << m_pParent->getId() << ")");
     else
         NOTICE("Kill: " << m_Id << " (parent: <orphan>)");
+#endif
 
     // Bye bye process - have we got any zombie children?
     for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
@@ -256,6 +258,8 @@ void Process::kill()
 
     m_State = Terminated;
 
+    processTerminated();
+
     // Add to the zombie queue if the process is an orphan.
     if (!m_pParent)
     {
@@ -270,8 +274,10 @@ void Process::kill()
     }
 
     // We'll get reaped elsewhere
+#ifdef VERBOSE_KERNEL
     NOTICE(
         "Process::kill() - not adding to ZombieQueue, process has a parent.");
+#endif
     Processor::information().getScheduler().schedule(
         Thread::Zombie, nullptr, &m_Lock);
 
