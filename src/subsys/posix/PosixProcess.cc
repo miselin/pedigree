@@ -21,6 +21,7 @@
 #include "ProcFs.h"
 
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #include <signal.h>
 
@@ -106,10 +107,6 @@ void PosixProcess::setProcessGroup(
     if (m_pProcessGroup)
     {
         m_pProcessGroup->Members.pushBack(this);
-        NOTICE(
-            ">>>>>> Adding self to the members list, new size = "
-            << m_pProcessGroup->Members.count() << ".");
-
         ProcessGroupManager::instance().setGroupId(
             m_pProcessGroup->processGroupId);
     }
@@ -210,8 +207,17 @@ void PosixProcess::reportTimesUpdated(Time::Timestamp user, Time::Timestamp syst
     m_ProfileIntervalTimer.adjustValue(-(user + system));
 }
 
+void PosixProcess::processTerminated()
+{
+    // Cancel all timers.
+    m_RealIntervalTimer.setIntervalAndValue(0, 0);
+    m_VirtualIntervalTimer.setIntervalAndValue(0, 0);
+    m_ProfileIntervalTimer.setIntervalAndValue(0, 0);
+}
+
 IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode) :
-    m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0), m_Lock(false)
+    m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0), m_Lock(false),
+    m_Armed(false)
 {
     if (m_Mode == Hardware)
     {
@@ -255,6 +261,7 @@ void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp *prevVa
         *prevValue = m_Value;
     }
     m_Value = value;
+    m_Armed = m_Value > 0;
 }
 
 void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestamp value, Time::Timestamp *prevInterval, Time::Timestamp *prevValue)
@@ -273,6 +280,7 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
 
     m_Interval = interval;
     m_Value = value;
+    m_Armed = m_Value > 0;
 }
 
 void IntervalTimer::getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value)
@@ -285,9 +293,33 @@ void IntervalTimer::getIntervalAndValue(Time::Timestamp &interval, Time::Timesta
 
 void IntervalTimer::adjustValue(int64_t adjustment)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    bool needsSignal = false;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
 
-    m_Value += adjustment;
+        // Fixup in case of potential underflow
+        if ((adjustment < 0) && (static_cast<uint64_t>(adjustment * -1) > m_Value))
+        {
+            m_Value = 0;
+        }
+        else
+        {
+            m_Value += adjustment;
+        }
+
+        if (m_Armed && !m_Value)
+        {
+            m_Value = m_Interval;
+            m_Armed = m_Value > 0;
+
+            needsSignal = true;
+        }
+    }
+
+    if (needsSignal)
+    {
+        signal();
+    }
 }
 
 Time::Timestamp IntervalTimer::getInterval() const
@@ -311,9 +343,9 @@ void IntervalTimer::timer(uint64_t delta, InterruptState &state)
     {
         LockGuard<Spinlock> guard(m_Lock);
 
-        if (!m_Value)
+        if (!m_Armed)
         {
-            // Zero value = disarmed.
+            // Disarmed - ignore the timer event.
             return;
         }
 
@@ -321,6 +353,7 @@ void IntervalTimer::timer(uint64_t delta, InterruptState &state)
         if (m_Value < delta)
         {
             m_Value = m_Interval;
+            m_Armed = m_Value > 0;
 
             needsSignal = true;
         }
@@ -330,7 +363,10 @@ void IntervalTimer::timer(uint64_t delta, InterruptState &state)
         }
     }
 
-    signal();
+    if (needsSignal)
+    {
+        signal();
+    }
 }
 
 void IntervalTimer::signal()
@@ -352,5 +388,7 @@ void IntervalTimer::signal()
     /// \todo sanity check that this is absolutely a PosixSubsystem
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(m_Process->getSubsystem());
-    pSubsystem->sendSignal(m_Process->getThread(0), signal);
+
+    // Don't yield in the middle of the timer handler
+    pSubsystem->sendSignal(m_Process->getThread(0), signal, false);
 }

@@ -116,6 +116,7 @@ class IntervalTimer : public TimerHandler
     Time::Timestamp m_Value;
     Time::Timestamp m_Interval;
     Spinlock m_Lock;
+    bool m_Armed;
 };
 
 class PosixProcess : public Process
@@ -176,6 +177,7 @@ class PosixProcess : public Process
     void unregisterProcess();
 
     virtual void reportTimesUpdated(Time::Timestamp user, Time::Timestamp system);
+    virtual void processTerminated();
 
     PosixProcess(const PosixProcess &);
     PosixProcess &operator=(const PosixProcess &);
