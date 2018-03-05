@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
 
 class Thread;
 class Event;
@@ -119,9 +120,19 @@ class Buffer
     void monitor(Thread *pThread, Event *pEvent);
 
     /**
+     * Add a Semaphore to be signaled when data changes.
+     */
+    void monitor(Semaphore *pSemaphore);
+
+    /**
      * Remove monitoring targets for the given thread.
      */
     void cullMonitorTargets(Thread *pThread);
+
+    /**
+     * Remove monitoring targets for the given Semaphore.
+     */
+    void cullMonitorTargets(Semaphore *pSemaphore);
 
   private:
     WITHOUT_IMPLICIT_CONSTRUCTORS(Buffer);
@@ -168,17 +179,23 @@ class Buffer
      */
     struct MonitorTarget
     {
-        MonitorTarget() : pThread(0), pEvent(0)
+        MonitorTarget() : pThread(0), pEvent(0), pSemaphore(0)
         {
         }
 
         MonitorTarget(Thread *thread, Event *event)
-            : pThread(thread), pEvent(event)
+            : pThread(thread), pEvent(event), pSemaphore(0)
+        {
+        }
+
+        MonitorTarget(Semaphore *sem)
+            : pThread(0), pEvent(0), pSemaphore(sem)
         {
         }
 
         Thread *pThread;
         Event *pEvent;
+        Semaphore *pSemaphore;
     };
 
     size_t m_BufferSize;

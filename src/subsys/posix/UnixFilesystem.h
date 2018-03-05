@@ -146,6 +146,12 @@ class UnixSocket : public File
     // Get the next socket in the listening queue (for non-datagram sockets).
     UnixSocket *getSocket(bool block = false);
 
+    // Add a semaphore to be notified when the socket data changes.
+    void addWaiter(Semaphore *waiter);
+
+    // Remove a waiter semaphore.
+    void removeWaiter(Semaphore *waiter);
+
   private:
     struct buf
     {

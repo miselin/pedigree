@@ -48,6 +48,12 @@ Buffer<T, allowShortOperation>::~Buffer()
     m_Lock.acquire();
     for (auto pTarget : m_MonitorTargets)
     {
+#ifdef THREADS
+        if (pTarget->pSemaphore)
+        {
+            pTarget->pSemaphore->release();
+        }
+#endif
         delete pTarget;
     }
     m_MonitorTargets.clear();
@@ -460,6 +466,16 @@ void Buffer<T, allowShortOperation>::monitor(Thread *pThread, Event *pEvent)
 }
 
 template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::monitor(Semaphore *pSemaphore)
+{
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+    MonitorTarget *pTarget = new MonitorTarget(pSemaphore);
+    m_MonitorTargets.pushBack(pTarget);
+#endif
+}
+
+template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread *pThread)
 {
 #ifdef THREADS
@@ -481,6 +497,28 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread *pThread)
 }
 
 template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore *pSemaphore)
+{
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+    for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();)
+    {
+        MonitorTarget *pMT = *it;
+
+        if (pMT->pSemaphore == pSemaphore)
+        {
+            delete pMT;
+            it = m_MonitorTargets.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+#endif
+}
+
+template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::notifyMonitors()
 {
 #ifdef THREADS
@@ -490,7 +528,14 @@ void Buffer<T, allowShortOperation>::notifyMonitors()
     {
         MonitorTarget *pMT = *it;
 
-        pMT->pThread->sendEvent(pMT->pEvent);
+        if (pMT->pThread)
+        {
+            pMT->pThread->sendEvent(pMT->pEvent);
+        }
+        else if (pMT->pSemaphore)
+        {
+            pMT->pSemaphore->release();
+        }
         delete pMT;
     }
     m_MonitorTargets.clear();

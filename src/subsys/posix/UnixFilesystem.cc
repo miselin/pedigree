@@ -199,6 +199,16 @@ UnixSocket *UnixSocket::getSocket(bool block)
     return m_PendingSockets.popFront();
 }
 
+void UnixSocket::addWaiter(Semaphore *waiter)
+{
+    m_Stream.monitor(waiter);
+}
+
+void UnixSocket::removeWaiter(Semaphore *waiter)
+{
+    m_Stream.cullMonitorTargets(waiter);
+}
+
 UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)
     : Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock(false)
 {
