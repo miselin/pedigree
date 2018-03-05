@@ -722,16 +722,22 @@ int NetworkSyscalls::shutdown(int how)
 
 bool NetworkSyscalls::canPoll() const
 {
+    N_NOTICE("NetworkSyscalls::canPoll");
     return false;
 }
 
 bool NetworkSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
 {
+    N_NOTICE("NetworkSyscalls::poll");
+    read = false;
+    write = false;
+    error = false;
     return false;
 }
 
 void NetworkSyscalls::unPoll(Semaphore *waiter)
 {
+    N_NOTICE("NetworkSyscalls::unPoll");
 }
 
 void NetworkSyscalls::associate(FileDescriptor *fd)
@@ -1193,11 +1199,14 @@ int LwipSocketSyscalls::getsockopt(int level, int optname, void *optvalue, sockl
 
 bool LwipSocketSyscalls::canPoll() const
 {
+    N_NOTICE("LwipSocketSyscalls::canPoll");
     return true;
 }
 
 bool LwipSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
 {
+    N_NOTICE("LwipSocketSyscalls::poll");
+
     bool ok = false;
 
     if (!(read || write || error))
@@ -1213,18 +1222,21 @@ bool LwipSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
     if (write)
     {
         write = m_Metadata.send != 0;
+        NOTICE("lwip: check write, m_Metadata.send = " << m_Metadata.send);
         ok = ok || write;
     }
 
     if (read)
     {
         read = m_Metadata.recv || m_Metadata.pb;
+        NOTICE("lwip: check read, m_Metadata.recv = " << m_Metadata.send << " m_Metadata.pb = " << m_Metadata.pb);
         ok = ok || read;
     }
 
     if (error)
     {
         error = m_Metadata.error;
+        NOTICE("lwip: check error, m_Metadata.error = " << m_Metadata.error);
         ok = ok || error;
     }
 
@@ -1244,6 +1256,8 @@ bool LwipSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
 
 void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 {
+    N_NOTICE("LwipSocketSyscalls::unPoll");
+
 #ifdef THREADS
     m_Metadata.lock.acquire();
     for (auto it = m_Metadata.semaphores.begin(); it != m_Metadata.semaphores.end();)
@@ -1431,6 +1445,8 @@ int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
 
     if (getType() == SOCK_STREAM)
     {
+        N_NOTICE(" -> stream");
+
         // Create the remote for accept() on the server side.
         UnixSocket *remote = new UnixSocket(String(), g_pUnixFilesystem, nullptr);
         m_Remote->addSocket(remote);
@@ -1438,27 +1454,30 @@ int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
         // Bind our local socket to the remote side
         m_Socket->bind(remote);
     }
+    else
+    {
+        N_NOTICE(" -> dgram");
+    }
 
     m_RemotePath = pathname;
+
+    N_NOTICE(" -> remote is now " << m_RemotePath);
 
     return 0;
 }
 
 ssize_t UnixSocketSyscalls::sendto(const void *buffer, size_t bufferlen, int flags, const struct sockaddr *address, socklen_t addrlen)
 {
-    UnixSocket *remote = m_Remote;
-    if (getType() == SOCK_STREAM)
+    N_NOTICE("UnixSocketSyscalls::sendto");
+
+    UnixSocket *remote = getRemote();
+    if (getType() == SOCK_STREAM && !remote)
     {
         /// \todo this doesn't handle a connection going away - only a connection
         /// not being made in the first place (I think it's a different errno)
-        if (!m_Socket->getOther())
-        {
-            SYSCALL_ERROR(NotConnected);
-            return -1;
-        }
-
-        // streaming sockets already do the right thing if they're connected
-        remote = m_Socket;
+        N_NOTICE(" -> not connected");
+        SYSCALL_ERROR(NotConnected);
+        return -1;
     }
 
     if (!m_Remote)
@@ -1467,11 +1486,13 @@ ssize_t UnixSocketSyscalls::sendto(const void *buffer, size_t bufferlen, int fla
         {
             // sendto() can't be used for streaming sockets
             /// \todo errno
+            N_NOTICE(" -> sendto on streaming socket with no remote is invalid");
             return -1;
         }
         else if (!address)
         {
             /// \todo needs some sort of errno here
+            N_NOTICE(" -> sendto on unconnected socket with no address");
             return -1;
         }
 
@@ -1503,7 +1524,7 @@ ssize_t UnixSocketSyscalls::sendto(const void *buffer, size_t bufferlen, int fla
         remote = static_cast<UnixSocket *>(file);
     }
 
-    /// \todo this is incorrect for streaming sockets (m_Remote is the server peer not the accepted socket)
+    N_NOTICE(" -> transmitting!");
     return remote->write(
         reinterpret_cast<uintptr_t>(
             static_cast<const char *>(m_LocalPath)),
@@ -1514,6 +1535,7 @@ ssize_t UnixSocketSyscalls::sendto(const void *buffer, size_t bufferlen, int fla
 ssize_t UnixSocketSyscalls::recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen)
 {
     /// \todo drop in peer if we're a streaming socket
+    /// \todo figure out what that meant?
     String remote;
     uint64_t numRead = m_Socket->recvfrom(
         bufferlen, reinterpret_cast<uintptr_t>(buffer),
@@ -1629,15 +1651,19 @@ int UnixSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
 
 int UnixSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
 {
+    N_NOTICE("unix accept");
     UnixSocket *remote = m_Socket->getSocket(isBlocking());
     if (!remote)
     {
+        N_NOTICE("accept() failed");
         SYSCALL_ERROR(NoMoreProcesses);
         return -1;
     }
 
     if (remote)
     {
+        N_NOTICE("accept() got a socket");
+
         struct sockaddr_un *sun =
             reinterpret_cast<struct sockaddr_un *>(address);
 
@@ -1713,4 +1739,89 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void *optvalue, sockl
 {
     // nothing to do here
     return -1;
+}
+
+bool UnixSocketSyscalls::canPoll() const
+{
+    N_NOTICE("UnixSocketSyscalls::canPoll");
+    return true;
+}
+
+bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
+{
+    N_NOTICE("UnixSocketSyscalls::poll");
+
+    UnixSocket *remote = getRemote();
+    UnixSocket *local = m_Socket;
+
+    bool ok = false;
+    if (read)
+    {
+        read = local->select(false, 0);
+        ok = ok || read;
+
+        if (!read)
+        {
+            local->addWaiter(waiter);
+        }
+    }
+
+    if (write)
+    {
+        write = remote->select(true, 0);
+        ok = ok || write;
+
+        if (!write)
+        {
+            remote->addWaiter(waiter);
+        }
+    }
+
+    error = false;
+    return ok;
+}
+
+void UnixSocketSyscalls::unPoll(Semaphore *waiter)
+{
+    N_NOTICE("UnixSocketSyscalls::unPoll");
+
+    UnixSocket *remote = getRemote();
+    UnixSocket *local = m_Socket;
+
+    // these don't error out if the Semaphore isn't present so this is easy
+    if (remote)
+    {
+        remote->removeWaiter(waiter);
+    }
+    if (local)
+    {
+        local->removeWaiter(waiter);
+    }
+}
+
+bool UnixSocketSyscalls::pairWith(UnixSocketSyscalls *other)
+{
+    if (!m_Socket->bind(other->m_Socket))
+    {
+        return false;
+    }
+    m_Remote = other->m_Socket;
+    other->m_Remote = m_Socket;
+    return true;
+}
+
+UnixSocket *UnixSocketSyscalls::getRemote() const
+{
+    UnixSocket *remote = m_Remote;
+    if (getType() == SOCK_STREAM)
+    {
+        if (!m_Socket->getOther())
+        {
+            return nullptr;
+        }
+
+        remote = m_Socket;
+    }
+
+    return remote;
 }

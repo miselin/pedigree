@@ -193,7 +193,17 @@ class UnixSocketSyscalls : public NetworkSyscalls
         virtual int setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
         virtual int getsockopt(int level, int optname, void *optvalue, socklen_t *optlen);
 
+        virtual bool canPoll() const;
+        virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
+        virtual void unPoll(Semaphore *waiter);
+
+        /// Pair two UnixSocketSyscalls objects such that the referenced
+        /// sockets directly communicate with each other.
+        bool pairWith(UnixSocketSyscalls *other);
+
     private:
+        UnixSocket *getRemote() const;
+
         UnixSocket *m_Socket;
         UnixSocket *m_Remote;  // other side of the unix socket
 
