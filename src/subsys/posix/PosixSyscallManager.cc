@@ -45,113 +45,18 @@
 
 #include "pedigree/kernel/debugger/Backtrace.h"
 
-class LinuxVsyscallTrapHandler : public MemoryTrapHandler
-{
-  public:
-    /// Emulates a Linux vsyscall.
-    virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite)
-    {
-        if (address < 0xffffffffff600000 || address > 0xffffffffff601000)
-        {
-            return false;
-        }
-
-        if ((address & ~0xC00) != 0xffffffffff600000)
-        {
-            return false;
-        }
-
-        uintptr_t which = (address & 0xC00) >> 10;
-        if (which >= 3)
-        {
-            return false;
-        }
-
-        // get the return address so we can fudge the state to return
-        uint64_t return_rip =
-            *reinterpret_cast<uint64_t *>(state.getStackPointer());
-
-        // 4 == RDI, 5 == SI
-        uint64_t p1 = state.getRegister(4);
-        uint64_t p2 = state.getRegister(5);
-
-        /// \todo PosixSubsystem::checkAddress!
-        long result = -1;
-        switch (which)
-        {
-            case 0:  // gettimeofday
-                result = posix_gettimeofday(
-                    reinterpret_cast<struct timeval *>(p1),
-                    reinterpret_cast<struct timezone *>(p2));
-                break;
-
-            case 1:  // time
-            {
-                time_t *tm = reinterpret_cast<time_t *>(p1);
-                result = Time::getTime();
-                if (tm)
-                {
-                    *tm = result;
-                }
-                break;
-            }
-
-            case 2:  // getcpu
-            {
-                unsigned *a = reinterpret_cast<unsigned *>(p1);
-                unsigned *b = reinterpret_cast<unsigned *>(p2);
-                if (a)
-                {
-                    *a = 0;  // cpu 0
-                }
-                if (b)
-                {
-                    *b = 0;  // node 0
-                }
-                result = 0;
-                break;
-            }
-        }
-
-        // ensure we capture errno correctly
-        uint64_t errno =
-            Processor::information().getCurrentThread()->getErrno();
-        if (errno != 0)
-        {
-            result = -errno;
-            Processor::information().getCurrentThread()->setErrno(0);
-        }
-
-        state.setRegister(0, result);
-        state.setInstructionPointer(return_rip);
-        state.setStackPointer(state.getStackPointer() + 8);
-
-        return true;
-    }
-};
-
-static LinuxVsyscallTrapHandler *g_LinuxVsyscallHandler = 0;
-
 PosixSyscallManager::PosixSyscallManager()
 {
 }
 
 PosixSyscallManager::~PosixSyscallManager()
 {
-    delete g_LinuxVsyscallHandler;
-    g_LinuxVsyscallHandler = 0;
 }
 
 void PosixSyscallManager::initialise()
 {
-    if (!g_LinuxVsyscallHandler)
-    {
-        g_LinuxVsyscallHandler = new LinuxVsyscallTrapHandler();
-    }
-
     SyscallManager::instance().registerSyscallHandler(linux, this);
     SyscallManager::instance().registerSyscallHandler(posix, this);
-    // PageFaultHandler::instance().registerHandler(g_LinuxVsyscallHandler);
 }
 
 uintptr_t PosixSyscallManager::call(
