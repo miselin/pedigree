@@ -53,7 +53,7 @@ bool DisassembleCommand::execute(
     else
     {
         // Is it an address?
-        address = input.intValue();
+        address = input.uintptrValue();
 
         if (address == 0)
         {
