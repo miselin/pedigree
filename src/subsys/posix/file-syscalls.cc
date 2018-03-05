@@ -320,7 +320,7 @@ doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
         if ((name && !StringCompare(name, "/dev/null")) ||
             (pFile->getName() == "null"))
         {
-            NOTICE("/dev/null, fixing st_rdev");
+            F_NOTICE("/dev/null, fixing st_rdev");
             // major/minor device numbers
             st->st_rdev = 0x0103;
         }
@@ -1255,16 +1255,25 @@ int posix_ioctl(int fd, int command, void *buf)
     {
         // KDGETLED
         case 0x4B31:
-            F_NOTICE(" -> KDGETLED (stubbed), arg=" << buf);
+            {
+                F_NOTICE(" -> KDGETLED (stubbed), arg=" << buf);
+                char *cbuf = reinterpret_cast<char *>(buf);
+                *cbuf = Machine::instance().getKeyboard()->getLedState();
+            }
             return 0;
 
         // KDSETLED
         case 0x4B32:
-            F_NOTICE(" -> KDSETLED (stubbed), arg=" << buf);
+            {
+                F_NOTICE(" -> KDSETLED (stubbed), arg=" << buf);
+                uintptr_t leds = reinterpret_cast<uintptr_t>(buf);
+                Machine::instance().getKeyboard()->setLedState(leds);
+            }
             return 0;
 
         case 0x4B33:  // KDGKBTYPE
         {
+            F_NOTICE(" -> KDGKBTYPE");
             if (ConsoleManager::instance().isConsole(f->file))
             {
                 // US 101
@@ -1755,6 +1764,11 @@ int posix_fcntl(int fd, int cmd, void *arg)
         case F_SETLKW:  // Set or clear a record lock (with blocking)
             F_NOTICE("  -> fcntl locks (stubbed)");
             /// \note advisory locking disabled for now
+            return 0;
+        case F_GETOWN:
+        case F_SETOWN:
+            /// \todo implement signal management
+            F_NOTICE("  -> fcntl signal management (stubbed)");
             return 0;
 
         default:
@@ -3582,8 +3596,8 @@ int posix_mknod(const char *pathname, mode_t mode, dev_t dev)
     {
         String parentPath;
         normalisePath(parentPath, parentDirectory, nullptr);
-        NOTICE("finding parent directory " << parentDirectory << "...");
-        NOTICE(" -> " << parentPath << "...");
+        F_NOTICE("finding parent directory " << parentDirectory << "...");
+        F_NOTICE(" -> " << parentPath << "...");
         parentFile = findFileWithAbiFallbacks(parentPath, GET_CWD());
 
         parentFile = traverseSymlink(parentFile);
