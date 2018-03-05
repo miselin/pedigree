@@ -59,12 +59,12 @@ uintptr_t Ext2Node::readBlock(uint64_t location)
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
     if (nBlock > m_Blocks.count())
     {
-        NOTICE("beyond blocks [" << nBlock << ", " << m_Blocks.count() << "]");
+        ERROR("Ext2Node::readBlock beyond blocks [" << nBlock << ", " << m_Blocks.count() << "]");
         return 0;
     }
     if (location > m_nSize)
     {
-        NOTICE("beyond size [" << location << ", " << m_nSize << "]");
+        ERROR("Ext2Node::readBlock beyond size [" << location << ", " << m_nSize << "]");
         return 0;
     }
 
@@ -105,13 +105,9 @@ void Ext2Node::trackBlock(uint32_t block)
 
 void Ext2Node::wipe()
 {
-    NOTICE(
-        "wipe: " << m_Blocks.count() << " blocks, size is " << m_nSize
-                 << "...");
     for (size_t i = 0; i < m_Blocks.count(); ++i)
     {
         ensureBlockLoaded(i);
-        NOTICE("wipe: releasing block: " << Hex << m_Blocks[i]);
         m_pExt2Fs->releaseBlock(m_Blocks[i]);
     }
     m_Blocks.clear();
@@ -124,7 +120,6 @@ void Ext2Node::wipe()
 
     // Write updated inode.
     m_pExt2Fs->writeInode(getInodeNumber());
-    NOTICE("wipe done");
 }
 
 void Ext2Node::extend(size_t newSize)

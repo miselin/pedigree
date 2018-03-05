@@ -844,8 +844,6 @@ uint32_t Ext2Filesystem::findFreeInode()
 
 void Ext2Filesystem::releaseBlock(uint32_t block)
 {
-    NOTICE("release block: " << Dec << block << Hex);
-
     // In some ext2 filesystems, this is zero so we don't need to do this. But
     // for those that do, not doing this messes up the bit offsets below.
     block -= LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
