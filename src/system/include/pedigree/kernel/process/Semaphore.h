@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Result.h"
 
 /**
  * A counting semaphore.
@@ -33,6 +34,12 @@
 class Semaphore
 {
   public:
+    enum SemaphoreError
+    {
+      TimedOut,
+      Interrupted,
+    };
+    typedef Result<bool, SemaphoreError> SemaphoreResult;
     /** Constructor
      * \param nInitialValue The initial value of the semaphore.
      * \param canInterrupt If false, acquire() retries after interrupt rather
@@ -44,9 +51,23 @@ class Semaphore
     /** Attempts to acquire n items from the semaphore. This will block until
      * the semaphore is non-zero. \param n The number of semaphore items
      * required. Must be non-zero. \param timeoutSecs Timeout value in seconds -
-     * if zero, no timeout. \return True if acquire succeeded, false otherwise
-     * (timeout). */
-    bool acquire(size_t n = 1, size_t timeoutSecs = 0, size_t timeoutUsecs = 0);
+     * if zero, no timeout. \return a Result with a bool value indicating success
+     * if no timeout took place, a Result with a SemaphoreError error otherwise. */
+    SemaphoreResult acquireWithResult(size_t n = 1, size_t timeoutSecs = 0, size_t timeoutUsecs = 0);
+
+    /** Convenience wrapper for acquire(). */
+    bool acquire(size_t n = 1, size_t timeoutSecs = 0, size_t timeoutUsecs = 0)
+    {
+      SemaphoreResult result = acquireWithResult(n, timeoutSecs, timeoutUsecs);
+      if (result.hasValue())
+      {
+        return result.value();
+      }
+      else
+      {
+        return false;
+      }
+    }
 
     /** Attempts to acquire n items from the semaphore. This will not block.
      * \param n The number of semaphore items required. Must be non-zero.

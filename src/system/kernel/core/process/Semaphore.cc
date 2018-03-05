@@ -74,7 +74,7 @@ void Semaphore::removeThread(Thread *pThread)
     m_BeingModified.release();
 }
 
-bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
+Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
 {
     if (magic != 0xdeadbaba)
     {
@@ -89,7 +89,7 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
     for (int i = 0; i < 10; i++)
 #endif
         if (tryAcquire(n))
-            return true;
+            return SemaphoreResult::withValue(true);
 
     // If we have a timeout, create the event and register it.
     Event *pEvent = 0;
@@ -100,6 +100,7 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
             pEvent, timeoutSecs, timeoutUsecs);
     }
 
+    SemaphoreResult result = SemaphoreResult::withValue(true);
     while (true)
     {
         Thread *pThread = Processor::information().getCurrentThread();
@@ -112,7 +113,7 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
             }
 
             removeThread(pThread);
-            return true;
+            return result;
         }
 
         m_BeingModified.acquire();
@@ -131,18 +132,22 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
             }
             m_BeingModified.release();
             removeThread(pThread);
-            return true;
+            return result;
         }
 
         m_Queue.pushBack(pThread);
+
+        Thread::WakeReason wakeReason = Thread::NotWoken;
 
         pThread->setInterrupted(false);
         pThread->setUnwindState(Thread::Continue);
         pThread->setDebugState(
             Thread::SemWait,
             reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+        pThread->addWakeupWatcher(&wakeReason);
         Processor::information().getScheduler().sleep(&m_BeingModified);
         pThread->setDebugState(Thread::None, 0);
+        pThread->removeWakeupWatcher(&wakeReason);  // sanity removal
 
         // Either acquired or interrupted, either way, we don't need to be woken
         // again
@@ -150,18 +155,30 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
 
         // Why were we woken?
         bool bState = true;
-        if (m_bCanInterrupt && (pThread->wasInterrupted() ||
-                                pThread->getUnwindState() != Thread::Continue))
+        if (m_bCanInterrupt && wakeReason != Thread::NotWoken)
         {
-            // We were deliberately interrupted - most likely because of a
-            // timeout.
-            if (pEvent)
+            // don't care about unknown wakeups for this
+            if (wakeReason != Thread::Unknown)
             {
-                Machine::instance().getTimer()->removeAlarm(pEvent);
-                delete pEvent;
-            }
+                if (pThread->wasInterrupted())
+                {
+                    // Timed out!
+                    result = SemaphoreResult::withError(TimedOut);
+                }
+                else
+                {
+                    // Interrupted by some other source (e.g. an event).
+                    result = SemaphoreResult::withError(Interrupted);
+                }
 
-            bState = false;
+                if (pEvent)
+                {
+                    Machine::instance().getTimer()->removeAlarm(pEvent);
+                    delete pEvent;
+                }
+
+                bState = false;
+            }
         }
 
         // Restore interrupt state. If we are woken by an event (eg, timeout,
@@ -175,7 +192,9 @@ bool Semaphore::acquire(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
         Processor::setInterrupts(bWasInterrupts);
 
         if (!bState)
-            return false;
+        {
+            return result;
+        }
     }
 }
 
