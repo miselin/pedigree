@@ -20,6 +20,10 @@
 #ifndef _POSIX_KERNEL_LOGGING_H
 #define _POSIX_KERNEL_LOGGING_H
 
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
+
 // Logs to the kernel log with the current PID.
 #ifdef THREADS
 #define POSIX_VERBOSE_LOG(f, x)                                                \
