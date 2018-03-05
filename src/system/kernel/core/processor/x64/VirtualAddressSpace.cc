@@ -341,9 +341,15 @@ bool X64VirtualAddressSpace::mapUnlocked(
         virtualAddress >= KERNEL_VIRTUAL_HEAP)
     {
         uint64_t thisPml4Entry = *pml4Entry;
+        /// \todo this can actually break if a process is removed from the
+        ///       scheduler while we iterate!
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
         {
             Process *p = Scheduler::instance().getProcess(i);
+            if (!p)
+            {
+                continue;
+            }
 
             X64VirtualAddressSpace *x64VAS =
                 reinterpret_cast<X64VirtualAddressSpace *>(
@@ -900,7 +906,8 @@ X64VirtualAddressSpace::~X64VirtualAddressSpace()
     PhysicalMemoryManager &physicalMemoryManager =
         PhysicalMemoryManager::instance();
 
-    size_t freePages = physicalMemoryManager.freePageCount();
+    /// \todo validate that we're cleaning up enough stuff here
+    /// for example are we missing stuff like PDPTs etc?
 
     // Drop back to the kernel address space. This will blow away the child's
     // mappings, but maintains shared pages as needed.
@@ -908,15 +915,6 @@ X64VirtualAddressSpace::~X64VirtualAddressSpace()
 
     // Free the PageMapLevel4
     physicalMemoryManager.freePage(m_PhysicalPML4);
-
-    size_t freePagesAfter = physicalMemoryManager.freePageCount();
-
-    NOTICE(
-        "X64VirtualAddressSpace cleaned up " << (freePagesAfter - freePages)
-                                             << " pages!");
-
-    WARNING("X64VirtualAddressSpace::~X64VirtualAddressSpace doesn't clean up "
-            "well.");
 }
 
 X64VirtualAddressSpace::X64VirtualAddressSpace()
