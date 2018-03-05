@@ -107,6 +107,37 @@ class ZeroFile : public File
         bool bCanBlock = true);
 };
 
+class PsAuxFile : public File
+{
+  public:
+    PsAuxFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
+        : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_Lock(false)
+    {
+        setPermissionsOnly(
+            FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+        setUidOnly(0);
+        setGidOnly(0);
+    }
+    ~PsAuxFile()
+    {
+    }
+
+    uint64_t read(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    uint64_t write(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+
+    virtual int select(bool bWriting = false, int timeout = 0)
+    {
+        return 0;
+    }
+
+   private:
+    Mutex m_Lock;
+};
+
 class PtmxFile : public File
 {
   public:

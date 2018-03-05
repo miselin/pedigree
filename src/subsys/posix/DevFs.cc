@@ -183,6 +183,19 @@ uint64_t ZeroFile::write(
     return size;
 }
 
+uint64_t PsAuxFile::read(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    ERROR("PsAuxFile::read has been called");
+    return 0;
+}
+
+uint64_t PsAuxFile::write(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    return 0;
+}
+
 uint64_t RtcFile::read(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
@@ -634,6 +647,10 @@ bool DevFs::initialise(Disk *pDisk)
 
     RtcFile *rtc = new RtcFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(rtc->getName(), rtc);
+
+    PsAuxFile *pPsAux =
+        new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pPsAux->getName(), pPsAux);
 
     // add input handler for terminal switching
     InputManager::instance().installCallback(
