@@ -749,6 +749,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_getitimer(p1, reinterpret_cast<struct itimerval *>(p2));
         case POSIX_SETITIMER:
             return posix_setitimer(p1, reinterpret_cast<const struct itimerval *>(p2), reinterpret_cast<struct itimerval *>(p3));
+        case POSIX_SOCKETPAIR:
+            return posix_socketpair(p1, p2, p3, reinterpret_cast<int *>(p4));
 
         default:
             ERROR(

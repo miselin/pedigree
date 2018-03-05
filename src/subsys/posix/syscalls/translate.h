@@ -162,7 +162,9 @@ inline long posix_translate_syscall(long which)
         case SYS_getpeername:
             pedigree_translation = POSIX_GETPEERNAME;
             break;
-        // ...
+        case SYS_socketpair:
+            pedigree_translation = POSIX_SOCKETPAIR;
+            break;
         case SYS_setsockopt:
             pedigree_translation = POSIX_SETSOCKOPT;
             break;

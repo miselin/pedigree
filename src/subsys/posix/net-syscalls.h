@@ -205,6 +205,7 @@ class UnixSocketSyscalls : public NetworkSyscalls
 struct netconnMetadata *getNetconnMetadata(struct netconn *conn);
 
 int posix_socket(int domain, int type, int protocol);
+int posix_socketpair(int domain, int type, int protocol, int sv[2]);
 int posix_connect(int sock, const struct sockaddr *address, socklen_t addrlen);
 
 ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags);

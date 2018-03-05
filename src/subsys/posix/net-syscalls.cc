@@ -156,25 +156,36 @@ static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
     return true;
 }
 
-static ip_addr_t sockaddrToIpaddr(const struct sockaddr *saddr, uint16_t &port)
+static err_t sockaddrToIpaddr(const struct sockaddr *saddr, uint16_t &port, ip_addr_t *result, bool isbind = true)
 {
-    ip_addr_t result;
-    ByteSet(&result, 0, sizeof(result));
+    ByteSet(result, 0, sizeof(*result));
 
     if (saddr->sa_family == AF_INET)
     {
         const struct sockaddr_in *sin = reinterpret_cast<const struct sockaddr_in *>(saddr);
-        result.u_addr.ip4.addr = sin->sin_addr.s_addr;
-        result.type = IPADDR_TYPE_V4;
+        result->u_addr.ip4.addr = sin->sin_addr.s_addr;
+        result->type = IPADDR_TYPE_V4;
+
+        if (!isbind)
+        {
+            // do some extra sanity checks for client connections
+            if (!sin->sin_addr.s_addr)
+            {
+                // rebind to 127.0.0.1 (localhost)
+                result->u_addr.ip4.addr = HOST_TO_BIG32(INADDR_LOOPBACK);
+            }
+        }
 
         port = BIG_TO_HOST16(sin->sin_port);
+
+        return ERR_OK;
     }
     else
     {
         ERROR("sockaddrToIpaddr: only AF_INET is supported at the moment.");
     }
 
-    return result;
+    return ERR_VAL;
 }
 
 
@@ -216,6 +227,70 @@ int posix_socket(int domain, int type, int protocol)
 
     N_NOTICE("  -> " << Dec << fd << Hex);
     return static_cast<int>(fd);
+}
+
+int posix_socketpair(int domain, int type, int protocol, int sv[2])
+{
+    N_NOTICE("socketpair");
+
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(sv), sizeof(int) * 2,
+            PosixSubsystem::SafeWrite))
+    {
+        N_NOTICE("socketpair -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    if (domain != AF_UNIX)
+    {
+        /// \todo syscall error for EAFNOSUPPORT
+        return -1;
+    }
+
+    UnixSocketSyscalls *syscallsA = new UnixSocketSyscalls(domain, type, protocol);
+    if (!syscallsA->create())
+    {
+        delete syscallsA;
+        return -1;
+    }
+
+    UnixSocketSyscalls *syscallsB = new UnixSocketSyscalls(domain, type, protocol);
+    if (!syscallsB->create())
+    {
+        delete syscallsA;
+        delete syscallsB;
+        return -1;
+    }
+
+    if (!syscallsA->pairWith(syscallsB))
+    {
+        delete syscallsA;
+        delete syscallsB;
+        return -1;
+    }
+
+    FileDescriptor *fA = new FileDescriptor;
+    FileDescriptor *fB = new FileDescriptor;
+
+    size_t fdA = getAvailableDescriptor();
+    size_t fdB = getAvailableDescriptor();
+
+    fA->networkImpl = syscallsA;
+    fA->fd = fdA;
+    fB->networkImpl = syscallsB;
+    fB->fd = fdB;
+
+    addDescriptor(fdA, fA);
+    addDescriptor(fdB, fB);
+
+    syscallsA->associate(fA);
+    syscallsB->associate(fB);
+
+    sv[0] = static_cast<int>(fdA);
+    sv[1] = static_cast<int>(fdB);
+
+    return 0;
 }
 
 int posix_connect(int sock, const struct sockaddr *address, socklen_t addrlen)
@@ -775,7 +850,12 @@ int LwipSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
     }
 
     uint16_t port = 0;
-    ipaddr = sockaddrToIpaddr(address, port);
+    if ((err = sockaddrToIpaddr(address, port, &ipaddr, false)) != ERR_OK)
+    {
+        N_NOTICE("failed to convert sockaddr");
+        lwipToSyscallError(err);
+        return -1;
+    }
 
     // set blocking status if needed
     bool blocking = !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
@@ -942,7 +1022,8 @@ int LwipSocketSyscalls::listen(int backlog)
 int LwipSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
 {
     uint16_t port = 0;
-    ip_addr_t ipaddr = sockaddrToIpaddr(address, port);
+    ip_addr_t ipaddr;
+    sockaddrToIpaddr(address, port, &ipaddr);
 
     err_t err = netconn_bind(m_Socket, &ipaddr, port);
     if (err != ERR_OK)
