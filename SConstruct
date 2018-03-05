@@ -75,6 +75,7 @@ opts.AddVariables(
     BoolVariable('posix_sig_verbose', 'Enable verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_sig_ultra_verbose', 'Enable even more verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_syscall_verbose', 'Enable logging of every incoming POSIX syscall (PID + syscall number).', 0),
+    BoolVariable('verbose_kernel', 'Enable verbose logging throughout the kernel.', 0),
 
     BoolVariable('posix_musl', 'Build and use musl instead of newlib.', 1),
 
@@ -383,7 +384,7 @@ if env['build_kernel_only']:
     env['build_images'] = False
 if env['build_images']:
     if not all(env[x] for x in ('build_kernel', 'build_configdb',
-                                'build_modules', 'build_lgpl', 'build_apps',
+                                'build_modules', 'build_apps',
                                 'build_libs', 'build_images')):
         raise SCons.Errors.UserError('build_images requires all build_* options set to 1.')
 if env['build_configdb'] and not env['build_modules']:
@@ -769,7 +770,7 @@ additionalDefines = ['ipv4_forwarding', 'serial_is_file', 'installer',
                      'acpi', 'debug_logging', 'superdebug', 'nogfx', 'mach_pc',
                      'usb_verbose_debug', 'travis', 'hosted',
                      'memory_log_inline', 'asserts', 'valgrind', 'livecd',
-                     'tracing']
+                     'tracing', 'verbose_kernel']
 for i in additionalDefines:
     if i not in env:
         continue
