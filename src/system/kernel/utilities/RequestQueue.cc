@@ -442,6 +442,8 @@ int RequestQueue::work()
                 if (pReq->pThread)
                     pReq->pThread->removeRequest(pReq);
                 finished = false;
+
+                m_RequestQueueMutex.acquire();
                 continue;
             }
             switch (
