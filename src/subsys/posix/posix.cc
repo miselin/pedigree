@@ -60,6 +60,39 @@ static bool init()
     VFS::instance().addAlias(g_pDevFs, g_pDevFs->getVolumeLabel());
     VFS::instance().addAlias(g_pProcFs, g_pProcFs->getVolumeLabel());
 
+    Filesystem *scratchfs = VFS::instance().lookupFilesystem("scratch");
+
+    // Set up default reparse points. normalisePath in file-syscalls.cc is not
+    // sufficient in many cases, as it requires matching the _entire_ path to
+    // actually work. Reparse points work a lot better and they let us override
+    // the directory layout that already exists on disk. If the directory
+    // doesn't exist on disk, we won't add a reparse point for it here.
+    struct reparse
+    {
+        const char *path;
+        File *target;
+    } reparses[] = {
+        // {"root»/dev", g_pDevFs->getRoot()},
+        {"root»/var/run", g_pRunFilesystem->getRoot()},
+        {"root»/proc", g_pProcFs->getRoot()},
+        {"root»/tmp", scratchfs ? scratchfs->getRoot() : 0},
+    };
+
+    for (auto p : reparses)
+    {
+        if (!p.target)
+        {
+            continue;
+        }
+
+        File *point = VFS::instance().find(p.path);
+        if (point && point->isDirectory())
+        {
+            Directory *pDir = Directory::fromFile(point);
+            pDir->setReparsePoint(Directory::fromFile(p.target));
+        }
+    }
+
     return true;
 }
 
