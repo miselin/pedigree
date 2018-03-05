@@ -542,8 +542,6 @@ void ProcFs::revertInode()
 
 void ProcFs::addProcess(PosixProcess *proc)
 {
-    NOTICE("procfs: adding process " << proc->getId());
-
     size_t pid = proc->getId();
 
     String s;
@@ -571,8 +569,6 @@ void ProcFs::addProcess(PosixProcess *proc)
 
 void ProcFs::removeProcess(PosixProcess *proc)
 {
-    NOTICE("procfs: removing process " << proc->getId());
-
     size_t pid = proc->getId();
 
     String s;

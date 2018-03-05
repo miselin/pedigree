@@ -160,7 +160,6 @@ class ProcFsDirectory : public Directory
 
     void addEntry(String name, File *pFile)
     {
-        NOTICE("ProcFsDirectory::addEntry: " << name);
         addDirectoryEntry(name, pFile);
     }
 };
