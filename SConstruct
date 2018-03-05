@@ -113,6 +113,7 @@ opts.AddVariables(
     BoolVariable('createqcow', 'Convert the created hard disk image to a QCOW2 file after it is created.', 0),
     BoolVariable('iso', 'Building a bootable ISO.', 1),
     BoolVariable('livecd', 'Whether or not the bootable ISO should be a Live CD (one with a disk image on it).', 1),
+    BoolVariable('livecd_only_kernel', 'Don\t add the live CD disk image (if livecd=1), but act like a live CD in all other ways.', 0),
     
     BoolVariable('pup', 'If 1, you are managing your images/local directory with the Pedigree UPdater (pup) and want that instead of the images/<arch> directory.', 1),
     

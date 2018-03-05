@@ -75,7 +75,7 @@ def buildCdImage(target, source, env):
         '.pedigree-root=%s' % (source[0].abspath,),
     ])
 
-    if env['livecd']:
+    if env['livecd'] and not env['livecd_only_kernel']:
         args.extend([
             'livedisk.img=%s' % (source[3].abspath,),
         ])
