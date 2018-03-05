@@ -681,10 +681,12 @@ int posix_read(int fd, char *ptr, int len)
     uint64_t nRead = 0;
     if (ptr && len)
     {
-        pThread->setInterrupted(false);
+        Thread::WakeReason wakeReason = Thread::NotWoken;
+        pThread->addWakeupWatcher(&wakeReason);
         nRead = pFd->file->read(
             pFd->offset, len, reinterpret_cast<uintptr_t>(ptr), canBlock);
-        if ((!nRead) && (pThread->wasInterrupted()))
+        pThread->removeWakeupWatcher(&wakeReason);
+        if ((!nRead) && (wakeReason != Thread::NotWoken))
         {
             SYSCALL_ERROR(Interrupted);
             return -1;
