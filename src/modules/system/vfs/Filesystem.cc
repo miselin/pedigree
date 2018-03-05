@@ -377,8 +377,9 @@ File *Filesystem::findNode(File *pNode, String path)
     if (reparse)
     {
         WARNING(
-            "VFS: found reparse point at '" << pDir->getName()
-                                            << "', following it");
+            "VFS: found reparse point at '" << pDir->getFullPath()
+                                            << "', following it (new target: "
+                                            << reparse->getFullPath() << ")");
         pDir = reparse;
     }
 
