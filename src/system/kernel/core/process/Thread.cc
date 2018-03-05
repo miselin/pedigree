@@ -330,6 +330,8 @@ void Thread::shutdown()
         }
     }
 
+    reportWakeup(WokenBecauseTerminating);
+
     // Notify any waiters on this thread.
     if (m_pWaiter)
     {
@@ -386,6 +388,8 @@ void Thread::setStatus(Thread::Status s)
         return;
     }
 
+    Thread::Status previousStatus = m_Status;
+
     m_Status = s;
 
     if (s == Thread::Zombie)
@@ -411,6 +415,12 @@ void Thread::setStatus(Thread::Status s)
         {
             m_pParent->notifyWaiters();
         }
+    }
+
+    if (m_Status == Thread::Ready && previousStatus != Thread::Running)
+    {
+        /// \todo provide a way to report this in Thread::setStatus API
+        reportWakeupUnlocked(Unknown);
     }
 
     if (m_pScheduler)
@@ -537,20 +547,32 @@ void Thread::sendEvent(Event *pEvent)
         return;
     }
 
+    /// \todo we should be checking inhibits HERE! so we don't wake a thread
+    /// that has inhibited the sent event
+
     // Only need the lock to adjust the queue of events.
     m_Lock.acquire();
     m_EventQueue.pushBack(pEvent);
     pEvent->registerThread(this);
     m_Lock.release();
 
-    if (m_Status == Sleeping && m_bInterruptible)
+    if (m_Status == Sleeping)
     {
-        // Interrupt the sleeping thread, there's an event firing
-        m_Status = Ready;
+        if (m_bInterruptible)
+        {
+            reportWakeup(WokenByEvent);
 
-        // Notify the scheduler that we're now ready, so we get put into the
-        // scheduling algorithm's ready queue.
-        Scheduler::instance().threadStatusChanged(this);
+            // Interrupt the sleeping thread, there's an event firing
+            m_Status = Ready;
+
+            // Notify the scheduler that we're now ready, so we get put into the
+            // scheduling algorithm's ready queue.
+            Scheduler::instance().threadStatusChanged(this);
+        }
+        else
+        {
+            WARNING("Thread: dropping event as we're not interruptible");
+        }
     }
 }
 
@@ -650,6 +672,38 @@ bool Thread::hasEvents()
     return m_EventQueue.count() != 0;
 }
 
+bool Thread::hasEvent(Event *pEvent)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    for (List<Event *>::Iterator it = m_EventQueue.begin();
+         it != m_EventQueue.end();)
+    {
+        if ((*it) == pEvent)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Thread::hasEvent(size_t eventNumber)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    for (List<Event *>::Iterator it = m_EventQueue.begin();
+         it != m_EventQueue.end();)
+    {
+        if ((*it)->getNumber() == eventNumber)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void Thread::addRequest(RequestQueue::Request *req)
 {
     if (m_bRemovingRequests)
@@ -676,11 +730,6 @@ void Thread::removeRequest(RequestQueue::Request *req)
 
 void Thread::unexpectedExit()
 {
-    NOTICE("Thread::unexpectedExit");
-    if (m_bRemovingRequests)
-        return;
-
-    NOTICE("Thread::unexpectedExit COMPLETE");
 }
 
 uintptr_t Thread::getTlsBase()
@@ -727,9 +776,11 @@ uintptr_t Thread::getTlsBase()
         *tlsBase = m_Id;
 #endif
 
+#ifdef VERBOSE_KERNEL
         NOTICE(
             "Thread [" << Dec << m_pParent->getId() << ":" << m_Id << Hex
                        << "]: allocated TLS area at " << m_pTlsBase << ".");
+#endif
     }
     return reinterpret_cast<uintptr_t>(m_pTlsBase);
 }
@@ -909,6 +960,47 @@ void Thread::cleanStateLevel(size_t level)
     }
 
     m_StateLevels[level].m_InhibitMask.reset();
+}
+
+void Thread::addWakeupWatcher(WakeReason *watcher)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    m_WakeWatchers.pushBack(watcher);
+}
+
+void Thread::removeWakeupWatcher(WakeReason *watcher)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    for (auto it = m_WakeWatchers.begin(); it != m_WakeWatchers.end();)
+    {
+        if ((*it) == watcher)
+        {
+            it = m_WakeWatchers.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+}
+
+void Thread::reportWakeup(WakeReason reason)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+
+    reportWakeupUnlocked(reason);
+}
+
+void Thread::reportWakeupUnlocked(WakeReason reason)
+{
+    for (auto it = m_WakeWatchers.begin(); it != m_WakeWatchers.end(); ++it)
+    {
+        *(*it) = reason;
+    }
+
+    m_WakeWatchers.clear();
 }
 
 #endif  // THREADS

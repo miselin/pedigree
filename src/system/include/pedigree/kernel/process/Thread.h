@@ -85,6 +85,17 @@ class Thread
         Joining
     };
 
+    /** Reasons for a wakeup. */
+    enum WakeReason
+    {
+        NotWoken,  // can be used to check if a reason has been set yet
+        WokenByAlarm,
+        WokenByEvent,
+        WokenBecauseTerminating,
+        WokenBecauseUnwinding,
+        Unknown
+    };
+
     /** Thread start function type. */
     typedef int (*ThreadStartFunc)(void *);
 
@@ -262,6 +273,11 @@ class Thread
     void setUnwindState(UnwindType ut)
     {
         m_UnwindState = ut;
+
+        if (ut != Continue)
+        {
+            reportWakeup(WokenBecauseUnwinding);
+        }
     }
 
     void setBlockingThread(Thread *pT)
@@ -319,6 +335,10 @@ class Thread
     Event *getNextEvent();
 
     bool hasEvents();
+
+    /** Determines if the given event is currently in the event queue. */
+    bool hasEvent(Event *pEvent);
+    bool hasEvent(size_t eventNumber);
 
     void setPriority(size_t p)
     {
@@ -417,6 +437,15 @@ class Thread
     /** Gets whether this thread is interruptible or not. */
     bool isInterruptible();
 
+    /**
+     * Add a new watcher location that is updated when this thread is woken.
+     * \note the location is removed upon the first wakeup
+     */
+    void addWakeupWatcher(WakeReason *watcher);
+
+    /** Remove a wakeup watcher. */
+    void removeWakeupWatcher(WakeReason *watcher);
+
     /** Gets the per-processor scheduler for this Thread. */
     class PerProcessorScheduler *getScheduler() const;
 
@@ -435,6 +464,10 @@ class Thread
 
     /** Cleans up the given state level. */
     void cleanStateLevel(size_t level);
+
+    /** Report a wakeup. */
+    void reportWakeup(WakeReason reason);
+    void reportWakeupUnlocked(WakeReason reason);
 
     /** A level of thread state */
     struct StateLevel
@@ -546,6 +579,9 @@ class Thread
 
     /** Whether this thread has been marked interruptible or not. */
     bool m_bInterruptible;
+
+    /** List of wakeup watchers that need to be informed when we wake up. */
+    List<WakeReason *> m_WakeWatchers;
 };
 
 #endif
