@@ -19,12 +19,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import os
 
-import debugfs
-import losetup
-import livecd
-import mtools
-import targetdir
-import post
+from . import (debugfs, losetup, livecd, mtools, targetdir, post)
 
 import SCons
 
@@ -38,7 +33,7 @@ def buildDiskImages(env, config_database):
 
     if (env['ARCH_TARGET'] not in ['X86', 'X64', 'PPC', 'ARM', 'HOSTED'] or
             not env['build_images']):
-        print 'No disk images being built.'
+        print('No disk images being built.')
         return
 
     # We depend on the ext2img host tool to inject files into ext2 images.
@@ -137,8 +132,8 @@ def buildDiskImages(env, config_database):
                 # entry is not a file
                 pass
     else:
-        print "Apps directory did not exist at time of build."
-        print "'scons' will need to be run again to fully build the disk image."
+        print("Apps directory did not exist at time of build.")
+        print("'scons' will need to be run again to fully build the disk image.")
 
     # Add modules, and drivers, that we build as part of the build process.
     if env['modules_on_disk']:

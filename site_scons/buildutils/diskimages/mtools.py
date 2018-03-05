@@ -25,9 +25,9 @@ import tempfile
 
 def buildImageMtools(target, source, env):
     if env['verbose']:
-        print '      Creating ' + os.path.basename(target[0].path)
+        print('      Creating ' + os.path.basename(target[0].path))
     else:
-        print '      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m'
+        print('      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m')
 
     builddir = env.Dir(env["PEDIGREE_BUILD_BASE"]).abspath
     imagedir = env.Dir(env['PEDIGREE_IMAGES_DIR']).abspath

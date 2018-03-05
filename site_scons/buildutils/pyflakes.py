@@ -18,8 +18,8 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
 
-import commands
 import os
+import subprocess
 
 import SCons
 
@@ -29,7 +29,7 @@ def Pyflakes(target, source, env):
         return
 
     # Run pyflakes over .py files, if pyflakes is present.
-    pyflakespath = commands.getoutput("which pyflakes")
+    pyflakespath = subprocess.check_output(["which", "pyflakes"])
     if not os.path.exists(pyflakespath):
         return
 

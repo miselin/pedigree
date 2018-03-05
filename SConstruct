@@ -20,11 +20,11 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 from __future__ import print_function
 
-import commands
 import getpass
 import os
 import re
 import SCons
+import subprocess
 import sys
 
 from socket import gethostname
@@ -574,7 +574,7 @@ if (not env['build_tests_only']) and (env['CROSS'] or env['ON_PEDIGREE']):
 
     ccversion = env.get('CCVERSION')
     if not ccversion:
-        ccversion = commands.getoutput('%s -dumpversion' % env['CC'])
+        ccversion = subprocess.check_output([env['CC'], '-dumpversion'])
         env['CCVERSION'] = ccversion
 
     # Set up target-specific versions of the various tools. These are used
@@ -806,6 +806,31 @@ if(env['multiprocessor'] or env['smp']):
 # Set the environment flags
 env['CPPDEFINES'] = list(set(defines))
 
+# Handle logging flags.
+logging_mask = 0
+if env['posix_verbose']:
+    logging_mask = 0xFFFFFFFF
+else:
+    if env['posix_file_verbose']:
+        logging_mask |= 1
+    if env['posix_sys_verbose']:
+        logging_mask |= 2
+    if env['posix_thr_verbose']:
+        logging_mask |= 4
+    if env['posix_net_verbose']:
+        logging_mask |= 8
+    if env['posix_sig_verbose']:
+        logging_mask |= 16
+    if env['posix_subsys_verbose']:
+        logging_mask |= 32
+    if env['posix_sig_ultra_verbose']:
+        logging_mask |= 64
+    if env['posix_syscall_verbose']:
+        logging_mask |= 128
+
+env['CPPDEFINES'] += ['POSIX_LOG_FACILITIES=%d' % logging_mask]
+host_env['CPPDEFINES'] = ['POSIX_LOG_FACILITIES=%d' % logging_mask]
+
 # Grab the date (rather than using the `date' program)
 env['PEDIGREE_BUILDTIME'] = datetime.today().isoformat()
 
@@ -815,7 +840,8 @@ env['PEDIGREE_MACHINE'] = gethostname() # The name of the computer (not the type
 
 # Grab the git revision of the repo
 if env['GIT']:
-    env['PEDIGREE_REVISION'] = commands.getoutput('%s rev-parse --verify HEAD --short' % env['GIT'])
+    env['PEDIGREE_REVISION'] = subprocess.check_output(
+        [env['GIT'], 'rev-parse', '--verify', 'HEAD', '--short']).strip().decode('utf-8')
 else:
     env['PEDIGREE_REVISION'] = "(unknown)"
 
@@ -858,7 +884,7 @@ def create_version_cc(target, source, env):
         print('      Creating \033[32m%s\033[0m' % (info,))
 
     def replacer(s):
-        for keyname, value in sub_dict.iteritems():
+        for keyname, value in sub_dict.items():
             s = s.replace(keyname, value)
         return s
 
@@ -975,7 +1001,7 @@ if env['hosted']:
     gcc = env['CC']
 
     # Save path to libstdc++
-    libstdcxx_path = commands.getoutput('%s -print-file-name=libstdc++.so' % env['CC'])
+    libstdcxx_path = subprocess.check_output([env['CC'], '-print-file-name=libstdc++.so'])
     env['LIBPATH'].append(os.path.dirname(libstdcxx_path))
 
     # Do we have clang?

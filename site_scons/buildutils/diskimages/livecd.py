@@ -25,9 +25,9 @@ import subprocess
 
 def buildCdImage(target, source, env):
     if env['verbose']:
-        print '      Creating ' + os.path.basename(target[0].path)
+        print('      Creating ' + os.path.basename(target[0].path))
     else:
-        print '      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m'
+        print('      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m')
 
     pathToGrub = env.Dir('#images/grub').abspath
 

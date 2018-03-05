@@ -17,7 +17,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
-import misc
+from . import misc
 
 
 REMOVAL_FLAGS = set(['-nostdinc', '-ffreestanding', '-nostdlib',

@@ -30,9 +30,9 @@ import SCons
 
 def buildImageE2fsprogs(target, source, env):
     if env['verbose']:
-        print '      Creating ' + os.path.basename(target[0].path)
+        print('      Creating ' + os.path.basename(target[0].path))
     else:
-        print '      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m'
+        print('      Creating \033[32m' + os.path.basename(target[0].path) + '\033[0m')
 
     builddir = env["PEDIGREE_BUILD_BASE"]
     imagedir = env['PEDIGREE_IMAGES_DIR']
@@ -297,7 +297,7 @@ def buildImageE2fsprogs(target, source, env):
             # This file might need to be copied from the build directory.
             target = os.path.join(target_dirpath, f)
             if target_in_copies(target):
-                print 'Target %s will be overridden by files in the build directory.' % (target,)
+                print('Target %s will be overridden by files in the build directory.' % (target,))
                 continue
 
             if os.path.islink(source):

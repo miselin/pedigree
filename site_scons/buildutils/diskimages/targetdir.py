@@ -22,9 +22,9 @@ import os
 
 def buildImageTargetdir(target, source, env):
     if env['verbose']:
-        print '      Copying to ' + os.path.basename(source[0].abspath)
+        print('      Copying to ' + os.path.basename(source[0].abspath))
     else:
-        print '      Copying to \033[32m' + os.path.basename(source[0].abspath) + '\033[0m'
+        print('      Copying to \033[32m' + os.path.basename(source[0].abspath) + '\033[0m')
 
     builddir = env.Dir(env["PEDIGREE_BUILD_BASE"]).abspath
     imagedir = env.Dir(env['PEDIGREE_IMAGES_DIR']).abspath
