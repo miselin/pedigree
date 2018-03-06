@@ -210,10 +210,13 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                 {
                     if (pFd->networkImpl->canPoll())
                     {
-
                         bool checkingWrite = checkWrite;
                         bool checkingRead = !checkWrite;
                         bool checkingError = false;
+
+                        bool extraCheckingWrite = checkingWrite;
+                        bool extraCheckingRead = checkingRead;
+                        bool extraCheckingError = checkingError;
 
                         bool pollResult = pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, pSem);
                         if (pollResult)
@@ -221,14 +224,31 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                             bWillReturnImmediately = pollResult;
                         }
 
+                        // need to do one more check, just in case between polling
+                        // and setting up the waiter semaphore we managed to get
+                        // a change which would otherwise not wake the semaphore
+#ifdef THREADS
+                        reentrancyLock.acquire();
+                        pollResult = pFd->networkImpl->poll(extraCheckingRead, extraCheckingWrite, extraCheckingError, nullptr);
+                        if (pollResult)
+                        {
+                            bWillReturnImmediately = pollResult;
+                        }
+                        reentrancyLock.release();
+#else
+                        extraCheckingWrite = false;
+                        extraCheckingRead = false;
+                        extraCheckingError = false;
+#endif
+
                         if (bWillReturnImmediately)
                         {
-                            if (checkingWrite)
+                            if (checkingWrite || extraCheckingWrite)
                             {
                                 me->revents |= POLLOUT;
                             }
 
-                            if (checkingRead)
+                            if (checkingRead || extraCheckingRead)
                             {
                                 me->revents |= POLLIN;
                             }
