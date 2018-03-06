@@ -35,7 +35,7 @@ def fixFlags(env, flags):
 
     removals.update(REMOVAL_FLAGS)
 
-    if env['ARCH_TARGET'] in ['X86', 'X64']:
+    if env['ARCH_TARGET'] in ('X86', 'X64'):
         removals.update(X86_REMOVAL_FLAGS)
         additions.add('-msse2')
         additions.add('-mfpmath=both')
@@ -51,4 +51,4 @@ def fixFlags(env, flags):
         if addition not in flags:
             flags.append(addition)
 
-    return flags
+    return list(sorted(flags))

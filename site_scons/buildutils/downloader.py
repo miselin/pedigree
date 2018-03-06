@@ -20,7 +20,10 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import os
 import shutil
-import urllib.request
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 import SCons
 
@@ -33,7 +36,7 @@ def UrlDownloader(target, source, env):
     if os.path.exists(target[0].abspath):
         return None
 
-    stream = urllib.request.urlopen(str(source[0]))
+    stream = urlopen(str(source[0]))
     with open(target[0].abspath, "wb") as f:
         shutil.copyfileobj(stream, f)
     stream.close()

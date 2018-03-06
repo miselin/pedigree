@@ -253,6 +253,7 @@ if env['build_apps'] and env['build_libs']:
     apps += libui_apps
 
 apps = set(apps)
+apps = ('TUI',)
 
 # Clean up app dependencies as needed.
 if not env['with_graphical_apps']:
@@ -347,12 +348,12 @@ for app in set(apps):
             pass  # Not found.
         app_env.MergeFlags({'CXXFLAGS': '-std=gnu++11'})
 
+    app_env.MergeFlags({'CCFLAGS': add_flags.get(app, [])})
+
     buildutils.misc.removeFromAllFlags(app_env, set(remove_flags.get(app, [])))
 
     if app in no_werror_apps:
         buildutils.misc.removeFromAllFlags(app_env, '-Werror')
-
-    app_env.MergeFlags({'CCFLAGS': add_flags.get(app, [])})
 
     output = builddir.Dir('apps').File(app)
     files = base.glob('*.c') + base.glob('*.cc')

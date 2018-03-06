@@ -1,4 +1,3 @@
-#!/usr/bin/env python2.7
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -31,11 +30,8 @@ builddir = env["PEDIGREE_BUILD_BASE"]
 kerneldir = env["PEDIGREE_BUILD_KERNEL"]
 moduledir = env["PEDIGREE_BUILD_MODULES"]
 subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
-imagesdir = env["PEDIGREE_IMAGES_DIR"]
 
 native_userlib_objname = subsysdir.File('native.o')
-
-baseInclude = env.Dir("../include").srcnode()
 
 env.Alias("subsys", native_userlib_objname)
 
@@ -69,6 +65,3 @@ native_userlib_objname = '%s.debug' % native_userlib_objname
 
 buildutils.modules.buildModule(env_clone, final_output, native_userlib_objname,
                                files)
-
-# Install native subsystem headers to the local images directory.
-buildutils.fs.install_tree(imagesdir.Dir('include'), baseInclude, env, alias='native-headers')

@@ -243,7 +243,9 @@ def create_vdso_h(target, source, env):
         with open(target[0].path, 'w') as fd:
             fd.write('const unsigned char __vdso_so[] = {')
             for b in fs_data:
-                fd.write('0x%02x,' % (ord(b),))
+                if isinstance(b, str):
+                    b = ord(b)
+                fd.write('0x%02x,' % (b,))
             fd.write('};\n')
 
             fd.write('const int __vdso_so_len = %d;' % (len(fs_data),))

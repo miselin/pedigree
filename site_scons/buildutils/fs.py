@@ -58,7 +58,8 @@ def install_tree(target_dir, source_dir, env, alias=None):
             for filename in filenames:
                 target_path = os.path.join(target, relpath)
                 target_file = os.path.join(target_path, filename)
-                t = env.Install(os.path.join(target, relpath), os.path.join(root, filename))
+                t = env.Install(
+                    os.path.join(target, relpath), os.path.join(root, filename))
                 if alias:
                     targets.append(t)
 

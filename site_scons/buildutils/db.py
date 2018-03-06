@@ -29,7 +29,7 @@ def BuildSqliteDB(target, source, env):
     """Generates a sqlite3 DB from the given .sql files."""
     all_sql = ''
     for f in source:
-        all_sql += f.get_contents()
+        all_sql += f.get_contents().decode('utf-8')
 
     tables = ''
     m = re.findall('^create table .*?;$', all_sql, re.M | re.S | re.I)
@@ -39,10 +39,10 @@ def BuildSqliteDB(target, source, env):
     all_sql = re.sub('create table .*?;', '', all_sql, flags=re.M | re.S | re.I)
 
     with tempfile.NamedTemporaryFile() as f:
-        f.write('begin;')
-        f.write(tables)
-        f.write(all_sql)
-        f.write('commit;')
+        f.write(b'begin;')
+        f.write(tables.encode('utf-8'))
+        f.write(all_sql.encode('utf-8'))
+        f.write(b'commit;')
         f.flush()
 
         f.seek(0)

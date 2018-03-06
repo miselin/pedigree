@@ -115,7 +115,7 @@ def removeFlags(flags, removal):
         except ValueError:
             pass  # No error.
 
-    return flags
+    return list(sorted(flags))
 
 
 def removeFromAllFlags(env, removal):

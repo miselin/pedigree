@@ -356,7 +356,7 @@ def buildImageE2fsprogs(target, source, env):
     # Dump our files into the image using ext2img (built as part of the normal
     # Pedigree build, to run on the build system - not on Pedigree).
     with tempfile.NamedTemporaryFile() as f:
-        f.write('\n'.join(cmdlist))
+        f.write('\n'.join(cmdlist).encode('utf-8'))
         f.flush()
 
         args = [
