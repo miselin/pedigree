@@ -809,31 +809,6 @@ if(env['multiprocessor'] or env['smp']):
 # Set the environment flags
 env['CPPDEFINES'] = list(set(defines))
 
-# Handle logging flags.
-logging_mask = 0
-if env['posix_verbose']:
-    logging_mask = 0xFFFFFFFF
-else:
-    if env['posix_file_verbose']:
-        logging_mask |= 1
-    if env['posix_sys_verbose']:
-        logging_mask |= 2
-    if env['posix_thr_verbose']:
-        logging_mask |= 4
-    if env['posix_net_verbose']:
-        logging_mask |= 8
-    if env['posix_sig_verbose']:
-        logging_mask |= 16
-    if env['posix_subsys_verbose']:
-        logging_mask |= 32
-    if env['posix_sig_ultra_verbose']:
-        logging_mask |= 64
-    if env['posix_syscall_verbose']:
-        logging_mask |= 128
-
-env['CPPDEFINES'] += ['POSIX_LOG_FACILITIES=%d' % logging_mask]
-host_env['CPPDEFINES'] = ['POSIX_LOG_FACILITIES=%d' % logging_mask]
-
 # Grab the date (rather than using the `date' program)
 env['PEDIGREE_BUILDTIME'] = datetime.today().isoformat()
 
