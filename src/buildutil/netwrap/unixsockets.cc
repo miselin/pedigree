@@ -200,7 +200,7 @@ int main(int argc, char **argv)
     rc = posix_poll(fds, 1, 0);
     if (rc <= 0)
     {
-        fprintf(stderr, "WARNING: poll did not indicate readable on UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(stderr, "WARNING: poll did not indicate readable on UNIX socket for accept(): %d [%s]\n", errno, strerror(errno));
     }
 
     int fd2 = posix_accept(s1, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc);
@@ -210,12 +210,31 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    fds[0].fd = fd2;
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
+
     // we never bound the client, should be an unnamed sockaddr_un
     assert(sun_misc.sun_family == AF_UNIX);
     assert(socklen_misc == sizeof(sa_family_t));
 
+    rc = posix_poll(fds, 1, 0);
+    if (rc > 0)
+    {
+        fprintf(stderr, "WARNING: poll incorrectly indicated readable on UNIX socket before send(): %d [%s]\n", errno, strerror(errno));
+    }
+
     // should now have a pipe between s2 and fd2
     assert(posix_send(s2, msg, 6, 0) == 6);
+
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
+    rc = posix_poll(fds, 1, 0);
+    if (rc <= 0)
+    {
+        fprintf(stderr, "WARNING: poll did not indicate readable on UNIX socket for recv(): %d [%s]\n", errno, strerror(errno));
+    }
+
     assert(posix_recv(fd2, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);

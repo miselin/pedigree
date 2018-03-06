@@ -482,7 +482,9 @@ int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
         return -1;
     }
 
-    return f->networkImpl->accept(address, addrlen);
+    int r = f->networkImpl->accept(address, addrlen);
+    N_NOTICE(" -> " << Dec << r);
+    return r;
 }
 
 int posix_shutdown(int socket, int how)
@@ -1377,8 +1379,10 @@ int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
         UnixSocket *remote = new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, UnixSocket::Streaming);
         m_Remote->addSocket(remote);
 
+        bool blocking = !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
+
         // Bind our local socket to the remote side
-        m_Socket->bind(remote);
+        m_Socket->bind(remote, blocking);
     }
     else
     {
@@ -1693,7 +1697,7 @@ bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
         read = local->select(false, 0);
         ok = ok || read;
 
-        if (!read)
+        if (waiter && !read)
         {
             local->addWaiter(waiter);
         }
@@ -1704,7 +1708,7 @@ bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
         write = remote->select(true, 0);
         ok = ok || write;
 
-        if (!write)
+        if (waiter && !write)
         {
             remote->addWaiter(waiter);
         }

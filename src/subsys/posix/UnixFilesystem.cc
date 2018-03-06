@@ -26,6 +26,9 @@ UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
       m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other), m_Stream(MAX_UNIX_STREAM_QUEUE),
       m_PendingSockets(), m_Mutex(false)
+#ifdef THREADS
+      , m_AckWaiter(0)
+#endif
 {
     if (m_Type == Datagram)
     {
@@ -60,7 +63,7 @@ int UnixSocket::select(bool bWriting, int timeout)
 {
     if (m_Type == Streaming)
     {
-        if (m_State == Inactive)
+        if (m_State == Inactive || m_State == Connecting)
         {
             return false;
         }
@@ -72,9 +75,12 @@ int UnixSocket::select(bool bWriting, int timeout)
                 return true;
             }
         }
-        else if (m_Stream.canRead(timeout == 1))
+        else
         {
-            return true;
+            if (m_Stream.canRead(timeout == 1))
+            {
+                return true;
+            }
         }
 
         return false;
@@ -182,7 +188,7 @@ uint64_t UnixSocket::write(
     return size;
 }
 
-bool UnixSocket::bind(UnixSocket *other)
+bool UnixSocket::bind(UnixSocket *other, bool block)
 {
     if (other->m_pOther)
     {
@@ -198,10 +204,33 @@ bool UnixSocket::bind(UnixSocket *other)
     m_pOther = other;
     other->m_pOther = this;
 
+    m_State = Connecting;
+    m_pOther->m_State = Connecting;
+
+#ifdef THREADS
+    if (block)
+    {
+        m_AckWaiter.acquire();
+    }
+#endif
+
+    return true;
+}
+
+void UnixSocket::acknowledgeBind()
+{
+    if (m_State != Connecting)
+    {
+        return;
+    }
+
     m_State = Active;
     m_pOther->m_State = Active;
 
-    return true;
+#ifdef THREADS
+    m_AckWaiter.release();
+    m_pOther->m_AckWaiter.release();
+#endif
 }
 
 void UnixSocket::addSocket(UnixSocket *socket)
@@ -237,7 +266,9 @@ UnixSocket *UnixSocket::getSocket(bool block)
         return nullptr;
     }
 
-    return m_PendingSockets.popFront();
+    UnixSocket *result = m_PendingSockets.popFront();
+    result->acknowledgeBind();
+    return result;
 }
 
 void UnixSocket::addWaiter(Semaphore *waiter)

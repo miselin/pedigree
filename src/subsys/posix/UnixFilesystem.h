@@ -121,6 +121,7 @@ class UnixSocket : public File
     enum SocketState
     {
         Listening,  // listening for connections
+        Connecting,  // waiting for bind to be acked
         Inactive,  // unbound
         Active  // bound, ready for data transfer
     };
@@ -151,7 +152,10 @@ class UnixSocket : public File
 
     // Bind this socket to another socket.
     // The other socket should not already be bound.
-    bool bind(UnixSocket *other);
+    bool bind(UnixSocket *other, bool block = false);
+
+    // Acknowledges binding from another socket
+    void acknowledgeBind();
 
     // Add a new socket for a client/server connection (for accept())
     void addSocket(UnixSocket *socket);
@@ -213,6 +217,11 @@ class UnixSocket : public File
     
     // Mutual exclusion for this socket.
     Mutex m_Mutex;
+
+    // Ack waiter lock
+#ifdef THREADS
+    Semaphore m_AckWaiter;
+#endif
 };
 
 /**
