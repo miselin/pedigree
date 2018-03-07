@@ -656,6 +656,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_setitimer(p1, reinterpret_cast<const struct itimerval *>(p2), reinterpret_cast<struct itimerval *>(p3));
         case POSIX_SOCKETPAIR:
             return posix_socketpair(p1, p2, p3, reinterpret_cast<int *>(p4));
+        case POSIX_SENDMSG:
+            return posix_sendmsg(p1, reinterpret_cast<const struct msghdr *>(p2), p3);
+        case POSIX_RECVMSG:
+            return posix_recvmsg(p1, reinterpret_cast<struct msghdr *>(p2), p3);
 
         default:
             ERROR(

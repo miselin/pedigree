@@ -169,6 +169,12 @@ class UnixSocket : public File
     // Remove a waiter semaphore.
     void removeWaiter(Semaphore *waiter);
 
+    // Add an event to fire when the socket data changes.
+    void addWaiter(Thread *thread, Event *event);
+
+    // Remove a socket data change event.
+    void removeWaiter(Event *event);
+
     // Get this socket's type
     SocketType getType() const
     {

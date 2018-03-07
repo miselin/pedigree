@@ -39,6 +39,8 @@ struct sockaddr;
 class Semaphore;
 class FileDescriptor;
 class UnixSocket;
+class Thread;
+class Event;
 
 struct netconnMetadata
 {
@@ -67,8 +69,11 @@ class NetworkSyscalls
         virtual bool create();
         virtual int connect(const struct sockaddr *address, socklen_t addrlen) = 0;
 
-        virtual ssize_t sendto(const void *buffer, size_t bufferlen, int flags, const struct sockaddr *address, socklen_t addrlen) = 0;
-        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen) = 0;
+        virtual ssize_t sendto_msg(const struct msghdr *msghdr) = 0;
+        virtual ssize_t recvfrom_msg(struct msghdr *msghdr) = 0;
+
+        virtual ssize_t sendto(const void *buffer, size_t bufferlen, int flags, const struct sockaddr *address, socklen_t addrlen);
+        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen);
 
         virtual int listen(int backlog) = 0;
         virtual int bind(const struct sockaddr *address, socklen_t addrlen) = 0;
@@ -85,6 +90,9 @@ class NetworkSyscalls
         virtual bool canPoll() const;
         virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
         virtual void unPoll(Semaphore *waiter);
+
+        virtual bool monitor(Thread *pThread, Event *pEvent);
+        virtual bool unmonitor(Event *pEvent);
 
         void associate(FileDescriptor *fd);
 
@@ -128,8 +136,8 @@ class LwipSocketSyscalls : public NetworkSyscalls
         virtual bool create();
         virtual int connect(const struct sockaddr *address, socklen_t addrlen);
 
-        virtual ssize_t sendto(const void *buffer, size_t bufferlen, int flags, const struct sockaddr *address, socklen_t addrlen);
-        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen);
+        virtual ssize_t sendto_msg(const struct msghdr *msghdr);
+        virtual ssize_t recvfrom_msg(struct msghdr *msghdr);
 
         virtual int listen(int backlog);
         virtual int bind(const struct sockaddr *address, socklen_t addrlen);
@@ -181,8 +189,8 @@ class UnixSocketSyscalls : public NetworkSyscalls
         virtual bool create();
         virtual int connect(const struct sockaddr *address, socklen_t addrlen);
 
-        virtual ssize_t sendto(const void *buffer, size_t bufferlen, int flags, const struct sockaddr *address, socklen_t addrlen);
-        virtual ssize_t recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen);
+        virtual ssize_t sendto_msg(const struct msghdr *msghdr);
+        virtual ssize_t recvfrom_msg(struct msghdr *msghdr);
 
         virtual int listen(int backlog);
         virtual int bind(const struct sockaddr *address, socklen_t addrlen);
@@ -199,6 +207,9 @@ class UnixSocketSyscalls : public NetworkSyscalls
         virtual bool canPoll() const;
         virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
         virtual void unPoll(Semaphore *waiter);
+
+        virtual bool monitor(Thread *pThread, Event *pEvent);
+        virtual bool unmonitor(Event *pEvent);
 
         /// Pair two UnixSocketSyscalls objects such that the referenced
         /// sockets directly communicate with each other.
@@ -249,5 +260,8 @@ int posix_getsockopt(
     int sock, int level, int optname, void *optvalue, socklen_t *optlen);
 
 int posix_sethostname(const char *name, size_t len);
+
+ssize_t posix_sendmsg(int sockfd, const struct msghdr *msg, int flags);
+ssize_t posix_recvmsg(int sockfd, struct msghdr *msg, int flags);
 
 #endif

@@ -147,6 +147,12 @@ inline long posix_translate_syscall(long which)
         case SYS_recvfrom:
             pedigree_translation = POSIX_RECVFROM;
             break;
+        case SYS_sendmsg:
+            pedigree_translation = POSIX_SENDMSG;
+            break;
+        case SYS_recvmsg:
+            pedigree_translation = POSIX_RECVMSG;
+            break;
         case SYS_shutdown:
             pedigree_translation = POSIX_SHUTDOWN;
             break;

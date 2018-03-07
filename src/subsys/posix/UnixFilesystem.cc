@@ -289,6 +289,24 @@ void UnixSocket::removeWaiter(Semaphore *waiter)
     }
 }
 
+void UnixSocket::addWaiter(Thread *thread, Event *event)
+{
+    m_Stream.monitor(thread, event);
+    if (m_pOther)
+    {
+        m_pOther->m_Stream.monitor(thread, event);
+    }
+}
+
+void UnixSocket::removeWaiter(Event *event)
+{
+    m_Stream.cullMonitorTargets(event);
+    if (m_pOther)
+    {
+        m_pOther->m_Stream.cullMonitorTargets(event);
+    }
+}
+
 bool UnixSocket::markListening()
 {
     if (m_Type != Streaming)

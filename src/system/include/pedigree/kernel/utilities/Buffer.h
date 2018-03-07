@@ -134,6 +134,11 @@ class Buffer
      */
     void cullMonitorTargets(Semaphore *pSemaphore);
 
+    /**
+     * Remove monitoring targets for the given Event.
+     */
+    void cullMonitorTargets(Event *pEvent);
+
   private:
     WITHOUT_IMPLICIT_CONSTRUCTORS(Buffer);
 

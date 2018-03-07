@@ -519,6 +519,28 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore *pSemaphore)
 }
 
 template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::cullMonitorTargets(Event *pEvent)
+{
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+    for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();)
+    {
+        MonitorTarget *pMT = *it;
+
+        if (pMT->pEvent == pEvent)
+        {
+            delete pMT;
+            it = m_MonitorTargets.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+#endif
+}
+
+template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::notifyMonitors()
 {
 #ifdef THREADS
