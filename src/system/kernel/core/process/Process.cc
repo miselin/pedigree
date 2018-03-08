@@ -35,6 +35,8 @@
 #include "pedigree/kernel/Subsystem.h"
 
 #include "modules/system/vfs/File.h"
+#include "modules/system/users/User.h"
+#include "modules/system/users/Group.h"
 
 Process *Process::m_pInitProcess = 0;
 
@@ -164,6 +166,8 @@ Process::~Process()
     Processor::switchAddressSpace(VAddressSpace);
 
     delete m_pAddressSpace;
+
+    str.append("<Z>");
 
     Processor::setInterrupts(bInterrupts);
 
@@ -305,6 +309,47 @@ void Process::resume()
     m_State = Active;
     notifyWaiters();
     Processor::information().getScheduler().schedule(Thread::Ready);
+}
+
+int64_t Process::getUserId() const
+{
+    if (!getUser())
+    {
+        return -1;
+    }
+    return getUser()->getId();
+}
+
+int64_t Process::getGroupId() const
+{
+    if (!getGroup())
+    {
+        return -1;
+    }
+    return getGroup()->getId();
+}
+
+int64_t Process::getEffectiveUserId() const
+{
+    if (!getEffectiveUser())
+    {
+        return -1;
+    }
+    return getEffectiveUser()->getId();
+}
+
+int64_t Process::getEffectiveGroupId() const
+{
+    if (!getEffectiveGroup())
+    {
+        return -1;
+    }
+    return getEffectiveGroup()->getId();
+}
+
+void Process::getSupplementalGroupIds(Vector<int64_t> &vec) const
+{
+    // no-op
 }
 
 void Process::addWaiter(Semaphore *pWaiter)

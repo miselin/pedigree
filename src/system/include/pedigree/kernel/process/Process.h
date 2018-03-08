@@ -189,7 +189,7 @@ class Process
     }
 
     /** Gets the current user. */
-    User *getUser()
+    User *getUser() const
     {
         return m_pUser;
     }
@@ -200,7 +200,7 @@ class Process
     }
 
     /** Gets the effective user. */
-    User *getEffectiveUser()
+    User *getEffectiveUser() const
     {
         return m_pEffectiveUser;
     }
@@ -211,7 +211,7 @@ class Process
     }
 
     /** Gets the current group. */
-    Group *getGroup()
+    Group *getGroup() const
     {
         return m_pGroup;
     }
@@ -222,7 +222,7 @@ class Process
     }
 
     /** Gets the current effective group. */
-    Group *getEffectiveGroup()
+    Group *getEffectiveGroup() const
     {
         return m_pEffectiveGroup;
     }
@@ -230,6 +230,13 @@ class Process
     {
         m_pEffectiveGroup = pGroup;
     }
+
+    /** Direct, overrideable ways to get IDs (redirects to User/Group interface by default) */
+    virtual int64_t getUserId() const;
+    virtual int64_t getGroupId() const;
+    virtual int64_t getEffectiveUserId() const;
+    virtual int64_t getEffectiveGroupId() const;
+    virtual void getSupplementalGroupIds(Vector<int64_t> &vec) const;
 
     void setLinker(DynamicLinker *pDl)
     {

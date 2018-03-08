@@ -171,6 +171,23 @@ class PosixProcess : public Process
     IntervalTimer &getVirtualIntervalTimer();
     IntervalTimer &getProfileIntervalTimer();
 
+    virtual int64_t getUserId() const;
+    virtual int64_t getGroupId() const;
+    virtual int64_t getEffectiveUserId() const;
+    virtual int64_t getEffectiveGroupId() const;
+    virtual void getSupplementalGroupIds(Vector<int64_t> &vec) const;
+
+    void setUserId(int64_t id);
+    void setGroupId(int64_t id);
+    void setEffectiveUserId(int64_t id);
+    void setEffectiveGroupId(int64_t id);
+    void setSupplementalGroupIds(const Vector<int64_t> &vec);
+
+    int64_t getSavedUserId() const;
+    int64_t getSavedGroupId() const;
+    void setSavedUserId(int64_t id);
+    void setSavedGroupId(int64_t id);
+
   private:
     // Register with other systems e.g. procfs
     void registerProcess();
@@ -191,6 +208,14 @@ class PosixProcess : public Process
     IntervalTimer m_RealIntervalTimer;
     IntervalTimer m_VirtualIntervalTimer;
     IntervalTimer m_ProfileIntervalTimer;
+
+    int64_t m_Uid;
+    int64_t m_Gid;
+    int64_t m_Euid;
+    int64_t m_Egid;
+    int64_t m_Suid;
+    int64_t m_Sgid;
+    Vector<int64_t> m_SupplementalIds;
 };
 
 #endif
