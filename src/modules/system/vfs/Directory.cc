@@ -30,8 +30,7 @@ Directory::Directory(
     Filesystem *pFs, size_t size, File *pParent)
     : File(
           name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
-          pParent),
-      m_Cache(pFs->isCaseSensitive()), m_LinearCache(), m_bCachePopulated(false)
+          pParent), m_Cache(), m_bCachePopulated(false)
 {
 }
 
@@ -47,16 +46,15 @@ File *Directory::getChild(size_t n)
         m_bCachePopulated = true;
     }
 
-    if (!m_LinearCache.count())
+    DirectoryEntryCache::PairLookupResult result = m_Cache.getNth(n);
+    if (result.hasError())
     {
         return 0;
     }
-    else if (n >= m_LinearCache.count())
+    else
     {
-        return 0;
+        return result.value().second()->get();
     }
-
-    return m_LinearCache[n]->get();
 }
 
 size_t Directory::getNumChildren()
@@ -67,7 +65,7 @@ size_t Directory::getNumChildren()
         m_bCachePopulated = true;
     }
 
-    return m_LinearCache.count();
+    return m_Cache.count();
 }
 
 void Directory::cacheDirectoryContents()
@@ -81,7 +79,9 @@ File *Directory::lookup(const String &s) const
         return 0;
     }
 
-    RadixTree<DirectoryEntry *>::LookupType result = m_Cache.lookup(s);
+    HashedFileName name(s);
+
+    DirectoryEntryCache::LookupResult result = m_Cache.lookup(name);
     if (result.hasValue())
     {
         return result.value()->get();
@@ -94,22 +94,13 @@ File *Directory::lookup(const String &s) const
 
 void Directory::remove(const String &s)
 {
-    RadixTree<DirectoryEntry *>::LookupType result = m_Cache.lookup(s);
+    HashedFileName name(s);
+
+    DirectoryEntryCache::LookupResult result = m_Cache.lookup(name);
     if (result.hasValue())
     {
         DirectoryEntry *v = result.value();
-
         m_Cache.remove(s);
-
-        for (auto it = m_LinearCache.begin(); it != m_LinearCache.end(); ++it)
-        {
-            if ((*it) == v)
-            {
-                m_LinearCache.erase(it);
-                break;
-            }
-        }
-
         delete v;
     }
 }
@@ -118,8 +109,8 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
 {
     DirectoryEntry *entry = new DirectoryEntry(pTarget);
 
-    m_Cache.insert(name, entry);
-    m_LinearCache.pushBack(entry);
+    HashedFileName hashedName(name);
+    m_Cache.insert(hashedName, entry);
 
     m_bCachePopulated = true;
 }
@@ -128,8 +119,8 @@ void Directory::addDirectoryEntry(const String &name, const DirectoryEntryMetada
 {
     DirectoryEntry *entry = new DirectoryEntry(meta);
 
-    m_Cache.insert(name, entry);
-    m_LinearCache.pushBack(entry);
+    HashedFileName hashedName(name);
+    m_Cache.insert(hashedName, entry);
 
     m_bCachePopulated = true;
 }
@@ -152,7 +143,7 @@ bool Directory::addEphemeralFile(File *pFile)
         m_bCachePopulated = true;
     }
 
-    String name = pFile->getName();
+    HashedFileName name(pFile->getName());
     if (m_Cache.lookup(name).hasValue())
     {
         // already exists!
@@ -161,9 +152,7 @@ bool Directory::addEphemeralFile(File *pFile)
 
     /// \todo removal will still want to hit the Filesystem here! not good!
     DirectoryEntry *entry = new DirectoryEntry(pFile);
-
     m_Cache.insert(name, entry);
-    m_LinearCache.pushBack(entry);
 
     return true;
 }

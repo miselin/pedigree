@@ -26,6 +26,8 @@
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/LazyEvaluate.h"
+#include "pedigree/kernel/utilities/HashTable.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /**
  * A Directory node.
@@ -132,15 +134,41 @@ class Directory : public File
     typedef LazyEvaluate<File, DirectoryEntryMetadata, evaluateEntry, destroyEntry> DirectoryEntry;
 
   private:
+    class HashedFileName
+    {
+      public:
+        HashedFileName() : str_(), hash_(0) {}
+        HashedFileName(const String &str) : str_(str), hash_(0)
+        {
+            hash_ = jenkinsHash(static_cast<const char *>(str_), str_.length());
+        }
+
+        uint32_t hash() const
+        {
+            return hash_;
+        }
+
+        /// \todo handle optional case sensitivity
+
+        bool operator==(const HashedFileName &other) const
+        {
+            return str_ == other.str_;
+        }
+
+        bool operator!=(const HashedFileName &other) const
+        {
+            return str_ != other.str_;
+        }
+
+      private:
+        String str_;
+        uint32_t hash_;
+    };
+
+    typedef HashTable<HashedFileName, DirectoryEntry *> DirectoryEntryCache;
 
     /** Directory contents cache. */
-    RadixTree<DirectoryEntry *> m_Cache;
-
-    /**
-     * Directory contents, mirroring m_Cache but allowing for improved
-     * Nth item lookups to be performed.
-     */
-    Vector<DirectoryEntry *> m_LinearCache;
+    DirectoryEntryCache m_Cache;
 
     /**
      * Whether the directory cache is populated with entries or still needs to
@@ -153,7 +181,7 @@ class Directory : public File
 
   protected:
     /** Provides subclasses with direct access to the directory's listing. */
-    virtual const RadixTree<DirectoryEntry *> &getCache()
+    virtual const DirectoryEntryCache &getCache()
     {
         return m_Cache;
     }
