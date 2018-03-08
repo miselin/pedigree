@@ -44,6 +44,8 @@ class Event;
 template <class T, bool allowShortOperation = false>
 class Buffer
 {
+    friend class UnixSocket;  // to allow for calling notifyMonitors()
+
   public:
     Buffer(size_t bufferSize);
     virtual ~Buffer();
