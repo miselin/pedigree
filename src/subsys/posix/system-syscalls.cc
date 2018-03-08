@@ -78,6 +78,19 @@
 #define GET_CWD() \
     (Processor::information().getCurrentThread()->getParent()->getCwd())
 
+static PosixProcess *getPosixProcess()
+{
+    // Not a POSIX process
+    Process *pStockProcess =
+        Processor::information().getCurrentThread()->getParent();
+    if (pStockProcess->getType() != Process::Posix)
+    {
+        return nullptr;
+    }
+
+    return static_cast<PosixProcess *>(pStockProcess);
+}
+
 /// Saves a char** array in the Vector of String*s given.
 static size_t
 save_string_array(const char **array, Vector<SharedPointer<String>> &rArray)
@@ -439,7 +452,7 @@ int posix_execve(
     }
 
     // Build argv and env lists.
-    List<SharedPointer<String>> listArgv, listEnv;
+    Vector<SharedPointer<String>> listArgv, listEnv;
     for (const char **arg = argv; *arg != 0; ++arg)
     {
         listArgv.pushBack(SharedPointer<String>(new String(*arg)));
@@ -535,8 +548,17 @@ int posix_waitpid(const int pid, int *status, int options)
     ProcessGroup *pThisGroup = pThisProcess->getProcessGroup();
 
     // Check for the process(es) we need to check for.
-    size_t i = 0;
     bool bBlock = (options & WNOHANG) != WNOHANG;
+    if (bBlock)
+    {
+        SC_NOTICE(" -> blocking until a process reports status");
+    }
+    else
+    {
+        SC_NOTICE(" -> WNOHANG");
+    }
+
+    size_t i = 0;
     for (; i < Scheduler::instance().getNumProcesses(); ++i)
     {
         Process *pProcess = Scheduler::instance().getProcess(i);
@@ -584,7 +606,7 @@ int posix_waitpid(const int pid, int *status, int options)
         if (bBlock || (pProcess->getState() == Process::Terminating))
         {
             SC_NOTICE(
-                "  -> adding our wait lock to process " << pProcess->getId());
+                "  -> adding our wait lock to process " << Dec << pProcess->getId());
             pProcess->addWaiter(&waitLock);
             bBlock = true;
         }
@@ -608,21 +630,32 @@ int posix_waitpid(const int pid, int *status, int options)
             Process *pProcess = *it;
             int this_pid = pProcess->getId();
 
-            // Zombie?
-            if (pProcess->getState() == Process::Terminated)
+            // Does this process even exist anymore?
+
+            // Zombie or reaped?
+            // Because processes don't get actually destroyed until no more
+            // waiters exist on them, we can safely do this and it makes sure
+            // multiple waitpid() calls on the same process do the right thing
+            if (pProcess->getState() == Process::Terminated || pProcess->getState() == Process::Reaped)
             {
                 if (status)
                     *status = pProcess->getExitStatus();
 
                 // Delete the process; it's been reaped good and proper.
                 SC_NOTICE(
-                    "waitpid: " << this_pid << " reaped ["
+                    "waitpid: " << Dec << this_pid << " reaped ["
                                 << pProcess->getExitStatus() << "]");
                 cleanup.terminated(pProcess);
                 if (pProcess->waiterCount() < 1)
+                {
+                    SC_NOTICE("waitpid: destroying reaped process");
                     delete pProcess;
+                }
                 else
+                {
+                    SC_NOTICE("waitpid: marking process reaped");
                     pProcess->reap();
+                }
                 return this_pid;
             }
             // Suspended (and WUNTRACED)?
@@ -631,7 +664,7 @@ int posix_waitpid(const int pid, int *status, int options)
                 if (status)
                     *status = pProcess->getExitStatus();
 
-                SC_NOTICE("waitpid: " << this_pid << " suspended.");
+                SC_NOTICE("waitpid: " << Dec << this_pid << " suspended.");
                 return this_pid;
             }
             // Continued (and WCONTINUED)?
@@ -640,8 +673,12 @@ int posix_waitpid(const int pid, int *status, int options)
                 if (status)
                     *status = pProcess->getExitStatus();
 
-                SC_NOTICE("waitpid: " << this_pid << " resumed.");
+                SC_NOTICE("waitpid: " << Dec << this_pid << " resumed.");
                 return this_pid;
+            }
+            else
+            {
+                SC_NOTICE("waitpid: " << Dec << this_pid << " has no status change");
             }
         }
 
@@ -649,6 +686,7 @@ int posix_waitpid(const int pid, int *status, int options)
         // to be blocking.
         if (!bBlock)
         {
+            SC_NOTICE("waitpid: not blocking, no status to report");
             return 0;
         }
 
@@ -998,142 +1036,62 @@ int posix_getgrgid(gid_t id, struct group *out)
 
 uid_t posix_getuid()
 {
-    SC_NOTICE(
-        "getuid() -> " << Dec
-                       << Processor::information()
-                              .getCurrentThread()
-                              ->getParent()
-                              ->getUser()
-                              ->getId());
-    return Processor::information()
-        .getCurrentThread()
-        ->getParent()
-        ->getUser()
-        ->getId();
+    SC_NOTICE("getuid");
+
+    uid_t uid = -1;
+    posix_getresuid(&uid, nullptr, nullptr);
+    return uid;
 }
 
 gid_t posix_getgid()
 {
-    SC_NOTICE(
-        "getgid() -> " << Dec
-                       << Processor::information()
-                              .getCurrentThread()
-                              ->getParent()
-                              ->getGroup()
-                              ->getId());
-    return Processor::information()
-        .getCurrentThread()
-        ->getParent()
-        ->getGroup()
-        ->getId();
+    SC_NOTICE("getgid");
+
+    gid_t gid = -1;
+    posix_getresgid(&gid, nullptr, nullptr);
+    return gid;
 }
 
 uid_t posix_geteuid()
 {
-    SC_NOTICE(
-        "geteuid() -> " << Dec
-                        << Processor::information()
-                               .getCurrentThread()
-                               ->getParent()
-                               ->getEffectiveUser()
-                               ->getId());
-    return Processor::information()
-        .getCurrentThread()
-        ->getParent()
-        ->getEffectiveUser()
-        ->getId();
+    SC_NOTICE("geteuid");
+
+    uid_t euid = -1;
+    posix_getresuid(nullptr, &euid, nullptr);
+    return euid;
 }
 
 gid_t posix_getegid()
 {
-    SC_NOTICE(
-        "getegid() -> " << Dec
-                        << Processor::information()
-                               .getCurrentThread()
-                               ->getParent()
-                               ->getEffectiveGroup()
-                               ->getId());
-    return Processor::information()
-        .getCurrentThread()
-        ->getParent()
-        ->getEffectiveGroup()
-        ->getId();
+    SC_NOTICE("getegid");
+
+    uid_t egid = -1;
+    posix_getresgid(nullptr, &egid, nullptr);
+    return egid;
 }
 
 int posix_setuid(uid_t uid)
 {
     SC_NOTICE("setuid(" << uid << ")");
-
-    /// \todo Missing "set user"
-    User *user = UserManager::instance().getUser(uid);
-    if (!user)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    /// \todo Make sure we are actually allowed to do this!
-    Processor::information().getCurrentThread()->getParent()->setUser(user);
-    Processor::information().getCurrentThread()->getParent()->setEffectiveUser(
-        user);
-
-    return 0;
+    return posix_setresuid(uid, uid, -1);
 }
 
 int posix_setgid(gid_t gid)
 {
     SC_NOTICE("setgid(" << gid << ")");
-
-    /// \todo Missing "set user"
-    Group *group = UserManager::instance().getGroup(gid);
-    if (!group)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    /// \todo Make sure we are actually allowed to do this!
-    Processor::information().getCurrentThread()->getParent()->setGroup(group);
-    Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(
-        group);
-
-    return 0;
+    return posix_setresgid(gid, gid, -1);
 }
 
 int posix_seteuid(uid_t euid)
 {
     SC_NOTICE("seteuid(" << euid << ")");
-
-    /// \todo Missing "set user"
-    User *user = UserManager::instance().getUser(euid);
-    if (!user)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    Processor::information().getCurrentThread()->getParent()->setEffectiveUser(
-        user);
-
-    return 0;
+    return posix_setresuid(-1, euid, -1);
 }
 
 int posix_setegid(gid_t egid)
 {
     SC_NOTICE("setegid(" << egid << ")");
-
-    /// \todo Missing "set user"
-    Group *group = UserManager::instance().getGroup(egid);
-    if (!group)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    Processor::information().getCurrentThread()->getParent()->setEffectiveGroup(
-        group);
-
-    return 0;
+    return posix_setresgid(-1, egid, -1);
 }
 
 int pedigree_login(int uid, const char *password)
@@ -1732,11 +1690,9 @@ int posix_pause()
 
 int posix_setgroups(size_t size, const gid_t *list)
 {
-    SC_NOTICE("setgroups(" << size << ")");
+    SC_NOTICE("setgroups(" << size << ", " << list << ")");
 
     /// \todo check permissions
-
-    /// \todo support this (currently a stub)
 
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
@@ -1747,31 +1703,54 @@ int posix_setgroups(size_t size, const gid_t *list)
         return -1;
     }
 
+    PosixProcess *pProcess = getPosixProcess();
+    if (!pProcess)
+    {
+        /// \todo errno
+        return -1;
+    }
+
+    Vector<int64_t> newGroups;
+    for (size_t i = 0; i < size; ++i)
+    {
+        newGroups.pushBack(list[i]);
+    }
+
+    pProcess->setSupplementalGroupIds(newGroups);
+
     return 0;
 }
 
-int posix_getgroups(int size, gid_t *list)
+int posix_getgroups(size_t size, gid_t *list)
 {
-    SC_NOTICE("getgroups(" << size << ")");
+    SC_NOTICE("getgroups(" << size << ", " << list << ")");
 
-    /// \todo support this (currently a stub)
-
-    if (!size)
-    {
-        // Only return number of groups.
-        return 0;
-    }
-
-    if (!PosixSubsystem::checkAddress(
+    if (size && !PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
             PosixSubsystem::SafeWrite))
     {
-        SC_NOTICE("execve -> invalid address");
+        SC_NOTICE("getgroups -> invalid address");
         SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    return 0;
+    PosixProcess *pProcess = getPosixProcess();
+    if (!pProcess)
+    {
+        /// \todo errno
+        return -1;
+    }
+
+    Vector<int64_t> groups;
+    pProcess->getSupplementalGroupIds(groups);
+
+    for (size_t i = 0; i < size && i < groups.count(); ++i)
+    {
+        list[i] = groups[i];
+    }
+
+    SC_NOTICE(" -> " << groups.count());
+    return groups.count();
 }
 
 int posix_getrlimit(int resource, struct rlimit *rlim)
@@ -1867,75 +1846,66 @@ int posix_setpriority(int which, int who, int prio)
 int posix_setreuid(uid_t ruid, uid_t euid)
 {
     SC_NOTICE("setreuid(" << ruid << ", " << euid << ")");
-
-    /// \todo Make sure we are actually allowed to do this! (EPERM)
-
-    if (ruid != static_cast<uid_t>(-1))
-    {
-        User *realUser = UserManager::instance().getUser(ruid);
-        if (realUser)
-        {
-            Processor::information().getCurrentThread()->getParent()->setUser(
-                realUser);
-        }
-    }
-
-    if (euid != static_cast<uid_t>(-1))
-    {
-        User *effectiveUser = UserManager::instance().getUser(ruid);
-        if (effectiveUser)
-        {
-            Processor::information()
-                .getCurrentThread()
-                ->getParent()
-                ->setEffectiveUser(effectiveUser);
-        }
-    }
-
-    return 0;
+    return posix_setresuid(ruid, euid, -1);
 }
 
 int posix_setregid(gid_t rgid, gid_t egid)
 {
     SC_NOTICE("setregid(" << rgid << ", " << egid << ")");
-
-    /// \todo Make sure we are actually allowed to do this! (EPERM)
-
-    if (rgid != static_cast<gid_t>(-1))
-    {
-        Group *realGroup = UserManager::instance().getGroup(rgid);
-        if (realGroup)
-        {
-            Processor::information().getCurrentThread()->getParent()->setGroup(
-                realGroup);
-        }
-    }
-
-    if (egid != static_cast<gid_t>(-1))
-    {
-        Group *effectiveGroup = UserManager::instance().getGroup(egid);
-        if (effectiveGroup)
-        {
-            Processor::information()
-                .getCurrentThread()
-                ->getParent()
-                ->setEffectiveGroup(effectiveGroup);
-        }
-    }
-
-    return 0;
+    return posix_setresgid(rgid, egid, -1);
 }
 
 int posix_setresuid(uid_t ruid, uid_t euid, uid_t suid)
 {
     SC_NOTICE("setresuid(" << ruid << ", " << euid << ", " << suid << ")");
-    return posix_setreuid(ruid, euid);
+
+    PosixProcess *pProcess = getPosixProcess();
+    if (!pProcess)
+    {
+        /// \todo errno
+        return -1;
+    }
+
+    if (ruid != static_cast<uid_t>(-1))
+    {
+        pProcess->setUserId(ruid);
+    }
+    if (euid != static_cast<uid_t>(-1))
+    {
+        pProcess->setEffectiveUserId(euid);
+    }
+    if (suid != static_cast<uid_t>(-1))
+    {
+        pProcess->setSavedUserId(suid);
+    }
+
+    return 0;
 }
 
 int posix_setresgid(gid_t rgid, gid_t egid, gid_t sgid)
 {
     SC_NOTICE("setresgid(" << rgid << ", " << egid << ", " << sgid << ")");
-    return posix_setregid(rgid, egid);
+
+    PosixProcess *pProcess = getPosixProcess();
+    if (!pProcess)
+    {
+        /// \todo errno
+        return -1;
+    }
+
+    if (rgid != static_cast<gid_t>(-1))
+    {
+        pProcess->setGroupId(rgid);
+    }
+    if (egid != static_cast<gid_t>(-1))
+    {
+        pProcess->setEffectiveGroupId(egid);
+    }
+    if (sgid != static_cast<gid_t>(-1))
+    {
+        pProcess->setSavedGroupId(sgid);
+    }
+
     return 0;
 }
 
@@ -1943,19 +1913,29 @@ int posix_getresuid(uid_t *ruid, uid_t *euid, uid_t *suid)
 {
     SC_NOTICE("getresuid");
 
+    Process *pStockProcess =
+        Processor::information().getCurrentThread()->getParent();
+
     if (ruid)
     {
-        *ruid = posix_getuid();
+        *ruid = pStockProcess->getUserId();
+        SC_NOTICE(" -> uid=" << *ruid);
     }
 
     if (euid)
     {
-        *euid = posix_geteuid();
+        *euid = pStockProcess->getEffectiveUserId();
+        SC_NOTICE(" -> euid=" << *euid);
     }
 
     if (suid)
     {
-        *suid = 0;
+        PosixProcess *pProcess = getPosixProcess();
+        if (pProcess)
+        {
+            *suid = pProcess->getSavedUserId();
+            SC_NOTICE(" -> suid=" << *suid);
+        }
     }
 
     return 0;
@@ -1965,19 +1945,29 @@ int posix_getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid)
 {
     SC_NOTICE("getresgid");
 
+    Process *pStockProcess =
+        Processor::information().getCurrentThread()->getParent();
+
     if (rgid)
     {
-        *rgid = posix_getgid();
+        *rgid = pStockProcess->getGroupId();
+        SC_NOTICE(" -> gid=" << *rgid);
     }
 
     if (egid)
     {
-        *egid = posix_getegid();
+        *egid = pStockProcess->getEffectiveGroupId();
+        SC_NOTICE(" -> egid=" << *egid);
     }
 
     if (sgid)
     {
-        *sgid = 0;
+        PosixProcess *pProcess = getPosixProcess();
+        if (pProcess)
+        {
+            *sgid = pProcess->getSavedGroupId();
+            SC_NOTICE(" -> sgid=" << *sgid);
+        }
     }
 
     return 0;
@@ -2039,6 +2029,9 @@ int posix_iopl(int level)
     SC_NOTICE("iopl(" << level << ")");
     return 0;
 }
+
+#undef SC_NOTICE
+#define SC_NOTICE(x)
 
 int posix_getitimer(int which, struct itimerval *curr_value)
 {
