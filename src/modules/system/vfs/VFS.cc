@@ -470,30 +470,52 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
         return true;
     }
 
-    User *pCurrentUser =
-        Processor::information().getCurrentThread()->getParent()->getUser();
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
 
-    size_t uid = pFile->getUid();
-    size_t gid = pFile->getGid();
+    int64_t fuid = pFile->getUid();
+    int64_t fgid = pFile->getGid();
 
-    User *pUser = UserManager::instance().getUser(uid);
-    Group *pGroup = UserManager::instance().getGroup(gid);
+    int64_t processUid = pProcess->getEffectiveUserId();
+    if (processUid < 0)
+    {
+        processUid = pProcess->getUserId();
+    }
 
+    int64_t processGid = pProcess->getEffectiveGroupId();
+    if (processGid < 0)
+    {
+        processGid = pProcess->getGroupId();
+    }
+
+    uint32_t check = 0;
     uint32_t permissions = pFile->getPermissions();
 
-    // Are we owner?
-    uint32_t check = 0;
-    if (pUser == pCurrentUser)
+    if (fuid == processUid)
     {
         check = (permissions >> FILE_UBITS) & 0x7;
     }
-    else if (pUser && pGroup && pUser->isMember(pGroup))
+    else if (fgid == processGid)
     {
         check = (permissions >> FILE_GBITS) & 0x7;
     }
     else
     {
-        check = (permissions >> FILE_OBITS) & 0x7;
+        Vector<int64_t> supplementalGroups;
+        pProcess->getSupplementalGroupIds(supplementalGroups);
+
+        for (auto it : supplementalGroups)
+        {
+            if (it == fgid)
+            {
+                check = (permissions >> FILE_GBITS) & 0x7;
+                break;
+            }
+        }
+
+        if (!check)
+        {
+            check = (permissions >> FILE_OBITS) & 0x7;
+        }
     }
 
     // Needed permissions.
