@@ -19,24 +19,44 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/Spinlock.h"
 
 class SerialLogger : public Log::LogCallback
 {
   public:
+    SerialLogger() : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false) {}
+
     void callback(const char *str)
     {
-        if (!Machine::instance().isInitialised())
-            return;
+        if (!m_bInitialised)
+        {
+            m_bInitialised = Machine::instance().isInitialised();
+            if (!m_bInitialised)
+            {
+                return;
+            }
+            else
+            {
+                m_pSerial = Machine::instance().getSerial(0);
+            }
+        }
 
-        Machine::instance().getSerial(0)->write(str);
+        m_Lock.acquire();
+        m_pSerial->write(str);
 #ifndef SERIAL_IS_FILE
         // Handle carriage return if we're writing to a real terminal
         // Technically this will create a \n\r, but it will do the same
         // thing. This may also be redundant, but better to be safe than
         // sorry imho.
-        Machine::instance().getSerial(0)->write('\r');
+        m_pSerial->write('\r');
 #endif
+        m_Lock.release();
     }
+
+   private:
+    Serial *m_pSerial;
+    bool m_bInitialised;
+    Spinlock m_Lock;
 };
 
 static SerialLogger g_SerialCallback;

@@ -226,9 +226,8 @@ void String::assign(const String &x)
 void String::assign(const char *s, size_t len, bool unsafe)
 {
     size_t copyLength = 0;
-    if (!s || !*s)
-        m_Length = 0;
-    else if (len)
+    // len overrides all other optimizations
+    if (len)
     {
         // Fix up length if the passed string is much smaller than the 'len'
         // parameter (otherwise we think we have a giant string).
@@ -242,6 +241,10 @@ void String::assign(const char *s, size_t len, bool unsafe)
         }
         m_Length = len;
         copyLength = len;
+    }
+    else  if (!s || !*s)
+    {
+        m_Length = 0;
     }
     else
     {
@@ -261,7 +264,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
     }
     else if (m_Length < StaticSize)
     {
-        StringCopyN(m_Static, s, copyLength);
+        MemoryCopy(m_Static, s, copyLength);
         if (m_HeapData)
         {
             delete[] m_Data;
@@ -273,7 +276,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
     else
     {
         reserve(m_Length + 1, false);
-        StringCopyN(m_Data, s, copyLength);
+        MemoryCopy(m_Data, s, copyLength);
         m_Data[copyLength] = '\0';
     }
 

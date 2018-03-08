@@ -72,7 +72,12 @@ Log::~Log()
 {
     LogEntry entry;
     entry << Notice << "-- Log Terminating --";
-    *this << entry << Flush;
+    addEntry(entry);
+}
+
+Log &Log::instance()
+{
+    return m_Instance;
 }
 
 void Log::initialise1()
@@ -197,6 +202,38 @@ void Log::removeCallback(LogCallback *pCallback)
     }
 }
 
+size_t Log::getStaticEntryCount() const
+{
+    return m_StaticEntries;
+}
+
+size_t Log::getDynamicEntryCount() const
+{
+    return 0;
+}
+
+const Log::StaticLogEntry &Log::getStaticEntry(size_t n) const
+{
+    return m_StaticLog[(m_StaticEntryStart + n) % LOG_ENTRIES];
+}
+/** Returns the (n - getStaticEntryCount())'th dynamic log entry */
+const Log::DynamicLogEntry &Log::getDynamicEntry(size_t n) const
+{
+    return m_StaticLog[0];
+}
+
+bool Log::echoToSerial()
+{
+    return m_EchoToSerial;
+}
+
+const Log::LogEntry &Log::getLatestEntry() const
+{
+    return m_StaticLog[m_StaticEntries - 1];
+}
+
+Log::LogEntry::LogEntry() : timestamp(), type(), str(), numberType(Dec) {}
+
 Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 {
     str.append(s);
@@ -205,8 +242,13 @@ Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 
 Log::LogEntry &Log::LogEntry::operator<<(const String &s)
 {
-    str.append(s);
+    str.appendBytes(s, s.length());
     return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(char *append_str)
+{
+    return (*this) << (reinterpret_cast<const char *>(append_str));
 }
 
 Log::LogEntry &Log::LogEntry::operator<<(bool b)
@@ -286,82 +328,102 @@ Log &Log::operator<<(const LogEntry &entry)
 
 Log &Log::operator<<(Modifier type)
 {
-    static bool handlingFatal = false;
-
     // Flush the buffer.
     if (type == Flush)
     {
-        if (m_StaticEntries >= LOG_ENTRIES)
-        {
-            m_StaticEntryStart = (m_StaticEntryStart + 1) % LOG_ENTRIES;
-        }
-        else
-            m_StaticEntries++;
-
-        m_StaticLog[m_StaticEntryEnd] = m_Buffer;
-        m_StaticEntryEnd = (m_StaticEntryEnd + 1) % LOG_ENTRIES;
-
-        if (m_nOutputCallbacks)
-        {
-            // We have output callbacks installed. Build the string we'll pass
-            // to each callback *now* and then send it.
-            HugeStaticString str;
-            switch (m_Buffer.type)
-            {
-                case Debug:
-                    str = "(DD) ";
-                    break;
-                case Notice:
-                    str = "(NN) ";
-                    break;
-                case Warning:
-                    str = "(WW) ";
-                    break;
-                case Error:
-                    str = "(EE) ";
-                    break;
-                case Fatal:
-                    str = "(FF) ";
-                    break;
-            }
-            str += getTimestamp();
-            str += m_Buffer.str;
-#ifndef SERIAL_IS_FILE
-            str += "\r\n";  // Handle carriage return
-#else
-            str += "\n";
-#endif
-
-            for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
-            {
-                if (m_OutputCallbacks[i] != nullptr)
-                {
-                    m_OutputCallbacks[i]->callback(
-                        static_cast<const char *>(str));
-                }
-            }
-        }
-
-        // Panic if that was a fatal error.
-        if ((!handlingFatal) && m_Buffer.type == Fatal)
-        {
-            handlingFatal = true;
-
-            const char *panicstr = static_cast<const char *>(m_Buffer.str);
-#ifdef THREADS
-            if (m_Lock.acquired())
-                m_Lock.release();
-#endif
-
-// Attempt to trap to debugger, panic if that fails.
-#ifdef DEBUGGER
-            Processor::breakpoint();
-#endif
-            panic(panicstr);
-        }
+        flushEntry();
     }
 
     return *this;
+}
+
+void Log::addEntry(const LogEntry &entry, bool lock, bool flush)
+{
+    m_Buffer = entry;
+    if (flush)
+    {
+        flushEntry(lock);
+    }
+}
+
+void Log::flushEntry(bool lock)
+{
+    static bool handlingFatal = false;
+
+#ifdef THREADS
+    if (lock) m_Lock.acquire();
+#endif
+
+    if (m_StaticEntries >= LOG_ENTRIES)
+    {
+        m_StaticEntryStart = (m_StaticEntryStart + 1) % LOG_ENTRIES;
+    }
+    else
+        m_StaticEntries++;
+
+    m_StaticLog[m_StaticEntryEnd] = m_Buffer;
+    m_StaticEntryEnd = (m_StaticEntryEnd + 1) % LOG_ENTRIES;
+
+#ifdef THREADS
+    // no need for lock anymore - all tracked now
+    // remaining work hits callbacks which can lock themselves
+    if (lock) m_Lock.release();
+#endif
+
+    if (m_nOutputCallbacks)
+    {
+        // We have output callbacks installed. Build the string we'll pass
+        // to each callback *now* and then send it.
+        HugeStaticString str;
+        switch (m_Buffer.type)
+        {
+            case Debug:
+                str = "(DD) ";
+                break;
+            case Notice:
+                str = "(NN) ";
+                break;
+            case Warning:
+                str = "(WW) ";
+                break;
+            case Error:
+                str = "(EE) ";
+                break;
+            case Fatal:
+                str = "(FF) ";
+                break;
+        }
+        str += getTimestamp();
+        str += m_Buffer.str;
+#ifndef SERIAL_IS_FILE
+        str += "\r\n";  // Handle carriage return
+#else
+        str += "\n";
+#endif
+
+        for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+        {
+            if (m_OutputCallbacks[i] != nullptr)
+            {
+                m_OutputCallbacks[i]->callback(
+                    static_cast<const char *>(str));
+            }
+        }
+    }
+
+    // Panic if that was a fatal error.
+    if ((!handlingFatal) && m_Buffer.type == Fatal)
+    {
+        handlingFatal = true;
+
+        const char *panicstr = static_cast<const char *>(m_Buffer.str);
+
+// Attempt to trap to debugger, panic if that fails.
+#ifdef DEBUGGER
+        Processor::breakpoint();
+#endif
+        panic(panicstr);
+    }
 }
 
 Log::LogCallback::~LogCallback()

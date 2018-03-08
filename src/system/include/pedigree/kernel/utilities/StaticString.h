@@ -21,6 +21,7 @@
 #define STATICSTRING_H
 
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -369,6 +370,25 @@ class StaticString
         {
             m_pData[N - 1] = '\0';
             m_Length = N - 1;
+        }
+    }
+
+    void appendBytes(const char *bytes, size_t numBytes)
+    {
+        for (size_t i = 0; i < numBytes; ++i)
+        {
+            char c = bytes[i];
+            if ((c < -1) || (c >= 0x20 && c != 0x7f))
+            {
+                // normal append (lets utf-8 and others still work in logs)
+                append(c);
+            }
+            else
+            {
+                // render \xXX formatted character code instead of raw character
+                append("\\x");
+                append(static_cast<unsigned int>(c), 16, 2);
+            }
         }
     }
 

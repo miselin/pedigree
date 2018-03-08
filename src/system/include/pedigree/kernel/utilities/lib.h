@@ -30,6 +30,12 @@
 #endif
 
 #ifdef __cplusplus
+#define NOTHROW throw ()
+#else
+#define NOTHROW
+#endif
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -87,13 +93,11 @@ const char *DirectoryName(const char *path) PURE;
 const char *BaseName(const char *path) PURE;
 
 // Character checks.
-#ifndef UTILITY_LINUX
-int isspace(int c) PURE;
-int isupper(int c) PURE;
-int islower(int c) PURE;
-int isdigit(int c) PURE;
-int isalpha(int c) PURE;
-#endif
+int isspace(int c) NOTHROW;
+int isupper(int c) NOTHROW;
+int islower(int c) NOTHROW;
+int isdigit(int c) NOTHROW;
+int isalpha(int c) NOTHROW;
 
 // Built-in PRNG.
 void random_seed(uint64_t seed);

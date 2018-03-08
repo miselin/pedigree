@@ -33,20 +33,6 @@ class String;
 
 #define SHOW_FILE_IN_LOGS 0
 
-#ifdef THREADS
-#define LOG_LOCK_ACQUIRE Log::instance().m_Lock.acquire()
-#define LOG_LOCK_RELEASE Log::instance().m_Lock.release()
-#else
-#define LOG_LOCK_ACQUIRE \
-    do                   \
-    {                    \
-    } while (0)
-#define LOG_LOCK_RELEASE \
-    do                   \
-    {                    \
-    } while (0)
-#endif
-
 #if SHOW_FILE_IN_LOGS
 #define FILE_LOG(entry, level)                                             \
     do                                                                     \
@@ -58,17 +44,13 @@ class String;
 #define FILE_LOG(entry, level)
 #endif
 
-#define LOG_AT_LEVEL(level, text, lock)                   \
-    do                                                    \
-    {                                                     \
-        Log::LogEntry __log_macro_logentry;               \
-        FILE_LOG(__log_macro_logentry, level);            \
-        __log_macro_logentry << level << text;            \
-        if (lock)                                         \
-            LOG_LOCK_ACQUIRE;                             \
-        Log::instance() << __log_macro_logentry << Flush; \
-        if (lock)                                         \
-            LOG_LOCK_RELEASE;                             \
+#define LOG_AT_LEVEL(level, text, lock)                       \
+    do                                                        \
+    {                                                         \
+        Log::LogEntry __log_macro_logentry;                   \
+        FILE_LOG(__log_macro_logentry, level);                \
+        __log_macro_logentry << level << text;                \
+        Log::instance().addEntry(__log_macro_logentry, lock); \
     } while (0)
 
 #ifndef NO_LOGGING
@@ -207,10 +189,7 @@ class Log
 
     /** Retrieves the static Log instance.
      *\return instance of the log class */
-    inline static Log &instance()
-    {
-        return m_Instance;
-    }
+    static Log &instance();
 
     /** Initialises the Log */
     void initialise1();
@@ -230,27 +209,25 @@ class Log
     /** Modifier */
     Log &operator<<(Modifier type);
 
+    /** Adds an entry to the log and immediately flushes. */
+    void addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
+
+    /** Perform a flush. */
+    void flushEntry(bool lock = true);
+
     /** Get the number of static entries in the log.
      *\return the number of static entries in the log */
-    inline size_t getStaticEntryCount() const
-    {
-        return m_StaticEntries;
-    }
+    size_t getStaticEntryCount() const;
     /** Get the number of dynamic entries in the log
      *\return the number of dynamic entries in the log */
-    inline size_t getDynamicEntryCount() const
-    {
-        return 0;
-    }
+    size_t getDynamicEntryCount() const;
 
     /** Stores an entry in the log.
      *\param[in] T type of the log's text */
     struct LogEntry
     {
         /** Constructor does nothing */
-        inline LogEntry() : timestamp(), type(), str(), numberType(Dec)
-        {
-        }
+        LogEntry();
 
         /** The time (since boot) that this log entry was added, in ticks. */
         unsigned int timestamp;
@@ -269,10 +246,7 @@ class Log
         /** Adds an entry to the log
          *\param[in] str the null-terminated ASCII string that should be added
          */
-        inline LogEntry &operator<<(char *append_str)
-        {
-            return (*this) << (reinterpret_cast<const char *>(append_str));
-        }
+        LogEntry &operator<<(char *append_str);
         /** Adds an entry to the log
          *\param[in] b boolean value */
         LogEntry &operator<<(bool b);
@@ -303,25 +277,13 @@ class Log
     typedef LogEntry DynamicLogEntry;
 
     /** Returns the n'th static log entry, counting from the start. */
-    inline const StaticLogEntry &getStaticEntry(size_t n) const
-    {
-        return m_StaticLog[(m_StaticEntryStart + n) % LOG_ENTRIES];
-    }
+    const StaticLogEntry &getStaticEntry(size_t n) const;
     /** Returns the (n - getStaticEntryCount())'th dynamic log entry */
-    inline const DynamicLogEntry &getDynamicEntry(size_t n) const
-    {
-        return m_StaticLog[0];
-    }
+    const DynamicLogEntry &getDynamicEntry(size_t n) const;
 
-    bool echoToSerial()
-    {
-        return m_EchoToSerial;
-    }
+    bool echoToSerial();
 
-    inline const LogEntry &getLatestEntry() const
-    {
-        return m_StaticLog[m_StaticEntries - 1];
-    }
+    const LogEntry &getLatestEntry() const;
 
   private:
     /** Default constructor - does nothing. */
