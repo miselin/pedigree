@@ -27,9 +27,9 @@ class Thread;
 class Process;
 
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** The abstract base class for a generic application subsystem. This provides
  * a well-defined interface to the kernel that allows global behaviour to have
@@ -147,13 +147,13 @@ class Subsystem
 
     /** Invokes the given command (thread mechanism). */
     virtual bool invoke(
-        const char *name, List<SharedPointer<String>> &argv,
-        List<SharedPointer<String>> &env) = 0;
+        const char *name, Vector<SharedPointer<String>> &argv,
+        Vector<SharedPointer<String>> &env) = 0;
 
     /** Invokes the given command (SyscallState mechanism). */
     virtual bool invoke(
-        const char *name, List<SharedPointer<String>> &argv,
-        List<SharedPointer<String>> &env, SyscallState &state) = 0;
+        const char *name, Vector<SharedPointer<String>> &argv,
+        Vector<SharedPointer<String>> &env, SyscallState &state) = 0;
 
   protected:
     /** Notifies the subsystem that the given thread has been removed. */
