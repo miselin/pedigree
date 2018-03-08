@@ -306,6 +306,8 @@ doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
     st->st_nlink = 1;
     st->st_uid = pFile->getUid();
     st->st_gid = pFile->getGid();
+    F_NOTICE("    -> uid=" << Dec << st->st_uid);
+    F_NOTICE("    -> gid=" << Dec << st->st_gid);
     st->st_rdev = 0;
     st->st_size = static_cast<int>(pFile->getSize());
     F_NOTICE("    -> " << st->st_size);
@@ -580,7 +582,9 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 
 int posix_close(int fd)
 {
+#ifdef VERBOSE_KERNEL
     F_NOTICE("close(" << fd << ")");
+#endif
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
@@ -598,6 +602,10 @@ int posix_close(int fd)
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
     }
+
+#ifndef VERBOSE_KERNEL
+    F_NOTICE("close(" << fd << ")");
+#endif
 
     // If this was a master psuedoterminal, we should unlock it now.
     if (ConsoleManager::instance().isConsole(pFd->file))
@@ -1879,7 +1887,7 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 {
     F_NOTICE("mmap");
     F_NOTICE(
-        "  -> addr=" << reinterpret_cast<uintptr_t>(addr) << ", len=" << len
+        "  -> addr=" << addr << ", len=" << len
                      << ", prot=" << prot << ", flags=" << flags
                      << ", fildes=" << fd << ", off=" << off << ".");
 
