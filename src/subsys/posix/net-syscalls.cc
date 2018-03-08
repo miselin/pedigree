@@ -574,7 +574,7 @@ int posix_setsockopt(
             reinterpret_cast<uintptr_t>(optvalue), optlen,
             PosixSubsystem::SafeWrite)))
     {
-        N_NOTICE("getsockopt -> invalid address");
+        N_NOTICE("setsockopt -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
@@ -591,7 +591,7 @@ int posix_setsockopt(
 int posix_getsockopt(
     int sock, int level, int optname, void *optvalue, socklen_t *optlen)
 {
-    N_NOTICE("getsockopt");
+    N_NOTICE("getsockopt(" << sock << ", " << level << ", " << optname << ")");
 
     // Check optlen first, then use it to check optvalue.
     if (!(PosixSubsystem::checkAddress(
