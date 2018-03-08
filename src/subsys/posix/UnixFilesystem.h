@@ -27,6 +27,8 @@
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
 
+#include <sys/socket.h>
+
 class Mutex;
 
 #define MAX_UNIX_DGRAM_BACKLOG 65536
@@ -123,7 +125,8 @@ class UnixSocket : public File
         Listening,  // listening for connections
         Connecting,  // waiting for bind to be acked
         Inactive,  // unbound
-        Active  // bound, ready for data transfer
+        Active,  // bound, ready for data transfer
+        Closed  // unbound but was once bound
     };
 
     UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other = nullptr, SocketType type = Datagram);
@@ -153,6 +156,9 @@ class UnixSocket : public File
     // Bind this socket to another socket.
     // The other socket should not already be bound.
     bool bind(UnixSocket *other, bool block = false);
+
+    // Break the bound socket.
+    void unbind();
 
     // Acknowledges binding from another socket
     void acknowledgeBind();
@@ -189,6 +195,18 @@ class UnixSocket : public File
 
     // Mark this socket a listening socket
     bool markListening();
+
+    // Get our credentials.
+    struct ucred getCredentials() const
+    {
+        return m_Creds;
+    }
+
+    // Get the credentials of the other side.
+    struct ucred getPeerCredentials() const
+    {
+        return m_pOther->getCredentials();
+    }
 
   private:
     typedef Buffer<uint8_t, true> UnixSocketStream;
@@ -228,6 +246,9 @@ class UnixSocket : public File
 #ifdef THREADS
     Semaphore m_AckWaiter;
 #endif
+
+    // Credentials associated at the time of bind()
+    struct ucred m_Creds;
 };
 
 /**

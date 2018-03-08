@@ -1426,6 +1426,9 @@ UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol) : Net
 
 UnixSocketSyscalls::~UnixSocketSyscalls()
 {
+    /// \todo should shutdown() which should wake up recv() or poll()
+    N_NOTICE("UnixSocketSyscalls::~UnixSocketSyscalls");
+    m_Socket->unbind();
     delete m_Socket;
 }
 
@@ -1806,21 +1809,25 @@ int UnixSocketSyscalls::shutdown(int how)
 
 int UnixSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address_len)
 {
+    N_NOTICE("UNIX getpeername");
     struct sockaddr_un *sun =
         reinterpret_cast<struct sockaddr_un *>(address);
     StringCopy(sun->sun_path, m_RemotePath);
     *address_len = sizeof(sa_family_t) + m_RemotePath.length();
 
+    N_NOTICE(" -> " << m_RemotePath);
     return 0;
 }
 
 int UnixSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address_len)
 {
+    N_NOTICE("UNIX getsockname");
     struct sockaddr_un *sun =
         reinterpret_cast<struct sockaddr_un *>(address);
     StringCopy(sun->sun_path, m_LocalPath);
     *address_len = sizeof(sa_family_t) + m_LocalPath.length();
 
+    N_NOTICE(" -> " << m_LocalPath);
     return 0;
 }
 
@@ -1832,6 +1839,26 @@ int UnixSocketSyscalls::setsockopt(int level, int optname, const void *optvalue,
 
 int UnixSocketSyscalls::getsockopt(int level, int optname, void *optvalue, socklen_t *optlen)
 {
+    if (level == SOL_SOCKET)
+    {
+        if (optname == SO_PEERCRED)
+        {
+            N_NOTICE(" -> SO_PEERCRED");
+
+            // get credentials of other side of this socket
+            struct ucred *targetCreds = reinterpret_cast<struct ucred *>(optvalue);
+            struct ucred sourceCreds = m_Socket->getPeerCredentials();
+
+            N_NOTICE(" --> pid=" << Dec << sourceCreds.pid);
+            N_NOTICE(" --> uid=" << Dec << sourceCreds.uid);
+            N_NOTICE(" --> gid=" << Dec << sourceCreds.gid);
+
+            *targetCreds = sourceCreds;
+            *optlen = sizeof(sourceCreds);
+
+            return 0;
+        }
+    }
     // nothing to do here
     return -1;
 }

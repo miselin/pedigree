@@ -21,6 +21,9 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "subsys/posix/logging.h"
 
 UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other, SocketType type)
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
@@ -29,12 +32,17 @@ UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *
 #ifdef THREADS
       , m_AckWaiter(0)
 #endif
+      , m_Creds()
 {
     if (m_Type == Datagram)
     {
         // Datagram sockets are always active, they don't bind to each other.
         m_State = Active;
     }
+
+    m_Creds.uid = -1;
+    m_Creds.gid = -1;
+    m_Creds.pid = -1;
 }
 
 UnixSocket::~UnixSocket()
@@ -113,7 +121,10 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
 {
     if (m_State != Active)
     {
-        return 0;
+        // attempt a read if at all possible to clear out remainder of socket
+        // but non-blocking so we return 0 on true EOF
+        N_NOTICE("UnixSocket::read => EOF (reading remainder of stream first)");
+        return m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, false);
     }
 
     if (m_pOther)
@@ -153,6 +164,13 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
 uint64_t UnixSocket::write(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    if (m_State != Active)
+    {
+        // other side has gone away, EOF
+        N_NOTICE("UnixSocket::write => EOF");
+        return 0;
+    }
+
     if (m_pOther)
     {
         return m_pOther->m_Stream.write(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
@@ -208,13 +226,50 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
     m_pOther->m_State = Connecting;
 
 #ifdef THREADS
+    Process *pCurrentProcess = Processor::information().getCurrentThread()->getParent();
+    m_Creds.uid = pCurrentProcess->getUserId();
+    m_Creds.gid = pCurrentProcess->getGroupId();
+    m_Creds.pid = pCurrentProcess->getId();
+
     if (block)
     {
         m_AckWaiter.acquire();
+
+        if (m_State != Active)
+        {
+            return false;
+        }
     }
 #endif
 
     return true;
+}
+
+void UnixSocket::unbind()
+{
+    if (!m_pOther)
+    {
+        return;
+    }
+
+    N_NOTICE("UnixSocket::unbind");
+
+    m_State = Closed;
+    m_pOther->m_State = Closed;
+
+#ifdef THREADS
+    m_AckWaiter.release();
+    m_pOther->m_AckWaiter.release();
+#endif
+
+    if (m_Type == Streaming)
+    {
+        N_NOTICE("streaming notify eof");
+
+        // notify anything waiting on this socket that we're shutting down
+        m_Stream.notifyMonitors();
+        m_pOther->m_Stream.notifyMonitors();
+    }
 }
 
 void UnixSocket::acknowledgeBind()
@@ -228,6 +283,11 @@ void UnixSocket::acknowledgeBind()
     m_pOther->m_State = Active;
 
 #ifdef THREADS
+    Process *pCurrentProcess = Processor::information().getCurrentThread()->getParent();
+    m_Creds.uid = pCurrentProcess->getUserId();
+    m_Creds.gid = pCurrentProcess->getGroupId();
+    m_Creds.pid = pCurrentProcess->getId();
+
     m_AckWaiter.release();
     m_pOther->m_AckWaiter.release();
 #endif
