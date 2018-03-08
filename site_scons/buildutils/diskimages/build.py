@@ -164,7 +164,11 @@ def buildDiskImages(env, config_database):
         fileList += [builddir.File('libSDL.so')]
 
     fileList = [x for x in fileList if x]
-    env.Command(hddimg, fileList, SCons.Action.Action(buildImage, None))
+    if env['skip_hdd_image']:
+        # no-op
+        env.Command(hddimg, fileList, SCons.Action.Action(lambda *args, **kwargs: None, None))
+    else:
+        env.Command(hddimg, fileList, SCons.Action.Action(buildImage, None))
 
     # Build the live CD ISO
     if env['iso']:
