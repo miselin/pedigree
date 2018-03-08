@@ -137,7 +137,7 @@ int posix_select(
     int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
     timeval *timeout)
 {
-    F_NOTICE("select(" << nfds << ", " << readfds << ", " << writefds << ", " << errorfds << ", " << timeout << ")");
+    POLL_NOTICE("select(" << nfds << ", " << readfds << ", " << writefds << ", " << errorfds << ", " << timeout << ")");
     bool bValidAddresses = true;
     if (readfds)
         bValidAddresses =
@@ -174,7 +174,7 @@ int posix_select(
             (writefds && FD_ISSET(i, writefds)) ||
             (errorfds && FD_ISSET(i, errorfds)))
         {
-            F_NOTICE("fd " << i << " is acceptable");
+            POLL_NOTICE("fd " << i << " is acceptable");
             ++trueFdCount;
         }
     }
@@ -193,7 +193,7 @@ int posix_select(
             continue;
         }
 
-        F_NOTICE("registering fd " << i << " in slot " << j);
+        POLL_NOTICE("registering fd " << i << " in slot " << j);
 
         fds[j].fd = i;
         fds[j].events = 0;
@@ -213,7 +213,7 @@ int posix_select(
     }
 
     // Go!
-    F_NOTICE(" -> redirecting select() to poll() with " << trueFdCount << " actual fds");
+    POLL_NOTICE(" -> redirecting select() to poll() with " << trueFdCount << " actual fds");
     int r = posix_poll_safe(fds, trueFdCount, timeoutMs);
 
     // Fill fd_sets as needed.
@@ -271,6 +271,6 @@ int posix_select(
 
     delete [] fds;
 
-    F_NOTICE(" -> select via poll returns " << r);
+    POLL_NOTICE(" -> select via poll returns " << r);
     return r;
 }

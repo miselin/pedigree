@@ -60,12 +60,12 @@ enum TimeoutType
  */
 int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
 {
-    F_NOTICE("poll(" << Dec << nfds << ", " << timeout << Hex << ")");
+    POLL_NOTICE("poll(" << Dec << nfds << ", " << timeout << Hex << ")");
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(fds), nfds * sizeof(struct pollfd),
             PosixSubsystem::SafeWrite))
     {
-        F_NOTICE(" -> invalid address");
+        POLL_NOTICE(" -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
@@ -76,7 +76,7 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
 
 int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 {
-    F_NOTICE("poll_safe(" << Dec << nfds << ", " << timeout << Hex << ")");
+    POLL_NOTICE("poll_safe(" << Dec << nfds << ", " << timeout << Hex << ")");
 
     // Investigate the timeout parameter.
     TimeoutType timeoutType;
@@ -149,7 +149,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         if (!pFd)
         {
             // Error - no such file descriptor.
-            F_NOTICE("poll: no such file descriptor (" << Dec << me->fd << ")");
+            POLL_NOTICE("poll: no such file descriptor (" << Dec << me->fd << ")");
             me->revents |= POLLNVAL;
             bError = true;
             continue;
@@ -262,7 +262,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 
         if (me->events & POLLERR)
         {
-            F_NOTICE("    -> POLLERR not yet supported");
+            POLL_NOTICE("    -> POLLERR not yet supported");
         }
     }
 
@@ -270,7 +270,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     // Grunt work is done, now time to cleanup.
     while (!bWillReturnImmediately && !bError)
     {
-        F_NOTICE("    -> no fds ready yet, poll will block");
+        POLL_NOTICE("    -> no fds ready yet, poll will block");
 
         // We got here because there is a specific or infinite timeout and
         // no FD was ready immediately.
@@ -345,12 +345,12 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             if (result.error() == Semaphore::TimedOut)
             {
                 // timed out, not an error
-                F_NOTICE(" -> poll interrupted by timeout");
+                POLL_NOTICE(" -> poll interrupted by timeout");
             }
             else
             {
                 // generic interrupt
-                F_NOTICE(" -> poll interrupted by external event");
+                POLL_NOTICE(" -> poll interrupted by external event");
                 SYSCALL_ERROR(Interrupted);
                 bError = true;
             }
@@ -399,7 +399,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     size_t nRet = 0;
     for (size_t i = 0; i < nfds; ++i)
     {
-        F_NOTICE(
+        POLL_NOTICE(
             "    -> pollfd[" << i << "]: fd=" << fds[i].fd
                              << ", events=" << fds[i].events
                              << ", revents=" << fds[i].revents);
@@ -422,8 +422,8 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
     }
 
-    F_NOTICE("    -> " << Dec << ((bError) ? -1 : (int)nRet) << Hex);
-    F_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
+    POLL_NOTICE("    -> " << Dec << ((bError) ? -1 : (int)nRet) << Hex);
+    POLL_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
 
     return (bError) ? -1 : nRet;
 }

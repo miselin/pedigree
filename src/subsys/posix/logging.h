@@ -83,6 +83,10 @@
 #define POSIX_VERBOSE_SYSCALLS
 #endif
 
+#if POSIX_LOG_FACILITIES & 256
+#define POSIX_VERBOSE_POLL_SYSCALLS
+#endif
+
 #endif
 
 #ifdef POSIX_VERBOSE_SYSTEM_SYSCALLS
@@ -125,6 +129,12 @@
 #define SG_VERBOSE_NOTICE(x) SG_NOTICE(x)
 #else
 #define SG_VERBOSE_NOTICE(x)
+#endif
+
+#ifdef POSIX_VERBOSE_POLL_SYSCALLS
+#define POLL_NOTICE(x) POSIX_VERBOSE_LOG("poll", x)
+#else
+#define POLL_NOTICE(x)
 #endif
 
 #endif  // _POSIX_KERNEL_LOGGING_H

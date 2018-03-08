@@ -75,6 +75,7 @@ opts.AddVariables(
     BoolVariable('posix_sig_verbose', 'Enable verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_sig_ultra_verbose', 'Enable even more verbose logging for POSIX signal syscalls.', 0),
     BoolVariable('posix_syscall_verbose', 'Enable logging of every incoming POSIX syscall (PID + syscall number).', 0),
+    BoolVariable('posix_poll_verbose', 'Enable logging for POSIX poll/select syscalls.', 0),
     BoolVariable('verbose_kernel', 'Enable verbose logging throughout the kernel.', 0),
 
     BoolVariable('posix_musl', 'Build and use musl instead of newlib.', 1),
