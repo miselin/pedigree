@@ -481,9 +481,11 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
             ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
             ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
 
-            processListStr.append("\tProcess ");
+            processListStr.append("\tProcess #");
+            processListStr.append(pProcess->getId(), 10);
+            processListStr.append(" '");
             processListStr.append(pProcess->description());
-            processListStr.append(" V=");
+            processListStr.append("' V=");
             processListStr.append(virtK, 10);
             processListStr.append("K P=");
             processListStr.append(physK, 10);
