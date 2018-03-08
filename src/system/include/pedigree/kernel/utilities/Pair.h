@@ -39,12 +39,12 @@ class Pair
         m_Second = b;
     }
 
-    T1 first() const
+    const T1 &first() const
     {
         return m_First;
     }
 
-    T2 second() const
+    const T2 &second() const
     {
         return m_Second;
     }

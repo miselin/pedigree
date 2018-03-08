@@ -21,6 +21,7 @@
 #define KERNEL_UTILITIES_RESULT_H
 
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/cpp.h"
 
 /**
  * Result encapsulates a typed result and an optional error in one object.
@@ -74,13 +75,19 @@ class Result
         {
         }
 
-        Result(const E &e, bool) : m_Value(), m_Error(e), m_HasError(true)
+        Result(const E &e, bool) : m_Value(m_DefaultValue), m_Error(e), m_HasError(true)
         {
         }
 
         T m_Value;
         E m_Error;
         bool m_HasError;
+
+        typedef typename pedigree_std::remove_reference<T>::type BaseValueType;
+        static const BaseValueType m_DefaultValue;
 };
+
+template <class T, class E>
+const typename Result<T, E>::BaseValueType Result<T, E>::m_DefaultValue = Result<T, E>::BaseValueType();
 
 #endif  // KERNEL_UTILITIES_RESULT_H

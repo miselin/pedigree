@@ -23,9 +23,21 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/Pair.h"
 
 /** @addtogroup kernelutilities
  * @{ */
+
+namespace HashTableError
+{
+    enum Error
+    {
+        HashTableEmpty,
+        NotFound,
+        IterationComplete
+    };
+}
 
 /**
  * Hash table class.
@@ -40,7 +52,7 @@
  *
  * \todo check InitialBuckets for is a power of two
  */
-template <class K, class V, size_t InitialBuckets = 4>
+template <class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = true>
 class HashTable
 {
    private:
@@ -76,7 +88,7 @@ class HashTable
             {
                 if (parent->m_Buckets[pos].set)
                 {
-                    value = parent->m_Buckets[pos].value;
+                    setValue();
                     ok = true;
                     break;
                 }
@@ -137,7 +149,7 @@ class HashTable
                 }
                 else if (parent->m_Buckets[pos].set)
                 {
-                    value = parent->m_Buckets[pos].value;
+                    setValue();
                     return this;
                 }
             }
@@ -154,16 +166,24 @@ class HashTable
                 }
                 else if (parent->m_Buckets[pos].set)
                 {
-                    value = parent->m_Buckets[pos].value;
+                    setValue();
                     return this;
                 }
             }
+        }
+
+        void setValue()
+        {
+            value = parent->m_Buckets[pos].value;
         }
     };
 
    public:
     typedef ::Iterator<V, IteratorNode> Iterator;
     typedef typename Iterator::Const ConstIterator;
+
+    typedef Result<const V &, HashTableError::Error> LookupResult;
+    typedef Result<Pair<K, V>, HashTableError::Error> PairLookupResult;
 
     HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0), m_Begin(nullptr)
     {
@@ -193,17 +213,13 @@ class HashTable
     }
 
     /**
-     * Do a lookup of the given key, and return either the value,
-     * or NULL if the key is not in the hashtable.
-     *
-     * O(1) in the average case, with a hash function that rarely
-     * collides.
+     * Check if the given key exists in the hash table.
      */
-    const V &lookup(const K &k) const
+    bool contains(const K &k) const
     {
         if ((!m_Buckets) || (!m_nItems))
         {
-            return m_Default;
+            return false;
         }
 
         size_t hash = k.hash() & m_nMask;
@@ -211,7 +227,7 @@ class HashTable
         const bucket *b = &m_Buckets[hash];
         if (!b->set)
         {
-            return m_Default;
+            return false;
         }
 
         if (b->key != k)
@@ -219,11 +235,75 @@ class HashTable
             b = findNextSet(hash, k);
             if (!b)
             {
-                return m_Default;
+                return false;
             }
         }
 
-        return b->value;
+        return true;
+    }
+
+    /**
+     * Do a lookup of the given key, and return either the value,
+     * or NULL if the key is not in the hashtable.
+     *
+     * O(1) in the average case, with a hash function that rarely
+     * collides.
+     */
+    LookupResult lookup(const K &k) const
+    {
+        if ((!m_Buckets) || (!m_nItems))
+        {
+            return LookupResult::withError(HashTableError::HashTableEmpty);
+        }
+
+        size_t hash = k.hash() & m_nMask;
+
+        const bucket *b = &m_Buckets[hash];
+        if (!b->set)
+        {
+            return LookupResult::withError(HashTableError::NotFound);
+        }
+
+        if (b->key != k)
+        {
+            b = findNextSet(hash, k);
+            if (!b)
+            {
+                return LookupResult::withError(HashTableError::NotFound);
+            }
+        }
+
+        return LookupResult::withValue(b->value);
+    }
+
+    /**
+     * Get the nth item in the hash table.
+     *
+     * Because the table is unordered, this should only be used to provide an
+     * indexed access into the table rather than used to find a specific item.
+     * Insertions and removals may completely change the order of the table.
+     */
+    PairLookupResult getNth(size_t n) const
+    {
+        if (n < count())
+        {
+            size_t j = 0;
+            for (size_t i = 0; i < m_nBuckets; ++i)
+            {
+                if (!m_Buckets[i].set)
+                {
+                    continue;
+                }
+
+                if (j++ == n)
+                {
+                    Pair<K, V> result(m_Buckets[i].key, m_Buckets[i].value);
+                    return PairLookupResult::withValue(result);
+                }
+            }
+        }
+
+        return PairLookupResult::withError(HashTableError::IterationComplete);
     }
 
     /**
@@ -350,9 +430,6 @@ class HashTable
     }
 
   private:
-    /// Probe multiplier - 2 for quadratic probing.
-    static const bool QuadraticProbe = true;
-
     void check()
     {
         if (m_Buckets == nullptr)

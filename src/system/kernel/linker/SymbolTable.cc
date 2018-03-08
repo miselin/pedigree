@@ -151,25 +151,25 @@ SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBind
     SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
     if (symbolTree)
     {
-        sym = symbolTree->lookup(hashed);
-        if (sym)
+        symbolTree_t::LookupResult result = symbolTree->lookup(hashed);
+        if (result.hasValue())
         {
-            return sym->getValue();
+            return result.value()->getValue();
         }
     }
 
     // Global.
-    sym = m_GlobalSymbols.lookup(hashed);
-    if (sym)
+    symbolTree_t::LookupResult globalResult = m_GlobalSymbols.lookup(hashed);
+    if (globalResult.hasValue())
     {
-        return sym->getValue();
+        return globalResult.value()->getValue();
     }
 
     // Weak.
-    sym = m_WeakSymbols.lookup(hashed);
-    if (sym)
+    symbolTree_t::LookupResult weakResult = m_WeakSymbols.lookup(hashed);
+    if (weakResult.hasValue())
     {
-        return sym->getValue();
+        return weakResult.value()->getValue();
     }
 
     return 0;
@@ -177,11 +177,13 @@ SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBind
 
 SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p)
 {
-    SharedPointer<symbolTree_t> tree = m_LocalSymbols.lookup(p);
-    if (tree)
-        return tree;
+    SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(p);
+    if (symbolTree)
+    {
+        return symbolTree;
+    }
 
-    tree = SharedPointer<symbolTree_t>::allocate();
+    auto tree = SharedPointer<symbolTree_t>::allocate();
     m_LocalSymbols.insert(p, tree);
     return tree;
 }

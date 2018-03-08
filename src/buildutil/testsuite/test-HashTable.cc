@@ -113,11 +113,9 @@ TEST(PedigreeHashTable, NoOpRemoval)
     HashTable<HashableInteger, int> hashtable(-1);
 
     HashableInteger key(0);
-    EXPECT_EQ(hashtable.lookup(key), -1);
-
+    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
     hashtable.remove(key);
-
-    EXPECT_EQ(hashtable.lookup(key), -1);
+    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
 }
 
 TEST(PedigreeHashTable, AnotherNoOpRemoval)
@@ -125,11 +123,9 @@ TEST(PedigreeHashTable, AnotherNoOpRemoval)
     HashTable<HashableInteger, int> hashtable(-1);
 
     HashableInteger key(3);
-    EXPECT_EQ(hashtable.lookup(key), -1);
-
+    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
     hashtable.remove(key);
-
-    EXPECT_EQ(hashtable.lookup(key), -1);
+    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
 }
 
 TEST(PedigreeHashTable, RemoveInserted)
@@ -139,11 +135,11 @@ TEST(PedigreeHashTable, RemoveInserted)
     HashableInteger key(3);
     hashtable.insert(key, 5);
 
-    EXPECT_EQ(hashtable.lookup(key), 5);
+    EXPECT_EQ(hashtable.lookup(key).value(), 5);
 
     hashtable.remove(key);
 
-    EXPECT_EQ(hashtable.lookup(key), 0);
+    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
 }
 
 TEST(PedigreeHashTable, InsertedAlready)
@@ -154,7 +150,7 @@ TEST(PedigreeHashTable, InsertedAlready)
 
     hashtable.insert(key, 5);
     hashtable.insert(key, 6);
-    EXPECT_EQ(hashtable.lookup(key), 5);
+    EXPECT_EQ(hashtable.lookup(key).value(), 5);
 }
 
 TEST(PedigreeHashTable, CollidingHashes)
@@ -165,8 +161,8 @@ TEST(PedigreeHashTable, CollidingHashes)
 
     hashtable.insert(key1, 5);
     hashtable.insert(key2, 6);
-    EXPECT_EQ(hashtable.lookup(key1), 5);
-    EXPECT_EQ(hashtable.lookup(key2), 6);
+    EXPECT_EQ(hashtable.lookup(key1).value(), 5);
+    EXPECT_EQ(hashtable.lookup(key2).value(), 6);
 }
 
 TEST(PedigreeHashTable, InsertionNoChains)
@@ -182,7 +178,7 @@ TEST(PedigreeHashTable, InsertionNoChains)
     for (size_t i = 0; i < 10; ++i)
     {
         HashableInteger key(i);
-        EXPECT_EQ(hashtable.lookup(key), 5 + i);
+        EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
     }
 }
 
@@ -199,7 +195,7 @@ TEST(PedigreeHashTable, InsertionWithChains)
     for (size_t i = 0; i < 20; ++i)
     {
         ModuloTenHashableInteger key(i);
-        EXPECT_EQ(hashtable.lookup(key), 5 + i);
+        EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
     }
 }
 
@@ -215,9 +211,9 @@ TEST(PedigreeHashTable, RemoveChained)
 
     hashtable.remove(key2);
 
-    EXPECT_EQ(hashtable.lookup(key1), 1);
-    EXPECT_EQ(hashtable.lookup(key2), -1);
-    EXPECT_EQ(hashtable.lookup(key3), 3);
+    EXPECT_EQ(hashtable.lookup(key1).value(), 1);
+    EXPECT_EQ(hashtable.lookup(key2).error(), HashTableError::NotFound);
+    EXPECT_EQ(hashtable.lookup(key3).value(), 3);
 }
 
 TEST(PedigreeHashTable, RemoveFirstInChain)
@@ -231,8 +227,8 @@ TEST(PedigreeHashTable, RemoveFirstInChain)
 
     hashtable.remove(key1);
 
-    EXPECT_EQ(hashtable.lookup(key1), 0);
-    EXPECT_EQ(hashtable.lookup(key2), 2);
+    EXPECT_EQ(hashtable.lookup(key1).error(), HashTableError::NotFound);
+    EXPECT_EQ(hashtable.lookup(key2).value(), 2);
 }
 
 TEST(PedigreeHashTable, ForwardIteration)
@@ -251,6 +247,33 @@ TEST(PedigreeHashTable, ForwardIteration)
     for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
     {
         results.push_back(*it);
+    }
+    results.sort();
+
+    EXPECT_EQ(results, expected);
+}
+
+TEST(PedigreeHashTable, GetNth)
+{
+    HashTable<CollidingHashableInteger, int> hashtable(1234);
+
+    CollidingHashableInteger key1(0), key2(1), key3(2), key4(3);
+
+    EXPECT_TRUE(hashtable.insert(key1, 1));
+    EXPECT_TRUE(hashtable.insert(key2, 2));
+    EXPECT_TRUE(hashtable.insert(key3, 3));
+    EXPECT_TRUE(hashtable.insert(key4, 4));
+
+    // shouldn't be able to get more than the number of items
+    EXPECT_EQ(hashtable.getNth(4).error(), HashTableError::IterationComplete);
+
+    std::list<int> results;
+    std::list<int> expected = {1, 2, 3, 4};
+    for (size_t i = 0; i < 4; ++i)
+    {
+        auto result = hashtable.getNth(i);
+        EXPECT_TRUE(result.hasValue());
+        results.push_back(result.value().second());
     }
     results.sort();
 
