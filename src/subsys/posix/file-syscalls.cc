@@ -689,14 +689,19 @@ int posix_read(int fd, char *ptr, int len)
     uint64_t nRead = 0;
     if (ptr && len)
     {
+        pThread->setInterrupted(false);
         Thread::WakeReason wakeReason = Thread::NotWoken;
         pThread->addWakeupWatcher(&wakeReason);
         nRead = pFd->file->read(
             pFd->offset, len, reinterpret_cast<uintptr_t>(ptr), canBlock);
         pThread->removeWakeupWatcher(&wakeReason);
-        if ((!nRead) && (wakeReason != Thread::NotWoken))
+        /// \todo any mechanism used to block read() will cause a sleep+wake,
+        /// so need to rethink how to use wakeReason above to detect interrupted
+        /// state!
+        if ((!nRead) && pThread->wasInterrupted())
         {
             SYSCALL_ERROR(Interrupted);
+            F_NOTICE(" -> interrupted");
             return -1;
         }
         pFd->offset += nRead;
