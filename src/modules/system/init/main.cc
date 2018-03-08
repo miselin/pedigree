@@ -87,16 +87,17 @@ static bool init()
 {
 #ifdef THREADS
     // Create a new process for the init process.
-    Process *pProcess = new PosixProcess(
+    PosixProcess *pProcess = new PosixProcess(
         Processor::information().getCurrentThread()->getParent());
-    pProcess->setUser(UserManager::instance().getUser(0));
-    pProcess->setGroup(UserManager::instance().getUser(0)->getDefaultGroup());
-    pProcess->setEffectiveUser(pProcess->getUser());
-    pProcess->setEffectiveGroup(pProcess->getGroup());
 
-    pProcess->description().clear();
-    pProcess->description().append("init");
+    pProcess->setUserId(0);
+    pProcess->setGroupId(0);
+    pProcess->setEffectiveUserId(0);
+    pProcess->setEffectiveGroupId(0);
+    pProcess->setSavedUserId(0);
+    pProcess->setSavedGroupId(0);
 
+    pProcess->description() = "init";
     pProcess->setCwd(VFS::instance().find(String("root»/")));
     pProcess->setCtty(0);
 
