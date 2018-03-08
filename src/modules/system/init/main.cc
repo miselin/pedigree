@@ -61,7 +61,7 @@ static int init_stage2(void *param)
         tryingLinux = true;
     }
 
-    List<SharedPointer<String>> argv, env;
+    Vector<SharedPointer<String>> argv, env;
     argv.pushBack(SharedPointer<String>::allocate(init_path));
 
     if (tryingLinux)

@@ -1117,28 +1117,31 @@ bool PosixSubsystem::loadElf(
     STACK_PUSH(stack, value1);             \
     STACK_PUSH(stack, value2)
 #define STACK_PUSH_COPY(stack, value, length) \
-    stack = adjust_pointer(stack, -length);   \
+    stack = adjust_pointer(stack, -(length));   \
     MemoryCopy(stack, value, length)
+#define STACK_PUSH_STRING(stack, str, length) \
+    stack = adjust_pointer(stack, -(length));   \
+    StringCopyN(reinterpret_cast<char *>(stack), str, length)
 #define STACK_PUSH_ZEROES(stack, length)    \
-    stack = adjust_pointer(stack, -length); \
+    stack = adjust_pointer(stack, -(length)); \
     ByteSet(stack, 0, length)
 
 bool PosixSubsystem::invoke(
-    const char *name, List<SharedPointer<String>> &argv,
-    List<SharedPointer<String>> &env)
+    const char *name, Vector<SharedPointer<String>> &argv,
+    Vector<SharedPointer<String>> &env)
 {
     return invoke(name, argv, env, 0);
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, List<SharedPointer<String>> &argv,
-    List<SharedPointer<String>> &env, SyscallState &state)
+    const char *name, Vector<SharedPointer<String>> &argv,
+    Vector<SharedPointer<String>> &env, SyscallState &state)
 {
     return invoke(name, argv, env, &state);
 }
 
 bool PosixSubsystem::parseShebang(
-    File *pFile, File *&pOutFile, List<SharedPointer<String>> &argv)
+    File *pFile, File *&pOutFile, Vector<SharedPointer<String>> &argv)
 {
     PS_NOTICE("Attempting to parse shebang in " << pFile->getFullPath());
 
@@ -1254,8 +1257,8 @@ static File *traverseForInvoke(File *pFile)
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, List<SharedPointer<String>> &argv,
-    List<SharedPointer<String>> &env, SyscallState *state)
+    const char *name, Vector<SharedPointer<String>> &argv,
+    Vector<SharedPointer<String>> &env, SyscallState *state)
 {
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -1381,7 +1384,6 @@ bool PosixSubsystem::invoke(
 
     // Wipe out old address space.
     MemoryMapManager::instance().unmapAll();
-    pProcess->getAddressSpace()->revertToKernelAddressSpace();
 
     // We now need to clean up the process' address space.
     pProcess->getSpaceAllocator().clear();
@@ -1482,6 +1484,14 @@ bool PosixSubsystem::invoke(
     while (pThread->getStateLevel())
         pThread->popState();
 
+    if (pProcess->getType() == Process::Posix)
+    {
+        /// \todo should only do this for setuid/setgid programs
+        PosixProcess *p = static_cast<PosixProcess *>(pProcess);
+        p->setSavedUserId(p->getEffectiveUserId());
+        p->setSavedGroupId(p->getEffectiveGroupId());
+    }
+
     // Allocate some space for the VDSO
     MemoryMappedObject::Permissions vdsoPerms = MemoryMappedObject::Read |
                                                 MemoryMappedObject::Write |
@@ -1519,40 +1529,55 @@ bool PosixSubsystem::invoke(
         Processor::information().getVirtualAddressSpace().allocateStack();
     uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
 
-    char **envs = new char *[env.count()];
-    size_t envc = 0;
-    for (auto it : env)
-    {
-        STACK_PUSH(loaderStack, 0);
-        STACK_PUSH_COPY(
-            loaderStack, static_cast<const char *>(*it), it->length());
-        PS_NOTICE("env[" << envc << "]: " << *it);
-        envs[envc++] = reinterpret_cast<char *>(loaderStack);
-    }
+    NOTICE("Starting loader stack is " << loaderStack);
+
+    // Top of stack = zero to mark end
+    STACK_PUSH(loaderStack, 0);
+    STACK_PUSH(loaderStack, 0);
 
     // Push argv/env.
     char **argvs = new char *[argv.count()];
     size_t argc = 0;
-    for (auto it : argv)
+    for (size_t i = 0; i < argv.count(); ++i)
     {
-        STACK_PUSH(loaderStack, 0);
-        STACK_PUSH_COPY(
-            loaderStack, static_cast<const char *>(*it), it->length());
-        PS_NOTICE("argv[" << argc << "]: " << *it);
+        String &str = *(argv[i].get());
+        STACK_PUSH_STRING(
+            loaderStack, static_cast<const char *>(str), str.length() + 1);
+        PS_NOTICE("argv[" << argc << "]: " << str << " [" << loaderStack << "]");
         argvs[argc++] = reinterpret_cast<char *>(loaderStack);
     }
 
+    char **envs = new char *[env.count()];
+    size_t envc = 0;
+    for (size_t i = 0; i < env.count(); ++i)
+    {
+        String &str = *(env[i].get());
+        STACK_PUSH_STRING(
+            loaderStack, static_cast<const char *>(str), str.length() + 1);
+        PS_NOTICE("env[" << envc << "]: " << str << " [" << loaderStack << "]");
+        envs[envc++] = reinterpret_cast<char *>(loaderStack);
+    }
+
     /// \todo platform assumption here.
-    STACK_PUSH_COPY(loaderStack, "x86_64", 7);
+    STACK_PUSH_STRING(loaderStack, "x86_64", 7);
     void *platform = loaderStack;
+
+    STACK_PUSH_STRING(loaderStack, name, originalName.length() + 1);
+    void *execfn = loaderStack;
+
+    // Align to 16 bytes for remaining pushes
+    STACK_PUSH_ZEROES(
+        loaderStack, 16 - (16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15)));
 
     /// \todo 16 random bytes, not 16 zero bytes
     STACK_PUSH_ZEROES(loaderStack, 16);
     void *random = loaderStack;
 
-    // Align to 16 bytes.
-    STACK_PUSH_ZEROES(
-        loaderStack, 16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15));
+    // Ensure argc aligns to 16 bytes.
+    if (((argc + envc) % 2) == 0)
+    {
+        STACK_PUSH_ZEROES(loaderStack, 8);
+    }
 
     // Build the aux vector now.
     STACK_PUSH2(loaderStack, 0, 0);  // AT_NULL
@@ -1560,12 +1585,12 @@ bool PosixSubsystem::invoke(
         loaderStack, reinterpret_cast<uintptr_t>(platform), 15);  // AT_PLATFORM
     STACK_PUSH2(
         loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
-    STACK_PUSH2(loaderStack, 0, 23);                            // AT_SECURE
-    /// \todo get from pProcess
-    STACK_PUSH2(loaderStack, 0, 14);  // AT_EGID
-    STACK_PUSH2(loaderStack, 0, 13);  // AT_GID
-    STACK_PUSH2(loaderStack, 0, 12);  // AT_EUID
-    STACK_PUSH2(loaderStack, 0, 11);  // AT_UID
+    STACK_PUSH2(loaderStack, 0, 23);
+    STACK_PUSH2(loaderStack, pProcess->getUserId(), 14);  // AT_EGID
+    STACK_PUSH2(loaderStack, pProcess->getGroupId(), 13);  // AT_GID
+    STACK_PUSH2(loaderStack, pProcess->getEffectiveUserId(), 12);  // AT_EUID
+    STACK_PUSH2(loaderStack, pProcess->getEffectiveGroupId(), 11);  // AT_UID
+    STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(execfn), 31);  // AT_EXECFN
 
     // Push the vDSO shared object.
     if (pVdso)
@@ -1587,7 +1612,7 @@ bool PosixSubsystem::invoke(
 
     // env
     STACK_PUSH(loaderStack, 0);  // env[N]
-    for (ssize_t i = envc - 1; i >= 0; --i)
+    for (size_t i = 0; i < envc; ++i)
     {
         STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i]));
     }
