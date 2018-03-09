@@ -74,6 +74,36 @@ bool VirtualTerminalManager::initialise()
     m_Terminals[0].textio = m_pTty;
     m_Terminals[0].file = pTty1;
 
+    // create tty2-6 as non-overloaded TextIO instances
+    for (size_t i = 1; i < 8; ++i)
+    {
+        String ttyname;
+        ttyname.Format("tty%u", i + 1);
+
+        TextIO *tio = new TextIO(ttyname, g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
+        if (tio->initialise(true))
+        {
+            ConsolePhysicalFile *file =
+                new ConsolePhysicalFile(tio, ttyname, g_pDevFs);
+            m_ParentDir->addEntry(tio->getName(), file);
+
+            m_Terminals[i].textio = tio;
+            m_Terminals[i].file = file;
+
+            // activate the terminal by performing an empty write, which will
+            // ensure users switching to the terminal see a blank screen if
+            // nothing has actually opened it - this is better than seeing the
+            // previous tty's output...
+            tio->write("", 0);
+        }
+        else
+        {
+            WARNING("POSIX: failed to create " << ttyname);
+            g_pDevFs->revertInode();
+            delete tio;
+        }
+    }
+
     return true;
 }
 
