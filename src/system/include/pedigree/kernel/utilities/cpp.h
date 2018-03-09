@@ -218,9 +218,19 @@ template <class T>
 typename enable_if<!is_trivially_copyable<T>::value>::type *
 copy(T *dest, const T *src, size_t count)
 {
-    for (size_t i = 0; i < count; ++i)
+    if (overlaps(dest, src, count * sizeof(T)))
     {
-        dest[i] = src[i];
+        for (ssize_t i = count - 1; i >= 0; --i)
+        {
+            dest[i] = src[i];
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            dest[i] = src[i];
+        }
     }
     return dest;
 }

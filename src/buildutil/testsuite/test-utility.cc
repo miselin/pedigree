@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 
 TEST(PedigreeUtility, DirectoryName)
 {
@@ -87,4 +88,53 @@ TEST(PedigreeUtility, ChecksumsDifferCorrectly)
 
     EXPECT_NE(s1, s2);
     EXPECT_NE(d1, d2);
+}
+
+TEST(PedigreeUtility, Copies)
+{
+    char buf[] = {1, 2, 3, 4, 5, 6};
+    char dst[] = {0, 0, 0, 0, 0, 0};
+    const char overlap_expected[] = {1, 1, 2, 3, 4, 5};
+
+    pedigree_std::copy(dst, buf, sizeof buf);
+    EXPECT_EQ(memcmp(buf, dst, sizeof buf), 0);
+
+    // overlapping?
+    pedigree_std::copy(&buf[1], buf, (sizeof buf) - 1);
+    EXPECT_EQ(memcmp(buf, overlap_expected, sizeof buf), 0);
+}
+
+TEST(PedigreeUtility, NonTrivialCopies)
+{
+    typedef SharedPointer<int> sharedintptr_t;
+
+    sharedintptr_t ptr1 = sharedintptr_t::allocate(1);
+    sharedintptr_t ptr2 = sharedintptr_t::allocate(2);
+    sharedintptr_t ptr3 = sharedintptr_t::allocate(3);
+    sharedintptr_t ptr4 = sharedintptr_t::allocate(4);
+
+    sharedintptr_t a[] = {ptr1, ptr2, ptr3, ptr4};
+    sharedintptr_t expect[] = {ptr1, ptr1, ptr2, ptr3};
+    sharedintptr_t b[] = {sharedintptr_t(), sharedintptr_t(), sharedintptr_t(), sharedintptr_t()};
+    size_t items = 4;
+
+    // non-overlapping copy
+    pedigree_std::copy(b, a, items);
+    EXPECT_EQ(a[0].get(), b[0].get());
+    EXPECT_EQ(a[1].get(), b[1].get());
+    EXPECT_EQ(a[2].get(), b[2].get());
+    EXPECT_EQ(a[3].get(), b[3].get());
+
+    // make sure source is left unchanged
+    EXPECT_EQ(a[0].get(), ptr1.get());
+    EXPECT_EQ(a[1].get(), ptr2.get());
+    EXPECT_EQ(a[2].get(), ptr3.get());
+    EXPECT_EQ(a[3].get(), ptr4.get());
+
+    // overlapping copy
+    pedigree_std::copy(&a[1], a, items - 1);
+    EXPECT_EQ(a[0].get(), expect[0].get());
+    EXPECT_EQ(a[1].get(), expect[1].get());
+    EXPECT_EQ(a[2].get(), expect[2].get());
+    EXPECT_EQ(a[3].get(), expect[3].get());
 }

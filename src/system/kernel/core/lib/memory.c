@@ -122,18 +122,6 @@ static inline void *memmove_x86(void *s1, const void *s2, size_t n)
 }
 #endif
 
-static int
-overlaps(const void *restrict s1, const void *restrict s2, size_t n) PURE;
-static int overlaps(const void *restrict s1, const void *restrict s2, size_t n)
-{
-    uintptr_t a = (uintptr_t) s1;
-    uintptr_t a_end = (uintptr_t) s1 + n;
-    uintptr_t b = (uintptr_t) s2;
-    uintptr_t b_end = (uintptr_t) s2 + n;
-
-    return (a <= b_end) && (b <= a_end) ? 1 : 0;
-}
-
 EXPORT void *memmove(void *s1, const void *s2, size_t n)
 {
     if (UNLIKELY(!n))
@@ -172,6 +160,16 @@ EXPORT void *memmove(void *s1, const void *s2, size_t n)
 #endif  // HAS_ADDRESS_SANITIZER
 
 #endif  // UTILITY_LINUX_COVERAGE
+
+int overlaps(const void *s1, const void *s2, size_t n)
+{
+    uintptr_t a = (uintptr_t) s1;
+    uintptr_t a_end = (uintptr_t) s1 + n;
+    uintptr_t b = (uintptr_t) s2;
+    uintptr_t b_end = (uintptr_t) s2 + n;
+
+    return (a <= b_end) && (b <= a_end) ? 1 : 0;
+}
 
 void *WordSet(void *buf, int c, size_t n)
 {

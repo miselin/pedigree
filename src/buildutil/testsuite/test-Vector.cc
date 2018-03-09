@@ -114,15 +114,92 @@ TEST(PedigreeVector, SwappingSame)
     EXPECT_EQ(x[2], 3);
 }
 
-TEST(PedigreeVector, Insertion)
+TEST(PedigreeVector, Insertion1)
 {
     Vector<int> x;
     x.pushFront(1);
     x.pushFront(2);
     x.pushFront(3);
-    EXPECT_EQ(x[2], 1);
+    x.pushFront(4);
+    x.pushFront(5);
+    x.pushFront(6);
+    x.pushFront(7);
+    x.pushFront(8);
+    x.pushFront(9);
+
+    EXPECT_EQ(x[0], 9);
+    EXPECT_EQ(x[1], 8);
+    EXPECT_EQ(x[2], 7);
+    EXPECT_EQ(x[3], 6);
+    EXPECT_EQ(x[4], 5);
+    EXPECT_EQ(x[5], 4);
+    EXPECT_EQ(x[6], 3);
+    EXPECT_EQ(x[7], 2);
+    EXPECT_EQ(x[8], 1);
+}
+
+TEST(PedigreeVector, Insertion2)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+    x.pushBack(4);
+    x.pushBack(5);
+    x.pushBack(6);
+    x.pushBack(7);
+    x.pushBack(8);
+    x.pushBack(9);
+
+    EXPECT_EQ(x[0], 1);
     EXPECT_EQ(x[1], 2);
-    EXPECT_EQ(x[0], 3);
+    EXPECT_EQ(x[2], 3);
+    EXPECT_EQ(x[3], 4);
+    EXPECT_EQ(x[4], 5);
+    EXPECT_EQ(x[5], 6);
+    EXPECT_EQ(x[6], 7);
+    EXPECT_EQ(x[7], 8);
+    EXPECT_EQ(x[8], 9);
+}
+
+TEST(PedigreeVector, Insertion3)
+{
+    Vector<int> x;
+    x.pushFront(1);
+    x.pushFront(2);
+    x.pushFront(3);
+    x.pushFront(4);
+
+    EXPECT_EQ(x[0], 4);
+    EXPECT_EQ(x[1], 3);
+    EXPECT_EQ(x[2], 2);
+    EXPECT_EQ(x[3], 1);
+}
+
+TEST(PedigreeVector, InsertionComplex)
+{
+    typedef SharedPointer<int> sharedintptr_t;
+
+    sharedintptr_t ptr1 = sharedintptr_t::allocate(1);
+    sharedintptr_t ptr2 = sharedintptr_t::allocate(2);
+    sharedintptr_t ptr3 = sharedintptr_t::allocate(3);
+    sharedintptr_t ptr4 = sharedintptr_t::allocate(4);
+
+    Vector<sharedintptr_t> x;
+    x.pushFront(ptr1);
+    x.pushFront(ptr2);
+    x.pushFront(ptr3);
+    x.pushFront(ptr4);
+
+    EXPECT_EQ(x[0], ptr4);
+    EXPECT_EQ(x[1], ptr3);
+    EXPECT_EQ(x[2], ptr2);
+    EXPECT_EQ(x[3], ptr1);
+
+    EXPECT_EQ(*(x[0]), 4);
+    EXPECT_EQ(*(x[1]), 3);
+    EXPECT_EQ(*(x[2]), 2);
+    EXPECT_EQ(*(x[3]), 1);
 }
 
 TEST(PedigreeVector, SetAt)

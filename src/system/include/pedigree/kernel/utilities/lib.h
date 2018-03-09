@@ -136,6 +136,9 @@ uint32_t elfHash(const char *buffer, size_t length);
 /// Jenkins hash.
 uint32_t jenkinsHash(const char *buffer, size_t length);
 
+/// Report whether or not two pointers regions overlap.
+int overlaps(const void *s1, const void *s2, size_t n) PURE;
+
 #ifdef __cplusplus
 }
 

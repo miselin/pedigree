@@ -64,18 +64,18 @@ class Vector
     size_t count() const;
     /** Add an element to the end of the Vector
      *\param[in] value the element */
-    void pushBack(T value);
+    void pushBack(const T &value);
     /** Remove the element from the back and return it
      *\return the removed element */
     T popBack();
     /** Add an element to the front of the Vector
      *\param[in] value the element */
-    void pushFront(T value);
+    void pushFront(const T &value);
     /** Remove the element from the front and return it
      *\return the removed element */
     T popFront();
     /** Set an element at the given index, if it exists. */
-    void setAt(size_t idx, T value);
+    void setAt(size_t idx, const T &value);
     /** Swap the two elements. */
     void swap(Iterator a, Iterator b);
 
@@ -191,7 +191,7 @@ size_t Vector<T>::count() const
 }
 
 template <class T>
-void Vector<T>::pushBack(T value)
+void Vector<T>::pushBack(const T &value)
 {
     reserve(m_Count + 1, true);
 
@@ -214,13 +214,13 @@ T Vector<T>::popBack()
 }
 
 template <class T>
-void Vector<T>::pushFront(T value)
+void Vector<T>::pushFront(const T &value)
 {
     const T *oldData = m_Data;
 
-    reserve(m_Count + 1, false, false);
+    reserve(m_Count + 1, true, false);
 
-    if (m_Start)
+    if (m_Start && (m_Data == oldData))
     {
         m_Start--;
         m_Data[m_Start] = value;
@@ -228,8 +228,8 @@ void Vector<T>::pushFront(T value)
     else
     {
         // We have a bigger buffer, copy items from the old buffer now.
-        m_Data[0] = value;
         pedigree_std::copy(&m_Data[1], oldData, m_Count);
+        m_Data[0] = value;
     }
 
     m_Count++;
@@ -251,7 +251,7 @@ T Vector<T>::popFront()
 }
 
 template <class T>
-void Vector<T>::setAt(size_t idx, T value)
+void Vector<T>::setAt(size_t idx, const T &value)
 {
     if (idx < m_Count)
         m_Data[m_Start + idx] = value;

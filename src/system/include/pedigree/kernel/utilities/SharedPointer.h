@@ -259,7 +259,7 @@ SharedPointer<T> SharedPointer<T>::allocate(Args... args)
 {
     SharedPointer<T> result;
     result.reset(new T(args...));
-    return result;
+    return pedigree_std::move(result);
 }
 
 template <class T>
