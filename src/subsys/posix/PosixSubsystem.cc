@@ -1125,6 +1125,9 @@ bool PosixSubsystem::loadElf(
 #define STACK_PUSH_ZEROES(stack, length)    \
     stack = adjust_pointer(stack, -(length)); \
     ByteSet(stack, 0, length)
+#define STACK_ALIGN(stack, to)    \
+    STACK_PUSH_ZEROES( \
+        stack, (to) - ((to) - (reinterpret_cast<uintptr_t>(stack) & ((to) - 1))))
 
 bool PosixSubsystem::invoke(
     const char *name, Vector<SharedPointer<String>> &argv,
@@ -1221,8 +1224,6 @@ bool PosixSubsystem::parseShebang(
     // pushFront.
     for (auto it = additionalArgv.rbegin(); it != additionalArgv.rend(); ++it)
     {
-        PS_NOTICE(
-            "shebang: inserting " << **it << " [l=" << (*it)->length() << "]");
         argv.pushFront(*it);
     }
 
@@ -1529,24 +1530,13 @@ bool PosixSubsystem::invoke(
         Processor::information().getVirtualAddressSpace().allocateStack();
     uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
 
-    NOTICE("Starting loader stack is " << loaderStack);
-
     // Top of stack = zero to mark end
     STACK_PUSH(loaderStack, 0);
-    STACK_PUSH(loaderStack, 0);
+
+    // Align to 16 byte stack
+    STACK_ALIGN(loaderStack, 16);
 
     // Push argv/env.
-    char **argvs = new char *[argv.count()];
-    size_t argc = 0;
-    for (size_t i = 0; i < argv.count(); ++i)
-    {
-        String &str = *(argv[i].get());
-        STACK_PUSH_STRING(
-            loaderStack, static_cast<const char *>(str), str.length() + 1);
-        PS_NOTICE("argv[" << argc << "]: " << str << " [" << loaderStack << "]");
-        argvs[argc++] = reinterpret_cast<char *>(loaderStack);
-    }
-
     char **envs = new char *[env.count()];
     size_t envc = 0;
     for (size_t i = 0; i < env.count(); ++i)
@@ -1554,9 +1544,26 @@ bool PosixSubsystem::invoke(
         String &str = *(env[i].get());
         STACK_PUSH_STRING(
             loaderStack, static_cast<const char *>(str), str.length() + 1);
-        PS_NOTICE("env[" << envc << "]: " << str << " [" << loaderStack << "]");
+        PS_NOTICE("env[" << envc << "]: " << str);
         envs[envc++] = reinterpret_cast<char *>(loaderStack);
     }
+
+    // Align to 16 bytes between env and argv
+    STACK_ALIGN(loaderStack, 16);
+
+    char **argvs = new char *[argv.count()];
+    size_t argc = 0;
+    for (size_t i = 0; i < argv.count(); ++i)
+    {
+        String &str = *(argv[i].get());
+        STACK_PUSH_STRING(
+            loaderStack, static_cast<const char *>(str), str.length() + 1);
+        PS_NOTICE("argv[" << argc << "]: " << str);
+        argvs[argc++] = reinterpret_cast<char *>(loaderStack);
+    }
+
+    // Align to 16 bytes between argv and remaining strings
+    STACK_ALIGN(loaderStack, 16);
 
     /// \todo platform assumption here.
     STACK_PUSH_STRING(loaderStack, "x86_64", 7);
@@ -1565,9 +1572,8 @@ bool PosixSubsystem::invoke(
     STACK_PUSH_STRING(loaderStack, name, originalName.length() + 1);
     void *execfn = loaderStack;
 
-    // Align to 16 bytes for remaining pushes
-    STACK_PUSH_ZEROES(
-        loaderStack, 16 - (16 - (reinterpret_cast<uintptr_t>(loaderStack) & 15)));
+    // Align to 16 bytes to prepare for the auxv entries
+    STACK_ALIGN(loaderStack, 16);
 
     /// \todo 16 random bytes, not 16 zero bytes
     STACK_PUSH_ZEROES(loaderStack, 16);
