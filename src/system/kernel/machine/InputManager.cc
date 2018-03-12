@@ -174,6 +174,16 @@ void InputManager::rawKeyUpdate(uint8_t scancode, bool bKeyUp)
     putNotification(note);
 }
 
+void InputManager::machineKeyUpdate(uint8_t scancode, bool bKeyUp)
+{
+    InputNotification *note = new InputNotification;
+    note->type = MachineKey;
+    note->data.machinekey.scancode = scancode;
+    note->data.machinekey.keyUp = bKeyUp;
+
+    putNotification(note);
+}
+
 void InputManager::mouseUpdate(
     ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap)
 {

@@ -38,6 +38,7 @@ class InputManager
     const static int Mouse = 2;
     const static int Joystick = 4;
     const static int RawKey = 8;
+    const static int MachineKey = 16;  // machine-specific key codes
     const static int Unknown = 255;
 
     typedef int CallbackType;
@@ -73,6 +74,14 @@ class InputManager
                 /// Whether this is a keyUp event or not.
                 bool keyUp;
             } rawkey;
+            struct
+            {
+                /// Machine-specific scancode for the key.
+                uint8_t scancode;
+
+                /// Whether this is a keyUp event or not.
+                bool keyUp;
+            } machinekey;
         } data;
     };
 
@@ -103,6 +112,9 @@ class InputManager
     /// Called whenever a raw key signal comes in
     /// \param scancode a HID scancode
     void rawKeyUpdate(uint8_t scancode, bool bKeyUp);
+
+    /// Called whenever a machine-specific key scancode comes in.
+    void machineKeyUpdate(uint8_t scancode, bool bKeyUp);
 
     /// Called whenever mouse input comes in.
     void mouseUpdate(

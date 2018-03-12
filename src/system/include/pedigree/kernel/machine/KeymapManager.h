@@ -68,6 +68,22 @@ class KeymapManager
     uint8_t
     convertPc102ScancodeToHidKeycode(uint8_t scancode, EscapeState &escape);
 
+    /// Structure representing an entry in the keymap table
+    struct KeymapEntry
+    {
+        enum Flags
+        {
+            Special = 0x80000000
+        };
+        uint32_t flags;
+        uint32_t value;
+    };
+
+    /// Returns the keymap entry corresponding to given keycode and modifiers
+    KeymapEntry *getKeymapEntry(
+        bool bCtrl, bool bShift, bool bAlt, bool bAltGr, uint8_t nCombinator,
+        uint8_t keyCode);
+
   private:
     enum IndexModifiers
     {
@@ -91,17 +107,6 @@ class KeymapManager
         HidRightGui = 0xE7,
     };
 
-    /// Structure representing an entry in the keymap table
-    struct KeymapEntry
-    {
-        enum Flags
-        {
-            Special = 0x80000000
-        };
-        uint32_t flags;
-        uint32_t value;
-    };
-
     /// Structure representing an entry in the sparse table
     struct SparseEntry
     {
@@ -112,11 +117,6 @@ class KeymapManager
         uint16_t left;
         uint16_t right;
     };
-
-    /// Returns the keymap entry corresponding to given keycode and modifiers
-    KeymapEntry *getKeymapEntry(
-        bool bCtrl, bool bShift, bool bAlt, bool bAltGr, uint8_t nCombinator,
-        uint8_t keyCode);
 
     /// Static instance
     static KeymapManager m_Instance;
