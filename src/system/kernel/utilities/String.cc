@@ -24,7 +24,7 @@
 
 String::String()
     : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
-      m_HeapData(true)
+      m_HeapData(true), m_Hash(0)
 {
     m_Static[0] = '\0';
 }
@@ -52,6 +52,7 @@ String::String(String &&x)
     m_Length = pedigree_std::move(x.m_Length);
     m_Size = pedigree_std::move(x.m_Size);
     m_HeapData = pedigree_std::move(x.m_HeapData);
+    m_Hash = pedigree_std::move(x.m_Hash);
     if (m_Size == StaticSize)
     {
         MemoryCopy(m_Static, x.m_Static, m_Length + 1);
@@ -108,6 +109,7 @@ String &String::operator+=(const String &x)
     // Copy!
     MemoryCopy(&dst[m_Length], src, x.length() + 1);
     m_Length += x.length();
+    computeHash();
     return *this;
 }
 
@@ -137,6 +139,7 @@ String &String::operator+=(const char *s)
     }
 
     m_Length += slen;
+    computeHash();
     return *this;
 }
 
@@ -146,12 +149,17 @@ bool String::operator==(const String &s) const
     {
         return false;
     }
+    else if (m_Hash != s.m_Hash)
+    {
+        // precomputed hash didn't match, don't bother
+        return false;
+    }
 
     const char *buf = extract();
     const char *other_buf = s.extract();
 
     // Neither of these can be null because of the above conditions.
-    return !StringCompareN(buf, other_buf, m_Length);
+    return !StringCompareN(buf, other_buf, m_Length + 1);
 }
 
 bool String::operator==(const char *s) const
@@ -180,7 +188,24 @@ bool String::operator==(const char *s) const
 
 size_t String::nextCharacter(size_t c)
 {
-    // TODO handle multibyte chars.
+    // UTF-8 version of getting the next character
+    const char *buf = extract();
+    const uint8_t *u8buf = reinterpret_cast<const uint8_t *>(buf);
+    if ((buf[c] & 0xC0) == 0xC0)
+    {
+        if ((buf[c] & 0xF8) == 0xF0)
+        {
+            return c + 4;  // 4-byte sequence
+        }
+        else if ((buf[c] & 0xF0) == 0xE0)
+        {
+            return c + 3;
+        }
+        else
+        {
+            return c + 2;
+        }
+    }
     return c + 1;
 }
 
@@ -214,6 +239,9 @@ void String::assign(const String &x)
     m_HeapData = true;
 // m_ConstData = nullptr;
 
+    // no need to recompute in this case
+    m_Hash = x.m_Hash;
+
 #ifdef ADDITIONAL_CHECKS
     if (*this != x)
     {
@@ -223,6 +251,7 @@ void String::assign(const String &x)
     assert(*this == x);
 #endif
 }
+
 void String::assign(const char *s, size_t len, bool unsafe)
 {
     size_t copyLength = 0;
@@ -289,6 +318,8 @@ void String::assign(const char *s, size_t len, bool unsafe)
         assert(*this == s);
     }
 #endif
+
+    computeHash();
 }
 
 void String::reserve(size_t size)
@@ -343,6 +374,7 @@ void String::free()
     m_Data = 0;
     m_Length = 0;
     m_Size = 0;
+    m_Hash = 0;
 }
 
 String String::split(size_t offset)
@@ -380,6 +412,8 @@ void String::split(size_t offset, String &back)
     }
 
     buf[m_Length] = 0;
+
+    computeHash();
 }
 
 void String::strip()
@@ -416,6 +450,8 @@ void String::lstrip()
         }
         m_Data = 0;
     }
+
+    computeHash();
 }
 
 void String::rstrip()
@@ -446,6 +482,8 @@ void String::rstrip()
         }
         m_Data = 0;
     }
+
+    computeHash();
 }
 
 List<SharedPointer<String>> String::tokenise(char token)
@@ -491,7 +529,7 @@ size_t String::Utf32ToUtf8(uint32_t utf32, char *utf8)
     return nbuf;
 }
 
-void String::tokenise(char token, List<SharedPointer<String>> &output)
+void String::tokenise(char token, List<SharedPointer<String>> &output) const
 {
     const char *orig_buffer = extract();
     const char *buffer = orig_buffer;
@@ -547,6 +585,8 @@ void String::lchomp()
         }
         m_Data = 0;
     }
+
+    computeHash();
 }
 
 void String::chomp()
@@ -567,6 +607,8 @@ void String::chomp()
         }
         m_Data = 0;
     }
+
+    computeHash();
 }
 
 void String::Format(const char *fmt, ...)
@@ -587,6 +629,8 @@ void String::Format(const char *fmt, ...)
         }
         m_Data = 0;
     }
+
+    computeHash();
 }
 
 bool String::endswith(const char c) const
@@ -726,4 +770,17 @@ ssize_t String::rfind(const char c) const
     }
 
     return -1;
+}
+
+void String::computeHash()
+{
+    if (m_Length)
+    {
+        m_Hash = jenkinsHash(extract(), m_Length);
+    }
+    else
+    {
+        m_Hash = 0;
+    }
+
 }

@@ -229,7 +229,7 @@ TEST(PedigreeString, NextCharacter)
 }
 
 /// \todo(miselin): String::nextCharacter does not pass this today.
-TEST(PedigreeString, DISABLED_NextCharacterUnicode)
+TEST(PedigreeString, NextCharacterUnicode)
 {
     // 2-character UTF-8 in the middle of two single-byte characters.
     String s("h»b");
@@ -464,12 +464,20 @@ TEST(PedigreeString, EndsWithTooLong)
 TEST(PedigreeString, Equality2)
 {
     String s1("/dev/tty"), s2("/"), s3("/dev/tty"), s4("/");
-    EXPECT_FALSE(s1 == s2);
-    EXPECT_FALSE(s2 == s1);
-    EXPECT_TRUE(s1 == "/dev/tty");
-    EXPECT_FALSE(s2 == "/dev/tty");
-    EXPECT_TRUE(s1 == s3);
-    EXPECT_TRUE(s2 == s4);
+    EXPECT_NE(s1, s2);
+    EXPECT_NE(s2, s1);
+    EXPECT_EQ(s1, "/dev/tty");
+    EXPECT_NE(s2, "/dev/tty");
+    EXPECT_EQ(s1, s3);
+    EXPECT_EQ(s2, s4);
+}
+
+TEST(PedigreeString, Inequality)
+{
+    String s1("/dev/tty"), s2("/"), s3("/dev/tty0"), s4("/");
+    EXPECT_NE(s1, s2);
+    EXPECT_NE(s1, s3);
+    EXPECT_EQ(s2, s4);
 }
 
 TEST(PedigreeString, Find)

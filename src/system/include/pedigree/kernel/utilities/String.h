@@ -78,6 +78,11 @@ class String
         return m_Size;
     }
 
+    uint32_t hash() const
+    {
+        return m_Hash;
+    }
+
     /** Given a character index, return the index of the next character,
        interpreting the string as UTF-8 encoded. */
     size_t nextCharacter(size_t c);
@@ -108,7 +113,7 @@ class String
     void split(size_t offset, String &back);
 
     List<SharedPointer<String>> tokenise(char token);
-    void tokenise(char token, List<SharedPointer<String>> &output);
+    void tokenise(char token, List<SharedPointer<String>> &output) const;
 
     /** Converts a UTF-32 character to its UTF-8 representation.
      *\param[in] utf32 Input UTF-32 character.
@@ -148,6 +153,8 @@ class String
     void reserve(size_t size, bool zero);
     /** Extract the correct string buffer for this string. */
     char *extract() const;
+    /** Recompute internal hash. */
+    void computeHash();
     /** Size of static string storage (over this threshold, the heap is used) */
     static constexpr const size_t StaticSize = 64;
     /** Pointer to the zero-terminated ASCII string */
@@ -167,6 +174,8 @@ class String
 
     /** tokenise() pointer type. */
     typedef SharedPointer<String> tokenise_t;
+    /** Hash of the string. */
+    uint32_t m_Hash;
 };
 
 #if STRING_WITH_CONSTEXPR_CONSTRUCTOR
