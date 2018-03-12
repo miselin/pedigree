@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 
 /** This class implements a virtual file system.
  *
@@ -73,7 +74,7 @@ class VFS
     bool aliasExists(const String &alias);
 
     /** Obtains a list of all filesystem aliases */
-    inline RadixTree<Filesystem *> &getAliases()
+    inline HashTable<String, Filesystem *> &getAliases()
     {
         return m_Aliases;
     }
@@ -145,7 +146,7 @@ class VFS
     static File *m_EmptyFile;
 
   private:
-    RadixTree<Filesystem *> m_Aliases;
+    HashTable<String, Filesystem *> m_Aliases;
     Tree<Filesystem *, List<String *> *> m_Mounts;
 
     List<Filesystem::ProbeCallback *> m_ProbeCallbacks;

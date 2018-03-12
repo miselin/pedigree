@@ -121,7 +121,7 @@ void VFS::addAlias(Filesystem *pFs, const String &alias)
 
 void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
-    RadixTree<Filesystem *>::LookupType result = m_Aliases.lookup(oldAlias);
+    HashTable<String, Filesystem *>::LookupResult result = m_Aliases.lookup(oldAlias);
     if (result.hasValue())
     {
         Filesystem *pFs = result.value();
@@ -158,8 +158,7 @@ String VFS::getUniqueAlias(const String &alias)
 
 bool VFS::aliasExists(const String &alias)
 {
-    RadixTree<Filesystem *>::LookupType result = m_Aliases.lookup(alias);
-    return result.hasValue();
+    return m_Aliases.contains(alias);
 }
 
 void VFS::removeAlias(const String &alias)
@@ -173,7 +172,7 @@ void VFS::removeAllAliases(Filesystem *pFs)
     if (!pFs)
         return;
 
-    for (RadixTree<Filesystem *>::Iterator it = m_Aliases.begin();
+    for (HashTable<String, Filesystem *>::Iterator it = m_Aliases.begin();
          it != m_Aliases.end();)
     {
         if (pFs == (*it))
@@ -204,7 +203,7 @@ void VFS::removeAllAliases(Filesystem *pFs)
 
 Filesystem *VFS::lookupFilesystem(const String &alias)
 {
-    RadixTree<Filesystem *>::LookupType result = m_Aliases.lookup(alias);
+    HashTable<String, Filesystem *>::LookupResult result = m_Aliases.lookup(alias);
     return result.hasValue() ? result.value() : nullptr;
 }
 
