@@ -792,26 +792,26 @@ uint64_t Uhci::executeRequest(
         if (m_pBase->read16(UHCI_PORTSC + (p1 * 2)) & UHCI_PORTSC_LOSPEED)
         {
             DEBUG_LOG(
-                "USB: UHCI [" << reinterpret_cast<uintptr_t>(this) << "]: Port "
+                "USB: UHCI [" << this << "]: Port "
                               << Dec << p1 << Hex
                               << " has a low-speed device connected to it");
             if (!deviceConnected(p1, LowSpeed))
                 WARNING(
                     "USB: UHCI ["
-                    << reinterpret_cast<uintptr_t>(this) << "]: Port " << Dec
+                    << this << "]: Port " << Dec
                     << p1 << Hex
                     << " appeared to be connected but could not be set up");
         }
         else
         {
             DEBUG_LOG(
-                "USB: UHCI [" << reinterpret_cast<uintptr_t>(this) << "]: Port "
+                "USB: UHCI [" << this << "]: Port "
                               << Dec << p1 << Hex
                               << " has a full-speed device connected to it");
             if (!deviceConnected(p1, FullSpeed))
                 WARNING(
                     "USB UHCI ["
-                    << reinterpret_cast<uintptr_t>(this) << "]: Port " << Dec
+                    << this << "]: Port " << Dec
                     << p1 << Hex
                     << " appeared to be connected but could not be set up");
         }
@@ -819,7 +819,7 @@ uint64_t Uhci::executeRequest(
     else
     {
         DEBUG_LOG(
-            "USB: UHCI [" << reinterpret_cast<uintptr_t>(this)
+            "USB: UHCI [" << this
                           << "]: Device on port " << Dec << p1 << Hex
                           << " disconnected.");
         deviceDisconnected(p1);
