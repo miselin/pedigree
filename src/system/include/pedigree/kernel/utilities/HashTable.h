@@ -429,6 +429,27 @@ class HashTable
         return ConstIterator(0);
     }
 
+    /**
+     * Erase the value at the given iterator position.
+     */
+    Iterator erase(Iterator &at)
+    {
+        if (m_Buckets[at.__getNode()->pos].set)
+        {
+            m_Buckets[at.__getNode()->pos].set = false;
+            --m_nItems;
+            rehash();
+
+            // This is the only safe way to continue iterating - the rehash in
+            // remove makes everything else incorrect.
+            return begin();
+        }
+        else
+        {
+            return at;
+        }
+    }
+
   private:
     void check()
     {

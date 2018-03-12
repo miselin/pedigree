@@ -79,9 +79,7 @@ File *Directory::lookup(const String &s) const
         return 0;
     }
 
-    HashedFileName name(s);
-
-    DirectoryEntryCache::LookupResult result = m_Cache.lookup(name);
+    DirectoryEntryCache::LookupResult result = m_Cache.lookup(s);
     if (result.hasValue())
     {
         return result.value()->get();
@@ -94,9 +92,7 @@ File *Directory::lookup(const String &s) const
 
 void Directory::remove(const String &s)
 {
-    HashedFileName name(s);
-
-    DirectoryEntryCache::LookupResult result = m_Cache.lookup(name);
+    DirectoryEntryCache::LookupResult result = m_Cache.lookup(s);
     if (result.hasValue())
     {
         DirectoryEntry *v = result.value();
@@ -109,8 +105,7 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
 {
     DirectoryEntry *entry = new DirectoryEntry(pTarget);
 
-    HashedFileName hashedName(name);
-    m_Cache.insert(hashedName, entry);
+    m_Cache.insert(name, entry);
 
     m_bCachePopulated = true;
 }
@@ -119,8 +114,7 @@ void Directory::addDirectoryEntry(const String &name, const DirectoryEntryMetada
 {
     DirectoryEntry *entry = new DirectoryEntry(meta);
 
-    HashedFileName hashedName(name);
-    m_Cache.insert(hashedName, entry);
+    m_Cache.insert(name, entry);
 
     m_bCachePopulated = true;
 }
@@ -143,8 +137,7 @@ bool Directory::addEphemeralFile(File *pFile)
         m_bCachePopulated = true;
     }
 
-    HashedFileName name(pFile->getName());
-    if (m_Cache.lookup(name).hasValue())
+    if (m_Cache.lookup(pFile->getName()).hasValue())
     {
         // already exists!
         return false;
@@ -152,7 +145,7 @@ bool Directory::addEphemeralFile(File *pFile)
 
     /// \todo removal will still want to hit the Filesystem here! not good!
     DirectoryEntry *entry = new DirectoryEntry(pFile);
-    m_Cache.insert(name, entry);
+    m_Cache.insert(pFile->getName(), entry);
 
     return true;
 }

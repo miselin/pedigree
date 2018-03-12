@@ -134,38 +134,7 @@ class Directory : public File
     typedef LazyEvaluate<File, DirectoryEntryMetadata, evaluateEntry, destroyEntry> DirectoryEntry;
 
   private:
-    class HashedFileName
-    {
-      public:
-        HashedFileName() : str_(), hash_(0) {}
-        HashedFileName(const String &str) : str_(str), hash_(0)
-        {
-            hash_ = jenkinsHash(static_cast<const char *>(str_), str_.length());
-        }
-
-        uint32_t hash() const
-        {
-            return hash_;
-        }
-
-        /// \todo handle optional case sensitivity
-
-        bool operator==(const HashedFileName &other) const
-        {
-            return str_ == other.str_;
-        }
-
-        bool operator!=(const HashedFileName &other) const
-        {
-            return str_ != other.str_;
-        }
-
-      private:
-        String str_;
-        uint32_t hash_;
-    };
-
-    typedef HashTable<HashedFileName, DirectoryEntry *> DirectoryEntryCache;
+    typedef HashTable<String, DirectoryEntry *> DirectoryEntryCache;
 
     /** Directory contents cache. */
     DirectoryEntryCache m_Cache;
