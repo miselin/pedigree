@@ -183,19 +183,6 @@ uint64_t ZeroFile::write(
     return size;
 }
 
-uint64_t PsAuxFile::read(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    ERROR("PsAuxFile::read has been called");
-    return 0;
-}
-
-uint64_t PsAuxFile::write(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    return 0;
-}
-
 uint64_t RtcFile::read(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
@@ -504,6 +491,7 @@ DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);
 
+    delete m_pPsAuxFile;
     delete m_VtManager;
     delete m_pTty;
     delete m_pRoot;
@@ -665,13 +653,22 @@ bool DevFs::initialise(Disk *pDisk)
     Pipe *initctl =
         new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
     m_pRoot->addEntry(initctl->getName(), initctl);
+    // initctl->increaseRefCount(false);  // pretend to be a reader
 
     RtcFile *rtc = new RtcFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(rtc->getName(), rtc);
 
     PsAuxFile *pPsAux =
         new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
-    m_pRoot->addEntry(pPsAux->getName(), pPsAux);
+    if (pPsAux->initialise())
+    {
+        m_pRoot->addEntry(pPsAux->getName(), pPsAux);
+        m_pPsAuxFile = pPsAux;
+    }
+    else
+    {
+        delete pPsAux;
+    }
 
     // add input handler for terminal switching
     InputManager::instance().installCallback(

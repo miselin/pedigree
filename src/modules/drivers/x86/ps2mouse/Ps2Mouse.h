@@ -25,9 +25,13 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 
+extern class Ps2Mouse *g_Ps2Mouse WEAK;
+
 class Ps2Mouse : public Device, public IrqHandler
 {
   public:
+    typedef void (*MouseHandlerFunction)(void *, const void *, size_t);
+
     Ps2Mouse(Device *pDev);
     virtual ~Ps2Mouse();
 
@@ -39,6 +43,11 @@ class Ps2Mouse : public Device, public IrqHandler
     }
 
     virtual bool irq(irq_id_t number, InterruptState &state);
+
+    void write(const char *bytes, size_t len);
+
+    // subscribe to the raw bus protocol
+    void subscribe(MouseHandlerFunction handler, void *param);
 
   private:
     IoBase *m_pBase;
@@ -80,6 +89,8 @@ class Ps2Mouse : public Device, public IrqHandler
     bool setDefaults();
     bool enableMouse();
 
+    void updateSubscribers(const void *buffer, size_t len);
+
     /// Mouse data buffer
     uint8_t m_Buffer[3];
 
@@ -94,6 +105,10 @@ class Ps2Mouse : public Device, public IrqHandler
 
     Ps2Mouse(const Ps2Mouse &);
     void operator=(const Ps2Mouse &);
+
+    static const size_t m_nHandlers = 32;
+    MouseHandlerFunction m_Handlers[m_nHandlers];
+    void *m_HandlerParams[m_nHandlers];
 };
 
 #endif

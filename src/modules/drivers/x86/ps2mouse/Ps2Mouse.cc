@@ -33,6 +33,12 @@ Ps2Mouse::Ps2Mouse(Device *pDev)
 {
     setSpecificType(String("ps2-mouse"));
 
+    for (size_t i = 0; i < m_nHandlers; ++i)
+    {
+        m_Handlers[i] = nullptr;
+        m_HandlerParams[i] = nullptr;
+    }
+
     // Install ourselves as the IRQ handler for the mouse
     setInterruptNumber(12);
     Machine::instance().getIrqManager()->registerIsaIrqHandler(
@@ -72,48 +78,87 @@ bool Ps2Mouse::initialise(IoBase *pBase)
 bool Ps2Mouse::irq(irq_id_t number, InterruptState &state)
 {
     uint8_t b = m_pBase->read8(4);
-
-    if ((b & 0x01) && (b & 0x20))
+    if (b & 0x01)  // byte ready to be read from the status register
     {
         b = m_pBase->read8();
         if (b == MouseAck)
         {
+            updateSubscribers(&b, 1);
             m_IrqWait.release();
         }
         else
         {
-            LockGuard<Spinlock> guard(m_BufferLock);
 
-            m_Buffer[m_BufferIndex++] = b;
-            if (m_BufferIndex == 3)
+            ssize_t xrel = 0;
+            ssize_t yrel = 0;
+            uint32_t buttons = 0;
+            bool needUpdate = false;
             {
-                InputManager::instance().mouseUpdate(
-                    static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1])),
-                    static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2])), 0,
-                    static_cast<uint32_t>(m_Buffer[0]) & 0x3);
-                m_BufferIndex = 0;
+                LockGuard<Spinlock> guard(m_BufferLock);
+                m_Buffer[m_BufferIndex++] = b;
+                needUpdate = m_BufferIndex == 3;
+                if (needUpdate)
+                {
+                    xrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1]));
+                    yrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2]));
+                    buttons = static_cast<uint32_t>(m_Buffer[0]) & 0x3;
+                    m_BufferIndex = 0;
+                }
             }
+
+            // lock no longer taken, safe to send the update
+            // InputManager::instance().mouseUpdate(xrel, yrel, 0, buttons);
+            updateSubscribers(m_Buffer, 3);
         }
     }
 
     return true;
 }
 
+void Ps2Mouse::write(const char *bytes, size_t len)
+{
+    for (size_t i = 0; i < len; ++i)
+    {
+        mouseWrite(bytes[i]);
+    }
+}
+
+void Ps2Mouse::subscribe(MouseHandlerFunction handler, void *param)
+{
+    for (size_t i = 0; i < m_nHandlers; ++i)
+    {
+        if (m_Handlers[i])
+        {
+            continue;
+        }
+
+        m_Handlers[i] = handler;
+        m_HandlerParams[i] = param;
+    }
+}
+
 void Ps2Mouse::mouseWait(Ps2Mouse::WaitType type)
 {
-    // Pretend to wait.
-    /// \todo Check for data
+    if (type == Data)
+    {
+        // wait for input buffer
+        while ((m_pBase->read8(4) & 1) == 0)
+            ;
+    }
+    else if (type == Signal)
+    {
+        // wait for output buffer
+        while (m_pBase->read8(4) & 2)
+            ;
+    }
 }
 
 void Ps2Mouse::mouseWrite(uint8_t data)
 {
-    // Wait for the controller
-    mouseWait(Signal);
-
-    // Switch to the mouse
+    // Send byte to the mouse
     m_pBase->write8(0xD4, 4);
 
-    // Wait for it to be selected
+    // Wait for the device's buffer to be available
     mouseWait(Signal);
 
     // Send the byte
@@ -131,9 +176,6 @@ uint8_t Ps2Mouse::mouseRead()
 
 void Ps2Mouse::enableAuxDevice()
 {
-    // Wait for the controller
-    mouseWait(Signal);
-
     // Enable the auxillary device
     m_pBase->write8(0xA8, 4);
 }
@@ -155,9 +197,6 @@ void Ps2Mouse::enableIrq()
 
 bool Ps2Mouse::setDefaults()
 {
-    // Wait for the controller
-    mouseWait(Signal);
-
     // Tell the mouse to set defaults
     mouseWrite(SetDefaults);
 
@@ -197,4 +236,17 @@ bool Ps2Mouse::enableMouse()
     }
 
     return true;
+}
+
+void Ps2Mouse::updateSubscribers(const void *buffer, size_t len)
+{
+    for (size_t i = 0; i < m_nHandlers; ++i)
+    {
+        if (!m_Handlers[i])
+        {
+            continue;
+        }
+
+        m_Handlers[i](m_HandlerParams[i], buffer, len);
+    }
 }
