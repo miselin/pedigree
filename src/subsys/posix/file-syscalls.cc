@@ -2863,6 +2863,53 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
         file->truncate();
     }
 
+    // Final checks.
+    if (file->isFifo())
+    {
+        F_NOTICE("FIFO => checking if we have any readers");
+
+        /// \todo should block until a reader is present if O_NONBLOCK is not set
+        Pipe *pipe = Pipe::fromFile(file);
+        if (!pipe->getReaderCount())
+        {
+            F_NOTICE("FIFO => might need to wait for a reader");
+            if (flags & O_WRONLY)
+            {
+                // non-blocking open for writing with no readers -> io error
+                if (flags & O_NONBLOCK)
+                {
+                    // FIFO + no readers yet = ENXIO
+                    F_NOTICE("    -> ENXIO");
+                    SYSCALL_ERROR(NoSuchDevice);
+                    pSubsystem->freeFd(fd);
+                    return -1;
+                }
+                else
+                {
+                    F_NOTICE("FIFO => not a non-blocking open");
+
+                    // need to wait for a reader
+                    if (!pipe->waitForReader())
+                    {
+                        // interrupted!
+                        F_NOTICE("    -> EINTR (fifo)");
+                        SYSCALL_ERROR(Interrupted);
+                        pSubsystem->freeFd(fd);
+                        return -1;
+                    }
+                    else
+                    {
+                        F_NOTICE("FIFO => successfully waited for a reader");
+                    }
+                }
+            }
+        }
+        else
+        {
+            F_NOTICE("FIFO => " << pipe->getReaderCount() << " readers.");
+        }
+    }
+
     FileDescriptor *f = new FileDescriptor(
         file, (flags & O_APPEND) ? file->getSize() : 0, fd, 0, flags);
     if (f)

@@ -40,8 +40,8 @@ class Pipe : public File
     /** Eases the pain of casting, and performs a sanity check. */
     static Pipe *fromFile(File *pF)
     {
-        if (!pF->isPipe())
-            FATAL("Casting non-symlink File to Pipe!");
+        if (!(pF->isPipe() || pF->isFifo()))
+            FATAL("Casting non-pipe/fifo File to Pipe!");
         return reinterpret_cast<Pipe *>(pF);
     }
 
@@ -87,6 +87,19 @@ class Pipe : public File
         (and also when all readers have hung up so we can die). */
     virtual void decreaseRefCount(bool bIsWriter);
 
+    size_t getReaderCount() const
+    {
+        return m_nReaders;
+    }
+
+    size_t getWriterCount() const
+    {
+        return m_nWriters;
+    }
+
+    // Wait for a reader - returns false if interrupted before a reader arrived.
+    bool waitForReader();
+
   protected:
     /** If we're an anonymous pipe, we should delete ourselves when all
      * readers/writers have hung up. */
@@ -97,6 +110,9 @@ class Pipe : public File
 
     /** Internal pipe buffer. */
     Buffer<uint8_t> m_Buffer;
+
+    /** Reader semaphore to allow blocking until a reader arrives. */
+    Semaphore m_ReaderSem;
 };
 
 #endif

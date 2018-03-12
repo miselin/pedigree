@@ -40,7 +40,8 @@ class ZombiePipe : public ZombieObject
 };
 
 Pipe::Pipe()
-    : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
+    : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
+      m_ReaderSem(0)
 {
 #ifdef VERBOSE_KERNEL
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
@@ -54,7 +55,8 @@ Pipe::Pipe(
     : File(
           name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
           pParent),
-      m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX)
+      m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
+      m_ReaderSem(0)
 {
 #ifdef VERBOSE_KERNEL
     NOTICE(
@@ -144,6 +146,8 @@ void Pipe::increaseRefCount(bool bIsWriter)
         // A reader is now present so we can enable reads if they weren't.
         m_Buffer.enableReads();
         m_nReaders++;
+
+        m_ReaderSem.release();
     }
 }
 
@@ -212,4 +216,9 @@ void Pipe::decreaseRefCount(bool bIsWriter)
     {
         dataChanged();
     }
+}
+
+bool Pipe::waitForReader()
+{
+    return m_ReaderSem.acquire();
 }
