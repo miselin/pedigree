@@ -57,6 +57,9 @@ class X86Keyboard : public Keyboard, private IrqHandler
     /// Converts a scancode into an ASCII character (for use in debug state)
     char scancodeToAscii(uint8_t scancode);
 
+    void waitForReadable();
+    void waitForWriteable();
+
     /// True if we're in debug state
     bool m_bDebugState;
 

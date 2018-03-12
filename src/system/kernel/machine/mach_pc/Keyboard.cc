@@ -19,9 +19,11 @@
 
 #include "Keyboard.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Trace.h"
 
 #ifdef DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
@@ -79,6 +81,55 @@ void X86Keyboard::initialise()
               "tree");
     }
 
+    // Now that we have the base, initialize the PS/2 controller and keyboard
+
+    TRACE("PS/2: disable all devices #1");
+    m_pBase->write8(0xAD, 4);  // disable all devices
+    TRACE("PS/2: disable all devices #2");
+    m_pBase->write8(0xA7, 4);
+    TRACE("PS/2: clear output buffer");
+    m_pBase->read8(0);  // clear output buffer
+    TRACE("PS/2: read config byte");
+    m_pBase->write8(0x20, 4);
+    waitForReadable();
+    uint8_t configByte = m_pBase->read8(0);
+    configByte |= ~0x43;  // disable IRQs & translation
+    TRACE("PS/2: write new config byte");
+    m_pBase->write8(0x60, 4);
+    TRACE("PS/2: waiting for writeable");
+    waitForWriteable();
+    TRACE("PS/2: now writing the new config byte");
+    m_pBase->write8(configByte, 0);
+
+    /// \todo check bit 5 in config byte to make sure we have a dual-channel ps2 controller
+
+    TRACE("PS/2: perform self-test");
+    m_pBase->write8(0xAA, 4);
+    waitForReadable();
+    uint8_t selfTestResponse = m_pBase->read8(0);
+    NOTICE("PS/2 self-test response: " << Hex << selfTestResponse);
+
+    // finally enable the ports
+    TRACE("PS/2: enable first port");
+    m_pBase->write8(0xAE, 4);
+    TRACE("PS/2: enable second port");
+    m_pBase->write8(0xA8, 4);
+
+    TRACE("PS/2: read config byte #2");
+    m_pBase->write8(0x20, 4);
+    waitForReadable();
+    configByte = m_pBase->read8(0);
+    configByte |= 1;  // enable IRQ for first port
+    TRACE("PS/2: write config byte to enable IRQs for first port");
+    m_pBase->write8(0x60, 4);
+    waitForWriteable();
+    m_pBase->write8(configByte, 0);
+
+    // reset all devices
+    // response should arrive via IRQ
+    TRACE("PS/2: performing device reset");
+    m_pBase->write8(0xFF, 4);
+
     // Register the irq
     IrqManager &irqManager = *Machine::instance().getIrqManager();
     m_IrqId = irqManager.registerIsaIrqHandler(1, this, true);
@@ -97,11 +148,24 @@ bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
 
     // Get the keyboard's status byte
     uint8_t status = m_pBase->read8(4);
+    NOTICE("keyboard: status = " << Hex << status);
     if (!(status & 0x01))
         return true;
 
     // Get the scancode for the pending keystroke
     uint8_t scancode = m_pBase->read8(0);
+    NOTICE("keyboard: scancode = " << Hex << scancode);
+    if (scancode == 0xFA)
+    {
+        // just an ack
+        return true;
+    }
+    else if (scancode == 0xFE)
+    {
+        // potentially need to resend but we have no way to do that here
+        WARNING("PS/2 keyboard requests a resend, but this is not implemented.");
+        return true;
+    }
 
 // Check for keys with special functions
 #ifdef DEBUGGER
@@ -156,6 +220,8 @@ bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
             setLedState(m_LedState);
         }
     }
+
+    InputManager::instance().machineKeyUpdate(scancode & 0x7F, scancode & 0x80);
 
     // Get the HID keycode corresponding to the scancode
     uint8_t keyCode =
@@ -303,4 +369,16 @@ void X86Keyboard::setLedState(char state)
     while (m_pBase->read8(4) & 2)
         ;
     m_pBase->write8(state, 0);
+}
+
+void X86Keyboard::waitForReadable()
+{
+    while ((m_pBase->read8(4) & 1) == 0)
+        ;
+}
+
+void X86Keyboard::waitForWriteable()
+{
+    while (m_pBase->read8(4) & 2)
+        ;
 }
