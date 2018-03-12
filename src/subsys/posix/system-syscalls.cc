@@ -71,6 +71,21 @@
 #define ARCH_SET_FS 0x1002
 #define ARCH_GET_FS 0x1003
 
+// capget/capset
+#define _LINUX_CAPABILITY_VERSION_1  0x19980330
+
+struct cap_header {
+    uint32_t version;
+    int pid;
+};
+
+struct cap_data {
+    uint32_t effective;
+    uint32_t permitted;
+    uint32_t inheritable;
+};
+
+
 //
 // Syscalls pertaining to system operations.
 //
@@ -1656,6 +1671,12 @@ int posix_uname(struct utsname *n)
     return 0;
 }
 
+int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    NOTICE("prctl(" << Hex << option << ", " << arg2 << ", " << arg3 << ", " << arg4 << ", " << arg5 << ")");
+    return 0;
+}
+
 int posix_arch_prctl(int code, unsigned long addr)
 {
     unsigned long *pAddr = reinterpret_cast<unsigned long *>(addr);
@@ -2136,5 +2157,64 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
         old_value->it_value.tv_usec = (prevValue % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
     }
 
+    return 0;
+}
+
+int posix_capget(void *hdrp, void *datap)
+{
+    PosixProcess *pProcess = getPosixProcess();
+    if (!pProcess)
+    {
+        /// \todo errno
+        return -1;
+    }
+
+    struct cap_header *header = reinterpret_cast<struct cap_header *>(hdrp);
+    struct cap_data *data = reinterpret_cast<struct cap_data *>(datap);
+
+    if (!header)
+    {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    if (header->version != _LINUX_CAPABILITY_VERSION_1)
+    {
+        // require capability version 1
+        header->version = _LINUX_CAPABILITY_VERSION_1;
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    if (data)
+    {
+        /// \todo don't give away every capability like this
+        data->effective = 0xFFFFFFFF;
+        data->permitted = 0xFFFFFFFF;
+        data->inheritable = 0xFFFFFFFF;
+    }
+
+    return 0;
+}
+
+int posix_capset(void *hdrp, const void *datap)
+{
+    struct cap_header *header = reinterpret_cast<struct cap_header *>(hdrp);
+    const struct cap_data *data = reinterpret_cast<const struct cap_data *>(datap);
+
+    if (!header)
+    {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    if (header->version != _LINUX_CAPABILITY_VERSION_1)
+    {
+        header->version = _LINUX_CAPABILITY_VERSION_1;
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    // no-op - capget says all capabilities are given, and the posix subsystem doesn't use them yet
     return 0;
 }

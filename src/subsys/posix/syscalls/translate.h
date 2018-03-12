@@ -337,6 +337,13 @@ inline long posix_translate_syscall(long which)
             pedigree_translation = POSIX_GETPGID;
             break;
         // ...
+        case SYS_capget:
+            pedigree_translation = POSIX_CAPGET;
+            break;
+        case SYS_capset:
+            pedigree_translation = POSIX_CAPSET;
+            break;
+        // ...
         case SYS_utime:
             pedigree_translation = POSIX_UTIME;
             break;
@@ -358,6 +365,9 @@ inline long posix_translate_syscall(long which)
             pedigree_translation = POSIX_SETPRIORITY;
             break;
         // ...
+        case SYS_prctl:
+            pedigree_translation = POSIX_PRCTL;
+            break;
         case SYS_arch_prctl:
             pedigree_translation = POSIX_ARCH_PRCTL;
             break;

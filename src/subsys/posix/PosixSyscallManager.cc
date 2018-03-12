@@ -660,6 +660,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_sendmsg(p1, reinterpret_cast<const struct msghdr *>(p2), p3);
         case POSIX_RECVMSG:
             return posix_recvmsg(p1, reinterpret_cast<struct msghdr *>(p2), p3);
+        case POSIX_CAPGET:
+            return posix_capget(reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
+        case POSIX_CAPSET:
+            return posix_capset(reinterpret_cast<void *>(p1), reinterpret_cast<const void *>(p2));
+        case POSIX_PRCTL:
+            return posix_prctl(p1, p2, p3, p4, p5);
 
         default:
             ERROR(
