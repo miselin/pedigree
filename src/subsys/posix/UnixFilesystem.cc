@@ -52,6 +52,8 @@ UnixSocket::~UnixSocket()
     {
         if (m_pOther)
         {
+            LockGuard<Mutex> guard(m_pOther->m_Mutex);
+
             /// \todo update read/write to handle the other socket going away correctly
             assert(m_pOther->m_pOther == this);
             m_pOther->m_pOther = nullptr;
@@ -214,32 +216,49 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
         return false;
     }
 
-    if (m_State != Inactive)
     {
+        LockGuard<Mutex> guard1(m_Mutex);
+        if (m_State != Inactive)
+        {
+            N_NOTICE("bind failed because this socket is already in a non-inactive state");
+            return false;
+        }
+
+        m_pOther = other;
+
+        LockGuard<Mutex> guard2(m_pOther->m_Mutex);
+        if (m_pOther->m_State != Inactive)
+        {
+            N_NOTICE("bind failed because other socket is already in a non-inactive state");
+            m_pOther = nullptr;
+            return false;
+        }
+
+        other->m_pOther = this;
+
+        m_State = Connecting;
+        m_pOther->m_State = Connecting;
+
+        setCreds();
+    }
+
+    if (!block)
+    {
+        N_NOTICE("bind is not blocking, use poll() etc");
+        return true;
+    }
+
+#ifdef THREADS
+    N_NOTICE("bind is waiting for an ack");
+    m_AckWaiter.acquire();
+
+    if (m_State != Active)
+    {
+        N_NOTICE("got ack but we're inactive");
         return false;
     }
 
-    m_pOther = other;
-    other->m_pOther = this;
-
-    m_State = Connecting;
-    m_pOther->m_State = Connecting;
-
-#ifdef THREADS
-    Process *pCurrentProcess = Processor::information().getCurrentThread()->getParent();
-    m_Creds.uid = pCurrentProcess->getUserId();
-    m_Creds.gid = pCurrentProcess->getGroupId();
-    m_Creds.pid = pCurrentProcess->getId();
-
-    if (block)
-    {
-        m_AckWaiter.acquire();
-
-        if (m_State != Active)
-        {
-            return false;
-        }
-    }
+    N_NOTICE("got ack and we're now active");
 #endif
 
     return true;
@@ -247,10 +266,14 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
 
 void UnixSocket::unbind()
 {
+    LockGuard<Mutex> guard1(m_Mutex);
+
     if (!m_pOther)
     {
         return;
     }
+
+    LockGuard<Mutex> guard2(m_pOther->m_Mutex);
 
     N_NOTICE("UnixSocket::unbind");
 
@@ -274,20 +297,29 @@ void UnixSocket::unbind()
 
 void UnixSocket::acknowledgeBind()
 {
-    if (m_State != Connecting)
+    LockGuard<Mutex> guard1(m_Mutex);
+
+    if (!m_pOther)
     {
         return;
     }
 
+    LockGuard<Mutex> guard2(m_pOther->m_Mutex);
+
+    if (m_State != Connecting || m_pOther->m_State != Connecting)
+    {
+        N_NOTICE("can't ack bind - one or both sockets are not connecting");
+        return;
+    }
+
+    N_NOTICE("acking bind");
+
     m_State = Active;
     m_pOther->m_State = Active;
 
-#ifdef THREADS
-    Process *pCurrentProcess = Processor::information().getCurrentThread()->getParent();
-    m_Creds.uid = pCurrentProcess->getUserId();
-    m_Creds.gid = pCurrentProcess->getGroupId();
-    m_Creds.pid = pCurrentProcess->getId();
+    setCreds();
 
+#ifdef THREADS
     m_AckWaiter.release();
     m_pOther->m_AckWaiter.release();
 #endif
@@ -305,6 +337,8 @@ void UnixSocket::addSocket(UnixSocket *socket)
 
     m_PendingSockets.pushBack(socket);
 
+    N_NOTICE("adding listening socket");
+
     // No data moving on listen sockets so we use the stream buffer as a signaling primitive.
     uint8_t c = 0;
     m_Stream.write(&c, 1);
@@ -312,8 +346,6 @@ void UnixSocket::addSocket(UnixSocket *socket)
 
 UnixSocket *UnixSocket::getSocket(bool block)
 {
-    LockGuard<Mutex> guard(m_Mutex);
-
     if (m_State != Listening)
     {
         // not listening
@@ -325,6 +357,12 @@ UnixSocket *UnixSocket::getSocket(bool block)
     {
         return nullptr;
     }
+
+    N_NOTICE("got a socket");
+
+    LockGuard<Mutex> guard(m_Mutex);
+
+    N_NOTICE("popping & acking it");
 
     UnixSocket *result = m_PendingSockets.popFront();
     result->acknowledgeBind();
@@ -383,6 +421,16 @@ bool UnixSocket::markListening()
 
     m_State = Listening;
     return true;
+}
+
+void UnixSocket::setCreds()
+{
+#ifdef THREADS
+    Process *pCurrentProcess = Processor::information().getCurrentThread()->getParent();
+    m_Creds.uid = pCurrentProcess->getUserId();
+    m_Creds.gid = pCurrentProcess->getGroupId();
+    m_Creds.pid = pCurrentProcess->getId();
+#endif
 }
 
 UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)

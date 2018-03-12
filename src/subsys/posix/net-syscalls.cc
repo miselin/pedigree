@@ -1812,6 +1812,7 @@ int UnixSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address
     N_NOTICE("UNIX getpeername");
     struct sockaddr_un *sun =
         reinterpret_cast<struct sockaddr_un *>(address);
+    sun->sun_family = AF_UNIX;
     StringCopy(sun->sun_path, m_RemotePath);
     *address_len = sizeof(sa_family_t) + m_RemotePath.length();
 
@@ -1824,6 +1825,7 @@ int UnixSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address
     N_NOTICE("UNIX getsockname");
     struct sockaddr_un *sun =
         reinterpret_cast<struct sockaddr_un *>(address);
+    sun->sun_family = AF_UNIX;
     StringCopy(sun->sun_path, m_LocalPath);
     *address_len = sizeof(sa_family_t) + m_LocalPath.length();
 
@@ -1952,6 +1954,10 @@ bool UnixSocketSyscalls::pairWith(UnixSocketSyscalls *other)
     {
         return false;
     }
+
+    // make sure both sides can use the socket
+    other->m_Socket->acknowledgeBind();
+
     m_Remote = other->m_Socket;
     other->m_Remote = m_Socket;
     return true;

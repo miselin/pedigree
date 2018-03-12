@@ -211,6 +211,8 @@ class UnixSocket : public File
   private:
     typedef Buffer<uint8_t, true> UnixSocketStream;
 
+    void setCreds();
+
     struct buf
     {
         char *pBuffer;
