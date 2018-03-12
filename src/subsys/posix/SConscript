@@ -163,6 +163,9 @@ else:
 
 env_clone['CPPDEFINES'] += ['POSIX_LOG_FACILITIES=%d' % logging_mask]
 
+if env['posix_noefault']:
+    env_clone['CPPDEFINES'] += ['POSIX_NO_EFAULT']
+
 ####################################
 env_clone['CPPPATH'] = include
 env_clone['LIBS'] = []

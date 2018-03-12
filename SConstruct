@@ -78,7 +78,9 @@ opts.AddVariables(
     BoolVariable('posix_poll_verbose', 'Enable logging for POSIX poll/select syscalls.', 0),
     BoolVariable('verbose_kernel', 'Enable verbose logging throughout the kernel.', 0),
 
+    # Controls for the POSIX subsystem
     BoolVariable('posix_musl', 'Build and use musl instead of newlib.', 1),
+    BoolVariable('posix_noefault', 'Never check for EFAULT conditions (unsafe - allows userspace to page fault the kernel).', 0),
 
     # General-purpose configuration knobs.
     BoolVariable('cripple_hdd','Disable writing to hard disks at runtime.',1),

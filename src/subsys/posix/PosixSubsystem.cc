@@ -280,6 +280,10 @@ void PosixSubsystem::release()
 
 bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 {
+#ifdef POSIX_NO_EFAULT
+    return true;
+#endif
+
     Uninterruptible while_checking;
 
 #ifdef VERBOSE_KERNEL
