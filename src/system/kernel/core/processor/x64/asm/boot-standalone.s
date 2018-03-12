@@ -308,8 +308,44 @@ callmain:
   ; Get the FPU and SSE going
   call ___startup_init_fpu_sse
 
+  ; Fix up first serial port
+  call __fixup_first_serial
+
   call _main
   jmp $
+
+; Fixes up the first serial port so it's useful
+__fixup_first_serial:
+  push rax
+  push rdx
+
+  mov al, 0x00
+  mov dx, 0x3f9
+  out dx, al  ; disable interrupts
+
+  mov al, 0x80
+  mov dx, 0x3fb
+  out dx, al  ; enable baud rate divisor
+
+  mov al, 0x01
+  mov dx, 0x3f8
+  out dx, al  ; set divisor to 1 (115200 baud)
+
+  xor al, al
+  mov dx, 0x3f9
+  out dx, al  ; divisor high byte
+
+  mov al, 0x03
+  mov dx, 0x3fb
+  out dx, al  ; set data format to 8 bits, no parity, one stop bit
+
+  mov al, 0xc7
+  mov dx, 0x3fa
+  out dx, al  ; enable fifo & clear
+
+  pop rdx
+  pop rax
+  ret
 
 ; Enables the FPU and SSE (used very early by GCC's codegen)
 ___startup_init_fpu_sse:
