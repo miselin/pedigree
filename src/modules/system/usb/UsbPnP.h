@@ -64,6 +64,10 @@ class UsbPnP
     bool probeDevice(Device *pDeviceBase);
 
   private:
+    /// Probes a device and returns the new device if it was successfully
+    /// loaded and owned by a driver, or the original pointer otherwise.
+    Device *doProbe(Device *pDeviceBase);
+
     /// Static instance
     static UsbPnP m_Instance;
 

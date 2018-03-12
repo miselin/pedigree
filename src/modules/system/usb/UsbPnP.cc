@@ -25,18 +25,30 @@ UsbPnP UsbPnP::m_Instance;
 
 bool UsbPnP::probeDevice(Device *pDeviceBase)
 {
+    Device *pResult = doProbe(pDeviceBase);
+    return pResult == pDeviceBase;
+}
+
+Device *UsbPnP::doProbe(Device *pDeviceBase)
+{
     // Sanity check.
     if (!(pDeviceBase->getType() == Device::UsbContainer))
-        return false;
+    {
+        return pDeviceBase;
+    }
 
     UsbDevice *pDevice =
         static_cast<UsbDeviceContainer *>(pDeviceBase)->getUsbDevice();
 
     // Is this device already handled by a driver?
     if (pDevice->getUsbState() == UsbDevice::HasDriver)
-        return false;
+    {
+        return pDeviceBase;
+    }
     else if (!m_Callbacks.count())
-        return false;
+    {
+        return pDeviceBase;
+    }
 
     UsbDevice::DeviceDescriptor *pDes = pDevice->getDescriptor();
     UsbDevice::Interface *pIface = pDevice->getInterface();
@@ -78,34 +90,31 @@ bool UsbPnP::probeDevice(Device *pDeviceBase)
         if (pNewDevice->getUsbState() == UsbDevice::HasDriver)
         {
             // Replace the old device with the new one
-            UsbDeviceContainer *pContainer = pDevice->getContainer();
-            pContainer->getParent()->replaceChild(
-                pContainer, new UsbDeviceContainer(pNewDevice));
-            delete pContainer;
-            delete pDevice;
-            return true;
+            UsbDeviceContainer *pNewContainer = new UsbDeviceContainer(pNewDevice);
+            return pNewContainer;
         }
         else
+        {
             delete pNewDevice;
+        }
     }
-    return false;
+    return pDeviceBase;
 }
 
 void UsbPnP::reprobeDevices(Device *pParent)
 {
-    if (!pParent)
-        return;
-
-    for (size_t i = 0; i < pParent->getNumChildren(); i++)
-    {
-        Device *pDevice = pParent->getChild(i);
-        if (pDevice && (pDevice->getType() == Device::UsbContainer))
+    auto performReprobe = [](Device *p) {
+        if (p->getType() == Device::UsbContainer)
         {
-            probeDevice(pDevice);
+            return UsbPnP::instance().doProbe(p);
         }
 
-        reprobeDevices(pDevice);
-    }
+        // don't edit the tree - just iterating
+        return p;
+    };
+
+    auto c = pedigree_std::make_callable(performReprobe);
+    Device::foreach(c, pParent);
 }
 
 void UsbPnP::registerCallback(
@@ -121,7 +130,7 @@ void UsbPnP::registerCallback(
 
     m_Callbacks.pushBack(item);
 
-    // reprobeDevices(&Device::root());
+    reprobeDevices(nullptr);
 }
 
 void UsbPnP::registerCallback(
@@ -137,5 +146,5 @@ void UsbPnP::registerCallback(
 
     m_Callbacks.pushBack(item);
 
-    // reprobeDevices(&Device::root());
+    reprobeDevices(nullptr);
 }

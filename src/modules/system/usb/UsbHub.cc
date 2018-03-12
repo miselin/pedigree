@@ -146,10 +146,8 @@ bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
             << Hex);
 
         // Send it to the USB PnP manager
-        NOTICE(
-            "pnp instance is: "
-            << reinterpret_cast<uintptr_t>(&UsbPnP::instance()) << ".");
-        // UsbPnP::instance().probeDevice(pDevice);
+        NOTICE("pnp instance is: " << &UsbPnP::instance() << ".");
+        UsbPnP::instance().probeDevice(pContainer);
     }
     return true;
 }

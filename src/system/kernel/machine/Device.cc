@@ -90,11 +90,11 @@ Device::~Device()
     }
 }
 
-void Device::foreach (Device::Callback callback, Device * root)
+void Device::foreach(Device::Callback callback, Device *root)
 {
     // Forward to the Callable<> version.
     pedigree_std::Callable<decltype(callback)> cb(callback);
-    foreach (cb, root)
+    foreach(cb, root)
         ;
 }
 
@@ -254,7 +254,13 @@ void Device::searchByVendorIdInternal(
     {
         Device *pChild = root->getChild(i);
         if (pChild->getPciVendorId() == vendorId)
+        {
             callback(pChild);
+
+            // if the callback replaced this object, we need to re-attain it
+            // before we can recurse
+            pChild = root->getChild(i);
+        }
 
         searchByVendorIdInternal(vendorId, callback, pChild);
     }
@@ -269,7 +275,13 @@ void Device::searchByVendorIdAndDeviceIdInternal(
         Device *pChild = root->getChild(i);
         if ((pChild->getPciVendorId() == vendorId) &&
             (pChild->getPciDeviceId() == deviceId))
+        {
             callback(pChild);
+
+            // if the callback replaced this object, we need to re-attain it
+            // before we can recurse
+            pChild = root->getChild(i);
+        }
 
         searchByVendorIdAndDeviceIdInternal(
             vendorId, deviceId, callback, pChild);
@@ -283,7 +295,13 @@ void Device::searchByClassInternal(
     {
         Device *pChild = root->getChild(i);
         if (pChild->getPciClassCode() == classCode)
+        {
             callback(pChild);
+
+            // if the callback replaced this object, we need to re-attain it
+            // before we can recurse
+            pChild = root->getChild(i);
+        }
 
         searchByClassInternal(classCode, callback, pChild);
     }
@@ -298,7 +316,13 @@ void Device::searchByClassAndSubclassInternal(
         Device *pChild = root->getChild(i);
         if ((pChild->getPciClassCode() == classCode) &&
             (pChild->getPciSubclassCode() == subclassCode))
+        {
             callback(pChild);
+
+            // if the callback replaced this object, we need to re-attain it
+            // before we can recurse
+            pChild = root->getChild(i);
+        }
 
         searchByClassAndSubclassInternal(
             classCode, subclassCode, callback, pChild);
@@ -315,7 +339,13 @@ void Device::searchByClassSubclassAndProgInterfaceInternal(
         if ((pChild->getPciClassCode() == classCode) &&
             (pChild->getPciSubclassCode() == subclassCode) &&
             (pChild->getPciProgInterface() == progInterface))
+        {
             callback(pChild);
+
+            // if the callback replaced this object, we need to re-attain it
+            // before we can recurse
+            pChild = root->getChild(i);
+        }
 
         searchByClassSubclassAndProgInterfaceInternal(
             classCode, subclassCode, progInterface, callback, pChild);
