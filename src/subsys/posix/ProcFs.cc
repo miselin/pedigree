@@ -416,9 +416,9 @@ bool ProcFs::initialise(Disk *pDisk)
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
     // Kernel command line
-    String cmdline(g_pBootstrapInfo->getCommandLine());
-    cmdline += " noswap quiet";  // ensure we get into single user mode in Linux
-                                 // userspaces
+    String cmdline;  //(g_pBootstrapInfo->getCommandLine());
+    cmdline = "noswap quiet boot=live live-config.components\n";
+    NOTICE("cmdline is '" << cmdline << "'");
     ConstantFile *pCmdline = new ConstantFile(
         String("cmdline"), cmdline, cmdline.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
