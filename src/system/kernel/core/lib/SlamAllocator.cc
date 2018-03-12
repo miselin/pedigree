@@ -1106,7 +1106,11 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
 #ifdef THREADS
     if (Processor::m_Initialised == 2)
     {
-        Processor::information().getCurrentThread()->getParent()->trackHeap(nBytes);
+        Thread *pThread = Processor::information().getCurrentThread();
+        if (pThread)
+        {
+            pThread->getParent()->trackHeap(nBytes);
+        }
     }
 #endif
 
@@ -1199,7 +1203,11 @@ void SlamAllocator::free(uintptr_t mem)
 #ifdef THREADS
     if (Processor::m_Initialised == 2)
     {
-        Processor::information().getCurrentThread()->getParent()->trackHeap(-pCache->objectSize());
+        Thread *pThread = Processor::information().getCurrentThread();
+        if (pThread)
+        {
+            pThread->getParent()->trackHeap(-pCache->objectSize());
+        }
     }
 #endif
 
