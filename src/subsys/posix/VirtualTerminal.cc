@@ -68,7 +68,7 @@ bool VirtualTerminalManager::initialise()
 
     // set up tty1
     ConsolePhysicalFile *pTty1 =
-        new ConsolePhysicalFile(m_pTty, String("tty1"), g_pDevFs);
+        new ConsolePhysicalFile(0, m_pTty, String("tty1"), g_pDevFs);
     m_ParentDir->addEntry(pTty1->getName(), pTty1);
 
     m_Terminals[0].textio = m_pTty;
@@ -84,7 +84,7 @@ bool VirtualTerminalManager::initialise()
         if (tio->initialise(true))
         {
             ConsolePhysicalFile *file =
-                new ConsolePhysicalFile(tio, ttyname, g_pDevFs);
+                new ConsolePhysicalFile(i + 1, tio, ttyname, g_pDevFs);
             m_ParentDir->addEntry(tio->getName(), file);
 
             m_Terminals[i].textio = tio;
@@ -194,7 +194,7 @@ size_t VirtualTerminalManager::openInactive()
             if (tio->initialise(true))
             {
                 ConsolePhysicalFile *file =
-                    new ConsolePhysicalFile(tio, ttyname, g_pDevFs);
+                    new ConsolePhysicalFile(i, tio, ttyname, g_pDevFs);
                 m_ParentDir->addEntry(tio->getName(), file);
 
                 m_Terminals[i].textio = tio;
@@ -295,6 +295,28 @@ void VirtualTerminalManager::setSystemMode(SystemMode mode)
 VirtualTerminalManager::SystemMode VirtualTerminalManager::getSystemMode() const
 {
     return m_SystemMode;
+}
+
+void VirtualTerminalManager::setInputMode(size_t n, TextIO::InputMode newMode)
+{
+    if (!m_Terminals[n].textio)
+    {
+        NOTICE("VirtualTerminalManager: can't set mode of VT #" << n << " as it is inactive");
+        return;
+    }
+
+    m_Terminals[n].textio->setMode(newMode);
+}
+
+TextIO::InputMode VirtualTerminalManager::getInputMode(size_t n) const
+{
+    if (!m_Terminals[n].textio)
+    {
+        NOTICE("VirtualTerminalManager: can't get mode of VT #" << n << " as it is inactive");
+        return TextIO::Standard;
+    }
+
+    return m_Terminals[n].textio->getMode();
 }
 
 void VirtualTerminalManager::sendSignal(size_t n, bool acq)

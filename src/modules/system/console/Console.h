@@ -104,6 +104,11 @@ class ConsoleFile : public File
         return m_ConsoleNumber;
     }
 
+    virtual size_t getPhysicalConsoleNumber() const
+    {
+        return ~0U;
+    }
+
     /**
      * In order to ensure getLast is always the most recent character,
      * the thread that wrote a special character to the input stream
@@ -259,7 +264,7 @@ class ConsoleSlaveFile : public ConsoleFile
 class ConsolePhysicalFile : public ConsoleFile
 {
   public:
-    ConsolePhysicalFile(File *pTerminal, String consoleName, Filesystem *pFs);
+    ConsolePhysicalFile(size_t nth, File *pTerminal, String consoleName, Filesystem *pFs);
     virtual ~ConsolePhysicalFile()
     {
     }
@@ -282,11 +287,17 @@ class ConsolePhysicalFile : public ConsoleFile
         return '\0';
     }
 
+    virtual size_t getPhysicalConsoleNumber() const
+    {
+        return m_TerminalNumber;
+    }
+
     virtual int select(bool bWriting, int timeout);
 
   private:
     File *m_pTerminal;
     Buffer<char> m_ProcessedInput;
+    size_t m_TerminalNumber;
 
     virtual void performInject(char *buf, size_t len, bool canBlock);
 };

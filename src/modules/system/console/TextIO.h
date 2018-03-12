@@ -105,6 +105,12 @@ class TextIO : public File
     };
 
   public:
+    enum InputMode
+    {
+        Standard,  // use built-in system keymap translation
+        Raw,  // write scancodes directly
+    };
+
     TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent);
     virtual ~TextIO();
 
@@ -155,6 +161,16 @@ class TextIO : public File
      * Determine whether this console is primary or not.
      */
     bool isPrimary() const;
+
+    /**
+     * Set the input mode of the terminal.
+     */
+    void setMode(InputMode mode);
+
+    /**
+     * Get the current input mode of the terminal.
+     */
+    InputMode getMode() const;
 
   private:
     static const ssize_t BACKBUFFER_COLS_WIDE = 132;
@@ -270,6 +286,8 @@ class TextIO : public File
      * Does this terminal own the output to the Vga instance?
      */
     bool m_bOwnsConsole;
+
+    InputMode m_InputMode;
 };
 
 #endif

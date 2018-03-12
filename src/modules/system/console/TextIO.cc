@@ -47,7 +47,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
       m_pBackbuffer(0), m_pVga(0), m_TabStops(),
       m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'), m_bUtf8(false),
       m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false), m_Lock(false),
-      m_bOwnsConsole(false)
+      m_bOwnsConsole(false), m_InputMode(TextIO::Standard)
 {
     m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
 
@@ -58,6 +58,8 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
 
     InputManager::instance().installCallback(
         InputManager::Key, inputCallback, this);
+    InputManager::instance().installCallback(
+        InputManager::MachineKey, inputCallback, this);
 }
 
 TextIO::~TextIO()
@@ -88,6 +90,7 @@ bool TextIO::initialise(bool bClear)
     m_CurrentModes = 0;
     ByteSet(m_Params, 0, sizeof(size_t) * MAX_TEXTIO_PARAMS);
     ByteSet(m_TabStops, 0, BACKBUFFER_STRIDE);
+    m_InputMode = Standard;
 
     m_pVga = Machine::instance().getVga(0);
     if (m_pVga)
@@ -1960,6 +1963,26 @@ void TextIO::handleInput(InputManager::InputNotification &in)
         return;
     }
 
+    if (m_InputMode == Raw)
+    {
+        if (in.type != InputManager::MachineKey)
+        {
+            return;
+        }
+
+        uint8_t buf = in.data.rawkey.scancode | (in.data.rawkey.keyUp ? 0x80 : 0);
+        m_OutBuffer.write(reinterpret_cast<char *>(&buf), sizeof(buf));
+
+        dataChanged();
+        return;
+    }
+
+    if (in.type != InputManager::Key)
+    {
+        // not actually keyboard input - ignore
+        return;
+    }
+
     uint64_t c = in.data.key.key;
 
     int direction = -1;
@@ -2058,4 +2081,14 @@ void TextIO::unmarkPrimary()
 bool TextIO::isPrimary() const
 {
     return m_bOwnsConsole;
+}
+
+void TextIO::setMode(InputMode mode)
+{
+    m_InputMode = mode;
+}
+
+TextIO::InputMode TextIO::getMode() const
+{
+    return m_InputMode;
 }

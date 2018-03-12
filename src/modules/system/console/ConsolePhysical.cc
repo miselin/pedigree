@@ -23,9 +23,9 @@
 #include "ConsoleDefines.h"
 
 ConsolePhysicalFile::ConsolePhysicalFile(
-    File *pTerminal, String consoleName, Filesystem *pFs)
+    size_t nth, File *pTerminal, String consoleName, Filesystem *pFs)
     : ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal),
-      m_ProcessedInput(PTY_BUFFER_SIZE)
+      m_ProcessedInput(PTY_BUFFER_SIZE), m_TerminalNumber(nth)
 {
 }
 

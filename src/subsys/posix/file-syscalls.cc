@@ -41,6 +41,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
 
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixProcess.h>
@@ -1273,7 +1274,7 @@ int posix_ioctl(int fd, int command, void *buf)
         // KDGETLED
         case 0x4B31:
             {
-                F_NOTICE(" -> KDGETLED (stubbed), arg=" << buf);
+                F_NOTICE(" -> KDGETLED, arg=" << buf);
                 char *cbuf = reinterpret_cast<char *>(buf);
                 *cbuf = Machine::instance().getKeyboard()->getLedState();
             }
@@ -1282,7 +1283,7 @@ int posix_ioctl(int fd, int command, void *buf)
         // KDSETLED
         case 0x4B32:
             {
-                F_NOTICE(" -> KDSETLED (stubbed), arg=" << buf);
+                F_NOTICE(" -> KDSETLED, arg=" << buf);
                 uintptr_t leds = reinterpret_cast<uintptr_t>(buf);
                 Machine::instance().getKeyboard()->setLedState(leds);
             }
@@ -1341,22 +1342,73 @@ int posix_ioctl(int fd, int command, void *buf)
 
         // KDSKBMODE
         case 0x4B45:
-            F_NOTICE(" -> KDSKBMODE (stubbed), arg=" << buf);
+            {
+                F_NOTICE(" -> KDSKBMODE, arg=" << buf);
+
+                size_t consoleNumber = 0;
+                if (ConsoleManager::instance().isConsole(f->file))
+                {
+                    ConsoleFile *pConsole = static_cast<ConsoleFile *>(f->file);
+                    consoleNumber = pConsole->getPhysicalConsoleNumber();
+                    if (consoleNumber == ~0U)
+                    {
+                        ERROR("KDSKBMODE used on something that is not a VT");
+                        return -1;
+                    }
+                }
+                else
+                {
+                    SYSCALL_ERROR(NotAConsole);
+                    return -1;
+                }
+
+                long mode = reinterpret_cast<long>(buf);
+                if (mode == 0)
+                {
+                    g_pDevFs->getTerminalManager().setInputMode(consoleNumber, TextIO::Raw);
+                }
+                else
+                {
+                    g_pDevFs->getTerminalManager().setInputMode(consoleNumber, TextIO::Standard);
+                }
+            }
             return 0;
 
         // KDGKBENT
         case 0x4B46:
             {
-                F_NOTICE(" -> KDGKBENT (stubbed), arg=" << buf);
+                F_NOTICE(" -> KDGKBENT, arg=" << buf);
+                POSIX_VERBOSE_LOG("io", " -> KDGKBENT, arg=" << buf);
+
                 struct kbentry *kbent = reinterpret_cast<struct kbentry *>(buf);
-                kbent->kb_value = kbent->kb_index;
+                bool shift = kbent->kb_table & 0x1;
+                bool altgr = kbent->kb_table & 0x2;
+                bool ctrl = kbent->kb_table & 0x4;
+                bool alt = kbent->kb_table & 0x8;
+
+                // convert to HID so we can look in the keymap
+                KeymapManager::EscapeState escape = KeymapManager::EscapeNone;
+                uint8_t keyCode = KeymapManager::instance().convertPc102ScancodeToHidKeycode(kbent->kb_index, escape);
+                KeymapManager::KeymapEntry *entry = KeymapManager::instance().getKeymapEntry(ctrl, shift, alt, altgr, 0, keyCode);
+                if (entry)
+                {
+                    F_NOTICE(" -> no keymap entry for table #" << Dec << kbent->kb_table << " index #" << Hex << kbent->kb_index);
+                    kbent->kb_value = 0xF000 | static_cast<uint16_t>(entry->value & 0xFFFF);
+                }
+                else
+                {
+                    kbent->kb_value = 0;
+                }
+
+                POSIX_VERBOSE_LOG("io", " -> val for table #" << Dec << kbent->kb_table << " #" << Hex << kbent->kb_index << " is now " << kbent->kb_value << "!");
             }
             return 0;
 
         // KDSKBENT
         case 0x4B47:
             F_NOTICE(" -> KDSKBENT (stubbed), arg=" << buf);
-            return 0;
+            POSIX_VERBOSE_LOG("io", " -> KDSKBENT (stubbed), arg=" << buf);
+            return -1;
 
         // KDKBDREP
         case 0x4B52:

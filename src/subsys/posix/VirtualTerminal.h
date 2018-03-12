@@ -81,6 +81,9 @@ class VirtualTerminalManager
         void setSystemMode(SystemMode mode);
         SystemMode getSystemMode() const;
 
+        void setInputMode(size_t n, TextIO::InputMode newMode);
+        TextIO::InputMode getInputMode(size_t n) const;
+
     private:
         void sendSignal(size_t n, bool acq);
 
