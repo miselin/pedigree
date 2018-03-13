@@ -64,7 +64,19 @@ template <class T, bool allowShortOperation>
 size_t
 Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
 {
-    m_Lock.acquire();
+    if (!block)
+    {
+        if (!m_Lock.tryAcquire())
+        {
+            // can't unlock buffer for writing
+            return 0;
+        }
+    }
+    else
+    {
+        // can block!
+        m_Lock.acquire();
+    }
 
     size_t countSoFar = 0;
     while (true)
@@ -223,7 +235,19 @@ Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
 template <class T, bool allowShortOperation>
 size_t Buffer<T, allowShortOperation>::read(T *buffer, size_t count, bool block)
 {
-    m_Lock.acquire();
+    if (!block)
+    {
+        if (!m_Lock.tryAcquire())
+        {
+            // can't unlock buffer for writing
+            return 0;
+        }
+    }
+    else
+    {
+        // can block!
+        m_Lock.acquire();
+    }
 
     size_t countSoFar = 0;
     while (true)
