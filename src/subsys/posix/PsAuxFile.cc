@@ -29,8 +29,6 @@ bool PsAuxFile::initialise()
         return false;
     }
 
-    return true;
-
     g_Ps2Mouse->subscribe(subscriber, this);
     return true;
 }
@@ -38,21 +36,18 @@ bool PsAuxFile::initialise()
 uint64_t PsAuxFile::read(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    return 0;
     return m_Buffer.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
 }
 
 uint64_t PsAuxFile::write(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    return 0;
     g_Ps2Mouse->write(reinterpret_cast<const char *>(buffer), size);
     return size;
 }
 
 int PsAuxFile::select(bool bWriting, int timeout)
 {
-    return 0;
     if (bWriting)
     {
         return m_Buffer.canWrite(timeout == 1) ? 1 : 0;
@@ -70,6 +65,8 @@ void PsAuxFile::subscriber(void *param, const void *buffer, size_t len)
 
 void PsAuxFile::handleIncoming(const void *buffer, size_t len)
 {
-    m_Buffer.write(reinterpret_cast<const uint8_t *>(buffer), len);
-    dataChanged();
+    if (m_Buffer.write(reinterpret_cast<const uint8_t *>(buffer), len, false))
+    {
+        dataChanged();
+    }
 }
