@@ -122,22 +122,32 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
     static String graphicsService("graphics");
 
     // Drop out of whatever graphics mode we were in
-    GraphicsService::GraphicsProvider provider;
-    ByteSet(&provider, 0, sizeof(provider));
-    provider.bTextModes = true;
+    GraphicsService::GraphicsParameters params;
+    ByteSet(&params, 0, sizeof(params));
+    params.wantTextMode = false;
 
     ServiceFeatures *pFeatures =
         ServiceManager::instance().enumerateOperations(graphicsService);
     Service *pService = ServiceManager::instance().getService(graphicsService);
     bool bSuccess = false;
     if (pFeatures && pFeatures->provides(ServiceFeatures::probe))
+    {
         if (pService)
+        {
             bSuccess = pService->serve(
-                ServiceFeatures::probe, reinterpret_cast<void *>(&provider),
-                sizeof(provider));
+                ServiceFeatures::probe, reinterpret_cast<void *>(&params),
+                sizeof(params));
+        }
+    }
 
-    if (bSuccess && !provider.bTextModes)
-        provider.pDisplay->setScreenMode(0);
+    if (bSuccess && params.providerFound)
+    {
+        // try and get back to text mode
+        if (params.providerResult.pDisplay)
+        {
+            params.providerResult.pDisplay->setScreenMode(0);
+        }
+    }
 
 // We take a copy of the interrupt state here so that we can replace it with
 // another thread's interrupt state should we decide to switch threads. The
