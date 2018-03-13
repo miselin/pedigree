@@ -19,9 +19,10 @@
 
 #include "Ps2Mouse.h"
 #include "modules/Module.h"
+#include <Ps2Controller.h>
 
 // Global static object for the PS/2 mouse we'll be working with
-static Ps2Mouse *g_Ps2Mouse = 0;
+Ps2Mouse *g_Ps2Mouse = 0;
 
 static bool entry()
 {
@@ -35,8 +36,10 @@ static bool entry()
         {
             if (p->addresses()[0]->m_Name == "ps2-base")
             {
+                Ps2Controller *controller = static_cast<Ps2Controller *>(p);
+
                 Ps2Mouse *pNewChild = new Ps2Mouse(p);
-                if (pNewChild->initialise(p->addresses()[0]->m_Io))
+                if (pNewChild->initialise(controller))
                 {
                     g_Ps2Mouse = pNewChild;
                 }

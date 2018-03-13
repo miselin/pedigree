@@ -24,10 +24,13 @@
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 
 extern class Ps2Mouse *g_Ps2Mouse WEAK;
 
-class Ps2Mouse : public Device, public IrqHandler
+class Ps2Controller;
+
+class Ps2Mouse : public Device
 {
   public:
     typedef void (*MouseHandlerFunction)(void *, const void *, size_t);
@@ -35,14 +38,12 @@ class Ps2Mouse : public Device, public IrqHandler
     Ps2Mouse(Device *pDev);
     virtual ~Ps2Mouse();
 
-    virtual bool initialise(IoBase *pBase);
+    virtual bool initialise(Ps2Controller *pController);
 
     virtual void getName(String &str)
     {
         str = "mouse";
     }
-
-    virtual bool irq(irq_id_t number, InterruptState &state);
 
     void write(const char *bytes, size_t len);
 
@@ -50,7 +51,7 @@ class Ps2Mouse : public Device, public IrqHandler
     void subscribe(MouseHandlerFunction handler, void *param);
 
   private:
-    IoBase *m_pBase;
+    Ps2Controller *m_pController;
 
     enum WaitType
     {
@@ -76,18 +77,8 @@ class Ps2Mouse : public Device, public IrqHandler
         MouseAck = 0xFA
     };
 
-    void mouseWait(WaitType type);
-
-    void mouseWrite(uint8_t data);
-    uint8_t mouseRead();
-
-    /// Enables the auxillary PS2 device (generally the mouse)
-    void enableAuxDevice();
-
-    void enableIrq();
-
-    bool setDefaults();
-    bool enableMouse();
+    static int readerThreadTrampoline(void *) NORETURN;
+    void readerThread() NORETURN;
 
     void updateSubscribers(const void *buffer, size_t len);
 

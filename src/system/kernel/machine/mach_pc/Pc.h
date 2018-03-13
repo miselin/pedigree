@@ -23,6 +23,7 @@
 #include "Keyboard.h"
 #include "Pic.h"
 #include "Pit.h"
+#include "Ps2Controller.h"
 #include "Rtc.h"
 #include "Serial.h"
 #include "Vga.h"
@@ -44,6 +45,7 @@ class Pc : public Machine
     }
 
     virtual void initialise() INITIALISATION_ONLY;
+    virtual void initialise3();
     virtual void deinitialise();
 
 #if defined(MULTIPROCESSOR)
@@ -98,6 +100,8 @@ class Pc : public Machine
 #if defined(APIC)
     LocalApic m_LocalApic;
 #endif
+
+    Ps2Controller *m_Ps2Controller;
 
     static Pc m_Instance;
 };

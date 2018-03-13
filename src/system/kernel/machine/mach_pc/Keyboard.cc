@@ -18,12 +18,15 @@
  */
 
 #include "Keyboard.h"
+#include "Ps2Controller.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Trace.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
 
 #ifdef DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
@@ -43,8 +46,8 @@
 extern void toggleTracingAllocations();
 #endif
 
-X86Keyboard::X86Keyboard(uint32_t portBase)
-    : m_bDebugState(false), m_Escape(KeymapManager::EscapeNone), m_pBase(0),
+X86Keyboard::X86Keyboard(Ps2Controller *controller)
+    : m_pPs2Controller(controller), m_Escape(KeymapManager::EscapeNone),
       m_IrqId(0), m_LedState(0)
 {
 }
@@ -55,204 +58,21 @@ X86Keyboard::~X86Keyboard()
 
 void X86Keyboard::initialise()
 {
-    auto f = [this](Device *p) {
-        if (m_pBase)
-        {
-            return p;
-        }
+    /// \todo do we need to switch into a specific scancode set?
 
-        if (p->addresses().count() > 0)
-        {
-            if (p->addresses()[0]->m_Name == "ps2-base")
-            {
-                m_pBase = p->addresses()[0]->m_Io;
-            }
-        }
-
-        return p;
-    };
-    auto c = pedigree_std::make_callable(f);
-    Device::foreach (c, 0);
-
-    if (!m_pBase)
-    {
-        // Handle the impossible case properly
-        FATAL("X86Keyboard: Could not find the PS/2 base ports in the device "
-              "tree");
-    }
-
-    // Now that we have the base, initialize the PS/2 controller and keyboard
-
-    TRACE("PS/2: disable all devices #1");
-    m_pBase->write8(0xAD, 4);  // disable all devices
-    TRACE("PS/2: disable all devices #2");
-    m_pBase->write8(0xA7, 4);
-    TRACE("PS/2: clear output buffer");
-    m_pBase->read8(0);  // clear output buffer
-    TRACE("PS/2: read config byte");
-    m_pBase->write8(0x20, 4);
-    waitForReadable();
-    uint8_t configByte = m_pBase->read8(0);
-    configByte |= ~0x43;  // disable IRQs & translation
-    TRACE("PS/2: write new config byte");
-    m_pBase->write8(0x60, 4);
-    TRACE("PS/2: waiting for writeable");
-    waitForWriteable();
-    TRACE("PS/2: now writing the new config byte");
-    m_pBase->write8(configByte, 0);
-
-    /// \todo check bit 5 in config byte to make sure we have a dual-channel ps2 controller
-
-    TRACE("PS/2: perform self-test");
-    m_pBase->write8(0xAA, 4);
-    waitForReadable();
-    uint8_t selfTestResponse = m_pBase->read8(0);
-    NOTICE("PS/2 self-test response: " << Hex << selfTestResponse);
-
-    // finally enable the ports
-    TRACE("PS/2: enable first port");
-    m_pBase->write8(0xAE, 4);
-    TRACE("PS/2: enable second port");
-    m_pBase->write8(0xA8, 4);
-
-    TRACE("PS/2: read config byte #2");
-    m_pBase->write8(0x20, 4);
-    waitForReadable();
-    configByte = m_pBase->read8(0);
-    configByte |= 1;  // enable IRQ for first port
-    TRACE("PS/2: write config byte to enable IRQs for first port");
-    m_pBase->write8(0x60, 4);
-    waitForWriteable();
-    m_pBase->write8(configByte, 0);
-
-    // reset all devices
-    // response should arrive via IRQ
-    TRACE("PS/2: performing device reset");
-    m_pBase->write8(0xFF, 4);
-
-    // Register the irq
-    IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerIsaIrqHandler(1, this, true);
-    if (m_IrqId == 0)
-    {
-        ERROR("X86Keyboard: failed to register IRQ handler!");
-    }
-
-    irqManager.control(1, IrqManager::MitigationThreshold, 100);
-}
-
-bool X86Keyboard::irq(irq_id_t number, InterruptState &state)
-{
-    if (m_bDebugState)
-        return true;
-
-    // Get the keyboard's status byte
-    uint8_t status = m_pBase->read8(4);
-    NOTICE("keyboard: status = " << Hex << status);
-    if (!(status & 0x01))
-        return true;
-
-    // Get the scancode for the pending keystroke
-    uint8_t scancode = m_pBase->read8(0);
-    NOTICE("keyboard: scancode = " << Hex << scancode);
-    if (scancode == 0xFA)
-    {
-        // just an ack
-        return true;
-    }
-    else if (scancode == 0xFE)
-    {
-        // potentially need to resend but we have no way to do that here
-        WARNING("PS/2 keyboard requests a resend, but this is not implemented.");
-        return true;
-    }
-
-// Check for keys with special functions
-#ifdef DEBUGGER
-#if CRIPPLINGLY_VIGILANT
-    if (scancode == 0x43)  // F9
-        SlamAllocator::instance().setVigilance(true);
-    if (scancode == 0x44)  // F10
-        SlamAllocator::instance().setVigilance(false);
-#endif
-    if (scancode == 0x57)  // F11
-    {
-#ifdef MEMORY_TRACING
-        WARNING("Toggling allocation tracing.");
-        toggleTracingAllocations();
-#else
-#ifdef TRACK_PAGE_ALLOCATIONS
-        g_AllocationCommand.checkpoint();
-#endif
-        g_SlamCommand.clean();
-#endif
-
-        return true;
-    }
-    if (scancode == 0x58)  // F12
-    {
-        LargeStaticString sError;
-        sError += "User-induced breakpoint";
-        Debugger::instance().start(state, sError);
-    }
-#endif
-
-    // Check for LED manipulation
-    if (scancode & 0x80)
-    {
-        uint8_t code = scancode & ~0x80;
-        if (code == 0x3A)
-        {
-            DEBUG_LOG("X86Keyboard: Caps Lock toggled");
-            m_LedState ^= Keyboard::CapsLock;
-            setLedState(m_LedState);
-        }
-        else if (code == 0x45)
-        {
-            DEBUG_LOG("X86Keyboard: Num Lock toggled");
-            m_LedState ^= Keyboard::NumLock;
-            setLedState(m_LedState);
-        }
-        else if (code == 0x46)
-        {
-            DEBUG_LOG("X86Keyboard: Scroll Lock toggled");
-            m_LedState ^= Keyboard::ScrollLock;
-            setLedState(m_LedState);
-        }
-    }
-
-    InputManager::instance().machineKeyUpdate(scancode & 0x7F, scancode & 0x80);
-
-    // Get the HID keycode corresponding to the scancode
-    uint8_t keyCode =
-        KeymapManager::instance().convertPc102ScancodeToHidKeycode(
-            scancode, m_Escape);
-    if (!keyCode)
-        return true;
-
-    // Send the keycode to the HID input manager
-    if (scancode & 0x80)
-        HidInputManager::instance().keyUp(keyCode);
-    else
-        HidInputManager::instance().keyDown(keyCode);
-    return true;
+    // enable data stream
+    uint8_t result = 0;
+    m_pPs2Controller->writeFirstPort(0xF4);
+    m_pPs2Controller->readFirstPort(result);
+    NOTICE("X86Keyboard: 'enable stream' response: " << Hex << result);
 }
 
 char X86Keyboard::getChar()
 {
-    if (m_bDebugState)
+    if (m_pPs2Controller->getDebugState())
     {
-        uint8_t scancode, status;
-        do
-        {
-            // Get the keyboard's status byte
-            status = m_pBase->read8(4);
-        } while (!(status & 0x01));  // Spin until there's a key ready
-
-        // Get the scancode for the pending keystroke
-        scancode = m_pBase->read8(0);
-
         // Convert the scancode into ASCII and return it
+        uint8_t scancode = m_pPs2Controller->readByte();
         return scancodeToAscii(scancode);
     }
     else
@@ -264,16 +84,13 @@ char X86Keyboard::getChar()
 
 char X86Keyboard::getCharNonBlock()
 {
-    if (m_bDebugState)
+    if (m_pPs2Controller->getDebugState())
     {
-        uint8_t scancode, status;
-        // Get the keyboard's status byte
-        status = m_pBase->read8(4);
-        if (!(status & 0x01))
+        uint8_t scancode = m_pPs2Controller->readByteNonBlock();
+        if (!scancode)
+        {
             return 0;
-
-        // Get the scancode for the pending keystroke
-        scancode = m_pBase->read8(0);
+        }
 
         // Convert the scancode into ASCII and return it
         return scancodeToAscii(scancode);
@@ -288,29 +105,12 @@ char X86Keyboard::getCharNonBlock()
 
 void X86Keyboard::setDebugState(bool enableDebugState)
 {
-    m_bDebugState = enableDebugState;
-    IrqManager &irqManager = *Machine::instance().getIrqManager();
-    if (m_bDebugState)
-    {
-        irqManager.enable(1, false);
-
-        // Disable the PS/2 mouse
-        m_pBase->write8(0xD4, 4);
-        m_pBase->write8(0xF5, 4);
-    }
-    else
-    {
-        irqManager.enable(1, true);
-
-        // Enable the PS/2 mouse
-        m_pBase->write8(0xD4, 4);
-        m_pBase->write8(0xF4, 4);
-    }
+    m_pPs2Controller->setDebugState(enableDebugState);
 }
 
 bool X86Keyboard::getDebugState()
 {
-    return m_bDebugState;
+    return m_pPs2Controller->getDebugState();
 }
 
 char X86Keyboard::scancodeToAscii(uint8_t scancode)
@@ -363,22 +163,119 @@ void X86Keyboard::setLedState(char state)
 {
     m_LedState = state;
 
-    while (m_pBase->read8(4) & 2)
-        ;
-    m_pBase->write8(0xED, 0);
-    while (m_pBase->read8(4) & 2)
-        ;
-    m_pBase->write8(state, 0);
+    m_pPs2Controller->writeFirstPort(0xED);
+    m_pPs2Controller->writeFirstPort(state);
+
+    uint8_t response = 0;
+    if (m_pPs2Controller->readFirstPort(response))
+    {
+        NOTICE("X86Keyboard: setLedState response: " << Hex << response);
+    }
+    else
+    {
+        ERROR("X86Keyboard: failed to read response in setLedState");
+    }
 }
 
-void X86Keyboard::waitForReadable()
+void X86Keyboard::startReaderThread()
 {
-    while ((m_pBase->read8(4) & 1) == 0)
-        ;
+    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = new Thread(pProcess, readerThreadTrampoline, this);
+    pThread->detach();
+
+    // Now that we're listening - enable IRQs from the keyboard
+    m_pPs2Controller->setIrqEnable(true, false);
 }
 
-void X86Keyboard::waitForWriteable()
+int X86Keyboard::readerThreadTrampoline(void *param)
 {
-    while (m_pBase->read8(4) & 2)
-        ;
+    X86Keyboard *instance = reinterpret_cast<X86Keyboard *>(param);
+    instance->readerThread();
+}
+
+void X86Keyboard::readerThread()
+{
+    while (true)
+    {
+        uint8_t scancode;
+        if (!m_pPs2Controller->readFirstPort(scancode))
+        {
+            continue;
+        }
+        if (scancode == 0xFA || scancode == 0xFE)
+        {
+            // ignore for now
+            continue;
+        }
+
+        // Check for keys with special functions
+#ifdef DEBUGGER
+#if CRIPPLINGLY_VIGILANT
+        if (scancode == 0x43)  // F9
+            SlamAllocator::instance().setVigilance(true);
+        if (scancode == 0x44)  // F10
+            SlamAllocator::instance().setVigilance(false);
+#endif
+        if (scancode == 0x57)  // F11
+        {
+#ifdef MEMORY_TRACING
+            WARNING("Toggling allocation tracing.");
+            toggleTracingAllocations();
+#else
+#ifdef TRACK_PAGE_ALLOCATIONS
+            g_AllocationCommand.checkpoint();
+#endif
+            g_SlamCommand.clean();
+#endif
+
+            continue;
+        }
+        if (scancode == 0x58)  // F12
+        {
+            FATAL("User-induced breakpoint.");
+        }
+#endif
+
+        // Check for LED manipulation
+        if (scancode & 0x80)
+        {
+            uint8_t code = scancode & ~0x80;
+            if (code == 0x3A)
+            {
+                DEBUG_LOG("X86Keyboard: Caps Lock toggled");
+                m_LedState ^= Keyboard::CapsLock;
+                setLedState(m_LedState);
+            }
+            else if (code == 0x45)
+            {
+                DEBUG_LOG("X86Keyboard: Num Lock toggled");
+                m_LedState ^= Keyboard::NumLock;
+                setLedState(m_LedState);
+            }
+            else if (code == 0x46)
+            {
+                DEBUG_LOG("X86Keyboard: Scroll Lock toggled");
+                m_LedState ^= Keyboard::ScrollLock;
+                setLedState(m_LedState);
+            }
+        }
+
+        InputManager::instance().machineKeyUpdate(scancode & 0x7F, scancode & 0x80);
+
+        // Get the HID keycode corresponding to the scancode
+        uint8_t keyCode =
+            KeymapManager::instance().convertPc102ScancodeToHidKeycode(
+                scancode, m_Escape);
+        if (!keyCode)
+        {
+            ERROR("X86Keyboard: failed to translate scancode " << Hex << scancode);
+            continue;
+        }
+
+        // Send the keycode to the HID input manager
+        if (scancode & 0x80)
+            HidInputManager::instance().keyUp(keyCode);
+        else
+            HidInputManager::instance().keyDown(keyCode);
+    }
 }

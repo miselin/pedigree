@@ -280,6 +280,7 @@ custom_incpath = {
     'linker'        : ['#/src/modules/system/linker'],
     'usb-glue'      : ['#/src/system/kernel/machine/arm_beagle'], # TODO: handle other machine types
     'lwip'          : ['#/src/modules/system/lwip/include'],
+    'ps2mouse'      : ['#/src/system/kernel/machine/mach_pc'],
 }
 
 # Custom library paths for specific modules

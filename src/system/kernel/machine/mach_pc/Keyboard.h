@@ -29,13 +29,15 @@
 
 #define BUFLEN 256
 
+class Ps2Controller;
+
 /**
  * Keyboard device implementation
  */
-class X86Keyboard : public Keyboard, private IrqHandler
+class X86Keyboard : public Keyboard
 {
   public:
-    X86Keyboard(uint32_t portBase);
+    X86Keyboard(Ps2Controller *controller);
     virtual ~X86Keyboard();
 
     /// Initialises the device
@@ -50,24 +52,20 @@ class X86Keyboard : public Keyboard, private IrqHandler
     virtual char getLedState();
     virtual void setLedState(char state);
 
-    /// IrqHandler interface
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    void startReaderThread();
 
   private:
+    static int readerThreadTrampoline(void *) NORETURN;
+    void readerThread() NORETURN;
+
     /// Converts a scancode into an ASCII character (for use in debug state)
     char scancodeToAscii(uint8_t scancode);
 
-    void waitForReadable();
-    void waitForWriteable();
-
-    /// True if we're in debug state
-    bool m_bDebugState;
+    /// Parent PS/2 controller
+    Ps2Controller *m_pPs2Controller;
 
     /// The current escape state
     KeymapManager::EscapeState m_Escape;
-
-    /// The IO port through which to access the keyboard
-    IoBase *m_pBase;
 
     /// IRQ id
     irq_id_t m_IrqId;

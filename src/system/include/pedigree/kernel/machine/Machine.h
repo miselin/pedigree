@@ -61,7 +61,12 @@ class Machine
      * Initialises the machine.
      */
     virtual void initialise() = 0;
+    /// Called after debugger startup.
     virtual void initialise2()
+    {
+    }
+    /// Called after processor startup - for thread creation etc
+    virtual void initialise3()
     {
     }
     virtual void deinitialise()

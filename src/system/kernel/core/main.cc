@@ -337,6 +337,10 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     // Bootup of the other Application Processors and related tasks
     Processor::initialise2(bsInf);
 
+    TRACE("Machine init3");
+
+    machine.initialise3();
+
     TRACE("KernelElf init");
 
     // Initialise the Kernel Elf class

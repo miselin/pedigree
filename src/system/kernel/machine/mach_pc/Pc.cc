@@ -130,7 +130,10 @@ void Pc::initialise()
     if (pit.initialise() == false)
         panic("Pc: Pit initialisation failed");
 
-    m_Keyboard = new X86Keyboard(0x60);
+    // Set up PS/2
+    m_Ps2Controller->initialise();
+
+    m_Keyboard = new X86Keyboard(m_Ps2Controller);
     m_Keyboard->initialise();
 
 // Find and parse the SMBIOS tables
@@ -156,6 +159,11 @@ void Pc::initialiseProcessor()
         panic("Pc::initialiseProcessor(): Failed to initialise the local APIC");
 }
 #endif
+
+void Pc::initialise3()
+{
+    static_cast<X86Keyboard *>(m_Keyboard)->startReaderThread();
+}
 
 void Pc::initialiseDeviceTree()
 {
@@ -185,13 +193,13 @@ void Pc::initialiseDeviceTree()
     pAtaSlave->setParent(pIsa);
 
     // PS/2
-    Controller *pPs2Base = new Controller();
-    pPs2Base->setSpecificType(String("ps2"));
-    pPs2Base->addresses().pushBack(
+    m_Ps2Controller = new Ps2Controller();
+    m_Ps2Controller->setSpecificType(String("ps2"));
+    m_Ps2Controller->addresses().pushBack(
         new Device::Address(String("ps2-base"), 0x60, 5, true));
-    pPs2Base->setInterruptNumber(1);  // 12 for mouse, handled by the driver
-    pIsa->addChild(pPs2Base);
-    pPs2Base->setParent(pIsa);
+    m_Ps2Controller->setInterruptNumber(1);  // 12 for mouse, handled by the driver
+    pIsa->addChild(m_Ps2Controller);
+    m_Ps2Controller->setParent(pIsa);
 
     // IB700 Watchdog Timer
     Device *pWatchdog = new Device();
@@ -273,6 +281,7 @@ Pc::Pc()
       ,
       m_LocalApic()
 #endif
+      , m_Ps2Controller(0)
 {
 }
 Pc::~Pc()
