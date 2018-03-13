@@ -890,6 +890,14 @@ int LwipSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
         return -1;
     }
 
+    // need to allow writing immediately for non-tcp sockets
+    /// \todo for accept() we need to do this too
+    if (NETCONNTYPE_GROUP(m_Socket->type) != NETCONN_TCP)
+    {
+        m_Metadata.send = 1;
+    }
+
+    N_NOTICE(" -> ok!");
     return 0;
 }
 
@@ -914,21 +922,46 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
 
     size_t bytesWritten = 0;
     bool ok = true;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
-    {
-        void *buffer = msghdr->msg_iov[i].iov_base;
-        size_t bufferlen = msghdr->msg_iov[i].iov_len;
 
-        size_t thisBytesWritten = 0;
-        err = netconn_write_partly(m_Socket, buffer, bufferlen, NETCONN_COPY | NETCONN_MORE, &thisBytesWritten);
+    if (NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP)
+    {
+        for (int i = 0; i < msghdr->msg_iovlen; ++i)
+        {
+            void *buffer = msghdr->msg_iov[i].iov_base;
+            size_t bufferlen = msghdr->msg_iov[i].iov_len;
+
+            size_t thisBytesWritten = 0;
+            err = netconn_write_partly(m_Socket, buffer, bufferlen, NETCONN_COPY | NETCONN_MORE, &thisBytesWritten);
+            if (err != ERR_OK)
+            {
+                lwipToSyscallError(err);
+                ok = false;
+                break;
+            }
+
+            bytesWritten += thisBytesWritten;
+        }
+    }
+    else
+    {
+        struct netbuf *buf = netbuf_new();
+        for (int i = 0; i < msghdr->msg_iovlen; ++i)
+        {
+            netbuf_ref(buf, msghdr->msg_iov[i].iov_base, msghdr->msg_iov[i].iov_len);
+        }
+
+        /// \todo implement sendto
+        err = netconn_send(m_Socket, buf);
         if (err != ERR_OK)
         {
             lwipToSyscallError(err);
             ok = false;
-            break;
         }
-
-        bytesWritten += thisBytesWritten;
+        else
+        {
+            bytesWritten += netbuf_len(buf);
+            netbuf_delete(buf);
+        }
     }
 
     if (!bytesWritten)
