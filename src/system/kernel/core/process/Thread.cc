@@ -553,8 +553,9 @@ void Thread::sendEvent(Event *pEvent)
     // Only need the lock to adjust the queue of events.
     m_Lock.acquire();
     m_EventQueue.pushBack(pEvent);
-    pEvent->registerThread(this);
     m_Lock.release();
+
+    pEvent->registerThread(this);
 
     if (m_Status == Sleeping)
     {
@@ -587,23 +588,25 @@ void Thread::inhibitEvent(size_t eventNumber, bool bInhibit)
 
 void Thread::cullEvent(Event *pEvent)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
     bool bDelete = false;
-    for (List<Event *>::Iterator it = m_EventQueue.begin();
-         it != m_EventQueue.end();)
     {
-        if (*it == pEvent)
+        LockGuard<Spinlock> guard(m_Lock);
+
+        for (List<Event *>::Iterator it = m_EventQueue.begin();
+             it != m_EventQueue.end();)
         {
-            if ((*it)->isDeletable())
+            if (*it == pEvent)
             {
-                bDelete = true;
+                if ((*it)->isDeletable())
+                {
+                    bDelete = true;
+                }
+                it = m_EventQueue.erase(it);
             }
-            it = m_EventQueue.erase(it);
-        }
-        else
-        {
-            ++it;
+            else
+            {
+                ++it;
+            }
         }
     }
 
@@ -618,48 +621,70 @@ void Thread::cullEvent(Event *pEvent)
 
 void Thread::cullEvent(size_t eventNumber)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    Vector<Event *> deregisterEvents;
 
-    for (List<Event *>::Iterator it = m_EventQueue.begin();
-         it != m_EventQueue.end();)
     {
-        if ((*it)->getNumber() == eventNumber)
+        LockGuard<Spinlock> guard(m_Lock);
+
+        for (List<Event *>::Iterator it = m_EventQueue.begin();
+             it != m_EventQueue.end();)
         {
-            Event *pEvent = *it;
-            it = m_EventQueue.erase(it);
-            pEvent->deregisterThread(this);
-            if (pEvent->isDeletable())
-                delete pEvent;
+            if ((*it)->getNumber() == eventNumber)
+            {
+                Event *pEvent = *it;
+                it = m_EventQueue.erase(it);
+                deregisterEvents.pushBack(pEvent);
+            }
+            else
+                ++it;
         }
-        else
-            ++it;
+    }
+
+    // clean up events now that we're no longer locked
+    for (auto it : deregisterEvents)
+    {
+        it->deregisterThread(this);
+        if (it->isDeletable())
+            delete it;
     }
 }
 
 Event *Thread::getNextEvent()
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    Event *pResult = nullptr;
 
-    for (size_t i = 0; i < m_EventQueue.count(); i++)
     {
-        Event *e = m_EventQueue.popFront();
-        if (!e)
-        {
-            ERROR("A null event was in a thread's event queue!");
-            continue;
-        }
+        LockGuard<Spinlock> guard(m_Lock);
 
-        if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(e->getNumber()) ||
-            (e->getSpecificNestingLevel() != ~0UL &&
-             e->getSpecificNestingLevel() != m_nStateLevel))
+        for (size_t i = 0; i < m_EventQueue.count(); i++)
         {
-            m_EventQueue.pushBack(e);
+            Event *e = m_EventQueue.popFront();
+            if (!e)
+            {
+                ERROR("A null event was in a thread's event queue!");
+                continue;
+            }
+
+            if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(e->getNumber()) ||
+                (e->getSpecificNestingLevel() != ~0UL &&
+                 e->getSpecificNestingLevel() != m_nStateLevel))
+            {
+                m_EventQueue.pushBack(e);
+            }
+            else
+            {
+                pResult = e;
+                break;
+            }
         }
-        else
-        {
-            e->deregisterThread(this);
-            return e;
-        }
+    }
+
+    if (pResult)
+    {
+        // de-register thread outside of the Thread lock to avoid Event/Thread
+        // lock dependencies by accident
+        pResult->deregisterThread(this);
+        return pResult;
     }
 
     return 0;
@@ -677,7 +702,7 @@ bool Thread::hasEvent(Event *pEvent)
     LockGuard<Spinlock> guard(m_Lock);
 
     for (List<Event *>::Iterator it = m_EventQueue.begin();
-         it != m_EventQueue.end();)
+         it != m_EventQueue.end(); ++it)
     {
         if ((*it) == pEvent)
         {
@@ -693,7 +718,7 @@ bool Thread::hasEvent(size_t eventNumber)
     LockGuard<Spinlock> guard(m_Lock);
 
     for (List<Event *>::Iterator it = m_EventQueue.begin();
-         it != m_EventQueue.end();)
+         it != m_EventQueue.end(); ++it)
     {
         if ((*it)->getNumber() == eventNumber)
         {
