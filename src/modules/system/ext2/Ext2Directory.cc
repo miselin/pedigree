@@ -319,8 +319,8 @@ void Ext2Directory::cacheDirectoryContents()
 
             DirectoryEntryMetadata meta;
             meta.pDirectory = this;
-            meta.opaque = new char[copylen];
-            MemoryCopy(meta.opaque, pDir, copylen);
+            meta.opaque = pedigree_std::move(UniqueArray<char>::allocate(copylen));
+            MemoryCopy(meta.opaque.get(), pDir, copylen);
 
             size_t namelen = pDir->d_namelen;
 
@@ -368,14 +368,11 @@ void Ext2Directory::cacheDirectoryContents()
                 namelen |= pDir->d_file_type << 8;
             }
 
-            if (!ok)
+            if (ok)
             {
-                delete [] reinterpret_cast<char *>(meta.opaque);
-            }
-            else
-            {
-                meta.filename = String(pDir->d_name, namelen);
-                addDirectoryEntry(meta.filename, meta);
+                String filename(pDir->d_name, namelen);
+                meta.filename = filename;  // copy into the metadata structure
+                addDirectoryEntry(filename, pedigree_std::move(meta));
             }
 
             // Next.
@@ -399,7 +396,7 @@ void Ext2Directory::fileAttributeChanged()
 
 File *Ext2Directory::convertToFile(const DirectoryEntryMetadata &meta)
 {
-    Dir *pDir = reinterpret_cast<Dir *>(meta.opaque);
+    Dir *pDir = reinterpret_cast<Dir *>(meta.opaque.get());
 
     uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
     Inode *inode = m_pExt2Fs->getInode(inodeNum);

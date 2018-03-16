@@ -36,6 +36,12 @@ Directory::Directory(
 
 Directory::~Directory()
 {
+    for (auto it : m_Cache)
+    {
+        delete it;
+    }
+
+    m_Cache.clear();
 }
 
 File *Directory::getChild(size_t n)
@@ -105,18 +111,28 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
 {
     DirectoryEntry *entry = new DirectoryEntry(pTarget);
 
-    m_Cache.insert(name, entry);
-
-    m_bCachePopulated = true;
+    if (!m_Cache.insert(name, entry))
+    {
+        ERROR("can't add directory entry for '" << name << "' as it already exists.");
+    }
+    else
+    {
+        m_bCachePopulated = true;
+    }
 }
 
-void Directory::addDirectoryEntry(const String &name, const DirectoryEntryMetadata &meta)
+void Directory::addDirectoryEntry(const String &name, DirectoryEntryMetadata &&meta)
 {
-    DirectoryEntry *entry = new DirectoryEntry(meta);
+    DirectoryEntry *entry = new DirectoryEntry(pedigree_std::move(meta));
 
-    m_Cache.insert(name, entry);
-
-    m_bCachePopulated = true;
+    if (!m_Cache.insert(name, entry))
+    {
+        ERROR("can't add directory entry for '" << name << "' as it already exists.");
+    }
+    else
+    {
+        m_bCachePopulated = true;
+    }
 }
 
 Directory *Directory::getReparsePoint() const

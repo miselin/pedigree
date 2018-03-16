@@ -27,6 +27,7 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/LazyEvaluate.h"
 #include "pedigree/kernel/utilities/HashTable.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 /**
@@ -116,14 +117,21 @@ class Directory : public File
   protected:
     struct DirectoryEntryMetadata
     {
-        DirectoryEntryMetadata() : pDirectory(nullptr), filename(), opaque(nullptr) {}
+        DirectoryEntryMetadata() : pDirectory(nullptr), filename(), opaque() {}
+        DirectoryEntryMetadata(DirectoryEntryMetadata &&other) :
+          pDirectory(pedigree_std::move(other.pDirectory)),
+          filename(pedigree_std::move(other.filename)),
+          opaque(pedigree_std::move(other.opaque))
+        {
+            other.pDirectory = nullptr;
+        }
 
         // These two should always be known at metadata creation time.
         Directory *pDirectory;
         String filename;
 
         // Space for anything else to be stored by the filesystem.
-        void *opaque;
+        UniqueArray<char> opaque;
     };
 
   private:
@@ -165,7 +173,7 @@ class Directory : public File
     void addDirectoryEntry(const String &name, File *pTarget);
 
     /** Add a lazily-evaluated entry to the directory. */
-    void addDirectoryEntry(const String &name, const DirectoryEntryMetadata &meta);
+    void addDirectoryEntry(const String &name, DirectoryEntryMetadata &&meta);
 
     /** Convert given metadata into a useful File object. */
     virtual File *convertToFile(const DirectoryEntryMetadata &meta);
