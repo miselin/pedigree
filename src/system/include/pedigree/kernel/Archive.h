@@ -52,7 +52,7 @@ class Archive
     uintptr_t *getFile(size_t n);
 
   private:
-    struct File
+    struct ArchiveFile
     {
         char name[100];  // Filename.
         char mode[8];    // Permissions.
@@ -65,9 +65,9 @@ class Archive
         char linkname[100];  // Linked-to file name.
     };
 
-    File *getFirst();
-    File *getNext(File *pFile);
-    File *get(size_t n);
+    ArchiveFile *getFirst();
+    ArchiveFile *getNext(ArchiveFile *pFile);
+    ArchiveFile *get(size_t n);
 
 #ifdef HOSTED
     uint8_t *m_pBase;

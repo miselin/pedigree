@@ -59,7 +59,7 @@ Archive::~Archive()
 size_t Archive::getNumFiles()
 {
     size_t i = 0;
-    File *pFile = getFirst();
+    ArchiveFile *pFile = getFirst();
     while (pFile != 0)
     {
         i++;
@@ -70,7 +70,7 @@ size_t Archive::getNumFiles()
 
 size_t Archive::getFileSize(size_t n)
 {
-    File *pFile = get(n);
+    ArchiveFile *pFile = get(n);
     NormalStaticString str(pFile->size);
     return str.intValue(8);  // Octal
 }
@@ -86,16 +86,16 @@ uintptr_t *Archive::getFile(size_t n)
         reinterpret_cast<uintptr_t>(get(n)) + 512);
 }
 
-Archive::File *Archive::getFirst()
+Archive::ArchiveFile *Archive::getFirst()
 {
 #ifdef HOSTED
-    return reinterpret_cast<File *>(m_pBase);
+    return reinterpret_cast<ArchiveFile *>(m_pBase);
 #else
-    return reinterpret_cast<File *>(m_Region.virtualAddress());
+    return reinterpret_cast<ArchiveFile *>(m_Region.virtualAddress());
 #endif
 }
 
-Archive::File *Archive::getNext(File *pFile)
+Archive::ArchiveFile *Archive::getNext(ArchiveFile *pFile)
 {
     NormalStaticString str(pFile->size);
     size_t size = str.intValue(8);  // Octal.
@@ -106,9 +106,9 @@ Archive::File *Archive::getNext(File *pFile)
     return pFile;
 }
 
-Archive::File *Archive::get(size_t n)
+Archive::ArchiveFile *Archive::get(size_t n)
 {
-    File *pFile = getFirst();
+    ArchiveFile *pFile = getFirst();
     for (size_t i = 0; i < n; i++)
         pFile = getNext(pFile);
     return pFile;
