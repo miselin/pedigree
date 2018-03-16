@@ -210,6 +210,8 @@ class HashTable
     virtual ~HashTable()
     {
         clear();
+
+        delete m_Begin;
     }
 
     /**
@@ -351,6 +353,7 @@ class HashTable
         if (wasEmpty)
         {
             // Re-create begin node now that we have an item.
+            delete m_Begin;
             m_Begin = new IteratorNode(this);
         }
 
