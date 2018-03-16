@@ -51,6 +51,7 @@ class String
     constexpr String(const char (&s)[N]);
 #endif
 
+    String &operator=(String &&x);
     String &operator=(const String &x);
     String &operator=(const char *s);
     operator const char *() const
@@ -155,6 +156,8 @@ class String
     char *extract() const;
     /** Recompute internal hash. */
     void computeHash();
+    /** Move another string into this one. */
+    void move(String &&other);
     /** Size of static string storage (over this threshold, the heap is used) */
     static constexpr const size_t StaticSize = 64;
     /** Pointer to the zero-terminated ASCII string */

@@ -509,3 +509,22 @@ TEST(PedigreeString, UnicodeConversion)
     String::Utf32ToUtf8(c, buf);
     EXPECT_STREQ(buf, "🎉");
 }
+
+TEST(PedigreeString, Move)
+{
+    String s1("hello"), s2;
+    EXPECT_STREQ(s1, "hello");
+    EXPECT_STRNE(s2, "hello");
+    s2 = pedigree_std::move(s1);
+    EXPECT_STREQ(s1, "");
+    EXPECT_STREQ(s2, "hello");
+}
+
+TEST(PedigreeString, MoveConstruct)
+{
+    String s1("hello");
+    EXPECT_STREQ(s1, "hello");
+    String s2(pedigree_std::move(s1));
+    EXPECT_STREQ(s1, "");
+    EXPECT_STREQ(s2, "hello");
+}

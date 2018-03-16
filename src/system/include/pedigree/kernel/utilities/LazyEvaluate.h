@@ -20,6 +20,8 @@
 #ifndef KERNEL_UTILITIES_LAZYEVALUATE_H
 #define KERNEL_UTILITIES_LAZYEVALUATE_H
 
+#include "pedigree/kernel/utilities/cpp.h"  // for pedigree_std::move
+
 /**
  * LazyEvaluate offers a way to defer potentially-expensive evaluation to the
  * time at which the result of the evaluation is needed. This can allow for
@@ -41,9 +43,11 @@ class LazyEvaluate
         LazyEvaluate() : m_Metadata(), m_Field(nullptr), m_Ok(false) {}
         // Lazy variant (only evaluates on access)
         LazyEvaluate(const M &metadata) : m_Metadata(metadata), m_Field(nullptr), m_Ok(true) {}
+        LazyEvaluate(M &&metadata) : m_Metadata(pedigree_std::move(metadata)), m_Field(nullptr), m_Ok(true) {}
         // Explicit variants (if the result of evaluation is known already)
         LazyEvaluate(T *value) : m_Metadata(), m_Field(value), m_Ok(true) {}
         LazyEvaluate(T *value, const M &metadata) : m_Metadata(metadata), m_Field(value), m_Ok(true) {}
+        LazyEvaluate(T *value, M &&metadata) : m_Metadata(pedigree_std::move(metadata)), m_Field(value), m_Ok(true) {}
         virtual ~LazyEvaluate()
         {
             reset();

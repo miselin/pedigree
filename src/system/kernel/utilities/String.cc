@@ -46,27 +46,38 @@ String::String(const String &x) : String()
 
 String::String(String &&x)
 {
-    // take ownership of the object
-    m_Data = pedigree_std::move(x.m_Data);
-    m_ConstData = pedigree_std::move(x.m_ConstData);
-    m_Length = pedigree_std::move(x.m_Length);
-    m_Size = pedigree_std::move(x.m_Size);
-    m_HeapData = pedigree_std::move(x.m_HeapData);
-    m_Hash = pedigree_std::move(x.m_Hash);
-    if (m_Size == StaticSize)
-    {
-        MemoryCopy(m_Static, x.m_Static, m_Length + 1);
-    }
-
-    // free other string but don't destroy the heap pointer if we had one
-    // as it is now owned by this new instance
-    x.m_Data = 0;
-    x.free();
+    move(pedigree_std::move(x));
 }
 
 String::~String()
 {
     free();
+}
+
+void String::move(String &&other)
+{
+    // take ownership of the object
+    m_Data = pedigree_std::move(other.m_Data);
+    m_ConstData = pedigree_std::move(other.m_ConstData);
+    m_Length = pedigree_std::move(other.m_Length);
+    m_Size = pedigree_std::move(other.m_Size);
+    m_HeapData = pedigree_std::move(other.m_HeapData);
+    m_Hash = pedigree_std::move(other.m_Hash);
+    if (m_Size == StaticSize)
+    {
+        MemoryCopy(m_Static, other.m_Static, m_Length + 1);
+    }
+
+    // free other string but don't destroy the heap pointer if we had one
+    // as it is now owned by this new instance
+    other.m_Data = 0;
+    other.free();
+}
+
+String &String::operator=(String &&x)
+{
+    move(pedigree_std::move(x));
+    return *this;
 }
 
 String &String::operator=(const String &x)

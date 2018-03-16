@@ -23,47 +23,148 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 
+template <class T>
+class UniqueCommon
+{
+    public:
+        UniqueCommon() : m_Pointer(nullptr) {}
+        UniqueCommon(T *p) : m_Pointer(p) {}
+
+        T *operator* () const
+        {
+            return get();
+        }
+
+        operator void*() const
+        {
+            return get();
+        }
+
+        T *get() const
+        {
+            return m_Pointer;
+        }
+
+        void reset()
+        {
+            if (m_Pointer)
+            {
+                destroy();
+                m_Pointer = 0;
+            }
+        }
+
+    protected:
+        T *m_Pointer;
+
+        virtual void destroy()
+        {
+            delete m_Pointer;
+        }
+
+        void setPointer(T *p)
+        {
+            m_Pointer = p;
+        }
+};
+
 /** Provides a wrapper around a single-use pointer. The copy constructor
  * will invalidate the reference in the object being copied from.
  */
 template <class T>
-class UniquePointer
+class UniquePointer : public UniqueCommon<T>
 {
   public:
-    UniquePointer(T *p) : m_Pointer(p)
-    {
-    }
+    UniquePointer() = default;
 
     virtual ~UniquePointer()
     {
-        if (m_Pointer)
-        {
-            delete m_Pointer;
-            m_Pointer = 0;
-        }
+        this->reset();
     }
 
-    UniquePointer(UniquePointer<T> &p)
+    // move constructor
+    UniquePointer(UniquePointer<T> &&p)
     {
-        m_Pointer = p.m_Pointer;
-        p.m_Pointer = 0;
+        move(pedigree_std::move(p));
     }
 
-    UniquePointer<T> &operator=(UniquePointer<T> &p)
-    {
-        m_Pointer = p.m_Pointer;
-        p.m_Pointer = 0;
+    // no copy construction permitted
+    UniquePointer(UniquePointer<T> &p) = delete;
+    UniquePointer<T> &operator=(UniquePointer<T> &p) = delete;
 
+    UniquePointer<T> &operator=(UniquePointer<T> &&p)
+    {
+        move(pedigree_std::move(p));
         return *this;
     }
 
-    T *operator*()
+    template <class... Args>
+    static UniquePointer<T> allocate(Args... args)
     {
-        return m_Pointer;
+        return UniquePointer<T>(new T(args...));
     }
 
-  private:
-    T *m_Pointer;
+   private:
+    UniquePointer(T *p) : UniqueCommon<T>(p)
+    {
+    }
+
+    void move(UniquePointer<T> &&p)
+    {
+        this->setPointer(p.get());
+        p.setPointer(nullptr);
+    }
+};
+
+/** Array version of UniquePointer that uses delete[] for deletion. */
+template <class T>
+class UniqueArray : public UniqueCommon<T>
+{
+  public:
+    UniqueArray() = default;
+
+    virtual ~UniqueArray()
+    {
+        this->reset();
+    }
+
+    // move constructor
+    UniqueArray(UniqueArray<T> &&p)
+    {
+        move(pedigree_std::move(p));
+    }
+
+    // no copy construction permitted
+    UniqueArray(UniqueArray<T> &p) = delete;
+    UniqueArray<T> &operator=(UniqueArray<T> &p) = delete;
+
+    UniqueArray<T> &operator=(UniqueArray<T> &&p)
+    {
+        move(pedigree_std::move(p));
+        return *this;
+    }
+
+    static UniqueArray<T> allocate(size_t count)
+    {
+        return UniqueArray<T>(new T[count]);
+    }
+
+  protected:
+    virtual void destroy() override
+    {
+        delete [] this->get();
+    }
+
+   private:
+    UniqueArray(T *p) : UniqueCommon<T>(p)
+    {
+    }
+
+    void move(UniqueArray<T> &&p)
+    {
+        this->setPointer(p.get());
+        p.setPointer(nullptr);
+    }
 };
 
 #endif
