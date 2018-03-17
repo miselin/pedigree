@@ -365,7 +365,7 @@ void PosixSubsystem::exit(int code)
     Thread *pThread = Processor::information().getCurrentThread();
 
     Process *pProcess = pThread->getParent();
-    NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ")");
+    NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code << ")");
     pProcess->markTerminating();
 
     if (pProcess->getExitStatus() == 0 ||     // Normal exit.
@@ -625,10 +625,6 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
     // If we're good to go, send the signal.
     if (sig && sig->pEvent)
     {
-        NOTICE(
-            "PosixSubsystem::sendSignal #" << signal << " -> pid:tid "
-            << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
-
         // Is this process already pending a delivery of the given signal?
         if (pThread->hasEvent(sig->pEvent))
         {
