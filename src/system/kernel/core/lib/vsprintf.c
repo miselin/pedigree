@@ -50,7 +50,7 @@ static int skip_atoi(const char **s)
 #define do_div(n, base)                                                        \
     ({                                                                         \
         int __res;                                                             \
-        __asm__("divl %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"(base)); \
+        __asm__("div %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"(base)); \
         __res;                                                                 \
     })
 #else
@@ -58,7 +58,7 @@ static int skip_atoi(const char **s)
 #endif
 
 static char *
-number(char *str, int num, int base, int size, int precision, int type)
+number(char *str, int64_t num, int base, int size, int precision, int type)
 {
     char c, sign, tmp[36];
     const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -245,11 +245,11 @@ int VStringFormat(char *buf, const char *fmt, va_list args)
             case 'p':
                 if (field_width == -1)
                 {
-                    field_width = 8;
+                    field_width = sizeof(void *) * 2;
                     flags |= ZEROPAD;
                 }
                 str = number(
-                    str, (unsigned long) va_arg(args, void *), 16, field_width,
+                    str, (uintptr_t) va_arg(args, void *), 16, field_width,
                     precision, flags);
                 break;
 
