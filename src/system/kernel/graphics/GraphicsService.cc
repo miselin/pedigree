@@ -106,6 +106,12 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider()
             textPoints *= 0;
         }
 
+        String name;
+        pProvider->pDisplay->getName(name);
+        DEBUG_LOG(
+            "GraphicsService: provider with display name '"
+            << name << "' got " << points << " points (" << textPoints << " text points)");
+
         // Is this the new best?
         bool bNewBest = false;
         if (points > bestPoints)
@@ -114,20 +120,17 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider()
             result.bestBase = pProvider;
 
             bNewBest = true;
+
+            DEBUG_LOG("  => new best provider");
         }
 
         if (textPoints > bestTextPoints)
         {
             bestTextPoints = textPoints;
             result.bestText = pProvider;
-        }
 
-        String name;
-        pProvider->pDisplay->getName(name);
-        DEBUG_LOG(
-            "GraphicsService: provider with display name '"
-            << name << "' got " << points << " points"
-            << (bNewBest ? " [new best choice]" : ""));
+            DEBUG_LOG("  => new best text provider");
+        }
     }
 
     return result;
