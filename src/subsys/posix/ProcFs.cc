@@ -417,7 +417,7 @@ bool ProcFs::initialise(Disk *pDisk)
 
     // Kernel command line
     String cmdline;  //(g_pBootstrapInfo->getCommandLine());
-    cmdline = "noswap quiet boot=live live-config.components\n";
+    cmdline = "noswap quiet boot=live\n";
     NOTICE("cmdline is '" << cmdline << "'");
     ConstantFile *pCmdline = new ConstantFile(
         String("cmdline"), cmdline, cmdline.length(), getNextInode(), this, m_pRoot);
