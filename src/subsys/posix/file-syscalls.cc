@@ -47,6 +47,7 @@
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
 #include <FileDescriptor.h>
+#include "subsys/posix/IoEvent.h"
 
 #include "console-syscalls.h"
 #include "file-syscalls.h"
@@ -1854,8 +1855,8 @@ int posix_fcntl(int fd, int cmd, void *arg)
     F_NOTICE("fcntl(" << fd << ", " << cmd << ", " << arg << ")");
 
     // grab the file descriptor pointer for the passed descriptor
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
@@ -1927,9 +1928,27 @@ int posix_fcntl(int fd, int cmd, void *arg)
             /// \note advisory locking disabled for now
             return 0;
         case F_GETOWN:
+            F_NOTICE("  -> F_GETOWN (stubbed)");
+            return 0;
         case F_SETOWN:
             /// \todo implement signal management
-            F_NOTICE("  -> fcntl signal management (stubbed)");
+            F_NOTICE("  -> F_SETOWN");
+
+            if (!f->ioevent)
+            {
+                if (f->file)
+                {
+                    NOTICE("Adding ioevent to thread");
+                    f->ioevent = new IoEvent(pSubsystem, f->file);
+                    f->file->monitor(pThread, f->ioevent);
+                }
+                else
+                {
+                    /// \todo errno
+                    ERROR("F_SETOWN on something that can't raise events [fd=" << fd << " file=" << f->file << " impl=" << f->networkImpl.get() << "!");
+                    return -1;
+                }
+            }
             return 0;
 
         default:

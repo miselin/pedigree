@@ -21,6 +21,7 @@
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
 
 #include "modules/system/vfs/File.h"
+#include "subsys/posix/IoEvent.h"
 
 #include <fcntl.h>
 
@@ -33,7 +34,7 @@ RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
 /// Default constructor
 FileDescriptor::FileDescriptor()
     : file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), lockedFile(0),
-      networkImpl(nullptr)
+      networkImpl(nullptr), ioevent(nullptr)
 {
 }
 
@@ -42,7 +43,7 @@ FileDescriptor::FileDescriptor(
     File *newFile, uint64_t newOffset, size_t newFd, int fdFlags, int flFlags,
     LockedFile *lf)
     : file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
-      flflags(flFlags), lockedFile(lf), networkImpl(nullptr)
+      flflags(flFlags), lockedFile(lf), networkImpl(nullptr), ioevent(nullptr)
 {
     /// \todo need a copy constructor for networkImpl
     if (file)
@@ -57,7 +58,8 @@ FileDescriptor::FileDescriptor(
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor &desc)
     : file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
-      flflags(desc.flflags), lockedFile(0), networkImpl(desc.networkImpl)
+      flflags(desc.flflags), lockedFile(0), networkImpl(desc.networkImpl),
+      ioevent(nullptr)
 {
     if (file)
     {
@@ -66,11 +68,18 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
 #endif
         file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
+
+#ifdef THREADS
+    if (desc.ioevent)
+    {
+        ioevent = new IoEvent(*desc.ioevent);
+    }
+#endif
 }
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0)
+    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0), ioevent(nullptr)
 {
     if (!desc)
         return;
@@ -88,6 +97,13 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
 #endif
         file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
+
+#ifdef THREADS
+    if (desc->ioevent)
+    {
+        ioevent = new IoEvent(*desc->ioevent);
+    }
+#endif
 }
 
 /// Assignment operator implementation
@@ -106,6 +122,16 @@ FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
 #endif
         file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
+#ifdef THREADS
+    if (desc.ioevent)
+    {
+        ioevent = new IoEvent(*desc.ioevent);
+    }
+    else
+    {
+        ioevent = nullptr;
+    }
+#endif
     return *this;
 }
 
@@ -125,6 +151,16 @@ FileDescriptor::~FileDescriptor()
 #endif
         file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
+#ifdef THREADS
+    if (ioevent)
+    {
+        if (networkImpl)
+        {
+            networkImpl->unmonitor(ioevent);
+        }
+        delete ioevent;
+    }
+#endif
 
     /// \note sockets are cleaned up by their reference count hitting zero (SharedPointer)
 }

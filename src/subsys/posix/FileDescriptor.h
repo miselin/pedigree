@@ -27,6 +27,7 @@
 class File;
 class LockedFile;
 class UnixSocket;
+class IoEvent;
 
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
@@ -74,6 +75,9 @@ class FileDescriptor
 
     /// Network syscall implementation for this descriptor (if it's a socket).
     SharedPointer<class NetworkSyscalls> networkImpl;
+
+    /// IO event for reporting changes to files
+    IoEvent *ioevent;
 };
 
 #endif
