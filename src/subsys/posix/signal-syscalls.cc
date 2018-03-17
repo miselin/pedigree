@@ -559,7 +559,7 @@ int posix_pthread_sigmask(int how, const uint32_t *set, uint32_t *oset)
 
 size_t posix_alarm(uint32_t seconds)
 {
-    SG_NOTICE("alarm");
+    SG_NOTICE("alarm(" << seconds << ")");
 
     // Create the pending signal and pass it in
     Process *pProcess =
