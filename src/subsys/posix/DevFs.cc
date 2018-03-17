@@ -698,27 +698,27 @@ void DevFs::handleInput(InputManager::InputNotification &in)
         char *s = reinterpret_cast<char *>(&k);
 
         size_t newTty = 0;
-        if (!StringCompareN(s, "f1", 2))
+        if (!StringCompareN(s, "f1", 3))
         {
             newTty = 0;
         }
-        else if (!StringCompareN(s, "f2", 2))
+        else if (!StringCompareN(s, "f2", 3))
         {
             newTty = 1;
         }
-        else if (!StringCompareN(s, "f3", 2))
+        else if (!StringCompareN(s, "f3", 3))
         {
             newTty = 2;
         }
-        else if (!StringCompareN(s, "f4", 2))
+        else if (!StringCompareN(s, "f4", 3))
         {
             newTty = 3;
         }
-        else if (!StringCompareN(s, "f5", 2))
+        else if (!StringCompareN(s, "f5", 3))
         {
             newTty = 4;
         }
-        else if (!StringCompareN(s, "f6", 2))
+        else if (!StringCompareN(s, "f6", 3))
         {
             newTty = 5;
         }
