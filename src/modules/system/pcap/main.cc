@@ -74,7 +74,7 @@ static Serial *getSerial()
     return Machine::instance().getSerial(2);
 }
 
-static bool filterCallback(uintptr_t packet, size_t size)
+bool pcapLogPacket(uintptr_t packet, size_t size)
 {
     LockGuard<Mutex> guard(g_PcapMutex);
 
@@ -136,7 +136,7 @@ static bool entry()
     }
 
     g_FilterEntry =
-        NetworkFilter::instance().installCallback(1, filterCallback);
+        NetworkFilter::instance().installCallback(1, pcapLogPacket);
     if (g_FilterEntry == static_cast<size_t>(-1))
     {
         NOTICE("pcap: could not install callback");
