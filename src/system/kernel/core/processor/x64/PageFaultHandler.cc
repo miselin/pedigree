@@ -67,7 +67,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                     .getCurrentThread()
                     ->getParent()
                     ->getId()
-                << " PageFaultHandler: copy-on-write for v=" << page);
+                << " PageFaultHandler: copy-on-write for v=" << Hex << page);
 #endif
 
             Process *pProcess =
