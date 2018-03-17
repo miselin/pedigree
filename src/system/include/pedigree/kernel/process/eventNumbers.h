@@ -44,6 +44,8 @@ const size_t TerminalEvent = 40;
 
 const size_t DelayTimer = 40;
 
+const size_t IoEvent = 41;
+
 const size_t UserStart = 0xFFFF;  ///< Start of user-defined events.
 }
 
