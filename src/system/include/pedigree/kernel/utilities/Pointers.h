@@ -30,6 +30,11 @@ class UniqueCommon
         UniqueCommon() : m_Pointer(nullptr) {}
         UniqueCommon(T *p) : m_Pointer(p) {}
 
+        virtual ~UniqueCommon()
+        {
+            reset();
+        }
+
         T *operator* () const
         {
             return get();
