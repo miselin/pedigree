@@ -79,7 +79,7 @@ class HashTable
             if (!parent->m_Buckets)
             {
                 // Nothing useful to be done here, this is a pointless iterator
-                value = parent->m_Default;
+                resetValue();
                 return;
             }
 
@@ -102,7 +102,7 @@ class HashTable
 
             if (!ok)
             {
-                value = parent->m_Default;
+                resetValue();
             }
             else
             {
@@ -140,6 +140,8 @@ class HashTable
 
         IteratorNode *next()
         {
+            resetValue();
+
             while (true)
             {
                 pos = nextPos();
@@ -157,6 +159,8 @@ class HashTable
 
         IteratorNode *previous()
         {
+            resetValue();
+
             while (true)
             {
                 pos = prevPos();
@@ -176,6 +180,11 @@ class HashTable
         {
             value = parent->m_Buckets[pos].value;
         }
+
+        void resetValue()
+        {
+            value = parent->m_Default;
+        }
     };
 
    public:
@@ -185,7 +194,7 @@ class HashTable
     typedef Result<const V &, HashTableError::Error> LookupResult;
     typedef Result<Pair<K, V>, HashTableError::Error> PairLookupResult;
 
-    HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0), m_Begin(nullptr)
+    HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0)
     {
     }
 
@@ -210,8 +219,6 @@ class HashTable
     virtual ~HashTable()
     {
         clear();
-
-        delete m_Begin;
     }
 
     /**
@@ -350,13 +357,6 @@ class HashTable
         bool wasEmpty = m_nItems == 0;
         ++m_nItems;
 
-        if (wasEmpty)
-        {
-            // Re-create begin node now that we have an item.
-            delete m_Begin;
-            m_Begin = new IteratorNode(this);
-        }
-
         return true;
     }
 
@@ -414,12 +414,13 @@ class HashTable
 
     Iterator begin()
     {
-        return m_nItems ? Iterator(m_Begin) : end();
+        /// \todo this leaks IteratorNode objects
+        return m_nItems ? Iterator(new IteratorNode(this)) : end();
     }
 
     ConstIterator begin() const
     {
-        return m_nItems ? ConstIterator(m_Begin) : end();
+        return m_nItems ? ConstIterator(new IteratorNode(this)) : end();
     }
 
     Iterator end()
@@ -573,8 +574,6 @@ class HashTable
     size_t m_nBuckets;
     size_t m_nItems;
     size_t m_nMask;
-
-    IteratorNode *m_Begin;
 };
 
 /** @} */

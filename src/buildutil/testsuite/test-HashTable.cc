@@ -233,17 +233,37 @@ TEST(PedigreeHashTable, RemoveFirstInChain)
 
 TEST(PedigreeHashTable, ForwardIteration)
 {
-    HashTable<CollidingHashableInteger, int> hashtable(1234);
+    HashTable<HashableInteger, int> hashtable(1234);
 
-    CollidingHashableInteger key1(0), key2(1), key3(2), key4(3);
-
-    EXPECT_TRUE(hashtable.insert(key1, 1));
-    EXPECT_TRUE(hashtable.insert(key2, 2));
-    EXPECT_TRUE(hashtable.insert(key3, 3));
-    EXPECT_TRUE(hashtable.insert(key4, 4));
+    for (int i = 0; i < 8; ++i)
+    {
+        HashableInteger key(i);
+        EXPECT_TRUE(hashtable.insert(key, i + 1));
+    }
 
     std::list<int> results;
-    std::list<int> expected = {1, 2, 3, 4};
+    std::list<int> expected = {1, 2, 3, 4, 5, 6, 7, 8};
+    for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
+    {
+        results.push_back(*it);
+    }
+    results.sort();
+
+    EXPECT_EQ(results, expected);
+}
+
+TEST(PedigreeHashTable, ForwardIterationCollisions)
+{
+    HashTable<CollidingHashableInteger, int> hashtable(1234);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        CollidingHashableInteger key(i);
+        EXPECT_TRUE(hashtable.insert(key, i + 1));
+    }
+
+    std::list<int> results;
+    std::list<int> expected = {1, 2, 3, 4, 5, 6, 7, 8};
     for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
     {
         results.push_back(*it);
