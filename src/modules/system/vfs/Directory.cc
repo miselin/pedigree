@@ -166,6 +166,30 @@ bool Directory::addEphemeralFile(File *pFile)
     return true;
 }
 
+bool Directory::empty()
+{
+    // Need to make sure we can safely remove all nodes regardless of what
+    // happens to the directory cache while we empty
+    Vector<File *> entries;
+    for (auto it = m_Cache.begin(); it != m_Cache.end(); ++it)
+    {
+        entries.pushBack((*it)->get());
+    }
+
+    for (auto it : entries)
+    {
+        if (!getFilesystem()->remove(this, it))
+        {
+            /// \note partial failure - some entries have been deleted by this point!
+            return false;
+        }
+    }
+
+    m_Cache.clear();
+
+    return true;
+}
+
 File *Directory::evaluateEntry(const DirectoryEntryMetadata &meta)
 {
     if (!meta.pDirectory)

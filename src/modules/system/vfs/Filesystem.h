@@ -109,6 +109,9 @@ class Filesystem
         return true;
     }
 
+    /** Remove a file given a parent and file, assuming path parsing already completed. */
+    virtual bool remove(File *parent, File *file) = 0;
+
   protected:
     /** createFile calls this after it has parsed the string path. */
     virtual bool createFile(File *parent, String filename, uint32_t mask) = 0;
@@ -119,8 +122,6 @@ class Filesystem
     virtual bool createSymlink(File *parent, String filename, String value) = 0;
     /** createLink calls this after it has parsed the string path. */
     virtual bool createLink(File *parent, String filename, File *target);
-    /** remove() calls this after it has parsed the string path. */
-    virtual bool remove(File *parent, File *file) = 0;
     /** is this entire filesystem read-only?  */
     bool m_bReadOnly;
     /** Disk device(if any). */

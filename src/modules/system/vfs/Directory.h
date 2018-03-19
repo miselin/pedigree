@@ -114,6 +114,13 @@ class Directory : public File
      */
     bool addEphemeralFile(File *pFile);
 
+    /**
+     * Empty the entire directory, deleting all files within it
+     * (non-recursively). This does NOT check that the directory is "empty"
+     * first.
+     */
+    bool empty();
+
   protected:
     struct DirectoryEntryMetadata
     {

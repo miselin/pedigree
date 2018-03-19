@@ -274,16 +274,22 @@ bool Filesystem::remove(String path, File *pStartNode)
                 }
             }
 
-            for (auto it : removalDir->getCache())
+            // Clean out the . and .. entries
+            if (!removalDir->empty())
             {
-                pFs->remove(removalDir, it->get());
+                // ?????
+                SYSCALL_ERROR(IoError);
+                return false;
             }
         }
     }
 
+    // Remove the file from disk & parent directory cache.
     bool bRemoved = pFs->remove(pParent, pFile);
     if (bRemoved)
+    {
         pDParent->remove(filename);
+    }
     return bRemoved;
 }
 
