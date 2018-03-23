@@ -169,18 +169,25 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
               "an acquired lock");
 
     // Check for pinned page.
-    size_t index = page >> 12;
-    if (m_PageMetadata && m_PageMetadata[index].active)
+    PageHashable index(page);
+    MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
+    if (result.hasValue())
     {
-        if (--m_PageMetadata[index].refcount)
+        struct page p = result.value();
+        if (p.active)
         {
-            // Still references.
-            return;
-        }
-        else
-        {
-            // No more references.
-            m_PageMetadata[index].active = false;
+            if (--p.refcount)
+            {
+                // Still references.
+                m_PageMetadata.update(index, p);
+                return;
+            }
+            else
+            {
+                // No more references, stop tracking page.
+                p.active = false;
+                m_PageMetadata.update(index, p);
+            }
         }
     }
 
@@ -210,21 +217,21 @@ void X86CommonPhysicalMemoryManager::pin(physical_uintptr_t page)
 {
     RecursingLockGuard<Spinlock> guard(m_Lock);
 
-    if (!m_PageMetadata)
+    PageHashable index(page);
+    MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
+    if (result.hasValue())
     {
-        // No page metadata to speak of.
-        return;
-    }
-
-    size_t index = page >> 12;
-    if (m_PageMetadata[index].active)
-    {
-        ++m_PageMetadata[index].refcount;
+        struct page p = result.value();
+        ++p.refcount;
+        p.active = true;
+        m_PageMetadata.update(index, p);
     }
     else
     {
-        m_PageMetadata[index].refcount = 1;
-        m_PageMetadata[index].active = true;
+        struct page p;
+        p.refcount = 1;
+        p.active = true;
+        m_PageMetadata.insert(index, p);
     }
 }
 bool X86CommonPhysicalMemoryManager::allocateRegion(
@@ -419,8 +426,7 @@ void X86CommonPhysicalMemoryManager::shutdown()
 {
     NOTICE("Shutting down X86CommonPhysicalMemoryManager");
     PhysicalMemoryManager::m_MemoryRegions.clear();
-    delete[] m_PageMetadata;
-    m_PageMetadata = 0;
+    m_PageMetadata.clear();
 }
 
 void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
@@ -492,7 +498,7 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     m_PageStack.markBelow4GReady();
 
     /// \todo do this in initialise64 too, copying any existing entries.
-    m_PageMetadata = new struct page[top >> 12];
+    // m_PageMetadata = new struct page[top >> 12];
 
     // Fill the range-lists (usable memory below 1/16MB & ACPI)
     MemoryMap = Info.getMemoryMap();
@@ -782,7 +788,7 @@ X86CommonPhysicalMemoryManager::X86CommonPhysicalMemoryManager()
       m_AcpiRanges(),
 #endif
       m_MemoryRegions(), m_Lock(false, true), m_RegionLock(false, true),
-      m_PageMetadata(0)
+      m_PageMetadata()
 {
 }
 X86CommonPhysicalMemoryManager::~X86CommonPhysicalMemoryManager()

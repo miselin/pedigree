@@ -259,8 +259,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         size_t refcount;
     };
 
+    typedef HashTable<PageHashable, struct page> MetadataTable;
+
     /** Page metadata table */
-    struct page *m_PageMetadata;
+    HashTable<PageHashable, struct page> m_PageMetadata;
 };
 
 /** @} */
