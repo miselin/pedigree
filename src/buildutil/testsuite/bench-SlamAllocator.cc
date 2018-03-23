@@ -26,11 +26,25 @@
 
 #include "pedigree/kernel/core/SlamAllocator.h"
 
+static void BM_SlamAllocatorBackForthReference(benchmark::State &state)
+{
+    while (state.KeepRunning())
+    {
+        void *mem = malloc(OBJECT_MINIMUM_SIZE);
+        benchmark::DoNotOptimize(mem);
+        free(mem);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
+}
+
 static void BM_SlamAllocatorBackForth(benchmark::State &state)
 {
     while (state.KeepRunning())
     {
         uintptr_t mem = SlamAllocator::instance().allocate(OBJECT_MINIMUM_SIZE);
+        benchmark::DoNotOptimize(mem);
         SlamAllocator::instance().free(mem);
     }
 
@@ -38,28 +52,5 @@ static void BM_SlamAllocatorBackForth(benchmark::State &state)
     state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
 }
 
-static void BM_SlamAllocatorAllocations(benchmark::State &state)
-{
-    int64_t allocationSize = state.range(0);
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        SlamAllocator allocator;
-        allocator.initialise();
-        state.ResumeTiming();
-
-        for (size_t i = 0; i < state.range(1); ++i)
-        {
-            allocator.allocate(state.range(0));
-        }
-    }
-
-    int64_t items = int64_t(state.iterations()) * int64_t(state.range(1));
-    state.SetItemsProcessed(items);
-    state.SetComplexityN(state.range(1));
-}
-
+BENCHMARK(BM_SlamAllocatorBackForthReference);
 BENCHMARK(BM_SlamAllocatorBackForth);
-BENCHMARK(BM_SlamAllocatorAllocations)
-    ->RangePair(OBJECT_MINIMUM_SIZE, 0x20000, 8, 1024)
-    ->Complexity();

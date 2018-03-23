@@ -109,7 +109,10 @@ class SlamAllocator;
 /// Scribble in freed memory; can be useful for finding bugs which are caused
 /// by reuse of freed objects (that would otherwise look like valid objects).
 /// It can also avoid leaking information in heap objects.
-#define SCRIBBLE_FREED_BLOCKS 1
+#define SCRIBBLE_FREED_BLOCKS 0
+
+/// Block allocations larger than or equal to the native page size.
+#define WARN_PAGE_SIZE_OR_LARGER 0
 
 /** A cache allocates objects of a constant size. */
 class SlamCache
@@ -278,6 +281,9 @@ class SlamAllocator
 #ifndef PEDIGREE_BENCHMARK
     static SlamAllocator m_Instance;
 #endif
+
+    /** Wipe out all memory used by the allocator. */
+    void wipe();
 
     SlamCache m_Caches[32];
 

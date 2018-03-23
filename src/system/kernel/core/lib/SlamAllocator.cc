@@ -262,6 +262,12 @@ void SlamCache::push(
 
 uintptr_t SlamCache::allocate()
 {
+    if (m_ObjectSize >= getPageSize())
+    {
+        // just return a big-enough slab - allocation is page-sized or bigger
+        return getSlab();
+    }
+
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
 #else
@@ -294,6 +300,13 @@ uintptr_t SlamCache::allocate()
 
 void SlamCache::free(uintptr_t object)
 {
+    if (m_ObjectSize >= getPageSize())
+    {
+        // just free the object directly, it's an entire slab
+        freeSlab(object);
+        return;
+    }
+
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
 #else
@@ -324,6 +337,12 @@ void SlamCache::free(uintptr_t object)
 
 bool SlamCache::isPointerValid(uintptr_t object)
 {
+    if (m_ObjectSize >= getPageSize())
+    {
+        /// \todo need to figure out how to do this
+        return true;
+    }
+
     Node *N = reinterpret_cast<Node *>(object);
 #if OVERRUN_CHECK
     // Grab the footer and check it.
@@ -359,6 +378,12 @@ void SlamCache::freeSlab(uintptr_t slab)
 
 size_t SlamCache::recovery(size_t maxSlabs)
 {
+    if (m_ObjectSize >= getPageSize())
+    {
+        // Caches with slabs page-sized or bigger don't hold onto freed regions
+        return 0;
+    }
+
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
 #else
@@ -514,6 +539,11 @@ size_t SlamCache::recovery(size_t maxSlabs)
 
 SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
 {
+    if (m_ObjectSize >= getPageSize())
+    {
+        return nullptr;
+    }
+
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
 #else
@@ -561,6 +591,11 @@ SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
 Spinlock rarp;
 void SlamCache::check()
 {
+    if (m_ObjectSize >= getPageSize())
+    {
+        return;
+    }
+
     if (!Machine::instance().isInitialised() || Processor::m_Initialised != 2)
         return;
     if (m_ObjectSize == 0)
@@ -693,6 +728,10 @@ SlamAllocator::SlamAllocator()
 
 SlamAllocator::~SlamAllocator()
 {
+    if (m_bInitialised)
+    {
+        wipe();
+    }
 }
 
 void SlamAllocator::initialise()
@@ -766,10 +805,67 @@ void SlamAllocator::initialise()
 #ifdef PEDIGREE_BENCHMARK
 void SlamAllocator::clearAll()
 {
-    m_bInitialised = false;
+    wipe();
     initialise();
 }
 #endif
+
+void SlamAllocator::wipe()
+{
+    if (!m_bInitialised)
+    {
+        return;
+    }
+
+    if (!m_SlabRegionBitmap)
+    {
+        return;
+    }
+
+#ifdef THREADS
+    m_SlabRegionLock.acquire();
+#endif
+
+    m_bInitialised = false;
+
+    uint64_t *bitmap = m_SlabRegionBitmap;
+    size_t numEntries = m_SlabRegionBitmapEntries;
+
+    // Clean up all slabs we obtained.
+    for (size_t entry = 0; entry < m_SlabRegionBitmapEntries; ++entry)
+    {
+        if (!m_SlabRegionBitmap[entry])
+        {
+            continue;
+        }
+
+        for (size_t bit = 0; bit < 64; ++bit)
+        {
+            uint64_t test = 1ULL << bit;
+            if ((m_SlabRegionBitmap[entry] & test) == 0)
+            {
+                continue;
+            }
+
+            uintptr_t slab = m_Base + (((entry * 64) + bit) * getPageSize());
+            freeSlab(slab, getPageSize());
+        }
+    }
+
+    // about to destroy the bitmap mappings
+    m_SlabRegionBitmap = nullptr;
+    m_SlabRegionBitmapEntries = 0;
+
+    // Clean up the bitmap.
+    for (uintptr_t addr = getHeapBase(); addr < m_Base; addr += getPageSize())
+    {
+        unmap(reinterpret_cast<void *>(addr));
+    }
+
+#ifdef THREADS
+    m_SlabRegionLock.release();
+#endif
+}
 
 uintptr_t SlamAllocator::getSlab(size_t fullSize)
 {
@@ -1032,7 +1128,7 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
             m_Caches[i].check();
 #endif
 
-#ifdef MEMORY_TRACING
+#if defined(MEMORY_TRACING) || WARN_PAGE_SIZE_OR_LARGER
     size_t origSize = nBytes;
 #endif
 
@@ -1058,6 +1154,21 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     lg2 = 32 - __builtin_clz(nBytes);
     nBytes = 1U << lg2;  // Round up nBytes now.
     ret = m_Caches[lg2].allocate();
+
+#if WARN_PAGE_SIZE_OR_LARGER
+    // Does the allocation fit inside a slab?
+    // NOTE: use something else to allocate 4K or more.
+    if (nBytes >= getPageSize())
+    {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wframe-address"
+        // return address of operator new()
+        void *ret0 = __builtin_return_address(0);
+        void *ret1 = __builtin_return_address(1);
+        ERROR("alloc of " << origSize << " rounded to " << nBytes << " exceeds page size [at " << ret0 << " " << ret1 << "]!");
+#pragma GCC diagnostic pop
+    }
+#endif
 
 //   l.release();
 #if DEBUGGING_SLAB_ALLOCATOR
@@ -1194,7 +1305,7 @@ void SlamAllocator::free(uintptr_t mem)
 
 // Scribble the freed buffer (both to avoid leaking information, and also
 // to ensure anything using a freed object will absolutely fail).
-#ifdef SCRIBBLE_FREED_BLOCKS
+#if SCRIBBLE_FREED_BLOCKS
     size_t size =
         pCache->objectSize() - sizeof(AllocHeader) - sizeof(AllocFooter);
     ByteSet(reinterpret_cast<void *>(mem), 0xAB, size);

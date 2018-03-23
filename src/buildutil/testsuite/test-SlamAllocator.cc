@@ -63,3 +63,12 @@ TEST(PedigreeSlamAllocator, Recovery)
     SlamAllocator::instance().recovery();
     EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 0);
 }
+
+TEST(PedigreeSlamAllocator, Alignment)
+{
+    SlamAllocator::instance().initialise();
+
+    uintptr_t alloc = SlamAllocator::instance().allocate(4);
+    EXPECT_EQ(alloc & 15, 0);
+    SlamAllocator::instance().free(alloc);
+}
