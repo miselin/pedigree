@@ -24,7 +24,8 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 // These will all be safe for use when entering a double fault handler
-static char g_SafeStack[8192] = {0};
+#define SAFE_STACK_SIZE 8192
+static char g_SafeStack[SAFE_STACK_SIZE] = {0};
 
 X64GdtManager X64GdtManager::m_Instance;
 
@@ -124,7 +125,7 @@ void X64GdtManager::initialiseTss(X64TaskStateSegment *pTss)
 {
     ByteSet(reinterpret_cast<void *>(pTss), 0, sizeof(X64TaskStateSegment));
 
-    pTss->ist[1] = reinterpret_cast<uint64_t>(g_SafeStack) + 8192;
+    pTss->ist[1] = reinterpret_cast<uint64_t>(g_SafeStack) + SAFE_STACK_SIZE;
 
     // All entries will be zero by default (all ports accessible to all IOPLs)
     /// \todo this should change
