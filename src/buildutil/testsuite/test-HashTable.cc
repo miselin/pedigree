@@ -153,6 +153,17 @@ TEST(PedigreeHashTable, InsertedAlready)
     EXPECT_EQ(hashtable.lookup(key).value(), 5);
 }
 
+TEST(PedigreeHashTable, Update)
+{
+    HashTable<HashableInteger, int> hashtable;
+
+    HashableInteger key(0);
+
+    hashtable.insert(key, 5);
+    hashtable.update(key, 6);
+    EXPECT_EQ(hashtable.lookup(key).value(), 6);
+}
+
 TEST(PedigreeHashTable, CollidingHashes)
 {
     HashTable<CollidingHashableInteger, int> hashtable;

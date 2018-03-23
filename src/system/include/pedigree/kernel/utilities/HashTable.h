@@ -260,29 +260,16 @@ class HashTable
      */
     LookupResult lookup(const K &k) const
     {
-        if ((!m_Buckets) || (!m_nItems))
+        HashTableError::Error err;
+        const struct bucket *b = doLookup(k, err);
+        if (b)
         {
-            return LookupResult::withError(HashTableError::HashTableEmpty);
+            return LookupResult::withValue(b->value);
         }
-
-        size_t hash = k.hash() & m_nMask;
-
-        const bucket *b = &m_Buckets[hash];
-        if (!b->set)
+        else
         {
-            return LookupResult::withError(HashTableError::NotFound);
+            return LookupResult::withError(err);
         }
-
-        if (b->key != k)
-        {
-            b = findNextSet(hash, k);
-            if (!b)
-            {
-                return LookupResult::withError(HashTableError::NotFound);
-            }
-        }
-
-        return LookupResult::withValue(b->value);
     }
 
     /**
@@ -357,6 +344,24 @@ class HashTable
         bool wasEmpty = m_nItems == 0;
         ++m_nItems;
 
+        return true;
+    }
+
+    /**
+     * Update the value at the given key.
+     */
+    bool update(const K &k, const V &v)
+    {
+        check();
+
+        HashTableError::Error err;
+        struct bucket *b = const_cast<struct bucket *>(doLookup(k, err));
+        if (!b)
+        {
+            return false;
+        }
+
+        b->value = v;
         return true;
     }
 
@@ -567,6 +572,36 @@ class HashTable
         }
 
         return nullptr;
+    }
+
+    const struct bucket *doLookup(const K &k, HashTableError::Error &err) const
+    {
+        if ((!m_Buckets) || (!m_nItems))
+        {
+            err = HashTableError::HashTableEmpty;
+            return nullptr;
+        }
+
+        size_t hash = k.hash() & m_nMask;
+
+        const bucket *b = &m_Buckets[hash];
+        if (!b->set)
+        {
+            err = HashTableError::NotFound;
+            return nullptr;
+        }
+
+        if (b->key != k)
+        {
+            b = findNextSet(hash, k);
+            if (!b)
+            {
+                err = HashTableError::NotFound;
+                return nullptr;
+            }
+        }
+
+        return b;
     }
 
     bucket *m_Buckets;
