@@ -28,6 +28,7 @@
 #include "Serial.h"
 #include "Vga.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Bus.h"
 #if defined(SMBIOS)
 #include "SMBios.h"
 #endif
@@ -91,7 +92,7 @@ class Pc : public Machine
 
     X86Serial m_pSerial[4];
     X86Vga m_Vga;
-    Keyboard *m_Keyboard;
+    Keyboard *m_pKeyboard;
 
 #if defined(SMBIOS)
     SMBios m_SMBios;
@@ -101,9 +102,15 @@ class Pc : public Machine
     LocalApic m_LocalApic;
 #endif
 
-    Ps2Controller *m_Ps2Controller;
-
     static Pc m_Instance;
+
+    // Hardware devices.
+    X86Keyboard m_Keyboard;
+    Bus m_IsaBus;
+    Controller m_AtaMaster;
+    Controller m_AtaSlave;
+    Ps2Controller m_Ps2Controller;
+    Device m_Watchdog;
 };
 
 #endif

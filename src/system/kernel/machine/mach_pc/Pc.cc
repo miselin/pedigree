@@ -131,10 +131,8 @@ void Pc::initialise()
         panic("Pc: Pit initialisation failed");
 
     // Set up PS/2
-    m_Ps2Controller->initialise();
-
-    m_Keyboard = new X86Keyboard(m_Ps2Controller);
-    m_Keyboard->initialise();
+    m_Ps2Controller.initialise();
+    m_Keyboard.initialise();
 
 // Find and parse the SMBIOS tables
 #if defined(SMBIOS)
@@ -162,53 +160,48 @@ void Pc::initialiseProcessor()
 
 void Pc::initialise3()
 {
-    static_cast<X86Keyboard *>(m_Keyboard)->startReaderThread();
+    m_Keyboard.startReaderThread();
 }
 
 void Pc::initialiseDeviceTree()
 {
     // Firstly add the ISA bus.
-    Bus *pIsa = new Bus("ISA");
-    pIsa->setSpecificType(String("isa"));
+    m_IsaBus.setSpecificType(String("isa"));
 
     // ATA controllers.
-    Controller *pAtaMaster = new Controller();
-    pAtaMaster->setSpecificType(String("ata"));
-    pAtaMaster->addresses().pushBack(
+    m_AtaMaster.setSpecificType(String("ata"));
+    m_AtaMaster.addresses().pushBack(
         new Device::Address(String("command"), 0x1F0, 8, true));
-    pAtaMaster->addresses().pushBack(
+    m_AtaMaster.addresses().pushBack(
         new Device::Address(String("control"), 0x3F0, 8, true));
-    pAtaMaster->setInterruptNumber(14);
-    pIsa->addChild(pAtaMaster);
-    pAtaMaster->setParent(pIsa);
+    m_AtaMaster.setInterruptNumber(14);
+    m_IsaBus.addChild(&m_AtaMaster);
+    m_AtaMaster.setParent(&m_IsaBus);
 
-    Controller *pAtaSlave = new Controller();
-    pAtaMaster->setSpecificType(String("ata"));
-    pAtaSlave->addresses().pushBack(
+    m_AtaSlave.setSpecificType(String("ata"));
+    m_AtaSlave.addresses().pushBack(
         new Device::Address(String("command"), 0x170, 8, true));
-    pAtaSlave->addresses().pushBack(
+    m_AtaSlave.addresses().pushBack(
         new Device::Address(String("control"), 0x370, 8, true));
-    pAtaSlave->setInterruptNumber(15);
-    pIsa->addChild(pAtaSlave);
-    pAtaSlave->setParent(pIsa);
+    m_AtaSlave.setInterruptNumber(15);
+    m_IsaBus.addChild(&m_AtaSlave);
+    m_AtaSlave.setParent(&m_IsaBus);
 
     // PS/2
-    m_Ps2Controller = new Ps2Controller();
-    m_Ps2Controller->setSpecificType(String("ps2"));
-    m_Ps2Controller->addresses().pushBack(
+    m_Ps2Controller.setSpecificType(String("ps2"));
+    m_Ps2Controller.addresses().pushBack(
         new Device::Address(String("ps2-base"), 0x60, 5, true));
-    m_Ps2Controller->setInterruptNumber(1);  // 12 for mouse, handled by the driver
-    pIsa->addChild(m_Ps2Controller);
-    m_Ps2Controller->setParent(pIsa);
+    m_Ps2Controller.setInterruptNumber(1);  // 12 for mouse, handled by the driver
+    m_IsaBus.addChild(&m_Ps2Controller);
+    m_Ps2Controller.setParent(&m_IsaBus);
 
     // IB700 Watchdog Timer
-    Device *pWatchdog = new Device();
-    pWatchdog->addresses().pushBack(
+    m_Watchdog.addresses().pushBack(
         new Device::Address(String("ib700-base"), 0x441, 4, true));
-    pIsa->addChild(pWatchdog);
-    pWatchdog->setParent(pIsa);
+    m_IsaBus.addChild(&m_Watchdog);
+    m_Watchdog.setParent(&m_IsaBus);
 
-    Device::addToRoot(pIsa);
+    Device::addToRoot(&m_IsaBus);
 
     // Initialise the PCI interface
     PciBus::instance().initialise();
@@ -255,12 +248,12 @@ Timer *Pc::getTimer()
 
 Keyboard *Pc::getKeyboard()
 {
-    return m_Keyboard;
+    return m_pKeyboard;
 }
 
 void Pc::setKeyboard(Keyboard *kb)
 {
-    m_Keyboard = kb;
+    m_pKeyboard = kb;
 }
 
 #ifdef MULTIPROCESSOR
@@ -272,7 +265,7 @@ void Pc::stopAllOtherProcessors()
 #endif
 
 Pc::Pc()
-    : m_Vga(0x3C0, 0xB8000), m_Keyboard(0)
+    : m_Vga(0x3C0, 0xB8000), m_pKeyboard(0)
 #if defined(SMBIOS)
       ,
       m_SMBios()
@@ -281,8 +274,9 @@ Pc::Pc()
       ,
       m_LocalApic()
 #endif
-      , m_Ps2Controller(0)
+      , m_Keyboard(&m_Ps2Controller), m_IsaBus("ISA"), m_Ps2Controller()
 {
+    m_pKeyboard = &m_Keyboard;
 }
 Pc::~Pc()
 {
