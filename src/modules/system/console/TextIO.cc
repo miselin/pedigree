@@ -50,6 +50,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
       m_bOwnsConsole(false), m_InputMode(TextIO::Standard)
 {
     m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
+    clearBackbuffer();
 
     // r/w for root user/group, no access for everyone else.
     setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
@@ -108,9 +109,8 @@ bool TextIO::initialise(bool bClear)
                         m_pVga->getNumRows() * m_pVga->getNumCols() *
                             sizeof(uint16_t));
                 }
-                ByteSet(
-                    m_pBackbuffer, 0,
-                    BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell));
+
+                clearBackbuffer();
             }
 
             m_bInitialised = true;
@@ -1553,6 +1553,13 @@ void TextIO::goHome(ssize_t xmove, ssize_t ymove)
         m_CursorX = xmove;
         m_CursorY = ymove;
     }
+}
+
+void TextIO::clearBackbuffer()
+{
+    ByteSet(
+        m_pBackbuffer, 0,
+        BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell));
 }
 
 void TextIO::flip(bool timer, bool hideState)

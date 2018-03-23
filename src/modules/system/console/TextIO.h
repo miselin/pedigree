@@ -199,6 +199,9 @@ class TextIO : public File
 
     void goHome(ssize_t xmove = 0, ssize_t ymove = 0);
 
+    /** Clear backbuffer. */
+    void clearBackbuffer();
+
     /**
      * Present backbuffer to the VGA instance.
      */
