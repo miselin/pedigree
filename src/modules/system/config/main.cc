@@ -101,20 +101,8 @@ xWrite(sqlite3_file *file, const void *ptr, int iAmt, sqlite3_int64 iOfst)
     // Write past the end of the file?
     if (static_cast<size_t>(iOfst + iAmt) >= g_FileSz)
     {
-        // How many extra bytes do we need?
-        size_t nNewSize =
-            iOfst + iAmt +
-            1;  // We know the read crosses the EOF, so this is correct
-
-        // Allocate it, zero, and copy
-        uint8_t *tmp = new uint8_t[nNewSize];
-        ByteSet(tmp, 0, nNewSize - 1);
-        MemoryCopy(tmp, g_pFile, g_FileSz);
-
-        delete[] g_pFile;
-
-        g_pFile = tmp;
-        g_FileSz = nNewSize - 1;
+        /// \todo figure out some sort of error to return?
+        return SQLITE_IOERR_WRITE;
     }
 
     MemoryCopy(&g_pFile[iOfst], ptr, iAmt);
@@ -419,6 +407,9 @@ static void xCallback2(sqlite3_context *context, int n, sqlite3_value **values)
 
 #ifdef STATIC_DRIVERS
 #include "config_database.h"
+#elif !defined(HOSTED)
+// Memory region containing the config database.
+MemoryRegion region("Config");
 #endif
 
 // Entry point for --gc-sections.
@@ -440,8 +431,6 @@ bool init()
     MemoryCopy(g_pFile, pPhys, sSize);
     g_FileSz = sSize;
 #else
-    MemoryRegion region("Config");
-
     if (PhysicalMemoryManager::instance().allocateRegion(
             region,
             (sSize + PhysicalMemoryManager::getPageSize() - 1) /
@@ -452,8 +441,7 @@ bool init()
         ERROR("Config: allocateRegion failed.");
     }
 
-    g_pFile = new uint8_t[sSize];
-    MemoryCopy(g_pFile, region.virtualAddress(), sSize);
+    g_pFile = reinterpret_cast<uint8_t *>(region.virtualAddress());
     g_FileSz = sSize;
 #endif  // HOSTED
 #else
@@ -484,8 +472,9 @@ static void destroy()
     sqlite3_close(g_pSqlite);
     sqlite3_shutdown();
 
-    /// \todo properly shut down sqlite!
-    delete[] g_pFile;
+#if !defined(STATIC_DRIVERS) && !defined(HOSTED)
+    region.free();
+#endif
 }
 
 MODULE_INFO("config", &init, &destroy);
