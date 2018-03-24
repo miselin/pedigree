@@ -118,7 +118,6 @@ class JenkinsHashedSymbol
 extern template class RadixTree<int64_t>;
 extern template class HashTable<ElfHashedSymbol, int64_t>;
 extern template class HashTable<JenkinsHashedSymbol, int64_t>;
-extern template class HashTable<MurmurHashedSymbol, int64_t>;
 
 static void LoadSymbols(std::vector<String> &result)
 {
@@ -252,32 +251,6 @@ static void BM_SymbolsInsert_JenkinsHash(benchmark::State &state)
     CreateKeys(symbols, keys);
 
     HashTable<JenkinsHashedSymbol, int64_t> map;
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        map.clear();
-        state.ResumeTiming();
-
-        for (auto &key : keys)
-        {
-            map.insert(key, value);
-        }
-    }
-
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(symbols.size()));
-}
-
-static void BM_SymbolsInsert_MurmurHash(benchmark::State &state)
-{
-    std::vector<String> symbols;
-    std::vector<MurmurHashedSymbol> keys;
-    int64_t value = 1;
-
-    LoadSymbols(symbols);
-    CreateKeys(symbols, keys);
-
-    HashTable<MurmurHashedSymbol, int64_t> map;
     while (state.KeepRunning())
     {
         state.PauseTiming();
@@ -433,51 +406,19 @@ static void BM_SymbolsLookup_JenkinsHash(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_SymbolsLookup_MurmurHash(benchmark::State &state)
-{
-    std::vector<String> symbols;
-    std::vector<MurmurHashedSymbol> keys;
-    int64_t value = 1;
-
-    LoadSymbols(symbols);
-    CreateKeys(symbols, keys);
-
-    HashTable<MurmurHashedSymbol, int64_t> map;
-    for (auto &key : keys)
-    {
-        map.insert(key, value);
-    }
-
-    auto it = keys.begin();
-    while (state.KeepRunning())
-    {
-        auto &k = *it;
-        benchmark::DoNotOptimize(map.lookup(k));
-        if (++it == keys.end())
-        {
-            it = keys.begin();
-        }
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
 BENCHMARK(BM_SymbolsInsert_RadixTree);
 BENCHMARK(BM_SymbolsInsert_Kernel);
 BENCHMARK(BM_SymbolsInsert_KernelGlobal);
 BENCHMARK(BM_SymbolsInsert_ElfHash);
 BENCHMARK(BM_SymbolsInsert_JenkinsHash);
-BENCHMARK(BM_SymbolsInsert_MurmurHash);
 BENCHMARK(BM_SymbolsLookup_RadixTree);
 BENCHMARK(BM_SymbolsLookup_KernelLocal);
 BENCHMARK(BM_SymbolsLookup_KernelGlobal);
 BENCHMARK(BM_SymbolsLookup_ElfHash);
 BENCHMARK(BM_SymbolsLookup_JenkinsHash);
-BENCHMARK(BM_SymbolsLookup_MurmurHash);
 
 // Implementations after all usages of HashTable and RadixTree so we get
 // single emitted versions, rather than inline versions.
 template class RadixTree<int64_t>;
 template class HashTable<ElfHashedSymbol, int64_t>;
 template class HashTable<JenkinsHashedSymbol, int64_t>;
-template class HashTable<MurmurHashedSymbol, int64_t>;

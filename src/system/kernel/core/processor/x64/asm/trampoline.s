@@ -21,7 +21,7 @@
 
 [bits 16]
 [section .trampoline.text16]
-[global mp_trampoline]
+global mp_trampoline:function hidden
 mp_trampoline:
   cli
   xor ax, ax

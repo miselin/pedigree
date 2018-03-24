@@ -71,6 +71,12 @@
 /** This function can be overridden by a library. */
 #define WEAK __attribute__((weak))
 
+/**
+ * This function or variable is to be exposed to other objects.
+ * This is needed for anything that the kernel will expose to kernel modules.
+ */
+#define EXPORTED_PUBLIC __attribute__((visibility("default")))
+
 // Builtin checks.
 #ifndef __has_builtin
 #define __has_builtin(x) 0

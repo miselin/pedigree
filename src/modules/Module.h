@@ -121,23 +121,23 @@ struct ModuleInfo
 
 #define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \
-    static ModuleInfo __module SECTION(".modinfo")(     \
+    static ModuleInfo __module SECTION(".modinfo") EXPORTED_PUBLIC (     \
         name, entry, exit, __mod_deps);
 
 #define MODULE_OPTIONAL_DEPENDS(...)
 
 #else
 
-#define MODULE_NAME(x) const char *g_pModuleName SECTION(".modinfo") = x
-#define MODULE_ENTRY(x) ModuleEntry g_pModuleEntry SECTION(".modinfo") = x
-#define MODULE_EXIT(x) ModuleExit g_pModuleExit SECTION(".modinfo") = x
+#define MODULE_NAME(x) const char *g_pModuleName SECTION(".modinfo") EXPORTED_PUBLIC = x
+#define MODULE_ENTRY(x) ModuleEntry g_pModuleEntry SECTION(".modinfo") EXPORTED_PUBLIC = x
+#define MODULE_EXIT(x) ModuleExit g_pModuleExit SECTION(".modinfo") EXPORTED_PUBLIC = x
 #define MODULE_DEPENDS(...) \
-    const char *g_pDepends[] SECTION(".modinfo") = {__VA_ARGS__, 0}
+    const char *g_pDepends[] SECTION(".modinfo") EXPORTED_PUBLIC = {__VA_ARGS__, 0}
 #define MODULE_DEPENDS2(...) \
-    const char *g_pDepends[] SECTION(".modinfo") = {__VA_ARGS__}
+    const char *g_pDepends[] SECTION(".modinfo") EXPORTED_PUBLIC = {__VA_ARGS__}
 
 #define MODULE_OPTIONAL_DEPENDS(...) \
-    const char *g_pOptionalDepends[] SECTION(".modinfo") = {__VA_ARGS__, 0}
+    const char *g_pOptionalDepends[] SECTION(".modinfo") EXPORTED_PUBLIC = {__VA_ARGS__, 0}
 
 #define MODULE_INFO2(name, entry, exit, ...) \
     MODULE_NAME(name);                       \

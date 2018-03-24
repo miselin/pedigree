@@ -19,7 +19,7 @@
 [section .init.text]
 
 ; X64GdtManager::loadSegmentRegisters
-global _ZN13X64GdtManager20loadSegmentRegistersEv
+global _ZN13X64GdtManager20loadSegmentRegistersEv:function hidden
 
 _ZN13X64GdtManager20loadSegmentRegistersEv:
   mov rax, rsp

@@ -84,20 +84,18 @@ SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
 void SymbolTable::insertShared(
     const String &name, SharedPointer<SymbolTable::Symbol> &symbol)
 {
-    MurmurHashedSymbol hashed(name);
-
     SharedPointer<symbolTree_t> tree = getOrInsertTree(symbol->getParent());
-    tree->insert(hashed, symbol);
+    tree->insert(name, symbol);
 
     // Insert global/weak as well - if the lookup fails in the ELF's table,
     // it'll fall back to these.
     if (symbol->getBinding() == Global)
     {
-        m_GlobalSymbols.insert(hashed, symbol);
+        m_GlobalSymbols.insert(name, symbol);
     }
     else if (symbol->getBinding() == Weak)
     {
-        m_WeakSymbols.insert(hashed, symbol);
+        m_WeakSymbols.insert(name, symbol);
     }
     return;
 }
@@ -144,29 +142,27 @@ SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBind
 {
     RAII_LOCK;
 
-    MurmurHashedSymbol hashed(name);
-
-    // Local.
+    // Local to the ELF file itself.
     SharedPointer<Symbol> sym;
     SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
     if (symbolTree)
     {
-        symbolTree_t::LookupResult result = symbolTree->lookup(hashed);
+        symbolTree_t::LookupResult result = symbolTree->lookup(name);
         if (result.hasValue())
         {
             return result.value()->getValue();
         }
     }
 
-    // Global.
-    symbolTree_t::LookupResult globalResult = m_GlobalSymbols.lookup(hashed);
+    // Global lookup across all ELFs that expose global symbols.
+    symbolTree_t::LookupResult globalResult = m_GlobalSymbols.lookup(name);
     if (globalResult.hasValue())
     {
         return globalResult.value()->getValue();
     }
 
-    // Weak.
-    symbolTree_t::LookupResult weakResult = m_WeakSymbols.lookup(hashed);
+    // Finally we try and find a usable weak symbol.
+    symbolTree_t::LookupResult weakResult = m_WeakSymbols.lookup(name);
     if (weakResult.hasValue())
     {
         return weakResult.value()->getValue();
@@ -186,40 +182,4 @@ SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p)
     auto tree = SharedPointer<symbolTree_t>::allocate();
     m_LocalSymbols.insert(p, tree);
     return tree;
-}
-
-MurmurHashedSymbol::MurmurHashedSymbol() : m_String()
-{
-}
-
-MurmurHashedSymbol::MurmurHashedSymbol(const String &str) : m_String(str), m_Hash(0)
-{
-    MurmurHash3_x86_32(static_cast<const char *>(m_String), m_String.length(), 0, &m_Hash);
-}
-
-MurmurHashedSymbol::MurmurHashedSymbol(const String *str) : m_String(*str), m_Hash(0)
-{
-    MurmurHash3_x86_32(static_cast<const char *>(m_String), m_String.length(), 0, &m_Hash);
-}
-
-const MurmurHashedSymbol &MurmurHashedSymbol::operator = (const MurmurHashedSymbol &other)
-{
-    m_String = other.m_String;
-    m_Hash = other.m_Hash;
-    return *this;
-}
-
-uint32_t MurmurHashedSymbol::hash() const
-{
-    return m_Hash;
-}
-
-bool MurmurHashedSymbol::operator==(const MurmurHashedSymbol &other) const
-{
-    return m_String == other.m_String;
-}
-
-bool MurmurHashedSymbol::operator!=(const MurmurHashedSymbol &other) const
-{
-    return m_String != other.m_String;
 }

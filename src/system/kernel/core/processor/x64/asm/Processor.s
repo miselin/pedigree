@@ -16,17 +16,17 @@
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ; uintptr_t Processor::getBasePointer()
-global _ZN9Processor14getBasePointerEv
+global _ZN9Processor14getBasePointerEv:function hidden
 ; uintptr_t Processor::getStackPointer()
-global _ZN9Processor15getStackPointerEv
+global _ZN9Processor15getStackPointerEv:function hidden
 ; uintptr_t Processor::getInstructionPointer()
-global _ZN9Processor21getInstructionPointerEv
+global _ZN9Processor21getInstructionPointerEv:function hidden
 ; uintptr_t Processor::getDebugStatus()
-global _ZN9Processor14getDebugStatusEv
+global _ZN9Processor14getDebugStatusEv:function hidden
 ; void Processor::switchToUserMode()
-global _ZN9Processor16switchToUserModeEmm
+global _ZN9Processor16switchToUserModeEmm:function hidden
 ; void Processor::contextSwitch(InterruptState*)
-global _ZN9Processor13contextSwitchEP17X64InterruptState
+global _ZN9Processor13contextSwitchEP17X64InterruptState:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################

@@ -141,6 +141,9 @@ opts.AddVariables(
     # PC architecture options.
     BoolVariable('mach_pc', 'Target a typical PC architecture.', 0),
 
+    # Debugger options
+    BoolVariable('track_hidden_symbols', 'Track hidden kernel symbols, which uses more memory but improves debugger backtraces.', 0),
+
     # ARM options
     BoolVariable('arm_integrator', 'Target the Integrator/CP development board', 0),
     BoolVariable('arm_versatile', 'Target the Versatile/PB development board', 0),
@@ -798,7 +801,7 @@ additionalDefines = ['ipv4_forwarding', 'serial_is_file', 'installer',
                      'acpi', 'debug_logging', 'superdebug', 'nogfx', 'mach_pc',
                      'usb_verbose_debug', 'travis', 'hosted',
                      'memory_log_inline', 'asserts', 'valgrind', 'livecd',
-                     'tracing', 'verbose_kernel']
+                     'tracing', 'verbose_kernel', 'track_hidden_symbols']
 for i in additionalDefines:
     if i not in env:
         continue
@@ -1029,10 +1032,7 @@ if env['hosted']:
 else:
     env['clang'] = 0
 
-if env['clang_cross']:  # and not env['hosted']:
-    if not env['hosted']:
-        userspace_env = env.Clone()
-
+if env['clang_cross']:
     cross_dir = os.path.dirname(env['CROSS'])
     if cross_dir:
         env.PrependENVPath('PATH', cross_dir)

@@ -264,6 +264,7 @@ custom_subdirs = {
 custom_files = {
     'linker'        : [os.path.join(arch_subdir, 'asm-' + arch_subdir + '.s')],
     'lwip'          : ['netif/ethernet.c', 'netif/ethernetif.c'],
+    'config'        : ['sqlite3/sqlite3.c'],
 }
 
 if env['hosted']:
@@ -307,20 +308,6 @@ env_clone = env.Clone()
 env_clone['LIBS'] = []
 env_clone['LIBPATH'] = default_libpath
 env_clone['CPPPATH'] = default_incpath
-
-# Build sqlite3 as a library rather than an entire object to be linked in.
-# NOTE: prefixed name as libsqlite3 comes from the sqlite3 package.
-libsqlite3_env = env_clone.Clone()
-libsqlite3_env.MergeFlags({
-    'CCFLAGS': custom_ccflags.get('config', []),
-    'CFLAGS': custom_cflags.get('config', []),
-})
-buildutils.misc.removeFromAllFlags(libsqlite3_env,
-    set(remove_flags.get('config', [])))
-libsqlite3 = libsqlite3_env.StaticLibrary('config_sqlite3',
-    Glob('#src/modules/system/config/sqlite3/*.c'))
-
-custom_libs['config'] = ['config_sqlite3']
 
 # libmodule provides generic support that should be built into every module.
 libmodule_env = env_clone.Clone()

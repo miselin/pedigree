@@ -19,7 +19,7 @@
 extern _ZN17X64SyscallManager7syscallER15X64SyscallState
 
 ; Export the syscall handler
-global syscall_handler
+global syscall_handler:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################

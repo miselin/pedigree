@@ -19,7 +19,7 @@
 extern _ZN19X64InterruptManager9interruptER17X64InterruptState
 
 ; Export the array of interrupt handler addresses
-global interrupt_handler_array
+global interrupt_handler_array:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################

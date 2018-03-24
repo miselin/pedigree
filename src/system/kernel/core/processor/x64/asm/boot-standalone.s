@@ -31,8 +31,9 @@ mboot:
   dd MBOOT_HEADER_FLAGS
   dd MBOOT_CHECKSUM
 
-[GLOBAL start]
-[GLOBAL pml4]
+global start:function hidden
+global pml4:data hidden
+
 [EXTERN _main]
 [EXTERN init]
 [EXTERN end]

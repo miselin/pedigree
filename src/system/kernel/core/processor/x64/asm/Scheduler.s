@@ -16,19 +16,19 @@
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ; bool Processor::saveState(SchedulerState &)
-global _ZN9Processor9saveStateER17X64SchedulerState
+global _ZN9Processor9saveStateER17X64SchedulerState:function hidden
 ; void Processor::restoreState(SchedulerState &, volatile uintptr_t *)
-global _ZN9Processor12restoreStateER17X64SchedulerStatePVm
+global _ZN9Processor12restoreStateER17X64SchedulerStatePVm:function hidden
 ; void Processor::restoreState(volatile uintptr_t *, SyscallState &)
-global _ZN9Processor12restoreStateER15X64SyscallStatePVm
+global _ZN9Processor12restoreStateER15X64SyscallStatePVm:function hidden
 ; void Processor::jumpKernel(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                            uintptr_t, uintptr_t, uintptr_t, uintptr_t)
-global _ZN9Processor10jumpKernelEPVmmmmmmm
+global _ZN9Processor10jumpKernelEPVmmmmmmm:function hidden
 ; void Processor::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                          uintptr_t, uintptr_t, uintptr_t, uintptr_t)
-global _ZN9Processor8jumpUserEPVmmmmmmm
+global _ZN9Processor8jumpUserEPVmmmmmmm:function hidden
 ; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, Spinlock*)
-global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm
+global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm:function hidden
 
 ; void Thread::threadExited()
 extern _ZN6Thread12threadExitedEv

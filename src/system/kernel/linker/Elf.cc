@@ -703,7 +703,7 @@ bool Elf::loadModule(
     for (size_t i = 0; i < m_nSymbolTableSize / sizeof(ElfSymbol_t); i++)
     {
         // Only relocate functions, variables and notypes.
-        if (ST_TYPE(pSymbol->info) < 3 && pSymbol->shndx < m_nSectionHeaders)
+        if (ST_TYPE(pSymbol->info) < STT_SECTION && pSymbol->shndx < m_nSectionHeaders)
         {
             ElfSectionHeader_t *pSh = &m_pSectionHeaders[pSymbol->shndx];
             pSymbol->value += pSh->addr;
@@ -721,7 +721,7 @@ bool Elf::loadModule(
         {
             const char *pStr;
 
-            if (ST_TYPE(pSymbol->info) == 3)
+            if (ST_TYPE(pSymbol->info) == STT_SECTION)
             {
                 // Section type - the name will be the name of the section
                 // header it refers to.
@@ -743,18 +743,21 @@ bool Elf::loadModule(
             SymbolTable::Binding binding;
             switch (ST_BIND(pSymbol->info))
             {
-                case 0:  // STB_LOCAL
+                case STB_LOCAL:
                     binding = SymbolTable::Local;
                     break;
-                case 1:  // STB_GLOBAL
+                case STB_GLOBAL:
                     binding = SymbolTable::Global;
                     break;
-                case 2:  // STB_WEAK
+                case STB_WEAK:
                     binding = SymbolTable::Weak;
                     break;
                 default:
                     binding = SymbolTable::Global;
             }
+
+            /// \todo we should handle hidden symbols better so they are only
+            /// needed for relocation and not tracked forever
 
             // If the shndx == UND (0x0), the symbol is in the table but
             // undefined!
@@ -930,55 +933,59 @@ bool Elf::allocate(
             SymbolTable::Binding binding;
             switch (ST_BIND(pSymbol->info))
             {
-                case 0:  // STB_LOCAL
+                case STB_LOCAL:
                     binding = SymbolTable::Local;
                     break;
-                case 1:  // STB_GLOBAL
+                case STB_GLOBAL:
                     binding = SymbolTable::Global;
                     break;
-                case 2:  // STB_WEAK
+                case STB_WEAK:
                     binding = SymbolTable::Weak;
                     break;
                 default:
                     binding = SymbolTable::Global;
             }
 
-            // If the shndx == UND (0x0), the symbol is in the table but
-            // undefined!
-            if (pSymbol->shndx != 0)
+            // Don't let hidden symbols work for lookups
+            if (pSymbol->other != STV_HIDDEN && ST_TYPEOK(pSymbol->info))
             {
-                if (*pStr != 0)
+                // If the shndx == UND (0x0), the symbol is in the table but
+                // undefined!
+                if (pSymbol->shndx != 0)
                 {
-                    m_SymbolTable.insert(
-                        String(pStr), binding, this, pSymbol->value);
-                    if (pSymtab)
-                        // Add loadBase in when adding to the user-defined
-                        // symtab, to give the user a "real" value.
-                        pSymtab->insert(
-                            String(pStr), binding, this,
-                            pSymbol->value + loadBase);
-                }
-            }
-            else
-            {
-                // weak symbol? set it as undefined
-                if (binding == SymbolTable::Weak)
-                {
-                    // if(ST_TYPE(pSymbol->info) == STT_FUNC)
-                    //{
-                    Elf_Xword value = pSymbol->value;
-                    if (value == 0)
-                        value = ~0;
                     if (*pStr != 0)
                     {
                         m_SymbolTable.insert(
-                            String(pStr), binding, this, value);
+                            String(pStr), binding, this, pSymbol->value);
                         if (pSymtab)
                             // Add loadBase in when adding to the user-defined
                             // symtab, to give the user a "real" value.
-                            pSymtab->insert(String(pStr), binding, this, value);
+                            pSymtab->insert(
+                                String(pStr), binding, this,
+                                pSymbol->value + loadBase);
                     }
-                    //}
+                }
+                else
+                {
+                    // weak symbol? set it as undefined
+                    if (binding == SymbolTable::Weak)
+                    {
+                        // if(ST_TYPE(pSymbol->info) == STT_FUNC)
+                        //{
+                        Elf_Xword value = pSymbol->value;
+                        if (value == 0)
+                            value = ~0;
+                        if (*pStr != 0)
+                        {
+                            m_SymbolTable.insert(
+                                String(pStr), binding, this, value);
+                            if (pSymtab)
+                                // Add loadBase in when adding to the user-defined
+                                // symtab, to give the user a "real" value.
+                                pSymtab->insert(String(pStr), binding, this, value);
+                        }
+                        //}
+                    }
                 }
             }
             pSymbol++;
@@ -1170,12 +1177,26 @@ Elf::lookupSymbol(uintptr_t addr, uintptr_t *startAddr, T *symbolTable)
     for (size_t i = 0; i < m_nSymbolTableSize / sizeof(T); i++)
     {
         // Make sure we're looking at an object or function.
-        if (ST_TYPE(pSymbol->info) != 0x2 /* function */ &&
-            ST_TYPE(pSymbol->info) != 0x0 /* notype (asm functions) */)
+        if (ST_TYPE(pSymbol->info) != STT_FUNC /* function */ &&
+            ST_TYPE(pSymbol->info) != STT_NOTYPE /* notype (asm functions) */)
         {
             pSymbol++;
             continue;
         }
+
+        // Make sure it's a binding we can use.
+        // We skip over all non-global symbols to enforce decoration of
+        // functions with export tags, and to ensure functions are not
+        // unintentionally exposed.
+        if (ST_BIND(pSymbol->info) != STB_GLOBAL)
+        {
+            ++pSymbol;
+            continue;
+        }
+
+        /// \todo we should check for STV_HIDDEN symbol - but can't tell if
+        /// we're local or not here and if we're local, a hidden symbol is
+        /// totally fine. Need to indicate which ELF the relocation is for.
 
         // If we're checking for a symbol that is apparently zero-sized, add one
         // so we can actually count it!
@@ -1399,25 +1420,29 @@ void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
                 SymbolTable::Binding binding;
                 switch (ST_BIND(pSymbol->info))
                 {
-                    case 0:  // STB_LOCAL
+                    case STB_LOCAL:
                         binding = SymbolTable::Local;
                         break;
-                    case 1:  // STB_GLOBAL
+                    case STB_GLOBAL:
                         binding = SymbolTable::Global;
                         break;
-                    case 2:  // STB_WEAK
+                    case STB_WEAK:
                         binding = SymbolTable::Weak;
                         break;
                     default:
                         binding = SymbolTable::Global;
                 }
 
-                if (*pStr != 0)
+                // Don't insert hidden symbols
+                if (pSymbol->other != STV_HIDDEN && ST_TYPEOK(pSymbol->info))
                 {
-                    if (pSymtab)
-                        pSymtab->insert(
-                            String(pStr), binding, this,
-                            pSymbol->value + loadBase);
+                    if (*pStr != 0)
+                    {
+                        if (pSymtab)
+                            pSymtab->insert(
+                                String(pStr), binding, this,
+                                pSymbol->value + loadBase);
+                    }
                 }
             }
             pSymbol++;

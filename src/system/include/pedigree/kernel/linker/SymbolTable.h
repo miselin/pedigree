@@ -28,7 +28,6 @@
 #include "pedigree/kernel/utilities/HashTable.h"
 
 class Elf;
-class MurmurHashedSymbol;
 
 /** This class allows quick access to symbol information held
  *  within ELF files. The lookup operation allows multiple
@@ -139,7 +138,7 @@ class SymbolTable
     /** Insert the given shared symbol. */
     void insertShared(const String &name, SharedPointer<Symbol> &symbol);
 
-    typedef HashTable<MurmurHashedSymbol, SharedPointer<Symbol>> symbolTree_t;
+    typedef HashTable<String, SharedPointer<Symbol>> symbolTree_t;
 
     /** Get or insert a Symbol tree. */
     SharedPointer<symbolTree_t> getOrInsertTree(Elf *);
@@ -153,25 +152,6 @@ class SymbolTable
 #ifdef THREADS
     Mutex m_Lock;
 #endif
-};
-
-class MurmurHashedSymbol
-{
-  public:
-    MurmurHashedSymbol();
-    MurmurHashedSymbol(const String &str);
-    MurmurHashedSymbol(const String *str);
-
-    const MurmurHashedSymbol &operator = (const MurmurHashedSymbol &other);
-
-    uint32_t hash() const;
-
-    bool operator==(const MurmurHashedSymbol &other) const;
-    bool operator!=(const MurmurHashedSymbol &other) const;
-
-  private:
-    String m_String;
-    uint32_t m_Hash;
 };
 
 #endif

@@ -20,8 +20,10 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 from . import misc
 
 
+# TODO: need to work on letting -fvisibility=hidden work here
 REMOVAL_FLAGS = set(['-nostdinc', '-ffreestanding', '-nostdlib',
-                     '-fno-builtin', '-fno-exceptions', '-fno-rtti'])
+                     '-fno-builtin', '-fno-exceptions', '-fno-rtti',
+                     '-fvisibility=hidden'])
 
 X86_REMOVAL_FLAGS = set(['-mno-mmx', '-mno-sse'])
 X64_REMOVAL_FLAGS = set(['-mno-red-zone', '-mcmodel=kernel'])
@@ -38,7 +40,6 @@ def fixFlags(env, flags):
     if env['ARCH_TARGET'] in ('X86', 'X64'):
         removals.update(X86_REMOVAL_FLAGS)
         additions.add('-msse2')
-        additions.add('-mfpmath=both')
     if env['ARCH_TARGET'] == 'X64':
         removals.update(X64_REMOVAL_FLAGS)
     if env['ARCH_TARGET'] == 'PPC':

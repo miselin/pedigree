@@ -263,7 +263,7 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         {
             const char *pStr = 0;
 
-            if (ST_TYPE(pSymbol->info) == 3)
+            if (ST_TYPE(pSymbol->info) == STT_SECTION)
             {
                 // Section type - the name will be the name of the section
                 // header it refers to.
@@ -286,18 +286,27 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
             SymbolTable::Binding binding;
             switch (ST_BIND(pSymbol->info))
             {
-                case 0:  // STB_LOCAL
+                case STB_LOCAL:
                     binding = SymbolTable::Local;
                     break;
-                case 1:  // STB_GLOBAL
+                case STB_GLOBAL:
                     binding = SymbolTable::Global;
                     break;
-                case 2:  // STB_WEAK
+                case STB_WEAK:
                     binding = SymbolTable::Weak;
                     break;
                 default:
                     binding = SymbolTable::Global;
             }
+
+#ifndef TRACK_HIDDEN_SYMBOLS
+            // Don't insert hidden symbols to the main symbol table.
+            if (pSymbol->other == STV_HIDDEN)
+            {
+                ++pSymbol;
+                continue;
+            }
+#endif
 
             if (pStr && (*pStr != '\0'))
             {
@@ -945,13 +954,15 @@ uintptr_t KernelElf::globalLookupSymbol(const char *pName)
 const char *KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t *startAddr)
 {
     /// \todo This shouldn't match local or weak symbols.
+
     // Try a lookup in the kernel.
     const char *ret;
-
     if ((ret = lookupSymbol(retract(addr), startAddr, m_pSymbolTable)))
+    {
         return ret;
+    }
 
-    // OK, try every module.
+    // OK, that didn't work. Try every module.
     for (Vector<Module *>::Iterator it = m_LoadedModules.begin();
          it != m_LoadedModules.end(); it++)
     {

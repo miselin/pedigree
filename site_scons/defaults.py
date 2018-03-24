@@ -25,7 +25,7 @@ import SCons
 
 # Generic entry-level flags (that everyone should have)
 generic_flags = ['-fno-builtin', '-nostdlib', '-ffreestanding', '-O3',
-                 '-fno-common']
+                 '-fno-common', '-fvisibility=hidden']
 generic_cflags = ['-std=gnu99']
 generic_cxxflags = ['-std=gnu++11', '-fno-exceptions', '-fno-rtti',
                     '-fno-asynchronous-unwind-tables']
@@ -57,7 +57,7 @@ warning_flags_off = [
 generic_asflags = []
 
 # Generic link flags (that everyone should have)
-generic_linkflags = ['-nostdlib', '-nostartfiles']
+generic_linkflags = ['-nostdlib', '-nostartfiles', '-fvisibility=hidden']
 
 # Generic defines
 generic_defines = [

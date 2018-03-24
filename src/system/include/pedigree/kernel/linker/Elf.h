@@ -116,6 +116,26 @@
 #define DT_PREINIT_ARRAY 32   /* Array with addresses of preinit fct*/
 #define DT_PREINIT_ARRAYSZ 33 /* size in bytes of DT_PREINIT_ARRAY */
 
+// Symbol types
+#define STT_NOTYPE 0
+#define STT_OBJECT 1
+#define STT_FUNC 2
+#define STT_SECTION 3
+#define STT_FILE 4
+#define STT_COMMON 5
+#define STT_TLS 6
+
+// Symbol bindings
+#define STB_LOCAL 0
+#define STB_GLOBAL 1
+#define STB_WEAK 2
+
+// Symbol visibilities
+#define STV_DEFAULT 0
+#define STV_INTERNAL 1
+#define STV_HIDDEN 2
+#define STV_PROTECTED 3
+
 #ifdef BITS_32
 
 #define R_SYM(val) ((val) >> 8)
@@ -164,6 +184,9 @@ typedef uint32_t Elf32_Xword;
 typedef int32_t Elf32_Sxword;
 
 #endif
+
+// Is the symbol type OK to add to the symbol table?
+#define ST_TYPEOK(x) (ST_TYPE((x)) <= STT_FUNC)
 
 #ifndef _NO_ELF_CLASS
 
