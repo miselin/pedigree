@@ -110,9 +110,9 @@ int min(size_t a, size_t b) PURE;
 
 // Memory allocation for C code
 #ifndef UTILITY_LINUX
-void *malloc(size_t);
-void *realloc(void *, size_t);
-void free(void *);
+void *malloc(size_t) EXPORTED_PUBLIC;
+void *realloc(void *, size_t) EXPORTED_PUBLIC;
+void free(void *) EXPORTED_PUBLIC;
 #endif
 
 /// Basic 8-bit checksum check (returns 1 if checksum is correct).
