@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/compiler.h"
+
 /**
  * pocketknife contains utilities that perform common tasks.
  *
@@ -32,7 +34,7 @@ namespace pocketknife
  * joined. Use this to run a small function asynchronously if you don't care
  * about its return value or stopping it later.
  */
-void runConcurrently(int (*func)(void *), void *param);
+EXPORTED_PUBLIC void runConcurrently(int (*func)(void *), void *param);
 
 /**
  * Run the given function concurrently with the given parameter.
@@ -40,10 +42,10 @@ void runConcurrently(int (*func)(void *), void *param);
  * The handle returned can be used to join the thread and retrieve its return
  * value.
  */
-void *runConcurrentlyAttached(int (*func)(void *), void *param);
+EXPORTED_PUBLIC void *runConcurrentlyAttached(int (*func)(void *), void *param);
 
 /**
  * Join the given handle returned from runConcurrentlyAttached.
  */
-int attachTo(void *handle);
+EXPORTED_PUBLIC int attachTo(void *handle);
 }

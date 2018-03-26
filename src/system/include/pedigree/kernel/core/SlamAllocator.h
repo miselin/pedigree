@@ -112,7 +112,7 @@ class SlamAllocator;
 #define SCRIBBLE_FREED_BLOCKS 0
 
 /// Block allocations larger than or equal to the native page size.
-#define WARN_PAGE_SIZE_OR_LARGER 0
+#define WARN_PAGE_SIZE_OR_LARGER 1
 
 /** A cache allocates objects of a constant size. */
 class SlamCache
@@ -279,7 +279,8 @@ class SlamAllocator
     const SlamAllocator &operator=(const SlamAllocator &);
 
 #ifndef PEDIGREE_BENCHMARK
-    static SlamAllocator m_Instance;
+    /// \todo why does a module access this!?
+    EXPORTED_PUBLIC static SlamAllocator m_Instance;
 #endif
 
     /** Wipe out all memory used by the allocator. */

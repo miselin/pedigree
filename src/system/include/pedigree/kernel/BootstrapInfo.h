@@ -42,14 +42,14 @@
 #define MULTIBOOT_FLAG_VBE 0x400
 #endif
 
-extern class BootstrapStruct_t *g_pBootstrapInfo;
+extern class BootstrapStruct_t *g_pBootstrapInfo EXPORTED_PUBLIC;
 
 #ifdef MULTIBOOT
 
 // Required to specify linkage of the 'main' symbol for the friend declaration.
 extern "C" int main(int argc, char *argv[]);
 
-class BootstrapStruct_t
+class EXPORTED_PUBLIC BootstrapStruct_t
 {
 #ifdef HOSTED
     friend int ::main(int argc, char *argv[]);
@@ -143,7 +143,7 @@ class BootstrapStruct_t
 
 #else
 
-struct BootstrapStruct_t
+struct EXPORTED_PUBLIC BootstrapStruct_t
 {
     int (*prom)(struct anon *);
     uint32_t initrd_start;

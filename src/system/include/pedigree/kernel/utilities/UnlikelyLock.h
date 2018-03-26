@@ -41,7 +41,7 @@
    waiting until the atomic member's value drops to exactly 100000, at which
    point all threads will have exited.
 */
-class UnlikelyLock
+class EXPORTED_PUBLIC UnlikelyLock
 {
   public:
     UnlikelyLock();

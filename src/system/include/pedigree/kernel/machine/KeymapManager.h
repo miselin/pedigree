@@ -27,7 +27,7 @@
 /**
  * Global manager for keymaps
  */
-class KeymapManager
+class EXPORTED_PUBLIC KeymapManager
 {
   public:
     /// Default constructor

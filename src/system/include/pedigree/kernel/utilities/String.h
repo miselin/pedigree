@@ -35,7 +35,7 @@
 
 /** String class for ASCII strings
  *\todo provide documentation */
-class String
+class EXPORTED_PUBLIC String
 {
   public:
     /** The default constructor does nothing */

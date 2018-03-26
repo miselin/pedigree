@@ -29,7 +29,7 @@
 /**
  * Global manager for all input from HID devices.
  */
-class InputManager
+class EXPORTED_PUBLIC InputManager
 {
   public:
     /// The type for a given callback (enum values can't be used for bitwise

@@ -189,7 +189,7 @@ class Log
 
     /** Retrieves the static Log instance.
      *\return instance of the log class */
-    static Log &instance();
+    EXPORTED_PUBLIC static Log &instance();
 
     /** Initialises the Log */
     void initialise1();
@@ -210,7 +210,7 @@ class Log
     Log &operator<<(Modifier type);
 
     /** Adds an entry to the log and immediately flushes. */
-    void addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
+    EXPORTED_PUBLIC void addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
 
     /** Perform a flush. */
     void flushEntry(bool lock = true);
@@ -224,7 +224,7 @@ class Log
 
     /** Stores an entry in the log.
      *\param[in] T type of the log's text */
-    struct LogEntry
+    struct EXPORTED_PUBLIC LogEntry
     {
         /** Constructor does nothing */
         LogEntry();

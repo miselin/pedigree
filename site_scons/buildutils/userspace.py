@@ -23,7 +23,7 @@ from . import misc
 # TODO: need to work on letting -fvisibility=hidden work here
 REMOVAL_FLAGS = set(['-nostdinc', '-ffreestanding', '-nostdlib',
                      '-fno-builtin', '-fno-exceptions', '-fno-rtti',
-                     '-fvisibility=hidden'])
+                     '-fvisibility=hidden', '-fno-use-cxa-atexit'])
 
 X86_REMOVAL_FLAGS = set(['-mno-mmx', '-mno-sse'])
 X64_REMOVAL_FLAGS = set(['-mno-red-zone', '-mcmodel=kernel'])

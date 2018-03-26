@@ -41,7 +41,7 @@
 
     \note Because it uses 'longjmp', this class can cause memory leaks and
           skip destructors for stack-local objects. Use it wisely. */
-class TimeoutGuard
+class EXPORTED_PUBLIC TimeoutGuard
 {
   public:
     /** Creates a new TimeoutGuard, with the given timeout, in seconds. */

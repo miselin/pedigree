@@ -37,7 +37,7 @@ class Processor;
 class Thread;
 class Spinlock;
 
-class PerProcessorScheduler : public TimerHandler
+class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 {
   public:
     /** Default constructor - Creates an empty scheduler with a new idle thread.

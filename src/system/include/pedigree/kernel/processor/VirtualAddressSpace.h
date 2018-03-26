@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
@@ -75,7 +76,7 @@ class VirtualAddressSpace
 
     /** Get the kernel virtual address space
      *\return reference to the kernel virtual address space */
-    static VirtualAddressSpace &getKernelAddressSpace();
+    EXPORTED_PUBLIC static VirtualAddressSpace &getKernelAddressSpace();
 
     /** Expand the heap
      *\param[in] pageCount the number of pages that should be allocated and

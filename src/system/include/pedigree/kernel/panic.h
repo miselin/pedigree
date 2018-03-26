@@ -36,7 +36,7 @@ extern "C" {
  *function may not allocate any resources, e.g. no I/O port & memory-region
  *allocations and even no 'normal' memory allocations. \param[in] msg the
  *message to print to the screen */
-void panic(const char *msg) NORETURN;
+void EXPORTED_PUBLIC panic(const char *msg) NORETURN;
 
 #ifdef __cplusplus
 };

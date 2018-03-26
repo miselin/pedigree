@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/String.h"
 
 /** A MAC address */
-class MacAddress
+class EXPORTED_PUBLIC MacAddress
 {
   public:
     MacAddress();

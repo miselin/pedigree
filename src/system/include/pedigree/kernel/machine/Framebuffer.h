@@ -32,7 +32,7 @@ class Display;
  *  the framebuffer in its own way (eg, allocate memory, or use a DMA region).
  *  There are a variety of default software-only operations, which are used by
  *  default if the main operational methods are not overridden. */
-class Framebuffer
+class EXPORTED_PUBLIC Framebuffer
 {
   public:
     Framebuffer() : m_pParent(0), m_FramebufferBase(0), m_bActive(true)

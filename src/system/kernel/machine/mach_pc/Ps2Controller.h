@@ -57,13 +57,13 @@ class Ps2Controller : public Controller, private IrqHandler
     /// Send a byte to the first port of the PS/2 controller.
     void writeFirstPort(uint8_t byte);
     /// Send a byte to the second port of the PS/2 controller.
-    void writeSecondPort(uint8_t byte);
+    EXPORTED_PUBLIC void writeSecondPort(uint8_t byte);
 
     /// Reports whether this PS/2 controller has two ports.
     bool hasSecondPort() const;
 
     /// Enables/disables IRQs for the first or second ports.
-    void setIrqEnable(bool firstEnabled, bool secondEnabled);
+    EXPORTED_PUBLIC void setIrqEnable(bool firstEnabled, bool secondEnabled);
 
     /// Reads a single byte from the PS/2 controller by polling.
     uint8_t readByte();
@@ -72,7 +72,7 @@ class Ps2Controller : public Controller, private IrqHandler
     /// Reads a single byte from the first port.
     bool readFirstPort(uint8_t &byte, bool block = true);
     /// Reads a single byte from the second port.
-    bool readSecondPort(uint8_t &byte, bool block = true);
+    EXPORTED_PUBLIC bool readSecondPort(uint8_t &byte, bool block = true);
 
     /// Sets the debug state (blocks IRQs to allow polling).
     void setDebugState(bool debugState);

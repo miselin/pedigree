@@ -54,7 +54,7 @@ class Mutex
 /**
  * A mutex, or binary semaphore
  */
-class Mutex : public Semaphore
+class EXPORTED_PUBLIC Mutex : public Semaphore
 {
   public:
     /** Constructor */

@@ -20,6 +20,7 @@
 #ifndef EXTENSIBLE_BITMAP_H
 #define EXTENSIBLE_BITMAP_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** Defines an "extensible bitmap" - a bitmap that can extend to accommodate
@@ -28,7 +29,7 @@
     It does not currently deal well with a sparse domain - one bit set at 0x1
    and another at 0x100000 will generate a bitmap with 0x100000/0x8 bytes usage.
  */
-class ExtensibleBitmap
+class EXPORTED_PUBLIC ExtensibleBitmap
 {
   public:
     /** Creates a new, empty bitmap. */

@@ -71,7 +71,7 @@ for possible in ('-O3', '-O2', '-O1', '-O0', '-Os'):
 env.MergeFlags({
     'LIBPATH': [env['BUILDDIR']],
     'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600L'],
-    'CCFLAGS': ['-g3', '-ggdb', '-Os'],
+    'CCFLAGS': ['-g3', '-ggdb', '-Os', '-fvisibility=hidden'],
     'CXXFLAGS': ['-std=c++11'],
     'CFLAGS': ['-std=gnu99'],
 })

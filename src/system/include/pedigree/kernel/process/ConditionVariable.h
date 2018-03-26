@@ -31,7 +31,7 @@ class Thread;
 /**
  * ConditionVariable provides an abstraction over condition variables.
  */
-class ConditionVariable
+class EXPORTED_PUBLIC ConditionVariable
 {
   public:
     enum Error

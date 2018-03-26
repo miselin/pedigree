@@ -32,7 +32,7 @@ class Device;
  * and are therefore ideal for use in addressing devices in userspace scripts
  * or in configuration files.
  */
-class DeviceHashTree
+class EXPORTED_PUBLIC DeviceHashTree
 {
   public:
     DeviceHashTree();

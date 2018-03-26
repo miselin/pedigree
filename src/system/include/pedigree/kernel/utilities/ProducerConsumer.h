@@ -46,7 +46,7 @@
  *
  * In single-threaded environments, produce() just calls consume().
  */
-class ProducerConsumer
+class EXPORTED_PUBLIC ProducerConsumer
 {
     public:
         ProducerConsumer();

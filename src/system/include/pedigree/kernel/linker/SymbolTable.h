@@ -93,7 +93,7 @@ class SymbolTable
      *  ELFs. This is used for R_COPY relocations.
      *
      *  \return The value of the found symbol. */
-    uintptr_t lookup(
+    uintptr_t EXPORTED_PUBLIC lookup(
         const String &name, Elf *pElf, Policy policy = LocalFirst,
         Binding *pBinding = 0);
 

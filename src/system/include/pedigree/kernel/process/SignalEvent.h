@@ -22,7 +22,7 @@
 
 #include "pedigree/kernel/process/Event.h"
 
-class SignalEvent : public Event
+class EXPORTED_PUBLIC SignalEvent : public Event
 {
   public:
     SignalEvent(

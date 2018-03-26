@@ -34,7 +34,7 @@ class SyscallManager
   public:
     /** Get the syscall manager instance
      *\return instance of the syscall manager */
-    static SyscallManager &instance();
+    EXPORTED_PUBLIC static SyscallManager &instance();
     /** Register a syscall handler
      *\param[in] Service the service number you want to register
      *\param[in] pHandler the interrupt handler

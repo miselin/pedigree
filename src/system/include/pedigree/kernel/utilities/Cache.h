@@ -421,7 +421,7 @@ class Cache
  * Use this when you want to perform a lookup() but have many potential exits
  * that would otherwise need an associated release().
  */
-class CachePageGuard
+class EXPORTED_PUBLIC CachePageGuard
 {
   public:
     CachePageGuard(Cache &cache, uintptr_t location);

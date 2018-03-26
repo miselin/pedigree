@@ -57,7 +57,7 @@ class MemoryPressureHandler
  * to alleviate memory pressure to register themselves and be called, without
  * requiring the kernel itself to know about them (eg, loadable modules).
  */
-class MemoryPressureManager
+class EXPORTED_PUBLIC MemoryPressureManager
 {
   public:
     MemoryPressureManager() : m_Handlers()

@@ -64,7 +64,7 @@ class Module
     Module &operator=(const Module &);
 };
 
-class KernelElf : public Elf
+class EXPORTED_PUBLIC KernelElf : public Elf
 {
     friend void system_reset();
 

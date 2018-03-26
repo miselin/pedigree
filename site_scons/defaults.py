@@ -28,7 +28,7 @@ generic_flags = ['-fno-builtin', '-nostdlib', '-ffreestanding', '-O3',
                  '-fno-common', '-fvisibility=hidden']
 generic_cflags = ['-std=gnu99']
 generic_cxxflags = ['-std=gnu++11', '-fno-exceptions', '-fno-rtti',
-                    '-fno-asynchronous-unwind-tables']
+                    '-fno-asynchronous-unwind-tables', '-fno-use-cxa-atexit']
 
 # Warning flags (that force us to write betterish code)
 # , '-pedantic'

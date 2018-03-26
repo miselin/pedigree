@@ -29,7 +29,7 @@
 /**
  * Global manager for all input from HID devices.
  */
-class HidInputManager : public TimerHandler
+class EXPORTED_PUBLIC HidInputManager : public TimerHandler
 {
   public:
     /// Default constructor

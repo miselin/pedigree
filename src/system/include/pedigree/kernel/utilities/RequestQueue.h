@@ -36,7 +36,7 @@ class Thread;
  * all requests. All requests appear synchronous to the calling thread -
  * calling threads are blocked on mutexes (so they can be put to sleep) until
  * their request is complete. */
-class RequestQueue
+class EXPORTED_PUBLIC RequestQueue
 {
     friend class Thread;
 

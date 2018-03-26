@@ -55,7 +55,7 @@ class MemoryPoolPressureHandler : public MemoryPressureHandler
  * sized buffers that can be allocated around the kernel. Intended to be
  * used instead of the heap for areas where similar sized buffers are
  * regularly allocated, such as networking code. */
-class MemoryPool
+class EXPORTED_PUBLIC MemoryPool
 {
   public:
     MemoryPool();

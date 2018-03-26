@@ -68,7 +68,7 @@
 extern "C" {
 #endif
 
-void _assert(bool b, const char *file, int line, const char *func);
+void EXPORTED_PUBLIC _assert(bool b, const char *file, int line, const char *func);
 bool _assert_ptr_valid(uintptr_t x);
 
 #ifdef __cplusplus

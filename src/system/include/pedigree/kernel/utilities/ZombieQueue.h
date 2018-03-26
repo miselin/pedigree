@@ -47,7 +47,7 @@ class ZombieProcess : public ZombieObject
  * ZombieQueue: takes zombie objects and frees them. This is used so those
  * objects do not have to do something like "delete this", which is bad.
  */
-class ZombieQueue : public RequestQueue
+class EXPORTED_PUBLIC ZombieQueue : public RequestQueue
 {
   public:
     ZombieQueue();

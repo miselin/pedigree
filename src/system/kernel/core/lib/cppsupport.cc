@@ -38,7 +38,7 @@
 
 // Required for G++ to link static init/destructors.
 #ifndef HOSTED
-void *__dso_handle;
+extern "C" void *__dso_handle;
 #endif
 
 // Defined in the linker.
@@ -192,7 +192,7 @@ void traceMetadata(NormalStaticString str, void *p1, void *p2)
 #ifdef ARM_COMMON
 #define ATEXIT __aeabi_atexit
 #else
-#define ATEXIT __cxa_atexit
+#define ATEXIT atexit
 #endif
 
 /// Required for G++ to compile code.

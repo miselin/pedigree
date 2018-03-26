@@ -32,7 +32,7 @@
  *  A MemoryRegion is mapped into the kernel's virtual address space and as such
  *  accessible from kernel-mode within every process's virtual address space.
  *\brief Special memory entity in the kernel's virtual address space */
-class MemoryRegion
+class EXPORTED_PUBLIC MemoryRegion
 {
     /** X86CommonPhysicalMemoryManager needs access to MemoryRegion's members */
     friend class X86CommonPhysicalMemoryManager;

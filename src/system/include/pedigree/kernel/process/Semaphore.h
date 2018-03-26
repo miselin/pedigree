@@ -31,7 +31,7 @@
 /**
  * A counting semaphore.
  */
-class Semaphore
+class EXPORTED_PUBLIC Semaphore
 {
   public:
     enum SemaphoreError

@@ -79,7 +79,7 @@ class PageFaultHandler : private InterruptHandler
     List<MemoryTrapHandler *> m_Handlers;
 
     /** The PageFaultHandler instance */
-    static PageFaultHandler m_Instance;
+    EXPORTED_PUBLIC static PageFaultHandler m_Instance;
 };
 
 /** @} */

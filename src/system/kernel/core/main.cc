@@ -491,7 +491,7 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     }
 }
 
-void system_reset() NORETURN;
+void EXPORTED_PUBLIC system_reset() NORETURN;
 void system_reset()
 {
     NOTICE("Resetting...");

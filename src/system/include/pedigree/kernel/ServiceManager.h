@@ -35,7 +35,7 @@
  *
  *  It also provides services such as enumeration of Service operations.
  */
-class ServiceManager
+class EXPORTED_PUBLIC ServiceManager
 {
   public:
     ServiceManager();

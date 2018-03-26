@@ -25,6 +25,7 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/Pair.h"
+#include "pedigree/kernel/Log.h"
 
 /** @addtogroup kernelutilities
  * @{ */

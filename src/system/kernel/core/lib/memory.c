@@ -39,7 +39,7 @@
 #ifdef UTILITY_LINUX
 #define EXPORT static
 #else
-#define EXPORT
+#define EXPORT EXPORTED_PUBLIC
 #endif
 
 EXPORT int memcmp(const void *p1, const void *p2, size_t len) PURE;

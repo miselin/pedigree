@@ -31,7 +31,7 @@ class MemoryRegion;
 
 /** The PhysicalMemoryManager manages the physical address space. That means it
  * provides functions to allocate and free pages. */
-class PhysicalMemoryManager
+class EXPORTED_PUBLIC PhysicalMemoryManager
 {
     friend class CacheManager;
     friend class Cache;

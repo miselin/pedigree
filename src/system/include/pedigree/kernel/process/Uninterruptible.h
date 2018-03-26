@@ -32,7 +32,7 @@
  *
  * \note Threads cannot be set uninterruptible without using this.
  */
-class Uninterruptible
+class EXPORTED_PUBLIC Uninterruptible
 {
   public:
     Uninterruptible();

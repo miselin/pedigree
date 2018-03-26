@@ -23,7 +23,7 @@
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/types.h"
 
-class KernelCoreSyscallManager : public SyscallHandler
+class EXPORTED_PUBLIC KernelCoreSyscallManager : public SyscallHandler
 {
   public:
     /** Get the syscall manager instance.

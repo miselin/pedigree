@@ -195,7 +195,7 @@ typedef int32_t Elf32_Sxword;
  * parser. The ELF data can be loaded either by supplying an entire ELF file in
  * a buffer, or by supplying details of each section seperately.
  */
-class Elf
+class EXPORTED_PUBLIC Elf
 {
     // PosixSubsystem can use memory mapped files to do its own (very basic)
     // ELF loading, which is an improvement on load()'s copies.
