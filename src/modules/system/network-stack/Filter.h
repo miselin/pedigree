@@ -17,13 +17,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifndef NETWORK_STACK_FILTER_H
+#define NETWORK_STACK_FILTER_H
+
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
 /** Provides an interface for filtering network packets as they come in to
  * the system. */
-class NetworkFilter
+class EXPORTED_PUBLIC NetworkFilter
 {
   public:
     /// Default constructor, boring.
@@ -70,3 +74,5 @@ class NetworkFilter
     /// Level -> Callback list mapping
     Tree<size_t, List<void *> *> m_Callbacks;
 };
+
+#endif  // NETWORK_STACK_FILTER_H

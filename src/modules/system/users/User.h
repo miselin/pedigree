@@ -20,6 +20,7 @@
 #ifndef USER_H
 #define USER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -27,7 +28,7 @@
 class Group;
 
 /** Defines the properties of a User on the system. */
-class User
+class EXPORTED_PUBLIC User
 {
   public:
     /** Constructor

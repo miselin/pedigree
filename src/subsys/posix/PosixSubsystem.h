@@ -20,6 +20,7 @@
 #ifndef POSIX_SUBSYSTEM_H
 #define POSIX_SUBSYSTEM_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -125,7 +126,7 @@ class ProcessGroupManager
 };
 
 /** Defines the compatibility layer for the POSIX Subsystem */
-class PosixSubsystem : public Subsystem
+class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
 {
   public:
     /** Sanitise flags. */

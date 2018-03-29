@@ -20,6 +20,7 @@
 #ifndef POSIX_FILEDESCRIPTOR_H
 #define POSIX_FILEDESCRIPTOR_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
@@ -32,7 +33,7 @@ class IoEvent;
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
  */
-class FileDescriptor
+class EXPORTED_PUBLIC FileDescriptor
 {
   public:
     /// Default constructor

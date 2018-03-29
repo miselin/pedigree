@@ -100,9 +100,7 @@ class EXPORTED_PUBLIC Subsystem
     }
 
     /** Default destructor */
-    virtual ~Subsystem()
-    {
-    }
+    virtual ~Subsystem();
 
     /** \brief Acquire full mutual exclusion for all Subsystem resources.
      *

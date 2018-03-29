@@ -36,18 +36,18 @@ SECTIONS
   . = ALIGN(4096);
   .module_ctors :
   {
-    start_ctors = .;
+    HIDDEN(start_ctors = .);
     *(.init_array*)
     *(.ctors*)
-    end_ctors = .;
+    HIDDEN(end_ctors = .);
   }
   
   . = ALIGN(4096);
   .module_dtors :
   {
-    start_dtors = .;
+    HIDDEN(start_dtors = .);
     *(.fini_array*)
     *(.dtors*)
-    end_dtors = .;
+    HIDDEN(end_dtors = .);
   }
 }

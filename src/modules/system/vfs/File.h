@@ -62,7 +62,7 @@ class Event;
 
 /** A File is a regular file - it is also the superclass of Directory, Symlink
     and Pipe. */
-class File
+class EXPORTED_PUBLIC File
 {
     friend class Filesystem;
 
@@ -123,9 +123,7 @@ class File
     /**
      * Trigger a sync of an inner cache back to disk.
      */
-    virtual void sync(size_t offset, bool async)
-    {
-    }
+    virtual void sync(size_t offset, bool async);
 
     /** Returns the time the file was created. */
     Time::Timestamp getCreationTime();
@@ -157,162 +155,76 @@ class File
     void setSize(size_t sz);
 
     /** Returns true if the File is actually a symlink. */
-    virtual bool isSymlink()
-    {
-        return false;
-    }
+    virtual bool isSymlink();
 
     /** Returns true if the File is actually a directory. */
-    virtual bool isDirectory()
-    {
-        return false;
-    }
+    virtual bool isDirectory();
 
     /** Returns true if the File is actually a pipe. */
-    virtual bool isPipe() const
-    {
-        return false;
-    }
+    virtual bool isPipe() const;
 
     /** Returns true if the File is actually a fifo. */
-    virtual bool isFifo() const
-    {
-        return false;
-    }
+    virtual bool isFifo() const;
 
     /** Returns true if the File is actually a socket. */
-    virtual bool isSocket() const
-    {
-        return false;
-    }
+    virtual bool isSocket() const;
 
-    uintptr_t getInode()
-    {
-        return m_Inode;
-    }
-    virtual void setInode(uintptr_t inode)
-    {
-        m_Inode = inode;
-    }
+    uintptr_t getInode() const;
+    virtual void setInode(uintptr_t inode);
 
-    Filesystem *getFilesystem()
-    {
-        return m_pFilesystem;
-    }
-    void setFilesystem(Filesystem *pFs)
-    {
-        m_pFilesystem = pFs;
-    }
+    Filesystem *getFilesystem() const;
+    void setFilesystem(Filesystem *pFs);
 
-    virtual void fileAttributeChanged()
-    {
-    }
+    virtual void fileAttributeChanged();
 
-    virtual void increaseRefCount(bool bIsWriter)
-    {
-        if (bIsWriter)
-            m_nWriters++;
-        else
-            m_nReaders++;
-    }
+    virtual void increaseRefCount(bool bIsWriter);
+    virtual void decreaseRefCount(bool bIsWriter);
 
-    virtual void decreaseRefCount(bool bIsWriter)
-    {
-        if (bIsWriter)
-            m_nWriters--;
-        else
-            m_nReaders--;
-    }
+    void setPermissions(uint32_t perms);
+    uint32_t getPermissions() const;
 
-    void setPermissions(uint32_t perms)
-    {
-        m_Permissions = perms;
-        fileAttributeChanged();
-    }
+    void setUid(size_t uid);
+    size_t getUid() const;
 
-    uint32_t getPermissions()
-    {
-        return m_Permissions;
-    }
+    void setGid(size_t gid);
+    size_t getGid() const;
 
-    void setUid(size_t uid)
-    {
-        m_Uid = uid;
-        fileAttributeChanged();
-    }
-    size_t getUid()
-    {
-        return m_Uid;
-    }
-
-    void setGid(size_t gid)
-    {
-        m_Gid = gid;
-        fileAttributeChanged();
-    }
-    size_t getGid()
-    {
-        return m_Gid;
-    }
-
-    File *getParent()
-    {
-        return m_pParent;
-    }
+    File *getParent() const;
 
     /** Similar to POSIX's select() function
      * \return 1 if ready for reading/writing, 0 otherwise
      * \note Default implementation says always ready to read/write
      *       so be sure to override if that's not right
      */
-    virtual int select(bool bWriting = false, int timeout = 0)
-    {
-        return 1;
-    }
+    virtual int select(bool bWriting = false, int timeout = 0);
 
-/** Causes the event pEvent to be dispatched to pThread when activity occurs
-    on this File. Activity includes the file becoming available for reading,
-    writing or erroring. */
+    /**
+     * Causes the event pEvent to be dispatched to pThread when activity occurs
+     * on this File. Activity includes the file becoming available for reading,
+     * writing or erroring. */
     void monitor(Thread *pThread, Event *pEvent);
 
     /** Walks the monitor-target queue, removing all for \p pThread .*/
     void cullMonitorTargets(Thread *pThread);
 
     /** Does this File object support the given integer-based command? */
-    virtual bool supports(const int command)
-    {
-        return false;
-    }
+    virtual bool supports(const int command) const;
 
     /** Handle a command. */
-    virtual int command(const int command, void *buffer)
-    {
-        return 0;
-    }
+    virtual int command(const int command, void *buffer);
 
     /** Function to retrieve the block size returned by readBlock.
         \note This must be constant throughout the life of the file. */
-    virtual size_t getBlockSize() const
-    {
-        return PhysicalMemoryManager::getPageSize();
-    }
+    virtual size_t getBlockSize() const;
 
     /** Enables direct mode (no File-level cache). */
-    void enableDirect()
-    {
-        m_bDirect = true;
-    }
+    void enableDirect();
 
     /** Disables direct mode (use File-level cache). */
-    void disableDirect()
-    {
-        m_bDirect = false;
-    }
+    void disableDirect();
 
     /** Optionally preallocates blocks to fit the given size. */
-    virtual void preallocate(size_t expectedSize)
-    {
-    }
+    virtual void preallocate(size_t expectedSize);
 
     /** Obtain the actual File object to use when opening this file.
      *
@@ -324,24 +236,15 @@ class File
 
   protected:
     /** Internal function to retrieve an aligned 512byte section of the file. */
-    virtual uintptr_t readBlock(uint64_t location)
-    {
-        return 0;
-    }
+    virtual uintptr_t readBlock(uint64_t location);
     /**
      * Internal function to write a block retrieved with readBlock back to
      * the file. The address of the block is provided for convenience.
      */
-    virtual void writeBlock(uint64_t location, uintptr_t addr)
-    {
-    }
+    virtual void writeBlock(uint64_t location, uintptr_t addr);
 
     /** Internal function to extend a file to be at least the given size. */
-    virtual void extend(size_t newSize)
-    {
-        if (m_Size < newSize)
-            m_Size = newSize;
-    }
+    virtual void extend(size_t newSize);
 
     /** Internal function to notify all registered MonitorTargets. */
     void dataChanged();
@@ -369,16 +272,12 @@ class File
      * layer, and therefore will be unable to guarantee the virtual page's
      * dirty status is a correct reflection of the page's state.
      */
-    virtual void pinBlock(uint64_t location)
-    {
-    }
+    virtual void pinBlock(uint64_t location);
 
     /**
      * Unpins the given page.
      */
-    virtual void unpinBlock(uint64_t location)
-    {
-    }
+    virtual void unpinBlock(uint64_t location);
 
     /**
      * Removes the given location from the VFS-level File cache.
@@ -388,31 +287,16 @@ class File
      * a way that requires notification from the File subclass when the
      * address returned from readBlock is no longer valid.
      */
-    void evict(uint64_t location)
-    {
-#ifdef THREADS
-        LockGuard<Mutex> guard(m_Lock);
-#endif
-        setCachedPage(location / getBlockSize(), FILE_BAD_BLOCK);
-    }
+    void evict(uint64_t location);
 
     /** Set permissions without raising fileAttributeChanged. */
-    void setPermissionsOnly(uint32_t perms)
-    {
-        m_Permissions = perms;
-    }
+    void setPermissionsOnly(uint32_t perms);
 
     /** Set UID without raising fileAttributeChanged. */
-    void setUidOnly(size_t uid)
-    {
-        m_Uid = uid;
-    }
+    void setUidOnly(size_t uid);
 
     /** Set GID without raising fileAttributeChanged. */
-    void setGidOnly(size_t gid)
-    {
-        m_Gid = gid;
-    }
+    void setGidOnly(size_t gid);
 
     String m_Name;
     Time::Timestamp m_AccessedTime;

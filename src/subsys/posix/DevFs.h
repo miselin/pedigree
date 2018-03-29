@@ -155,7 +155,7 @@ class RtcFile : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-    virtual bool supports(const int command);
+    virtual bool supports(const int command) const;
     virtual int command(const int command, void *buffer);
 };
 
@@ -170,7 +170,7 @@ class FramebufferFile : public File
 
     virtual uintptr_t readBlock(uint64_t location);
 
-    virtual bool supports(const int command);
+    virtual bool supports(const int command) const;
     virtual int command(const int command, void *buffer);
 
     /// \todo pinBlock/unpinBlock should pin/unpin physical pages!

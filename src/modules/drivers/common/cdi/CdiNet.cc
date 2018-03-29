@@ -19,6 +19,7 @@
 
 #include "CdiNet.h"
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "modules/system/network-stack/NetworkStack.h"
@@ -101,7 +102,7 @@ bool CdiNet::setStationInfo(StationInfo info)
     return true;
 }
 
-void cdi_cpp_net_register(void* void_pdev, struct cdi_net_device* device)
+EXPORTED_PUBLIC void cdi_cpp_net_register(void* void_pdev, struct cdi_net_device* device)
 {
     // Create a new CdiNet node
     CdiNet *pCdiNet = new CdiNet(device);
@@ -114,7 +115,7 @@ void cdi_cpp_net_register(void* void_pdev, struct cdi_net_device* device)
  * Wird von Netzwerktreibern aufgerufen, wenn ein Netzwerkpaket
  * empfangen wurde.
  */
-void cdi_net_receive(struct cdi_net_device* device, void* buffer, size_t size)
+EXPORTED_PUBLIC void cdi_net_receive(struct cdi_net_device* device, void* buffer, size_t size)
 {
     auto f = [&] (Device *p) {
         if (p->getType() == Device::Network)

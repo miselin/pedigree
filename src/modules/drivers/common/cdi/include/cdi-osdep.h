@@ -116,5 +116,6 @@ struct FILE
 // Forward cdi drivers to the correct utility functions.
 #define memcpy MemoryCopy
 #define memset ByteSet
+#define printf Noticef
 
 #endif

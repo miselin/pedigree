@@ -33,6 +33,8 @@ Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0), m_nAliases(0)
 {
 }
 
+Filesystem::~Filesystem() = default;
+
 File *Filesystem::getTrueRoot()
 {
 #ifdef THREADS

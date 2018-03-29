@@ -22,6 +22,7 @@
 
 #include "PosixSubsystem.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
@@ -119,7 +120,7 @@ class IntervalTimer : public TimerHandler
     bool m_Armed;
 };
 
-class PosixProcess : public Process
+class EXPORTED_PUBLIC PosixProcess : public Process
 {
   public:
     /** Defines what status this Process has within its group */

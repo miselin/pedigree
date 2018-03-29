@@ -9,6 +9,7 @@
  */
 
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/compiler.h"
 
 extern "C" {
 
@@ -58,7 +59,7 @@ static void add_child_device(cdi_list_t list, Device *pDev)
  * Gibt alle PCI-Geraete im System zurueck. Die Geraete werden dazu
  * in die uebergebene Liste eingefuegt.
  */
-void cdi_pci_get_all_devices(cdi_list_t list)
+EXPORTED_PUBLIC void cdi_pci_get_all_devices(cdi_list_t list)
 {
     auto f = [list] (Device *p) {
         add_child_device(list, p);
@@ -72,7 +73,7 @@ void cdi_pci_get_all_devices(cdi_list_t list)
 /**
  * Gibt die Information zu einem PCI-Geraet frei
  */
-void cdi_pci_device_destroy(struct cdi_pci_device* device)
+EXPORTED_PUBLIC void cdi_pci_device_destroy(struct cdi_pci_device* device)
 {
     // TODO Liste abbauen
     free(device);
@@ -81,7 +82,7 @@ void cdi_pci_device_destroy(struct cdi_pci_device* device)
 /**
  * Reserviert die IO-Ports des PCI-Geraets fuer den Treiber
  */
-void cdi_pci_alloc_ioports(struct cdi_pci_device* device)
+EXPORTED_PUBLIC void cdi_pci_alloc_ioports(struct cdi_pci_device* device)
 {
     struct cdi_pci_resource* res;
     int i = 0;
@@ -96,7 +97,7 @@ void cdi_pci_alloc_ioports(struct cdi_pci_device* device)
 /**
  * Gibt die IO-Ports des PCI-Geraets frei
  */
-void cdi_pci_free_ioports(struct cdi_pci_device* device)
+EXPORTED_PUBLIC void cdi_pci_free_ioports(struct cdi_pci_device* device)
 {
     struct cdi_pci_resource* res;
     int i = 0;
@@ -110,7 +111,7 @@ void cdi_pci_free_ioports(struct cdi_pci_device* device)
 /**
  * Reserviert den MMIO-Speicher des PCI-Geraets fuer den Treiber
  */
-void cdi_pci_alloc_memory(struct cdi_pci_device* device)
+EXPORTED_PUBLIC void cdi_pci_alloc_memory(struct cdi_pci_device* device)
 {
     struct cdi_pci_resource* res;
     int i = 0;
@@ -125,7 +126,7 @@ void cdi_pci_alloc_memory(struct cdi_pci_device* device)
 /**
  * Gibt den MMIO-Speicher des PCI-Geraets frei
  */
-void cdi_pci_free_memory(struct cdi_pci_device* device)
+EXPORTED_PUBLIC void cdi_pci_free_memory(struct cdi_pci_device* device)
 {
     struct cdi_pci_resource* res;
     int i = 0;

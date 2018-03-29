@@ -20,6 +20,7 @@
 #ifndef TEXTIO_H
 #define TEXTIO_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
@@ -42,7 +43,7 @@ class Vga;
  * Provides exceptionally simple VT100 emulation to the Vga class, if
  * one exists. Note that this is NOT xterm emulation.
  */
-class TextIO : public File
+class EXPORTED_PUBLIC TextIO : public File
 {
   private:
     static const int COLOUR_BRIGHT_ADDEND = 8;

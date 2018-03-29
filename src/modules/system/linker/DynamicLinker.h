@@ -20,6 +20,7 @@
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "pedigree/kernel/linker/Elf.h"
@@ -32,7 +33,7 @@
 
 /** The dynamic linker tracks instances of shared objects through
     an address space. */
-class DynamicLinker
+class EXPORTED_PUBLIC DynamicLinker
 {
   public:
     /** Creates a new DynamicLinker object. */

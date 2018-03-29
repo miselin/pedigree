@@ -20,12 +20,13 @@
 #ifndef MACHINE_DISK_H
 #define MACHINE_DISK_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 
 /**
  * A disk is a random access fixed size block device.
  */
-class Disk : public Device
+class EXPORTED_PUBLIC Disk : public Device
 {
   public:
     enum SubType
@@ -34,36 +35,17 @@ class Disk : public Device
         ATAPI
     };
 
-    Disk()
-    {
-        m_SpecificType = "Generic Disk";
-    }
-    Disk(Device *p) : Device(p)
-    {
-    }
-    virtual ~Disk()
-    {
-    }
+    Disk();
+    Disk(Device *p);
+    virtual ~Disk();
 
-    virtual Type getType()
-    {
-        return Device::Disk;
-    }
+    virtual Type getType();
 
-    virtual SubType getSubType()
-    {
-        return ATA;
-    }
+    virtual SubType getSubType();
 
-    virtual void getName(String &str)
-    {
-        str = "Generic disk";
-    }
+    virtual void getName(String &str);
 
-    virtual void dump(String &str)
-    {
-        str = "Generic disk";
-    }
+    virtual void dump(String &str);
 
     /**
      * Read from \p location on disk and return a pointer to it. \p location
@@ -79,10 +61,7 @@ class Disk : public Device
      *         back to disk at any time (or forced with \c write()
      *         or \c flush() ).
      */
-    virtual uintptr_t read(uint64_t location)
-    {
-        return ~0;
-    }
+    virtual uintptr_t read(uint64_t location);
 
     /**
      * This function schedules a cache writeback of the given location.
@@ -91,10 +70,7 @@ class Disk : public Device
      * \param location The offset from the start of the device, in bytes, to
      *                 start the write. Must be 512byte aligned.
      */
-    virtual void write(uint64_t location)
-    {
-        return;
-    }
+    virtual void write(uint64_t location);
 
     /**
      * \brief Sets the page boundary alignment after a specific location on the
@@ -111,10 +87,7 @@ class Disk : public Device
      * manipulated in \c read() or \c write() even when location isn't aligned
      * on a 4096 byte boundary.
      */
-    virtual void align(uint64_t location)
-    {
-        return;
-    }
+    virtual void align(uint64_t location);
 
     /**
      * \brief Gets the size of the disk.
@@ -122,10 +95,7 @@ class Disk : public Device
      * This is the size in bytes of the disk. Reads or writes beyond this size
      * will fail.
      */
-    virtual size_t getSize() const
-    {
-        return 0;
-    }
+    virtual size_t getSize() const;
 
     /**
      * \brief Gets the block size of the disk.
@@ -133,10 +103,7 @@ class Disk : public Device
      * This is the native block size with which all reads and writes are
      * performed, regardless of how much data is available to be read/written.
      */
-    virtual size_t getBlockSize() const
-    {
-        return 0;
-    }
+    virtual size_t getBlockSize() const;
 
     /**
      * \brief Pins a cache page.
@@ -147,18 +114,12 @@ class Disk : public Device
      * safe manner, as it can be assumed that the physical page for a particular
      * cache block will not be freed.
      */
-    virtual void pin(uint64_t location)
-    {
-        return;
-    }
+    virtual void pin(uint64_t location);
 
     /**
      * Unpins a cache page (see \c pin() for more information and rationale).
      */
-    virtual void unpin(uint64_t location)
-    {
-        return;
-    }
+    virtual void unpin(uint64_t location);
 
     /**
      * \brief Whether or not the cache is critical and cannot be flushed or
@@ -180,10 +141,7 @@ class Disk : public Device
      * \return True if the cache is critical and must not be removed or flushed.
      * False otherwise.
      */
-    virtual bool cacheIsCritical()
-    {
-        return false;
-    }
+    virtual bool cacheIsCritical();
 
     /**
      * \brief Flush a cached page to disk.
@@ -195,10 +153,7 @@ class Disk : public Device
      *
      * Will not remove the page from cache, that must be done by the caller.
      */
-    virtual void flush(uint64_t location)
-    {
-        return;
-    }
+    virtual void flush(uint64_t location);
 };
 
 #endif

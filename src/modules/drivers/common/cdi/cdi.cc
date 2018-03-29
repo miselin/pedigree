@@ -98,7 +98,7 @@ static bool cdi_module_init()
     return true;
 }
 
-bool cdi_pedigree_walk_dev_list_init(struct cdi_driver *dev)
+EXPORTED_PUBLIC bool cdi_pedigree_walk_dev_list_init(struct cdi_driver *dev)
 {
     bool bFound = false;
 
@@ -119,7 +119,7 @@ bool cdi_pedigree_walk_dev_list_init(struct cdi_driver *dev)
     return bFound;
 }
 
-void cdi_pedigree_walk_dev_list_destroy(struct cdi_driver *dev)
+EXPORTED_PUBLIC void cdi_pedigree_walk_dev_list_destroy(struct cdi_driver *dev)
 {
     struct cdi_driver* driver = dev;
     struct cdi_device* device;

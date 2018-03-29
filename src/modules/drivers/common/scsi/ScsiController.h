@@ -20,6 +20,7 @@
 #ifndef SCSICONTROLLER_H
 #define SCSICONTROLLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
@@ -29,15 +30,13 @@
 #define SCSI_REQUEST_SYNC 3
 
 /** Generic class for Scsi Controllers */
-class ScsiController : public Controller, public RequestQueue
+class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue
 {
   public:
     ScsiController(Controller *pDev);
     ScsiController();
 
-    virtual ~ScsiController()
-    {
-    }
+    virtual ~ScsiController();
 
     virtual bool sendCommand(
         size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,

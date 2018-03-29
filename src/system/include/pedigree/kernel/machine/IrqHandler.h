@@ -20,17 +20,20 @@
 #ifndef KERNEL_MACHINE_IRQHANDLER_H
 #define KERNEL_MACHINE_IRQHANDLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/types.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
 
 /** @addtogroup kernelmachine
  * @{ */
 
 /** Abstract base class for all irq-handlers. All irq-handlers must
  * be derived from this class */
-class IrqHandler
+class EXPORTED_PUBLIC IrqHandler
 {
   public:
+    IrqHandler();
+
     /** Called when the handler is registered with the irq manager and the irq
      *occurred \note If this function returns false you have to call
      *IrqManager::acknowledgeIrq() when you removed the interrupt reason.
@@ -41,9 +44,7 @@ class IrqHandler
 
   protected:
     /** Virtual destructor */
-    inline virtual ~IrqHandler()
-    {
-    }
+    virtual ~IrqHandler();
 };
 
 /** @} */

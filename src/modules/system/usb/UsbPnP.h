@@ -20,6 +20,7 @@
 #ifndef USBPNP_H
 #define USBPNP_H
 
+#include "pedigree/kernel/compiler.h"
 #include "modules/system/usb/UsbDevice.h"
 
 enum UsbPnPConstants
@@ -31,7 +32,7 @@ enum UsbPnPConstants
     ProtocolNone = 0xFF,
 };
 
-class UsbPnP
+class EXPORTED_PUBLIC UsbPnP
 {
   private:
     /// Callback function type

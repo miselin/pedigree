@@ -22,11 +22,15 @@
 
 #include "pedigree/kernel/compiler.h"
 
+class Spinlock;
+class Mutex;
+class Semaphore;
+
 /** @addtogroup kernel
  * @{ */
 
 template <class T>
-class LockGuard
+class EXPORTED_PUBLIC LockGuard
 {
   public:
     inline LockGuard(T &Lock, bool Condition = true)
@@ -50,7 +54,7 @@ class LockGuard
 };
 
 template <class T>
-class RecursingLockGuard
+class EXPORTED_PUBLIC RecursingLockGuard
 {
   public:
     inline RecursingLockGuard(T &Lock, bool Condition = true)
@@ -73,6 +77,12 @@ class RecursingLockGuard
     T &m_Lock;
     bool m_bCondition;
 };
+
+extern template class LockGuard<Spinlock>;
+#ifdef THREADS
+extern template class LockGuard<Mutex>;
+extern template class LockGuard<Semaphore>;
+#endif
 
 /** @} */
 

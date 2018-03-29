@@ -20,6 +20,7 @@
 #ifndef USBDEVICE_H
 #define USBDEVICE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbDescriptors.h"
 #include "pedigree/kernel/machine/Device.h"
@@ -29,7 +30,7 @@
 class UsbHub;
 class UsbDeviceContainer;
 
-class UsbDevice
+class EXPORTED_PUBLIC UsbDevice
 {
     friend class UsbDeviceContainer;
 

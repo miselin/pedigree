@@ -27,13 +27,14 @@
 
 class Disk;
 
+#include "pedigree/kernel/compiler.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/processor/types.h"
 
 #include "pedigree/kernel/utilities/Cache.h"
 
-class RamFile : public File
+class EXPORTED_PUBLIC RamFile : public File
 {
   public:
     RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
@@ -62,7 +63,7 @@ class RamFile : public File
 };
 
 /** Defines a directory in the RamFS */
-class RamDir : public Directory
+class EXPORTED_PUBLIC RamDir : public Directory
 {
   private:
     RamDir(const RamDir &);
@@ -82,7 +83,7 @@ class RamDir : public Directory
 };
 
 /** Defines a filesystem that is completely in RAM. */
-class RamFs : public Filesystem
+class EXPORTED_PUBLIC RamFs : public Filesystem
 {
   public:
     RamFs();

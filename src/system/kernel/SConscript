@@ -59,6 +59,7 @@ files = [
     'ServiceManager.cc',
     'Service.cc',
     'syscallError.cc',
+    'LockGuard.cc',
     Glob('utilities/*.cc'),
     Glob('machine/*.cc'),
     Glob('linker/*.cc'),

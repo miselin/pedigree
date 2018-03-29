@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
@@ -25,7 +26,7 @@
 
 /** The user manager - this allows lookups of users and groups, and also
     parses the initial file "root:/config/users". */
-class UserManager
+class EXPORTED_PUBLIC UserManager
 {
   public:
     /** Get the singleton instance. */

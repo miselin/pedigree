@@ -20,6 +20,7 @@
 #ifndef MACHINE_NETWORK_STACK_H
 #define MACHINE_NETWORK_STACK_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
@@ -36,7 +37,7 @@ struct netif;
  * This function is the base for receiving packets, and provides functionality
  * for keeping track of network devices in the system.
  */
-class NetworkStack : public RequestQueue
+class EXPORTED_PUBLIC NetworkStack : public RequestQueue
 {
   public:
     NetworkStack();

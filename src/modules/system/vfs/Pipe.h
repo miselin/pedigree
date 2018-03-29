@@ -21,6 +21,7 @@
 #define PIPE_H
 
 #include "File.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Buffer.h"
@@ -31,7 +32,7 @@
 class ZombiePipe;
 
 /** A first-in-first-out buffer node. */
-class Pipe : public File
+class EXPORTED_PUBLIC Pipe : public File
 {
     friend class Filesystem;
     friend class ZombiePipe;

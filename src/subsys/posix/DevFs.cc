@@ -195,7 +195,7 @@ uint64_t RtcFile::write(
     return 0;
 }
 
-bool RtcFile::supports(const int command)
+bool RtcFile::supports(const int command) const
 {
     // read/set time
     return true;
@@ -278,7 +278,7 @@ uintptr_t FramebufferFile::readBlock(uint64_t location)
            location;
 }
 
-bool FramebufferFile::supports(const int command)
+bool FramebufferFile::supports(const int command) const
 {
     return (PEDIGREE_FB_CMD_MIN <= command) && (command <= PEDIGREE_FB_CMD_MAX);
 }

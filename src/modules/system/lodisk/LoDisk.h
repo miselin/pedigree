@@ -20,6 +20,7 @@
 #ifndef LODISK_H
 #define LODISK_H
 
+#include "pedigree/kernel/compiler.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/machine/Disk.h"
@@ -42,7 +43,7 @@
  * Specifying RamOnly causes the file to be stored only in RAM with no changes
  * committed to the file.
  */
-class FileDisk : public Disk
+class EXPORTED_PUBLIC FileDisk : public Disk
 {
   public:
     enum AccessType

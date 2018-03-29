@@ -31,6 +31,8 @@ ScsiController::ScsiController() : RequestQueue("ScsiController")
     initialise();
 }
 
+ScsiController::~ScsiController() = default;
+
 void ScsiController::searchDisks()
 {
     for (size_t i = 0; i < getNumUnits(); i++)

@@ -23,6 +23,7 @@
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
@@ -193,7 +194,7 @@ class ConsoleFile : public File
     void triggerEvent(char cause);
 };
 
-class ConsoleMasterFile : public ConsoleFile
+class EXPORTED_PUBLIC ConsoleMasterFile : public ConsoleFile
 {
   public:
     ConsoleMasterFile(
@@ -230,7 +231,7 @@ class ConsoleMasterFile : public ConsoleFile
   private:
 };
 
-class ConsoleSlaveFile : public ConsoleFile
+class EXPORTED_PUBLIC ConsoleSlaveFile : public ConsoleFile
 {
   public:
     ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem *pFs);
@@ -261,7 +262,7 @@ class ConsoleSlaveFile : public ConsoleFile
     }
 };
 
-class ConsolePhysicalFile : public ConsoleFile
+class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile
 {
   public:
     ConsolePhysicalFile(size_t nth, File *pTerminal, String consoleName, Filesystem *pFs);
@@ -313,7 +314,7 @@ class ConsolePhysicalFile : public ConsoleFile
    buffer. write: request with p1: CONSOLE_WRITE, p2: param, p3: size of buffer,
    p4: buffer.
 */
-class ConsoleManager : public Filesystem
+class EXPORTED_PUBLIC ConsoleManager : public Filesystem
 {
   public:
     enum IAttribute

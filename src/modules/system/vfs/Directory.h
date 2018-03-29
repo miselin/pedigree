@@ -21,6 +21,7 @@
 #define DIRECTORY_H
 
 #include "File.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
@@ -37,7 +38,7 @@
  *       so we can potentially offer a way to cull directory entries that are
  *       otherwise just consuming space.
  **/
-class Directory : public File
+class EXPORTED_PUBLIC Directory : public File
 {
     friend class Filesystem;
 

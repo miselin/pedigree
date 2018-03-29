@@ -118,11 +118,13 @@ libutility_sources = [
     os.path.join('network', 'MacAddress.cc'),
     'Atomic.cc',
     'Log.cc',
+    'LockGuard.cc',
 ]
 # Base kernel sources that we care about.
 kernel_sources = [
     os.path.join('machine', 'Device.cc'),
     os.path.join('machine', 'DeviceHashTree.cc'),
+    os.path.join('machine', 'Disk.cc'),
     os.path.join('linker', 'SymbolTable.cc'),
     # os.path.join('core', 'processor', 'Processor.cc'),
     # os.path.join('core', 'processor', 'hosted', 'Processor.cc'),

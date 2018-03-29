@@ -20,6 +20,7 @@
 #ifndef _PS2_MOUSE_H
 #define _PS2_MOUSE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -45,10 +46,10 @@ class Ps2Mouse : public Device
         str = "mouse";
     }
 
-    void write(const char *bytes, size_t len);
+    EXPORTED_PUBLIC void write(const char *bytes, size_t len);
 
     // subscribe to the raw bus protocol
-    void subscribe(MouseHandlerFunction handler, void *param);
+    EXPORTED_PUBLIC void subscribe(MouseHandlerFunction handler, void *param);
 
   private:
     Ps2Controller *m_pController;

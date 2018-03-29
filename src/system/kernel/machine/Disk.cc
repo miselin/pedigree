@@ -17,38 +17,77 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef ISA_DMA_H
-#define ISA_DMA_H
+#include "pedigree/kernel/machine/Disk.h"
 
-#include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
-
-/** Base class for ISA DMA implementations.
- *  Different architectures will do things differently, so the base class
- *  is defined here to give a clean interface to the architecture-specific
- *  content.
- *
- *  It is assumed drivers will be notified by some other means that their
- *  data is ready. This class is merely designed to prepare operations on
- *  the DMA controller without requiring drivers to do it themselves.
- */
-class EXPORTED_PUBLIC IsaDma
+Disk::Disk()
 {
-  public:
-    IsaDma()
-    {
-    }
-    virtual ~IsaDma()
-    {
-    }
+    m_SpecificType = "Generic Disk";
+}
 
-    static IsaDma &instance();
+Disk::Disk(Device *p) : Device(p)
+{
+}
 
-    /// Initialises a read operation
-    virtual bool initTransfer(
-        uint8_t channel, uint8_t mode, size_t length, uintptr_t addr) = 0;
+Disk::~Disk()
+{
+}
 
-  private:
-};
+Device::Type Disk::getType()
+{
+    return Device::Disk;
+}
 
-#endif
+Disk::SubType Disk::getSubType()
+{
+    return ATA;
+}
+
+void Disk::getName(String &str)
+{
+    str = "Generic disk";
+}
+
+void Disk::dump(String &str)
+{
+    str = "Generic disk";
+}
+
+uintptr_t Disk::read(uint64_t location)
+{
+    return ~0;
+}
+
+void Disk::write(uint64_t location)
+{
+}
+
+void Disk::align(uint64_t location)
+{
+}
+
+size_t Disk::getSize() const
+{
+    return 0;
+}
+
+size_t Disk::getBlockSize() const
+{
+    return 0;
+}
+
+void Disk::pin(uint64_t location)
+{
+}
+
+void Disk::unpin(uint64_t location)
+{
+}
+
+bool Disk::cacheIsCritical()
+{
+    return false;
+}
+
+void Disk::flush(uint64_t location)
+{
+}

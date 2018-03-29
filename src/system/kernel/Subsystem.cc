@@ -22,6 +22,8 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 
+Subsystem::~Subsystem() = default;
+
 void Subsystem::acquire()
 {
     // no-op

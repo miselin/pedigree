@@ -45,15 +45,6 @@ int snprintf(char *s, size_t n, const char *fmt, ...)
     return ret;
 }
 
-int StringFormat(char *s, const char *fmt, ...)
-{
-    va_list argptr;
-    va_start(argptr, fmt);
-    int ret = VStringFormat(s, fmt, argptr);
-    va_end(argptr);
-    return ret;
-}
-
 int puts(const char *s)
 {
     NOTICE(s);

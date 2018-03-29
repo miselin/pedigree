@@ -13,6 +13,7 @@
 #include <cdi/net.h>
 #include <cdi/pci.h>
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 
 static unsigned long netcard_highest_id = 0;
 static cdi_list_t netcard_list;
@@ -38,7 +39,7 @@ static void rpc_register_receiver
 /**
  * Initialisiert die Datenstrukturen fuer einen Netzerktreiber
  */
-void cdi_net_driver_init(struct cdi_net_driver* driver)
+EXPORTED_PUBLIC void cdi_net_driver_init(struct cdi_net_driver* driver)
 {
     driver->drv.type = CDI_NETWORK;
     cdi_driver_init(reinterpret_cast<struct cdi_driver*>(driver));
@@ -57,7 +58,7 @@ void cdi_net_driver_init(struct cdi_net_driver* driver)
 /**
  * Deinitialisiert die Datenstrukturen fuer einen Netzwerktreiber
  */
-void cdi_net_driver_destroy(struct cdi_net_driver* driver)
+EXPORTED_PUBLIC void cdi_net_driver_destroy(struct cdi_net_driver* driver)
 {
     cdi_driver_destroy(reinterpret_cast<struct cdi_driver*>(driver));
 }
@@ -65,7 +66,7 @@ void cdi_net_driver_destroy(struct cdi_net_driver* driver)
 /**
  * Initialisiert eine neue Netzwerkkarte
  */
-void cdi_net_device_init(struct cdi_net_device* device)
+EXPORTED_PUBLIC void cdi_net_device_init(struct cdi_net_device* device)
 {
     device->number = netcard_highest_id;
 
@@ -90,7 +91,7 @@ void cdi_net_device_init(struct cdi_net_device* device)
  * Gibt die Netzwerkkarte mit der uebergebenen Geraetenummer
  * zureck
  */
-struct cdi_net_device* cdi_net_get_device(int num)
+EXPORTED_PUBLIC struct cdi_net_device* cdi_net_get_device(int num)
 {
     for (size_t i = 0; i < cdi_list_size(netcard_list); i++)
     {

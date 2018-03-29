@@ -20,6 +20,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "sqlite3/sqlite3.h"
@@ -30,7 +31,7 @@ extern sqlite3 *g_pSqlite;
  *
  * The system is database-based (currently using SQLite).
  */
-class Config
+class EXPORTED_PUBLIC Config
 {
   public:
     class Result

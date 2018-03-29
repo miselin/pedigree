@@ -45,9 +45,7 @@ class EXPORTED_PUBLIC Filesystem
     /** Constructor - creates a blank object. */
     Filesystem();
     /** Destructor */
-    virtual ~Filesystem()
-    {
-    }
+    virtual ~Filesystem();
 
     /** Populates this filesystem with data from the given Disk device.
      * \return true on success, false on failure. */

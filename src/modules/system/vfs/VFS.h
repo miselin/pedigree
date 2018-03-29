@@ -21,6 +21,7 @@
 #define VFS_H
 
 #include "Filesystem.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -42,7 +43,7 @@
  * alias 'root', thus; 'root:/System/Boot/kernel' could be used to access the
  * kernel image.
  */
-class VFS
+class EXPORTED_PUBLIC VFS
 {
   public:
     /** Callback type, called when a disk is mounted or unmounted. */

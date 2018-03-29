@@ -240,6 +240,7 @@ remove_flags = {
     'e1000': ['-Werror'],
     'pcnet': ['-Werror'],
     'rtl8139': ['-Werror'],
+    'lwip': ['-fvisibility=hidden'],
 }
 
 # Try and follow this subdirectory scheme for platform code in modules to

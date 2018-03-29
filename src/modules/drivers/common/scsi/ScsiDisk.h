@@ -21,11 +21,12 @@
 #define SCSIDISK_H
 
 #include "ScsiCommands.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 
-class ScsiDisk : public Disk
+class EXPORTED_PUBLIC ScsiDisk : public Disk
 {
   private:
     enum ScsiPeripheralType

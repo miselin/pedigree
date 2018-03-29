@@ -41,6 +41,7 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/compiler.h"
 #include "pipe-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "pthread-syscalls.h"
@@ -1109,7 +1110,7 @@ int posix_setegid(gid_t egid)
     return posix_setresgid(-1, egid, -1);
 }
 
-int pedigree_login(int uid, const char *password)
+EXPORTED_PUBLIC int pedigree_login(int uid, const char *password)
 {
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(password), PATH_MAX,
@@ -1547,7 +1548,7 @@ int posix_syslog(const char *msg, int prio)
 
 extern void system_reset();
 
-int pedigree_reboot()
+EXPORTED_PUBLIC int pedigree_reboot()
 {
     // Are we superuser?
     User *pUser =

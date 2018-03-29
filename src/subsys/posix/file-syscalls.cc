@@ -40,6 +40,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
+#include "pedigree/kernel/compiler.h"
 
 #include "pedigree/kernel/Subsystem.h"
 #include <PosixProcess.h>
@@ -2297,7 +2298,7 @@ int posix_fsync(int fd)
     return 0;
 }
 
-int pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
+EXPORTED_PUBLIC int pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
 {
     if (!(PosixSubsystem::checkAddress(
               reinterpret_cast<uintptr_t>(mount_buf), PATH_MAX,

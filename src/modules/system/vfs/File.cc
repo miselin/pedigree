@@ -418,6 +418,10 @@ void File::sync()
     }
 }
 
+void File::sync(size_t offset, bool async)
+{
+}
+
 Time::Timestamp File::getCreationTime()
 {
     return m_CreationTime;
@@ -471,6 +475,143 @@ void File::setSize(size_t sz)
     m_Size = sz;
 }
 
+bool File::isSymlink()
+{
+    return false;
+}
+
+bool File::isDirectory()
+{
+    return false;
+}
+
+bool File::isPipe() const
+{
+    return false;
+}
+
+bool File::isFifo() const
+{
+    return false;
+}
+
+bool File::isSocket() const
+{
+    return false;
+}
+
+uintptr_t File::getInode() const
+{
+    return m_Inode;
+}
+
+void File::setInode(uintptr_t inode)
+{
+    m_Inode = inode;
+}
+
+Filesystem *File::getFilesystem() const
+{
+    return m_pFilesystem;
+}
+
+void File::setFilesystem(Filesystem *pFs)
+{
+    m_pFilesystem = pFs;
+}
+
+void File::fileAttributeChanged()
+{
+}
+
+void File::increaseRefCount(bool bIsWriter)
+{
+    if (bIsWriter)
+        m_nWriters++;
+    else
+        m_nReaders++;
+}
+
+void File::decreaseRefCount(bool bIsWriter)
+{
+    if (bIsWriter)
+        m_nWriters--;
+    else
+        m_nReaders--;
+}
+
+void File::setPermissions(uint32_t perms)
+{
+    m_Permissions = perms;
+    fileAttributeChanged();
+}
+
+uint32_t File::getPermissions() const
+{
+    return m_Permissions;
+}
+
+void File::setUid(size_t uid)
+{
+    m_Uid = uid;
+    fileAttributeChanged();
+}
+
+size_t File::getUid() const
+{
+    return m_Uid;
+}
+
+void File::setGid(size_t gid)
+{
+    m_Gid = gid;
+    fileAttributeChanged();
+}
+
+size_t File::getGid() const
+{
+    return m_Gid;
+}
+
+File *File::getParent() const
+{
+    return m_pParent;
+}
+
+int File::select(bool bWriting, int timeout)
+{
+    return 1;
+}
+
+bool File::supports(const int command) const
+{
+    return false;
+}
+
+int File::command(const int command, void *buffer)
+{
+    return 0;
+}
+
+size_t File::getBlockSize() const
+{
+    return PhysicalMemoryManager::getPageSize();
+}
+
+void File::enableDirect()
+{
+    m_bDirect = true;
+}
+
+void File::disableDirect()
+{
+    m_bDirect = false;
+}
+
+void File::preallocate(size_t expectedSize)
+{
+}
+
 void File::truncate()
 {
 }
@@ -478,6 +619,52 @@ void File::truncate()
 File *File::open()
 {
     return this;
+}
+
+uintptr_t File::readBlock(uint64_t location)
+{
+    return 0;
+}
+
+void File::writeBlock(uint64_t location, uintptr_t addr)
+{
+}
+
+void File::extend(size_t newSize)
+{
+    if (m_Size < newSize)
+        m_Size = newSize;
+}
+
+void File::pinBlock(uint64_t location)
+{
+}
+
+void File::unpinBlock(uint64_t location)
+{
+}
+
+void File::evict(uint64_t location)
+{
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+    setCachedPage(location / getBlockSize(), FILE_BAD_BLOCK);
+}
+
+void File::setPermissionsOnly(uint32_t perms)
+{
+    m_Permissions = perms;
+}
+
+void File::setUidOnly(size_t uid)
+{
+    m_Uid = uid;
+}
+
+void File::setGidOnly(size_t gid)
+{
+    m_Gid = gid;
 }
 
 void File::dataChanged()
