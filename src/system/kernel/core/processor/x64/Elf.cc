@@ -105,11 +105,16 @@ bool Elf::applyRelocation(
         const char *pStr = pStringTable + pSymbols[R_SYM(rel.info)].name;
 
         if (pSymtab == 0)
-            pSymtab = KernelElf::instance().getSymbolTable();
+            pSymtab = &m_SymbolTable;
 
         if (R_TYPE(rel.info) == R_X86_64_COPY)
             policy = SymbolTable::NotOriginatingElf;
         S = pSymtab->lookup(String(pStr), this, policy);
+        if (S == 0)
+        {
+            // Failed to find - fall back to kernel symbol table.
+            S = KernelElf::instance().getSymbolTable()->lookup(String(pStr), this, policy);
+        }
 
         if (S == 0 && ST_BIND(pSymbols[R_SYM(rel.info)].info) == 2)
         {

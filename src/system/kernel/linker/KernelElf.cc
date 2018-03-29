@@ -461,6 +461,7 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
         return 0;
     }
     module->name = *pName;
+    module->elf.setName(*pName);
     module->entry = *reinterpret_cast<bool (**)()>(
         module->elf.lookupSymbol("g_pModuleEntry"));
     module->exit = *reinterpret_cast<void (**)()>(

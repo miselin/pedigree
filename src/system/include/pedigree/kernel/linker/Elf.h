@@ -346,6 +346,12 @@ class EXPORTED_PUBLIC Elf
     uintptr_t debugFrameTable();
     uintptr_t debugFrameTableLength();
 
+    /** Sets a friendly name for debugging. */
+    void setName(const String &s) { m_Name = s; }
+
+    /** Gets the friendly name. */
+    const String &getName() const { return m_Name; }
+
   protected:
 #endif
     struct ElfHeader_t
@@ -543,6 +549,8 @@ typedef ElfSymbol_t Elf32Symbol_t;
     uintptr_t m_InitFunc;
     uintptr_t m_FiniFunc;
     String m_sInterpreter;
+
+    String m_Name;
 
   private:
     /** The assignment operator

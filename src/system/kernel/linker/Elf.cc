@@ -760,14 +760,20 @@ bool Elf::loadModule(
 
             /// \todo we should handle hidden symbols better so they are only
             /// needed for relocation and not tracked forever
-
-            // If the shndx == UND (0x0), the symbol is in the table but
-            // undefined!
-            if (*pStr != '\0' && pSymbol->shndx != 0)
+            if (ST_TYPEOK(pSymbol->info))
             {
-                m_SymbolTable.insertMultiple(
-                    pSymbolTableCopy, String(pStr), binding, this,
-                    pSymbol->value);
+                // If the shndx == UND (0x0), the symbol is in the table but
+                // undefined!
+                if (*pStr != '\0' && pSymbol->shndx != 0)
+                {
+                    String name(pStr);
+                    m_SymbolTable.insert(name, binding, this, pSymbol->value);
+                    if (pSymbol->other != STV_HIDDEN)
+                    {
+                        // not hidden - add to the copied symbol table
+                        pSymbolTableCopy->insert(name, binding, this, pSymbol->value);
+                    }
+                }
             }
             pSymbol++;
         }

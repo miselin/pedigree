@@ -125,15 +125,13 @@ void SymbolTable::eraseByElf(Elf *pParent)
     // Will wipe out recursively by destroying the SharedPointers within.
     m_LocalSymbols.remove(pParent);
 
-    /// \todo wipe out global/weak symbols.
-
-    /// \todo HashTable needs iteration support
-#if 0
     for (auto it = m_GlobalSymbols.begin(); it != m_GlobalSymbols.end();)
     {
-        if (it->getParent() == pParent)
+        if ((*it)->getParent() == pParent)
         {
-            it = m_GlobalSymbols.erase(it);
+            m_GlobalSymbols.erase(it);
+            /// \todo make erasing in a HashTable reliable and safe
+            it = m_GlobalSymbols.begin();
         }
         else
         {
@@ -143,16 +141,17 @@ void SymbolTable::eraseByElf(Elf *pParent)
 
     for (auto it = m_WeakSymbols.begin(); it != m_WeakSymbols.end();)
     {
-        if (it->getParent() == pParent)
+        if ((*it)->getParent() == pParent)
         {
-            it = m_WeakSymbols.erase(it);
+            m_WeakSymbols.erase(it);
+            /// \todo make erasing in a HashTable reliable and safe
+            it = m_WeakSymbols.begin();
         }
         else
         {
             ++it;
         }
     }
-#endif
 }
 
 uintptr_t
@@ -160,33 +159,46 @@ SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBind
 {
     RAII_LOCK;
 
+    uintptr_t lookupResult = 0;
+
     // Local to the ELF file itself.
-    SharedPointer<Symbol> sym;
-    SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
-    if (symbolTree)
+    if (policy != NotOriginatingElf)
     {
-        symbolTree_t::LookupResult result = symbolTree->lookup(name);
-        if (result.hasValue())
+        SharedPointer<Symbol> sym;
+        SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
+        if (symbolTree)
         {
-            return result.value()->getValue();
+            symbolTree_t::LookupResult result = symbolTree->lookup(name);
+            if (result.hasValue())
+            {
+                lookupResult = result.value()->getValue();
+            }
         }
     }
 
     // Global lookup across all ELFs that expose global symbols.
-    symbolTree_t::LookupResult globalResult = m_GlobalSymbols.lookup(name);
-    if (globalResult.hasValue())
+    if (!lookupResult)
     {
-        return globalResult.value()->getValue();
+        symbolTree_t::LookupResult globalResult = m_GlobalSymbols.lookup(name);
+        if (globalResult.hasValue())
+        {
+            lookupResult = globalResult.value()->getValue();
+        }
     }
 
     // Finally we try and find a usable weak symbol.
-    symbolTree_t::LookupResult weakResult = m_WeakSymbols.lookup(name);
-    if (weakResult.hasValue())
+    if (!lookupResult)
     {
-        return weakResult.value()->getValue();
+        symbolTree_t::LookupResult weakResult = m_WeakSymbols.lookup(name);
+        if (weakResult.hasValue())
+        {
+            lookupResult = weakResult.value()->getValue();
+        }
     }
 
-    return 0;
+    // NOTICE("SymbolTable::lookup(" << name << ", " << pElf->getName() << ") ==> " << Hex << lookupResult);
+
+    return lookupResult;
 }
 
 SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p)
