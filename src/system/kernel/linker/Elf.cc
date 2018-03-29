@@ -711,6 +711,8 @@ bool Elf::loadModule(
         pSymbol++;
     }
 
+    preallocateSymbols(nullptr, pSymbolTableCopy);
+
     if (m_pSymbolTable && m_pStringTable)
     {
         pSymbol = m_pSymbolTable;
@@ -917,6 +919,8 @@ bool Elf::allocate(
         }
     }
 
+    preallocateSymbols(nullptr, pSymtab);
+
     if (m_pDynamicSymbolTable && m_pDynamicStringTable)
     {
         ElfSymbol_t *pSymbol = m_pDynamicSymbolTable;
@@ -958,11 +962,13 @@ bool Elf::allocate(
                         m_SymbolTable.insert(
                             String(pStr), binding, this, pSymbol->value);
                         if (pSymtab)
+                        {
                             // Add loadBase in when adding to the user-defined
                             // symtab, to give the user a "real" value.
                             pSymtab->insert(
                                 String(pStr), binding, this,
                                 pSymbol->value + loadBase);
+                        }
                     }
                 }
                 else
@@ -970,21 +976,14 @@ bool Elf::allocate(
                     // weak symbol? set it as undefined
                     if (binding == SymbolTable::Weak)
                     {
-                        // if(ST_TYPE(pSymbol->info) == STT_FUNC)
-                        //{
                         Elf_Xword value = pSymbol->value;
                         if (value == 0)
                             value = ~0;
                         if (*pStr != 0)
                         {
-                            m_SymbolTable.insert(
-                                String(pStr), binding, this, value);
-                            if (pSymtab)
-                                // Add loadBase in when adding to the user-defined
-                                // symtab, to give the user a "real" value.
-                                pSymtab->insert(String(pStr), binding, this, value);
+                            m_SymbolTable.insertMultiple(
+                                pSymtab, String(pStr), binding, this, value);
                         }
-                        //}
                     }
                 }
             }
@@ -1400,6 +1399,8 @@ size_t Elf::getPltSize()
 
 void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
 {
+    preallocateSymbols(pSymtab);
+
     if (m_pDynamicSymbolTable && m_pDynamicStringTable)
     {
         ElfSymbol_t *pSymbol = m_pDynamicSymbolTable;
@@ -1439,13 +1440,85 @@ void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
                     if (*pStr != 0)
                     {
                         if (pSymtab)
+                        {
                             pSymtab->insert(
                                 String(pStr), binding, this,
                                 pSymbol->value + loadBase);
+                        }
                     }
                 }
             }
             pSymbol++;
+        }
+    }
+}
+
+void Elf::preallocateSymbols(SymbolTable *pSymtabOverride, SymbolTable *pAdditionalSymtab)
+{
+    if (!pSymtabOverride)
+    {
+        pSymtabOverride = &m_SymbolTable;
+    }
+
+    size_t numLocal = 0;
+    size_t numWeak = 0;
+    size_t numGlobal = 0;
+
+    if (m_pSymbolTable)
+    {
+        ElfSymbol_t *pSymbol = m_pSymbolTable;
+
+        // quick pass to preallocate for the symbol table
+        for (size_t i = 0; i < m_nSymbolTableSize / sizeof(*pSymbol); i++)
+        {
+            switch (ST_BIND(m_pSymbolTable[i].info))
+            {
+                case STB_LOCAL:
+                    ++numLocal;
+                    break;
+                case STB_GLOBAL:
+                    ++numGlobal;
+                    break;
+                case STB_WEAK:
+                    ++numWeak;
+                    break;
+                default:
+                    ++numGlobal;
+            }
+        }
+    }
+
+    if (m_pDynamicSymbolTable)
+    {
+        ElfSymbol_t *pSymbol = m_pDynamicSymbolTable;
+
+        // quick pass to preallocate for the symbol table
+        for (size_t i = 0; i < m_nDynamicSymbolTableSize / sizeof(*pSymbol); i++)
+        {
+            switch (ST_BIND(m_pDynamicSymbolTable[i].info))
+            {
+                case STB_LOCAL:
+                    ++numLocal;
+                    break;
+                case STB_GLOBAL:
+                    ++numGlobal;
+                    break;
+                case STB_WEAK:
+                    ++numWeak;
+                    break;
+                default:
+                    ++numGlobal;
+            }
+        }
+    }
+
+    if (numLocal || numWeak || numGlobal)
+    {
+        NOTICE("ELF: preallocating symbol table with " << numGlobal << " global " << numWeak << " weak and " << numLocal << " local symbols.");
+        pSymtabOverride->preallocate(numGlobal, numWeak, this, numLocal);
+        if (pAdditionalSymtab)
+        {
+            pAdditionalSymtab->preallocateAdditional(numGlobal, numWeak, this, numLocal);
         }
     }
 }

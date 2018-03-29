@@ -182,6 +182,9 @@ class Directory : public File
     /** Add a lazily-evaluated entry to the directory. */
     void addDirectoryEntry(const String &name, DirectoryEntryMetadata &&meta);
 
+    /** Preallocate space for the given number of directory entries. */
+    void preallocateDirectoryEntries(size_t count);
+
     /** Convert given metadata into a useful File object. */
     virtual File *convertToFile(const DirectoryEntryMetadata &meta);
 };

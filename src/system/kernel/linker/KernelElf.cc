@@ -120,9 +120,13 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
     // Map in section headers.
     size_t sectionHeadersLength = pBootstrap.getSectionHeaderCount() *
                                   pBootstrap.getSectionHeaderEntrySize();
+    if ((sectionHeadersLength % pageSz) > 0)
+    {
+        sectionHeadersLength += pageSz;
+    }
     if (physicalMemoryManager.allocateRegion(
             *m_AdditionalSectionHeaders,
-            (sectionHeadersLength + pageSz - 1) / pageSz,
+            sectionHeadersLength / pageSz,
             PhysicalMemoryManager::continuous,
             VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
             pBootstrap.getSectionHeaders()) == false)
@@ -171,8 +175,12 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
 
     // Map in all non-alloc sections.
     uintptr_t alignedStart = start & ~(pageSz - 1);
-    uintptr_t alignedEnd = (end & ~(pageSz - 1)) + pageSz;
-    size_t additionalContentsPages = (alignedEnd - alignedStart) / pageSz;
+    uintptr_t allocSize = end - alignedStart;
+    if ((allocSize % pageSz) > 0)
+    {
+        allocSize += pageSz;
+    }
+    size_t additionalContentsPages = allocSize / pageSz;
     if (physicalMemoryManager.allocateRegion(
             m_AdditionalSectionContents, additionalContentsPages,
             PhysicalMemoryManager::continuous,
@@ -258,6 +266,31 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         KernelElfSymbol_t *pSymbol = m_pSymbolTable;
 
         const char *pStrtab = reinterpret_cast<const char *>(m_pStringTable);
+
+        // quick pass to preallocate for the symbol table
+        size_t numLocal = 0;
+        size_t numWeak = 0;
+        size_t numGlobal = 0;
+        for (size_t i = 0; i < m_nSymbolTableSize / sizeof(*pSymbol); i++)
+        {
+            switch (ST_BIND(m_pSymbolTable[i].info))
+            {
+                case STB_LOCAL:
+                    ++numLocal;
+                    break;
+                case STB_GLOBAL:
+                    ++numGlobal;
+                    break;
+                case STB_WEAK:
+                    ++numWeak;
+                    break;
+                default:
+                    ++numGlobal;
+            }
+        }
+
+        NOTICE("KERNELELF: preallocating symbol table with " << numGlobal << " global " << numWeak << " weak and " << numLocal << " local symbols.");
+        m_SymbolTable.preallocate(numGlobal, numWeak, this, numLocal);
 
         for (size_t i = 1; i < m_nSymbolTableSize / sizeof(*pSymbol); i++)
         {
@@ -834,6 +867,10 @@ static int executeModuleThread(void *mod)
                 fp();
                 iterator++;
             }
+        }
+        else
+        {
+            WARNING("KERNELELF: Module " << module->name << " had no ctors!");
         }
     }
 

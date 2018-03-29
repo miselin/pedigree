@@ -332,6 +332,9 @@ class EXPORTED_PUBLIC Elf
      * \param loadBase Offset to adjust each value by. */
     void populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase);
 
+    /** Preallocate space for the symbols in this ELF in the symbol table. */
+    void preallocateSymbols(SymbolTable *pSymtabOverride = nullptr, SymbolTable *pAdditionalSymtab = nullptr);
+
     SymbolTable *getSymbolTable()
     {
         return &m_SymbolTable;

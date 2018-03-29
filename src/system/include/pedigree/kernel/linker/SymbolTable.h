@@ -79,6 +79,13 @@ class SymbolTable
         SymbolTable *pOther, const String &name, Binding binding, Elf *pParent,
         uintptr_t value);
 
+    /**  Preallocate at least the minimum space for the given symbol tables. */
+    void preallocate(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
+    /**
+     * Preallocate additional symbols to the existing count.
+     */
+    void preallocateAdditional(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
+
     void eraseByElf(Elf *pParent);
 
     /** Looks up a symbol in the table, optionally outputting the

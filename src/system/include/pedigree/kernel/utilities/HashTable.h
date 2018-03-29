@@ -51,9 +51,13 @@ namespace HashTableError
  * The key type 'K' should also be able to compare against other 'K'
  * types for equality.
  *
+ * GrowthFactor defines how quickly the bucket count should grow. The default
+ * of two balances memory usage against performance, but some use cases would
+ * be better served by significant growth in each resize.
+ *
  * \todo check InitialBuckets for is a power of two
  */
-template <class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = true>
+template <class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = true, size_t GrowthFactor = 2>
 class HashTable
 {
    private:
@@ -310,14 +314,8 @@ class HashTable
     {
         check();
 
-        // Handle resize and associated rehash if the table is full.
-        if (m_nItems >= (m_nBuckets - 1))
-        {
-            size_t origCount = m_nBuckets;
-            m_nBuckets *= 2;
-            m_nMask = m_nBuckets - 1;
-            rehash(origCount);
-        }
+        // Ensure we have space for the new item
+        reserve(m_nItems + 1);
 
         size_t hash = k.hash() & m_nMask;
 
@@ -410,6 +408,50 @@ class HashTable
                 // Must rehash as we use linear probing for collision handling.
                 rehash();
             }
+        }
+    }
+
+    /**
+     * Reserve space for the given number of items in the hash table.
+     */
+    void reserve(size_t numItems)
+    {
+        check();
+
+        if (numItems < m_nBuckets)
+        {
+            // No resize necessary, reserve is completely contained within the
+            // current bucket array.
+            return;
+        }
+
+        if (!numItems)
+        {
+            ++numItems;
+        }
+
+        // Round up to next power of two (if not already)
+        size_t nextpow2 = 1ULL << (64 - __builtin_clzll(numItems));
+        size_t numItemsRounded = max(InitialBuckets, nextpow2);
+        if (m_nBuckets == numItemsRounded)
+        {
+            // no need to resize here
+            return;
+        }
+
+        // Handle resize and associated rehash if the table is full.
+        size_t origCount = m_nBuckets;
+        m_nBuckets = numItemsRounded;
+        m_nMask = m_nBuckets - 1;
+        if (m_nItems)
+        {
+            rehash(origCount);
+        }
+        else
+        {
+            // No items in the array, just recreate it here
+            delete [] m_Buckets;
+            m_Buckets = new bucket[m_nBuckets];
         }
     }
 

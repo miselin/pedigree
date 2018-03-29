@@ -71,6 +71,24 @@ void SymbolTable::insertMultiple(
         pOther->insertShared(name, ptr);
 }
 
+void SymbolTable::preallocate(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
+{
+    m_GlobalSymbols.reserve(numGlobal);
+    m_WeakSymbols.reserve(numWeak);
+
+    SharedPointer<symbolTree_t> tree = getOrInsertTree(localElf);
+    tree->reserve(numLocal);
+}
+
+void SymbolTable::preallocateAdditional(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
+{
+    m_GlobalSymbols.reserve(m_GlobalSymbols.count() + numGlobal);
+    m_WeakSymbols.reserve(m_WeakSymbols.count() + numWeak);
+
+    SharedPointer<symbolTree_t> tree = getOrInsertTree(localElf);
+    tree->reserve(tree->count() + numLocal);
+}
+
 SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
     const String &name, Binding binding, Elf *pParent, uintptr_t value)
 {
@@ -84,11 +102,6 @@ SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
 void SymbolTable::insertShared(
     const String &name, SharedPointer<SymbolTable::Symbol> &symbol)
 {
-    SharedPointer<symbolTree_t> tree = getOrInsertTree(symbol->getParent());
-    tree->insert(name, symbol);
-
-    // Insert global/weak as well - if the lookup fails in the ELF's table,
-    // it'll fall back to these.
     if (symbol->getBinding() == Global)
     {
         m_GlobalSymbols.insert(name, symbol);
@@ -96,6 +109,11 @@ void SymbolTable::insertShared(
     else if (symbol->getBinding() == Weak)
     {
         m_WeakSymbols.insert(name, symbol);
+    }
+    else
+    {
+        SharedPointer<symbolTree_t> tree = getOrInsertTree(symbol->getParent());
+        tree->insert(name, symbol);
     }
     return;
 }

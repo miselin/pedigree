@@ -211,3 +211,8 @@ File *Directory::convertToFile(const DirectoryEntryMetadata &meta)
 {
     return nullptr;
 }
+
+void Directory::preallocateDirectoryEntries(size_t count)
+{
+    m_Cache.reserve(count);
+}
