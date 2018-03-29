@@ -24,6 +24,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 
 #include "modules/system/vfs/File.h"
 
@@ -236,6 +237,8 @@ class TextIO : public File
     int m_CurrentModes;
 
     VgaColour m_Fore, m_Back;
+
+    MemoryRegion m_Backbuffer;
 
     uint16_t *m_pFramebuffer;
     VgaCell *m_pBackbuffer;

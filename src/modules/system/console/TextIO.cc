@@ -43,13 +43,25 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
       m_bParams(false), m_bQuestionMark(false), m_CursorX(0), m_CursorY(0),
       m_SavedCursorX(0), m_SavedCursorY(0), m_ScrollStart(0), m_ScrollEnd(0),
       m_LeftMargin(0), m_RightMargin(0), m_CurrentParam(0), m_Params(),
-      m_Fore(TextIO::LightGrey), m_Back(TextIO::Black), m_pFramebuffer(0),
-      m_pBackbuffer(0), m_pVga(0), m_TabStops(),
+      m_Fore(TextIO::LightGrey), m_Back(TextIO::Black),
+      m_Backbuffer("TextIO Backbuffer"),
+      m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
       m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'), m_bUtf8(false),
       m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false), m_Lock(false),
       m_bOwnsConsole(false), m_InputMode(TextIO::Standard)
 {
-    m_pBackbuffer = new VgaCell[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
+    size_t backbufferSize = BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell);
+    size_t backbufferPages = (backbufferSize + PhysicalMemoryManager::getPageSize() - 1) / PhysicalMemoryManager::getPageSize();
+
+    if (!PhysicalMemoryManager::instance().allocateRegion(m_Backbuffer, backbufferPages, 0, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write))
+    {
+        ERROR("TextIO: failed to allocate backbuffer!");
+    }
+    else
+    {
+        m_pBackbuffer = reinterpret_cast<VgaCell *>(m_Backbuffer.virtualAddress());
+    }
+
     clearBackbuffer();
 
     // r/w for root user/group, no access for everyone else.
@@ -65,8 +77,8 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
 
 TextIO::~TextIO()
 {
-    delete[] m_pBackbuffer;
     m_pBackbuffer = 0;
+    m_Backbuffer.free();
 
     InputManager::instance().removeCallback(inputCallback, this);
 }
