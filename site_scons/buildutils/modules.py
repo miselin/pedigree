@@ -63,5 +63,5 @@ def buildModule(env, stripped_target, target, sources):
     module_env.Depends(target, module_env['LSCRIPT'])
     module_env.Depends(target, libmodule_path)
     return module_env.Command(stripped_target, intermediate,
-                              action='$STRIP -d --strip-unneeded -o $TARGET '
+                              action='$STRIP -d --strip-debug -o $TARGET '
                                      '$SOURCE')
