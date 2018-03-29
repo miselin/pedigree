@@ -33,13 +33,13 @@ template <class T>
 class EXPORTED_PUBLIC LockGuard
 {
   public:
-    inline LockGuard(T &Lock, bool Condition = true)
+    LockGuard(T &Lock, bool Condition = true)
         : m_Lock(Lock), m_bCondition(Condition)
     {
         if (m_bCondition)
             m_Lock.acquire();
     }
-    inline virtual ~LockGuard()
+    ~LockGuard()
     {
         if (m_bCondition)
             m_Lock.release();
@@ -57,14 +57,14 @@ template <class T>
 class EXPORTED_PUBLIC RecursingLockGuard
 {
   public:
-    inline RecursingLockGuard(T &Lock, bool Condition = true)
+    RecursingLockGuard(T &Lock, bool Condition = true)
         : m_Lock(Lock), m_bCondition(Condition)
     {
         // T::allow_recursion must exist to be able to use RecursingLockGuard.
         if (m_bCondition)
             m_Lock.acquire(T::allow_recursion);
     }
-    inline virtual ~RecursingLockGuard()
+    ~RecursingLockGuard()
     {
         if (m_bCondition)
             m_Lock.release();
@@ -79,6 +79,7 @@ class EXPORTED_PUBLIC RecursingLockGuard
 };
 
 extern template class LockGuard<Spinlock>;
+extern template class RecursingLockGuard<Spinlock>;
 #ifdef THREADS
 extern template class LockGuard<Mutex>;
 extern template class LockGuard<Semaphore>;

@@ -25,6 +25,7 @@
 #endif
 
 template class LockGuard<Spinlock>;
+template class RecursingLockGuard<Spinlock>;
 #ifdef THREADS
 template class LockGuard<Mutex>;
 template class LockGuard<Semaphore>;
