@@ -20,6 +20,7 @@
 #ifndef FILESYSTEM_H
 #define FILESYSTEM_H
 
+#include "pedigree/kernel/compiler.h"
 #include "modules/system/vfs/File.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/types.h"
@@ -31,7 +32,7 @@
  *
  * Thanks to gr00ber at #osdev for the inspiration for the caching algorithms.
  */
-class Filesystem
+class EXPORTED_PUBLIC Filesystem
 {
     /** VFS can access nAliases */
     friend class VFS;

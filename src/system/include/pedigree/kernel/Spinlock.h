@@ -21,8 +21,9 @@
 #define KERNEL_SPINLOCK_H
 
 #include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/compiler.h"
 
-class Spinlock
+class EXPORTED_PUBLIC Spinlock
 {
     friend class PerProcessorScheduler;
     friend class LocksCommand;

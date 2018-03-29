@@ -35,7 +35,7 @@ class Atomic;
 
 /** Wrapper around gcc's builtin atomic operations */
 template <typename T>
-class Atomic<T, true>
+class EXPORTED_PUBLIC Atomic<T, true>
 {
     friend class PerProcessorScheduler;
 
@@ -154,7 +154,7 @@ class Atomic<T, true>
 
 /** Wrapper around gcc's builtin atomic operations */
 template <>
-class Atomic<bool, true> : public Atomic<size_t>
+class EXPORTED_PUBLIC Atomic<bool, true> : public Atomic<size_t>
 {
   public:
     /** The constructor

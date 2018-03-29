@@ -20,6 +20,7 @@
 #ifndef KERNEL_UTILITIES_TREE_H
 #define KERNEL_UTILITIES_TREE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 
@@ -33,7 +34,7 @@
 /** Dictionary class, aka Map. This is implemented as an AVL self-balancing
  * binary search tree. \brief A key/value dictionary. */
 template <class K, class E>
-class Tree
+class EXPORTED_PUBLIC Tree
 {
   private:
     /** Tree node. */

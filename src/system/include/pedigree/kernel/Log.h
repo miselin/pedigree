@@ -163,7 +163,7 @@ class Log
     struct LogEntry;
 
     /** Output callback function type. Inherit and implement callback to use. */
-    class LogCallback
+    class EXPORTED_PUBLIC LogCallback
     {
       public:
         virtual void callback(const char *) = 0;
@@ -198,16 +198,16 @@ class Log
     void initialise2();
 
     /** Installs an output callback */
-    void installCallback(LogCallback *pCallback, bool bSkipBacklog = false);
+    EXPORTED_PUBLIC void installCallback(LogCallback *pCallback, bool bSkipBacklog = false);
 
     /** Removes an output callback */
-    void removeCallback(LogCallback *pCallback);
+    EXPORTED_PUBLIC void removeCallback(LogCallback *pCallback);
 
     /** Adds an entry to the log. */
-    Log &operator<<(const LogEntry &entry);
+    EXPORTED_PUBLIC Log &operator<<(const LogEntry &entry);
 
     /** Modifier */
-    Log &operator<<(Modifier type);
+    EXPORTED_PUBLIC Log &operator<<(Modifier type);
 
     /** Adds an entry to the log and immediately flushes. */
     EXPORTED_PUBLIC void addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
@@ -318,7 +318,7 @@ class Log
     size_t m_nOutputCallbacks;
 
     /** The Log instance (singleton class) */
-    static Log m_Instance;
+    EXPORTED_PUBLIC static Log m_Instance;
 };
 
 /** @} */

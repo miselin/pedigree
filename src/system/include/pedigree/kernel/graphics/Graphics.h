@@ -20,6 +20,7 @@
 #ifndef _GRAPHICS_H
 #define _GRAPHICS_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Framebuffer;
@@ -234,12 +235,12 @@ inline bool convertPixel(
 /// Creates a new framebuffer as a child of the current framebuffer
 /// \param pFbOverride If non-null, this specifies the memory region to use
 ///                    as the framebuffer for the new object
-Framebuffer *createFramebuffer(
+EXPORTED_PUBLIC Framebuffer *createFramebuffer(
     Framebuffer *pParent, size_t x, size_t y, size_t w, size_t h,
     void *pFbOverride = 0);
 
 /// Destroys a given framebuffer.
-void destroyFramebuffer(Framebuffer *pFramebuffer);
+EXPORTED_PUBLIC void destroyFramebuffer(Framebuffer *pFramebuffer);
 };
 
 #endif

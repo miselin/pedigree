@@ -8,21 +8,25 @@ SECTIONS
   .init : AT(ADDR(.init) - 0xFFFFFFFF7FF00000)
   {
     . = ALIGN(4096);
-    init = .; _init = .; __init = .;
+    HIDDEN(init = .);
+    HIDDEN(_init = .);
+    HIDDEN(__init = .);
     *(.init.multiboot)
     *(.init.text);
     *(.init.data);
     *(.asm.bss);
-    trampoline = .;
+    HIDDEN(trampoline = .);
     *(.trampoline.text);
-    trampoline_end = .;
+    HIDDEN(trampoline_end = .);
     . = ALIGN(4096);
   }
 
   .text : AT(ADDR(.text) - 0xFFFFFFFF7FF00000)
   {
     . = ALIGN(4096);
-    code = .; _code = .; __code = .;
+    HIDDEN(code = .);
+    HIDDEN(_code = .);
+    HIDDEN(__code = .);
     *(.text*)
     . = ALIGN(4096);
   }
@@ -30,31 +34,35 @@ SECTIONS
   .data : AT(ADDR(.data) - 0xFFFFFFFF7FF00000)
   {
     . = ALIGN(4096);
-    start_ctors = .;
+    HIDDEN(start_ctors = .);
     *(.ctors)
-    end_ctors = .;
-    start_dtors = .;
+    HIDDEN(end_ctors = .);
+    HIDDEN(start_dtors = .);
     *(.dtors)
-    end_dtors = .;
+    HIDDEN(end_dtors = .);
     
-    start_module_ctors = .;
+    HIDDEN(start_module_ctors = .);
     *(.module_ctors)
-    end_module_ctors = .;
+    HIDDEN(end_module_ctors = .);
 
-    data = .; _data = .; __data = .;
+    HIDDEN(data = .);
+    HIDDEN(_data = .);
+    HIDDEN(__data = .);
     *(.data)
     *(.rodata*)
     . = ALIGN(4096);
     
-    start_modinfo = .;
+    HIDDEN(start_modinfo = .);
     *(.modinfo)
-    end_modinfo = .;
+    HIDDEN(end_modinfo = .);
   }
 
   .bss : AT(ADDR(.bss) - 0xFFFFFFFF7FF00000)
   {
     . = ALIGN(4096);
-    bss = .; _bss = .; __bss = .;
+    HIDDEN(bss = .);
+    HIDDEN(_bss = .);
+    HIDDEN(__bss = .);
     *(.asm.preserve.bss)
     *(.bss*)
     . = ALIGN(4096);
@@ -64,27 +72,27 @@ SECTIONS
   {
     . = ALIGN(4);
     
-    trampoline16 = .;
+    HIDDEN(trampoline16 = .);
     *(.trampoline.text16)
-    trampoline16_end = .;
+    HIDDEN(trampoline16_end = .);
     
     . = ALIGN(4);
     
-    trampoline32 = .;
+    HIDDEN(trampoline32 = .);
     *(.trampoline.text32)
-    trampoline32_end = .;
+    HIDDEN(trampoline32_end = .);
     
     . = ALIGN(4);
     
-    trampolinegdtr = .;
+    HIDDEN(trampolinegdtr = .);
     *(.trampoline.data.gdtr)
-    trampolinegdtr_end = .;
+    HIDDEN(trampolinegdtr_end = .);
     
     . = ALIGN(4);
     
-    trampolinegdt = .;
+    HIDDEN(trampolinegdt = .);
     *(.trampoline.data.gdt)
-    trampolinegdt_end = .;
+    HIDDEN(trampolinegdt_end = .);
 
     . = ALIGN(4);
 
@@ -97,6 +105,8 @@ SECTIONS
   .end : AT(ADDR(.end) - 0xFFFFFFFF7FF00000)
   {
     . = ALIGN(4096);
-    end = .; _end = .; __end = .;
+    HIDDEN(end = .);
+    HIDDEN(_end = .);
+    HIDDEN(__end = .);
   }
 }

@@ -22,6 +22,7 @@
 
 #define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -33,7 +34,7 @@ class Thread;
  * @{ */
 
 /** Common x86 processor information structure */
-class X86CommonProcessorInformation
+class EXPORTED_PUBLIC X86CommonProcessorInformation
 {
     friend class Processor;
     friend class Multiprocessor;

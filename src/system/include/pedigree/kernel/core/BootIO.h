@@ -20,6 +20,7 @@
 #ifndef BOOTIO_H
 #define BOOTIO_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
@@ -68,7 +69,7 @@ class BootIO
      * \param str The string to write
      * \param foreColour The foreground colour
      * \param backColour The background colour */
-    void write(HugeStaticString &str, Colour foreColour, Colour backColour);
+    EXPORTED_PUBLIC void write(HugeStaticString &str, Colour foreColour, Colour backColour);
 
   private:
     void putCharVga(const char c, Colour foreColour, Colour backColour);

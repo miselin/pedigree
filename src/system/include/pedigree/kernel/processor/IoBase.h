@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_IOBASE_H
 #define KERNEL_PROCESSOR_IOBASE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
@@ -27,7 +28,7 @@
 
 /** Interface to the hardware's I/O capabilities
  *\brief Abstrace base class for hardware I/O capabilities */
-class IoBase
+class EXPORTED_PUBLIC IoBase
 {
   public:
     /** The destructor does nothing */

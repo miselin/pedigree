@@ -161,7 +161,7 @@ using namespace __pedigree_hosted;
 #endif
 
 /** Output device for boot-time information. */
-BootIO bootIO;
+EXPORTED_PUBLIC BootIO bootIO;
 
 /** Global copy of the bootstrap information. */
 BootstrapStruct_t *g_pBootstrapInfo;

@@ -20,6 +20,7 @@
 #ifndef KERNEL_UTILITIES_RADIX_TREE_H
 #define KERNEL_UTILITIES_RADIX_TREE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -39,7 +40,7 @@
  *  implemented as a Radix Tree - also known as a Patricia Trie.
  * \brief A key/value dictionary for string keys. */
 template <class T>
-class RadixTree
+class EXPORTED_PUBLIC RadixTree
 {
   private:
     /** Tree node. */

@@ -20,6 +20,7 @@
 #ifndef KERNEL_UTILITIES_LIST_H
 #define KERNEL_UTILITIES_LIST_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/IteratorAdapter.h"
@@ -61,7 +62,7 @@ struct _ListNode_t
 };
 
 template <class T, size_t nodePoolSize = 16>
-class List
+class EXPORTED_PUBLIC List
 {
     /** The data structure of the list's nodes */
     typedef _ListNode_t<T> node_t;

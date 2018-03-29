@@ -52,8 +52,8 @@
 uint32_t g_PageBitmap[16384] = {0};
 #endif
 
-size_t g_FreePages = 0;
-size_t g_AllocedPages = 0;
+EXPORTED_PUBLIC size_t g_FreePages = 0;
+EXPORTED_PUBLIC size_t g_AllocedPages = 0;
 
 X86CommonPhysicalMemoryManager X86CommonPhysicalMemoryManager::m_Instance;
 

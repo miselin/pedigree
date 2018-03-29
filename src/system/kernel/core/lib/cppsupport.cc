@@ -196,13 +196,13 @@ void traceMetadata(NormalStaticString str, void *p1, void *p2)
 #endif
 
 /// Required for G++ to compile code.
-extern "C" void ATEXIT(void (*f)(void *), void *p, void *d)
+extern "C" EXPORTED_PUBLIC void ATEXIT(void (*f)(void *), void *p, void *d)
 {
 }
 
 /// Called by G++ if a pure virtual function is called. Bad Thing, should never
 /// happen!
-extern "C" void __cxa_pure_virtual() NORETURN;
+extern "C" EXPORTED_PUBLIC void __cxa_pure_virtual() NORETURN;
 void __cxa_pure_virtual()
 {
     FATAL_NOLOCK("Pure virtual function call made");
@@ -210,11 +210,11 @@ void __cxa_pure_virtual()
 
 /// Called by G++ if function local statics are initialised for the first time
 #ifndef HAS_THREAD_SANITIZER
-extern "C" int __cxa_guard_acquire()
+extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire()
 {
     return 1;
 }
-extern "C" void __cxa_guard_release()
+extern "C" EXPORTED_PUBLIC void __cxa_guard_release()
 {
     // TODO
 }

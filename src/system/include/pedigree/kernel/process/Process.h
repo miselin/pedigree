@@ -50,7 +50,7 @@ class DynamicLinker;
  * An abstraction of a Process - a container for one or more threads all running
  * in the same address space.
  */
-class Process
+class EXPORTED_PUBLIC Process
 {
     friend class Thread;
 

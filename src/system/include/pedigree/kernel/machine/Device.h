@@ -39,7 +39,7 @@
  * Represents a node in the device tree. This could either be a bus (non-leaf
  * node) or a device (leaf node).
  */
-class Device
+class EXPORTED_PUBLIC Device
 {
   public:
     typedef Device *(*Callback)(Device *);

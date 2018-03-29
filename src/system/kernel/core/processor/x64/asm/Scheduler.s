@@ -26,7 +26,7 @@ global _ZN9Processor12restoreStateER15X64SyscallStatePVm:function hidden
 global _ZN9Processor10jumpKernelEPVmmmmmmm:function hidden
 ; void Processor::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                          uintptr_t, uintptr_t, uintptr_t, uintptr_t)
-global _ZN9Processor8jumpUserEPVmmmmmmm:function hidden
+global _ZN9Processor8jumpUserEPVmmmmmmm:function
 ; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, Spinlock*)
 global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm:function hidden
 

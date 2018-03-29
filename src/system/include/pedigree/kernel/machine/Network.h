@@ -20,6 +20,7 @@
 #ifndef MACHINE_NETWORK_H
 #define MACHINE_NETWORK_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
@@ -141,17 +142,17 @@ class Network : public Device
     }
 
     /** Converts an IPv4 address into an integer */
-    static uint32_t convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
+    EXPORTED_PUBLIC static uint32_t convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
 
     /** Converts an IPv6 address into an IpAddress object */
-    static IpAddress convertToIpv6(
+    EXPORTED_PUBLIC static IpAddress convertToIpv6(
         uint8_t a, uint8_t b = 0, uint8_t c = 0, uint8_t d = 0, uint8_t e = 0,
         uint8_t f = 0, uint8_t g = 0, uint8_t h = 0, uint8_t i = 0,
         uint8_t j = 0, uint8_t k = 0, uint8_t l = 0, uint8_t m = 0,
         uint8_t n = 0, uint8_t o = 0, uint8_t p = 0);
 
     /** Calculates a checksum */
-    static uint16_t calculateChecksum(uintptr_t buffer, size_t nBytes);
+    EXPORTED_PUBLIC static uint16_t calculateChecksum(uintptr_t buffer, size_t nBytes);
 
     /** Packet statistics */
 

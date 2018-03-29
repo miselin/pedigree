@@ -40,7 +40,7 @@
  * are likely to be much faster than updating the buffer manually and
  * calling updateBuffer().
  */
-class Display : public Device
+class EXPORTED_PUBLIC Display : public Device
 {
   public:
     /** Describes a single RGBA 32-bit pixel. */

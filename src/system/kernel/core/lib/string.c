@@ -26,7 +26,7 @@
 extern void *malloc(size_t);
 extern void free(void *);
 
-size_t strlen(const char *s);
+EXPORTED_PUBLIC size_t strlen(const char *s);
 char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size_t len);
 EXPORTED_PUBLIC int strcmp(const char *p1, const char *p2);

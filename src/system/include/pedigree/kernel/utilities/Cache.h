@@ -20,6 +20,7 @@
 #ifndef CACHE_H
 #define CACHE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BloomFilter.h"
@@ -109,7 +110,7 @@ class CacheManager : public TimerHandler, public RequestQueue
 };
 
 /** Provides an abstraction of a data cache. */
-class Cache
+class EXPORTED_PUBLIC Cache
 {
   private:
     struct CachePage

@@ -20,6 +20,7 @@
 #ifndef RINGBUFFER_H
 #define RINGBUFFER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Event.h"
@@ -52,7 +53,7 @@ enum WaitType
  * condition is met.
  */
 template <class T>
-class RingBuffer
+class EXPORTED_PUBLIC RingBuffer
 {
   public:
     RingBuffer();  // Not implemented, use RingBuffer(size_t)

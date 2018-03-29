@@ -17,12 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/compiler.h"
 #include "Ps2Mouse.h"
 #include "modules/Module.h"
 #include <Ps2Controller.h>
 
 // Global static object for the PS/2 mouse we'll be working with
-Ps2Mouse *g_Ps2Mouse = 0;
+EXPORTED_PUBLIC Ps2Mouse *g_Ps2Mouse = 0;
 
 static bool entry()
 {

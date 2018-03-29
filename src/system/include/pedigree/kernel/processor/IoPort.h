@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_IOPORT_H
 #define KERNEL_PROCESSOR_IOPORT_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -30,7 +31,7 @@
 
 /** IoPort provides access to a range of hardware I/O port
  *\brief I/O port range */
-class IoPort : public IoBase
+class EXPORTED_PUBLIC IoPort : public IoBase
 {
   public:
     /** The default constructor does nothing */

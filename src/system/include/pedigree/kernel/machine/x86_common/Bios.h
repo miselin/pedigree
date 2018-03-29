@@ -20,11 +20,12 @@
 #ifndef BIOS_H
 #define BIOS_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** Provides an interface to BIOS functions. Currently, this is implemented as a
    wrapper around X86Emu, taken from the XFree86 source. */
-class Bios
+class EXPORTED_PUBLIC Bios
 {
   public:
     /** Returns the singleton BIOS instance. */

@@ -20,12 +20,13 @@
 #ifndef PCI_COMMON_H
 #define PCI_COMMON_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Device;
 
 /** Architecture-independent interface to a PCI bus */
-class PciBus
+class EXPORTED_PUBLIC PciBus
 {
   public:
     PciBus();

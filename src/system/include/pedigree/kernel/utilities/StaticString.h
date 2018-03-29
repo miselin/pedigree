@@ -20,6 +20,7 @@
 #ifndef STATICSTRING_H
 #define STATICSTRING_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/lib.h"
 
@@ -30,7 +31,7 @@
  * Derivative of StringBase that uses a statically allocated chunk of memory.
  */
 template <unsigned int N>
-class StaticString
+class EXPORTED_PUBLIC StaticString
 {
   public:
     /**
@@ -453,10 +454,10 @@ class StaticString
 };
 
 // Specializations for the typedefs below (in StaticString.cc)
-extern template class StaticString<32>;
-extern template class StaticString<64>;
-extern template class StaticString<128>;
-extern template class StaticString<1024>;
+extern template class EXPORTED_PUBLIC StaticString<32>;
+extern template class EXPORTED_PUBLIC StaticString<64>;
+extern template class EXPORTED_PUBLIC StaticString<128>;
+extern template class EXPORTED_PUBLIC StaticString<1024>;
 
 typedef StaticString<32> TinyStaticString;
 typedef StaticString<64> NormalStaticString;

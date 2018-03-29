@@ -20,6 +20,7 @@
 #ifndef EVENT_H
 #define EVENT_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 
@@ -44,7 +45,7 @@ class Thread;
    bytes). An event is serialized using the virtual serialize() function and
    sent to a recipient thread in either user or kernel mode, where it is
    unserialized. */
-class Event
+class EXPORTED_PUBLIC Event
 {
   public:
     /** Constructs an Event object.

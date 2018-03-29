@@ -20,6 +20,7 @@
 #ifndef KERNEL_UTILITIES_RANGELIST_H
 #define KERNEL_UTILITIES_RANGELIST_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/List.h"
 
 /** @addtogroup kernelutilities
@@ -29,7 +30,7 @@
  *entries in the list. \param[in] T the integer type the range address and
  *length is encoded in */
 template <typename T>
-class RangeList
+class EXPORTED_PUBLIC RangeList
 {
   public:
     /** Default constructor does nothing */

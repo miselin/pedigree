@@ -26,6 +26,7 @@ class Thread;
 #include "pedigree/kernel/processor/state.h"
 class Process;
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -39,7 +40,7 @@ class Process;
  * Basically, when inheriting from this class, you are creating a layer between
  * your subsystem and the kernel.
  */
-class Subsystem
+class EXPORTED_PUBLIC Subsystem
 {
     friend class Process;
 

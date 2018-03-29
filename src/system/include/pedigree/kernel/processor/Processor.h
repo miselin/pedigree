@@ -76,7 +76,7 @@ extern void apMain() NORETURN;
 /** Interface to the processor's capabilities
  *\note static in member function declarations denotes that these functions
  *return/process data on the processor that is executing this code. */
-class Processor
+class EXPORTED_PUBLIC Processor
 {
     friend class Multiprocessor;
     friend class X86GdtManager;

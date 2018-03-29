@@ -20,6 +20,7 @@
 #ifndef KERNEL_UTILITIES_VECTOR_H
 #define KERNEL_UTILITIES_VECTOR_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
 
@@ -29,7 +30,7 @@
 /** General Vector template class, aka dynamic array
  *\brief A vector / dynamic array */
 template <class T>
-class Vector
+class EXPORTED_PUBLIC Vector
 {
   public:
     /** Random-access iterator for the Vector */

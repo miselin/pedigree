@@ -21,6 +21,7 @@
 #define SCHEDULER_H
 
 #include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -40,7 +41,7 @@ class PerProcessorScheduler;
  * The load balancing is "lazy" in that the algorithm only runs on thread
  * addition and removal.
  */
-class Scheduler
+class EXPORTED_PUBLIC Scheduler
 {
   public:
     /** Get the instance of the scheduler */

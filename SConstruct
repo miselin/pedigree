@@ -834,12 +834,13 @@ else:
 env['PEDIGREE_FLAGS'] = ' '.join(env['CPPDEFINES'])
 
 version_out = ['#include "pedigree/kernel/Version.h"',
-               'const char *g_pBuildTime = "$buildtime";',
-               'const char *g_pBuildRevision = "$rev";',
-               'const char *g_pBuildFlags = "$flags";',
-               'const char *g_pBuildUser = "$user";',
-               'const char *g_pBuildMachine = "$machine";',
-               'const char *g_pBuildTarget = "$target";']
+               '#include "pedigree/kernel/compiler.h"',
+               'EXPORTED_PUBLIC const char *g_pBuildTime = "$buildtime";',
+               'EXPORTED_PUBLIC const char *g_pBuildRevision = "$rev";',
+               'EXPORTED_PUBLIC const char *g_pBuildFlags = "$flags";',
+               'EXPORTED_PUBLIC const char *g_pBuildUser = "$user";',
+               'EXPORTED_PUBLIC const char *g_pBuildMachine = "$machine";',
+               'EXPORTED_PUBLIC const char *g_pBuildTarget = "$target";']
 
 sub_dict = {"$buildtime"    : env['PEDIGREE_BUILDTIME'],
             "$rev"          : env['PEDIGREE_REVISION'],

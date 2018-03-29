@@ -140,7 +140,6 @@ module_subdirs = [
     'fat',
     'iso9660',
     'network-stack',
-    'dhcpclient',
     'console',
     'linker',
     'users',

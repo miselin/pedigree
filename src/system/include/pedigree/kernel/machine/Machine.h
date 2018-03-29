@@ -20,6 +20,7 @@
 #ifndef MACHINE_MACHINE_H
 #define MACHINE_MACHINE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /// \note Avoids pulling in a bunch of extra include files (specifically, an
@@ -50,7 +51,7 @@ class Keyboard;
  * It also provides a "probe" function, which will attempt to detect
  * if a machine is present.
  */
-class Machine
+class EXPORTED_PUBLIC Machine
 {
     friend void system_reset();
 

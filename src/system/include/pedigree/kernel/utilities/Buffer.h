@@ -20,6 +20,7 @@
 #ifndef KERNEL_UTILITIES_BUFFER_H
 #define KERNEL_UTILITIES_BUFFER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -42,7 +43,7 @@ class Event;
  * block.
  */
 template <class T, bool allowShortOperation = false>
-class Buffer
+class EXPORTED_PUBLIC Buffer
 {
     friend class UnixSocket;  // to allow for calling notifyMonitors()
 

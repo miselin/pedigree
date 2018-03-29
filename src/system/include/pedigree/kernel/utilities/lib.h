@@ -110,6 +110,7 @@ EXPORTED_PUBLIC int min(size_t a, size_t b) PURE;
 // Memory allocation for C code
 #ifndef UTILITY_LINUX
 EXPORTED_PUBLIC void *malloc(size_t);
+EXPORTED_PUBLIC void *calloc(size_t, size_t);
 EXPORTED_PUBLIC void *realloc(void *, size_t);
 EXPORTED_PUBLIC void free(void *);
 #endif

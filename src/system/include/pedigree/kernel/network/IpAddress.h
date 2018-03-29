@@ -20,6 +20,7 @@
 #ifndef IP_ADDRESS_H
 #define IP_ADDRESS_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -27,7 +28,7 @@
 #include "pedigree/kernel/utilities/String.h"
 
 /** An IPv4/IPv6 address */
-class IpAddress
+class EXPORTED_PUBLIC IpAddress
 {
   public:
     /** The type of an IP address */

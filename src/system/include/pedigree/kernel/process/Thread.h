@@ -22,6 +22,7 @@
 
 #ifdef THREADS
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
 
 #include "pedigree/kernel/process/Event.h"
@@ -58,7 +59,7 @@ class Process;
  * as well as changing the event mask from nested event handlers without
  * affecting the state of any other running handler.
  */
-class Thread
+class EXPORTED_PUBLIC Thread
 {
     friend class PerProcessorScheduler;
     // To set uninterruptible state.
