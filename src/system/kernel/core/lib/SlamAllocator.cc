@@ -262,11 +262,13 @@ void SlamCache::push(
 
 uintptr_t SlamCache::allocate()
 {
+#if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
         // just return a big-enough slab - allocation is page-sized or bigger
         return getSlab();
     }
+#endif
 
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
@@ -300,12 +302,14 @@ uintptr_t SlamCache::allocate()
 
 void SlamCache::free(uintptr_t object)
 {
+#if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
         // just free the object directly, it's an entire slab
         freeSlab(object);
         return;
     }
+#endif
 
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
@@ -337,11 +341,13 @@ void SlamCache::free(uintptr_t object)
 
 bool SlamCache::isPointerValid(uintptr_t object)
 {
+#if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
         /// \todo need to figure out how to do this
         return true;
     }
+#endif
 
     Node *N = reinterpret_cast<Node *>(object);
 #if OVERRUN_CHECK
@@ -378,11 +384,13 @@ void SlamCache::freeSlab(uintptr_t slab)
 
 size_t SlamCache::recovery(size_t maxSlabs)
 {
+#if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
         // Caches with slabs page-sized or bigger don't hold onto freed regions
         return 0;
     }
+#endif
 
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();
@@ -539,10 +547,12 @@ size_t SlamCache::recovery(size_t maxSlabs)
 
 SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
 {
+#if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
         return nullptr;
     }
+#endif
 
 #ifdef MULTIPROCESSOR
     size_t thisCpu = Processor::id();

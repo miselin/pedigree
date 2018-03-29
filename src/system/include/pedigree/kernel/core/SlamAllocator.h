@@ -114,6 +114,12 @@ class SlamAllocator;
 /// Block allocations larger than or equal to the native page size.
 #define WARN_PAGE_SIZE_OR_LARGER 0
 
+/// Return slabs directly for allocations page sized or above.
+/// This will result in better memory usage but does not hold onto freed blocks
+/// so can be slow if allocation patterns include a large number of allocations
+/// and frees of blocks bigger than the native page size.
+#define SLABS_FOR_HUGE_ALLOCS 0
+
 /** A cache allocates objects of a constant size. */
 class SlamCache
 {
