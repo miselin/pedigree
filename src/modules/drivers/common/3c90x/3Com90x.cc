@@ -71,8 +71,6 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include "modules/system/network-stack/Ethernet.h"
-
 int Nic3C90x::issueCommand(int cmd, int param)
 {
     uint32_t val;

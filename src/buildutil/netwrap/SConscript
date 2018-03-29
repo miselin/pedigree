@@ -83,31 +83,8 @@ libnetwork_sources = [
 ]
 
 libnetstack_sources = [
-    '../../modules/system/network-stack/TcpMisc.cc',
-    '../../modules/system/network-stack/ConnectionBasedEndpoint.cc',
-    # '../../modules/system/network-stack/RawManager.cc',
-    '../../modules/system/network-stack/Ipv4.cc',
-    '../../modules/system/network-stack/IpCommon.cc',
-    '../../modules/system/network-stack/TcpEndpoint.cc',
-    '../../modules/system/network-stack/Ndp.cc',
-    '../../modules/system/network-stack/Udp.cc',
-    '../../modules/system/network-stack/TcpManager.cc',
-    '../../modules/system/network-stack/Ethernet.cc',
-    '../../modules/system/network-stack/RoutingTable.cc',
     '../../modules/system/network-stack/Filter.cc',
-    '../../modules/system/network-stack/Endpoint.cc',
-    '../../modules/system/network-stack/Icmp.cc',
     '../../modules/system/network-stack/NetworkStack.cc',
-    '../../modules/system/network-stack/TcpManagerReceive.cc',
-    '../../modules/system/network-stack/UdpLogger.cc',
-    '../../modules/system/network-stack/Arp.cc',
-    '../../modules/system/network-stack/Icmpv6.cc',
-    '../../modules/system/network-stack/Tcp.cc',
-    '../../modules/system/network-stack/Ipv6.cc',
-    '../../modules/system/network-stack/NeighbourDiscovery.cc',
-    '../../modules/system/network-stack/NetManager.cc',
-    '../../modules/system/network-stack/UdpManager.cc',
-    '../../modules/system/network-stack/TcpStateBlock.cc',
 ]
 
 liblwip_sources = [

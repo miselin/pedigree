@@ -22,8 +22,6 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/assert.h"
 
-#include "modules/system/network-stack/NetManager.h"
-#include "modules/system/network-stack/Tcp.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/LockedFile.h"

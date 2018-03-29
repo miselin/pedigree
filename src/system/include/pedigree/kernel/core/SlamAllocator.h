@@ -112,7 +112,7 @@ class SlamAllocator;
 #define SCRIBBLE_FREED_BLOCKS 0
 
 /// Block allocations larger than or equal to the native page size.
-#define WARN_PAGE_SIZE_OR_LARGER 1
+#define WARN_PAGE_SIZE_OR_LARGER 0
 
 /** A cache allocates objects of a constant size. */
 class SlamCache

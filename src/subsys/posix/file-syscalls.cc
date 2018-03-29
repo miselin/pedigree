@@ -18,8 +18,6 @@
  */
 
 #include "modules/system/console/Console.h"
-#include "modules/system/network-stack/NetManager.h"
-#include "modules/system/network-stack/Tcp.h"
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/users/UserManager.h"
 #include "modules/system/vfs/Directory.h"

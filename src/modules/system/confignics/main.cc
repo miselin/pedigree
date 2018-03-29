@@ -19,7 +19,6 @@
 
 #include "modules/Module.h"
 #include "modules/system/network-stack/NetworkStack.h"
-#include "modules/system/network-stack/RoutingTable.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceManager.h"

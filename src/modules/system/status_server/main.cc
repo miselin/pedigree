@@ -18,11 +18,7 @@
  */
 
 #include "modules/Module.h"
-#include "modules/system/network-stack/ConnectionBasedEndpoint.h"
-#include "modules/system/network-stack/Endpoint.h"
 #include "modules/system/network-stack/NetworkStack.h"
-#include "modules/system/network-stack/RoutingTable.h"
-#include "modules/system/network-stack/TcpManager.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"

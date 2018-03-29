@@ -42,8 +42,6 @@
 #include "config-shim.h"
 
 #include "modules/system/network-stack/NetworkStack.h"
-#include "modules/system/network-stack/RoutingTable.h"
-#include "modules/system/network-stack/TcpManager.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/utilities/pocketknife.h"
@@ -256,7 +254,6 @@ static void mainloop(int fd)
     tcpipInitPending.acquire();
 
     NetworkStack *stack = new NetworkStack();
-    TcpManager *tcpManager = new TcpManager();
 
     // StationInfo for our static configuration.
     StationInfo info;
@@ -293,11 +290,6 @@ static void mainloop(int fd)
     netif_set_up(iface);
 
     DeviceHashTree::instance().fill(wrapper);
-
-    IpAddress empty;
-    RoutingTable::instance().initialise();
-    RoutingTable::instance().Add(
-        RoutingTable::Named, empty, empty, String("default"), wrapper);
 
     if (sigsetjmp(g_jb, 0))
     {
