@@ -258,7 +258,10 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
                     start, cPages * getPageSize()) == false)
             {
                 if ((pageConstraints & force) != force)
+                {
+                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] - failed to get space from general range list and force is not set");
                     return false;
+                }
                 else
                     Region.setForced(true);
             }
@@ -269,7 +272,10 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
             {
                 if (m_RangeBelow1MB.allocateSpecific(
                         start, cPages * getPageSize()) == false)
+                {
+                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] - failed to get space from <1MB range list");
                     return false;
+                }
             }
             else if (
                 start < 0x1000000 &&
@@ -277,7 +283,10 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
             {
                 if (m_RangeBelow16MB.allocateSpecific(
                         start, cPages * getPageSize()) == false)
+                {
+                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] - failed to get " << cPages << " pages of memory from <16MB range list at " << Hex << start);
                     return false;
+                }
             }
             else if (start < 0x1000000)
             {
@@ -365,13 +374,19 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
                 {
                     if (m_RangeBelow1MB.allocate(
                             cPages * getPageSize(), allocatedStart) == false)
+                    {
+                        ERROR("PhysicalMemoryManager::allocateRegion() - failed to get space from <1MB range list");
                         return false;
+                    }
                 }
                 else if ((pageConstraints & addressConstraints) == below16MB)
                 {
                     if (m_RangeBelow16MB.allocate(
                             cPages * getPageSize(), allocatedStart) == false)
+                    {
+                        ERROR("PhysicalMemoryManager::allocateRegion() - failed to get space from <16MB range list");
                         return false;
+                    }
                 }
 
                 // Map the physical memory into the allocated space
