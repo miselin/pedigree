@@ -253,7 +253,6 @@ if env['build_apps'] and env['build_libs']:
     apps += libui_apps
 
 apps = set(apps)
-apps = ('TUI',)
 
 # Clean up app dependencies as needed.
 if not env['with_graphical_apps']:
