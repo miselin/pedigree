@@ -151,7 +151,7 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
         else
         {
             HugeStaticString str;
-            switch (m_StaticLog[entry].type)
+            switch (m_StaticLog[entry].severity)
             {
                 case Debug:
                     str = "(DD) ";
@@ -232,7 +232,7 @@ const Log::LogEntry &Log::getLatestEntry() const
     return m_StaticLog[m_StaticEntries - 1];
 }
 
-Log::LogEntry::LogEntry() : timestamp(), type(), str(), numberType(Dec) {}
+Log::LogEntry::LogEntry() : timestamp(), severity(), str(), numberType(Dec) {}
 
 Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 {
@@ -287,7 +287,7 @@ Log::LogEntry &Log::LogEntry::operator<<(SeverityLevel level)
 {
     // Zero the buffer.
     str.clear();
-    type = level;
+    severity = level;
 
 #ifndef UTILITY_LINUX
     Machine &machine = Machine::instance();
@@ -375,7 +375,7 @@ void Log::flushEntry(bool lock)
         // We have output callbacks installed. Build the string we'll pass
         // to each callback *now* and then send it.
         HugeStaticString str;
-        switch (m_Buffer.type)
+        switch (m_Buffer.severity)
         {
             case Debug:
                 str = "(DD) ";
@@ -412,7 +412,7 @@ void Log::flushEntry(bool lock)
     }
 
     // Panic if that was a fatal error.
-    if ((!handlingFatal) && m_Buffer.type == Fatal)
+    if ((!handlingFatal) && m_Buffer.severity == Fatal)
     {
         handlingFatal = true;
 

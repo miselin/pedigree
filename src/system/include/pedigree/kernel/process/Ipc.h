@@ -32,9 +32,9 @@
 
 #include "pedigree/kernel/Log.h"
 
-namespace EXPORTED_PUBLIC Ipc
+namespace Ipc
 {
-class IpcMessage
+class EXPORTED_PUBLIC IpcMessage
 {
   public:
     IpcMessage();

@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/new"
 
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 
@@ -196,7 +197,8 @@ void traceMetadata(NormalStaticString str, void *p1, void *p2)
 #endif
 
 /// Required for G++ to compile code.
-extern "C" EXPORTED_PUBLIC void ATEXIT(void (*f)(void *), void *p, void *d)
+extern "C" EXPORTED_PUBLIC void ATEXIT(void (*f)(void *), void *p, void *d);
+void ATEXIT(void (*f)(void *), void *p, void *d)
 {
 }
 
@@ -210,11 +212,14 @@ void __cxa_pure_virtual()
 
 /// Called by G++ if function local statics are initialised for the first time
 #ifndef HAS_THREAD_SANITIZER
-extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire()
+extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire();
+extern "C" EXPORTED_PUBLIC void __cxa_guard_release();
+
+int __cxa_guard_acquire()
 {
     return 1;
 }
-extern "C" EXPORTED_PUBLIC void __cxa_guard_release()
+void __cxa_guard_release()
 {
     // TODO
 }

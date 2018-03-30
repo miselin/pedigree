@@ -33,7 +33,7 @@ class BloomFilter
         : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
     {
     }
-    virtual ~BloomFilter() = default;
+    ~BloomFilter() = default;
 
     void add(const T &data)
     {

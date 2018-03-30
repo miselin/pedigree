@@ -46,7 +46,7 @@ class EXPORTED_PUBLIC RequestQueue
         friend class RequestQueue;
 
         RequestQueueOverrunChecker() : m_LastQueueSize(0), m_Tick(0), queue(0)
-        {};
+        {}
 
         private:
             virtual void timer(uint64_t delta, InterruptState &state);

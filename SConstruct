@@ -1084,7 +1084,8 @@ if env['clang_cross']:
                             '-Wno-gnu-anonymous-struct', '-Wno-gnu-include-next',
                             '-Wno-unused-private-field', '-Wno-switch-enum',
                             '-Wno-unused-variable', '-Wno-unused-function',
-                            '-Wno-nested-anon-types'
+                            '-Wno-nested-anon-types',
+                            '-Wno-covered-switch-default'
                             ]
 
     env['CLANG_BASE_LINKFLAGS'] = triple + cross_gcc + generic_flags

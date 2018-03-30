@@ -35,6 +35,11 @@ static struct InfoBlock *infoBlock = (struct InfoBlock *) 0xFFFFFFFF8FFF0000;
 
 struct getcpu_cache;
 
+int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp);
+int __vdso_gettimeofday(struct timeval *tv, void *tz);
+int __vdso_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *cache);
+time_t __vdso_time(time_t *tloc);
+
 int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
     // 'now' is in nanoseconds.

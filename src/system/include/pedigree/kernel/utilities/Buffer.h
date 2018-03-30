@@ -49,7 +49,7 @@ class EXPORTED_PUBLIC Buffer
 
   public:
     Buffer(size_t bufferSize);
-    virtual ~Buffer();
+    ~Buffer();
 
     /**
      * Write \param count values from \param buffer, optionally blocking

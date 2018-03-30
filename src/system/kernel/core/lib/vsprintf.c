@@ -25,6 +25,8 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include <stdarg.h>
 
+#pragma GCC diagnostic ignored "-Wgnu-statement-expression"
+
 /* we use this so that we can do without the ctype library */
 #define is_digit(c) ((c) >= '0' && (c) <= '9')
 
@@ -92,7 +94,10 @@ number(char *str, int64_t num, int base, int size, int precision, int type)
         tmp[i++] = '0';
     else
         while (num != 0)
-            tmp[i++] = digits[do_div(num, base)];
+        {
+            int d = do_div(num, base);
+            tmp[i++] = digits[d];
+        }
     if (i > precision)
         precision = i;
     size -= precision;

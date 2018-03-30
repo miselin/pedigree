@@ -61,6 +61,8 @@ template <class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = tru
 class HashTable
 {
    private:
+    typedef HashTable<K, V, InitialBuckets, QuadraticProbe, GrowthFactor> SelfType;
+
     static_assert(
         InitialBuckets > 0, "At least one initial bucket must be available.");
 
@@ -77,7 +79,7 @@ class HashTable
 
     struct IteratorNode
     {
-        IteratorNode(const HashTable *parent) : startPos(0), pos(0), parent(parent)
+        IteratorNode(const HashTable *parentTable) : startPos(0), pos(0), parent(parentTable)
         {
             bool ok = false;
 
@@ -221,7 +223,7 @@ class HashTable
         m_nItems = 0;
     }
 
-    virtual ~HashTable()
+    ~HashTable()
     {
         clear();
     }
@@ -500,6 +502,36 @@ class HashTable
         {
             return at;
         }
+    }
+
+    SelfType &operator=(const SelfType &p)
+    {
+        clear();
+
+        m_Default = p.m_Default;
+        m_nBuckets = p.m_nBuckets;
+        m_nItems = p.m_nItems;
+        m_nMask = p.m_nMask;
+        m_Buckets = new bucket[m_nBuckets];
+        pedigree_std::copy(m_Buckets, p.m_Buckets, m_nBuckets);
+
+        return *this;
+    }
+
+    SelfType &operator=(SelfType &&p)
+    {
+        clear();
+
+        m_Default = pedigree_std::move(p.m_Default);
+        m_nBuckets = pedigree_std::move(p.m_nBuckets);
+        m_nItems = pedigree_std::move(p.m_nItems);
+        m_nMask = pedigree_std::move(p.m_nMask);
+        m_Buckets = pedigree_std::move(p.m_Buckets);
+
+        p.m_Buckets = nullptr;
+        p.clear();
+
+        return *this;
     }
 
   private:

@@ -75,7 +75,7 @@ static void _panic(const char *msg, DebuggerIO *pScreen)
         if (iEntry < log.getStaticEntryCount())
         {
             const Log::StaticLogEntry &entry = log.getStaticEntry(iEntry);
-            level = entry.type;
+            level = entry.severity;
 
             //      if( level == Log::Fatal || level == Log::Error )
             //      {
@@ -92,7 +92,7 @@ static void _panic(const char *msg, DebuggerIO *pScreen)
         else
         {
             const Log::DynamicLogEntry &entry = log.getDynamicEntry(iEntry);
-            level = entry.type;
+            level = entry.severity;
 
             //      if( level == Log::Fatal || level == Log::Error )
             //      {

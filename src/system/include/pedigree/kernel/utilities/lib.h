@@ -30,7 +30,7 @@
 #endif
 
 #ifdef __cplusplus
-#define NOTHROW throw ()
+#define NOTHROW noexcept
 #else
 #define NOTHROW
 #endif

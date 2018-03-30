@@ -133,13 +133,13 @@ const char *LogViewer::getLine1(
     {
         const Log::StaticLogEntry &entry = log.getStaticEntry(index);
         Line.append(entry.timestamp, 10, 8, '0');
-        level = entry.type;
+        level = entry.severity;
     }
     else
     {
         const Log::DynamicLogEntry &entry = log.getDynamicEntry(index);
         Line.append(entry.timestamp, 10, 8, '0');
-        level = entry.type;
+        level = entry.severity;
     }
 
     Line.append("] ");

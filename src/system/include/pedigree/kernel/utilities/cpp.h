@@ -28,6 +28,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/new"
 
 namespace pedigree_std
 {

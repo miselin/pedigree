@@ -34,7 +34,7 @@ int StringCompare(const char *p1, const char *p2)
     size_t l = min(l1, l2);
 
     register uintptr_t a, b, c;
-    asm volatile("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (l + 1) : "memory");
+    __asm__ __volatile__ ("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (l + 1) : "memory");
 
     c = l - c;
 
@@ -72,7 +72,7 @@ int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offse
     }
 
     register uintptr_t a, b, c;
-    asm volatile("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (n) : "memory");
+    __asm__ __volatile__ ("repe cmpsb" : "=&D" (a), "=&S" (b), "=&c" (c) : "0" (p1), "1" (p2), "2" (n) : "memory");
 
     c = n - c - 1;
 

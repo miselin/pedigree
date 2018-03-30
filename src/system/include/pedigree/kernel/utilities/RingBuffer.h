@@ -66,7 +66,7 @@ class EXPORTED_PUBLIC RingBuffer
     }
 
     /// Destructor - destroys the ring; ensure nothing is calling waitFor.
-    virtual ~RingBuffer()
+    ~RingBuffer()
     {
     }
 

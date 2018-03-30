@@ -232,7 +232,7 @@ class Log
         /** The time (since boot) that this log entry was added, in ticks. */
         unsigned int timestamp;
         /** The severity level of this entry. */
-        SeverityLevel type;
+        SeverityLevel severity;
         /** The actual entry text. */
         StaticString<LOG_LENGTH> str;
         /** The number type mode that we are in. */

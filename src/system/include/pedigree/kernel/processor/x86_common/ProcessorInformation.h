@@ -41,9 +41,9 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation
 
   public:
 #if defined(X86)
-    typedef class X86TaskStateSegment TaskStateSegment;
+    typedef struct X86TaskStateSegment TaskStateSegment;
 #else
-    typedef class X64TaskStateSegment TaskStateSegment;
+    typedef struct X64TaskStateSegment TaskStateSegment;
 #endif
 
     /** Get the current processor's VirtualAddressSpace

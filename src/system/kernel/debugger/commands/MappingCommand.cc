@@ -42,7 +42,7 @@ bool MappingCommand::execute(
 {
     // If we see just "mapping", no parameters were matched.
     uintptr_t address = 0;
-    if (input != "mapping")
+    if (!(input == "mapping"))  /// \todo define operator != on StaticString
     {
         // Is it an address?
         address = input.intValue();
