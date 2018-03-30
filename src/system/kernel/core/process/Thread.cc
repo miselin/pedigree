@@ -538,13 +538,13 @@ void Thread::pokeState(size_t stateLevel, SchedulerState &state)
     *(m_StateLevels[stateLevel].m_State) = state;
 }
 
-void Thread::sendEvent(Event *pEvent)
+bool Thread::sendEvent(Event *pEvent)
 {
     // Check that we aren't already a zombie (can't receive events if so).
     if (m_Status == Zombie)
     {
         WARNING("Thread: dropping event as we are a zombie");
-        return;
+        return false;
     }
 
     /// \todo we should be checking inhibits HERE! so we don't wake a thread
@@ -575,6 +575,8 @@ void Thread::sendEvent(Event *pEvent)
             WARNING("Thread: dropping event as we're not interruptible");
         }
     }
+
+    return true;
 }
 
 void Thread::inhibitEvent(size_t eventNumber, bool bInhibit)

@@ -315,7 +315,7 @@ class EXPORTED_PUBLIC Thread
 
         If the thread ID is greater than or equal to EVENT_TID_MAX, the event
        will be ignored. */
-    void sendEvent(Event *pEvent);
+    bool sendEvent(Event *pEvent);
 
     /** Sets the given event number as inhibited.
         \param bInhibit True if the event is to be inhibited, false if the event

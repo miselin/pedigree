@@ -392,7 +392,12 @@ void InputManager::mainThread()
                     InputEvent *pEvent = new InputEvent(
                         pNote, (*it)->nParam,
                         reinterpret_cast<uintptr_t>(func));
-                    pThread->sendEvent(pEvent);
+                    NOTICE("InputManager: sending event " << pEvent << "!");
+                    if (!pThread->sendEvent(pEvent))
+                    {
+                        WARNING("InputManager - Thread::sendEvent failed, skipping this callback");
+                        delete pEvent;
+                    }
                 }
             }
         }
