@@ -26,6 +26,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #endif
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 /// \todo add a MemoryPressureHandler here.
 
@@ -87,6 +88,12 @@ class ObjectPool
         if (!poolSize)
         {
             delete object;
+            return;
+        }
+
+        assert(object != nullptr);
+        if (!object)
+        {
             return;
         }
 
