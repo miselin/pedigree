@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define __STDCPP_WANT_MATH_SPEC_FUNCS__ 0
+
 #define _USE_MATH_DEFINES
 #include <arpa/inet.h>
 #include <errno.h>
