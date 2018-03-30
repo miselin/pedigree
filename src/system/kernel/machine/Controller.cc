@@ -17,24 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_CONTROLLER_H
-#define MACHINE_CONTROLLER_H
+#include "pedigree/kernel/machine/Controller.h"
 
-#include "pedigree/kernel/machine/Device.h"
+Controller::Controller() = default;
 
-/**
- * A controller is a hub that controls multiple devices.
- */
-class Controller : public Device
+Controller::Controller(Device *pDev) : Device(pDev)
 {
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
+}
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
-};
+Controller::~Controller() = default;
 
-#endif
+Device::Type Controller::getType()
+{
+    return Device::Controller;
+}
+
+void Controller::getName(String &str)
+{
+    str = "Generic controller";
+}
+
+void Controller::dump(String &str)
+{
+    str = "Generic controller";
+}

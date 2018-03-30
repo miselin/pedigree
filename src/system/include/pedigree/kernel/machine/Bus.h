@@ -28,27 +28,14 @@
 class Bus : public Device
 {
   public:
-    Bus(const char *pName) : m_pName(pName)
-    {
-    }
-    virtual ~Bus()
-    {
-    }
+    Bus(const char *pName);
+    virtual ~Bus();
 
-    virtual Type getType()
-    {
-        return Device::Bus;
-    }
+    virtual Type getType();
 
-    virtual void getName(String &str)
-    {
-        str = m_pName;
-    }
+    virtual void getName(String &str);
 
-    virtual void dump(String &str)
-    {
-        str = m_pName;
-    }
+    virtual void dump(String &str);
 
   private:
     Bus(const Bus &);

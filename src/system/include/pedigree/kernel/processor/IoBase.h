@@ -32,9 +32,7 @@ class EXPORTED_PUBLIC IoBase
 {
   public:
     /** The destructor does nothing */
-    inline virtual ~IoBase()
-    {
-    }
+    virtual ~IoBase();
 
     /** Get the size of the I/O region in bytes */
     virtual size_t size() const = 0;
@@ -61,23 +59,13 @@ class EXPORTED_PUBLIC IoBase
      *the higher address. \param[in] offset offset from the I/O base port or
      *the I/O base memory address \return the eight byte (64bit) that have been
      *read */
-    inline uint64_t read64LowFirst(size_t offset = 0)
-    {
-        uint64_t low = read32(offset);
-        uint64_t high = read32(offset + 4);
-        return low | (high << 32);
-    }
+    inline uint64_t read64LowFirst(size_t offset = 0);
     /** Read eight byte (64bit) from the I/O Port or the memory-mapped I/O
      *region. The 32bit at the higher address are read first, then the 32bit at
      *the lower address. \param[in] offset offset from the I/O base port or
      *the I/O base memory address \return the eight byte (64bit) that have been
      *read */
-    inline uint64_t read64HighFirst(size_t offset = 0)
-    {
-        uint64_t high = read32(offset + 4);
-        uint64_t low = read32(offset);
-        return low | (high << 32);
-    }
+    inline uint64_t read64HighFirst(size_t offset = 0);
 
     /** Write a byte (8bit) to the I/O port or the memory-mapped I/O region
      *\param[in] value the value that should be written
@@ -105,21 +93,13 @@ class EXPORTED_PUBLIC IoBase
      *at the higher address. \param[in] value the value that should be written
      *\param[in] offset offset from the I/O base port or the I/O base memory
      *address */
-    inline void write64LowFirst(uint64_t value, size_t offset = 0)
-    {
-        write32(value & 0xFFFFFFFF, offset);
-        write32(value >> 32, offset + 4);
-    }
+    void write64LowFirst(uint64_t value, size_t offset = 0);
     /** Write eight byte (64bit) to the I/O Port or the memory-mapped I/O
      *region. The 32bit at the higher address are written first, then the 32bit
      *at the lower address. \param[in] value the value that should be written
      *\param[in] offset offset from the I/O base port or the I/O base memory
      *address */
-    inline void write64HighFirst(uint64_t value, size_t offset = 0)
-    {
-        write32(value >> 32, offset + 4);
-        write32(value & 0xFFFFFFFF, offset);
-    }
+    void write64HighFirst(uint64_t value, size_t offset = 0);
 
     /** Check whether this class is usable
      *\return true, if the class holds a ressource that is correctly allocated
@@ -128,9 +108,7 @@ class EXPORTED_PUBLIC IoBase
 
   protected:
     /** The default constructor does nothing */
-    inline IoBase()
-    {
-    }
+    IoBase();
 
   private:
     /** The copy-constructor

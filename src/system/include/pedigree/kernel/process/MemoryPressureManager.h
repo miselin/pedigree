@@ -33,12 +33,8 @@
 class MemoryPressureHandler
 {
   public:
-    MemoryPressureHandler()
-    {
-    }
-    virtual ~MemoryPressureHandler()
-    {
-    }
+    MemoryPressureHandler();
+    virtual ~MemoryPressureHandler();
 
     virtual const String getMemoryPressureDescription() = 0;
 
@@ -60,12 +56,8 @@ class MemoryPressureHandler
 class EXPORTED_PUBLIC MemoryPressureManager
 {
   public:
-    MemoryPressureManager() : m_Handlers()
-    {
-    }
-    ~MemoryPressureManager()
-    {
-    }
+    MemoryPressureManager();
+    ~MemoryPressureManager();
 
     const static size_t HighestPriority = 0;
     const static size_t HighPriority = MAX_MEMPRESSURE_PRIORITY / 3;

@@ -60,25 +60,16 @@ class IrqManager
     virtual void enable(uint8_t irq, bool enable) = 0;
 
     /** Called every millisecond, typically handles IRQ mitigation. */
-    virtual void tick()
-    {
-    }
+    virtual void tick();
 
     /** Controls specific elements of a given IRQ */
-    virtual bool control(uint8_t irq, ControlCode code, size_t argument)
-    {
-        return true;
-    }
+    virtual bool control(uint8_t irq, ControlCode code, size_t argument);
 
   protected:
     /** The default constructor */
-    inline IrqManager()
-    {
-    }
+    IrqManager();
     /** The destructor */
-    inline virtual ~IrqManager()
-    {
-    }
+    virtual ~IrqManager();
 
   private:
     /** The copy-constructor

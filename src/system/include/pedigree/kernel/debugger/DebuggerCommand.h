@@ -36,12 +36,8 @@ class DebuggerIO;
 class DebuggerCommand
 {
   public:
-    DebuggerCommand()
-    {
-    }
-    virtual ~DebuggerCommand()
-    {
-    }
+    DebuggerCommand();
+    virtual ~DebuggerCommand();
 
     /**
      * Return an autocomplete string, given an input string. The string put into

@@ -18,3 +18,44 @@
  */
 
 #include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
+
+RoundRobinCoreAllocator::RoundRobinCoreAllocator() : m_ProcMap(), m_pNext(0)
+{
+}
+
+RoundRobinCoreAllocator::~RoundRobinCoreAllocator()
+{
+}
+
+bool RoundRobinCoreAllocator::initialise(List<PerProcessorScheduler *> &procList)
+{
+    List<PerProcessorScheduler *>::Iterator it = procList.begin();
+    PerProcessorScheduler *pFirst = m_pNext = *it;
+    it++;
+
+    // 1 CPU?
+    if (it == procList.end())
+    {
+        NOTICE("Quitting, only one CPU was present.");
+        m_ProcMap.insert(pFirst, pFirst);
+        return true;
+    }
+
+    for (; it != procList.end(); it++)
+    {
+        m_ProcMap.insert(pFirst, *it);
+        pFirst = *it;
+    }
+
+    // Loop.
+    m_ProcMap.insert(pFirst, m_pNext);
+
+    return true;
+}
+
+PerProcessorScheduler *RoundRobinCoreAllocator::allocateThread(Thread *pThread)
+{
+    PerProcessorScheduler *pReturn = m_ProcMap.lookup(m_pNext);
+    m_pNext = pReturn;
+    return pReturn;
+}

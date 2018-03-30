@@ -32,22 +32,12 @@
 class IoApic
 {
   public:
-    /** The default constructor */
-    inline IoApic() : m_IoSpace("I/O APIC")
-    {
-    }
-    /** The destructor */
-    inline virtual ~IoApic()
-    {
-    }
+    IoApic();
+    virtual ~IoApic();
 
   private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    IoApic(const IoApic &);
-    /** The assignment operator
-     *\note NOT implemented */
-    IoApic &operator=(const IoApic &);
+    IoApic(const IoApic &) = delete;
+    IoApic &operator=(const IoApic &) = delete;
 
     /** The I/O APIC memory-mapped I/O space */
     MemoryMappedIo m_IoSpace;

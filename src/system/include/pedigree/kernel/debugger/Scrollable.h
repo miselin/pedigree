@@ -29,11 +29,7 @@
 class Scrollable
 {
   public:
-    inline Scrollable()
-        : m_x(0), m_y(0), m_width(0), m_height(0), m_line(0), m_ScrollUp('j'),
-          m_ScrollDown('k')
-    {
-    }
+    Scrollable();
 
     void move(size_t x, size_t y);
     void resize(size_t width, size_t height);
@@ -41,21 +37,12 @@ class Scrollable
     void scrollTo(size_t absolute);
     void refresh(DebuggerIO *pScreen);
     void setScrollKeys(char up, char down);
-    ssize_t getLine()
-    {
-        return m_line;
-    }
+    ssize_t getLine();
 
     void centreOn(size_t line);
 
-    inline size_t height() const
-    {
-        return m_height;
-    }
-    inline size_t width() const
-    {
-        return m_width;
-    }
+    size_t height() const;
+    size_t width() const;
 
     virtual const char *getLine1(
         size_t index, DebuggerIO::Colour &colour,
@@ -64,9 +51,7 @@ class Scrollable
         size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
         DebuggerIO::Colour &bgColour) = 0;
     virtual size_t getLineCount() = 0;
-    inline virtual ~Scrollable()
-    {
-    }
+    virtual ~Scrollable();
 
   protected:
     size_t m_x;

@@ -38,12 +38,8 @@
 class Service
 {
   public:
-    Service()
-    {
-    }
-    virtual ~Service()
-    {
-    }
+    Service();
+    virtual ~Service();
 
     /** serve: Interface through which clients interact with the Service */
     virtual bool

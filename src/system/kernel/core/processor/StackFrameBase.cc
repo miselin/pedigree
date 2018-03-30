@@ -32,6 +32,8 @@ StackFrameBase::StackFrameBase(
     demangle(mangledSymbol, &m_Symbol);
 }
 
+StackFrameBase::~StackFrameBase() = default;
+
 void StackFrameBase::prettyPrint(HugeStaticString &buf)
 {
     bool bIsMember = isClassMember();

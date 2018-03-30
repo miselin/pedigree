@@ -20,16 +20,25 @@
 #include "pedigree/kernel/debugger/Scrollable.h"
 #include "pedigree/kernel/Log.h"
 
+Scrollable::Scrollable()
+    : m_x(0), m_y(0), m_width(0), m_height(0), m_line(0), m_ScrollUp('j'),
+      m_ScrollDown('k')
+{
+}
+Scrollable::~Scrollable() = default;
+
 void Scrollable::move(size_t x, size_t y)
 {
     m_x = x;
     m_y = y;
 }
+
 void Scrollable::resize(size_t width, size_t height)
 {
     m_width = width;
     m_height = height;
 }
+
 void Scrollable::scroll(ssize_t lines)
 {
     m_line += lines;
@@ -42,6 +51,7 @@ void Scrollable::scroll(ssize_t lines)
     if (m_line < 0)
         m_line = 0;
 }
+
 void Scrollable::scrollTo(size_t absolute)
 {
     m_line = absolute;
@@ -113,6 +123,11 @@ void Scrollable::setScrollKeys(char up, char down)
     m_ScrollDown = down;
 }
 
+ssize_t Scrollable::getLine()
+{
+    return m_line;
+}
+
 void Scrollable::centreOn(size_t line)
 {
     if (line > getLineCount())
@@ -125,4 +140,13 @@ void Scrollable::centreOn(size_t line)
     }
 
     scrollTo(line - (m_height / 2));
+}
+
+size_t Scrollable::height() const
+{
+    return m_height;
+}
+size_t Scrollable::width() const
+{
+    return m_width;
 }

@@ -18,3 +18,11 @@
  */
 
 #include "IoApic.h"
+
+IoApic::IoApic() : m_IoSpace("I/O APIC")
+{
+}
+
+IoApic::~IoApic()
+{
+}

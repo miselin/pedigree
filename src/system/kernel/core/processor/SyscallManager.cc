@@ -17,24 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_CONTROLLER_H
-#define MACHINE_CONTROLLER_H
+#include "pedigree/kernel/processor/SyscallManager.h"
 
-#include "pedigree/kernel/machine/Device.h"
-
-/**
- * A controller is a hub that controls multiple devices.
- */
-class Controller : public Device
-{
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
-
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
-};
-
-#endif
+SyscallManager::SyscallManager() = default;
+SyscallManager::~SyscallManager() = default;

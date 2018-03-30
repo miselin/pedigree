@@ -23,6 +23,72 @@
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
+StationInfo::StationInfo()
+    : ipv4(), ipv6(0), nIpv6Addresses(0), subnetMask(),
+      broadcast(0xFFFFFFFF), gateway(), gatewayIpv6(IpAddress::IPv6),
+      dnsServers(0), nDnsServers(0), mac(), nPackets(0), nDropped(0),
+      nBad(0)
+{
+}
+
+StationInfo::StationInfo(const StationInfo &info)
+    : ipv4(info.ipv4), ipv6(info.ipv6), nIpv6Addresses(info.nIpv6Addresses),
+      subnetMask(info.subnetMask), broadcast(info.broadcast),
+      gateway(info.gateway), gatewayIpv6(info.gatewayIpv6),
+      dnsServers(info.dnsServers), nDnsServers(info.nDnsServers),
+      mac(info.mac), nPackets(info.nPackets), nDropped(info.nDropped),
+      nBad(info.nBad)
+{
+}
+
+StationInfo::~StationInfo()
+{
+}
+
+Network::Network() : m_StationInfo()
+{
+    m_SpecificType = "Generic Network Device";
+}
+
+Network::Network(Network *pDev) : Device(pDev), m_StationInfo()
+{
+}
+
+Network::~Network()
+{
+}
+
+Device::Type Network::getType()
+{
+    return Device::Network;
+}
+
+void Network::getName(String &str)
+{
+    str = "Generic Network Device";
+}
+
+void Network::dump(String &str)
+{
+    str = "Generic Network Device";
+}
+
+bool Network::setStationInfo(StationInfo info)
+{
+    return false;  // failed by default
+}
+
+StationInfo Network::getStationInfo()
+{
+    static StationInfo info;
+    return info;  // not to be trusted
+}
+
+bool Network::isConnected()
+{
+    return true;
+}
+
 uint32_t Network::convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
 {
     return a | (b << 8) | (c << 16) | (d << 24);
@@ -62,4 +128,19 @@ uint16_t Network::calculateChecksum(uintptr_t buffer, size_t nBytes)
 
     uint16_t ret = static_cast<uint16_t>(~sum);
     return ret;
+}
+
+void Network::gotPacket()
+{
+    m_StationInfo.nPackets++;
+}
+
+void Network::droppedPacket()
+{
+    m_StationInfo.nDropped++;
+}
+
+void Network::badPacket()
+{
+    m_StationInfo.nBad++;
 }

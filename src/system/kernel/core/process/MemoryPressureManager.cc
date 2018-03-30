@@ -22,6 +22,9 @@
 
 MemoryPressureManager MemoryPressureManager::m_Instance;
 
+MemoryPressureHandler::MemoryPressureHandler() = default;
+MemoryPressureHandler::~MemoryPressureHandler() = default;
+
 bool MemoryPressureManager::compact()
 {
     for (size_t i = 0; i < MAX_MEMPRESSURE_PRIORITY; ++i)
@@ -41,6 +44,9 @@ bool MemoryPressureManager::compact()
 
     return false;
 }
+
+MemoryPressureManager::MemoryPressureManager() = default;
+MemoryPressureManager::~MemoryPressureManager() = default;
 
 void MemoryPressureManager::registerHandler(
     size_t prio, MemoryPressureHandler *pHandler)

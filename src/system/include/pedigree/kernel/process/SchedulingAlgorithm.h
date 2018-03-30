@@ -33,9 +33,7 @@ class SchedulingAlgorithm
 {
   public:
     /** Destructor */
-    virtual ~SchedulingAlgorithm()
-    {
-    }
+    virtual ~SchedulingAlgorithm();
 
     /** Adds a new thread to be scheduled. */
     virtual void addThread(Thread *pThread) = 0;

@@ -79,6 +79,7 @@ coverage_env.MergeFlags({
 
 libdebugger = coverage_env.Library('debugger', [
     '../../system/kernel/debugger/Scrollable.cc',
+    '../../system/kernel/debugger/DebuggerCommand.cc',
     '../../system/kernel/debugger/commands/LocksCommand.cc',
 ])
 

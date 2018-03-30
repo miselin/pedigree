@@ -34,75 +34,23 @@ class InputEvent : public Event
   public:
     InputEvent(
         InputManager::InputNotification *pNote, uintptr_t param,
-        uintptr_t handlerAddress)
-        : Event(handlerAddress, true, 0), m_Notification(), m_nParam(param)
-    {
-        m_Notification = *pNote;
-    }
-    virtual ~InputEvent()
-    {
-    }
+        uintptr_t handlerAddress);
+    virtual ~InputEvent();
 
-    virtual size_t serialize(uint8_t *pBuffer)
-    {
-        void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(uintptr_t));
-        uintptr_t *buf = reinterpret_cast<uintptr_t *>(alignedBuffer);
-        buf[0] = EventNumbers::InputEvent;
-        buf[1] = m_nParam;
-        MemoryCopy(
-            &buf[2], &m_Notification, sizeof(InputManager::InputNotification));
-        return sizeof(InputManager::InputNotification) +
-               (sizeof(uintptr_t) * 2);
-    }
+    virtual size_t serialize(uint8_t *pBuffer);
 
-    static bool unserialize(uint8_t *pBuffer, InputEvent &event)
-    {
-        void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(uintptr_t));
-        uintptr_t *buf = reinterpret_cast<uintptr_t *>(alignedBuffer);
-        if (*buf != EventNumbers::InputEvent)
-            return false;
+    static bool unserialize(uint8_t *pBuffer, InputEvent &event);
 
-        MemoryCopy(
-            &event.m_Notification, &buf[2],
-            sizeof(InputManager::InputNotification));
-        return true;
-    }
+    virtual size_t getNumber();
 
-    virtual inline size_t getNumber()
-    {
-        return EventNumbers::InputEvent;
-    }
+    InputManager::CallbackType getType();
 
-    inline InputManager::CallbackType getType()
-    {
-        return m_Notification.type;
-    }
+    uint64_t getKey();
+    ssize_t getRelX();
+    ssize_t getRelY();
+    ssize_t getRelZ();
 
-    inline uint64_t getKey()
-    {
-        return m_Notification.data.key.key;
-    }
-
-    inline ssize_t getRelX()
-    {
-        return m_Notification.data.pointy.relx;
-    }
-
-    inline ssize_t getRelY()
-    {
-        return m_Notification.data.pointy.rely;
-    }
-
-    inline ssize_t getRelZ()
-    {
-        return m_Notification.data.pointy.relz;
-    }
-
-    inline void getButtonStates(bool states[64], size_t maxDesired = 64)
-    {
-        for (size_t i = 0; i < maxDesired; i++)
-            states[i] = m_Notification.data.pointy.buttons[i];
-    }
+    void getButtonStates(bool states[64], size_t maxDesired = 64);
 
   private:
     InputManager::InputNotification m_Notification;
@@ -408,4 +356,77 @@ void InputManager::mainThread()
         delete pNote;
     }
 #endif
+}
+
+InputEvent::InputEvent(
+    InputManager::InputNotification *pNote, uintptr_t param,
+    uintptr_t handlerAddress)
+    : Event(handlerAddress, true, 0), m_Notification(), m_nParam(param)
+{
+    m_Notification = *pNote;
+}
+
+InputEvent::~InputEvent()
+{
+}
+
+size_t InputEvent::serialize(uint8_t *pBuffer)
+{
+    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(uintptr_t));
+    uintptr_t *buf = reinterpret_cast<uintptr_t *>(alignedBuffer);
+    buf[0] = EventNumbers::InputEvent;
+    buf[1] = m_nParam;
+    MemoryCopy(
+        &buf[2], &m_Notification, sizeof(InputManager::InputNotification));
+    return sizeof(InputManager::InputNotification) +
+           (sizeof(uintptr_t) * 2);
+}
+
+bool InputEvent::unserialize(uint8_t *pBuffer, InputEvent &event)
+{
+    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(uintptr_t));
+    uintptr_t *buf = reinterpret_cast<uintptr_t *>(alignedBuffer);
+    if (*buf != EventNumbers::InputEvent)
+        return false;
+
+    MemoryCopy(
+        &event.m_Notification, &buf[2],
+        sizeof(InputManager::InputNotification));
+    return true;
+}
+
+size_t InputEvent::getNumber()
+{
+    return EventNumbers::InputEvent;
+}
+
+InputManager::CallbackType InputEvent::getType()
+{
+    return m_Notification.type;
+}
+
+uint64_t InputEvent::getKey()
+{
+    return m_Notification.data.key.key;
+}
+
+ssize_t InputEvent::getRelX()
+{
+    return m_Notification.data.pointy.relx;
+}
+
+ssize_t InputEvent::getRelY()
+{
+    return m_Notification.data.pointy.rely;
+}
+
+ssize_t InputEvent::getRelZ()
+{
+    return m_Notification.data.pointy.relz;
+}
+
+void InputEvent::getButtonStates(bool states[64], size_t maxDesired)
+{
+    for (size_t i = 0; i < maxDesired; i++)
+        states[i] = m_Notification.data.pointy.buttons[i];
 }

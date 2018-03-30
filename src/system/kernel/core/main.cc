@@ -170,15 +170,8 @@ BootstrapStruct_t *g_pBootstrapInfo;
 class SlamRecovery : public MemoryPressureHandler
 {
   public:
-    virtual const String getMemoryPressureDescription()
-    {
-        return String("SLAM recovery; freeing unused slabs.");
-    }
-
-    virtual bool compact()
-    {
-        return SlamAllocator::instance().recovery(5) != 0;
-    }
+    virtual const String getMemoryPressureDescription();
+    virtual bool compact();
 };
 
 #ifdef MULTIPROCESSOR
@@ -522,4 +515,14 @@ void system_reset()
     Processor::reset();
     while (1)
         ;
+}
+
+const String SlamRecovery::getMemoryPressureDescription()
+{
+    return String("SLAM recovery; freeing unused slabs.");
+}
+
+bool SlamRecovery::compact()
+{
+    return SlamAllocator::instance().recovery(5) != 0;
 }

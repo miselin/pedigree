@@ -17,24 +17,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_CONTROLLER_H
-#define MACHINE_CONTROLLER_H
+#include "pedigree/kernel/ServiceFeatures.h"
 
-#include "pedigree/kernel/machine/Device.h"
-
-/**
- * A controller is a hub that controls multiple devices.
- */
-class Controller : public Device
+ServiceFeatures::ServiceFeatures() : m_OpEnum(0)
 {
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
+}
+ServiceFeatures::~ServiceFeatures()
+{
+}
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
-};
+bool ServiceFeatures::provides(Type service)
+{
+    return (m_OpEnum & service);
+}
 
-#endif
+void ServiceFeatures::add(Type s)
+{
+    if (!provides(s))
+        m_OpEnum |= static_cast<uint32_t>(s);
+}
+
+void ServiceFeatures::remove(Type s)
+{
+    if (provides(s))
+        m_OpEnum &= ~static_cast<uint32_t>(s);
+}

@@ -26,6 +26,284 @@
 
 #include "pedigree/kernel/Log.h"
 
+Framebuffer::Framebuffer() : m_pParent(0), m_FramebufferBase(0), m_bActive(true)
+{
+    m_Palette = new uint32_t[256];
+
+    size_t i = 0;
+    for (size_t g = 0; g <= 255; g += 0x33)
+        for (size_t b = 0; b <= 255; b += 0x33)
+            for (size_t r = 0; r <= 255; r += 0x33)
+                m_Palette[i++] = Graphics::createRgb(r, g, b);
+
+    NOTICE(
+        "Framebuffer: created " << Dec << i << Hex
+                                << " entries in the default palette");
+}
+
+Framebuffer::~Framebuffer()
+{
+}
+
+size_t Framebuffer::getWidth() const
+{
+    return m_nWidth;
+}
+
+size_t Framebuffer::getHeight() const
+{
+    return m_nHeight;
+}
+
+Graphics::PixelFormat Framebuffer::getFormat() const
+{
+    return m_PixelFormat;
+}
+
+bool Framebuffer::getActive() const
+{
+    return m_bActive;
+}
+
+void Framebuffer::setActive(bool b)
+{
+    m_bActive = b;
+}
+
+void Framebuffer::setPalette(uint32_t *palette, size_t nEntries)
+{
+    delete[] m_Palette;
+    m_Palette = new uint32_t[nEntries];
+    MemoryCopy(m_Palette, palette, nEntries * sizeof(uint32_t));
+
+    NOTICE(
+        "Framebuffer: new palette set with " << Dec << nEntries << Hex
+                                             << " entries");
+}
+
+uint32_t *Framebuffer::getPalette() const
+{
+    return m_Palette;
+}
+
+void *Framebuffer::getRawBuffer() const
+{
+    if (m_pParent)
+        return m_pParent->getRawBuffer();
+    return reinterpret_cast<void *>(m_FramebufferBase);
+}
+
+Graphics::Buffer *Framebuffer::createBuffer(
+    const void *srcData, Graphics::PixelFormat srcFormat, size_t width,
+    size_t height, uint32_t *pPalette)
+{
+    if (m_pParent)
+        return m_pParent->createBuffer(
+            srcData, srcFormat, width, height, pPalette);
+    return swCreateBuffer(srcData, srcFormat, width, height, pPalette);
+}
+
+void Framebuffer::destroyBuffer(Graphics::Buffer *pBuffer)
+{
+    // if(m_pParent)
+    //     m_pParent->destroyBuffer(pBuffer);
+    // else
+    swDestroyBuffer(pBuffer);
+}
+
+void Framebuffer::redraw(size_t x, size_t y, size_t w, size_t h, bool bChild)
+{
+    if (m_pParent)
+    {
+        // Redraw with parent:
+        // 1. Draw our framebuffer. This will go to the top without
+        //    changing intermediate framebuffers.
+        // 2. Pass a redraw up the chain. This will reach the top level
+        //    (with modified x/y) and cause our screen region to be redrawn.
+
+        /// \note If none of the above makes sense, you need to read the
+        ///       Pedigree graphics design doc:
+        ///       http://pedigree-project.org/issues/114
+
+        // If the redraw was not caused by a child, make sure our
+        // framebuffer has precedence over any children.
+        /// \todo nChildren parameter - this is not necessary if no
+        /// children!
+        if (!bChild)
+        {
+            if (m_pParent->getFormat() == m_PixelFormat)
+            {
+                Graphics::Buffer buf = bufferFromSelf();
+                m_pParent->draw(
+                    &buf, x, y, m_XPos + x, m_YPos + y, w, h, false);
+                // m_pParent->draw(reinterpret_cast<void*>(m_FramebufferBase),
+                // x, y, m_XPos + x, m_YPos + y, w, h, m_PixelFormat,
+                // false);
+            }
+            else
+            {
+                ERROR("Child framebuffer has different pixel format to "
+                      "parent!");
+            }
+        }
+
+        // Now we are a child requesting a redraw, so the parent will not
+        // have precedence over us.
+        m_pParent->redraw(m_XPos + x, m_YPos + y, w, h, true);
+    }
+    else
+        hwRedraw(x, y, w, h);
+}
+
+void Framebuffer::blit(
+    Graphics::Buffer *pBuffer, size_t srcx, size_t srcy, size_t destx,
+    size_t desty, size_t width, size_t height, bool bLowestCall)
+{
+    if (m_pParent)
+        m_pParent->blit(
+            pBuffer, srcx, srcy, m_XPos + destx, m_YPos + desty, width,
+            height, false);
+    if (bLowestCall || !m_pParent)
+        swBlit(pBuffer, srcx, srcy, destx, desty, width, height);
+}
+
+void Framebuffer::draw(
+    void *pBuffer, size_t srcx, size_t srcy, size_t destx, size_t desty,
+    size_t width, size_t height, Graphics::PixelFormat format, bool bLowestCall)
+{
+    // Draw is implemented as a "create buffer and blit"... so we can
+    // avoid checking for parent here as we don't want to poison the
+    // parent's buffer.
+    swDraw(
+        pBuffer, srcx, srcy, destx, desty, width, height, format,
+        bLowestCall);
+}
+
+void Framebuffer::rect(
+    size_t x, size_t y, size_t width, size_t height, uint32_t colour,
+    Graphics::PixelFormat format, bool bLowestCall)
+{
+    if (m_pParent)
+        m_pParent->rect(
+            m_XPos + x, m_YPos + y, width, height, colour, format, false);
+    if (bLowestCall || !m_pParent)
+        swRect(x, y, width, height, colour, format);
+}
+
+void Framebuffer::copy(
+    size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w,
+    size_t h, bool bLowestCall)
+{
+    if (m_pParent)
+        m_pParent->copy(
+            m_XPos + srcx, m_YPos + srcy, m_XPos + destx, m_YPos + desty, w,
+            h, false);
+    if (bLowestCall || !m_pParent)
+        swCopy(srcx, srcy, destx, desty, w, h);
+}
+
+void Framebuffer::line(
+    size_t x1, size_t y1, size_t x2, size_t y2, uint32_t colour,
+    Graphics::PixelFormat format, bool bLowestCall)
+{
+    if (m_pParent)
+        m_pParent->line(
+            m_XPos + x1, m_YPos + y1, m_XPos + x2, m_YPos + y2, colour,
+            format, false);
+    if (bLowestCall || !m_pParent)
+        swLine(x1, y1, x2, y2, colour, format);
+}
+
+void Framebuffer::setPixel(
+    size_t x, size_t y, uint32_t colour,
+    Graphics::PixelFormat format, bool bLowestCall)
+{
+    if (m_pParent)
+        m_pParent->setPixel(m_XPos + x, m_YPos + y, colour, format, false);
+    if (bLowestCall || !m_pParent)
+        swSetPixel(x, y, colour, format);
+}
+
+void Framebuffer::setXPos(size_t x)
+{
+    m_XPos = x;
+}
+
+void Framebuffer::setYPos(size_t y)
+{
+    m_YPos = y;
+}
+
+void Framebuffer::setWidth(size_t w)
+{
+    m_nWidth = w;
+}
+
+void Framebuffer::setHeight(size_t h)
+{
+    m_nHeight = h;
+}
+
+void Framebuffer::setFormat(Graphics::PixelFormat pf)
+{
+    m_PixelFormat = pf;
+}
+
+void Framebuffer::setBytesPerPixel(size_t b)
+{
+    m_nBytesPerPixel = b;
+}
+
+uint32_t Framebuffer::getBytesPerPixel() const
+{
+    return m_nBytesPerPixel;
+}
+
+void Framebuffer::setBytesPerLine(size_t b)
+{
+    m_nBytesPerLine = b;
+}
+
+uint32_t Framebuffer::getBytesPerLine() const
+{
+    return m_nBytesPerLine;
+}
+
+void Framebuffer::setParent(Framebuffer *p)
+{
+    m_pParent = p;
+}
+
+Framebuffer *Framebuffer::getParent() const
+{
+    return m_pParent;
+}
+
+void Framebuffer::setFramebuffer(uintptr_t p)
+{
+    m_FramebufferBase = p;
+}
+
+Graphics::Buffer Framebuffer::bufferFromSelf()
+{
+    Graphics::Buffer ret;
+    ret.base = m_FramebufferBase;
+    ret.width = m_nWidth;
+    ret.height = m_nHeight;
+    ret.format = m_PixelFormat;
+    ret.bytesPerPixel = m_nBytesPerPixel;
+    ret.bufferId = 0;
+    ret.pBacking = 0;
+    return ret;
+}
+
+void Framebuffer::draw(
+    Graphics::Buffer *pBuffer, size_t srcx, size_t srcy, size_t destx,
+    size_t desty, size_t width, size_t height, bool bLowestCall)
+{
+    swDraw(pBuffer, srcx, srcy, destx, desty, width, height, bLowestCall);
+}
+
 Graphics::Buffer *Framebuffer::swCreateBuffer(
     const void *srcData, Graphics::PixelFormat srcFormat, size_t width,
     size_t height, uint32_t *pPalette)
@@ -594,4 +872,8 @@ void Framebuffer::swDraw(
     size_t desty, size_t width, size_t height, bool bLowestCall)
 {
     blit(pBuffer, srcx, srcy, destx, desty, width, height, bLowestCall);
+}
+
+void Framebuffer::hwRedraw(size_t x, size_t y, size_t w, size_t h)
+{
 }

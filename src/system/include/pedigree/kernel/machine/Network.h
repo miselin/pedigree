@@ -39,25 +39,9 @@ class StationInfo
     // Broadcast address defaults to 255.255.255.255, as we may need to
     // broadcast without a known IPv4 address (and therefore no known network
     // or broadcast address).
-    StationInfo()
-        : ipv4(), ipv6(0), nIpv6Addresses(0), subnetMask(),
-          broadcast(0xFFFFFFFF), gateway(), gatewayIpv6(IpAddress::IPv6),
-          dnsServers(0), nDnsServers(0), mac(), nPackets(0), nDropped(0),
-          nBad(0)
-    {
-    }
-    StationInfo(const StationInfo &info)
-        : ipv4(info.ipv4), ipv6(info.ipv6), nIpv6Addresses(info.nIpv6Addresses),
-          subnetMask(info.subnetMask), broadcast(info.broadcast),
-          gateway(info.gateway), gatewayIpv6(info.gatewayIpv6),
-          dnsServers(info.dnsServers), nDnsServers(info.nDnsServers),
-          mac(info.mac), nPackets(info.nPackets), nDropped(info.nDropped),
-          nBad(info.nBad)
-    {
-    }
-    virtual ~StationInfo()
-    {
-    }
+    StationInfo();
+    StationInfo(const StationInfo &info);
+    virtual ~StationInfo();
 
     IpAddress ipv4;
     IpAddress *ipv6;  // Not compulsory
@@ -77,11 +61,7 @@ class StationInfo
     size_t nDropped;  /// Number of packets dropped by the filter
     size_t nBad;      /// Number of packets dropped because they were invalid
 
-    StationInfo &operator=(const StationInfo &info)
-    {
-        WARNING("StationInfo::operator = (const StationInfo&) called");
-        return *this;
-    }
+    StationInfo &operator=(const StationInfo &info) = delete;
 };
 
 /**
@@ -90,31 +70,15 @@ class StationInfo
 class Network : public Device
 {
   public:
-    Network() : m_StationInfo()
-    {
-        m_SpecificType = "Generic Network Device";
-    }
-    Network(Network *pDev) : Device(pDev), m_StationInfo()
-    {
-    }
-    virtual ~Network()
-    {
-    }
+    Network();
+    Network(Network *pDev);
+    virtual ~Network();
 
-    virtual Type getType()
-    {
-        return Device::Network;
-    }
+    virtual Type getType();
 
-    virtual void getName(String &str)
-    {
-        str = "Generic Network Device";
-    }
+    virtual void getName(String &str);
 
-    virtual void dump(String &str)
-    {
-        str = "Generic Network Device";
-    }
+    virtual void dump(String &str);
 
     /** Sends a given packet through the device.
      * \param nBytes The number of bytes to send.
@@ -123,23 +87,13 @@ class Network : public Device
 
     /** Sets station information (such as IP addresses)
      * \param info The information to set as the station info */
-    virtual bool setStationInfo(StationInfo info)
-    {
-        return false;  // failed by default
-    }
+    virtual bool setStationInfo(StationInfo info);
 
     /** Gets station information (such as IP addresses) */
-    virtual StationInfo getStationInfo()
-    {
-        static StationInfo info;
-        return info;  // not to be trusted
-    }
+    virtual StationInfo getStationInfo();
 
     /** Is this device actually connected to a network? */
-    virtual bool isConnected()
-    {
-        return true;
-    }
+    virtual bool isConnected();
 
     /** Converts an IPv4 address into an integer */
     EXPORTED_PUBLIC static uint32_t convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
@@ -158,23 +112,14 @@ class Network : public Device
 
     /// Called when a packet is picked up by the system, regardless of if it's
     /// eventually bad or dropped
-    virtual void gotPacket()
-    {
-        m_StationInfo.nPackets++;
-    }
+    virtual void gotPacket();
 
     /// Called when a packet is dropped by the system
-    virtual void droppedPacket()
-    {
-        m_StationInfo.nDropped++;
-    }
+    virtual void droppedPacket();
 
     /// Called when a packet is determined to be "bad" by the system (ie,
     /// invalid checksum).
-    virtual void badPacket()
-    {
-        m_StationInfo.nBad++;
-    }
+    virtual void badPacket();
 
   protected:
     StationInfo m_StationInfo;

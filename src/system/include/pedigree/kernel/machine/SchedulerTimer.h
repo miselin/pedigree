@@ -34,13 +34,9 @@ class SchedulerTimer
 
   protected:
     /** The default constructor */
-    inline SchedulerTimer()
-    {
-    }
+    SchedulerTimer();
     /** The destructor */
-    inline virtual ~SchedulerTimer()
-    {
-    }
+    virtual ~SchedulerTimer();
 
   private:
     /** The copy-constructor

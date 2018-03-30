@@ -34,9 +34,7 @@ class Vga
         Blink = 3,
     };
 
-    virtual ~Vga()
-    {
-    }
+    virtual ~Vga();
 
     /**
      * Sets the given attribute mode control.

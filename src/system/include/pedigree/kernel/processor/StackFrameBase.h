@@ -44,9 +44,7 @@ class StackFrameBase
         const ProcessorState &State, uintptr_t basePointer,
         LargeStaticString mangledSymbol);
     /** The destructor does nothing */
-    inline virtual ~StackFrameBase()
-    {
-    }
+    virtual ~StackFrameBase();
 
     /** Construct a stack frame, given a ProcessorState. The stack frame should
      * be constructed to comply with the default ABI for the current

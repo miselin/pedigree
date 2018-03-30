@@ -17,24 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_CONTROLLER_H
-#define MACHINE_CONTROLLER_H
+#include "pedigree/kernel/machine/Keyboard.h"
 
-#include "pedigree/kernel/machine/Device.h"
+Keyboard::Keyboard() = default;
+Keyboard::~Keyboard() = default;
 
-/**
- * A controller is a hub that controls multiple devices.
- */
-class Controller : public Device
+char Keyboard::getLedState()
 {
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
+    return 0;
+}
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
-};
-
-#endif
+void Keyboard::setLedState(char state)
+{
+}

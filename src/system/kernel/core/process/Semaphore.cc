@@ -46,6 +46,23 @@ Semaphore::SemaphoreEvent::SemaphoreEvent()
 {
 }
 
+Semaphore::SemaphoreEvent::~SemaphoreEvent() = default;
+
+size_t Semaphore::SemaphoreEvent::serialize(uint8_t *pBuffer)
+{
+    return 0;
+}
+
+bool Semaphore::SemaphoreEvent::unserialize(uint8_t *pBuffer, Semaphore::SemaphoreEvent &event)
+{
+    return true;
+}
+
+size_t Semaphore::SemaphoreEvent::getNumber()
+{
+    return EventNumbers::Interrupt;
+}
+
 Semaphore::Semaphore(size_t nInitialValue, bool canInterrupt)
     : magic(0xdeadbaba), m_Counter(nInitialValue), m_BeingModified(false),
       m_Queue(), m_bCanInterrupt(canInterrupt)

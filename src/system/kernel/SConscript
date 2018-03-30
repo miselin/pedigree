@@ -57,6 +57,7 @@ files = [
     'Spinlock.cc',
     'Subsystem.cc',
     'ServiceManager.cc',
+    'ServiceFeatures.cc',
     'Service.cc',
     'syscallError.cc',
     'LockGuard.cc',

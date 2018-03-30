@@ -38,9 +38,7 @@ class InterruptHandler
 
   protected:
     /** Virtual destructor */
-    inline virtual ~InterruptHandler()
-    {
-    }
+    virtual ~InterruptHandler();
 };
 
 /** @} */

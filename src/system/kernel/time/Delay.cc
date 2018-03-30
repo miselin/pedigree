@@ -36,27 +36,12 @@ static void delayTimerFired(uint8_t *pBuffer)
 class DelayTimerEvent : public Event
 {
   public:
-    DelayTimerEvent()
-        : Event(reinterpret_cast<uintptr_t>(&delayTimerFired), false)
-    {
-    }
-    virtual ~DelayTimerEvent()
-    {
-    }
+    DelayTimerEvent();
+    virtual ~DelayTimerEvent();
 
-    virtual size_t serialize(uint8_t *pBuffer)
-    {
-        return 0;
-    }
-    static bool unserialize(uint8_t *pBuffer, DelayTimerEvent &event)
-    {
-        return true;
-    }
-
-    virtual size_t getNumber()
-    {
-        return EventNumbers::DelayTimer;
-    }
+    virtual size_t serialize(uint8_t *pBuffer);
+    static bool unserialize(uint8_t *pBuffer, DelayTimerEvent &event);
+    virtual size_t getNumber();
 };
 
 bool delay(Timestamp nanoseconds)
@@ -118,4 +103,27 @@ void removeAlarm(void *handle)
 
     delete pEvent;
 }
+
+DelayTimerEvent::DelayTimerEvent()
+    : Event(reinterpret_cast<uintptr_t>(&delayTimerFired), false)
+{
 }
+DelayTimerEvent::~DelayTimerEvent()
+{
+}
+
+size_t DelayTimerEvent::serialize(uint8_t *pBuffer)
+{
+    return 0;
+}
+
+bool DelayTimerEvent::unserialize(uint8_t *pBuffer, DelayTimerEvent &event)
+{
+    return true;
+}
+
+size_t DelayTimerEvent::getNumber()
+{
+    return EventNumbers::DelayTimer;
+}
+}  // namespace Time

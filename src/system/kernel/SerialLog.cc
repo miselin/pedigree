@@ -24,34 +24,10 @@
 class SerialLogger : public Log::LogCallback
 {
   public:
-    SerialLogger() : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false) {}
+    SerialLogger();
+    virtual ~SerialLogger();
 
-    void callback(const char *str)
-    {
-        if (!m_bInitialised)
-        {
-            m_bInitialised = Machine::instance().isInitialised();
-            if (!m_bInitialised)
-            {
-                return;
-            }
-            else
-            {
-                m_pSerial = Machine::instance().getSerial(0);
-            }
-        }
-
-        m_Lock.acquire();
-        m_pSerial->write(str);
-#ifndef SERIAL_IS_FILE
-        // Handle carriage return if we're writing to a real terminal
-        // Technically this will create a \n\r, but it will do the same
-        // thing. This may also be redundant, but better to be safe than
-        // sorry imho.
-        m_pSerial->write('\r');
-#endif
-        m_Lock.release();
-    }
+    void callback(const char *str);
 
    private:
     Serial *m_pSerial;
@@ -64,4 +40,34 @@ static SerialLogger g_SerialCallback;
 void installSerialLogger()
 {
     Log::instance().installCallback(&g_SerialCallback, false);
+}
+
+SerialLogger::SerialLogger() : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false) {}
+SerialLogger::~SerialLogger() = default;
+
+void SerialLogger::callback(const char *str)
+{
+    if (!m_bInitialised)
+    {
+        m_bInitialised = Machine::instance().isInitialised();
+        if (!m_bInitialised)
+        {
+            return;
+        }
+        else
+        {
+            m_pSerial = Machine::instance().getSerial(0);
+        }
+    }
+
+    m_Lock.acquire();
+    m_pSerial->write(str);
+#ifndef SERIAL_IS_FILE
+    // Handle carriage return if we're writing to a real terminal
+    // Technically this will create a \n\r, but it will do the same
+    // thing. This may also be redundant, but better to be safe than
+    // sorry imho.
+    m_pSerial->write('\r');
+#endif
+    m_Lock.release();
 }

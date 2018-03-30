@@ -18,3 +18,26 @@
  */
 
 #include "pedigree/kernel/machine/Bus.h"
+
+Bus::Bus(const char *pName) : m_pName(pName)
+{
+}
+
+Bus::~Bus()
+{
+}
+
+Bus::Type Bus::getType()
+{
+    return Device::Bus;
+}
+
+void Bus::getName(String &str)
+{
+    str = m_pName;
+}
+
+void Bus::dump(String &str)
+{
+    str = m_pName;
+}

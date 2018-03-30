@@ -1078,7 +1078,7 @@ if env['clang_cross']:
                             '-Wno-reserved-id-macro', '-Wno-c++98-compat',
                             '-Wno-c++98-compat-pedantic', '-Wno-packed',
                             '-Wno-padded', '-Wno-error=newline-eof',
-                            '-Wno-weak-vtables', '-Wno-exit-time-destructors',
+                            '-Wno-exit-time-destructors',
                             '-Wno-global-constructors', '-Wno-unused-macros',
                             '-Wno-format', '-Wno-variadic-macros',
                             '-Wno-gnu-anonymous-struct', '-Wno-gnu-include-next',

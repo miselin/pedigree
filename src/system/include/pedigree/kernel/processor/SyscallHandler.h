@@ -37,9 +37,7 @@ class SyscallHandler
 
   protected:
     /** Virtual destructor */
-    inline virtual ~SyscallHandler()
-    {
-    }
+    virtual ~SyscallHandler();
 };
 
 /** @} */

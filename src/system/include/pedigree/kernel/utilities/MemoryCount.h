@@ -20,28 +20,14 @@
 #ifndef _MEMORY_COUNT_H
 #define _MEMORY_COUNT_H
 
+#include "pedigree/kernel/compiler.h"
+
 /** RAII handler to figure out memory usage delta from start to end of scope. */
-class MemoryCount
+class EXPORTED_PUBLIC MemoryCount
 {
   public:
-    MemoryCount(const char *context)
-    {
-        m_StartPages = PhysicalMemoryManager::instance().freePageCount();
-        m_EndPages = 0;
-        m_Context = context;
-    }
-
-    virtual ~MemoryCount()
-    {
-        m_EndPages = PhysicalMemoryManager::instance().freePageCount();
-        ssize_t diff = static_cast<ssize_t>(m_StartPages - m_EndPages);
-        NOTICE(
-            "KERNELELF: Page difference while executing "
-            << m_Context << ": " << Dec << diff << Hex);
-        NOTICE(
-            "KERNELELF:   -> difference is " << Dec << ((diff * 4096) / 1024)
-                                             << Hex << "K");
-    }
+    MemoryCount(const char *context);
+    virtual ~MemoryCount();
 
   private:
     size_t m_StartPages;

@@ -58,9 +58,8 @@ class Keyboard
         Led5 = 1 << 7,
     };
 
-    virtual ~Keyboard()
-    {
-    }
+    Keyboard();
+    virtual ~Keyboard();
 
     /**
      * Initialises the device.
@@ -106,18 +105,13 @@ class Keyboard
      * A single byte bitmap is returned with flags from KeyboardLeds
      * identifying which LEDs are on or off.
      */
-    virtual char getLedState()
-    {
-        return 0;
-    }
+    virtual char getLedState();
 
     /**
      * Sets the current state of LEDs on the keyboard.
      * If a keyboard does not have any LEDs this is essentially a no-op.
      */
-    virtual void setLedState(char state)
-    {
-    }
+    virtual void setLedState(char state);
 };
 
 #endif

@@ -17,24 +17,33 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_CONTROLLER_H
-#define MACHINE_CONTROLLER_H
+#include "pedigree/kernel/processor/IoBase.h"
 
-#include "pedigree/kernel/machine/Device.h"
+IoBase::IoBase() = default;
+IoBase::~IoBase() = default;
 
-/**
- * A controller is a hub that controls multiple devices.
- */
-class Controller : public Device
+uint64_t IoBase::read64LowFirst(size_t offset)
 {
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
+    uint64_t low = read32(offset);
+    uint64_t high = read32(offset + 4);
+    return low | (high << 32);
+}
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
-};
+uint64_t IoBase::read64HighFirst(size_t offset)
+{
+    uint64_t high = read32(offset + 4);
+    uint64_t low = read32(offset);
+    return low | (high << 32);
+}
 
-#endif
+void IoBase::write64LowFirst(uint64_t value, size_t offset)
+{
+    write32(value & 0xFFFFFFFF, offset);
+    write32(value >> 32, offset + 4);
+}
+
+void IoBase::write64HighFirst(uint64_t value, size_t offset)
+{
+    write32(value >> 32, offset + 4);
+    write32(value & 0xFFFFFFFF, offset);
+}

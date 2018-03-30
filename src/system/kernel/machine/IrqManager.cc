@@ -17,24 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_CONTROLLER_H
-#define MACHINE_CONTROLLER_H
+#include "pedigree/kernel/machine/IrqManager.h"
 
-#include "pedigree/kernel/machine/Device.h"
+IrqManager::IrqManager() = default;
+IrqManager::~IrqManager() = default;
 
-/**
- * A controller is a hub that controls multiple devices.
- */
-class Controller : public Device
+void IrqManager::tick()
 {
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
+}
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
-};
-
-#endif
+bool IrqManager::control(uint8_t irq, ControlCode code, size_t argument)
+{
+    return true;
+}

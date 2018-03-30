@@ -29,9 +29,7 @@
 class MemoryTrapHandler
 {
   public:
-    virtual ~MemoryTrapHandler()
-    {
-    }
+    virtual ~MemoryTrapHandler();
 
     /** Trap event handler.
         \param address The address of the trap.

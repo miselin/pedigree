@@ -18,3 +18,10 @@
  */
 
 #include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
+
+ThreadToCoreAllocationAlgorithm::ThreadToCoreAllocationAlgorithm() = default;
+ThreadToCoreAllocationAlgorithm::~ThreadToCoreAllocationAlgorithm() = default;
+
+void ThreadToCoreAllocationAlgorithm::threadRemoved(Thread *pThread)
+{
+}

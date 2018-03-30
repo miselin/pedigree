@@ -45,32 +45,17 @@ class ServiceFeatures
         probe = 4
     };
 
-    ServiceFeatures() : m_OpEnum(0)
-    {
-    }
-    virtual ~ServiceFeatures()
-    {
-    }
+    ServiceFeatures();
+    virtual ~ServiceFeatures();
 
     /** Does the operation provide a specific service? */
-    virtual bool provides(Type service)
-    {
-        return (m_OpEnum & service);
-    }
+    virtual bool provides(Type service);
 
     /** Used by the Service itself when installing */
-    virtual void add(Type s)
-    {
-        if (!provides(s))
-            m_OpEnum |= static_cast<uint32_t>(s);
-    }
+    virtual void add(Type s);
 
     /** Used by the Service itself to dynamically change offered features */
-    virtual void remove(Type s)
-    {
-        if (provides(s))
-            m_OpEnum &= ~static_cast<uint32_t>(s);
-    }
+    virtual void remove(Type s);
 
   private:
     uint32_t m_OpEnum;

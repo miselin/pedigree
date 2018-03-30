@@ -39,10 +39,7 @@ class TimerHandler
     virtual void timer(uint64_t delta, InterruptState &state) = 0;
 
   protected:
-    /** Virtual destructor */
-    inline virtual ~TimerHandler()
-    {
-    }
+    virtual ~TimerHandler();
 };
 
 /** @} */

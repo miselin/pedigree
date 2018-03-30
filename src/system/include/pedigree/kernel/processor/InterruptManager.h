@@ -60,9 +60,9 @@ class InterruptManager
 
   protected:
     /** The constructor */
-    inline InterruptManager();
+    InterruptManager();
     /** The destructor */
-    inline virtual ~InterruptManager();
+    virtual ~InterruptManager();
 
   private:
     /** The copy-constructor
@@ -74,15 +74,5 @@ class InterruptManager
 };
 
 /** @} */
-
-//
-// Part of the Implementation
-//
-InterruptManager::InterruptManager()
-{
-}
-InterruptManager::~InterruptManager()
-{
-}
 
 #endif

@@ -18,3 +18,6 @@
  */
 
 #include "pedigree/kernel/Service.h"
+
+Service::Service() = default;
+Service::~Service() = default;

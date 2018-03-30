@@ -49,9 +49,9 @@ class SyscallManager
 
   protected:
     /** The constructor */
-    inline SyscallManager();
+    SyscallManager();
     /** The destructor */
-    inline virtual ~SyscallManager();
+    virtual ~SyscallManager();
 
   private:
     /** The copy-constructor
@@ -63,15 +63,5 @@ class SyscallManager
 };
 
 /** @} */
-
-//
-// Part of the Implementation
-//
-SyscallManager::SyscallManager()
-{
-}
-SyscallManager::~SyscallManager()
-{
-}
 
 #endif

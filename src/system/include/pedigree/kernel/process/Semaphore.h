@@ -98,23 +98,10 @@ class EXPORTED_PUBLIC Semaphore
     {
       public:
         SemaphoreEvent();
-        virtual ~SemaphoreEvent()
-        {
-        }
-
-        virtual size_t serialize(uint8_t *pBuffer)
-        {
-            return 0;
-        }
-        static bool unserialize(uint8_t *pBuffer, SemaphoreEvent &event)
-        {
-            return true;
-        }
-
-        virtual size_t getNumber()
-        {
-            return EventNumbers::Interrupt;
-        }
+        virtual ~SemaphoreEvent();
+        virtual size_t serialize(uint8_t *pBuffer);
+        static bool unserialize(uint8_t *pBuffer, SemaphoreEvent &event);
+        virtual size_t getNumber();
     };
 
     size_t magic;
