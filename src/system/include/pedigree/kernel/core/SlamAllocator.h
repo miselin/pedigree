@@ -120,6 +120,9 @@ class SlamAllocator;
 /// and frees of blocks bigger than the native page size.
 #define SLABS_FOR_HUGE_ALLOCS 0
 
+/// Be verbose about reasons for invalidity in isPointerValid
+#define VERBOSE_ISPOINTERVALID 0
+
 /** A cache allocates objects of a constant size. */
 class SlamCache
 {

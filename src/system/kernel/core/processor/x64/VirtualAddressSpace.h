@@ -107,6 +107,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
     virtual Stack *allocateStack(size_t stackSz);
     virtual void freeStack(Stack *pStack);
 
+    virtual bool memIsInKernelHeap(void *pMem);
     virtual bool memIsInHeap(void *pMem);
     virtual void *getEndOfHeap();
 

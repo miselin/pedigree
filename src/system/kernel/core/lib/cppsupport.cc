@@ -306,7 +306,13 @@ void operator delete(void *p) noexcept
         return;
     if (SlamAllocator::instance().isPointerValid(
             reinterpret_cast<uintptr_t>(p)))
+    {
         SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
+    }
+    else
+    {
+        ERROR("operator delete failed as pointer was invalid");
+    }
 }
 void operator delete[](void *p) noexcept
 {
@@ -314,7 +320,13 @@ void operator delete[](void *p) noexcept
         return;
     if (SlamAllocator::instance().isPointerValid(
             reinterpret_cast<uintptr_t>(p)))
+    {
         SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
+    }
+    else
+    {
+        ERROR("operator delete[] failed as pointer was invalid");
+    }
 }
 void operator delete(void *p, void *q) noexcept
 {

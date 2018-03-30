@@ -95,12 +95,32 @@ VirtualAddressSpace *VirtualAddressSpace::create()
     return new X64VirtualAddressSpace();
 }
 
-bool X64VirtualAddressSpace::memIsInHeap(void *pMem)
+bool X64VirtualAddressSpace::memIsInKernelHeap(void *pMem)
 {
     if (pMem < KERNEL_VIRTUAL_HEAP)
+    {
         return false;
+    }
+    else if (pMem >= adjust_pointer(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_HEAP_SIZE))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool X64VirtualAddressSpace::memIsInHeap(void *pMem)
+{
+    if (pMem < m_Heap)
+    {
+        WARNING("memIsInHeap: " << pMem << " is below the kernel heap.");
+        return false;
+    }
     else if (pMem >= getEndOfHeap())
+    {
+        WARNING("memIsInHeap: " << pMem << " is beyond the end of the heap (" << getEndOfHeap() << ").");
         return false;
+    }
     else
         return true;
 }
@@ -122,7 +142,9 @@ bool X64VirtualAddressSpace::isAddressValid(void *virtualAddress)
 {
     if (reinterpret_cast<uint64_t>(virtualAddress) < 0x0008000000000000ULL ||
         reinterpret_cast<uint64_t>(virtualAddress) >= 0xFFF8000000000000ULL)
+    {
         return true;
+    }
     return false;
 }
 bool X64VirtualAddressSpace::isMapped(void *virtualAddress)

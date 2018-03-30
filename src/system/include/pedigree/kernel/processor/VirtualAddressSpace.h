@@ -177,6 +177,9 @@ class VirtualAddressSpace
         m_HeapEnd = heapEnd;
     }
 
+    /** Determines whether a given address is within the kernel's heap region. */
+    virtual bool memIsInKernelHeap(void *pMem) = 0;
+
     /** Determines if a given point is within the virtual address space region
      * dedicated to the kernel heap. */
     virtual bool memIsInHeap(void *pMem) = 0;

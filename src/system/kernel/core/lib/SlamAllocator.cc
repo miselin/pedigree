@@ -365,6 +365,9 @@ bool SlamCache::isPointerValid(uintptr_t object)
     // Possible double free?
     if (N->magic == MAGIC_VALUE)
     {
+#if VERBOSE_ISPOINTERVALID
+        WARNING("SlamCache::isPointerValid: memory " << Hex << object << " has invalid magic (" << N->magic << " != " << MAGIC_VALUE << ").");
+#endif
         return false;
     }
 #endif
@@ -1283,7 +1286,7 @@ void SlamAllocator::free(uintptr_t mem)
 
 // Ensure this pointer is even on the heap...
 #ifndef PEDIGREE_BENCHMARK
-    if (!Processor::information().getVirtualAddressSpace().memIsInHeap(
+    if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
             reinterpret_cast<void *>(mem)))
         FATAL_NOLOCK(
             "SlamAllocator::free - given pointer '"
@@ -1352,13 +1355,20 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
 
     // 0 is fine to free.
     if (!mem)
+    {
         return true;
+    }
 
 // On the heap?
 #ifndef PEDIGREE_BENCHMARK
-    if (!Processor::information().getVirtualAddressSpace().memIsInHeap(
+    if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
             reinterpret_cast<void *>(mem)))
+    {
+#if VERBOSE_ISPOINTERVALID
+        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " is not in the heap region.");
+#endif
         return false;
+    }
 #endif
 
 #if CRIPPLINGLY_VIGILANT
@@ -1374,6 +1384,9 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
 #if OVERRUN_CHECK
     if (head->magic != VIGILANT_MAGIC)
     {
+#if VERBOSE_ISPOINTERVALID
+        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " failed magic check (" << head->magic << " != " << VIGILANT_MAGIC << ").");
+#endif
         return false;
     }
 // Footer gets checked in SlamCache::free, as we don't know the object size.
@@ -1382,6 +1395,9 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     // If the cache is null, then the pointer is corrupted.
     if (head->cache == 0)
     {
+#if VERBOSE_ISPOINTERVALID
+        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " does not reference a valid SlamCache.");
+#endif
         return false;
     }
 
@@ -1404,9 +1420,8 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
         return false;
     }
 
-    // Free the memory
-    head->cache->isPointerValid(mem - sizeof(AllocHeader));
-    return true;
+    // Final validation.
+    return head->cache->isPointerValid(mem - sizeof(AllocHeader));
 }
 
 bool _assert_ptr_valid(uintptr_t ptr)
