@@ -1909,7 +1909,7 @@ bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
     UnixSocket *local = m_Socket;
 
     bool ok = false;
-    if (read)
+    if (read && local)
     {
         read = local->select(false, 0);
         ok = ok || read;
@@ -1920,7 +1920,7 @@ bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
         }
     }
 
-    if (write)
+    if (write && remote)
     {
         write = remote->select(true, 0);
         ok = ok || write;
