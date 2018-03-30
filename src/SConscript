@@ -43,7 +43,7 @@ SConscript(path2sconscript('external'), exports=['host_env'])
 # Build utilities that run on the host during the kernel build.
 SConscript(path2sconscript('buildutil'), exports=['host_env'])
 
-if env['build_modules']:
+if env['build_subsys']:
   # POSIX subsystem.
   SConscript(path2sconscript('subsys', 'posix'),
              exports=['env', 'userspace_env'])
@@ -54,6 +54,8 @@ if env['build_modules']:
   if 'NATIVE_SUBSYSTEM' in env['EXTRA_CONFIG']:
       SConscript(path2sconscript('subsys', 'native'),
                  exports=['env', 'userspace_env'])
+
+if env['build_modules']:
   # Kernel drivers and modules.
   SConscript(path2sconscript('modules'), exports=['env'])
 

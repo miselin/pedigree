@@ -57,7 +57,8 @@ opts.AddVariables(
     BoolVariable('build_kernel_only', 'Build the kernel ONLY (forces all other build_*s to 0).', 0),
     BoolVariable('build_kernel', 'Build the kernel.', 1),
     BoolVariable('build_configdb', 'Build the configuration database (requires `sqlite3`).', 1),
-    BoolVariable('build_modules', 'Build drivers, subsystems, and system modules (requires a useful `tar`).', 1),
+    BoolVariable('build_modules', 'Build drivers and system modules (requires a useful `tar`).', 1),
+    BoolVariable('build_subsys', 'Build subsystems (requires a useful `tar`).', 1),
     BoolVariable('build_lgpl', 'Build LGPL libraries (e.g., libSDL).', 1),
     BoolVariable('build_apps', 'Build in-tree applications (e.g., `ttyterm`).', 1),
     BoolVariable('build_libs', 'Build in-tree libraries (e.g., `libui`).', 1),
@@ -305,10 +306,13 @@ Help(opts.GenerateHelpText(env))
 host_environ = {'ENV': environment}
 host_cxx = os.environ.get('CXX')
 host_cc = os.environ.get('CC')
+host_link = os.environ.get('LINK')
 if host_cxx:
     host_environ['CXX'] = host_cxx
 if host_cc:
     host_environ['CC'] = host_cc
+if host_link:
+    host_environ['LINK'] = host_link
 host_env = Environment(platform='posix',
                        IMPLICIT_COMMAND_DEPENDENCIES=False, **host_environ)
 
@@ -393,6 +397,7 @@ if env['build_tests_only']:
     env['build_kernel'] = False
     env['build_configdb'] = False
     env['build_modules'] = False
+    env['build_subsys'] = False
     env['build_lgpl'] = False
     env['build_apps'] = False
     env['build_libs'] = False
@@ -403,13 +408,14 @@ if env['build_kernel_only']:
     env['build_kernel'] = True
     env['build_configdb'] = False
     env['build_modules'] = False
+    env['build_subsys'] = False
     env['build_lgpl'] = False
     env['build_apps'] = False
     env['build_libs'] = False
     env['build_images'] = False
 if env['build_images']:
     if not all(env[x] for x in ('build_kernel', 'build_configdb',
-                                'build_modules', 'build_apps',
+                                'build_modules', 'build_subsys', 'build_apps',
                                 'build_libs', 'build_images')):
         raise SCons.Errors.UserError('build_images requires all build_* options set to 1.')
 if env['build_configdb'] and not env['build_modules']:
@@ -1046,10 +1052,6 @@ if env['clang_cross']:
         env['CXX'] = 'clang++'
         env['LINK'] = 'clang'
 
-    env['TARGET_CC'] = 'clang'
-    env['TARGET_CXX'] = 'clang++'
-    env['TARGET_LINK'] = 'clang'
-
     # TODO(miselin): correct triple (e.g. ARM)
     triple = ['-target']
     if env['ARCH_TARGET'] == 'X64':
@@ -1067,7 +1069,7 @@ if env['clang_cross']:
         generic_flags = []
         generic_ccflags = []
     else:
-        generic_flags = ['-Qunused-arguments']
+        generic_flags = ['-Qunused-arguments', '-Wno-undef']
         generic_ccflags = ['-Wno-unused-parameter']
 
     if env['clang_max_pedantry'] and not env['force_asan']:
@@ -1082,7 +1084,7 @@ if env['clang_cross']:
                             '-Wno-gnu-anonymous-struct', '-Wno-gnu-include-next',
                             '-Wno-unused-private-field', '-Wno-switch-enum',
                             '-Wno-unused-variable', '-Wno-unused-function',
-                            '-Wno-unreachable-code', '-Wno-nested-anon-types',
+                            '-Wno-nested-anon-types'
                             ]
 
     env['CLANG_BASE_LINKFLAGS'] = triple + cross_gcc + generic_flags
@@ -1100,16 +1102,10 @@ if env['clang_cross']:
             'LINKFLAGS': env['CLANG_BASE_LINKFLAGS'],
         }, unique=0)
 
-    env.MergeFlags({
-        'TARGET_CCFLAGS': triple + generic_flags + generic_ccflags,
-        'TARGET_LINKFLAGS': env['CLANG_BASE_LINKFLAGS'],
-    }, unique=0)
-
     # Do we need to do analysis?
     if env['clang_analyse']:
         env.MergeFlags({
             'CCFLAGS': ['--analyze'],
-            'TARGET_CCFLAGS': ['--analyze'],
             'LINKFLAGS': ['--analyze'],
         })
 
@@ -1119,7 +1115,6 @@ if env['clang_cross']:
         # no point introducing them to the build.
         env['build_configdb'] = False
         env['build_lgpl'] = False
-        env['build_apps'] = False
         env['build_libs'] = False
         env['build_images'] = False
 

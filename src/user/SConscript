@@ -202,9 +202,11 @@ add_flags = {
     'tour': ['-Wno-write-strings'],
 }
 
-env_clone['CFLAGS'] = buildutils.userspace.fixFlags(env, env['CFLAGS'])
-env_clone['CCFLAGS'] = buildutils.userspace.fixFlags(env, env['CCFLAGS'])
-env_clone['CXXFLAGS'] = buildutils.userspace.fixFlags(env, env['CXXFLAGS'])
+for entry in ('CC', 'CXX', 'LINK'):
+    env_clone[entry] = env['TARGET_' + entry]
+env_clone['CFLAGS'] = buildutils.userspace.fixFlags(env, env['TARGET_CFLAGS'])
+env_clone['CCFLAGS'] = buildutils.userspace.fixFlags(env, env['TARGET_CCFLAGS'])
+env_clone['CXXFLAGS'] = buildutils.userspace.fixFlags(env, env['TARGET_CXXFLAGS'])
 env_clone['CPPDEFINES'] += ['PEDIGREE', '__PEDIGREE__']
 env_clone['LIBS'] = base_libs
 env_clone['LIBPATH'] = [builddir, builddir.Dir('libs')]
