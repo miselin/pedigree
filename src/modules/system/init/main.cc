@@ -67,8 +67,7 @@ static int init_stage2(void *param)
     if (tryingLinux)
     {
         // Jump to runlevel 5
-        // argv.pushBack(SharedPointer<String>::allocate(String("5")));
-        argv.pushBack(SharedPointer<String>::allocate(String("S")));
+        argv.pushBack(SharedPointer<String>::allocate(String("5")));
     }
 
     Process *pProcess =
