@@ -458,6 +458,8 @@ bool VFS::remove(const String &path, File *pStartNode)
 
 bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 {
+    return true;
+
 #ifdef VFS_STANDALONE
     // We don't check permissions on standalone builds of the VFS.
     return true;
@@ -516,11 +518,17 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
         }
     }
 
+    if (!check)
+    {
+        NOTICE("no permissions? perms=" << Oct << permissions << ", check=" << check);
+        return false;
+    }
+
     // Needed permissions.
-    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) |
-                      (bExecute ? FILE_UX : 0);
+    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
     if ((check & needed) != needed)
     {
+        NOTICE("VFS::checkAccess: needed " << Oct << needed << ", check was " << check);
         SYSCALL_ERROR(PermissionDenied);
         return false;
     }
