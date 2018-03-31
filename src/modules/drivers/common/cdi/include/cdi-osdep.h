@@ -14,6 +14,9 @@
 #include "modules/Module.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvariadic-macros"
+
 struct cdi_driver;
 
 /**
@@ -117,5 +120,7 @@ struct FILE
 #define memcpy MemoryCopy
 #define memset ByteSet
 #define printf Noticef
+
+#pragma GCC diagnostic pop
 
 #endif

@@ -116,9 +116,10 @@ crti_files = ["crti" + suffix + ".s"]
 crtn_files = ["crtn" + suffix + ".s"]
 
 # To include a new directory for includes, just add it to the list
+musl_headerdir = builddir.Dir('musl').Dir('include')
 include = [
     '#src',
-    builddir.Dir('musl').Dir('include'),
+    # musl_headerdir,
     '#src/subsys/posix/syscalls',
     # '#src/subsys/posix/include',
     '#/src/modules',
@@ -178,7 +179,7 @@ env_clone['AS'] = userspace_env_clone['AS']
 env_clone['ASFLAGS'] = userspace_env_clone['ASFLAGS']
 env_clone.MergeFlags({
     'CPPDEFINES': ['_POSIX_C_SOURCE=200112L', '_XOPEN_SOURCE=600'],
-    'TARGET_CCFLAGS': ['-Wno-undef', '-Wno-parentheses'],
+    'TARGET_CCFLAGS': ['-Wno-undef', '-Wno-parentheses', '-isystem', builddir.Dir('musl').Dir('include')],
 })
 env_clone['CPPPATH'].append('#src/system/kernel')  # Version.h
 buildutils.modules.buildModule(env_clone, final_output, posix_objname, posix_files)
@@ -277,8 +278,8 @@ def create_vdso_h(target, source, env):
                 fd.write('0x%02x,' % (b,))
             fd.write('};\n')
 
-            fd.write('const int __vdso_so_len = %d;' % (len(fs_data),))
-            fd.write('const int __vdso_so_pages = %d;' % (
+            fd.write('const int __vdso_so_len = %d;\n' % (len(fs_data),))
+            fd.write('const int __vdso_so_pages = %d;\n' % (
                 (len(fs_data) + 0x1000) / 0x1000,))
 
 

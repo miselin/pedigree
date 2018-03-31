@@ -28,6 +28,12 @@
 #include "NativeSyscallManager.h"
 #include "pedigree/native/nativeSyscallNumbers.h"
 
+class Foo : public NativeBase
+{
+  public:
+    virtual ReturnState syscall(uint64_t subid, void *params, size_t params_size);
+};
+
 NativeSyscallManager::NativeSyscallManager()
 {
 }
@@ -174,34 +180,29 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
     return 0;
 }
 
-class Foo : public NativeBase
-{
-  public:
-    virtual ReturnState
-    syscall(uint64_t subid, void *params, size_t params_size)
-    {
-        NOTICE("syscall subid=" << subid);
-
-        ReturnState ret;
-        switch (subid)
-        {
-            case 0x1234:
-                ret.success = true;
-                ret.value = 0x4321;
-                break;
-            default:
-                ret.success = false;
-                ret.meta = 0;
-        }
-
-        return ret;
-    }
-};
-
 NativeBase *NativeSyscallManager::factory(uint64_t guid)
 {
     NOTICE("NativeSyscallManager::factory(" << guid << ")");
     if (guid == 0xdeadbeef)
         return new Foo();
     return 0;
+}
+
+ReturnState Foo::syscall(uint64_t subid, void *params, size_t params_size)
+{
+    NOTICE("syscall subid=" << subid);
+
+    ReturnState ret;
+    switch (subid)
+    {
+        case 0x1234:
+            ret.success = true;
+            ret.value = 0x4321;
+            break;
+        default:
+            ret.success = false;
+            ret.meta = 0;
+    }
+
+    return ret;
 }

@@ -47,8 +47,6 @@
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/linker/Elf.h"
 
-#include "modules/system/lwip/include/lwip/api.h"
-
 #include "file-syscalls.h"
 
 #include <signal.h>
@@ -72,6 +70,42 @@ ProcessGroupManager ProcessGroupManager::m_Instance;
 
 extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
+
+ProcessGroupManager::ProcessGroupManager() : m_GroupIds()
+{
+    m_GroupIds.set(0);
+}
+
+ProcessGroupManager::~ProcessGroupManager()
+{
+}
+
+size_t ProcessGroupManager::allocateGroupId()
+{
+    size_t bit = m_GroupIds.getFirstClear();
+    m_GroupIds.set(bit);
+    return bit;
+}
+
+void ProcessGroupManager::setGroupId(size_t gid)
+{
+    if (m_GroupIds.test(gid))
+    {
+        PS_NOTICE("ProcessGroupManager: setGroupId called on a group ID that "
+                "existed already!");
+    }
+    m_GroupIds.set(gid);
+}
+
+bool ProcessGroupManager::isGroupIdValid(size_t gid) const
+{
+    return m_GroupIds.test(gid);
+}
+
+void ProcessGroupManager::returnGroupId(size_t gid)
+{
+    m_GroupIds.clear(gid);
+}
 
 PosixSubsystem::PosixSubsystem(PosixSubsystem &s)
     : Subsystem(s), m_SignalHandlers(), m_SignalHandlersLock(), m_FdMap(),
@@ -1096,10 +1130,10 @@ bool PosixSubsystem::loadElf(
 
             if (zeroStart < end)
             {
-                MemoryMappedObject *pObject =
+                MemoryMappedObject *pAnonymousRegion =
                     MemoryMapManager::instance().mapAnon(
                         zeroStart, end - zeroStart, perms);
-                if (!pObject)
+                if (!pAnonymousRegion)
                 {
                     ERROR("PosixSubsystem::loadElf: failed to map anonymous "
                           "pages for filesz/memsz mismatch");
@@ -1649,12 +1683,12 @@ bool PosixSubsystem::invoke(
     if (!state)
     {
         // Just create a new thread, this is not a full replace.
-        Thread *pThread = new Thread(
+        Thread *pNewThread = new Thread(
             pProcess,
             reinterpret_cast<Thread::ThreadStartFunc>(
                 interpreterEntryPoint),
             0, loaderStack);
-        pThread->detach();
+        pNewThread->detach();
 
         return true;
     }
@@ -1678,5 +1712,5 @@ bool PosixSubsystem::invoke(
             reinterpret_cast<uintptr_t>(loaderStack));
     }
 
-    return true;
+    // unreachable
 }

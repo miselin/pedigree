@@ -72,7 +72,7 @@ struct thread_meta
 
 static int thread_shim(void *arg)
 {
-    struct thread_meta *meta = (struct thread_meta *) arg;
+    struct thread_meta *meta = static_cast<struct thread_meta *>(arg);
     meta->thread(meta->arg);
     return 0;
 }

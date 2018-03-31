@@ -20,6 +20,7 @@
 #ifndef SERVICE_H
 #define SERVICE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -35,7 +36,7 @@
  *  notified of Disk changes (LoDisk, plug & play, hotplug drives) and
  *  update the partition tree accordingly.
  */
-class Service
+class EXPORTED_PUBLIC Service
 {
   public:
     Service();

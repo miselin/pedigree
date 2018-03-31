@@ -470,3 +470,70 @@ void HidReport::InputBlock::feedInput(
     // Update the bit offset
     nBitOffset += nBlockSize;
 }
+
+HidReport::LocalState::LocalState()
+    : nUsagePage(~0), nLogMin(~0), nLogMax(~0), nPhysMin(~0),
+      nPhysMax(~0), nReportSize(~0), nReportID(~0), nReportCount(~0),
+      pUsages(0), nUsageMin(~0), nUsageMax(~0)
+{
+}
+
+HidReport::LocalState::~LocalState()
+{
+    // The parser is required to set pUsages to zero when it's actually
+    // used
+    if (pUsages)
+        delete pUsages;
+}
+
+/// Resets the local values (called every time a Main item occurs)
+void HidReport::LocalState::resetLocalValues()
+{
+    // The parser is required to set pUsages to zero when it's actually
+    // used
+    if (pUsages)
+    {
+        delete pUsages;
+        pUsages = 0;
+    }
+    nUsageMin = ~0;
+    nUsageMax = ~0;
+}
+
+/// Returns the usage number represented by the given index
+uint16_t HidReport::LocalState::getUsageByIndex(uint16_t nUsageIndex)
+{
+    // If there's an usage vector, return the usage value in it or zero
+    // if the index is not valid
+    if (pUsages)
+        return nUsageIndex < pUsages->count() ?
+                   (*pUsages)[nUsageIndex] :
+                   0;
+
+    // The usage value if in range, 0 otherwise
+    return (nUsageMin + nUsageIndex) <= nUsageMax ?
+               nUsageMin + nUsageIndex :
+               0;
+}
+
+/// Copy constructor
+HidReport::LocalState &HidReport::LocalState::operator=(LocalState &s)
+{
+    // Copy all the data we need
+    nUsagePage = s.nUsagePage;
+    nLogMin = s.nLogMin;
+    nLogMax = s.nLogMax;
+    nPhysMin = s.nPhysMin;
+    nPhysMax = s.nPhysMax;
+    nReportSize = s.nReportSize;
+    nReportID = s.nReportID;
+    nReportCount = s.nReportCount;
+    pUsages = s.pUsages;
+    nUsageMin = s.nUsageMin;
+    nUsageMax = s.nUsageMax;
+
+    // Make sure the usage vector won't get deleted
+    s.pUsages = 0;
+
+    return *this;
+}

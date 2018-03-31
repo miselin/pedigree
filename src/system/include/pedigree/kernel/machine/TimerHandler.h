@@ -20,6 +20,7 @@
 #ifndef KERNEL_MACHINE_TIMERHANDLER_H
 #define KERNEL_MACHINE_TIMERHANDLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -28,7 +29,7 @@
 
 /** Abstract base class for all timer handlers. All those handlers must
  * be derived from this class */
-class TimerHandler
+class EXPORTED_PUBLIC TimerHandler
 {
   public:
     /** Called when the handler is registered with the Timer/SchedulerTimer

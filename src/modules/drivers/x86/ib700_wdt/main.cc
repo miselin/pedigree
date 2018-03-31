@@ -47,56 +47,15 @@ enum Ib700TimeEntries
 class Ib700Watchdog : public Device, public TimerHandler
 {
   public:
-    Ib700Watchdog(Device *pDev) : Device(pDev)
-    {
-        setSpecificType(String("watchdog-timer"));
-    }
+    Ib700Watchdog(Device *pDev);
 
-    virtual ~Ib700Watchdog()
-    {
-        if (m_pBase)
-        {
-            // Disable any existing timer.
-            m_pBase->write16(0, 2);
-        }
-    }
+    virtual ~Ib700Watchdog();
 
-    virtual bool initialise()
-    {
-        m_pBase = addresses()[0]->m_Io;
-        if (!m_pBase)
-            return false;
+    virtual bool initialise();
 
-        // Disable any existing timer.
-        m_pBase->write16(0, 0);
+    virtual void getName(String &str);
 
-        // Register ourselves with the core timer so we can continually
-        // reset the watchdog timer as needed.
-        Timer *t = Machine::instance().getTimer();
-        if (t)
-        {
-            t->registerHandler(this);
-
-            // Enable our timer with a 10 second timeout.
-            m_pBase->write16(Seconds10, 2);
-
-            return true;
-        }
-
-        return false;
-    }
-
-    virtual void getName(String &str)
-    {
-        str = "ib700_wdt";
-    }
-
-    virtual void timer(uint64_t delta, InterruptState &state)
-    {
-        // Timer fired, push the watchdog back now (watchdog expects to be
-        // polled by the system regularly).
-        m_pBase->write16(Seconds10, 2);
-    }
+    virtual void timer(uint64_t delta, InterruptState &state);
 
   private:
     IoBase *m_pBase;
@@ -136,3 +95,54 @@ static void exit()
 }
 
 MODULE_INFO("ib700_wdt", &entry, &exit);
+
+Ib700Watchdog::Ib700Watchdog(Device *pDev) : Device(pDev)
+{
+    setSpecificType(String("watchdog-timer"));
+}
+
+Ib700Watchdog::~Ib700Watchdog()
+{
+    if (m_pBase)
+    {
+        // Disable any existing timer.
+        m_pBase->write16(0, 2);
+    }
+}
+
+bool Ib700Watchdog::initialise()
+{
+    m_pBase = addresses()[0]->m_Io;
+    if (!m_pBase)
+        return false;
+
+    // Disable any existing timer.
+    m_pBase->write16(0, 0);
+
+    // Register ourselves with the core timer so we can continually
+    // reset the watchdog timer as needed.
+    Timer *t = Machine::instance().getTimer();
+    if (t)
+    {
+        t->registerHandler(this);
+
+        // Enable our timer with a 10 second timeout.
+        m_pBase->write16(Seconds10, 2);
+
+        return true;
+    }
+
+    return false;
+}
+
+void Ib700Watchdog::getName(String &str)
+{
+    str = "ib700_wdt";
+}
+
+void Ib700Watchdog::timer(uint64_t delta, InterruptState &state)
+{
+    // Timer fired, push the watchdog back now (watchdog expects to be
+    // polled by the system regularly).
+    m_pBase->write16(Seconds10, 2);
+}

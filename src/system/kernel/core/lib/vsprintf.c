@@ -25,7 +25,9 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include <stdarg.h>
 
+#ifdef __clang__
 #pragma GCC diagnostic ignored "-Wgnu-statement-expression"
+#endif
 
 /* we use this so that we can do without the ctype library */
 #define is_digit(c) ((c) >= '0' && (c) <= '9')

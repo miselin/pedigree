@@ -26,12 +26,8 @@
 class ScsiCommand
 {
   public:
-    inline ScsiCommand()
-    {
-    }
-    virtual inline ~ScsiCommand()
-    {
-    }
+    ScsiCommand();
+    virtual ~ScsiCommand();
 
     virtual size_t serialise(uintptr_t &addr) = 0;
 };
@@ -41,24 +37,11 @@ namespace ScsiCommands
 class Inquiry : public ScsiCommand
 {
   public:
-    inline Inquiry(
+    Inquiry(
         uint16_t len = 0, bool enableVitalData = false, uint8_t pageCode = 0,
-        uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0x12;
-        command.epvd = enableVitalData;
-        if (enableVitalData)
-            command.pageCode = pageCode;
-        command.len = HOST_TO_BIG16(len);
-        command.control = ctl;
-    }
+        uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -73,18 +56,9 @@ class Inquiry : public ScsiCommand
 class UnitReady : public ScsiCommand
 {
   public:
-    inline UnitReady(uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0;
-        command.control = ctl;
-    }
+    UnitReady(uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -97,20 +71,9 @@ class UnitReady : public ScsiCommand
 class ReadSense : public ScsiCommand
 {
   public:
-    inline ReadSense(uint8_t desc, uint8_t len, uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0x03;
-        command.desc = desc;
-        command.len = len;
-        command.control = ctl;
-    }
+    ReadSense(uint8_t desc, uint8_t len, uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -125,23 +88,11 @@ class ReadSense : public ScsiCommand
 class StartStop : public ScsiCommand
 {
   public:
-    inline StartStop(
+    StartStop(
         bool imm, uint8_t newpower, bool eject_load, bool start,
-        uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0x1b;
-        command.imm = imm ? 1 : 0;
-        command.setup =
-            (start ? 1 : 0) | ((eject_load ? 1 : 0) << 1) | (newpower << 4);
-        command.control = ctl;
-    }
+        uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -156,27 +107,12 @@ class StartStop : public ScsiCommand
 class SendDiagnostic : public ScsiCommand
 {
   public:
-    inline SendDiagnostic(
+    SendDiagnostic(
         bool selfTest, uint8_t selfTestCode = 0, uintptr_t params = 0,
         size_t paramLen = 0, bool deviceOffline = false,
-        bool unitOffline = false, uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0x1d;
-        command.unitOffline = unitOffline;
-        command.devOffline = deviceOffline;
-        command.selfTest = selfTest;
-        command.pf = 0;
-        command.selfTestCode = selfTestCode;
-        command.paramListLen = HOST_TO_BIG16(paramLen);
-        command.control = ctl;
-    }
+        bool unitOffline = false, uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -196,18 +132,9 @@ class SendDiagnostic : public ScsiCommand
 class ReadTocCommand : public ScsiCommand
 {
   public:
-    inline ReadTocCommand(uint16_t nativeBlockSize, uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0x43;
-        command.len = HOST_TO_BIG16(nativeBlockSize);
-    }
+    ReadTocCommand(uint16_t nativeBlockSize, uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -235,18 +162,9 @@ class ReadTocCommand : public ScsiCommand
 class ReadCapacity10 : public ScsiCommand
 {
   public:
-    inline ReadCapacity10(uint8_t ctl = 0)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.opcode = 0x25;
-        command.control = ctl;
-    }
+    ReadCapacity10(uint8_t ctl = 0);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct
     {
@@ -262,19 +180,9 @@ class ReadCapacity10 : public ScsiCommand
 class Read10 : public ScsiCommand
 {
   public:
-    inline Read10(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0x28;
-        command.nLba = HOST_TO_BIG32(nLba);
-        command.nSectors = HOST_TO_BIG16(nSectors);
-    }
+    Read10(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -294,19 +202,9 @@ class Read10 : public ScsiCommand
 class Read12 : public ScsiCommand
 {
   public:
-    inline Read12(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0xa8;
-        command.nLba = HOST_TO_BIG32(nLba);
-        command.nSectors = HOST_TO_BIG32(nSectors);
-    }
+    Read12(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -326,19 +224,9 @@ class Read12 : public ScsiCommand
 class Read16 : public ScsiCommand
 {
   public:
-    inline Read16(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0x88;
-        command.nLba = HOST_TO_BIG64(nLba);
-        command.nSectors = HOST_TO_BIG32(nSectors);
-    }
+    Read16(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -358,19 +246,9 @@ class Read16 : public ScsiCommand
 class Write10 : public ScsiCommand
 {
   public:
-    inline Write10(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0x2A;
-        command.nLba = HOST_TO_BIG32(nLba);
-        command.nSectors = HOST_TO_BIG16(nSectors);
-    }
+    Write10(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -391,19 +269,9 @@ class Write10 : public ScsiCommand
 class Write12 : public ScsiCommand
 {
   public:
-    inline Write12(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0xAA;
-        command.nLba = HOST_TO_BIG32(nLba);
-        command.nSectors = HOST_TO_BIG32(nSectors);
-    }
+    Write12(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -424,19 +292,9 @@ class Write12 : public ScsiCommand
 class Write16 : public ScsiCommand
 {
   public:
-    inline Write16(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0x8A;
-        command.nLba = HOST_TO_BIG64(nLba);
-        command.nSectors = HOST_TO_BIG32(nSectors);
-    }
+    Write16(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -457,19 +315,9 @@ class Write16 : public ScsiCommand
 class Synchronise10 : public ScsiCommand
 {
   public:
-    inline Synchronise10(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0x35;
-        command.nLba = HOST_TO_BIG32(nLba);
-        command.nBlocks = HOST_TO_BIG16(nSectors);
-    }
+    Synchronise10(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {
@@ -489,19 +337,9 @@ class Synchronise10 : public ScsiCommand
 class Synchronise16 : public ScsiCommand
 {
   public:
-    inline Synchronise16(uint32_t nLba, uint32_t nSectors)
-    {
-        ByteSet(&command, 0, sizeof(command));
-        command.nOpCode = 0x91;
-        command.nLba = HOST_TO_BIG64(nLba);
-        command.nBlocks = HOST_TO_BIG32(nSectors);
-    }
+    Synchronise16(uint32_t nLba, uint32_t nSectors);
 
-    virtual size_t serialise(uintptr_t &addr)
-    {
-        addr = reinterpret_cast<uintptr_t>(&command);
-        return sizeof(command);
-    }
+    virtual size_t serialise(uintptr_t &addr);
 
     struct command
     {

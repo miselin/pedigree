@@ -31,23 +31,12 @@
 class EXPORTED_PUBLIC UsbHub : public Device
 {
   public:
-    inline UsbHub()
-    {
-        m_UsedAddresses.set(0);
-    }
+    UsbHub();
+    UsbHub(Device *p);
 
-    UsbHub(Device *p) : Device(p)
-    {
-    }
+    virtual ~UsbHub();
 
-    inline virtual ~UsbHub()
-    {
-    }
-
-    virtual Type getType()
-    {
-        return UsbController;
-    }
+    virtual Type getType();
 
     /// Adds a new transfer to an existent transaction
     virtual void addTransferToTransaction(

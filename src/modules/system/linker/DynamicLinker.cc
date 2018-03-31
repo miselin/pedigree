@@ -192,8 +192,8 @@ bool DynamicLinker::loadProgram(
         String filename;
         filename += "root»/libraries/";
         filename += *it;
-        File *pFile = VFS::instance().find(filename);
-        if (!pFile)
+        File *pDependencyFile = VFS::instance().find(filename);
+        if (!pDependencyFile)
         {
             ERROR("DynamicLinker: Dependency `" << filename << "' not found!");
             if (!bDryRun)
@@ -205,9 +205,9 @@ bool DynamicLinker::loadProgram(
                 delete programElf;
             return false;
         }
-        while (pFile && pFile->isSymlink())
-            pFile = Symlink::fromFile(pFile)->followLink();
-        if (!pFile || !loadObject(pFile, bDryRun))
+        while (pDependencyFile && pDependencyFile->isSymlink())
+            pDependencyFile = Symlink::fromFile(pDependencyFile)->followLink();
+        if (!pDependencyFile || !loadObject(pDependencyFile, bDryRun))
         {
             ERROR(
                 "DynamicLinker: Dependency `" << filename
@@ -240,7 +240,7 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
 {
     uintptr_t buffer = 0;
     size_t size;
-    uintptr_t loadBase;
+    uintptr_t loadBase = 0;
     MemoryMappedObject *pMmFile = MemoryMapManager::instance().mapFile(
         pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
 
@@ -315,7 +315,10 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
             ERROR("DynamicLinker: Dependency `" << filename << "' not found!");
             if (!bDryRun)
             {
-                m_Objects.remove(loadBase);
+                if (loadBase)
+                {
+                    m_Objects.remove(loadBase);
+                }
                 delete pSo;
             }
             delete pElf;
@@ -330,7 +333,10 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
                                               << "' failed to load!");
             if (!bDryRun)
             {
-                m_Objects.remove(loadBase);
+                if (loadBase)
+                {
+                    m_Objects.remove(loadBase);
+                }
                 delete pSo;
             }
             delete pElf;

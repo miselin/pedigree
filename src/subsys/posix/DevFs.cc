@@ -487,6 +487,8 @@ void MemFile::returnPhysicalPage(size_t offset)
     // no-op
 }
 
+DevFsDirectory::~DevFsDirectory() = default;
+
 DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);

@@ -1037,7 +1037,6 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
                 m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) |
                     0x2000,
                 m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4));
-            break;
         }
     }
 

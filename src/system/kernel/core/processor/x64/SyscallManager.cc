@@ -89,7 +89,7 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
         /// \todo this is an extraordinary hack, this should be done in a way
         /// more
         ///       abstract way than this!!
-        if (serviceNumber == linux)
+        if (serviceNumber == linuxCompat)
         {
             if (errno != 0)
             {

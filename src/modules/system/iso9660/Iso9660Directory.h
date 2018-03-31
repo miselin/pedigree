@@ -51,9 +51,7 @@ class Iso9660Directory : public Directory
           m_pFs(pFs), m_Dir(dirRec)
     {
     }
-    virtual ~Iso9660Directory()
-    {
-    }
+    virtual ~Iso9660Directory();
 
     virtual void cacheDirectoryContents()
     {
@@ -116,6 +114,7 @@ class Iso9660Directory : public Directory
                 Iso9660DirRecord *record =
                     reinterpret_cast<Iso9660DirRecord *>(block + offset);
                 offset += record->RecLen;
+                uint8_t *fileIdent = reinterpret_cast<uint8_t *>(adjust_pointer(record, sizeof(*record)));
 
                 if (record->RecLen == 0)
                 {
@@ -127,7 +126,7 @@ class Iso9660Directory : public Directory
                 else if (
                     record->FileFlags & (1 << 1) && record->FileIdentLen == 1)
                 {
-                    if (record->FileIdent[0] == 0 || record->FileIdent[0] == 1)
+                    if (fileIdent[0] == 0 || fileIdent[0] == 1)
                         continue;
                 }
 

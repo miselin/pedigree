@@ -222,8 +222,8 @@ void ConsoleFile::inputLineDiscipline(
                         if ((slaveFlags & ConsoleManager::LEchoNewline) ||
                             (slaveFlags & ConsoleManager::LEcho))
                         {
-                            char buf[] = {'\n', 0};
-                            m_Buffer.write(buf, 1);
+                            char tmp[] = {'\n', 0};
+                            m_Buffer.write(tmp, 1);
                             ++localWritten;
                         }
 

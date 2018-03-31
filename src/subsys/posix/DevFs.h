@@ -41,6 +41,8 @@
 class DevFs;
 class DevFsDirectory;
 
+extern DevFs *g_pDevFs;
+
 class RandomFile : public File
 {
   public:
@@ -246,9 +248,7 @@ class DevFsDirectory : public Directory
     {
     }
 
-    virtual ~DevFsDirectory()
-    {
-    }
+    virtual ~DevFsDirectory();
 
     void addEntry(String name, File *pFile)
     {

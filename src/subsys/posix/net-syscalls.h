@@ -27,36 +27,26 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
-#include "modules/system/lwip/include/lwip/api.h"
-
 #include "subsys/posix/UnixFilesystem.h"
 
 #include <sys/socket.h>
 #include <sys/types.h>
 
+// Must be after sys/types.h to avoid problems with endian.h
+#include "modules/system/lwip/include/lwip/api.h"
+
+extern UnixFilesystem *g_pUnixFilesystem;
+
 struct sockaddr;
+struct pbuf;
+struct netbuf;
+struct netconn;
 
 class Semaphore;
 class FileDescriptor;
 class UnixSocket;
 class Thread;
 class Event;
-
-struct netconnMetadata
-{
-    netconnMetadata();
-
-    ssize_t recv;
-    ssize_t send;
-    bool error;
-
-    Mutex lock;
-    List<Semaphore *> semaphores;
-
-    size_t offset;
-    struct pbuf *pb;
-    struct netbuf *buf;
-};
 
 class NetworkSyscalls
 {

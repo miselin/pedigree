@@ -19,7 +19,7 @@
 
 #include "pedigree/native/input/Input.h"
 #include "subsys/pedigree-c/pedigree-syscalls.h"
-#include <stdio.h>
+#include <cstdio>
 
 using namespace Input;
 

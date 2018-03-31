@@ -57,7 +57,7 @@ class X64SyscallManager : public ::SyscallManager
     /** Called when a syscall was called
      *\param[in] syscallState reference to the usermode state before the syscall
      */
-    static void syscall(SyscallState &syscallState);
+    static void syscall(SyscallState &syscallState) USED;
 
     /** The constructor */
     X64SyscallManager() INITIALISATION_ONLY;

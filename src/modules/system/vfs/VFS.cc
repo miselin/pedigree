@@ -458,7 +458,6 @@ bool VFS::remove(const String &path, File *pStartNode)
 
 bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 {
-    return true;
 #ifdef VFS_STANDALONE
     // We don't check permissions on standalone builds of the VFS.
     return true;

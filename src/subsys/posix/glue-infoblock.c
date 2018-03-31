@@ -25,7 +25,7 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <time.h>
-#include <sys/time.h>
+#include <sys/select.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/InfoBlock.h"
@@ -98,7 +98,7 @@ __asm__(".symver __vdso_time,__vdso_time@LINUX_2.6");
 
 int clock_gettime(clockid_t, struct timespec *)
     __attribute__((weak, alias("__vdso_clock_gettime")));
-int gettimeofday(struct timeval *, void *)
+int gettimeofday(struct timeval *__restrict, void *__restrict)
     __attribute__((weak, alias("__vdso_gettimeofday")));
 int getcpu(unsigned *, unsigned *, struct getcpu_cache *)
     __attribute__((weak, alias("__vdso_getcpu")));

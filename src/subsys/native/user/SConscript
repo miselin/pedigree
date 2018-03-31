@@ -84,7 +84,8 @@ if not env['ON_PEDIGREE']:
 
 env_clone.MergeFlags({
     'LIBPATH': [libpath, builddir],
-    'CPPDEFINES': ['__STDC_VERSION__=201112L'],
+    'CFLAGS': ['-D__STDC_VERSION__=201112L'],
+    'CXXFLAGS': ['-D__STDC_VERSION__=0L'],
 })
 
 env_clone['CPPPATH'] = include_dirs

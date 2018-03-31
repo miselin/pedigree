@@ -227,9 +227,9 @@ class EXPORTED_PUBLIC Thread
     }
 
     /** Sets the last error - errno. */
-    void setErrno(size_t errno)
+    void setErrno(size_t err)
     {
-        m_Errno = errno;
+        m_Errno = err;
     }
 
     /** Returns whether the thread was just interrupted deliberately (e.g.

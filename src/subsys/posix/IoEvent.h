@@ -33,7 +33,6 @@ class IoEvent : public Event
      */
     IoEvent();
     IoEvent(PosixSubsystem *subsystem, File *file);
-    virtual ~IoEvent();
 
     void fire();
 

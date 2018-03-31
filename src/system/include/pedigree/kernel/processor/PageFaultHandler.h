@@ -20,13 +20,14 @@
 #ifndef KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/utilities/List.h"
 
 /** @addtogroup kernelprocessor
  * @{ */
 
-class MemoryTrapHandler
+class EXPORTED_PUBLIC MemoryTrapHandler
 {
   public:
     virtual ~MemoryTrapHandler();

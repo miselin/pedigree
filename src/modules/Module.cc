@@ -37,6 +37,7 @@ static List<__cxa_atexit_record> *g_AtExitEntries = 0;
 
 // We provide an implementation of __cxa_atexit for each module, so that we can
 // run the finalizers correctly.
+void __cxa_atexit(void (*f)(void *), void *arg, void *dso_handle);
 void __cxa_atexit(void (*f)(void *), void *arg, void *dso_handle)
 {
     if (!g_AtExitEntries)

@@ -55,10 +55,6 @@ Tree<struct netconn *, LwipSocketSyscalls*> LwipSocketSyscalls::m_SyscallObjects
 
 extern UnixFilesystem *g_pUnixFilesystem;
 
-netconnMetadata::netconnMetadata() : recv(0), send(0), error(false), lock(false), semaphores(), offset(0), pb(nullptr), buf(nullptr)
-{
-}
-
 /// Pass is_create = true to indicate that the operation is permitted to
 // operate if the socket does not yet have valid members (i.e. before a bind).
 static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
@@ -1234,6 +1230,8 @@ int LwipSocketSyscalls::setsockopt(int level, int optname, const void *optvalue,
     if (m_Protocol == IPPROTO_TCP && level == IPPROTO_TCP)
     {
 #ifdef TCP_NODELAY
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
         if (optname == TCP_NODELAY)
         {
             N_NOTICE(" -> TCP_NODELAY");
@@ -1252,6 +1250,7 @@ int LwipSocketSyscalls::setsockopt(int level, int optname, const void *optvalue,
 
             return 0;
         }
+#pragma GCC diagnostic pop
 #endif
     }
 

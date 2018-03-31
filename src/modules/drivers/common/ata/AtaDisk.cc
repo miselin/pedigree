@@ -33,6 +33,10 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#ifdef CRIPPLE_HDD
+#pragma GCC diagnostic ignored "-Wunreachable-code"
+#endif
+
 // #define ATA_DEFAULT_BLOCK_SIZE 0x1000
 #define ATA_DEFAULT_BLOCK_SIZE 0x10000 * 2
 

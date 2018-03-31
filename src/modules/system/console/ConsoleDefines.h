@@ -55,4 +55,6 @@
 #define VEOL2 16
 #endif
 
+extern const char defaultControl[MAX_CONTROL_CHAR];
+
 #endif  // _CONSOLE_CONSOLE_DEFINES_H

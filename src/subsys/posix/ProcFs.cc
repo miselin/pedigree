@@ -369,6 +369,8 @@ size_t ConstantFile::getSize()
     return m_Size;
 }
 
+ProcFsDirectory::~ProcFsDirectory() = default;
+
 ProcFs::~ProcFs()
 {
     delete m_pRoot;

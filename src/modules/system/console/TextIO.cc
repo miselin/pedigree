@@ -2046,16 +2046,16 @@ void TextIO::handleInput(InputManager::InputNotification &in)
         switch (direction)
         {
             case 0:
-                m_OutBuffer.write("\e[D", 3);
+                m_OutBuffer.write("\033[D", 3);
                 break;
             case 1:
-                m_OutBuffer.write("\e[C", 3);
+                m_OutBuffer.write("\033[C", 3);
                 break;
             case 2:
-                m_OutBuffer.write("\e[A", 3);
+                m_OutBuffer.write("\033[A", 3);
                 break;
             case 3:
-                m_OutBuffer.write("\e[B", 3);
+                m_OutBuffer.write("\033[B", 3);
                 break;
             default:
                 break;
@@ -2065,7 +2065,7 @@ void TextIO::handleInput(InputManager::InputNotification &in)
     {
         // ALT escaped key
         c &= 0x7F;
-        char buf[2] = {'\e', static_cast<char>(c & 0xFF)};
+        char buf[2] = {'\033', static_cast<char>(c & 0xFF)};
         m_OutBuffer.write(buf, 2);
     }
     else if (c)

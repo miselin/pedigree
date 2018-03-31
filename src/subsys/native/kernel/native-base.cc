@@ -17,26 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MACHINE_SERIAL_H
-#define MACHINE_SERIAL_H
+#include <native-base.h>
 
-#include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
-
-/**
- * Serial device abstraction.
- */
-class EXPORTED_PUBLIC Serial
-{
-  public:
-    virtual ~Serial();
-
-    /// \todo make this generic for Mmaped and port IO.
-    virtual void setBase(uintptr_t nBaseAddr) = 0;
-    virtual char read() = 0;
-    virtual char readNonBlock() = 0;
-    virtual void write(char c) = 0;
-    void write(const char *c);
-};
-
-#endif
+NativeBase::NativeBase() = default;
+NativeBase::~NativeBase() = default;

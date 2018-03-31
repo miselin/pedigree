@@ -67,7 +67,7 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
     return e;
 }
 
-void netifStatusUpdate(struct netif *netif)
+static void netifStatusUpdate(struct netif *netif)
 {
     // something updated
     NOTICE("netifStatusUpdate");

@@ -278,7 +278,7 @@ static int loadModules(void *inf)
 }
 
 /** Kernel entry point. */
-extern "C" void _main(BootstrapStruct_t &bsInf) NORETURN;
+extern "C" void _main(BootstrapStruct_t &bsInf) USED NORETURN;
 extern "C" void _main(BootstrapStruct_t &bsInf)
 {
     TRACE("constructors");

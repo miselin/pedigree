@@ -507,52 +507,8 @@ int posix_kill(int pid, int sig)
     return 0;
 }
 
-int posix_pthread_kill(pthread_t thread, int sig)
-{
-    return -1;
-    /*
-        PT_NOTICE("pthread_kill");
-
-        // Check the signal
-        if(sig > 32)
-        {
-            SYSCALL_ERROR(InvalidArgument);
-            return -1;
-        }
-
-        // Grab the subsystem
-        Thread *pCurrThread = Processor::information().getCurrentThread();
-        Process *pProcess = pCurrThread->getParent();
-        PosixSubsystem *pSubsystem =
-       reinterpret_cast<PosixSubsystem*>(pProcess->getSubsystem()); if
-       (!pSubsystem)
-        {
-            ERROR("No subsystem for this process!");
-            return -1;
-        }
-
-        // Grab the target thread, send the signal
-        PosixSubsystem::PosixThread *pTarget =
-       pSubsystem->getThread(thread->__internal.kthread); if(pTarget &&
-       pTarget->pThread)
-        {
-            return doThreadKill(pTarget->pThread, sig);
-        }
-        else
-        {
-            SYSCALL_ERROR(NoSuchProcess);
-            return -1;
-        }
-    */
-}
-
 /// \todo Integration with Thread inhibit masks
 int posix_sigprocmask(int how, const uint32_t *set, uint32_t *oset)
-{
-    return 0;
-}
-
-int posix_pthread_sigmask(int how, const uint32_t *set, uint32_t *oset)
 {
     return 0;
 }

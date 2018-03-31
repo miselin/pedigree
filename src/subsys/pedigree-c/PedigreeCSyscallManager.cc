@@ -201,7 +201,6 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
         case PEDIGREE_INPUT_INHIBIT_EVENTS:
             pedigree_input_inhibit_events(p1);
             return 0;
-            break;
         case PEDIGREE_EVENT_RETURN:
             pedigree_event_return();
         case PEDIGREE_SYS_REQUEST_MEM:

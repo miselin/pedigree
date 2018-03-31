@@ -20,6 +20,7 @@
 #ifndef _PROCESS_IPC_H
 #define _PROCESS_IPC_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
@@ -134,13 +135,13 @@ class IpcEndpoint
     Mutex m_QueueLock;
 };
 
-bool send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync = false);
-bool recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync = false);
 
-IpcEndpoint *getEndpoint(String &name);
+EXPORTED_PUBLIC IpcEndpoint *getEndpoint(String &name);
 
-void createEndpoint(String &name);
-void removeEndpoint(String &name);
+EXPORTED_PUBLIC void createEndpoint(String &name);
+EXPORTED_PUBLIC void removeEndpoint(String &name);
 };
 
 #endif

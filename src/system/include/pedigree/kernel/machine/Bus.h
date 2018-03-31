@@ -20,12 +20,13 @@
 #ifndef MACHINE_BUS_H
 #define MACHINE_BUS_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 
 /**
  * A bus is a device which provides a view onto other devices.
  */
-class Bus : public Device
+class EXPORTED_PUBLIC Bus : public Device
 {
   public:
     Bus(const char *pName);

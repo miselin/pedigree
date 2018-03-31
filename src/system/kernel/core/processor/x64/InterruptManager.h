@@ -60,7 +60,7 @@ class X64InterruptManager : public ::InterruptManager
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
      *the interrupt */
-    static void interrupt(InterruptState &interruptState);
+    static void interrupt(InterruptState &interruptState) USED;
 
     /** Sets up an interrupt gate
      *\param[in] interruptNumber the interrupt number

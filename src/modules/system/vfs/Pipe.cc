@@ -29,15 +29,17 @@ class ZombiePipe : public ZombieObject
     ZombiePipe(Pipe *pPipe) : m_pPipe(pPipe)
     {
     }
-    virtual ~ZombiePipe()
-    {
-        NOTICE("ZombiePipe: freeing " << m_pPipe);
-        delete m_pPipe;
-    }
+    virtual ~ZombiePipe();
 
   private:
     Pipe *m_pPipe;
 };
+
+ZombiePipe::~ZombiePipe()
+{
+    NOTICE("ZombiePipe: freeing " << m_pPipe);
+    delete m_pPipe;
+}
 
 Pipe::Pipe()
     : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),

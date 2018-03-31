@@ -24,7 +24,7 @@
 enum Service_t
 {
     /** Linux syscall wrapper (redirects to POSIX). */
-    linux = 0,
+    linuxCompat = 0,
 
     /** Service number for the POSIX subsystem
      * \note If you change this, ensure you change src/subsys/posix/syscall.h !

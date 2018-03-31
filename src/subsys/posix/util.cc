@@ -20,6 +20,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "subsys/posix/PosixSubsystem.h"
+#include "subsys/posix/FileDescriptor.h"
 
 #ifdef UTILITY_LINUX
 #include <vector>

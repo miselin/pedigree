@@ -154,9 +154,7 @@ class ProcFsDirectory : public Directory
     {
     }
 
-    virtual ~ProcFsDirectory()
-    {
-    }
+    virtual ~ProcFsDirectory();
 
     void addEntry(String name, File *pFile)
     {

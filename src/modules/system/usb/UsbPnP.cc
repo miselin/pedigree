@@ -23,6 +23,14 @@
 
 UsbPnP UsbPnP::m_Instance;
 
+UsbPnP::UsbPnP() : m_Callbacks()
+{
+}
+
+UsbPnP::~UsbPnP()
+{
+}
+
 bool UsbPnP::probeDevice(Device *pDeviceBase)
 {
     Device *pResult = doProbe(pDeviceBase);

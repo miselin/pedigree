@@ -50,9 +50,9 @@ class EXPORTED_PUBLIC ExtensibleBitmap
     /** Clears the bit in the bitmap indexed by n. */
     void clear(size_t n);
     /** Returns the bit in the bitmap indexed by n. */
-    bool test(size_t n);
+    bool test(size_t n) const;
     /** Returns the index of the first set bit. */
-    inline size_t getFirstSet()
+    inline size_t getFirstSet() const
     {
         return m_nFirstSetBit;
     }
@@ -66,12 +66,12 @@ class EXPORTED_PUBLIC ExtensibleBitmap
         return m_nFirstClearBit;
     }
     /** Returns the index of the last set bit. */
-    inline size_t getLastSet()
+    inline size_t getLastSet() const
     {
         return m_nLastSetBit;
     }
     /** Returns the index of the last clear bit. */
-    inline size_t getLastClear()
+    inline size_t getLastClear() const
     {
         return m_nLastClearBit;
     }

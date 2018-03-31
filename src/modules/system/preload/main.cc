@@ -65,6 +65,7 @@ static bool init()
 {
     /// \todo figure out why this causes numerous problems with ext2
     return false;
+/*
     size_t n = 0;
     const char *s = g_FilesToPreload[n++];
     do
@@ -82,6 +83,7 @@ static bool init()
 
     // Trick: return false, which unloads this module (its purpose is complete.)
     return false;
+*/
 }
 
 static void destroy()

@@ -38,7 +38,7 @@ driver_common_subdirs = [
     'partition',
 
     # Pedigree-specific video
-    'nvidia',
+    # 'nvidia',
 
     # Pedigree-specific NICs
     '3c90x',
@@ -166,9 +166,9 @@ if env['pcap']:
 if env['hosted'] or env['ARCH_TARGET'] == 'ARM':
     module_subdirs = [x for x in module_subdirs if x not in ['splash']]
 
-if env['clang_cross'] and env['clang_analyse']:
+if env['clang_cross']:
     # sqlite is not our code, and it takes a very long time for clang to
-    # analyse. So just remove it.
+    # analyse (and at times has actually ICE'd the compiler).
     module_subdirs.remove('config')
 
 # No difference yet, load all modules
@@ -208,6 +208,29 @@ for entry in set(config_omits + config_keeps):
     elif entry in config_keeps:
         config_extra_flags.append('-USQLITE_OMIT_%s' % entry)
 
+cdi_extra_flags = []
+lwip_extra_flags = []
+if env['clang_cross']:
+    cdi_extra_flags = [
+        '-Wno-old-style-cast',
+        '-Wno-vla-extension',
+        '-Wno-shift-sign-overflow',
+        '-Wno-extended-offsetof',
+        '-Wno-language-extension-token',
+        '-Wno-cast-align',
+        '-Wno-assign-enum',
+        '-Wno-gnu-zero-variadic-macro-arguments',
+    ]
+
+    lwip_extra_flags = [
+        '-Wno-missing-noreturn',
+        '-Wno-missing-variable-declarations',
+        '-Wno-c++-compat',
+        '-Wno-gnu-empty-struct',
+        '-Wno-unreachable-code-break',
+        '-Wno-cast-align',
+    ]
+
 # Custom CFLAGS for specific modules
 custom_cflags = {
     'config': ['-DSQLITE_SYSTEM_MALLOC=1',
@@ -221,7 +244,9 @@ custom_cflags = {
 # Custom C/C++ flags for specific modules.
 custom_ccflags = {
     # Disable -Waddress for lwip as a bunch of its macros trip it up.
-    'lwip': ['-Wno-address'],
+    'lwip': ['-Wno-address'] + lwip_extra_flags,
+    'cdi': cdi_extra_flags,
+    'status_server': ['-Wno-old-style-cast'],
 }
 
 # Custom CXXFLAGS for specific modules
@@ -375,6 +400,12 @@ for cdi_driver in cdi_drivers:
     ccflags = custom_ccflags.get(cdi_driver, [])
     ccflags.append('-w')
     custom_ccflags[cdi_driver] = ccflags
+
+    if env['clang_cross']:
+        # Remove specific warnings that break with Clang & CDI
+        custom_ccflags[cdi_driver] += cdi_extra_flags
+
+    cdi_env.MergeFlags({'CCFLAGS': custom_ccflags[cdi_driver]})
 
     # Patch up the path and add any include directory to the path
     cdi_driver = os.path.join('drivers', 'cdi', cdi_driver)

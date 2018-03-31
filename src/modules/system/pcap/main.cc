@@ -25,6 +25,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "modules/system/pcap/pcap.h"
 
 struct PcapHeader
 {

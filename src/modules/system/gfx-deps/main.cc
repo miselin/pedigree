@@ -24,7 +24,7 @@
 
 #if defined(X86_COMMON)
 #define __MOD_DEPS 0
-#define __MOD_DEPS_OPT "vbe", "vmware-gfx", "nvidia"
+#define __MOD_DEPS_OPT "vbe", "vmware-gfx"
 #elif defined(PPC_COMMON)
 #define __MOD_DEPS 0
 #elif defined(ARM_COMMON)

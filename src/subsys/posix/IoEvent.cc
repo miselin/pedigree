@@ -38,10 +38,6 @@ IoEvent::IoEvent(
     assert(subsystem);
 }
 
-IoEvent::~IoEvent()
-{
-}
-
 void IoEvent::fire()
 {
     Thread *pThread = Processor::information().getCurrentThread();

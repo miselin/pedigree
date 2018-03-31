@@ -196,9 +196,7 @@ class VmwareGraphics : public Display
         }
     }
 
-    virtual ~VmwareGraphics()
-    {
-    }
+    virtual ~VmwareGraphics();
 
     virtual void getName(String &str)
     {
@@ -444,9 +442,7 @@ class VmwareGraphics : public Display
             setFramebuffer(fb);
         }
 
-        virtual ~VmwareFramebuffer()
-        {
-        }
+        virtual ~VmwareFramebuffer();
 
         virtual void hwRedraw(
             size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL)
@@ -567,3 +563,6 @@ static void exit()
 }
 
 MODULE_INFO("vmware-gfx", &entry, &exit, "pci", "config");
+
+VmwareGraphics::~VmwareGraphics() = default;
+VmwareGraphics::VmwareFramebuffer::~VmwareFramebuffer() = default;

@@ -30,6 +30,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
+#include "net-syscalls.h"
 
 static PosixSyscallManager g_PosixSyscallManager;
 

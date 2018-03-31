@@ -55,6 +55,40 @@ struct sixargs
     uintptr_t a, b, c, d, e, f;
 } PACKED;
 
+Rect::Rect() : x(0), y(0), w(0), h(0){}
+Rect::Rect(size_t x_, size_t y_, size_t width_, size_t height_)
+    : x(x_), y(y_), w(width_), h(height_){}
+
+Rect::~Rect() = default;
+
+void Rect::update(size_t x_, size_t y_, size_t w_, size_t h_)
+{
+    this->x = x_;
+    this->y = y_;
+    this->w = w_;
+    this->h = h_;
+}
+
+size_t Rect::getX() const
+{
+    return x;
+}
+
+size_t Rect::getY() const
+{
+    return y;
+}
+
+size_t Rect::getW() const
+{
+    return w;
+}
+
+size_t Rect::getH() const
+{
+    return h;
+}
+
 Framebuffer::Framebuffer()
     : m_Provider(), m_bProviderValid(false), m_bIsChild(false)
 {

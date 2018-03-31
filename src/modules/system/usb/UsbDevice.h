@@ -328,44 +328,16 @@ class EXPORTED_PUBLIC UsbDevice
 class UsbDeviceContainer : public Device
 {
   public:
-    UsbDeviceContainer(UsbDevice *pDev) : Device(), m_pUsbDevice(pDev)
-    {
-        pDev->m_pContainer = this;
+    UsbDeviceContainer(UsbDevice *pDev);
+    virtual ~UsbDeviceContainer();
 
-        // Classes that expose a subtree can be converted to Device.
-        // But, we need to do this so children will continue to have
-        // the correct parents.
-        if (pDev->hasSubtree())
-        {
-            Device *pChild = pDev->getDevice();
-            addChild(pChild);
-            pChild->setParent(this);
-        }
-    }
+    UsbDevice *getUsbDevice() const;
 
-    virtual ~UsbDeviceContainer()
-    {
-    }
+    virtual void getName(String &str);
 
-    UsbDevice *getUsbDevice() const
-    {
-        return m_pUsbDevice;
-    }
+    virtual Type getType();
 
-    virtual void getName(String &str)
-    {
-        m_pUsbDevice->getUsbDeviceName(str);
-    }
-
-    virtual Type getType()
-    {
-        return Device::UsbContainer;
-    }
-
-    virtual void dump(String &str)
-    {
-        str = "Generic USB Device";
-    }
+    virtual void dump(String &str);
 
   private:
     UsbDevice *m_pUsbDevice;

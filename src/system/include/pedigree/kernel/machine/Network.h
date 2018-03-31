@@ -33,7 +33,7 @@
 #include "pedigree/kernel/network/NetworkBlockTimeout.h"
 
 /** Station information - basically information about this station, per NIC */
-class StationInfo
+class EXPORTED_PUBLIC StationInfo
 {
   public:
     // Broadcast address defaults to 255.255.255.255, as we may need to
@@ -67,7 +67,7 @@ class StationInfo
 /**
  * A network device (sends/receives packets on a network)
  */
-class Network : public Device
+class EXPORTED_PUBLIC Network : public Device
 {
   public:
     Network();

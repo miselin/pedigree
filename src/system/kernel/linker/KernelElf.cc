@@ -799,6 +799,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
                 // Optional dependency has not yet had any attempt to load.
                 if (!found)
                 {
+                    NOTICE("NOT satisfied: module " << module->name << " is missing optional module " << module->depends_opt[i]);
                     return false;
                 }
             }
@@ -825,6 +826,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
         }
         if (!found)
         {
+            NOTICE("NOT satisfied: module " << module->name << " is missing required module " << module->depends[i]);
             return false;
         }
         i++;

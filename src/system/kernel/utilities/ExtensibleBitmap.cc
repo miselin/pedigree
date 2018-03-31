@@ -185,7 +185,7 @@ void ExtensibleBitmap::clear(size_t n)
     m_pDynamicMap[n / 8] &= ~(1UL << (n % 8));
 }
 
-bool ExtensibleBitmap::test(size_t n)
+bool ExtensibleBitmap::test(size_t n) const
 {
     if (n < sizeof(uintptr_t) * 8)
         return (m_StaticMap & (1UL << n));

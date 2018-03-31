@@ -34,6 +34,10 @@
 
 #include "pedigree/kernel/machine/x86_common/Bios.h"
 
+#ifdef CRIPPLE_HDD
+#pragma GCC diagnostic ignored "-Wunreachable-code"
+#endif
+
 extern "C" void vbeModeChangedCallback(char *pId, char *pModeId);
 
 #define REALMODE_PTR(x) ((x[1] << 4) + x[0])
@@ -78,6 +82,26 @@ struct vbeModeInfo
     short sz_offscreen;  // In KB.
 } __attribute__((packed));
 
+class VbeFramebuffer : public Framebuffer
+{
+  public:
+    VbeFramebuffer();
+    VbeFramebuffer(Display *pDisplay);
+    virtual ~VbeFramebuffer();
+
+    virtual void hwRedraw(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
+    virtual void setFramebuffer(uintptr_t p);
+
+  private:
+    Display *m_pDisplay;
+    char *m_pBackbuffer;
+    size_t m_nBackbufferBytes;
+
+    MemoryRegion *m_pFramebufferRegion;
+
+    Display::ScreenMode m_Mode;
+};
+
 extern "C" void vbeModeChangedCallback(char *pId, char *pModeId)
 {
     size_t id = StringToUnsignedLong(pId, 0, 10);
@@ -91,120 +115,6 @@ extern "C" void vbeModeChangedCallback(char *pId, char *pModeId)
         g_pDisplays[id]->setScreenMode(mode_id);
     }
 }
-
-class VbeFramebuffer : public Framebuffer
-{
-  public:
-    VbeFramebuffer()
-        : Framebuffer(), m_pDisplay(0), m_pBackbuffer(0), m_nBackbufferBytes(0),
-          m_pFramebufferRegion(0), m_Mode()
-    {
-    }
-
-    VbeFramebuffer(Display *pDisplay)
-        : Framebuffer(), m_pDisplay(pDisplay), m_pBackbuffer(0),
-          m_nBackbufferBytes(0), m_pFramebufferRegion(0), m_Mode()
-    {
-    }
-
-    virtual void
-    hwRedraw(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL)
-    {
-        if (x == ~0UL)
-            x = 0;
-        if (y == ~0UL)
-            y = 0;
-        if (w == ~0UL)
-            w = m_Mode.width;
-        if (h == ~0UL)
-            h = m_Mode.height;
-
-        if (x == 0 && y == 0 && w >= m_Mode.width && h >= m_Mode.height)
-        {
-            // Full-screen refresh.
-            MemoryCopy(
-                m_pDisplay->getFramebuffer(), m_pBackbuffer,
-                m_nBackbufferBytes);
-            return;
-        }
-
-        // We have a smaller copy than the entire screen.
-        size_t bytesPerRow = w * m_Mode.bytesPerPixel;
-        size_t xOffset = x * m_Mode.bytesPerPixel;
-        size_t yOffset = y * m_Mode.bytesPerLine;
-
-        void *firstRowTarget =
-            adjust_pointer(m_pDisplay->getFramebuffer(), yOffset + xOffset);
-        void *firstRowBackbuffer =
-            adjust_pointer(m_pBackbuffer, yOffset + xOffset);
-        for (size_t yy = 0; yy < h; ++yy)
-        {
-            void *targetRow =
-                adjust_pointer(firstRowTarget, yy * m_Mode.bytesPerLine);
-            void *backbufferRow =
-                adjust_pointer(firstRowBackbuffer, yy * m_Mode.bytesPerLine);
-            MemoryCopy(targetRow, backbufferRow, bytesPerRow);
-        }
-    }
-
-    virtual ~VbeFramebuffer()
-    {
-    }
-
-    virtual void setFramebuffer(uintptr_t p)
-    {
-        ByteSet(&m_Mode, 0, sizeof(Display::ScreenMode));
-        if (!m_pDisplay->getCurrentScreenMode(m_Mode))
-        {
-            ERROR("VBE: setting screen mode failed.");
-            return;
-        }
-        m_nBackbufferBytes = m_Mode.bytesPerLine * m_Mode.height;
-        if (m_nBackbufferBytes)
-        {
-            m_pBackbuffer = 0;
-
-            if (m_pFramebufferRegion)
-            {
-                delete m_pFramebufferRegion;
-            }
-
-            size_t nPages = (m_nBackbufferBytes +
-                             PhysicalMemoryManager::instance().getPageSize()) /
-                            PhysicalMemoryManager::instance().getPageSize();
-
-            m_pFramebufferRegion = new MemoryRegion("VBE Backbuffer");
-            if (!PhysicalMemoryManager::instance().allocateRegion(
-                    *m_pFramebufferRegion, nPages,
-                    PhysicalMemoryManager::continuous,
-                    VirtualAddressSpace::Write))
-            {
-                delete m_pFramebufferRegion;
-                m_pFramebufferRegion = 0;
-            }
-            else
-            {
-                NOTICE(
-                    "VBE backbuffer is at " << reinterpret_cast<uintptr_t>(
-                        m_pFramebufferRegion->virtualAddress()));
-                m_pBackbuffer = reinterpret_cast<char *>(
-                    m_pFramebufferRegion->virtualAddress());
-            }
-
-            Framebuffer::setFramebuffer(
-                reinterpret_cast<uintptr_t>(m_pBackbuffer));
-        }
-    }
-
-  private:
-    Display *m_pDisplay;
-    char *m_pBackbuffer;
-    size_t m_nBackbufferBytes;
-
-    MemoryRegion *m_pFramebufferRegion;
-
-    Display::ScreenMode m_Mode;
-};
 
 static bool entry()
 {
@@ -508,3 +418,103 @@ static void exit()
 }
 
 MODULE_INFO("vbe", &entry, &exit, "pci", "config");
+
+VbeFramebuffer::VbeFramebuffer()
+    : Framebuffer(), m_pDisplay(0), m_pBackbuffer(0), m_nBackbufferBytes(0),
+      m_pFramebufferRegion(0), m_Mode()
+{
+}
+
+VbeFramebuffer::VbeFramebuffer(Display *pDisplay)
+    : Framebuffer(), m_pDisplay(pDisplay), m_pBackbuffer(0),
+      m_nBackbufferBytes(0), m_pFramebufferRegion(0), m_Mode()
+{
+}
+
+void VbeFramebuffer::hwRedraw(size_t x, size_t y, size_t w, size_t h)
+{
+    if (x == ~0UL)
+        x = 0;
+    if (y == ~0UL)
+        y = 0;
+    if (w == ~0UL)
+        w = m_Mode.width;
+    if (h == ~0UL)
+        h = m_Mode.height;
+
+    if (x == 0 && y == 0 && w >= m_Mode.width && h >= m_Mode.height)
+    {
+        // Full-screen refresh.
+        MemoryCopy(
+            m_pDisplay->getFramebuffer(), m_pBackbuffer,
+            m_nBackbufferBytes);
+        return;
+    }
+
+    // We have a smaller copy than the entire screen.
+    size_t bytesPerRow = w * m_Mode.bytesPerPixel;
+    size_t xOffset = x * m_Mode.bytesPerPixel;
+    size_t yOffset = y * m_Mode.bytesPerLine;
+
+    void *firstRowTarget =
+        adjust_pointer(m_pDisplay->getFramebuffer(), yOffset + xOffset);
+    void *firstRowBackbuffer =
+        adjust_pointer(m_pBackbuffer, yOffset + xOffset);
+    for (size_t yy = 0; yy < h; ++yy)
+    {
+        void *targetRow =
+            adjust_pointer(firstRowTarget, yy * m_Mode.bytesPerLine);
+        void *backbufferRow =
+            adjust_pointer(firstRowBackbuffer, yy * m_Mode.bytesPerLine);
+        MemoryCopy(targetRow, backbufferRow, bytesPerRow);
+    }
+}
+
+VbeFramebuffer::~VbeFramebuffer()
+{
+}
+
+void VbeFramebuffer::setFramebuffer(uintptr_t p)
+{
+    ByteSet(&m_Mode, 0, sizeof(Display::ScreenMode));
+    if (!m_pDisplay->getCurrentScreenMode(m_Mode))
+    {
+        ERROR("VBE: setting screen mode failed.");
+        return;
+    }
+    m_nBackbufferBytes = m_Mode.bytesPerLine * m_Mode.height;
+    if (m_nBackbufferBytes)
+    {
+        m_pBackbuffer = 0;
+
+        if (m_pFramebufferRegion)
+        {
+            delete m_pFramebufferRegion;
+        }
+
+        size_t nPages = (m_nBackbufferBytes +
+                         PhysicalMemoryManager::instance().getPageSize()) /
+                        PhysicalMemoryManager::instance().getPageSize();
+
+        m_pFramebufferRegion = new MemoryRegion("VBE Backbuffer");
+        if (!PhysicalMemoryManager::instance().allocateRegion(
+                *m_pFramebufferRegion, nPages,
+                PhysicalMemoryManager::continuous,
+                VirtualAddressSpace::Write))
+        {
+            delete m_pFramebufferRegion;
+            m_pFramebufferRegion = 0;
+        }
+        else
+        {
+            NOTICE(
+                "VBE backbuffer is at " << reinterpret_cast<uintptr_t>(
+                    m_pFramebufferRegion->virtualAddress()));
+            m_pBackbuffer = reinterpret_cast<char *>(
+                m_pFramebufferRegion->virtualAddress());
+        }
+
+        Framebuffer::setFramebuffer(
+            reinterpret_cast<uintptr_t>(m_pBackbuffer));
+    }
+}

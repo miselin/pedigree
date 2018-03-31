@@ -76,7 +76,7 @@ struct linux_dirent
     long d_ino;
     off_t d_off;
     unsigned short d_reclen;
-    char d_name[];
+    char d_name[1];
 };
 
 extern DevFs *g_pDevFs;
@@ -477,8 +477,6 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
     if (!StringCompare(name, "/dev/tty"))
     {
         // Get controlling console, unless we have none.
-        Process *pProcess =
-            Processor::information().getCurrentThread()->getParent();
         if (!pProcess->getCtty())
         {
             if (onDevFs)
@@ -1269,7 +1267,7 @@ int posix_ioctl(int fd, int command, void *buf)
         return f->file->command(command, buf);
     }
 
-    switch (command)
+    switch (static_cast<size_t>(command))
     {
         // KDGETLED
         case 0x4B31:
@@ -1309,7 +1307,7 @@ int posix_ioctl(int fd, int command, void *buf)
         case 0x4b3a:
             /// \todo what do we do when switching to graphics mode?
             F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
-            if (buf == (void*)1)
+            if (buf == reinterpret_cast<void*>(1))
             {
                 g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Graphics);
             }
@@ -1577,7 +1575,6 @@ int posix_ioctl(int fd, int command, void *buf)
                 F_NOTICE(" -> failed!");
                 return -1;
             }
-            break;
         }
 
         case FIONBIO:
@@ -1902,7 +1899,6 @@ int posix_fcntl(int fd, int cmd, void *arg)
 
                 return static_cast<int>(fd2);
             }
-            break;
 
         case F_GETFD:
             F_NOTICE("  -> get fd flags");
@@ -3754,7 +3750,7 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
 }
 
 /** Do-er for getting extended attributes. If filepath is null, fd is used. */
-ssize_t doGetXattr(
+static ssize_t doGetXattr(
     const char *filepath, int fd, const char *name, void *value, size_t size,
     bool follow_links)
 {

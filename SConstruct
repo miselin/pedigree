@@ -1069,7 +1069,8 @@ if env['clang_cross']:
         generic_flags = []
         generic_ccflags = []
     else:
-        generic_flags = ['-Qunused-arguments', '-Wno-undef']
+        generic_flags = [
+            '-Qunused-arguments', '-Wno-undef']
         generic_ccflags = ['-Wno-unused-parameter']
 
     if env['clang_max_pedantry'] and not env['force_asan']:
@@ -1085,7 +1086,8 @@ if env['clang_cross']:
                             '-Wno-unused-private-field', '-Wno-switch-enum',
                             '-Wno-unused-variable', '-Wno-unused-function',
                             '-Wno-nested-anon-types',
-                            '-Wno-covered-switch-default'
+                            '-Wno-covered-switch-default',
+                            '-Wno-disabled-macro-expansion',
                             ]
 
     env['CLANG_BASE_LINKFLAGS'] = triple + cross_gcc + generic_flags
@@ -1100,6 +1102,7 @@ if env['clang_cross']:
     if not env['hosted']:
         env.MergeFlags({
             'CCFLAGS': triple + generic_flags + generic_ccflags,
+            'TARGET_CCFLAGS': generic_flags + generic_ccflags,
             'LINKFLAGS': env['CLANG_BASE_LINKFLAGS'],
         }, unique=0)
 

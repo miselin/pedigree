@@ -34,7 +34,6 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
-#include "modules/system/lwip/include/lwip/api.h"
 #include "subsys/posix/logging.h"
 
 class File;
@@ -72,14 +71,8 @@ extern RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
 class ProcessGroupManager
 {
   public:
-    ProcessGroupManager() : m_GroupIds()
-    {
-        m_GroupIds.set(0);
-    }
-
-    virtual ~ProcessGroupManager()
-    {
-    }
+    ProcessGroupManager();
+    virtual ~ProcessGroupManager();
 
     static ProcessGroupManager &instance()
     {
@@ -87,35 +80,16 @@ class ProcessGroupManager
     }
 
     /** Allocates a new process group ID, that hasn't yet been used. */
-    size_t allocateGroupId()
-    {
-        size_t bit = m_GroupIds.getFirstClear();
-        m_GroupIds.set(bit);
-        return bit;
-    }
+    size_t allocateGroupId();
 
     /** Forcibly set the given group ID as taken. */
-    void setGroupId(size_t gid)
-    {
-        if (m_GroupIds.test(gid))
-        {
-            PS_NOTICE("ProcessGroupManager: setGroupId called on a group ID that "
-                    "existed already!");
-        }
-        m_GroupIds.set(gid);
-    }
+    void setGroupId(size_t gid);
 
     /** Checks whether the given process group ID is used or not. */
-    bool isGroupIdValid(size_t gid)
-    {
-        return m_GroupIds.test(gid);
-    }
+    bool isGroupIdValid(size_t gid) const;
 
     /** Returns the given process group ID to the available pool. */
-    void returnGroupId(size_t gid)
-    {
-        m_GroupIds.clear(gid);
-    }
+    void returnGroupId(size_t gid);
 
   private:
     static ProcessGroupManager m_Instance;
@@ -342,7 +316,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         PosixSyncObject() : pObject(0), isMutex(false)
         {
         }
-        virtual ~PosixSyncObject()
+        ~PosixSyncObject()
         {
         }
 
@@ -404,7 +378,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
               nextDataKey(0)
         {
         }
-        virtual ~PosixThread()
+        ~PosixThread()
         {
         }
 

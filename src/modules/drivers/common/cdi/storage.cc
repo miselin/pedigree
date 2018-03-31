@@ -21,6 +21,8 @@
  * External prototype for this function so that we don't pollute the CDI header
  */
 extern "C" {
+void cdi_storage_driver_register(struct cdi_storage_driver* driver);
+
 void cdi_cpp_disk_register(struct cdi_storage_device* device);
 
 int cdi_storage_read(struct cdi_storage_device* device, uint64_t pos, size_t size, void* dest);
@@ -85,16 +87,18 @@ int cdi_storage_read(struct cdi_storage_device* device, uint64_t pos, size_t siz
     } else {
         // FIXME: Das laesst sich garantiert etwas effizienter loesen
         block_read_count++;
-        uint8_t buffer[block_read_count * block_size];
+        uint8_t *buffer = new uint8_t[block_read_count * block_size];
         
         // In Zwischenspeicher einlesen
         if (driver->read_blocks(device, block_read_start, block_read_count, buffer) != 0)
         {
+            delete [] buffer;
             return -1;
         }
         
         // Bereich aus dem Zwischenspeicher kopieren
         MemoryCopy(dest, buffer + (pos % block_size), size);
+        delete [] buffer;
     }
     return 0;
 }
@@ -114,7 +118,7 @@ int cdi_storage_write(struct cdi_storage_device* device, uint64_t pos,
     size_t block_size = device->block_size;
     uint64_t block_write_start = pos / block_size;
     uint8_t *source = reinterpret_cast<uint8_t*>(src);
-    uint8_t buffer[block_size];
+    uint8_t *buffer = new uint8_t[block_size];
     size_t offset;
     size_t tmp_size;
 
@@ -127,12 +131,14 @@ int cdi_storage_write(struct cdi_storage_device* device, uint64_t pos,
         tmp_size = (tmp_size > size ? size : tmp_size);
 
         if (driver->read_blocks(device, block_write_start, 1, buffer) != 0) {
+            delete [] buffer;
             return -1;
         }
         MemoryCopy(buffer + offset, source, tmp_size);
 
         // Buffer abspeichern
         if (driver->write_blocks(device, block_write_start, 1, buffer) != 0) {
+            delete [] buffer;
             return -1;
         }
 
@@ -149,6 +155,7 @@ int cdi_storage_write(struct cdi_storage_device* device, uint64_t pos,
         if (driver->write_blocks(device, block_write_start, tmp_size, source)
             != 0) 
         {
+            delete [] buffer;
             return -1;
         }
         size -= tmp_size * block_size;
@@ -160,14 +167,17 @@ int cdi_storage_write(struct cdi_storage_device* device, uint64_t pos,
     if (size != 0) {
         // Hier geschieht fast das Selbe wie oben beim ersten Block
         if (driver->read_blocks(device, block_write_start, 1, buffer) != 0) {
+            delete [] buffer;
             return -1;
         }
         MemoryCopy(buffer, source, size);
 
         // Buffer abspeichern
         if (driver->write_blocks(device, block_write_start, 1, buffer) != 0) {
+            delete [] buffer;
             return -1;
         }
     }
+    delete [] buffer;
     return 0;
 }

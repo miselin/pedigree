@@ -20,6 +20,7 @@
 #ifndef SERVICE_FEATURES_H
 #define SERVICE_FEATURES_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** Service Operation Enumeration
@@ -27,7 +28,7 @@
  *  This class provides a central interface for finding out the features
  *  a Service exposes to the system.
  */
-class ServiceFeatures
+class EXPORTED_PUBLIC ServiceFeatures
 {
   public:
     enum Type

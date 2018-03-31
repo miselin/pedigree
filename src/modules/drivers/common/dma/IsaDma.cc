@@ -20,6 +20,9 @@
 #include "IsaDma.h"
 #include "modules/Module.h"
 
+IsaDma::IsaDma() = default;
+IsaDma::~IsaDma() = default;
+
 #ifdef X86_COMMON
 #include "x86/X86IsaDma.h"
 IsaDma &IsaDma::instance()

@@ -26,6 +26,24 @@
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 
+UsbHub::UsbHub()
+{
+    m_UsedAddresses.set(0);
+}
+
+UsbHub::UsbHub(Device *p) : Device(p)
+{
+}
+
+UsbHub::~UsbHub()
+{
+}
+
+Device::Type UsbHub::getType()
+{
+    return UsbController;
+}
+
 bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
 {
     NOTICE("USB: Adding device on port " << Dec << nPort << Hex);

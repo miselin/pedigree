@@ -140,4 +140,6 @@ int posix_mount(const char *, const char *, const char *, size_t, const void *);
 
 void generate_mtab(String &result);
 
+int pedigree_get_mount(char *mount_buf, char *info_buf, size_t n);
+
 #endif

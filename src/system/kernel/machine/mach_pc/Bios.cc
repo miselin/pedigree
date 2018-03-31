@@ -104,6 +104,7 @@ extern "C" void sscanf()
 {
 }
 
+extern "C" void printk(const char *fmt, ...) USED;
 extern "C" void printk(const char *fmt, ...)
 {
     HugeStaticString buf2;

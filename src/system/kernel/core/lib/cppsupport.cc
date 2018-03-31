@@ -316,7 +316,7 @@ void operator delete(void *p) noexcept
     }
     else
     {
-        ERROR("operator delete failed as pointer was invalid");
+        ERROR("operator delete failed as pointer was invalid: " << p);
     }
 }
 void operator delete[](void *p) noexcept
@@ -330,7 +330,7 @@ void operator delete[](void *p) noexcept
     }
     else
     {
-        ERROR("operator delete[] failed as pointer was invalid");
+        ERROR("operator delete[] failed as pointer was invalid: " << p);
     }
 }
 void operator delete(void *p, void *q) noexcept

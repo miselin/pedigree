@@ -35,12 +35,8 @@
 class EXPORTED_PUBLIC IsaDma
 {
   public:
-    IsaDma()
-    {
-    }
-    virtual ~IsaDma()
-    {
-    }
+    IsaDma();
+    virtual ~IsaDma();
 
     static IsaDma &instance();
 

@@ -257,60 +257,50 @@ void Nic3C90x::reset()
 
 bool Nic3C90x::send(size_t nBytes, uintptr_t buffer)
 {
-    uint32_t retries;
+    /** Stall the download engine **/
+    issueCommand(cmdStallCtl, 2);
 
-    for (retries = 0; retries < XMIT_RETRIES; retries++)
+    /** Make sure the card is not waiting on us **/
+    m_pBase->read16(regCommandIntStatus_w);
+    m_pBase->read16(regCommandIntStatus_w);
+    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
+        ;
+
+    physical_uintptr_t destPtr = m_pTxBuffPhys;
+    size_t dud = 0;
+    if (Processor::information().getVirtualAddressSpace().isMapped(
+            reinterpret_cast<void *>(buffer)))
     {
-        /** Stall the download engine **/
-        issueCommand(cmdStallCtl, 2);
-
-        /** Make sure the card is not waiting on us **/
-        m_pBase->read16(regCommandIntStatus_w);
-        m_pBase->read16(regCommandIntStatus_w);
-        while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-            ;
-
-        physical_uintptr_t destPtr = m_pTxBuffPhys;
-        size_t dud = 0;
-        if (Processor::information().getVirtualAddressSpace().isMapped(
-                reinterpret_cast<void *>(buffer)))
-        {
-            Processor::information().getVirtualAddressSpace().getMapping(
-                reinterpret_cast<void *>(buffer), destPtr, dud);
-            destPtr += buffer & 0xFFF;
-        }
-        else
-            MemoryCopy(m_pTxBuffVirt, reinterpret_cast<void *>(buffer), nBytes);
-
-        /** Setup the DPD (download descriptor) **/
-        m_TransmitDPD->DnNextPtr = 0;
-
-        /** Set notification for transmission complete (bit 15) **/
-        m_TransmitDPD->FrameStartHeader = nBytes | 0x8000;
-        // m_TransmitDPD->HdrAddr = m_pTxBuffPhys;
-        // m_TransmitDPD->HdrLength = Ethernet::instance().ethHeaderSize();
-        m_TransmitDPD->DataAddr = static_cast<uint32_t>(
-            destPtr);  // m_pTxBuffPhys; // + m_TransmitDPD->HdrLength;
-        m_TransmitDPD->DataLength =
-            (nBytes /* - m_TransmitDPD->HdrLength */) + (1U << 31U);
-
-        /** Send the packet **/
-        m_pBase->write32(m_pDPD, regDnListPtr_l);
-
-        /** End Stall and Wait for upload to complete. **/
-        issueCommand(cmdStallCtl, 3);
-        while (m_pBase->read32(regDnListPtr_l) != 0)
-            ;
-
-        m_TxMutex.acquire();
-
-        return true;
+        Processor::information().getVirtualAddressSpace().getMapping(
+            reinterpret_cast<void *>(buffer), destPtr, dud);
+        destPtr += buffer & 0xFFF;
     }
+    else
+        MemoryCopy(m_pTxBuffVirt, reinterpret_cast<void *>(buffer), nBytes);
 
-    ERROR(
-        "3C90x: Failed to send after " << Dec << retries << Hex << " retries!");
+    /** Setup the DPD (download descriptor) **/
+    m_TransmitDPD->DnNextPtr = 0;
 
-    return false;
+    /** Set notification for transmission complete (bit 15) **/
+    m_TransmitDPD->FrameStartHeader = nBytes | 0x8000;
+    // m_TransmitDPD->HdrAddr = m_pTxBuffPhys;
+    // m_TransmitDPD->HdrLength = Ethernet::instance().ethHeaderSize();
+    m_TransmitDPD->DataAddr = static_cast<uint32_t>(
+        destPtr);  // m_pTxBuffPhys; // + m_TransmitDPD->HdrLength;
+    m_TransmitDPD->DataLength =
+        (nBytes /* - m_TransmitDPD->HdrLength */) + (1U << 31U);
+
+    /** Send the packet **/
+    m_pBase->write32(m_pDPD, regDnListPtr_l);
+
+    /** End Stall and Wait for upload to complete. **/
+    issueCommand(cmdStallCtl, 3);
+    while (m_pBase->read32(regDnListPtr_l) != 0)
+        ;
+
+    m_TxMutex.acquire();
+
+    return true;
 }
 
 Nic3C90x::Nic3C90x(Network *pDev)

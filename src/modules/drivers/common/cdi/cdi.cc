@@ -27,6 +27,8 @@ static cdi_list_t devices = NULL;
 
 static void cdi_destroy(void);
 
+void cdi_run_drivers(void);
+
 static Device *handleDevice(Device *p)
 {
     struct cdi_pci_device *dev = new struct cdi_pci_device;

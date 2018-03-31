@@ -20,12 +20,13 @@
 #ifndef MACHINE_CONTROLLER_H
 #define MACHINE_CONTROLLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 
 /**
  * A controller is a hub that controls multiple devices.
  */
-class Controller : public Device
+class EXPORTED_PUBLIC Controller : public Device
 {
   public:
     Controller();

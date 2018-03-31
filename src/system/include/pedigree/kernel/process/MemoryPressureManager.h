@@ -20,6 +20,7 @@
 #ifndef MEMORY_PRESSURE_MANAGER_H
 #define MEMORY_PRESSURE_MANAGER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -30,7 +31,7 @@
 /**
  * MemoryPressureHandler: interface for memory pressure handlers.
  */
-class MemoryPressureHandler
+class EXPORTED_PUBLIC MemoryPressureHandler
 {
   public:
     MemoryPressureHandler();

@@ -55,7 +55,7 @@ PosixSyscallManager::~PosixSyscallManager()
 
 void PosixSyscallManager::initialise()
 {
-    SyscallManager::instance().registerSyscallHandler(linux, this);
+    SyscallManager::instance().registerSyscallHandler(linuxCompat, this);
     SyscallManager::instance().registerSyscallHandler(posix, this);
 }
 
@@ -81,7 +81,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
     uint64_t syscallNumber = state.getSyscallNumber();
 
     uintptr_t base = 0;
-    if (state.getSyscallService() == linux)
+    if (state.getSyscallService() == linuxCompat)
     {
         // Switch ABI now that we've seen a Linux syscall come in.
         Process *pProcess =
@@ -159,7 +159,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_EXIT:
             // If not Linux mode, we exit the entire process. If Linux, just
             // the current thread (as glibc uses exit_group for "all process").
-            posix_exit(p1, state.getSyscallService() != linux);
+            posix_exit(p1, state.getSyscallService() != linuxCompat);
         case POSIX_EXIT_GROUP:
             posix_exit(p1, true);
         case POSIX_TCGETATTR:

@@ -27,39 +27,17 @@ namespace PedigreeGraphics
 class Rect
 {
   public:
-    Rect() : x(0), y(0), w(0), h(0){};
-    Rect(size_t x, size_t y, size_t width, size_t height)
-        : x(x), y(y), w(width), h(height){};
+    Rect();
+    Rect(size_t x_, size_t y_, size_t width_, size_t height_);
 
-    virtual ~Rect(){};
+    virtual ~Rect();
 
-    void update(size_t x, size_t y, size_t w, size_t h)
-    {
-        this->x = x;
-        this->y = y;
-        this->w = w;
-        this->h = h;
-    }
+    void update(size_t x_, size_t y_, size_t w_, size_t h_);
 
-    inline size_t getX() const
-    {
-        return x;
-    }
-
-    inline size_t getY() const
-    {
-        return y;
-    }
-
-    inline size_t getW() const
-    {
-        return w;
-    }
-
-    inline size_t getH() const
-    {
-        return h;
-    }
+    size_t getX() const;
+    size_t getY() const;
+    size_t getW() const;
+    size_t getH() const;
 
   private:
     size_t x, y;

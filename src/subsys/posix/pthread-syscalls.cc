@@ -46,7 +46,7 @@ extern void pthread_stub();
 extern char pthread_stub_end;
 }
 
-Tree<int *, List<Thread *> *> g_futexes;
+static Tree<int *, List<Thread *> *> g_futexes;
 
 int posix_futex(
     int *uaddr, int futex_op, int val, const struct timespec *timeout)

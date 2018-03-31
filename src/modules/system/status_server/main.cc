@@ -213,9 +213,9 @@ static int clientThread(void *p)
             responseContent += "<td>";
             const ip4_addr_t *ip4 = netif_ip4_addr(iface);
             responseContent += ip4addr_ntoa(ip4);
-            for (size_t i = 0; i < LWIP_IPV6_NUM_ADDRESSES; ++i)
+            for (size_t j = 0; j < LWIP_IPV6_NUM_ADDRESSES; ++j)
             {
-                const ip6_addr_t *ip6 = netif_ip6_addr(iface, i);
+                const ip6_addr_t *ip6 = netif_ip6_addr(iface, j);
                 if (ip6_addr_isany(ip6))
                 {
                     continue;

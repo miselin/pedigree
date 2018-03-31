@@ -39,12 +39,8 @@ class EXPORTED_PUBLIC UsbPnP
     typedef UsbDevice *(*callback_t)(UsbDevice *);
 
   public:
-    UsbPnP() : m_Callbacks()
-    {
-    }
-    inline virtual ~UsbPnP()
-    {
-    }
+    UsbPnP();
+    virtual ~UsbPnP();
 
     /// Singleton design
     static UsbPnP &instance()

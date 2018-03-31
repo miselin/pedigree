@@ -33,9 +33,7 @@ class RawFsDir : public Directory
   public:
     /** Constructor, should only be called by RawFs. */
     RawFsDir(String name, class RawFs *pFs, File *pParent);
-    ~RawFsDir()
-    {
-    }
+    virtual ~RawFsDir();
     /** Reads directory contents into File* cache. */
     virtual void cacheDirectoryContents()
     {

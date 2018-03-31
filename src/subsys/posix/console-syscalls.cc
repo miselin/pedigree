@@ -58,69 +58,21 @@ struct termios_compatible
 class PosixTerminalEvent : public Event
 {
   public:
-    PosixTerminalEvent() : Event(0, false), pGroup(0), pConsole(0)
-    {
-    }
+    PosixTerminalEvent();
     PosixTerminalEvent(
         uintptr_t handlerAddress, ProcessGroup *grp, ConsoleFile *tty,
-        size_t specificNestingLevel = ~0UL)
-        : Event(handlerAddress, false, specificNestingLevel), pGroup(grp),
-          pConsole(tty)
-    {
-    }
-    virtual ~PosixTerminalEvent()
-    {
-        // Remove us from the console if needed.
-        if (pConsole && (pConsole->getEvent() == this))
-        {
-            pConsole->setEvent(0);
-        }
-    }
+        size_t specificNestingLevel = ~0UL);
+    virtual ~PosixTerminalEvent();
 
-    virtual size_t serialize(uint8_t *pBuffer)
-    {
-        size_t eventNumber = EventNumbers::TerminalEvent;
-        size_t offset = 0;
-        MemoryCopy(pBuffer + offset, &eventNumber, sizeof(eventNumber));
-        offset += sizeof(eventNumber);
-        MemoryCopy(pBuffer + offset, &pGroup, sizeof(pGroup));
-        offset += sizeof(pGroup);
-        MemoryCopy(pBuffer + offset, &pConsole, sizeof(pConsole));
-        offset += sizeof(pConsole);
-        return offset;
-    }
+    virtual size_t serialize(uint8_t *pBuffer);
 
-    static bool unserialize(uint8_t *pBuffer, Event &event)
-    {
-        PosixTerminalEvent &t = static_cast<PosixTerminalEvent &>(event);
-        if (Event::getEventType(pBuffer) != EventNumbers::TerminalEvent)
-            return false;
-        size_t offset = sizeof(size_t);
-        MemoryCopy(&t.pGroup, pBuffer + offset, sizeof(t.pGroup));
-        offset += sizeof(t.pGroup);
-        MemoryCopy(&t.pConsole, pBuffer + offset, sizeof(t.pConsole));
-        return true;
-    }
+    static bool unserialize(uint8_t *pBuffer, Event &event);
 
-    virtual ProcessGroup *getGroup() const
-    {
-        return pGroup;
-    }
+    virtual ProcessGroup *getGroup() const;
+    virtual ConsoleFile *getConsole() const;
 
-    virtual ConsoleFile *getConsole() const
-    {
-        return pConsole;
-    }
-
-    virtual size_t getNumber()
-    {
-        return EventNumbers::TerminalEvent;
-    }
-
-    virtual bool isDeleteable()
-    {
-        return false;
-    }
+    virtual size_t getNumber();
+    virtual bool isDeleteable();
 
   private:
     ProcessGroup *pGroup;
@@ -759,3 +711,70 @@ unsigned int console_getptn(int fd)
     F_NOTICE(" -> " << result);
     return result;
 }
+
+PosixTerminalEvent::PosixTerminalEvent() : Event(0, false), pGroup(0), pConsole(0)
+{
+}
+
+PosixTerminalEvent::PosixTerminalEvent(
+    uintptr_t handlerAddress, ProcessGroup *grp, ConsoleFile *tty,
+    size_t specificNestingLevel)
+    : Event(handlerAddress, false, specificNestingLevel), pGroup(grp),
+      pConsole(tty)
+{
+}
+
+PosixTerminalEvent::~PosixTerminalEvent()
+{
+    // Remove us from the console if needed.
+    if (pConsole && (pConsole->getEvent() == this))
+    {
+        pConsole->setEvent(0);
+    }
+}
+
+size_t PosixTerminalEvent::serialize(uint8_t *pBuffer)
+{
+    size_t eventNumber = EventNumbers::TerminalEvent;
+    size_t offset = 0;
+    MemoryCopy(pBuffer + offset, &eventNumber, sizeof(eventNumber));
+    offset += sizeof(eventNumber);
+    MemoryCopy(pBuffer + offset, &pGroup, sizeof(pGroup));
+    offset += sizeof(pGroup);
+    MemoryCopy(pBuffer + offset, &pConsole, sizeof(pConsole));
+    offset += sizeof(pConsole);
+    return offset;
+}
+
+bool PosixTerminalEvent::unserialize(uint8_t *pBuffer, Event &event)
+{
+    PosixTerminalEvent &t = static_cast<PosixTerminalEvent &>(event);
+    if (Event::getEventType(pBuffer) != EventNumbers::TerminalEvent)
+        return false;
+    size_t offset = sizeof(size_t);
+    MemoryCopy(&t.pGroup, pBuffer + offset, sizeof(t.pGroup));
+    offset += sizeof(t.pGroup);
+    MemoryCopy(&t.pConsole, pBuffer + offset, sizeof(t.pConsole));
+    return true;
+}
+
+ProcessGroup *PosixTerminalEvent::getGroup() const
+{
+    return pGroup;
+}
+
+ConsoleFile *PosixTerminalEvent::getConsole() const
+{
+    return pConsole;
+}
+
+size_t PosixTerminalEvent::getNumber()
+{
+    return EventNumbers::TerminalEvent;
+}
+
+bool PosixTerminalEvent::isDeleteable()
+{
+    return false;
+}
+

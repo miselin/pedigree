@@ -2067,7 +2067,7 @@ int posix_getitimer(int which, struct itimerval *curr_value)
     Time::Timestamp interval = 0;
     Time::Timestamp value = 0;
 
-    IntervalTimer &itimer = pProcess->getRealIntervalTimer();
+    IntervalTimer *itimer = &pProcess->getRealIntervalTimer();
     if (which == ITIMER_REAL)
     {
         SC_NOTICE(" -> ITIMER_REAL");
@@ -2076,13 +2076,13 @@ int posix_getitimer(int which, struct itimerval *curr_value)
     {
         SC_NOTICE(" -> ITIMER_VIRTUAL");
 
-        itimer = pProcess->getVirtualIntervalTimer();
+        itimer = &pProcess->getVirtualIntervalTimer();
     }
     else if (which == ITIMER_PROF)
     {
         SC_NOTICE(" -> ITIMER_VIRTUAL");
 
-        itimer = pProcess->getProfileIntervalTimer();
+        itimer = &pProcess->getProfileIntervalTimer();
     }
     else
     {
@@ -2090,7 +2090,7 @@ int posix_getitimer(int which, struct itimerval *curr_value)
         return -1;
     }
 
-    itimer.getIntervalAndValue(interval, value);
+    itimer->getIntervalAndValue(interval, value);
 
     curr_value->it_interval.tv_sec = interval / Time::Multiplier::Second;
     curr_value->it_interval.tv_usec = (interval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
@@ -2124,7 +2124,7 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
     interval = (new_value->it_interval.tv_sec * Time::Multiplier::Second) + (new_value->it_interval.tv_usec * Time::Multiplier::Microsecond);
     value = (new_value->it_value.tv_sec * Time::Multiplier::Second) + (new_value->it_value.tv_usec * Time::Multiplier::Microsecond);
 
-    IntervalTimer &itimer = pProcess->getRealIntervalTimer();
+    IntervalTimer *itimer = &pProcess->getRealIntervalTimer();
     if (which == ITIMER_REAL)
     {
         SC_NOTICE(" -> ITIMER_REAL");
@@ -2133,13 +2133,13 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
     {
         SC_NOTICE(" -> ITIMER_VIRTUAL");
 
-        itimer = pProcess->getVirtualIntervalTimer();
+        itimer = &pProcess->getVirtualIntervalTimer();
     }
     else if (which == ITIMER_PROF)
     {
         SC_NOTICE(" -> ITIMER_VIRTUAL");
 
-        itimer = pProcess->getProfileIntervalTimer();
+        itimer = &pProcess->getProfileIntervalTimer();
     }
     else
     {
@@ -2147,7 +2147,7 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
         return -1;
     }
 
-    itimer.setIntervalAndValue(interval, value, &prevInterval, &prevValue);
+    itimer->setIntervalAndValue(interval, value, &prevInterval, &prevValue);
 
     if (old_value)
     {

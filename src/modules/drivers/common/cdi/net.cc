@@ -27,6 +27,7 @@ typedef unsigned long dword;
 extern "C"
 {
     void cdi_cpp_net_register(void* void_pdev, struct cdi_net_device* dev);
+    struct cdi_net_device* cdi_net_get_device(int num);
 };
 
 /*

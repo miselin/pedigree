@@ -135,7 +135,6 @@ struct Iso9660DirRecord
     uint16_t VolSeqNum_BE;
 
     uint8_t FileIdentLen;
-    uint8_t FileIdent[];
 } __attribute__((packed));
 
 /** ISO9660 Defines */

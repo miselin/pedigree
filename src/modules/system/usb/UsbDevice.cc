@@ -627,3 +627,42 @@ String UsbDevice::getString(uint8_t nString)
     delete pBuffer;
     return String(pString);
 }
+
+UsbDeviceContainer::UsbDeviceContainer(UsbDevice *pDev) : Device(), m_pUsbDevice(pDev)
+{
+    pDev->m_pContainer = this;
+
+    // Classes that expose a subtree can be converted to Device.
+    // But, we need to do this so children will continue to have
+    // the correct parents.
+    if (pDev->hasSubtree())
+    {
+        Device *pChild = pDev->getDevice();
+        addChild(pChild);
+        pChild->setParent(this);
+    }
+}
+
+UsbDeviceContainer::~UsbDeviceContainer()
+{
+}
+
+UsbDevice *UsbDeviceContainer::getUsbDevice() const
+{
+    return m_pUsbDevice;
+}
+
+void UsbDeviceContainer::getName(String &str)
+{
+    m_pUsbDevice->getUsbDeviceName(str);
+}
+
+Device::Type UsbDeviceContainer::getType()
+{
+    return Device::UsbContainer;
+}
+
+void UsbDeviceContainer::dump(String &str)
+{
+    str = "Generic USB Device";
+}

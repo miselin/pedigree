@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_SYSCALLHANDLER_H
 #define KERNEL_PROCESSOR_SYSCALLHANDLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/state.h"
 
 /** @addtogroup kernelprocessor
@@ -27,7 +28,7 @@
 
 /** Abstract base class for all syscall-handlers. All syscall-handlers mustbe
  * derived from this class */
-class SyscallHandler
+class EXPORTED_PUBLIC SyscallHandler
 {
   public:
     /** Called when the handler is registered with the syscall manager and a
