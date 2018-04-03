@@ -125,7 +125,13 @@ inline void swap(T a, T b)
 
 /** Return b - a. */
 template <typename T1, typename T2>
-inline intptr_t pointer_diff(T1 *a, T2 *b)
+inline intptr_t pointer_diff(const T1 *a, const T2 *b)
+{
+    return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
+}
+
+template <typename T1, typename T2>
+constexpr intptr_t pointer_diff_const(T1 *a, T2 *b)
 {
     return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
 }

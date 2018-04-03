@@ -41,13 +41,15 @@ KernelElf KernelElf::m_Instance;
  * the prefix (as all addresses get truncated to 32 bits)
  */
 
+#define EXTENSION_ADDEND 0xFFFFFFFF00000000ULL
+
 template <class T>
 static T *extend(T *p)
 {
 #if defined(X86_COMMON) && !defined(BITS_32)
     uintptr_t u = reinterpret_cast<uintptr_t>(p);
-    if (u < 0xFFFFFFFF00000000ULL)
-        u += 0xFFFFFFFF00000000ULL;
+    if (u < EXTENSION_ADDEND)
+        u += EXTENSION_ADDEND;
     return reinterpret_cast<T *>(u);
 #else
     return p;
@@ -60,8 +62,8 @@ static uintptr_t extend(T p)
 #if defined(X86_COMMON) && !defined(BITS_32)
     // Must assign to a possibly-larger type before arithmetic.
     uintptr_t u = p;
-    if (u < 0xFFFFFFFF00000000ULL)
-        u += 0xFFFFFFFF00000000ULL;
+    if (u < EXTENSION_ADDEND)
+        u += EXTENSION_ADDEND;
     return u;
 #else
     return p;
@@ -73,8 +75,8 @@ static T *retract(T *p)
 {
 #if defined(X86_COMMON) && !defined(BITS_32)
     uintptr_t u = reinterpret_cast<uintptr_t>(p);
-    if (u >= 0xFFFFFFFF00000000ULL)
-        u -= 0xFFFFFFFF00000000ULL;
+    if (u >= EXTENSION_ADDEND)
+        u -= EXTENSION_ADDEND;
     return reinterpret_cast<T *>(u);
 #else
     return p;
@@ -87,8 +89,8 @@ static uintptr_t retract(T p)
 #if defined(X86_COMMON) && !defined(BITS_32)
     // Must assign to a possibly-larger type before arithmetic.
     uintptr_t u = p;
-    if (u >= 0xFFFFFFFF00000000ULL)
-        u -= 0xFFFFFFFF00000000ULL;
+    if (u >= EXTENSION_ADDEND)
+        u -= EXTENSION_ADDEND;
     return u;
 #else
     return p;
@@ -156,7 +158,7 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
                 start = pSh->addr;
             }
 
-            if (pSh->addr >= end)
+            if ((pSh->addr + pSh->size) >= end)
             {
                 end = pSh->addr + pSh->size;
             }
@@ -203,16 +205,37 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
     const char *tmpStringTable =
         reinterpret_cast<const char *>(stringTableShdr->addr);
 
+#ifdef X86_COMMON
+    tmpStringTable = m_AdditionalSectionContents.convertPhysicalPointer<const char>(
+                    stringTableShdr->addr);
+#endif
+
     // Search for the symbol/string table and adjust sections
     for (size_t i = 1; i < pBootstrap.getSectionHeaderCount(); i++)
     {
         uintptr_t shdr_addr = pBootstrap.getSectionHeaders() +
                               i * pBootstrap.getSectionHeaderEntrySize();
-        KernelElfSectionHeader_t *pSh = 0;
+
 #ifdef X86_COMMON
-        pSh = m_AdditionalSectionHeaders
+        KernelElfSectionHeader_t *pTruncatedSh = m_AdditionalSectionHeaders
                   ->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
+
+        // Copy into larger format for analysis
+        ElfSectionHeader_t sh;
+        sh.name = pTruncatedSh->name;
+        sh.type = pTruncatedSh->type;
+        sh.flags = pTruncatedSh->flags;
+        sh.addr = pTruncatedSh->addr;
+        sh.offset = pTruncatedSh->offset;
+        sh.size = pTruncatedSh->size;
+        sh.link = pTruncatedSh->link;
+        sh.info = pTruncatedSh->info;
+        sh.addralign = pTruncatedSh->addralign;
+        sh.entsize = pTruncatedSh->entsize;
+
+        ElfSectionHeader_t *pSh = &sh;
 #else
+        KernelElfSectionHeader_t *pSh = 0;
         pSh = reinterpret_cast<KernelElfSectionHeader_t *>(shdr_addr);
 #endif
 
@@ -237,20 +260,20 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         if (pSh->type == SHT_SYMTAB)
         {
             m_pSymbolTable =
-                extend(reinterpret_cast<KernelElfSymbol_t *>(pSh->addr));
+                reinterpret_cast<KernelElfSymbol_t *>(pSh->addr);
             m_nSymbolTableSize = pSh->size;
         }
         else if (!StringCompare(pStr, ".strtab"))
         {
-            m_pStringTable = extend(reinterpret_cast<char *>(pSh->addr));
+            m_pStringTable = reinterpret_cast<char *>(pSh->addr);
         }
         else if (!StringCompare(pStr, ".shstrtab"))
         {
-            m_pShstrtab = extend(reinterpret_cast<char *>(pSh->addr));
+            m_pShstrtab = reinterpret_cast<char *>(pSh->addr);
         }
         else if (!StringCompare(pStr, ".debug_frame"))
         {
-            m_pDebugTable = extend(reinterpret_cast<uint32_t *>(pSh->addr));
+            m_pDebugTable = reinterpret_cast<uint32_t *>(pSh->addr);
             m_nDebugTableSize = pSh->size;
         }
     }
@@ -263,7 +286,11 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
 #ifdef DEBUGGER
     if (m_pSymbolTable && m_pStringTable)
     {
+#ifdef X86_COMMON
         KernelElfSymbol_t *pSymbol = m_pSymbolTable;
+#else
+        KernelElfSymbol_t *pSymbol = m_pSymbolTable;
+#endif
 
         const char *pStrtab = reinterpret_cast<const char *>(m_pStringTable);
 
@@ -313,7 +340,9 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
                 pStr = reinterpret_cast<const char *>(m_pShstrtab) + pSh->name;
             }
             else
+            {
                 pStr = pStrtab + pSymbol->name;
+            }
 
             // Insert the symbol into the symbol table.
             SymbolTable::Binding binding;
@@ -799,7 +828,6 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
                 // Optional dependency has not yet had any attempt to load.
                 if (!found)
                 {
-                    NOTICE("NOT satisfied: module " << module->name << " is missing optional module " << module->depends_opt[i]);
                     return false;
                 }
             }
@@ -826,7 +854,6 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
         }
         if (!found)
         {
-            NOTICE("NOT satisfied: module " << module->name << " is missing required module " << module->depends[i]);
             return false;
         }
         i++;

@@ -23,13 +23,17 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
-//
-// Virtual address space layout
-//
-#define KERNEL_SPACE_START reinterpret_cast<void *>(0xFFFFFFF000000000)
-
+/**
+ * Virtual address space layout
+ * NOTE: the kernel and all modules must exist in the final 2GB of the address
+ * space so that the 'kernel' mcmodel works as expected. If these are outside
+ * that region, things like sign-extended relocations fall over. This also
+ * ensures all jumps between the kernel and modules are within 2GB of each
+ * other.
+ */
 #define USERSPACE_DYNAMIC_LINKER_LOCATION reinterpret_cast<void *>(0x4FA00000)
 
 #define USERSPACE_VIRTUAL_START reinterpret_cast<void *>(0x400000)
@@ -46,30 +50,26 @@
     reinterpret_cast<void *>(0x00007FFFEFFFF000)  // right below the Event base
 #define KERNEL_VIRTUAL_EVENT_BASE \
     reinterpret_cast<void *>(0x00007FFFF0000000)  // right above the stacks
-#define KERNEL_VIRTUAL_MODULE_BASE reinterpret_cast<void *>(0xFFFFFFFFF0000000)
-#define KERNEL_VIRTUAL_MODULE_SIZE 0x400000
-#define KERNEL_VIRTUAL_HEAP reinterpret_cast<void *>(0xFFFFFFFF00000000)
-#define KERNEL_VIRTUAL_HEAP_SIZE 0x40000000
-#define KERNEL_VIRTUAL_ADDRESS reinterpret_cast<void *>(0xFFFFFFFF7FF00000)
-#define KERNEL_VIRTUAL_INFO_BLOCK reinterpret_cast<void *>(0xFFFFFFFF8FFF0000)
-#define KERNEL_VIRTUAL_CACHE reinterpret_cast<void *>(0xFFFFFFFF40000000)
-#define KERNEL_VIRTUAL_CACHE_SIZE 0x3FC00000
-#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS \
-    reinterpret_cast<void *>(0xFFFFFFFF90000000)
-#define KERNEL_VIRTUAL_MEMORYREGION_SIZE 0x40000000
-#define KERNEL_VIRTUAL_PAGESTACK_4GB \
-    reinterpret_cast<void *>(0xFFFFFFFF7FC00000)
-#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB1 \
-    reinterpret_cast<void *>(0xFFFFFFFE00000000)  // First page stack above 4 GB
-                                                  // holds 0x200000000 8-byte
-                                                  // addresses
-#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB2 \
-    reinterpret_cast<void *>(0xFFFFFFF000000000)  // Second page stack holds all
-                                                  // addresses above the end of
-                                                  // the first page stack
-                                                  // (massive number)
-#define KERNEL_VIRTUAL_STACK reinterpret_cast<void *>(-0x9000)
-#define KERNEL_STACK_SIZE 0x8000
+
+
+#define KERNEL_SPACE_START                      reinterpret_cast<void *>(0xFFFF800000000000)
+#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB1        reinterpret_cast<void *>(0xFFFF800100000000)
+#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB2        reinterpret_cast<void *>(0xFFFF801000000000)
+#define KERNEL_VIRTUAL_HEAP                     reinterpret_cast<void *>(0xFFFF900000000000)
+#define KERNEL_VIRTUAL_CACHE                    reinterpret_cast<void *>(0xFFFFB00000000000)
+#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS     reinterpret_cast<void *>(0xFFFFF00000000000)
+#define KERNEL_VIRTUAL_PAGESTACK_4GB            reinterpret_cast<void *>(0xFFFFFFFF7FC00000)
+#define KERNEL_VIRTUAL_ADDRESS                  reinterpret_cast<void *>(0xFFFFFFFF7FF00000)
+#define KERNEL_VIRTUAL_INFO_BLOCK               reinterpret_cast<void *>(0xFFFFFFFF8FFF0000)
+#define KERNEL_VIRTUAL_MODULE_BASE              reinterpret_cast<void *>(0xFFFFFFFF90000000)
+#define KERNEL_VIRTUAL_LOWEST_STACK             reinterpret_cast<void *>(0xFFFFFFFFE0000000)
+#define KERNEL_VIRTUAL_STACK                    reinterpret_cast<void *>(0xFFFFFFFFFFFF7000)
+
+#define KERNEL_VIRTUAL_MODULE_SIZE              pointer_diff_const(KERNEL_VIRTUAL_MODULE_BASE, KERNEL_VIRTUAL_LOWEST_STACK)
+#define KERNEL_VIRTUAL_HEAP_SIZE                pointer_diff_const(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_CACHE)
+#define KERNEL_VIRTUAL_CACHE_SIZE               pointer_diff_const(KERNEL_VIRTUAL_CACHE, KERNEL_VIRTUAL_MEMORYREGION_ADDRESS)
+#define KERNEL_VIRTUAL_MEMORYREGION_SIZE        pointer_diff_const(KERNEL_VIRTUAL_MEMORYREGION_ADDRESS, KERNEL_VIRTUAL_PAGESTACK_4GB)
+#define KERNEL_STACK_SIZE                       0x8000
 
 /** @addtogroup kernelprocessorx64
  * @{ */
