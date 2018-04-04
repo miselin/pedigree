@@ -90,6 +90,7 @@ opts.AddVariables(
     BoolVariable('debug_logging','Whether to enable debug-level logging, which can dump massive amounts of data to the kernel log. Probable performance hit too, use at your own risk.',1),
     BoolVariable('superdebug', 'Super debug is like the debug_logging option, except even MORE verbose. Expect hundreds of thousands of lines of output to the kernel log.', 0),
     BoolVariable('tracing', 'Enable kernel traces, which may output to the screen or a spare serial port.', 1),
+    BoolVariable('lto', 'Enable LTO for the kernel (not modules/drivers).', 0),
     
     BoolVariable('usb_verbose_debug','When set, USB low-level drivers will dump massive amounts of debug information to the log. When not set, only layers such as mass storage will.',0),
 
@@ -700,6 +701,8 @@ if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET
 
             default_flags[flags_arch] = [
                 x.replace('-O3', replacement) for x in default_flags[flags_arch]]
+            default_linkflags[flags_arch] = [
+                x.replace('-O3', replacement) for x in default_linkflags[flags_arch]]
 
         mapping = {
             'CCFLAGS': default_flags[flags_arch],

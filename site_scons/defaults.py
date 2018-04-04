@@ -57,7 +57,7 @@ warning_flags_off = [
 generic_asflags = []
 
 # Generic link flags (that everyone should have)
-generic_linkflags = ['-nostdlib', '-nostartfiles', '-fvisibility=hidden']
+generic_linkflags = ['-nostdlib', '-nostartfiles', '-fvisibility=hidden', '-O3']
 
 # Generic defines
 generic_defines = [

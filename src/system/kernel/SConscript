@@ -47,6 +47,12 @@ env_clone.MergeFlags({
     'LINKFLAGS': ['-Wl,--discard-all'],
 })
 
+if env['lto']:
+    env_clone.MergeFlags({
+        'CCFLAGS': ['-flto'],
+        'LINKFLAGS': ['-flto'],
+    })
+
 # Base set of kernel files, common to all architectures.
 files = [
     'Log.cc',
