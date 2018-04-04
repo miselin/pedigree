@@ -513,7 +513,7 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     m_PageStack.markBelow4GReady();
 
     /// \todo do this in initialise64 too, copying any existing entries.
-    // m_PageMetadata = new struct page[top >> 12];
+    m_PageMetadata.reserve(top >> 12);  // number of 4k pages in this zone
 
     // Fill the range-lists (usable memory below 1/16MB & ACPI)
     MemoryMap = Info.getMemoryMap();
