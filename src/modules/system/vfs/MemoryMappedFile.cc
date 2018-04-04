@@ -317,7 +317,7 @@ MemoryMappedFile::MemoryMappedFile(
     uintptr_t address, size_t length, size_t offset, File *backing,
     bool bCopyOnWrite, MemoryMappedObject::Permissions perms)
     : MemoryMappedObject(address, bCopyOnWrite, length, perms),
-      m_pBacking(backing), m_Offset(offset), m_Mappings()
+      m_pBacking(backing), m_Offset(offset), m_Mappings(), m_Lock(false)
 {
     assert(m_pBacking);
 }
@@ -504,13 +504,19 @@ static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset)
     if (phys == ~0UL)
     {
         // No page found, trigger a read to fix that!
-        pBacking->read(fileOffset, pageSz, 0);
+        uint64_t actual = 0;
+        if ((actual = pBacking->read(fileOffset, pageSz, 0)) != pageSz)
+        {
+            ERROR("Short read of " << pBacking->getName() << " in getBackingPage() - wanted " << pageSz << " bytes but got " << actual << " instead");
+        }
         phys = pBacking->getPhysicalPage(fileOffset);
         if (phys == ~0UL)
+        {
             ERROR(
                 "*** Could not manage to get a physical page for a "
                 "MemoryMappedFile ("
-                << pBacking->getName() << ")!");
+                << pBacking->getName() << ") - read got " << actual << " bytes!");
+        }
     }
 
     return phys;
@@ -847,16 +853,19 @@ bool MemoryMappedFile::compact()
 
 void MemoryMappedFile::trackMapping(uintptr_t addr, physical_uintptr_t phys)
 {
+    LockGuard<Spinlock> guard(m_Lock);
     m_Mappings.insert(addr, phys);
 }
 
 void MemoryMappedFile::untrackMapping(uintptr_t addr)
 {
+    LockGuard<Spinlock> guard(m_Lock);
     m_Mappings.remove(addr);
 }
 
 physical_uintptr_t MemoryMappedFile::getMapping(uintptr_t addr)
 {
+    LockGuard<Spinlock> guard(m_Lock);
     return m_Mappings.lookup(addr);
 }
 

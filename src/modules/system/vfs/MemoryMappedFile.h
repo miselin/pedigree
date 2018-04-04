@@ -372,6 +372,9 @@ class MemoryMappedFile : public MemoryMappedObject
 
     /** List of existing mappings. */
     Tree<uintptr_t, physical_uintptr_t> m_Mappings;
+
+    /** Lock for modifying the mapping tracking tree. */
+    Spinlock m_Lock;
 };
 
 /**
