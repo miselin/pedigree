@@ -1907,6 +1907,15 @@ bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *w
     UnixSocket *remote = getRemote();
     UnixSocket *local = m_Socket;
 
+    if (read && !local)
+    {
+        ERROR("UnixSocketSyscalls::poll - no local socket to poll for reading!");
+    }
+    if (write && !remote)
+    {
+        ERROR("UnixSocketSyscalls::poll - no remote socket to poll for writing!");
+    }
+
     bool ok = false;
     if (read && local)
     {
