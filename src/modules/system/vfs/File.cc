@@ -66,7 +66,7 @@ void File::writeCallback(
 File::File()
     : m_Name(), m_AccessedTime(0), m_ModifiedTime(0), m_CreationTime(0),
       m_Inode(0), m_pFilesystem(0), m_Size(0), m_pParent(0), m_nWriters(0),
-      m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0), m_DataCache(),
+      m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK),
       m_bDirect(false)
 #ifndef VFS_NOMMU
       ,
@@ -86,7 +86,7 @@ File::File(
     : m_Name(name), m_AccessedTime(accessedTime), m_ModifiedTime(modifiedTime),
       m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
       m_Size(size), m_pParent(pParent), m_nWriters(0), m_nReaders(0), m_Uid(0),
-      m_Gid(0), m_Permissions(0), m_DataCache(), m_bDirect(false)
+      m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK), m_bDirect(false)
 #ifndef VFS_NOMMU
       ,
       m_FillCache()
@@ -411,9 +411,16 @@ void File::sync()
     const size_t blockSize = getBlockSize();
     for (size_t i = 0; i < m_DataCache.count(); ++i)
     {
-        if (m_DataCache[i] != FILE_BAD_BLOCK)
+        auto result = m_DataCache.getNth(i);
+        if (result.hasError())
         {
-            writeBlock(i * blockSize, m_DataCache[i]);
+            break;
+        }
+
+        uintptr_t buffer = result.value().second();
+        if (buffer != FILE_BAD_BLOCK)
+        {
+            writeBlock(i * blockSize, buffer);
         }
     }
 }
@@ -775,26 +782,36 @@ String File::getFullPath(bool bWithLabel)
 
 uintptr_t File::getCachedPage(size_t block)
 {
-    if (block >= m_DataCache.count())
+    DataCacheKey key(block);
+    auto result = m_DataCache.lookup(key);
+    if (result.hasValue())
+    {
+        return result.value();
+    }
+    else
     {
         return FILE_BAD_BLOCK;
     }
-
-    return m_DataCache[block];
 }
 
 void File::setCachedPage(size_t block, uintptr_t value)
 {
-    // Ensure we have enough space.
-    size_t previousSize = m_DataCache.size();
-    if (block >= previousSize)
+    assert(value);
+
+    DataCacheKey key(block);
+    if (m_DataCache.contains(key))
     {
-        m_DataCache.reserve(block + 1, true);
-        for (; previousSize < m_DataCache.size(); ++previousSize)
+        if (value == FILE_BAD_BLOCK)
         {
-            m_DataCache.pushBack(FILE_BAD_BLOCK);
+            m_DataCache.remove(key);
+        }
+        else
+        {
+            m_DataCache.update(key, value);
         }
     }
-
-    m_DataCache.setAt(block, value);
+    else
+    {
+        m_DataCache.insert(key, value);
+    }
 }

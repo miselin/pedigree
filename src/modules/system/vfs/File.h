@@ -29,6 +29,7 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
@@ -315,8 +316,28 @@ class EXPORTED_PUBLIC File
     size_t m_Gid;
     uint32_t m_Permissions;
 
-    // Tree<uint64_t,size_t> m_DataCache;
-    Vector<uintptr_t> m_DataCache;
+    class DataCacheKey
+    {
+        public:
+            DataCacheKey() = default;
+            DataCacheKey(size_t block) : m_Block(block) {}
+            ~DataCacheKey() = default;
+
+            size_t hash() const
+            {
+                return m_Block;
+            }
+
+            bool operator== (const DataCacheKey &other) const
+            {
+                return m_Block == other.m_Block;
+            }
+
+        private:
+            size_t m_Block = ~static_cast<size_t>(0);
+    };
+
+    HashTable<DataCacheKey, uintptr_t> m_DataCache;
 
     bool m_bDirect;
 
