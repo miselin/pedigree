@@ -41,6 +41,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #endif
 
+
 #ifdef MULTIPROCESSOR
 #define ATOMIC_MEMORY_ORDER __ATOMIC_RELEASE
 #define ATOMIC_CAS_WEAK true
@@ -72,7 +73,8 @@ inline T *untagged(T *p)
     // Top four bits available to us (addresses from 0 -> 0x00007FFFFFFFFFFF).
     ptr &= ~0xFFFF000000000000ULL;
 #else
-    ptr |= 0xFFFFFFFF00000000ULL;
+    // Top four bits make this a canonical address
+    ptr |= 0xFFFF000000000000ULL;
 #endif
     return reinterpret_cast<T *>(ptr);
 }
@@ -81,11 +83,7 @@ template <typename T>
 inline T *tagged(T *p)
 {
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-#if defined(PEDIGREE_BENCHMARK) || defined(HOSTED)
     ptr &= 0xFFFFFFFFFFFFULL;
-#else
-    ptr &= 0xFFFFFFFFULL;
-#endif
     return reinterpret_cast<T *>(ptr);
 }
 
@@ -94,11 +92,7 @@ inline T *touch_tag(T *p)
 {
     // Add one to the tag.
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-#if defined(PEDIGREE_BENCHMARK) || defined(HOSTED)
     ptr += 0x1000000000000ULL;
-#else
-    ptr += 0x100000000ULL;
-#endif
     return reinterpret_cast<T *>(ptr);
 }
 
@@ -138,16 +132,56 @@ inline size_t getPageSize()
 #endif
 }
 
-inline void allocateAndMapAt(void *addr)
+inline void allocateAndMapAt(void *addr, bool cowOk = false)
 {
 #ifdef PEDIGREE_BENCHMARK
     SlamSupport::getPageAt(addr);
 #else
+    size_t standardFlags = VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
+
+    static physical_uintptr_t physZero = 0;
+    bool needZeroPage = false;
+    size_t extraFlags = 0;
+
+    physical_uintptr_t phys = 0;
+    if (cowOk)
+    {
+        if (!physZero)
+        {
+            // allocate the zero page, we'll zero it shortly
+            physZero = PhysicalMemoryManager::instance().allocatePage();
+            needZeroPage = true;
+
+            // allow us to zero out the page
+            extraFlags |= VirtualAddressSpace::Write;
+        }
+        else
+        {
+            extraFlags |= VirtualAddressSpace::CopyOnWrite;
+        }
+
+        // disable writing (for CoW to work properly)
+        standardFlags &= ~VirtualAddressSpace::Write;
+
+        phys = physZero;
+    }
+    else
+    {
+        phys = PhysicalMemoryManager::instance().allocatePage();
+    }
+
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-    if (!va.map(phys, addr, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write))
+    if (!va.map(phys, addr, standardFlags | extraFlags))
     {
         FATAL("SlamAllocator: failed to allocate and map at " << addr);
+    }
+
+    if (needZeroPage)
+    {
+        ByteSet(addr, 0, PhysicalMemoryManager::getPageSize());
+
+        // Page zeroed - mark page copy on write now so the zero page works
+        va.setFlags(addr, standardFlags | VirtualAddressSpace::CopyOnWrite);
     }
 #endif
 }
@@ -785,18 +819,17 @@ void SlamAllocator::initialise()
 #endif
 
     // Allocate bitmap.
+    size_t numPages = 0;
     for (uintptr_t addr = bitmapBase; addr < m_Base; addr += getPageSize())
     {
-        allocateAndMapAt(reinterpret_cast<void *>(addr));
+        // Don't CoW the first 32 pages so we have some slabs on hand for startup before CoW is viable
+        allocateAndMapAt(reinterpret_cast<void *>(addr), numPages++ >= 32);
     }
 
 #ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
     if (Processor::m_Initialised == 2)
         Processor::switchAddressSpace(currva);
 #endif
-
-    // Good to go - wipe the bitmap and we are now configured.
-    QuadWordSet(m_SlabRegionBitmap, 0, bitmapBytes / 8);
 
 #ifndef PEDIGREE_BENCHMARK
     NOTICE(

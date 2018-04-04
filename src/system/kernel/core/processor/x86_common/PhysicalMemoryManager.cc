@@ -304,7 +304,7 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
         }
 
         // Allocate the virtual address space
-        uintptr_t vAddress;
+        uintptr_t vAddress = 0;
 
         if (m_MemoryRegions.allocate(
                 cPages * PhysicalMemoryManager::getPageSize(), vAddress) ==
