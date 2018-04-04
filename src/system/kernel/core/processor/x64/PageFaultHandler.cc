@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 
 PageFaultHandler PageFaultHandler::m_Instance;
 
@@ -70,31 +71,20 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                 << " PageFaultHandler: copy-on-write for v=" << Hex << page);
 #endif
 
-            Process *pProcess =
-                Processor::information().getCurrentThread()->getParent();
-            size_t pageSz = PhysicalMemoryManager::instance().getPageSize();
-
-            // Get a temporary page in which we can store the current mapping
-            // for copy.
-            uintptr_t tempAddr = 0;
-            pProcess->getSpaceAllocator().allocate(pageSz, tempAddr);
-
-            // Map temporary page to the old page.
-            if (!va.map(
-                    phys, reinterpret_cast<void *>(tempAddr),
-                    VirtualAddressSpace::KernelMode))
+            MemoryRegion tmpRegion("CoW Temporary Page");
+            if (!PhysicalMemoryManager::instance().allocateRegion(
+                    tmpRegion, 1,
+                    PhysicalMemoryManager::force | PhysicalMemoryManager::continuous,
+                    VirtualAddressSpace::KernelMode, phys))
             {
                 FATAL(
                     "PageFaultHandler: CoW temporary map() failed @"
-                    << Hex << tempAddr);
+                    << Hex << page);
                 return;
             }
 
-            // OK, we can now unmap the old page - we hold a valid temporary
-            // mapping.
+            // Remap faulting page
             va.unmap(reinterpret_cast<void *>(page));
-
-            // Allocate new page for the new memory region.
             physical_uintptr_t p =
                 PhysicalMemoryManager::instance().allocatePage();
             if (!p)
@@ -103,7 +93,6 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                 return;
             }
 
-            // Map in the new page, making sure to mark it not CoW.
             flags |= VirtualAddressSpace::Write;
             flags &= ~VirtualAddressSpace::CopyOnWrite;
             if (!va.map(p, reinterpret_cast<void *>(page), flags))
@@ -115,11 +104,11 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             // Perform the actual copy.
             MemoryCopy(
                 reinterpret_cast<uint8_t *>(page),
-                reinterpret_cast<uint8_t *>(tempAddr), pageSz);
+                reinterpret_cast<uint8_t *>(tmpRegion.virtualAddress()),
+                PhysicalMemoryManager::getPageSize());
 
-            // Release temporary page.
-            va.unmap(reinterpret_cast<void *>(tempAddr));
-            pProcess->getSpaceAllocator().free(tempAddr, pageSz);
+            // Done with the memory region now - ready to release any additional references too
+            tmpRegion.free();
 
             // Clean up old reference to memory (may free the page, if we were
             // the last one to reference the CoW page)
