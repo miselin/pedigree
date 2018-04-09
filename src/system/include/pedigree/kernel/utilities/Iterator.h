@@ -21,6 +21,7 @@
 #define KERNEL_UTILITIES_ITERATOR_H
 
 #include "pedigree/kernel/utilities/template.h"
+#include "pedigree/kernel/utilities/cpp.h"
 
 /** @addtogroup kernelutilities
  * @{ */

@@ -145,8 +145,7 @@ class EXPORTED_PUBLIC Tree
      *\param[in] x the reference object to copy */
     Tree(const Tree &x) : root(0), nItems(0), m_Begin(0)
     {
-        traverseNode_Insert(x.root);
-        m_Begin = new IteratorNode(root, 0, nItems);
+        copyFrom(x);
     }
 
     /** The destructor, deallocates memory */
@@ -160,13 +159,7 @@ class EXPORTED_PUBLIC Tree
      *\param[in] x the object that should be copied */
     Tree &operator=(const Tree &x)
     {
-        clear();
-        // Traverse the tree, adding everything encountered.
-        traverseNode_Insert(x.root);
-
-        if (m_Begin)
-            delete m_Begin;
-        m_Begin = new IteratorNode(root, 0, nItems);
+        copyFrom(x);
 
         return *this;
     }
@@ -410,6 +403,17 @@ class EXPORTED_PUBLIC Tree
     }
 
   private:
+    void copyFrom(const Tree &other)
+    {
+        clear();
+        // Traverse the tree, adding everything encountered.
+        traverseNode_Insert(other.root);
+
+        if (m_Begin)
+            delete m_Begin;
+        m_Begin = new IteratorNode(root, 0, nItems);
+    }
+
     void rotateLeft(Node *n)
     {
         // See Cormen,Lieserson,Rivest&Stein  pp-> 278 for pseudocode.

@@ -24,25 +24,53 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 
+TEST(PedigreeUtility, SDirectoryName)
+{
+    char buf[256];
+    EXPECT_STREQ(SDirectoryName("/a/b/c", buf, 256), "/a/b");
+    EXPECT_STREQ(SDirectoryName("/a/b/", buf, 256), "/a/b");
+    EXPECT_STREQ(SDirectoryName("/a/b", buf, 256), "/a");
+    EXPECT_EQ(SDirectoryName("c", buf, 256), nullptr);
+}
+
+TEST(PedigreeUtility, SBaseName)
+{
+    char buf[256];
+    EXPECT_STREQ(SBaseName("/a/b/c", buf, 256), "c");
+    EXPECT_STREQ(SBaseName("/a/b/", buf, 256), nullptr);
+    EXPECT_STREQ(SBaseName("/a/b", buf, 256), "b");
+    EXPECT_STREQ(SBaseName("c", buf, 256), "c");
+}
+
 TEST(PedigreeUtility, DirectoryName)
 {
-    EXPECT_STREQ(DirectoryName("/a/b/c"), "/a/b");
-    EXPECT_STREQ(DirectoryName("/a/b/"), "/a/b");
-    EXPECT_STREQ(DirectoryName("/a/b"), "/a");
-    EXPECT_EQ(DirectoryName("c"), nullptr);
+    const char *result = DirectoryName("/a/b/c");
+    EXPECT_STREQ(result, "/a/b");
+    delete [] result;
+
+    result = DirectoryName("c");
+    EXPECT_EQ(result, nullptr);
+    delete [] result;
 }
 
 TEST(PedigreeUtility, BaseName)
 {
-    EXPECT_STREQ(BaseName("/a/b/c"), "c");
-    EXPECT_STREQ(BaseName("/a/b/"), nullptr);
-    EXPECT_STREQ(BaseName("/a/b"), "b");
-    EXPECT_STREQ(BaseName("c"), "c");
+    const char *result = BaseName("/a/b/c");
+    EXPECT_STREQ(result, "c");
+    delete [] result;
+
+    result = BaseName("/a/b/");
+    EXPECT_STREQ(result, nullptr);
+    delete [] result;
+
+    result = BaseName("c");
+    EXPECT_STREQ(result, "c");
+    delete [] result;
 }
 
 TEST(PedigreeUtility, Fletcher16)
 {
-    auto *buf = new uint8_t[4096];
+    uint8_t buf[4096];
     memset(buf, 'a', 4096);
 
     uint16_t c1 = checksum16(buf, 4096);
@@ -53,7 +81,7 @@ TEST(PedigreeUtility, Fletcher16)
 
 TEST(PedigreeUtility, Fletcher32)
 {
-    auto *buf = new uint8_t[4096];
+    uint8_t buf[4096];
     memset(buf, 'a', 4096);
 
     uint32_t c1 = checksum32(buf, 4096);
@@ -64,7 +92,7 @@ TEST(PedigreeUtility, Fletcher32)
 
 TEST(PedigreeUtility, Fletcher32MatchesNaive)
 {
-    auto *buf = new uint8_t[4096];
+    uint8_t buf[4096];
     memset(buf, 'a', 4096);
 
     EXPECT_EQ(checksum32(buf, 4096), checksum32_naive(buf, 4096));
@@ -72,7 +100,7 @@ TEST(PedigreeUtility, Fletcher32MatchesNaive)
 
 TEST(PedigreeUtility, ChecksumsDifferCorrectly)
 {
-    auto *buf = new uint8_t[4096];
+    uint8_t buf[4096];
     memset(buf, 'a', 4096);
 
     buf[1] = 'b';

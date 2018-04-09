@@ -23,7 +23,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-const char *DirectoryName(const char *path)
+const char *SDirectoryName(const char *path, char *buf, size_t buflen)
 {
     const char *last_slash = StringReverseFind(path, '/');
     if (last_slash == nullptr)
@@ -33,24 +33,20 @@ const char *DirectoryName(const char *path)
 
     size_t dirlength = last_slash - path;
 
-    char *new_str = new char[dirlength + 1];
-    StringCopyN(new_str, path, dirlength);
-    new_str[dirlength] = 0;
+    StringCopyN(buf, path, min(buflen, dirlength));
 
-    return new_str;
+    return buf;
 }
 
-const char *BaseName(const char *path)
+const char *SBaseName(const char *path, char *buf, size_t buflen)
 {
     size_t len = StringLength(path);
 
     const char *last_slash = StringReverseFind(path, '/');
     if (last_slash == nullptr)
     {
-        // Uphold our contract - return from BaseName must be free-able
-        char *new_str = new char[len + 1];
-        StringCopy(new_str, path);
-        return new_str;
+        StringCopyN(buf, path, buflen);
+        return buf;
     }
 
     if (!last_slash[1])
@@ -60,12 +56,33 @@ const char *BaseName(const char *path)
     }
 
     size_t baselength = len - (last_slash - path);
+    StringCopyN(buf, last_slash + 1, min(buflen, baselength));
 
-    char *new_str = new char[baselength + 1];
-    StringCopy(new_str, last_slash + 1);
-    new_str[baselength] = 0;
+    return buf;
+}
 
-    return new_str;
+const char *DirectoryName(const char *path)
+{
+    size_t len = StringLength(path);
+    char *buf = new char[len + 1];
+    const char *result = SDirectoryName(path, buf, len);
+    if (!result)
+    {
+        delete [] buf;
+    }
+    return result;
+}
+
+const char *BaseName(const char *path)
+{
+    size_t len = StringLength(path);
+    char *buf = new char[len + 1];
+    const char *result = SBaseName(path, buf, len);
+    if (!result)
+    {
+        delete [] buf;
+    }
+    return result;
 }
 
 uint8_t checksum(const uint8_t *pMemory, size_t sMemory)

@@ -88,6 +88,8 @@ EXPORTED_PUBLIC void *MemoryCopy(void *s1, const void *s2, size_t n);
 EXPORTED_PUBLIC int MemoryCompare(const void *p1, const void *p2, size_t len) PURE;
 
 // Misc utilities for paths etc
+EXPORTED_PUBLIC const char *SDirectoryName(const char *path, char *buf, size_t buflen) PURE;
+EXPORTED_PUBLIC const char *SBaseName(const char *path, char *buf, size_t buflen) PURE;
 EXPORTED_PUBLIC const char *DirectoryName(const char *path) PURE;
 EXPORTED_PUBLIC const char *BaseName(const char *path) PURE;
 
