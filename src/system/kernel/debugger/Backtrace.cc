@@ -200,24 +200,29 @@ void Backtrace::prettyPrint(
     {
         uintptr_t symStart = 0;
 
+        HugeStaticString row;
+
         const char *pSym = KernelElf::instance().globalLookupSymbol(
             m_pReturnAddresses[i], &symStart);
         if (pSym == 0)
         {
-            buf.append(m_pReturnAddresses[i], 16);
-            buf += "\n";
+            row += "[";
+            row.append(m_pReturnAddresses[i], 16);
+            row += "]\n";
         }
         else
         {
             LargeStaticString sym(pSym);
 
-            buf += "[";
-            buf.append(m_pReturnAddresses[i], 16);
-            buf += "] ";
+            row += "[";
+            row.append(m_pReturnAddresses[i], 16);
+            row += "] ";
             StackFrame sf(m_pStates[i], m_pBasePointers[i], sym);
 
-            sf.prettyPrint(buf);
+            sf.prettyPrint(row);
         }
+
+        buf.append(row);
     }
 }
 
