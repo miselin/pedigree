@@ -190,4 +190,6 @@ class EXPORTED_PUBLIC Directory : public File
     virtual File *convertToFile(const DirectoryEntryMetadata &meta);
 };
 
+extern template class HashTable<String, Directory::DirectoryEntry *>;
+
 #endif

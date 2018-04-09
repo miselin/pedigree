@@ -20,6 +20,8 @@
 #include "Directory.h"
 #include "Filesystem.h"
 
+template class HashTable<String, Directory::DirectoryEntry *>;
+
 Directory::Directory() : File(), m_Cache(), m_bCachePopulated(false)
 {
 }
