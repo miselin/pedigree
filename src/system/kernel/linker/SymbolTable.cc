@@ -127,11 +127,10 @@ void SymbolTable::eraseByElf(Elf *pParent)
 
     for (auto it = m_GlobalSymbols.begin(); it != m_GlobalSymbols.end();)
     {
-        if ((*it)->getParent() == pParent)
+        Elf *symbolParent = (*it)->getParent();
+        if (symbolParent == pParent)
         {
-            m_GlobalSymbols.erase(it);
-            /// \todo make erasing in a HashTable reliable and safe
-            it = m_GlobalSymbols.begin();
+            it = m_GlobalSymbols.erase(it);
         }
         else
         {
@@ -143,9 +142,7 @@ void SymbolTable::eraseByElf(Elf *pParent)
     {
         if ((*it)->getParent() == pParent)
         {
-            m_WeakSymbols.erase(it);
-            /// \todo make erasing in a HashTable reliable and safe
-            it = m_WeakSymbols.begin();
+            it = m_WeakSymbols.erase(it);
         }
         else
         {
