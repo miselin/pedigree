@@ -68,134 +68,56 @@ class HashTable
 
     struct bucket
     {
-        bucket() : key(), value(), set(false)
+        bucket() : key(), value(), set(false), parent(nullptr)
         {
         }
 
         K key;
         V value;
         bool set;
-    };
+        HashTable *parent;
 
-    struct IteratorNode
-    {
-        IteratorNode(const HashTable *parentTable) : startPos(0), pos(0), parent(parentTable)
+        struct bucket *next()
         {
-            bool ok = false;
-
-            if (!parent->m_Buckets)
+            if (!parent)
             {
-                // Nothing useful to be done here, this is a pointless iterator
-                resetValue();
-                return;
+                return nullptr;
             }
 
-            // find first set node for our initial iteration
-            while (true)
+            struct bucket *node = this;
+            while (++node < (parent->m_Buckets + parent->m_nBuckets))
             {
-                if (parent->m_Buckets[pos].set)
+                if (node->set)
                 {
-                    setValue();
-                    ok = true;
-                    break;
-                }
-
-                pos = nextPos();
-                if (pos == startPos)
-                {
-                    break;
+                    return node;
                 }
             }
 
-            if (!ok)
-            {
-                resetValue();
-            }
-            else
-            {
-                startPos = pos;
-            }
+            return nullptr;
         }
 
-        V value;
-        size_t startPos;
-        size_t pos;
-        const HashTable *parent;
-
-        size_t nextPos() const
+        struct bucket *previous()
         {
-            // wrap around
-            size_t r = (pos + 1) % parent->m_nBuckets;
-            return r;
-        }
-
-        size_t prevPos() const
-        {
-            size_t r = 0;
-            if (!pos)
+            if (!parent)
             {
-                // wrap around
-                r = parent->m_nBuckets - 1;
-            }
-            else
-            {
-                r = pos - 1;
+                return nullptr;
             }
 
-            return r;
-        }
-
-        IteratorNode *next()
-        {
-            resetValue();
-
-            while (true)
+            struct bucket *node = this;
+            while (--node >= parent->m_Buckets)
             {
-                pos = nextPos();
-                if (pos == startPos)
+                if (node->set)
                 {
-                    return nullptr;
-                }
-                else if (parent->m_Buckets[pos].set)
-                {
-                    setValue();
-                    return this;
+                    return node;
                 }
             }
-        }
 
-        IteratorNode *previous()
-        {
-            resetValue();
-
-            while (true)
-            {
-                pos = prevPos();
-                if (pos == startPos)
-                {
-                    return nullptr;
-                }
-                else if (parent->m_Buckets[pos].set)
-                {
-                    setValue();
-                    return this;
-                }
-            }
-        }
-
-        void setValue()
-        {
-            value = parent->m_Buckets[pos].value;
-        }
-
-        void resetValue()
-        {
-            value = parent->m_Default;
+            return nullptr;
         }
     };
 
    public:
-    typedef ::Iterator<V, IteratorNode> Iterator;
+    typedef ::Iterator<V, struct bucket> Iterator;
     typedef typename Iterator::Const ConstIterator;
 
     typedef Result<const V &, HashTableError::Error> LookupResult;
@@ -454,6 +376,7 @@ class HashTable
             // No items in the array, just recreate it here
             delete [] m_Buckets;
             m_Buckets = new bucket[m_nBuckets];
+            resetParents();
         }
     }
 
@@ -464,13 +387,12 @@ class HashTable
 
     Iterator begin()
     {
-        /// \todo this leaks IteratorNode objects
-        return m_nItems ? Iterator(new IteratorNode(this)) : end();
+        return m_nItems ? Iterator(m_Buckets) : end();
     }
 
     ConstIterator begin() const
     {
-        return m_nItems ? ConstIterator(new IteratorNode(this)) : end();
+        return m_nItems ? ConstIterator(m_Buckets) : end();
     }
 
     Iterator end()
@@ -488,9 +410,10 @@ class HashTable
      */
     Iterator erase(Iterator &at)
     {
-        if (m_Buckets[at.__getNode()->pos].set)
+        struct bucket *node = at.__getNode();
+        if (node && node->set)
         {
-            m_Buckets[at.__getNode()->pos].set = false;
+            node->set = false;
             --m_nItems;
             rehash();
 
@@ -514,6 +437,7 @@ class HashTable
         m_nMask = p.m_nMask;
         m_Buckets = new bucket[m_nBuckets];
         pedigree_std::copy(m_Buckets, p.m_Buckets, m_nBuckets);
+        resetParents();
 
         return *this;
     }
@@ -542,6 +466,7 @@ class HashTable
             m_Buckets = new bucket[InitialBuckets];
             m_nBuckets = InitialBuckets;
             m_nMask = InitialBuckets - 1;
+            resetParents();
         }
     }
 
@@ -554,6 +479,8 @@ class HashTable
 
         bucket *oldBuckets = m_Buckets;
         m_Buckets = new bucket[m_nBuckets];
+        resetParents();
+
         if (m_nItems)
         {
             // Performing a new insert, clear out the number of items as
@@ -677,6 +604,14 @@ class HashTable
         }
 
         return b;
+    }
+
+    void resetParents()
+    {
+        for (size_t i = 0; i < m_nBuckets; ++i)
+        {
+            m_Buckets[i].parent = this;
+        }
     }
 
     bucket *m_Buckets;
