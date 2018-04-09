@@ -320,9 +320,7 @@ class MemoryMappedFile : public MemoryMappedObject
         uintptr_t address, size_t length, size_t offset, File *backing,
         bool bCopyOnWrite, Permissions perms);
 
-    virtual ~MemoryMappedFile()
-    {
-    }
+    virtual ~MemoryMappedFile();
 
     virtual MemoryMappedObject *clone();
     virtual MemoryMappedObject *split(uintptr_t at);
@@ -356,13 +354,19 @@ class MemoryMappedFile : public MemoryMappedObject
 
   private:
     /** Track a new mapping. */
-    void trackMapping(uintptr_t, physical_uintptr_t);
+    void trackMapping(uintptr_t, physical_uintptr_t, bool locked = true);
 
     /** Stop tracking a mapping. */
-    void untrackMapping(uintptr_t);
+    void untrackMapping(uintptr_t, bool locked = true);
 
     /** Get a specific mapping. */
-    physical_uintptr_t getMapping(uintptr_t);
+    physical_uintptr_t getMapping(uintptr_t, bool locked = true);
+
+    /** Get the number of mappings we currently have. */
+    size_t getMappingCount(bool locked = true);
+
+    /** Clear all mappings. */
+    void clearMappings(bool locked = true);
 
     /** Backing file. */
     File *m_pBacking;

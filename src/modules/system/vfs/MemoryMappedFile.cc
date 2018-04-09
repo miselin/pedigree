@@ -322,8 +322,15 @@ MemoryMappedFile::MemoryMappedFile(
     assert(m_pBacking);
 }
 
+MemoryMappedFile::~MemoryMappedFile()
+{
+    unmap();
+}
+
 MemoryMappedObject *MemoryMappedFile::clone()
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     MemoryMappedFile *pResult = new MemoryMappedFile(
         m_Address, m_Length, m_Offset, m_pBacking, m_bCopyOnWrite,
         m_Permissions);
@@ -451,6 +458,7 @@ void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms)
     else
     {
         // Adjust any existing mappings in this object.
+        LockGuard<Spinlock> guard(m_Lock);
         for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
         {
             void *v = reinterpret_cast<void *>(it.key());
@@ -583,8 +591,11 @@ void MemoryMappedFile::invalidate(uintptr_t at)
 
     size_t fileOffset = (at - m_Address) + m_Offset;
 
+    // Read/remove/create happening here, need atomicity
+    LockGuard<Spinlock> guard(m_Lock);
+
     // Check for already-invalidated.
-    physical_uintptr_t p = getMapping(at);
+    physical_uintptr_t p = getMapping(at, false);
     if (p == ~0UL)
         return;
     else
@@ -596,7 +607,7 @@ void MemoryMappedFile::invalidate(uintptr_t at)
             // Clean up old...
             va.unmap(v);
             PhysicalMemoryManager::instance().freePage(p);
-            untrackMapping(at);
+            untrackMapping(at, false);
 
             // Get new...
             physical_uintptr_t newBacking =
@@ -610,7 +621,7 @@ void MemoryMappedFile::invalidate(uintptr_t at)
 
             // Bring in the new backing page.
             va.map(newBacking, v, VirtualAddressSpace::Shared | extraFlags);
-            trackMapping(at, ~0UL);
+            trackMapping(at, ~0UL, false);
         }
     }
 }
@@ -621,9 +632,11 @@ void MemoryMappedFile::unmap()
     NOTICE("MemoryMappedFile::unmap()");
 #endif
 
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
-    if (!m_Mappings.count())
+    if (!getMappingCount(false))
         return;
 
     for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
@@ -653,7 +666,7 @@ void MemoryMappedFile::unmap()
             PhysicalMemoryManager::instance().freePage(phys);
     }
 
-    m_Mappings.clear();
+    clearMappings(false);
 }
 
 bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
@@ -705,6 +718,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
 
     if (!bShouldCopy)
     {
+        // No need to lock this section - only accessing m_Mappings once
         physical_uintptr_t phys = getBackingPage(m_pBacking, fileOffset);
         if (phys == ~0UL)
         {
@@ -730,6 +744,9 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
     }
     else
     {
+        // Need to lock this entire section - untrack followed by track
+        LockGuard<Spinlock> guard(m_Lock);
+
         // Ditch an existing mapping, if needed.
         if (va.isMapped(reinterpret_cast<void *>(address)))
         {
@@ -737,7 +754,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
 
             // One less reference to the backing page.
             m_pBacking->returnPhysicalPage(fileOffset);
-            untrackMapping(address);
+            untrackMapping(address, false);
         }
 
         // Okay, map in the new page, and copy across the backing file data.
@@ -765,7 +782,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
                 pageSz - nRead - 1);
         }
 
-        trackMapping(address, newPhys);
+        trackMapping(address, newPhys, false);
     }
 
     return true;
@@ -851,22 +868,34 @@ bool MemoryMappedFile::compact()
     return bReleased;
 }
 
-void MemoryMappedFile::trackMapping(uintptr_t addr, physical_uintptr_t phys)
+void MemoryMappedFile::trackMapping(uintptr_t addr, physical_uintptr_t phys, bool locked)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock, locked);
     m_Mappings.insert(addr, phys);
 }
 
-void MemoryMappedFile::untrackMapping(uintptr_t addr)
+void MemoryMappedFile::untrackMapping(uintptr_t addr, bool locked)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock, locked);
     m_Mappings.remove(addr);
 }
 
-physical_uintptr_t MemoryMappedFile::getMapping(uintptr_t addr)
+physical_uintptr_t MemoryMappedFile::getMapping(uintptr_t addr, bool locked)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock, locked);
     return m_Mappings.lookup(addr);
+}
+
+size_t MemoryMappedFile::getMappingCount(bool locked)
+{
+    LockGuard<Spinlock> guard(m_Lock, locked);
+    return m_Mappings.count();
+}
+
+void MemoryMappedFile::clearMappings(bool locked)
+{
+    LockGuard<Spinlock> guard(m_Lock, locked);
+    m_Mappings.clear();
 }
 
 MemoryMapManager::MemoryMapManager() : m_MmObjectLists(), m_Lock()
@@ -1428,9 +1457,9 @@ bool MemoryMapManager::trap(
     Uninterruptible while_trapping;
 
 #ifdef DEBUG_MMOBJECTS
-    NOTICE_NOLOCK(
-        "Trap start: "
-        << address << ", pid:tid "
+    NOTICE(
+        "Trap start: " << Hex
+        << address << ", pid:tid " << Dec
         << Processor::information().getCurrentThread()->getParent()->getId()
         << ":" << Processor::information().getCurrentThread()->getId());
 #endif
