@@ -1899,7 +1899,7 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void *optvalue, sockl
 
 bool UnixSocketSyscalls::canPoll() const
 {
-    return true;
+    return getRemote() || m_Socket;
 }
 
 bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
