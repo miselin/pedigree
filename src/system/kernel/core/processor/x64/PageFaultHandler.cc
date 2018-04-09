@@ -117,13 +117,17 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         }
     }
 
-    // Check our handler list.
-    for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
-         it != m_Handlers.end(); it++)
+    /// \todo probably can just skip checking for traps across the entire kernel address space?
+    if (!va.memIsInKernelHeap(reinterpret_cast<void *>(page)))
     {
-        if ((*it)->trap(state, cr2, code & PFE_ATTEMPTED_WRITE))
+        // Check our handler list.
+        for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
+             it != m_Handlers.end(); it++)
         {
-            return;
+            if ((*it)->trap(state, cr2, code & PFE_ATTEMPTED_WRITE))
+            {
+                return;
+            }
         }
     }
 
