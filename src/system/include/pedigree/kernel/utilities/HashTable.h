@@ -387,12 +387,12 @@ class HashTable
 
     Iterator begin()
     {
-        return m_nItems ? Iterator(m_Buckets) : end();
+        return m_nItems ? Iterator(getFirstSetBucket()) : end();
     }
 
     ConstIterator begin() const
     {
-        return m_nItems ? ConstIterator(m_Buckets) : end();
+        return m_nItems ? ConstIterator(getFirstSetBucket()) : end();
     }
 
     Iterator end()
@@ -459,6 +459,22 @@ class HashTable
     }
 
   private:
+    struct bucket *getFirstSetBucket() const
+    {
+        struct bucket *result = m_Buckets;
+        while (result < (m_Buckets + m_nBuckets))
+        {
+            if (result->set)
+            {
+                return result;
+            }
+
+            ++result;
+        }
+
+        return nullptr;
+    }
+
     void check()
     {
         if (m_Buckets == nullptr)
