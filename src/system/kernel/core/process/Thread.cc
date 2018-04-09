@@ -576,7 +576,7 @@ bool Thread::sendEvent(Event *pEvent)
         }
         else
         {
-            WARNING("Thread: dropping event as we're not interruptible");
+            WARNING("Thread: not immediately waking up from event as we're not interruptible");
         }
     }
 
@@ -658,6 +658,12 @@ void Thread::cullEvent(size_t eventNumber)
 Event *Thread::getNextEvent()
 {
     Event *pResult = nullptr;
+
+    if (!m_bInterruptible)
+    {
+        // No events if we're not interruptible
+        return nullptr;
+    }
 
     {
         LockGuard<Spinlock> guard(m_Lock);
