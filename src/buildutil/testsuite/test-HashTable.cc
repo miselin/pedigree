@@ -263,6 +263,39 @@ TEST(PedigreeHashTable, ForwardIteration)
     EXPECT_EQ(results, expected);
 }
 
+TEST(PedigreeHashTable, IterateErase)
+{
+    HashTable<HashableInteger, int> hashtable(1234);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        HashableInteger key(i);
+        EXPECT_TRUE(hashtable.insert(key, i + 1));
+    }
+
+    for (auto it = hashtable.begin(); it != hashtable.end();)
+    {
+        if (((*it) % 2) == 0)
+        {
+            it = hashtable.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    std::list<int> results;
+    std::list<int> expected = {1, 3, 5, 7};
+    for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
+    {
+        results.push_back(*it);
+    }
+    results.sort();
+
+    EXPECT_EQ(results, expected);
+}
+
 TEST(PedigreeHashTable, ForwardIterationCollisions)
 {
     HashTable<CollidingHashableInteger, int> hashtable(1234);
