@@ -180,6 +180,10 @@ struct integral_constant
 template <class T, T v>
 constexpr T integral_constant<T, v>::value;
 
+typedef integral_constant<bool, true> true_type;
+typedef integral_constant<bool, false> false_type;
+
+
 /** is_scalar checks for scalar types */
 /// \todo this should check a little more than just this
 template <class T>
@@ -199,6 +203,16 @@ template <class T>
 struct is_trivially_copyable
     : public integral_constant<
           bool, is_scalar<typename remove_all_extents<T>::type>::value>
+{
+};
+
+template<class T, class U>
+struct is_same : false_type
+{
+};
+
+template<class T>
+struct is_same<T, T> : true_type
 {
 };
 
