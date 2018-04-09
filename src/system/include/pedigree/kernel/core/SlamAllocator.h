@@ -123,6 +123,12 @@ class SlamAllocator;
 /// Be verbose about reasons for invalidity in isPointerValid
 #define VERBOSE_ISPOINTERVALID 0
 
+/// Turn every allocation into a slab, and unmap it without returning when
+/// freeing. This makes the kernel heap enormous (as it never truly frees
+/// address space), but allows for rapid discovery of use-after-frees as the
+/// freed allocations are completely unmapped.
+#define EVERY_ALLOCATION_IS_A_SLAB 0
+
 /** A cache allocates objects of a constant size. */
 class SlamCache
 {

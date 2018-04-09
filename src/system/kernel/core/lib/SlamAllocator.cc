@@ -296,6 +296,10 @@ void SlamCache::push(
 
 uintptr_t SlamCache::allocate()
 {
+#if EVERY_ALLOCATION_IS_A_SLAB
+    return getSlab();
+#endif
+
 #if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
@@ -336,6 +340,18 @@ uintptr_t SlamCache::allocate()
 
 void SlamCache::free(uintptr_t object)
 {
+#if EVERY_ALLOCATION_IS_A_SLAB
+    // Free the slab in the address space, but don't return it to the allocator.
+    size_t numPages = m_SlabSize / getPageSize();
+    object = object & ~(getPageSize() - 1);
+    for (size_t i = 0; i < numPages; ++i)
+    {
+        unmap(reinterpret_cast<void *>(object + (i * getPageSize())));
+    }
+
+    return;
+#endif
+
 #if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
@@ -421,6 +437,10 @@ void SlamCache::freeSlab(uintptr_t slab)
 
 size_t SlamCache::recovery(size_t maxSlabs)
 {
+#if EVERY_ALLOCATION_IS_A_SLAB
+    return 0;
+#endif
+
 #if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
     {
