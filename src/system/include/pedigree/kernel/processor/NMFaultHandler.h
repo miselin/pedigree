@@ -48,6 +48,9 @@ class NMFaultHandler : private InterruptHandler
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
+    // Handle thread termination (e.g. might need to clean up pointers to state)
+    void threadTerminated(class Thread *);
+
   private:
     /** The default constructor.  */
     NMFaultHandler() INITIALISATION_ONLY;

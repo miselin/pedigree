@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/processor/NMFaultHandler.h"
 
 #include "pedigree/kernel/machine/InputManager.h"
 
@@ -238,6 +239,9 @@ Thread::~Thread()
 
     // Remove us from the scheduler.
     Scheduler::instance().removeThread(this);
+
+    // Make sure the floating-point fault handler doesn't care about us anymore
+    NMFaultHandler::instance().threadTerminated(this);
 
     if (m_pParent)
         m_pParent->removeThread(this);
