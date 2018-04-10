@@ -582,7 +582,6 @@ uint64_t File::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
 uintptr_t File::readBlock(uint64_t location)
 {
     FATAL("File: base class readBlock() called for " << getFullPath());
-    return 0;
 }
 
 void File::writeBlock(uint64_t location, uintptr_t addr)
