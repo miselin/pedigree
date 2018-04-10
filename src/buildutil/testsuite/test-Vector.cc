@@ -176,6 +176,54 @@ TEST(PedigreeVector, Insertion3)
     EXPECT_EQ(x[3], 1);
 }
 
+TEST(PedigreeVector, Insertion4)
+{
+    Vector<int> x;
+    x.pushFront(1);
+    x.pushFront(2);
+    x.pushFront(3);
+    x.pushFront(4);
+    x.insert(0, 5);
+
+    EXPECT_EQ(x[0], 5);
+    EXPECT_EQ(x[1], 4);
+    EXPECT_EQ(x[2], 3);
+    EXPECT_EQ(x[3], 2);
+    EXPECT_EQ(x[4], 1);
+}
+
+TEST(PedigreeVector, Insertion5)
+{
+    Vector<int> x;
+    x.pushFront(1);
+    x.pushFront(2);
+    x.pushFront(3);
+    x.pushFront(4);
+    x.insert(4, 0);
+
+    EXPECT_EQ(x[0], 4);
+    EXPECT_EQ(x[1], 3);
+    EXPECT_EQ(x[2], 2);
+    EXPECT_EQ(x[3], 1);
+    EXPECT_EQ(x[4], 0);
+}
+
+TEST(PedigreeVector, Insertion6)
+{
+    Vector<int> x;
+    x.pushFront(1);
+    x.pushFront(2);
+    x.pushFront(3);
+    x.pushFront(4);
+    x.insert(2, 10);
+
+    EXPECT_EQ(x[0], 4);
+    EXPECT_EQ(x[1], 3);
+    EXPECT_EQ(x[2], 10);
+    EXPECT_EQ(x[3], 2);
+    EXPECT_EQ(x[4], 1);
+}
+
 TEST(PedigreeVector, InsertionComplex)
 {
     typedef SharedPointer<int> sharedintptr_t;

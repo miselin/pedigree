@@ -79,6 +79,8 @@ class EXPORTED_PUBLIC Vector
     void setAt(size_t idx, const T &value);
     /** Swap the two elements. */
     void swap(Iterator a, Iterator b);
+    /** Insert into the vector, moving all items after the given position along. */
+    void insert(size_t index, const T &value);
 
     /** Clear the Vector */
     void clear();
@@ -333,6 +335,28 @@ void Vector<T>::swap(Iterator a, Iterator b)
     T tmp = *a;
     *a = *b;
     *b = tmp;
+}
+
+template <class T>
+void Vector<T>::insert(size_t index, const T &value)
+{
+    if (index >= m_Count)
+    {
+        pushBack(value);
+        return;
+    }
+    else if (index == 0)
+    {
+        pushFront(value);
+        return;
+    }
+
+    reserve(m_Count + 1, true);
+
+    pedigree_std::copy(m_Data + m_Start + index + 1, m_Data + m_Start + index, m_Count - index);
+
+    m_Data[m_Start + index] = value;
+    ++m_Count;
 }
 
 extern template class Vector<void *>;
