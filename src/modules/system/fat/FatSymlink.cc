@@ -35,14 +35,14 @@ FatSymlink::FatSymlink(
         FILE_OW | FILE_OX);
 }
 
-uint64_t FatSymlink::read(
+uint64_t FatSymlink::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);
     return pFs->read(this, location, size, buffer);
 }
 
-uint64_t FatSymlink::write(
+uint64_t FatSymlink::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);

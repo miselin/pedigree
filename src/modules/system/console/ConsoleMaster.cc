@@ -29,7 +29,7 @@ ConsoleMasterFile::ConsoleMasterFile(
 {
 }
 
-uint64_t ConsoleMasterFile::read(
+uint64_t ConsoleMasterFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // Check for NL->CRNL conversion which requires special logic.
@@ -87,7 +87,7 @@ uint64_t ConsoleMasterFile::read(
     return totalBytes;
 }
 
-uint64_t ConsoleMasterFile::write(
+uint64_t ConsoleMasterFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (!m_pOther->m_Buffer.canWrite(bCanBlock))

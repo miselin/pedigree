@@ -79,6 +79,9 @@ class EXPORTED_PUBLIC Symlink : public File
 
     /** Read the symlink target. Allows this to be done lazily. */
     void initialise(bool bForce = false);
+
+    /** Most Symlink objects will be bytewise, but for those that aren't they can override this */
+    virtual bool isBytewise() const;
 };
 
 #endif

@@ -43,7 +43,7 @@ Ext2Symlink::~Ext2Symlink()
 {
 }
 
-uint64_t Ext2Symlink::read(
+uint64_t Ext2Symlink::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
 {
     if (location >= getSize())
@@ -76,7 +76,7 @@ uint64_t Ext2Symlink::read(
     return size;
 }
 
-uint64_t Ext2Symlink::write(
+uint64_t Ext2Symlink::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
 {
     Ext2Node::extend(size);

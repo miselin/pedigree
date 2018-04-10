@@ -67,13 +67,13 @@ class FatSymlink : public Symlink
      *      which case the data can be found by calling getPhysicalPage.
      *  \param[in] bCanBlock Whether or not the File can block when reading
      */
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
     /** Writes to the file.
      *  \param[in] bCanBlock Whether or not the File can block when reading
      */
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 

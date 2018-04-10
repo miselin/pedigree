@@ -33,13 +33,13 @@ bool PsAuxFile::initialise()
     return true;
 }
 
-uint64_t PsAuxFile::read(
+uint64_t PsAuxFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return m_Buffer.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
 }
 
-uint64_t PsAuxFile::write(
+uint64_t PsAuxFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     g_Ps2Mouse->write(reinterpret_cast<const char *>(buffer), size);

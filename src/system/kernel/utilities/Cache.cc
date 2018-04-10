@@ -249,20 +249,39 @@ uintptr_t Cache::lookup(uintptr_t key)
     return ptr;
 }
 
-uintptr_t Cache::insert(uintptr_t key)
+uintptr_t Cache::insert(uintptr_t key, bool *alreadyExisted)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
     // We check the bloom filter to avoid hitting the tree, which is useful
     // as this is quite a hot path at times.
     CachePage *pPage = 0;
+    bool triedLookup = false;
     if (m_PageFilter.contains(key))
     {
         pPage = m_Pages.lookup(key);
         if (pPage)
         {
+            if (alreadyExisted)
+            {
+                *alreadyExisted = true;
+            }
             return pPage->location;
         }
+
+        triedLookup = true;
+    }
+
+    if (alreadyExisted)
+    {
+        *alreadyExisted = false;
+    }
+
+    // sanity check
+    /// \todo remove this, it makes the bloom filter pointless
+    if ((!triedLookup) && m_Pages.lookup(key))
+    {
+        FATAL("Cache: bloom filter lied!");
     }
 
     m_AllocatorLock.acquire();
@@ -301,7 +320,7 @@ uintptr_t Cache::insert(uintptr_t key)
     return location;
 }
 
-uintptr_t Cache::insert(uintptr_t key, size_t size)
+uintptr_t Cache::insert(uintptr_t key, size_t size, bool *alreadyExisted)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -314,14 +333,24 @@ uintptr_t Cache::insert(uintptr_t key, size_t size)
     size_t nPages = size / 4096;
 
     // Already allocated buffer?
+    /// \todo no - this doesn't check the full size!
     CachePage *pPage = 0;
     if (m_PageFilter.contains(key))
     {
         pPage = m_Pages.lookup(key);
         if (pPage)
         {
+            if (alreadyExisted)
+            {
+                *alreadyExisted = true;
+            }
             return pPage->location;
         }
+    }
+
+    if (alreadyExisted)
+    {
+        *alreadyExisted = false;
     }
 
     // Nope, so let's allocate this block

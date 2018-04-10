@@ -29,7 +29,7 @@ ConsolePhysicalFile::ConsolePhysicalFile(
 {
 }
 
-uint64_t ConsolePhysicalFile::read(
+uint64_t ConsolePhysicalFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // read from terminal and perform line discipline as needed
@@ -74,7 +74,7 @@ uint64_t ConsolePhysicalFile::read(
     }
 }
 
-uint64_t ConsolePhysicalFile::write(
+uint64_t ConsolePhysicalFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // we allocate a buffer to allow for a input buffer exclusively filled with

@@ -51,14 +51,6 @@ void RamFile::truncate()
     }
 }
 
-uint64_t RamFile::write(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    if (canWrite())
-        return File::write(location, size, buffer, bCanBlock);
-    return 0;
-}
-
 bool RamFile::canWrite()
 {
     RamFs *pParent = static_cast<RamFs *>(getFilesystem());

@@ -61,19 +61,6 @@ class UnixFilesystem : public Filesystem
         return String("unix");
     }
 
-    virtual uint64_t read(
-        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true)
-    {
-        return pFile->read(location, size, buffer, bCanBlock);
-    }
-    virtual uint64_t write(
-        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true)
-    {
-        return pFile->write(location, size, buffer, bCanBlock);
-    }
-
     virtual void truncate(File *pFile)
     {
     }
@@ -106,6 +93,11 @@ class UnixFilesystem : public Filesystem
 
   private:
     File *m_pRoot;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 /**
@@ -132,10 +124,10 @@ class UnixSocket : public File
     UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other = nullptr, SocketType type = Datagram);
     virtual ~UnixSocket();
 
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -212,6 +204,11 @@ class UnixSocket : public File
     typedef Buffer<uint8_t, true> UnixSocketStream;
 
     void setCreds();
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 
     struct buf
     {

@@ -38,10 +38,6 @@ void File::writeCallback(
     {
         case CacheConstants::WriteBack:
         {
-#ifdef THREADS
-            LockGuard<Mutex>(pFile->m_Lock);
-#endif
-
             // We are given one dirty page. Blocks can be smaller than a page.
             size_t off = 0;
             for (; off < PhysicalMemoryManager::getPageSize();
@@ -113,6 +109,13 @@ File::~File()
 uint64_t
 File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    if (isBytewise())
+    {
+        // Have to perform bytewise reads
+        /// \todo consider caching this still
+        return readBytewise(location, size, buffer, bCanBlock);
+    }
+
     if ((location + size) >= m_Size)
     {
         size_t oldSize = size;
@@ -130,7 +133,7 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         }
     }
 
-    const size_t blockSize = getBlockSize();
+    const size_t blockSize = useFillCache() ? PhysicalMemoryManager::getPageSize() : getBlockSize();
 
     size_t n = 0;
     while (size)
@@ -146,41 +149,12 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         if (sz > (m_Size - location))
             sz = m_Size - location;
 
-#ifdef THREADS
-        m_Lock.acquire();
-#endif
-        uintptr_t buff = FILE_BAD_BLOCK;
-        if (!m_bDirect)
-        {
-            buff = getCachedPage(block);
-        }
+        uintptr_t buff = readIntoCache(block);
         if (buff == FILE_BAD_BLOCK)
         {
-#ifdef THREADS
-            m_Lock.release();
-#endif
-
-            buff = readBlock(block * blockSize);
-            if (!buff)
-            {
-                ERROR(
-                    "File::read - bad read ("
-                    << (block * blockSize) << " - block size is " << blockSize
-                    << ")");
-                return n;
-            }
-
-#ifdef THREADS
-            m_Lock.acquire();
-#endif
-            if (!m_bDirect)
-            {
-                setCachedPage(block, buff);
-            }
+            ERROR("File::read - failed to get page from cache, returning early");
+            return n;
         }
-#ifdef THREADS
-        m_Lock.release();
-#endif
 
         if (buffer)
         {
@@ -200,10 +174,17 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 uint64_t
 File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    size_t blockSize = getBlockSize();
+    if (isBytewise())
+    {
+        // Have to perform bytewise reads
+        /// \todo consider caching this still
+        return writeBytewise(location, size, buffer, bCanBlock);
+    }
 
     // Extend the file before writing it if needed.
     extend(location + size);
+
+    const size_t blockSize = getBlockSize();
 
     size_t n = 0;
     while (size)
@@ -212,42 +193,12 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         uintptr_t offs = location % blockSize;
         uintptr_t sz = (size + offs > blockSize) ? blockSize - offs : size;
 
-#ifdef THREADS
-        m_Lock.acquire();
-#endif
-        uintptr_t buff = FILE_BAD_BLOCK;
-        if (!m_bDirect)
-        {
-            buff = getCachedPage(block);
-        }
+        uintptr_t buff = readIntoCache(block);
         if (buff == FILE_BAD_BLOCK)
         {
-#ifdef THREADS
-            m_Lock.release();
-#endif
-
-            buff = readBlock(block * blockSize);
-            if (!buff)
-            {
-                ERROR(
-                    "File::write - bad read ("
-                    << (block * blockSize) << " - block size is " << blockSize
-                    << ")");
-                return n;
-            }
-
-#ifdef THREADS
-            m_Lock.acquire();
-#endif
-
-            if (!m_bDirect)
-            {
-                setCachedPage(block, buff);
-            }
+            ERROR("File::read - failed to get page from cache, returning early");
+            return n;
         }
-#ifdef THREADS
-        m_Lock.release();
-#endif
 
         MemoryCopy(
             reinterpret_cast<void *>(buff + offs),
@@ -261,6 +212,7 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         size -= sz;
         n += sz;
     }
+
     if (location >= m_Size)
     {
         m_Size = location;
@@ -281,10 +233,8 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
     // Sanitise input.
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
-    bool useFillCache = false;
-    if (blockSize < nativeBlockSize)
+    if (useFillCache())
     {
-        useFillCache = true;
         blockSize = nativeBlockSize;
     }
     offset &= ~(blockSize - 1);
@@ -295,12 +245,9 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
         return ~0UL;
     }
 
-// Check if we have this page in the cache.
-#ifdef THREADS
-    m_Lock.acquire();
-#endif
+    // Check if we have this page in the cache.
     uintptr_t vaddr = FILE_BAD_BLOCK;
-    if (LIKELY(!useFillCache))
+    if (LIKELY(!useFillCache()))
     {
         // Not using fill cache, this is the easy and common case.
         vaddr = getCachedPage(offset / blockSize);
@@ -312,26 +259,11 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
         vaddr = m_FillCache.lookup(offset);
         if (!vaddr)
         {
-            vaddr = m_FillCache.insert(offset, nativeBlockSize);
-#ifdef THREADS
-            m_Lock.release();
-#endif
-            if (read(offset, nativeBlockSize, vaddr, true) != nativeBlockSize)
-            {
-                ERROR(
-                    "Reading into fill cache failed, cannot get backing page.");
-                return ~0UL;
-            }
-
-            m_FillCache.markNoLongerEditing(offset, nativeBlockSize);
-#ifdef THREADS
-            m_Lock.acquire();
-#endif
+            // Wasn't there. No physical page.
+            vaddr = FILE_BAD_BLOCK;
         }
     }
-#ifdef THREADS
-    m_Lock.release();
-#endif
+
     if ((!vaddr) || (vaddr == FILE_BAD_BLOCK))
     {
         return ~0UL;
@@ -346,7 +278,7 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
         va.getMapping(reinterpret_cast<void *>(vaddr), phys, flags);
 
         // Pin this key in the cache down, so we don't lose it.
-        if (UNLIKELY(useFillCache))
+        if (UNLIKELY(useFillCache()))
         {
             m_FillCache.pin(offset);
         }
@@ -373,10 +305,8 @@ void File::returnPhysicalPage(size_t offset)
     // Sanitise input.
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
-    bool useFillCache = false;
-    if (blockSize < nativeBlockSize)
+    if (useFillCache())
     {
-        useFillCache = true;
         blockSize = nativeBlockSize;
     }
     offset &= ~(blockSize - 1);
@@ -387,12 +317,9 @@ void File::returnPhysicalPage(size_t offset)
         return;
     }
 
-// Release the page. Beware - this could cause a cache evict, which will
-// make the next read/write at this offset do real (slow) I/O.
-#ifdef THREADS
-    m_Lock.acquire();
-#endif
-    if (UNLIKELY(useFillCache))
+    // Release the page. Beware - this could cause a cache evict, which will
+    // make the next read/write at this offset do real (slow) I/O.
+    if (UNLIKELY(useFillCache()))
     {
         m_FillCache.release(offset);
     }
@@ -400,14 +327,15 @@ void File::returnPhysicalPage(size_t offset)
     {
         unpinBlock(offset);
     }
-#ifdef THREADS
-    m_Lock.release();
-#endif
 #endif  // VFS_NOMMU
 }
 
 void File::sync()
 {
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+
     const size_t blockSize = getBlockSize();
     for (size_t i = 0; i < m_DataCache.count(); ++i)
     {
@@ -628,8 +556,32 @@ File *File::open()
     return this;
 }
 
+bool File::isBytewise() const
+{
+    return false;
+}
+
+uint64_t File::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    if (isBytewise())
+    {
+        FATAL("A bytewise File subclass didn't implement readBytewise");
+    }
+    return 0;
+}
+
+uint64_t File::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+{
+    if (isBytewise())
+    {
+        FATAL("A bytewise File subclass didn't implement writeBytewise");
+    }
+    return 0;
+}
+
 uintptr_t File::readBlock(uint64_t location)
 {
+    FATAL("File: base class readBlock() called for " << getFullPath());
     return 0;
 }
 
@@ -653,9 +605,6 @@ void File::unpinBlock(uint64_t location)
 
 void File::evict(uint64_t location)
 {
-#ifdef THREADS
-    LockGuard<Mutex> guard(m_Lock);
-#endif
     setCachedPage(location / getBlockSize(), FILE_BAD_BLOCK);
 }
 
@@ -677,22 +626,23 @@ void File::setGidOnly(size_t gid)
 void File::dataChanged()
 {
 #ifdef THREADS
-    m_Lock.acquire();
-
     bool bAny = false;
-    for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end(); it++)
     {
-        MonitorTarget *pMT = *it;
+        LockGuard<Mutex> guard(m_Lock);
 
-        pMT->pThread->sendEvent(pMT->pEvent);
-        delete pMT;
+        for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+             it != m_MonitorTargets.end(); it++)
+        {
+            MonitorTarget *pMT = *it;
 
-        bAny = true;
+            pMT->pThread->sendEvent(pMT->pEvent);
+            delete pMT;
+
+            bAny = true;
+        }
+
+        m_MonitorTargets.clear();
     }
-
-    m_MonitorTargets.clear();
-    m_Lock.release();
 
     // If anything was waiting on a change, wake it up now.
     if (bAny)
@@ -705,9 +655,8 @@ void File::dataChanged()
 void File::monitor(Thread *pThread, Event *pEvent)
 {
 #ifdef THREADS
-    m_Lock.acquire();
+    LockGuard<Mutex> guard(m_Lock);
     m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
-    m_Lock.release();
 #endif
 }
 
@@ -780,8 +729,12 @@ String File::getFullPath(bool bWithLabel)
     return String(str);
 }
 
-uintptr_t File::getCachedPage(size_t block)
+uintptr_t File::getCachedPage(size_t block, bool locked)
 {
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock, locked);
+#endif
+
     DataCacheKey key(block);
     auto result = m_DataCache.lookup(key);
     if (result.hasValue())
@@ -794,8 +747,12 @@ uintptr_t File::getCachedPage(size_t block)
     }
 }
 
-void File::setCachedPage(size_t block, uintptr_t value)
+void File::setCachedPage(size_t block, uintptr_t value, bool locked)
 {
+#ifdef THREADS
+    LockGuard<Mutex> guard(m_Lock, locked);
+#endif
+
     assert(value);
 
     DataCacheKey key(block);
@@ -814,4 +771,88 @@ void File::setCachedPage(size_t block, uintptr_t value)
     {
         m_DataCache.insert(key, value);
     }
+}
+
+bool File::useFillCache() const
+{
+#ifdef VFS_NOMMU
+    // No fill cache in NOMMU builds.
+    return false;
+#else
+    size_t blockSize = getBlockSize();
+    size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
+    return blockSize < nativeBlockSize;
+#endif
+}
+
+uintptr_t File::readIntoCache(uintptr_t block)
+{
+    size_t blockSize = getBlockSize();
+    size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
+
+    size_t offset = block * blockSize;
+    size_t mask = blockSize - 1;
+    if (useFillCache())
+    {
+        mask = nativeBlockSize - 1;
+    }
+
+    size_t blockOffset = offset & mask;
+    offset &= ~mask;
+
+#ifndef VFS_NOMMU
+    if (useFillCache())
+    {
+        // Using Cache::insert() here is atomic compared to if we did a
+        // lookup() followed by an insert() - means we don't need to lock the
+        // File object to do this.
+        bool didExist = false;
+        uintptr_t vaddr = m_FillCache.insert(offset, nativeBlockSize, &didExist);
+
+        // If in direct mode we are required to read() again
+        if (didExist && !m_bDirect)
+        {
+            // Already in cache - don't re-read the file.
+            return vaddr;
+        }
+
+        // Read the blocks
+        for (size_t i = 0; i < nativeBlockSize; i += blockSize)
+        {
+            uintptr_t blockAddr = readBlock(offset + i);
+            /// \todo handle readBlock failing here
+            MemoryCopy(reinterpret_cast<void *>(vaddr), reinterpret_cast<void *>(blockAddr), blockSize);
+        }
+
+        m_FillCache.markNoLongerEditing(offset, nativeBlockSize);
+
+        NOTICE("readIntoCache: fillcache blockOffset=" << blockOffset);
+        return vaddr + blockOffset;
+    }
+#endif
+
+    uintptr_t buff = FILE_BAD_BLOCK;
+    if (!m_bDirect)
+    {
+        buff = getCachedPage(block);
+    }
+    if (buff == FILE_BAD_BLOCK)
+    {
+        buff = readBlock(block * blockSize);
+        if (!buff)
+        {
+            ERROR(
+                "File::readIntoCache - bad read ("
+                << (block * blockSize) << " - block size is " << blockSize
+                << ")");
+            return FILE_BAD_BLOCK;
+        }
+
+        if (!m_bDirect)
+        {
+            setCachedPage(block, buff);
+        }
+    }
+
+    return buff + blockOffset;
 }

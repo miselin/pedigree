@@ -43,10 +43,6 @@ class EXPORTED_PUBLIC RamFile : public File
 
     virtual void truncate();
 
-    virtual uint64_t write(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
-
     bool canWrite();
 
   protected:

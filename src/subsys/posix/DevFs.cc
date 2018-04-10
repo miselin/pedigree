@@ -53,7 +53,7 @@ static void terminalSwitchHandler(InputManager::InputNotification &in)
     p->handleInput(in);
 }
 
-uint64_t RandomFile::read(
+uint64_t RandomFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     /// \todo Endianness issues?
@@ -96,19 +96,19 @@ uint64_t RandomFile::read(
     return realSize - size;
 }
 
-uint64_t RandomFile::write(
+uint64_t RandomFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t NullFile::read(
+uint64_t NullFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t NullFile::write(
+uint64_t NullFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return size;
@@ -131,13 +131,13 @@ PtmxFile::~PtmxFile()
     delete m_pPtsDirectory;
 }
 
-uint64_t PtmxFile::read(
+uint64_t PtmxFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t PtmxFile::write(
+uint64_t PtmxFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -170,26 +170,26 @@ File *PtmxFile::open()
     return pMaster;
 }
 
-uint64_t ZeroFile::read(
+uint64_t ZeroFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     ByteSet(reinterpret_cast<void *>(buffer), 0, size);
     return size;
 }
 
-uint64_t ZeroFile::write(
+uint64_t ZeroFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return size;
 }
 
-uint64_t RtcFile::read(
+uint64_t RtcFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t RtcFile::write(
+uint64_t RtcFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -440,13 +440,13 @@ Tty0File::~Tty0File()
 {
 }
 
-uint64_t Tty0File::read(
+uint64_t Tty0File::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
 }
 
-uint64_t Tty0File::write(
+uint64_t Tty0File::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -455,21 +455,8 @@ uint64_t Tty0File::write(
 File *Tty0File::open()
 {
     // easy - just return the currently-active VT
+    NOTICE("returning current terminal file");
     return m_pDevFs->getTerminalManager().getCurrentTerminalFile();
-}
-
-uint64_t MemFile::read(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    ERROR("MemFile: read() attempted");
-    return 0;
-}
-
-uint64_t MemFile::write(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    ERROR("MemFile: write() attempted");
-    return 0;
 }
 
 physical_uintptr_t MemFile::getPhysicalPage(size_t offset)

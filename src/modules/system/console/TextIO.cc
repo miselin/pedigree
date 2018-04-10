@@ -156,7 +156,7 @@ bool TextIO::initialise(bool bClear)
     return m_bInitialised;
 }
 
-void TextIO::write(const char *s, size_t len)
+void TextIO::writeStr(const char *s, size_t len)
 {
     if (!m_bInitialised)
     {
@@ -1641,15 +1641,15 @@ void TextIO::flip(bool timer, bool hideState)
 }
 
 uint64_t
-TextIO::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+TextIO::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return m_OutBuffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
 }
 
-uint64_t TextIO::write(
+uint64_t TextIO::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    write(reinterpret_cast<const char *>(buffer), size);
+    writeStr(reinterpret_cast<const char *>(buffer), size);
     return size;
 }
 

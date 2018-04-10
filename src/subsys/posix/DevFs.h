@@ -58,12 +58,18 @@ class RandomFile : public File
     {
     }
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
+
+   private:
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class NullFile : public File
@@ -81,12 +87,18 @@ class NullFile : public File
     {
     }
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
+
+   private:
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class ZeroFile : public File
@@ -104,12 +116,18 @@ class ZeroFile : public File
     {
     }
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
+
+   private:
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class PtmxFile : public File
@@ -120,10 +138,10 @@ class PtmxFile : public File
         DevFsDirectory *m_pPtsDirectory);
     ~PtmxFile();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -134,6 +152,11 @@ class PtmxFile : public File
   private:
     ExtensibleBitmap m_Terminals;
     DevFsDirectory *m_pPtsDirectory;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class RtcFile : public File
@@ -150,15 +173,21 @@ class RtcFile : public File
     {
     }
 
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
     virtual bool supports(const int command) const;
     virtual int command(const int command, void *buffer);
+
+   private:
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class FramebufferFile : public File
@@ -192,10 +221,10 @@ class Tty0File : public File
         DevFs *devfs);
     ~Tty0File();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -205,6 +234,11 @@ class Tty0File : public File
 
   private:
     DevFs *m_pDevFs;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class MemFile : public File
@@ -221,13 +255,6 @@ class MemFile : public File
     ~MemFile()
     {
     }
-
-    virtual uint64_t read(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
-    virtual uint64_t write(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
 
     virtual physical_uintptr_t getPhysicalPage(size_t offset);
     virtual void returnPhysicalPage(size_t offset);

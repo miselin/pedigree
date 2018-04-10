@@ -38,8 +38,11 @@ MemoryMappedObject::~MemoryMappedObject()
 
 AnonymousMemoryMap::AnonymousMemoryMap(
     uintptr_t address, size_t length, MemoryMappedObject::Permissions perms)
-    : MemoryMappedObject(address, true, length, perms), m_Mappings()
+    : MemoryMappedObject(address, true, length, perms), m_Mappings(),
+    m_Lock(false)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     if (m_Zero == 0)
     {
         m_Zero = PhysicalMemoryManager::instance().allocatePage();
@@ -59,6 +62,8 @@ AnonymousMemoryMap::AnonymousMemoryMap(
 
 MemoryMappedObject *AnonymousMemoryMap::clone()
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     AnonymousMemoryMap *pResult =
         new AnonymousMemoryMap(m_Address, m_Length, m_Permissions);
     pResult->m_Mappings = m_Mappings;
@@ -67,6 +72,8 @@ MemoryMappedObject *AnonymousMemoryMap::clone()
 
 MemoryMappedObject *AnonymousMemoryMap::split(uintptr_t at)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     if (at < m_Address || at >= (m_Address + m_Length))
     {
         ERROR(
@@ -109,6 +116,8 @@ MemoryMappedObject *AnonymousMemoryMap::split(uintptr_t at)
 
 bool AnonymousMemoryMap::remove(size_t length)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -120,7 +129,7 @@ bool AnonymousMemoryMap::remove(size_t length)
 
     if (length >= m_Length)
     {
-        unmap();
+        unmapUnlocked();
         return true;
     }
 
@@ -155,6 +164,8 @@ bool AnonymousMemoryMap::remove(size_t length)
 
 void AnonymousMemoryMap::setPermissions(MemoryMappedObject::Permissions perms)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
     if (perms == MemoryMappedObject::None)
@@ -205,35 +216,15 @@ void AnonymousMemoryMap::setPermissions(MemoryMappedObject::Permissions perms)
 
 void AnonymousMemoryMap::unmap()
 {
-#ifdef DEBUG_MMOBJECTS
-    NOTICE("AnonymousMemoryMap::unmap()");
-#endif
+    LockGuard<Spinlock> guard(m_Lock);
 
-    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-
-    for (List<void *>::Iterator it = m_Mappings.begin(); it != m_Mappings.end();
-         ++it)
-    {
-        void *v = *it;
-        if (va.isMapped(v))
-        {
-            size_t flags;
-            physical_uintptr_t phys;
-
-            va.getMapping(v, phys, flags);
-
-            // Clean up. Shared read-only zero page will only have its refcount
-            // decreased by this - it will not hit zero.
-            va.unmap(v);
-            PhysicalMemoryManager::instance().freePage(phys);
-        }
-    }
-
-    m_Mappings.clear();
+    unmapUnlocked();
 }
 
 bool AnonymousMemoryMap::trap(uintptr_t address, bool bWrite)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
 #ifdef DEBUG_MMOBJECTS
     NOTICE("AnonymousMemoryMap::trap(" << address << ", " << bWrite << ")");
 #endif
@@ -313,6 +304,35 @@ bool AnonymousMemoryMap::trap(uintptr_t address, bool bWrite)
     return true;
 }
 
+void AnonymousMemoryMap::unmapUnlocked()
+{
+#ifdef DEBUG_MMOBJECTS
+    NOTICE("AnonymousMemoryMap::unmap()");
+#endif
+
+    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+
+    for (List<void *>::Iterator it = m_Mappings.begin(); it != m_Mappings.end();
+         ++it)
+    {
+        void *v = *it;
+        if (va.isMapped(v))
+        {
+            size_t flags;
+            physical_uintptr_t phys;
+
+            va.getMapping(v, phys, flags);
+
+            // Clean up. Shared read-only zero page will only have its refcount
+            // decreased by this - it will not hit zero.
+            va.unmap(v);
+            PhysicalMemoryManager::instance().freePage(phys);
+        }
+    }
+
+    m_Mappings.clear();
+}
+
 MemoryMappedFile::MemoryMappedFile(
     uintptr_t address, size_t length, size_t offset, File *backing,
     bool bCopyOnWrite, MemoryMappedObject::Permissions perms)
@@ -349,6 +369,8 @@ MemoryMappedObject *MemoryMappedFile::clone()
 
 MemoryMappedObject *MemoryMappedFile::split(uintptr_t at)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
     if (at < m_Address || at >= (m_Address + m_Length))
@@ -391,6 +413,8 @@ MemoryMappedObject *MemoryMappedFile::split(uintptr_t at)
 
 bool MemoryMappedFile::remove(size_t length)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -402,7 +426,7 @@ bool MemoryMappedFile::remove(size_t length)
 
     if (length >= m_Length)
     {
-        unmap();
+        unmapUnlocked();
         return true;
     }
 
@@ -449,16 +473,17 @@ bool MemoryMappedFile::remove(size_t length)
 
 void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
     if (perms == MemoryMappedObject::None)
     {
-        unmap();
+        unmapUnlocked();
     }
     else
     {
         // Adjust any existing mappings in this object.
-        LockGuard<Spinlock> guard(m_Lock);
         for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
         {
             void *v = reinterpret_cast<void *>(it.key());
@@ -504,7 +529,7 @@ void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms)
     m_Permissions = perms;
 }
 
-static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset)
+static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset, Spinlock &lock)
 {
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -513,10 +538,16 @@ static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset)
     {
         // No page found, trigger a read to fix that!
         uint64_t actual = 0;
+
+        // Have to give up the lock to safely read (as the read could block).
+        /// \todo get mutual exclusion here even with the unlock - mark trap page as being processed for example?
+        lock.release();
         if ((actual = pBacking->read(fileOffset, pageSz, 0)) != pageSz)
         {
             ERROR("Short read of " << pBacking->getName() << " in getBackingPage() - wanted " << pageSz << " bytes but got " << actual << " instead");
         }
+        lock.acquire();
+
         phys = pBacking->getPhysicalPage(fileOffset);
         if (phys == ~0UL)
         {
@@ -532,6 +563,8 @@ static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset)
 
 void MemoryMappedFile::sync(uintptr_t at, bool async)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
     if (at < m_Address || at >= (m_Address + m_Length))
@@ -567,6 +600,8 @@ void MemoryMappedFile::sync(uintptr_t at, bool async)
 
 void MemoryMappedFile::invalidate(uintptr_t at)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
 
     // If we're not actually CoW, don't bother checking.
@@ -591,11 +626,8 @@ void MemoryMappedFile::invalidate(uintptr_t at)
 
     size_t fileOffset = (at - m_Address) + m_Offset;
 
-    // Read/remove/create happening here, need atomicity
-    LockGuard<Spinlock> guard(m_Lock);
-
     // Check for already-invalidated.
-    physical_uintptr_t p = getMapping(at, false);
+    physical_uintptr_t p = getMapping(at);
     if (p == ~0UL)
         return;
     else
@@ -607,11 +639,11 @@ void MemoryMappedFile::invalidate(uintptr_t at)
             // Clean up old...
             va.unmap(v);
             PhysicalMemoryManager::instance().freePage(p);
-            untrackMapping(at, false);
+            untrackMapping(at);
 
             // Get new...
             physical_uintptr_t newBacking =
-                getBackingPage(m_pBacking, fileOffset);
+                getBackingPage(m_pBacking, fileOffset, m_Lock);
             if (newBacking == ~0UL)
             {
                 ERROR("MemoryMappedFile::invalidate() couldn't bring in new "
@@ -621,56 +653,22 @@ void MemoryMappedFile::invalidate(uintptr_t at)
 
             // Bring in the new backing page.
             va.map(newBacking, v, VirtualAddressSpace::Shared | extraFlags);
-            trackMapping(at, ~0UL, false);
+            trackMapping(at, ~0UL);
         }
     }
 }
 
 void MemoryMappedFile::unmap()
 {
-#ifdef DEBUG_MMOBJECTS
-    NOTICE("MemoryMappedFile::unmap()");
-#endif
-
     LockGuard<Spinlock> guard(m_Lock);
 
-    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-
-    if (!getMappingCount(false))
-        return;
-
-    for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
-    {
-        void *v = reinterpret_cast<void *>(it.key());
-        if (!va.isMapped(v))
-            break;  // Already unmapped...
-
-        size_t flags = 0;
-        physical_uintptr_t phys = 0;
-        va.getMapping(v, phys, flags);
-        va.unmap(v);
-
-        physical_uintptr_t p = it.value();
-        if (p == ~0UL)
-        {
-            size_t fileOffset = (it.key() - m_Address) + m_Offset;
-            m_pBacking->returnPhysicalPage(fileOffset);
-
-            // Only sync back to the backing store if the page was actually
-            // mapped in writable (ie, shared and not CoW)
-            if ((flags & VirtualAddressSpace::Write) ==
-                VirtualAddressSpace::Write)
-                m_pBacking->sync(fileOffset, true);
-        }
-        else
-            PhysicalMemoryManager::instance().freePage(phys);
-    }
-
-    clearMappings(false);
+    unmapUnlocked();
 }
 
 bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
 #ifdef DEBUG_MMOBJECTS
     NOTICE("MemoryMappedFile::trap(" << address << ", " << bWrite << ")");
 #endif
@@ -719,7 +717,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
     if (!bShouldCopy)
     {
         // No need to lock this section - only accessing m_Mappings once
-        physical_uintptr_t phys = getBackingPage(m_pBacking, fileOffset);
+        physical_uintptr_t phys = getBackingPage(m_pBacking, fileOffset, m_Lock);
         if (phys == ~0UL)
         {
             ERROR("MemoryMappedFile::trap couldn't get a backing page");
@@ -744,9 +742,6 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
     }
     else
     {
-        // Need to lock this entire section - untrack followed by track
-        LockGuard<Spinlock> guard(m_Lock);
-
         // Ditch an existing mapping, if needed.
         if (va.isMapped(reinterpret_cast<void *>(address)))
         {
@@ -754,7 +749,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
 
             // One less reference to the backing page.
             m_pBacking->returnPhysicalPage(fileOffset);
-            untrackMapping(address, false);
+            untrackMapping(address);
         }
 
         // Okay, map in the new page, and copy across the backing file data.
@@ -773,7 +768,11 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
         if (nBytes > pageSz)
             nBytes = pageSz;
 
+        // Same thing as in getBackingPage - must unlock as read is allowed to block
+        /// \todo how to manage this with potentially more traps taking place?
+        m_Lock.release();
         size_t nRead = m_pBacking->read(fileOffset, nBytes, address);
+        m_Lock.acquire();
         if (nRead < pageSz)
         {
             // Couldn't quite read in a page - zero out what's left.
@@ -782,7 +781,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
                 pageSz - nRead - 1);
         }
 
-        trackMapping(address, newPhys, false);
+        trackMapping(address, newPhys);
     }
 
     return true;
@@ -790,6 +789,9 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
 
 bool MemoryMappedFile::compact()
 {
+    // Need to lock this entire section - untrack followed by track
+    LockGuard<Spinlock> guard(m_Lock);
+
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -868,33 +870,69 @@ bool MemoryMappedFile::compact()
     return bReleased;
 }
 
-void MemoryMappedFile::trackMapping(uintptr_t addr, physical_uintptr_t phys, bool locked)
+void MemoryMappedFile::unmapUnlocked()
 {
-    LockGuard<Spinlock> guard(m_Lock, locked);
+#ifdef DEBUG_MMOBJECTS
+    NOTICE("MemoryMappedFile::unmap()");
+#endif
+
+    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+
+    if (!getMappingCount())
+        return;
+
+    for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it)
+    {
+        void *v = reinterpret_cast<void *>(it.key());
+        if (!va.isMapped(v))
+            break;  // Already unmapped...
+
+        size_t flags = 0;
+        physical_uintptr_t phys = 0;
+        va.getMapping(v, phys, flags);
+        va.unmap(v);
+
+        physical_uintptr_t p = it.value();
+        if (p == ~0UL)
+        {
+            size_t fileOffset = (it.key() - m_Address) + m_Offset;
+            m_pBacking->returnPhysicalPage(fileOffset);
+
+            // Only sync back to the backing store if the page was actually
+            // mapped in writable (ie, shared and not CoW)
+            if ((flags & VirtualAddressSpace::Write) ==
+                VirtualAddressSpace::Write)
+                m_pBacking->sync(fileOffset, true);
+        }
+        else
+            PhysicalMemoryManager::instance().freePage(phys);
+    }
+
+    clearMappings();
+}
+
+void MemoryMappedFile::trackMapping(uintptr_t addr, physical_uintptr_t phys)
+{
     m_Mappings.insert(addr, phys);
 }
 
-void MemoryMappedFile::untrackMapping(uintptr_t addr, bool locked)
+void MemoryMappedFile::untrackMapping(uintptr_t addr)
 {
-    LockGuard<Spinlock> guard(m_Lock, locked);
     m_Mappings.remove(addr);
 }
 
-physical_uintptr_t MemoryMappedFile::getMapping(uintptr_t addr, bool locked)
+physical_uintptr_t MemoryMappedFile::getMapping(uintptr_t addr)
 {
-    LockGuard<Spinlock> guard(m_Lock, locked);
     return m_Mappings.lookup(addr);
 }
 
-size_t MemoryMappedFile::getMappingCount(bool locked)
+size_t MemoryMappedFile::getMappingCount()
 {
-    LockGuard<Spinlock> guard(m_Lock, locked);
     return m_Mappings.count();
 }
 
-void MemoryMappedFile::clearMappings(bool locked)
+void MemoryMappedFile::clearMappings()
 {
-    LockGuard<Spinlock> guard(m_Lock, locked);
     m_Mappings.clear();
 }
 

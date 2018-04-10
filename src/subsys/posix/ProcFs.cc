@@ -83,7 +83,7 @@ void MeminfoFile::updateThread()
     }
 }
 
-uint64_t MeminfoFile::read(
+uint64_t MeminfoFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     LockGuard<Mutex> guard(m_Lock);
@@ -105,7 +105,7 @@ uint64_t MeminfoFile::read(
     return size;
 }
 
-uint64_t MeminfoFile::write(
+uint64_t MeminfoFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -131,7 +131,7 @@ size_t PciDevicesFile::getSize()
     return m_Contents.length();
 }
 
-uint64_t PciDevicesFile::read(
+uint64_t PciDevicesFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     resync();
@@ -153,7 +153,7 @@ uint64_t PciDevicesFile::read(
     return size;
 }
 
-uint64_t PciDevicesFile::write(
+uint64_t PciDevicesFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -227,7 +227,7 @@ MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent)
 
 MountFile::~MountFile() = default;
 
-uint64_t MountFile::read(
+uint64_t MountFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     String mounts;
@@ -251,7 +251,7 @@ uint64_t MountFile::read(
     return size;
 }
 
-uint64_t MountFile::write(
+uint64_t MountFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -274,7 +274,7 @@ UptimeFile::UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent)
 
 UptimeFile::~UptimeFile() = default;
 
-uint64_t UptimeFile::read(
+uint64_t UptimeFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     String f = generateString();
@@ -296,7 +296,7 @@ uint64_t UptimeFile::read(
     return size;
 }
 
-uint64_t UptimeFile::write(
+uint64_t UptimeFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;
@@ -338,7 +338,7 @@ ConstantFile::~ConstantFile()
     delete [] m_Contents;
 }
 
-uint64_t ConstantFile::read(
+uint64_t ConstantFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (location >= m_Size)
@@ -358,7 +358,7 @@ uint64_t ConstantFile::read(
     return size;
 }
 
-uint64_t ConstantFile::write(
+uint64_t ConstantFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return 0;

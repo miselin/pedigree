@@ -40,10 +40,10 @@ class PsAuxFile : public File
 
     bool initialise();
 
-    uint64_t read(
+    uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -56,6 +56,11 @@ class PsAuxFile : public File
     static void subscriber(void *param, const void *buffer, size_t len);
 
     void handleIncoming(const void *buffer, size_t len);
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 #endif

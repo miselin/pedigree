@@ -187,14 +187,22 @@ class EXPORTED_PUBLIC Cache
      *
      * The new entry will already be marked as being edited, and so won't be
      * written back until the inserter calls markNoLongerEditing again.
+     *
+     * \param alreadyExisted can be used to find out if the return value is a
+     *        page that already existed, and no mapping was completed. This can
+     *        be used to do an 'insert or get' operation atomically.
      */
-    uintptr_t insert(uintptr_t key);
+    uintptr_t insert(uintptr_t key, bool *alreadyExisted = nullptr);
 
     /** Creates a bunch of cache entries to fill a specific size. Note that
      *  this is just a monster allocation of a virtual address - the physical
      *  pages are NOT CONTIGUOUS.
+     *
+     * \param alreadyExisted can be used to find out if the return value is a
+     *        page that already existed, and no mapping was completed. This can
+     *        be used to do an 'insert or get' operation atomically.
      */
-    uintptr_t insert(uintptr_t key, size_t size);
+    uintptr_t insert(uintptr_t key, size_t size, bool *alreadyExisted = nullptr);
 
     /** Checks if the entire range specified exists in the cache. */
     bool exists(uintptr_t key, size_t length);

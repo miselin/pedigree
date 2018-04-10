@@ -92,13 +92,13 @@ class EXPORTED_PUBLIC File
      */
     virtual uint64_t read(
         uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
+        bool bCanBlock = true) final;
     /** Writes to the file.
      *  \param[in] bCanBlock Whether or not the File can block when reading
      */
     virtual uint64_t write(
         uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
+        bool bCanBlock = true) final;
 
     /** Get the physical address for the given offset into the file.
      * Returns (physical_uintptr_t) ~0 if the offset isn't in the cache.
@@ -236,6 +236,22 @@ class EXPORTED_PUBLIC File
     virtual File *open();
 
   protected:
+    /**
+     * File subclasses can define this and return true if they require read()
+     * calls to perform actual data reads, and false if readBlock() is
+     * otherwise sufficient.
+     */
+    virtual bool isBytewise() const;
+
+    /** Reads bytes from the file, if isBytewise() == true. */
+    virtual uint64_t readBytewise(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+    /** Writes bytes to the file, if isBytewise() == true. */
+    virtual uint64_t writeBytewise(
+        uint64_t location, uint64_t size, uintptr_t buffer,
+        bool bCanBlock = true);
+
     /** Internal function to retrieve an aligned 512byte section of the file. */
     virtual uintptr_t readBlock(uint64_t location);
     /**
@@ -341,15 +357,15 @@ class EXPORTED_PUBLIC File
 
     bool m_bDirect;
 
-/**
- * This cache is necessary to handle filesystems with block sizes that are
- * smaller than the native page size. For these filesystems, to perform
- * memory maps we read native page size blocks into this cache, and then
- * return pages from it directly. This is expected to somewhat increase
- * memory usage and reduce performance on non-natively-sized block sizes,
- * but that's an acceptable compromise.
- */
 #ifndef VFS_NOMMU
+    /**
+     * This cache is necessary to handle filesystems with block sizes that are
+     * smaller than the native page size. For these filesystems, to perform
+     * memory maps we read native page size blocks into this cache, and then
+     * return pages from it directly. This is expected to somewhat increase
+     * memory usage and reduce performance on non-natively-sized block sizes,
+     * but that's an acceptable compromise.
+     */
     Cache m_FillCache;
 #endif
 
@@ -370,10 +386,16 @@ class EXPORTED_PUBLIC File
 
   private:
     /** Retrieve a page from our cache. */
-    uintptr_t getCachedPage(size_t block);
+    uintptr_t getCachedPage(size_t block, bool locked = true);
 
     /** Set a page in our cache. */
-    void setCachedPage(size_t block, uintptr_t value);
+    void setCachedPage(size_t block, uintptr_t value, bool locked = true);
+
+    /** Indicate whether the 'fill cache' is needed to handle sub-page block sizes. */
+    bool useFillCache() const;
+
+    /** Read the given block into the relevant cache. */
+    uintptr_t readIntoCache(uintptr_t block);
 };
 
 #endif

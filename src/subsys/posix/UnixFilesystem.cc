@@ -112,7 +112,7 @@ int UnixSocket::select(bool bWriting, int timeout)
     }
 }
 
-uint64_t UnixSocket::read(
+uint64_t UnixSocket::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     String remote;
@@ -163,7 +163,7 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
     return size;
 }
 
-uint64_t UnixSocket::write(
+uint64_t UnixSocket::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (m_State != Active)

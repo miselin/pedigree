@@ -31,7 +31,7 @@ ConsoleSlaveFile::ConsoleSlaveFile(
 {
 }
 
-uint64_t ConsoleSlaveFile::read(
+uint64_t ConsoleSlaveFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     uint64_t nBytes =
@@ -46,7 +46,7 @@ uint64_t ConsoleSlaveFile::read(
     return endSize;
 }
 
-uint64_t ConsoleSlaveFile::write(
+uint64_t ConsoleSlaveFile::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // Send straight to the master.

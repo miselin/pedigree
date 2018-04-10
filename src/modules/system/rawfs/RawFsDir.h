@@ -43,19 +43,6 @@ class RawFsDir : public Directory
     {
     }
 
-    virtual uint64_t read(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true)
-    {
-        return 0;
-    }
-    virtual uint64_t write(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true)
-    {
-        return 0;
-    }
-
     /** Adds an entry to this directory.
         \note To be called by RawFS only. */
     void addEntry(File *pEntry);

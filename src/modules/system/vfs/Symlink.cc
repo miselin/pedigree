@@ -87,3 +87,8 @@ int Symlink::followLink(char *pBuffer, size_t bufLen)
 
     return bufLen;
 }
+
+bool Symlink::isBytewise() const
+{
+    return true;
+}

@@ -94,7 +94,7 @@ bool VirtualTerminalManager::initialise()
             // ensure users switching to the terminal see a blank screen if
             // nothing has actually opened it - this is better than seeing the
             // previous tty's output...
-            tio->write("", 0);
+            tio->writeStr("", 0);
         }
         else
         {
@@ -204,7 +204,7 @@ size_t VirtualTerminalManager::openInactive()
                 // ensure users switching to the terminal see a blank screen if
                 // nothing has actually opened it - this is better than seeing the
                 // previous tty's output...
-                tio->write("", 0);
+                tio->writeStr("", 0);
 
                 return i;
             }

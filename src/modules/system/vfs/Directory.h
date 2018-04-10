@@ -146,6 +146,14 @@ class EXPORTED_PUBLIC Directory : public File
     static File *evaluateEntry(const DirectoryEntryMetadata &meta);
     static void destroyEntry(File *file);
 
+    virtual bool isBytewise() const
+    {
+        // This will cause read()/write() to fail as readBytewise/writeBytewise
+        // are not overridden and remain as their default implementation, which
+        // errors out.
+        return true;
+    }
+
   protected:
     typedef LazyEvaluate<File, DirectoryEntryMetadata, evaluateEntry, destroyEntry> DirectoryEntry;
 

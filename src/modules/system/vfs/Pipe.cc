@@ -90,7 +90,7 @@ int Pipe::select(bool bWriting, int timeout)
 }
 
 uint64_t
-Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     // Need to read what's left in the pipe then EOF if there's no more readers!
     if (m_nWriters == 0)
@@ -103,7 +103,7 @@ Pipe::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 }
 
 uint64_t
-Pipe::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (m_nReaders == 0)
     {

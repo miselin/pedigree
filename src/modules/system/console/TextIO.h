@@ -129,15 +129,15 @@ class EXPORTED_PUBLIC TextIO : public File
      * embedded in the string along the way.
      * \param str The string to write.
      */
-    void write(const char *s, size_t len);
+    void writeStr(const char *s, size_t len);
 
     /**
      * VFS File interface.
      */
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
     virtual int select(bool bWriting = false, int timeout = 0);
@@ -180,6 +180,11 @@ class EXPORTED_PUBLIC TextIO : public File
     static const ssize_t BACKBUFFER_ROWS = 25;
 
     static const ssize_t BACKBUFFER_STRIDE = BACKBUFFER_COLS_WIDE;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 
     void setColour(VgaColour *which, size_t param, bool bBright = false);
 

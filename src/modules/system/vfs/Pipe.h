@@ -69,11 +69,11 @@ class EXPORTED_PUBLIC Pipe : public File
     virtual int select(bool bWriting = false, int timeout = 0);
 
     /** Reads from the file. */
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
     /** Writes to the file. */
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -114,6 +114,11 @@ class EXPORTED_PUBLIC Pipe : public File
 
     /** Reader semaphore to allow blocking until a reader arrives. */
     Semaphore m_ReaderSem;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 #endif

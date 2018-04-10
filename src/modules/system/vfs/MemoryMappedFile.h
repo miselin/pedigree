@@ -301,8 +301,13 @@ class AnonymousMemoryMap : public MemoryMappedObject
   private:
     static physical_uintptr_t m_Zero;
 
+    void unmapUnlocked();
+
     /** List of existing virtual addresses we've mapped in. */
     List<void *> m_Mappings;
+
+    /** Lock for anything to do with the memory mapping. */
+    Spinlock m_Lock;
 };
 
 /**
@@ -353,20 +358,22 @@ class MemoryMappedFile : public MemoryMappedObject
     virtual bool compact();
 
   private:
+    void unmapUnlocked();
+
     /** Track a new mapping. */
-    void trackMapping(uintptr_t, physical_uintptr_t, bool locked = true);
+    void trackMapping(uintptr_t, physical_uintptr_t);
 
     /** Stop tracking a mapping. */
-    void untrackMapping(uintptr_t, bool locked = true);
+    void untrackMapping(uintptr_t);
 
     /** Get a specific mapping. */
-    physical_uintptr_t getMapping(uintptr_t, bool locked = true);
+    physical_uintptr_t getMapping(uintptr_t);
 
     /** Get the number of mappings we currently have. */
-    size_t getMappingCount(bool locked = true);
+    size_t getMappingCount();
 
     /** Clear all mappings. */
-    void clearMappings(bool locked = true);
+    void clearMappings();
 
     /** Backing file. */
     File *m_pBacking;
@@ -377,7 +384,7 @@ class MemoryMappedFile : public MemoryMappedObject
     /** List of existing mappings. */
     Tree<uintptr_t, physical_uintptr_t> m_Mappings;
 
-    /** Lock for modifying the mapping tracking tree. */
+    /** Lock for anything to do with the memory mapped file. */
     Spinlock m_Lock;
 };
 

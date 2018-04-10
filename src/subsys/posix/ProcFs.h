@@ -41,10 +41,10 @@ class MeminfoFile : public File
     MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~MeminfoFile();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -59,6 +59,11 @@ class MeminfoFile : public File
     bool m_bRunning;
     String m_Contents;
     Mutex m_Lock;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class PciDevicesFile : public File
@@ -67,10 +72,10 @@ class PciDevicesFile : public File
     PciDevicesFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~PciDevicesFile();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -80,6 +85,11 @@ class PciDevicesFile : public File
     void resync();
 
     String m_Contents;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class MountFile : public File
@@ -88,14 +98,20 @@ class MountFile : public File
     MountFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~MountFile();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
     virtual size_t getSize();
+
+   private:
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class UptimeFile : public File
@@ -104,10 +120,10 @@ class UptimeFile : public File
     UptimeFile(size_t inode, Filesystem *pParentFS, File *pParent);
     ~UptimeFile();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -115,6 +131,11 @@ class UptimeFile : public File
 
   private:
     String generateString();
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class ConstantFile : public File
@@ -125,10 +146,10 @@ class ConstantFile : public File
         File *pParent);
     ~ConstantFile();
 
-    uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -137,6 +158,11 @@ class ConstantFile : public File
   private:
     char *m_Contents;
     size_t m_Size;
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 /** This class provides slightly more flexibility for adding files to a

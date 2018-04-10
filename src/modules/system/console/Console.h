@@ -55,13 +55,6 @@ class ConsoleFile : public File
     {
     }
 
-    virtual uint64_t read(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true) = 0;
-    virtual uint64_t write(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true) = 0;
-
     virtual bool isMaster() = 0;
 
     void setEvent(Event *e)
@@ -192,6 +185,11 @@ class ConsoleFile : public File
 
     /// Triggers our event.
     void triggerEvent(char cause);
+
+    virtual bool isBytewise() const
+    {
+        return true;
+    }
 };
 
 class EXPORTED_PUBLIC ConsoleMasterFile : public ConsoleFile
@@ -203,10 +201,10 @@ class EXPORTED_PUBLIC ConsoleMasterFile : public ConsoleFile
     {
     }
 
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -239,10 +237,10 @@ class EXPORTED_PUBLIC ConsoleSlaveFile : public ConsoleFile
     {
     }
 
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
@@ -270,10 +268,10 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile
     {
     }
 
-    virtual uint64_t read(
+    virtual uint64_t readBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
-    virtual uint64_t write(
+    virtual uint64_t writeBytewise(
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
