@@ -74,7 +74,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             MemoryRegion tmpRegion("CoW Temporary Page");
             if (!PhysicalMemoryManager::instance().allocateRegion(
                     tmpRegion, 1,
-                    PhysicalMemoryManager::force | PhysicalMemoryManager::continuous,
+                    PhysicalMemoryManager::force | PhysicalMemoryManager::continuous | PhysicalMemoryManager::anonymous,
                     VirtualAddressSpace::KernelMode, phys))
             {
                 FATAL(

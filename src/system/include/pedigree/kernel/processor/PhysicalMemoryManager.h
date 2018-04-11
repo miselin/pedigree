@@ -56,16 +56,18 @@ class EXPORTED_PUBLIC PhysicalMemoryManager
     /** The allocated pages should be below the 1MB mark */
     static const size_t below1MB = 1 << 4;
     /** The allocated pages should be below the 16MB mark */
-    static const size_t below16MB = 2 << 4;
+    static const size_t below16MB = 1 << 5;
     /** The allocated pages should be below the 4GB mark */
-    static const size_t below4GB = 3 << 4;
+    static const size_t below4GB = 1 << 6;
     /** The allocated pages should be below the 64GB mark */
-    static const size_t below64GB = 4 << 4;
+    static const size_t below64GB = 1 << 7;
 
     /** All address size constraints */
     static const size_t addressConstraints =
         below1MB | below16MB | below4GB | below64GB;
 #endif
+    /** Don't track the memory region. */
+    static const size_t anonymous = 1 << 8;
 
     /** Get the PhysicalMemoryManager instance
      *\return instance of the PhysicalMemoryManager */

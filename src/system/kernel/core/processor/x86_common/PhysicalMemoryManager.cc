@@ -338,7 +338,10 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
         //       static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
 
         // Add to the list of memory-regions
-        PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
+        if (!(pageConstraints & PhysicalMemoryManager::anonymous))
+        {
+            PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
+        }
         return true;
     }
     else
@@ -432,7 +435,10 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
         Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
 
         // Add to the list of memory-regions
-        PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
+        if (!(pageConstraints & PhysicalMemoryManager::anonymous))
+        {
+            PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
+        }
         return true;
     }
 }
