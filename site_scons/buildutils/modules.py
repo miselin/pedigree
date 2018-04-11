@@ -29,7 +29,7 @@ def buildModule(env, stripped_target, target, sources):
         # Wipe out the kernel's link flags so we can substitute our own.
         module_env['LINKFLAGS'] = []
 
-    for key in ('CC', 'CXX', 'LINK', 'CFLAGS', 'CCFLAGS', 'CXXFLAGS'):
+    for key in ('CFLAGS', 'CCFLAGS', 'CXXFLAGS'):
         module_env[key] = module_env['TARGET_%s' % key]
 
     if "STATIC_DRIVERS" in env['CPPDEFINES']:
@@ -40,7 +40,7 @@ def buildModule(env, stripped_target, target, sources):
     extra_linkflags = module_env.get('MODULE_LINKFLAGS', [])
 
     module_env.MergeFlags({
-        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-r', '-Wl,-T,$LSCRIPT'] +
+        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-fpie', '-Wl,-T,$LSCRIPT', '-Wl,--unresolved-symbols=ignore-in-object-files'] +
             extra_linkflags,
     })
 

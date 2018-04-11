@@ -489,6 +489,11 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
         ERROR("KERNELELF: Hit an invalid module, ignoring");
         return 0;
     }
+    DEBUG(
+        "KERNELELF: Preloaded module at " << Hex << module->loadBase << " to "
+        << (module->loadBase + module->loadSize));
+    NOTICE("name is at " << pName);
+    NOTICE("name is at " << reinterpret_cast<const void *>(*pName));
     module->name = *pName;
     module->elf.setName(*pName);
     module->entry = *reinterpret_cast<bool (**)()>(

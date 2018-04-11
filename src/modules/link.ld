@@ -7,6 +7,8 @@ SECTIONS
     *(.text.crt0*);
   }
 
+  . = SIZEOF_HEADERS;
+
   . = ALIGN(4096);
   .text :
   {

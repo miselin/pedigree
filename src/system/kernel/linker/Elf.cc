@@ -540,26 +540,26 @@ bool Elf::loadModule(
     uint8_t *pBuffer, size_t length, uintptr_t &loadBase, size_t &loadSize,
     SymbolTable *pSymbolTableCopy)
 {
+    const size_t pageSz = PhysicalMemoryManager::getPageSize();
+    const size_t pageSzMask = PhysicalMemoryManager::getPageSize() - 1;
+    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+
     // Run through the sections to calculate the size required.
     loadSize = 0;
-    for (size_t i = 0; i < m_nSectionHeaders; i++)
+    for (size_t i = 0; i < m_nProgramHeaders; ++i)
     {
-        if (m_pSectionHeaders[i].flags & SHF_ALLOC)
+        if (m_pProgramHeaders[i].type == PT_LOAD)
         {
-            loadSize += m_pSectionHeaders[i]
-                            .addr;  // If .addr is set, add it as an offset.
-            // Ensure the alignment is as required.
-            while ((loadSize % m_pSectionHeaders[i].addralign) != 0)
-                loadSize++;
-            loadSize += m_pSectionHeaders[i].size;
+            loadSize += m_pProgramHeaders[i].vaddr + m_pProgramHeaders[i].memsz;
         }
     }
-    if (loadSize & 0xFFF)  // Make sure two modules don't accidentally end up in
-                           // the same page.
+    if (loadSize & pageSzMask)
     {
-        loadSize += 0x1000;  // ie, end page == start page of another module.
-        loadSize &= ~0xFFF;
+        loadSize = (loadSize & ~pageSzMask) + pageSz;
     }
+
+    NOTICE("ELF: need " << loadSize << " bytes!");
+
     if (!KernelElf::instance().getModuleAllocator().allocate(
             loadSize, loadBase))
     {
@@ -569,58 +569,88 @@ bool Elf::loadModule(
         return false;
     }
 
+    for (size_t i = 0; i < m_nProgramHeaders; ++i)
+    {
+        if (m_pProgramHeaders[i].type == PT_LOAD)
+        {
+            uintptr_t baseAddr = m_pProgramHeaders[i].vaddr + loadBase;
+            uintptr_t loadEnd = baseAddr + m_pProgramHeaders[i].memsz;
+            if (loadEnd & pageSzMask)
+            {
+                loadEnd = (loadEnd & ~pageSzMask) + pageSz;
+            }
+            for (uintptr_t addr = baseAddr; addr < loadEnd; addr += pageSz)
+            {
+                void *virt = reinterpret_cast<void *>(addr);
+                if (!va.isMapped(virt))
+                {
+                    NOTICE("MAP: " << virt);
+                    physical_uintptr_t phys =
+                        PhysicalMemoryManager::instance().allocatePage();
+                    va.map(
+                        phys, virt,
+                        VirtualAddressSpace::Write |
+                            VirtualAddressSpace::KernelMode);
+                }
+                else
+                {
+                    NOTICE("ALREADY: " << virt);
+                }
+            }
+
+            MemoryCopy(reinterpret_cast<void *>(baseAddr), pBuffer + m_pProgramHeaders[i].offset, m_pProgramHeaders[i].filesz);
+            ByteSet(reinterpret_cast<void *>(baseAddr + m_pProgramHeaders[i].filesz), 0, m_pProgramHeaders[i].memsz - m_pProgramHeaders[i].filesz);
+        }
+    }
+
     // Now actually map and populate the sections.
     uintptr_t offset = loadBase;
     for (size_t i = 0; i < m_nSectionHeaders; i++)
     {
+        // rebase section headers into the loaded program header regions
         if (m_pSectionHeaders[i].flags & SHF_ALLOC)
         {
-            // Add load-base into the equation.
-            if (m_pSectionHeaders[i].addr == 0)
-                m_pSectionHeaders[i].addr = offset;
-            else
-            {
-                int tmp = m_pSectionHeaders[i].addr;
-                m_pSectionHeaders[i].addr += offset;
-                /// \todo Total bollocks?
-                offset += tmp;  // The .addr won't be accounted for in the
-                                // .size, so add it here so we don't
-                // end up overwriting what we just wrote!
-            }
+            m_pSectionHeaders[i].addr += loadBase;
+        }
 
-            // Ensure the alignment is as required.
-            while ((m_pSectionHeaders[i].addr %
-                    m_pSectionHeaders[i].addralign) != 0)
-            {
-                m_pSectionHeaders[i].addr++;
-                offset++;
-            }
+        /*
+            const char *pStr = m_pShstrtab + m_pSectionHeaders[i].name;
+            NOTICE("handling section " << pStr);
+            NOTICE("!! " << Hex << m_pSectionHeaders[i].addr);
+
+            // Add load-base into the equation.
+            m_pSectionHeaders[i].addr += loadBase;
 
             // We now know where to place this section, so map some memory for
             // it.
-            for (uintptr_t j = m_pSectionHeaders[i].addr;
-                 j <
-                 (m_pSectionHeaders[i].addr + m_pSectionHeaders[i].size) +
-                     0x1000;  /// \todo This isn't the correct formula - fix.
-                 j += 0x1000)
+            uintptr_t sectionEnd = m_pSectionHeaders[i].addr + m_pSectionHeaders[i].size;
+            if (sectionEnd & pageSzMask)
             {
-                void *virt = reinterpret_cast<void *>(
-                    j & ~(PhysicalMemoryManager::getPageSize() - 1));
-                if (!Processor::information().getVirtualAddressSpace().isMapped(
-                        virt))
+                sectionEnd = (sectionEnd & ~pageSzMask) + pageSz;
+            }
+            for (uintptr_t j = m_pSectionHeaders[i].addr; j < sectionEnd; j += pageSz)
+            {
+                void *virt = reinterpret_cast<void *>(j & ~pageSzMask);
+                if (!va.isMapped(virt))
                 {
+                    NOTICE("MAP: " << virt);
                     physical_uintptr_t phys =
                         PhysicalMemoryManager::instance().allocatePage();
-                    Processor::information().getVirtualAddressSpace().map(
+                    va.map(
                         phys, virt,
                         VirtualAddressSpace::Write |
                             VirtualAddressSpace::KernelMode);
+                }
+                else
+                {
+                    NOTICE("ALREADY: " << virt);
                 }
             }
 
             if (m_pSectionHeaders[i].type != SHT_NOBITS)
             {
                 // Copy section data from the file.
+                /// \todo we already have the data in RAM, can we just map to it?
                 MemoryCopy(
                     reinterpret_cast<uint8_t *>(m_pSectionHeaders[i].addr),
                     &pBuffer[m_pSectionHeaders[i].offset],
@@ -639,7 +669,9 @@ bool Elf::loadModule(
 #endif
             offset += m_pSectionHeaders[i].size;
         }
-        else
+        */
+
+        if ((m_pSectionHeaders[i].flags & SHF_ALLOC) == 0)
         {
             //  Load information from non-allocated sections here
             const char *pStr = m_pShstrtab + m_pSectionHeaders[i].name;
@@ -706,7 +738,7 @@ bool Elf::loadModule(
         if (ST_TYPE(pSymbol->info) < STT_SECTION && pSymbol->shndx < m_nSectionHeaders)
         {
             ElfSectionHeader_t *pSh = &m_pSectionHeaders[pSymbol->shndx];
-            pSymbol->value += pSh->addr;
+            pSymbol->value += loadBase;
         }
         pSymbol++;
     }
@@ -779,7 +811,10 @@ bool Elf::loadModule(
         }
     }
 
-    relocateModinfo(pBuffer, length);
+    if (!relocateModinfo(pBuffer, length))
+    {
+        ERROR("Failed to relocate modinfo!");
+    }
 
     return true;
 }
@@ -1308,11 +1343,16 @@ bool Elf::relocateModinfo(uint8_t *pBuffer, uintptr_t length)
         // Grab the section header that this relocation section refers to.
         ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->info];
 
+        NOTICE("Found a REL/RELA section!");
+
         // Grab the shstrtab
         const char *pStr =
             reinterpret_cast<const char *>(m_pShstrtab) + pLink->name;
         if (StringCompare(pStr, ".modinfo"))
+        {
+            NOTICE("NOT .modinfo");
             continue;
+        }
 
         // Is it a relocation section?
         if (pSh->type == SHT_REL)
