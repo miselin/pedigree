@@ -69,7 +69,8 @@ class BootIO
      * \param str The string to write
      * \param foreColour The foreground colour
      * \param backColour The background colour */
-    EXPORTED_PUBLIC void write(HugeStaticString &str, Colour foreColour, Colour backColour);
+    template <class T>
+    EXPORTED_PUBLIC void write(T &str, Colour foreColour, Colour backColour);
 
   private:
     void putCharVga(const char c, Colour foreColour, Colour backColour);
@@ -81,5 +82,10 @@ class BootIO
      */
     size_t m_CursorX, m_CursorY;
 };
+
+extern template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(TinyStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(NormalStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(LargeStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(HugeStaticString &str, Colour foreColour, Colour backColour);
 
 #endif

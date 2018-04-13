@@ -49,7 +49,8 @@ void BootIO::initialise()
     write(str, Black, Black);
 }
 
-void BootIO::write(HugeStaticString &str, Colour foreColour, Colour backColour)
+template <class T>
+void BootIO::write(T &str, Colour foreColour, Colour backColour)
 {
     for (size_t i = 0; i < str.length(); i++)
         putCharVga(str[i], foreColour, backColour);
@@ -241,3 +242,8 @@ void BootIO::startColour(Serial *pSerial, Colour foreColour, Colour backColour)
 void BootIO::endColour(Serial *pSerial)
 {
 }
+
+template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(TinyStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(NormalStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(LargeStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(HugeStaticString &str, Colour foreColour, Colour backColour);
