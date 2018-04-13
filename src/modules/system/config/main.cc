@@ -35,8 +35,6 @@
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
-extern "C" bool init(void);
-
 sqlite3 *g_pSqlite = 0;
 
 static uint8_t *g_pFile = 0;
@@ -413,7 +411,7 @@ MemoryRegion region("Config");
 #endif
 
 // Entry point for --gc-sections.
-bool init()
+static bool init()
 {
 #ifndef STATIC_DRIVERS
     if (!g_pBootstrapInfo->isDatabaseLoaded())

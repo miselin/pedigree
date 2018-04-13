@@ -26,6 +26,13 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#define TRACK_HIDDEN_SYMBOLS 1
+
+static void resolveNeeded()
+{
+    FATAL("ELF: resolveNeeded() called but binary should have been fully relocated.");
+}
+
 /** Helper function: copies data into a new buffer given a certain number of
  * bytes */
 template <typename T>
@@ -569,22 +576,28 @@ bool Elf::loadModule(
         return false;
     }
 
+    m_LoadBase = loadBase;
+
     for (size_t i = 0; i < m_nProgramHeaders; ++i)
     {
         if (m_pProgramHeaders[i].type == PT_LOAD)
         {
-            uintptr_t baseAddr = m_pProgramHeaders[i].vaddr + loadBase;
+            m_pProgramHeaders[i].vaddr += loadBase;
+            uintptr_t baseAddr = m_pProgramHeaders[i].vaddr;
             uintptr_t loadEnd = baseAddr + m_pProgramHeaders[i].memsz;
             if (loadEnd & pageSzMask)
             {
                 loadEnd = (loadEnd & ~pageSzMask) + pageSz;
             }
+
+            NOTICE("MAP: " << Hex << baseAddr << " => " << loadEnd);
+
             for (uintptr_t addr = baseAddr; addr < loadEnd; addr += pageSz)
             {
                 void *virt = reinterpret_cast<void *>(addr);
                 if (!va.isMapped(virt))
                 {
-                    NOTICE("MAP: " << virt);
+                    // NOTICE("MAP: " << virt);
                     physical_uintptr_t phys =
                         PhysicalMemoryManager::instance().allocatePage();
                     va.map(
@@ -592,12 +605,9 @@ bool Elf::loadModule(
                         VirtualAddressSpace::Write |
                             VirtualAddressSpace::KernelMode);
                 }
-                else
-                {
-                    NOTICE("ALREADY: " << virt);
-                }
             }
 
+            NOTICE("offset=" << Hex << m_pProgramHeaders[i].offset);
             MemoryCopy(reinterpret_cast<void *>(baseAddr), pBuffer + m_pProgramHeaders[i].offset, m_pProgramHeaders[i].filesz);
             ByteSet(reinterpret_cast<void *>(baseAddr + m_pProgramHeaders[i].filesz), 0, m_pProgramHeaders[i].memsz - m_pProgramHeaders[i].filesz);
         }
@@ -728,9 +738,13 @@ bool Elf::loadModule(
         }
     }
 
+    // Relocate the dynamic section
+    rebaseDynamic();
+
     // Firstly, we need to change the symbol table so that the ::value member is
     // actually valid. Currently, it's the offset into the symbol's section - we
     // add the section base address on to that to make it a valid pointer.
+    /*
     ElfSymbol_t *pSymbol = m_pSymbolTable;
     for (size_t i = 0; i < m_nSymbolTableSize / sizeof(ElfSymbol_t); i++)
     {
@@ -742,12 +756,13 @@ bool Elf::loadModule(
         }
         pSymbol++;
     }
+    */
 
     preallocateSymbols(nullptr, pSymbolTableCopy);
 
     if (m_pSymbolTable && m_pStringTable)
     {
-        pSymbol = m_pSymbolTable;
+        ElfSymbol_t *pSymbol = m_pSymbolTable;
 
         const char *pStrtab = reinterpret_cast<const char *>(m_pStringTable);
 
@@ -799,11 +814,13 @@ bool Elf::loadModule(
                 if (*pStr != '\0' && pSymbol->shndx != 0)
                 {
                     String name(pStr);
-                    m_SymbolTable.insert(name, binding, this, pSymbol->value);
+                    m_SymbolTable.insert(name, binding, this, pSymbol->value + loadBase);
+#ifndef TRACK_HIDDEN_SYMBOLS
                     if (pSymbol->other != STV_HIDDEN)
+#endif
                     {
                         // not hidden - add to the copied symbol table
-                        pSymbolTableCopy->insert(name, binding, this, pSymbol->value);
+                        pSymbolTableCopy->insert(name, binding, this, pSymbol->value + loadBase);
                     }
                 }
             }
@@ -811,9 +828,23 @@ bool Elf::loadModule(
         }
     }
 
+    if (pSymbolTableCopy)
+    {
+        // Add global names to the copied table
+        populateSymbolTable(pSymbolTableCopy, loadBase);
+    }
+
     if (!relocateModinfo(pBuffer, length))
     {
         ERROR("Failed to relocate modinfo!");
+    }
+
+    // If the module has a GOT, fix it up.
+    if (m_pGotTable)
+    {
+        NOTICE("GOT is at " << m_pGotTable);
+        m_pGotTable[1] = 0;
+        m_pGotTable[2] = reinterpret_cast<uintptr_t>(resolveNeeded);
     }
 
     return true;
@@ -823,61 +854,40 @@ bool Elf::finaliseModule(uint8_t *pBuffer, size_t length)
 {
     bool bRelocate = relocate(pBuffer, length);
     if (!bRelocate)
-        return bRelocate;
-
-    size_t pageSz = PhysicalMemoryManager::getPageSize();
-    size_t pageMask = pageSz - 1;
-
-    // Set permissions on sections now that relocation is done.
-    for (size_t i = 0; i < m_nSectionHeaders; i++)
     {
-        if (m_pSectionHeaders[i].flags & SHF_ALLOC)
-        {
-            uintptr_t base = m_pSectionHeaders[i].addr;
-            uintptr_t top = base + m_pSectionHeaders[i].size;
+        return bRelocate;
+    }
 
-            if ((base & ~pageMask) == (top & ~pageMask))
+    const size_t pageSz = PhysicalMemoryManager::getPageSize();
+    const size_t pageSzMask = PhysicalMemoryManager::getPageSize() - 1;
+    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+
+    for (size_t i = 0; i < m_nProgramHeaders; ++i)
+    {
+        if (m_pProgramHeaders[i].type == PT_LOAD)
+        {
+            uintptr_t baseAddr = m_pProgramHeaders[i].vaddr;
+            uintptr_t loadEnd = baseAddr + m_pProgramHeaders[i].memsz;
+            if (loadEnd & pageSzMask)
             {
-                // Align to next page if the base and top are the same page.
-                top = (top & ~pageMask) + pageSz;
+                loadEnd = (loadEnd & ~pageSzMask) + pageSz;
             }
 
-            // Set flags on page boundaries.
-            base &= ~pageMask;
-
+            // Set flags now that we've relocated
             size_t flags = VirtualAddressSpace::KernelMode;
-            if (m_pSectionHeaders[i].flags & SHF_WRITE)
-                flags |= VirtualAddressSpace::Write;
-            if (m_pSectionHeaders[i].flags & SHF_EXECINSTR)
-                flags |= VirtualAddressSpace::Execute;
-
-            // Mark the section not-writeable, now that it is relocated.
-            for (uintptr_t j = base; j < top; j += pageSz)
+            if (m_pProgramHeaders[i].flags & PF_X)
             {
-                void *virt = reinterpret_cast<void *>(
-                    j & ~(PhysicalMemoryManager::getPageSize() - 1));
-                if (!Processor::information().getVirtualAddressSpace().isMapped(
-                        virt))
-                {
-                    FATAL("Elf: fatal algorithmic error");
-                }
-                else
-                {
-                    // Get the current flags so e.g. a READONLY section
-                    // overlapping a WRITE section will get the WRITE permission
-                    // (which is not "ideal", but the ELF file itself should not
-                    // be laid out like that if the READONLY permission is a
-                    // requirement).
-                    physical_uintptr_t phys = 0;
-                    ;
-                    size_t currentFlags = 0;
-                    Processor::information()
-                        .getVirtualAddressSpace()
-                        .getMapping(virt, phys, currentFlags);
-                    flags |= currentFlags;
-                    Processor::information().getVirtualAddressSpace().setFlags(
-                        virt, flags);
-                }
+                flags |= VirtualAddressSpace::Execute;
+            }
+            if (m_pProgramHeaders[i].flags & PF_W)
+            {
+                flags |= VirtualAddressSpace::Write;
+            }
+
+            for (uintptr_t addr = baseAddr; addr < loadEnd; addr += pageSz)
+            {
+                void *virt = reinterpret_cast<void *>(addr);
+                va.setFlags(virt, flags);
             }
         }
     }
@@ -943,6 +953,8 @@ bool Elf::allocate(
             return false;
     }
 
+    m_LoadBase = loadBase;
+
     if (bAllocate)
     {
         uintptr_t loadAddr = (loadBase == 0) ? start : loadBase;
@@ -992,38 +1004,43 @@ bool Elf::allocate(
             }
 
             // Don't let hidden symbols work for lookups
-            if (pSymbol->other != STV_HIDDEN && ST_TYPEOK(pSymbol->info))
+#ifndef TRACK_HIDDEN_SYMBOLS
+            if (pSymbol->other != STV_HIDDEN)
+#endif
             {
-                // If the shndx == UND (0x0), the symbol is in the table but
-                // undefined!
-                if (pSymbol->shndx != 0)
+                if (ST_TYPEOK(pSymbol->info))
                 {
-                    if (*pStr != 0)
+                    // If the shndx == UND (0x0), the symbol is in the table but
+                    // undefined!
+                    if (pSymbol->shndx != 0)
                     {
-                        m_SymbolTable.insert(
-                            String(pStr), binding, this, pSymbol->value);
-                        if (pSymtab)
-                        {
-                            // Add loadBase in when adding to the user-defined
-                            // symtab, to give the user a "real" value.
-                            pSymtab->insert(
-                                String(pStr), binding, this,
-                                pSymbol->value + loadBase);
-                        }
-                    }
-                }
-                else
-                {
-                    // weak symbol? set it as undefined
-                    if (binding == SymbolTable::Weak)
-                    {
-                        Elf_Xword value = pSymbol->value;
-                        if (value == 0)
-                            value = ~0;
                         if (*pStr != 0)
                         {
-                            m_SymbolTable.insertMultiple(
-                                pSymtab, String(pStr), binding, this, value);
+                            m_SymbolTable.insert(
+                                String(pStr), binding, this, pSymbol->value);
+                            if (pSymtab)
+                            {
+                                // Add loadBase in when adding to the user-defined
+                                // symtab, to give the user a "real" value.
+                                pSymtab->insert(
+                                    String(pStr), binding, this,
+                                    pSymbol->value + loadBase);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // weak symbol? set it as undefined
+                        if (binding == SymbolTable::Weak)
+                        {
+                            Elf_Xword value = pSymbol->value;
+                            if (value == 0)
+                                value = ~0;
+                            if (*pStr != 0)
+                            {
+                                m_SymbolTable.insertMultiple(
+                                    pSymtab, String(pStr), binding, this, value);
+                            }
                         }
                     }
                 }
@@ -1290,13 +1307,16 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
             continue;
 
         // Grab the section header that this relocation section refers to.
-        ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->info];
+        ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->link];
 
         // Grab the shstrtab
         const char *pStr =
             reinterpret_cast<const char *>(m_pShstrtab) + pLink->name;
         if (!StringCompare(pStr, ".modinfo"))
+        {
+            // Don't relocate the modinfo section now
             continue;
+        }
 
         // Is it a relocation section?
         if (pSh->type == SHT_REL)
@@ -1323,9 +1343,38 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
                  pRel++)
             {
                 if (!applyRelocation(*pRel, pLink))
+                {
                     return false;
+                }
             }
         }
+    }
+
+    // Finally perform PLT relocations - we fully relocate rather than do lazy fixups
+    if (m_pPltRelTable || m_pPltRelaTable)
+    {
+        NOTICE("Performing PLT relocations");
+        if (m_bUsesRela)
+        {
+            for (ElfRela_t *pRel = m_pPltRelaTable; pRel < adjust_pointer(m_pPltRelaTable, m_nPltSize); ++pRel)
+            {
+                if (!applyRelocation(*pRel, nullptr, nullptr, m_LoadBase))
+                {
+                    return false;
+                }
+            }
+        }
+        else
+        {
+            for (ElfRel_t *pRel = m_pPltRelTable; pRel < adjust_pointer(m_pPltRelTable, m_nPltSize); ++pRel)
+            {
+                if (!applyRelocation(*pRel, nullptr, nullptr, m_LoadBase))
+                {
+                    return false;
+                }
+            }
+        }
+        NOTICE("Performing PLT relocations completed");
     }
 
     // Success!
@@ -1339,18 +1388,17 @@ bool Elf::relocateModinfo(uint8_t *pBuffer, uintptr_t length)
     {
         ElfSectionHeader_t *pSh = &m_pSectionHeaders[i];
         if (pSh->type != SHT_REL && pSh->type != SHT_RELA)
+        {
             continue;
+        }
         // Grab the section header that this relocation section refers to.
-        ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->info];
-
-        NOTICE("Found a REL/RELA section!");
+        ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->link];
 
         // Grab the shstrtab
         const char *pStr =
             reinterpret_cast<const char *>(m_pShstrtab) + pLink->name;
         if (StringCompare(pStr, ".modinfo"))
         {
-            NOTICE("NOT .modinfo");
             continue;
         }
 
@@ -1481,15 +1529,20 @@ void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
                 }
 
                 // Don't insert hidden symbols
-                if (pSymbol->other != STV_HIDDEN && ST_TYPEOK(pSymbol->info))
+#ifndef TRACK_HIDDEN_SYMBOLS
+                if (pSymbol->other != STV_HIDDEN)
+#endif
                 {
-                    if (*pStr != 0)
+                    if (ST_TYPEOK(pSymbol->info))
                     {
-                        if (pSymtab)
+                        if (*pStr != 0)
                         {
-                            pSymtab->insert(
-                                String(pStr), binding, this,
-                                pSymbol->value + loadBase);
+                            if (pSymtab)
+                            {
+                                pSymtab->insert(
+                                    String(pStr), binding, this,
+                                    pSymbol->value + loadBase);
+                            }
                         }
                     }
                 }
@@ -1566,6 +1619,23 @@ void Elf::preallocateSymbols(SymbolTable *pSymtabOverride, SymbolTable *pAdditio
         {
             pAdditionalSymtab->preallocateAdditional(numGlobal, numWeak, this, numLocal);
         }
+    }
+}
+
+void Elf::rebaseDynamic()
+{
+    // Only rebase things that are not elfCopy'd
+    if (m_pGotTable)
+    {
+        m_pGotTable = adjust_pointer(m_pGotTable, m_LoadBase);
+    }
+    if (m_InitFunc)
+    {
+        m_InitFunc += m_LoadBase;
+    }
+    if (m_FiniFunc)
+    {
+        m_FiniFunc += m_LoadBase;
     }
 }
 

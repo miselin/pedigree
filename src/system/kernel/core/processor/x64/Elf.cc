@@ -21,6 +21,14 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 
+#define VERBOSE_X64_ELF 1
+
+#if VERBOSE_X64_ELF
+#define VERBOSE_NOTICE(x) NOTICE(x)
+#else
+#define VERBOSE_NOTICE(x)
+#endif
+
 // http://www.caldera.com/developers/devspecs/abi386-4.pdf
 
 #define R_X86_64_NONE 0
@@ -58,17 +66,32 @@ bool Elf::applyRelocation(
 {
     // Section not loaded?
     if (pSh && pSh->addr == 0)
+    {
         return true;  // Not a fatal error.
+    }
 
     // Avoid NONE relocations.
     if (R_TYPE(rel.info) == R_X86_64_NONE)
+    {
         return true;
+    }
+
+    if (!loadBase)
+    {
+        loadBase = pSh ? pSh->addr - pSh->offset : 0;
+        if (!loadBase)
+        {
+            ERROR("Cannot apply relocation, no load base given.");
+            return false;
+        }
+    }
 
     // Get the address of the unit to be relocated.
-    uint64_t address = ((pSh) ? pSh->addr : loadBase) + rel.offset;
+    // NOTE: offsets are against the binary start, not the section
+    uint64_t address = loadBase + rel.offset;
 
     // Addend is the value currently at the given address.
-    uint64_t A = rel.addend;
+    Elf_Sxword A = rel.addend;
 
     // 'Place' is the address.
     uint64_t P = address;
@@ -149,17 +172,25 @@ bool Elf::applyRelocation(
     uint64_t tmp = 0;
     uint8_t r_type = R_TYPE(rel.info);
 
+    VERBOSE_NOTICE("");
+    VERBOSE_NOTICE("Relocation for " << symbolName);
+    VERBOSE_NOTICE("A=" << Hex << A << " B=" << B << " S=" << S << " P=" << P);
+
     switch (r_type)
     {
         case R_X86_64_NONE:
+            VERBOSE_NOTICE("R_X86_64_NONE");
             break;
         case R_X86_64_64:
+            VERBOSE_NOTICE("R_X86_64_64");
             result = S + A;
             break;
         case R_X86_64_PC32:
+            VERBOSE_NOTICE("R_X86_64_PC32");
             result = (result & 0xFFFFFFFF00000000) | ((S + A - P) & 0xFFFFFFFF);
             break;
         case R_X86_64_COPY:
+            VERBOSE_NOTICE("R_X86_64_COPY");
             if (!S)
             {
                 ERROR("Cannot perform a R_X86_64_COPY relocation for a weak "
@@ -170,14 +201,17 @@ bool Elf::applyRelocation(
             break;
         case R_X86_64_JUMP_SLOT:
         case R_X86_64_GLOB_DAT:
+            VERBOSE_NOTICE("R_X86_64_JUMP_SLOT/R_X86_64_GLOB_DAT");
 
             result = S;
             break;
         case R_X86_64_RELATIVE:
+            VERBOSE_NOTICE("R_X86_64_RELATIVE");
             result = B + A;
             break;
         case R_X86_64_32:
         case R_X86_64_32S:
+            VERBOSE_NOTICE("R_X86_64_32(S)");
             tmp = S + A;
 
             if ((r_type == R_X86_64_32) && ((tmp & 0xFFFFFFFF00000000ULL) != 0))
@@ -202,6 +236,8 @@ bool Elf::applyRelocation(
                 "Relocation not supported for symbol \""
                 << symbolName << "\": " << Dec << R_TYPE(rel.info));
     }
+
+    VERBOSE_NOTICE("result=" << Hex << result);
 
     // Write back the result.
     *pResult = result;

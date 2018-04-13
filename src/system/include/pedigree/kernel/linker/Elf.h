@@ -517,6 +517,9 @@ typedef ElfSymbol_t Elf32Symbol_t;
         uintptr_t loadBase = 0,
         SymbolTable::Policy policy = SymbolTable::LocalFirst);
 
+    /** Rebase all dynamic section pointers to the m_LoadBase value. */
+    void rebaseDynamic();
+
   protected:
     ElfSymbol_t *m_pSymbolTable;
     size_t m_nSymbolTableSize;
@@ -551,6 +554,7 @@ typedef ElfSymbol_t Elf32Symbol_t;
     String m_sInterpreter;
 
     String m_Name;
+    uintptr_t m_LoadBase;
 
   private:
     /** The assignment operator

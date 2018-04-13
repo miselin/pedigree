@@ -35,6 +35,8 @@ KernelElf KernelElf::m_Instance;
 // Define to 1 to load modules using threads.
 #define THREADED_MODULE_LOADING 0
 
+#define TRACK_HIDDEN_SYMBOLS 1
+
 /**
  * Extend the given pointer by adding its canonical prefix again.
  * This is because in the conversion to a 32-bit object, we manage to lose
@@ -489,13 +491,8 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
         ERROR("KERNELELF: Hit an invalid module, ignoring");
         return 0;
     }
-    DEBUG(
-        "KERNELELF: Preloaded module at " << Hex << module->loadBase << " to "
-        << (module->loadBase + module->loadSize));
-    NOTICE("name is at " << pName);
-    NOTICE("name is at " << reinterpret_cast<const void *>(*pName));
-    module->name = *pName;
-    module->elf.setName(*pName);
+    module->name = rebase(module, *pName);
+    module->elf.setName(module->name);
     module->entry = *reinterpret_cast<bool (**)()>(
         module->elf.lookupSymbol("g_pModuleEntry"));
     module->exit = *reinterpret_cast<void (**)()>(
@@ -515,20 +512,20 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
 
 #ifdef DUMP_DEPENDENCIES
     size_t i = 0;
-    while (module->depends_opt && module->depends_opt[i])
+    while (module->depends_opt && rebase(module, module->depends_opt[i]))
     {
         DEBUG(
             "KERNELELF: Module " << module->name << " optdepends on "
-                                 << module->depends_opt[i]);
+                                 << rebase(module, module->depends_opt[i]));
         ++i;
     }
 
     i = 0;
-    while (module->depends && module->depends[i])
+    while (module->depends && rebase(module, module->depends[i]))
     {
         DEBUG(
             "KERNELELF: Module " << module->name << " depends on "
-                                 << module->depends[i]);
+                                 << rebase(module, module->depends[i]));
         ++i;
     }
 #endif
@@ -699,7 +696,8 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
                 break;
             }
 
-            void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+            uintptr_t dtor = *iterator;
+            void (*fp)(void) = reinterpret_cast<void (*)(void)>(dtor);
             fp();
             iterator++;
         }
@@ -789,7 +787,7 @@ char *KernelElf::getDependingModule(char *name)
         int i = 0;
         while (module->depends[i])
         {
-            if (!StringCompare(module->depends[i], name))
+            if (!StringCompare(rebase(module, module->depends[i]), name))
                 return const_cast<char *>(module->name);
             i++;
         }
@@ -810,7 +808,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
             for (size_t j = 0; j < m_LoadedModules.count(); ++j)
             {
                 if (!StringCompare(
-                        m_LoadedModules[j]->name, module->depends_opt[i]))
+                        m_LoadedModules[j]->name, rebase(module, module->depends_opt[i])))
                 {
                     found = true;
                     break;
@@ -823,7 +821,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
                 {
                     if (!StringCompare(
                             static_cast<const char *>(*m_FailedModules[j]),
-                            module->depends_opt[i]))
+                            rebase(module, module->depends_opt[i])))
                     {
                         found = true;
                         break;
@@ -851,7 +849,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
         bool found = false;
         for (size_t j = 0; j < m_LoadedModules.count(); j++)
         {
-            if (!StringCompare(m_LoadedModules[j]->name, module->depends[i]))
+            if (!StringCompare(m_LoadedModules[j]->name, rebase(module, module->depends[i])))
             {
                 found = true;
                 break;
@@ -898,7 +896,8 @@ static int executeModuleThread(void *mod)
                     break;
                 }
 
-                void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+                uintptr_t ctor = *iterator;
+                void (*fp)(void) = reinterpret_cast<void (*)(void)>(ctor);
                 fp();
                 iterator++;
             }

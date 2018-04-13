@@ -19,6 +19,8 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import os
 
+import buildutils.misc
+
 
 def buildModule(env, stripped_target, target, sources):
     module_env = env.Clone()
@@ -39,10 +41,20 @@ def buildModule(env, stripped_target, target, sources):
 
     extra_linkflags = module_env.get('MODULE_LINKFLAGS', [])
 
+    buildutils.misc.removeFromAllFlags(module_env, ['-mcmodel=kernel'])
+
     module_env.MergeFlags({
-        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-fpie', '-Wl,-T,$LSCRIPT', '-Wl,--unresolved-symbols=ignore-in-object-files'] +
+        # 'CCFLAGS': ['-mcmodel=large'],
+        'CCFLAGS': ['-fPIC'],
+        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-Wl,-T,$LSCRIPT', '-Wl,-shared'] +
             extra_linkflags,
     })
+
+    if env['lto']:
+        env_clone.MergeFlags({
+            'CCFLAGS': ['-flto'],
+            'LINKFLAGS': ['-flto'],
+        })
 
     libmodule_dir = module_env['BUILDDIR'].Dir('modules')
     libmodule_path = libmodule_dir.File('libmodule.a')

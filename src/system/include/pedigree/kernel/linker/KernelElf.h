@@ -142,6 +142,13 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     bool moduleDependenciesSatisfied(Module *module);
     bool executeModule(Module *module);
 
+    /** Rebase a pointer for the given loaded module. */
+    template <class T>
+    T *rebase(Module *module, T *ptr) const
+    {
+        return adjust_pointer(ptr, module->loadBase);
+    }
+
 #if defined(X86_COMMON)
     MemoryRegion m_AdditionalSectionContents;
     MemoryRegion *m_AdditionalSectionHeaders;
