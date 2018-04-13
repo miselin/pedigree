@@ -64,15 +64,15 @@ pmode:
   cpuid
   and edx, 0x100000
   jz pmode1
-  mov esi, 0x901
 
-pmode1:
   ; Set EFER.LME & EFER.NXE & EFER.SCE
+  mov esi, 0x901
   mov ecx, 0xC0000080
   rdmsr
   or eax, esi
   wrmsr
 
+pmode1:
   ; Enable Paging
   mov eax, cr0
   or eax, 0x80000000
