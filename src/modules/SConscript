@@ -21,6 +21,7 @@ import os
 
 import buildutils.misc
 import buildutils.modules
+import moduledeps
 
 Import(['env'])
 
@@ -338,6 +339,7 @@ env_clone['CPPPATH'] = default_incpath
 libmodule_env = env_clone.Clone()
 libmodule = libmodule_env.StaticLibrary('module', ['Module.cc'])
 
+
 def buildModule(env, path, outputBase, targetAlias):
     module_env = env.Clone()
 
@@ -363,7 +365,8 @@ def buildModule(env, path, outputBase, targetAlias):
         'CPPDEFINES': ['IN_PEDIGREE_KERNEL'],
     })
 
-    buildutils.misc.removeFromAllFlags(module_env, set(remove_flags.get(module, [])))
+    buildutils.misc.removeFromAllFlags(
+        module_env, set(remove_flags.get(module, [])))
 
     output = outputBase.File(module + '.o')
     files = [Glob(os.path.join(base, '*.c')), Glob(os.path.join(base, '*.cc'))]
@@ -377,9 +380,16 @@ def buildModule(env, path, outputBase, targetAlias):
 
     final_output = output
     unstripped_temporary = output = '%s.debug' % (output,)
+    shtarget = '%s.so' % (module,)
+
+    # Need to build the dependency list recursively
+    base_depends_list = set(moduledeps.expandDependencies(
+        moduledeps.module_dependencies.get(module, ())))
 
     buildutils.modules.buildModule(module_env, final_output,
-                                   unstripped_temporary, files)
+                                   unstripped_temporary, files,
+                                   depends=base_depends_list,
+                                   shtarget=shtarget)
 
     env.Alias(targetAlias, final_output)
 
@@ -444,10 +454,10 @@ initrdList += [os.path.join(builddir.abspath, 'drivers', i + '.o') for i in all_
 initrdList += [os.path.join(builddir.abspath, 'modules', i + '.o') for i in initrd_modules]
 
 # Subsystems
-initrdList += [os.path.join(builddir.abspath, 'subsystems', 'posix.o')]
-initrdList += [os.path.join(builddir.abspath, 'subsystems', 'pedigree-c.o')]
+initrdList += [os.path.join(builddir.abspath, 'subsys', 'posix', 'posix.o')]
+initrdList += [os.path.join(builddir.abspath, 'subsys', 'pedigree-c', 'pedigree-c.o')]
 if 'NATIVE_SUBSYSTEM' in env['EXTRA_CONFIG']:
-    initrdList += [os.path.join(builddir.abspath, 'subsystems', 'native.o')]
+    initrdList += [os.path.join(builddir.abspath, 'subsys', 'native', 'kernel', 'native.o')]
 
 env.Depends(initrdFile, "drivers")
 env.Depends(initrdFile, "modules")

@@ -144,7 +144,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf
 
     /** Rebase a pointer for the given loaded module. */
     template <class T>
-    T *rebase(Module *module, T *ptr) const
+    static T *rebase(Module *module, T *ptr)
     {
         return adjust_pointer(ptr, module->loadBase);
     }

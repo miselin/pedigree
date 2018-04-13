@@ -17,26 +17,19 @@ SECTIONS
   .dynsym :
   {
     *(.dynsym)
-  }
+  } :text
 
   .dynstr :
   {
     *(.dynstr)
   }
 
-  .init :
-  {
-    *(.init*)
-  } :text
-
-  .fini :
-  {
-    *(.fini*)
-  } :text
-
   . = ALIGN(0x100);
   .text :
   {
+    *(.init*)
+    *(.fini*)
+
     *(.text*)
   } :text
 
@@ -53,17 +46,13 @@ SECTIONS
   } :rodata
 
   . = ALIGN(4096);
-  .ctors :
+  .cdtors :
   {
     HIDDEN(start_ctors = .);
     *(.init_array*)
     *(.ctors*)
     HIDDEN(end_ctors = .);
-  } :rodata
 
-  . = ALIGN(4096);
-  .dtors :
-  {
     HIDDEN(start_dtors = .);
     *(.fini_array*)
     *(.dtors*)
@@ -77,7 +66,11 @@ SECTIONS
     *(.sdata*)
 
     *(.got.plt) *(.got)
+  } :data
 
+  .bss :
+  {
+    *(COMMON)
     *(.bss*)
     *(.dynbss)
   } :data
@@ -88,5 +81,5 @@ PHDRS
   text PT_LOAD FLAGS(5) FILEHDR PHDRS; /* r-x */
   rodata PT_LOAD FLAGS(4); /* rw- */
   data PT_LOAD FLAGS(6); /* rw- */
-  dynamic PT_DYNAMIC  FLAGS(4); /* r-- */
+  dynamic PT_DYNAMIC FLAGS(4); /* r-- */
 }

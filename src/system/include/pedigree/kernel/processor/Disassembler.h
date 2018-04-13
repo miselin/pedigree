@@ -68,23 +68,23 @@ class DisassemblerBase
 /** @} */
 
 #ifdef X86_COMMON
-#include <core/processor/x86_common/Disassembler.h>
+#include "system/kernel/core/processor/x86_common/Disassembler.h"
 #endif
 #ifdef MIPS_COMMON
-#include <core/processor/mips_common/Disassembler.h>
+#include "system/kernel/core/processor/mips_common/Disassembler.h"
 #endif
 #ifdef ARM926E
-#include <core/processor/arm_common/Disassembler.h>
+#include "system/kernel/core/processor/arm_common/Disassembler.h"
 #endif
 #ifdef PPC_COMMON
-#include <core/processor/ppc_common/Disassembler.h>
+#include "system/kernel/core/processor/ppc_common/Disassembler.h"
 #endif
 #ifdef ARMV7
-#include <core/processor/arm_common/Disassembler.h>
+#include "system/kernel/core/processor/arm_common/Disassembler.h"
 #endif
 #ifdef HOSTED
 /// \todo x86-specific
-#include <core/processor/x86_common/Disassembler.h>
+#include "system/kernel/core/processor/x86_common/Disassembler.h"
 #endif
 
 #endif

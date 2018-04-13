@@ -43,10 +43,10 @@ extern "C" void *__dso_handle;
 #endif
 
 // Defined in the linker.
-extern uintptr_t start_ctors;
-extern uintptr_t end_ctors;
-extern uintptr_t start_dtors;
-extern uintptr_t end_dtors;
+extern uintptr_t start_kernel_ctors;
+extern uintptr_t end_kernel_ctors;
+extern uintptr_t start_kernel_dtors;
+extern uintptr_t end_kernel_dtors;
 
 /// Calls the constructors for all global objects.
 /// Call this before using any global objects.
@@ -55,8 +55,8 @@ void initialiseConstructors()
     // Constructor list is defined in the linker script.
     // The .ctors section is just an array of function pointers.
     // iterate through, calling each in turn.
-    uintptr_t *iterator = &start_ctors;
-    while (iterator < &end_ctors)
+    uintptr_t *iterator = &start_kernel_ctors;
+    while (iterator < &end_kernel_ctors)
     {
         void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
         fp();
@@ -66,8 +66,8 @@ void initialiseConstructors()
 
 void runKernelDestructors()
 {
-    uintptr_t *iterator = &start_dtors;
-    while (iterator < &end_dtors)
+    uintptr_t *iterator = &start_kernel_dtors;
+    while (iterator < &end_kernel_dtors)
     {
         void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
         fp();

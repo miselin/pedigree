@@ -143,3 +143,15 @@ def stubSuffix(env, dash=True):
     if dash:
         suffix = '-%s' % suffix
     return suffix
+
+
+def flattenFileLists(f):
+    """Flatten a list that contains other lists and non-iterable objects."""
+    result = []
+    for entry in f:
+        if isinstance(entry, list) or isinstance(entry, tuple) or isinstance(entry, set):
+            result.extend(flattenFileLists(entry))
+        else:
+            result.append(entry)
+
+    return result

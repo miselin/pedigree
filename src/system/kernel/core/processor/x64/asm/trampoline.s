@@ -21,8 +21,8 @@
 
 [bits 16]
 [section .trampoline.text16]
-global mp_trampoline:function hidden
-mp_trampoline:
+global mp_trampoline16:function hidden
+mp_trampoline16:
   cli
   xor ax, ax
   mov ds, ax
@@ -41,7 +41,8 @@ mp_trampoline:
 
 [bits 32]
 [section .trampoline.text32]
-pmode:
+global mp_trampoline32:function hidden
+mp_trampoline32:
   mov ax, 0x10
   mov ds, ax
   mov es, ax
@@ -58,27 +59,29 @@ pmode:
   mov eax, [0x7FF8]
   mov cr3, eax
 
-  ; Test for EFER.NXE
+  ; Test for EFER.NXE - enable SCE and LME in the meantime
   mov esi, 0x101
   mov eax, 0x80000001
   cpuid
   and edx, 0x100000
   jz pmode1
 
-  ; Set EFER.LME & EFER.NXE & EFER.SCE
-  mov esi, 0x901
+  ; Set EFER.NXE - it's available!
+  or esi, 0x801
+pmode1:
+
+  ; Set LME
   mov ecx, 0xC0000080
   rdmsr
   or eax, esi
   wrmsr
 
-pmode1:
   ; Enable Paging
   mov eax, cr0
   or eax, 0x80000000
   mov cr0, eax
 
-  lgdt [GDTR64 - 0xFFFFFFFF7FF00000]
+  lgdt [trampolinegdtr64 - 0xFFFFFFFF7FF00000]
   jmp 0x08:longmode - 0xFFFFFFFF7FF00000
 
 [bits 64]
@@ -94,7 +97,8 @@ longmode:
 ;##### Global descriptor table                                        #####
 ;##########################################################################
 [section .trampoline.data.gdt]
-GDT:
+global trampolinegdt:object hidden
+trampolinegdt:
   dd 0x00000000
   dd 0x00000000
   ; kernel-code
@@ -115,21 +119,24 @@ GDT:
 ;##### Global descriptor table register                               #####
 ;##########################################################################
 [section .trampoline.data.gdtr]
-GDTR:
+global trampolinegdtr:object hidden
+trampolinegdtr:
   dw 0x18
-  dd GDT - 0xFFFFFFFF7FF00000
+  dd trampolinegdt - 0xFFFFFFFF7FF00000
 ;##########################################################################
 ;#### Global descriptor table register                                 ####
 ;##########################################################################
 [section .trampoline.data.gdtr64]
-GDTR64:
+global trampolinegdtr64:object hidden
+trampolinegdtr64:
   dw 0x18
-  dq GDT64 - 0xFFFFFFFF7FF00000
+  dq trampolinegdt64 - 0xFFFFFFFF7FF00000
 ;##########################################################################
 ;#### Global descriptor table 64 bit                                   ####
 ;##########################################################################
 [section .trampoline.data.gdt64]
-GDT64:
+global trampolinegdt64:object hidden
+trampolinegdt64:
   dq 0
   ;##################################################################
   ;### loader code-segment descriptor 64-bit                     ####

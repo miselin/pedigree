@@ -712,6 +712,10 @@ if (not env['build_tests_only']) and (env['ON_PEDIGREE'] or env['COMPILER_TARGET
             'LINKFLAGS': default_linkflags[flags_arch],
         }
 
+        linkscript = default_linkscript.get(flags_arch)
+        if linkscript:
+            env['KERNEL_LSCRIPT'] = linkscript
+
         for k in mapping:
             try:
                 # Force a recreation of the flags.

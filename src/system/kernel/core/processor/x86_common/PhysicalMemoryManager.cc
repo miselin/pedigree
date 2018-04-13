@@ -561,13 +561,13 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     }
 
     // Remove the pages used by the kernel from the range-list (below 16MB)
-    extern void *init;
-    extern void *end;
+    extern void *kernel_start;
+    extern void *kernel_end;
     if (m_RangeBelow16MB.allocateSpecific(
-            reinterpret_cast<uintptr_t>(&init) -
+            reinterpret_cast<uintptr_t>(&kernel_start) -
                 reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
-            reinterpret_cast<uintptr_t>(&end) -
-                reinterpret_cast<uintptr_t>(&init)) == false)
+            reinterpret_cast<uintptr_t>(&kernel_end) -
+                reinterpret_cast<uintptr_t>(&kernel_start)) == false)
     {
         panic("PhysicalMemoryManager: could not remove the kernel image from "
               "the range-list");
@@ -766,8 +766,8 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
 
 void X86CommonPhysicalMemoryManager::initialisationDone()
 {
-    extern void *init;
-    extern void *code;
+    extern void *kernel_init;
+    extern void *kernel_init_end;
 
     NOTICE("PhysicalMemoryManager: kernel initialisation complete, cleaning "
            "up...");
@@ -775,13 +775,13 @@ void X86CommonPhysicalMemoryManager::initialisationDone()
     // Unmap & free the .init section
     VirtualAddressSpace &kernelSpace =
         VirtualAddressSpace::getKernelAddressSpace();
-    size_t count = (reinterpret_cast<uintptr_t>(&code) -
-                    reinterpret_cast<uintptr_t>(&init)) /
+    size_t count = (reinterpret_cast<uintptr_t>(&kernel_init_end) -
+                    reinterpret_cast<uintptr_t>(&kernel_init)) /
                    getPageSize();
     for (size_t i = 0; i < count; i++)
     {
         void *vAddress =
-            adjust_pointer(reinterpret_cast<void *>(&init), i * getPageSize());
+            adjust_pointer(reinterpret_cast<void *>(&kernel_init), i * getPageSize());
 
         // Get the physical address
         size_t flags;
@@ -794,7 +794,7 @@ void X86CommonPhysicalMemoryManager::initialisationDone()
 
     // Free the physical pages
     m_RangeBelow16MB.free(
-        reinterpret_cast<uintptr_t>(&init) -
+        reinterpret_cast<uintptr_t>(&kernel_init) -
             reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
         count * getPageSize());
 

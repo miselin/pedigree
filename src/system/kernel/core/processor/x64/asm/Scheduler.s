@@ -267,7 +267,8 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64Scheduler
     xor rbp, rbp
 
     push rcx  ; pass in new state for the replacement thread
-    call _ZN21PerProcessorScheduler12deleteThreadEP6Thread
+    mov rax, _ZN21PerProcessorScheduler12deleteThreadEP6Thread
+    call rax
     pop rcx
     
     ; Restore state
@@ -288,4 +289,3 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64Scheduler
     
     push rdx
     ret
-

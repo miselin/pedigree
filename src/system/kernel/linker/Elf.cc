@@ -590,14 +590,11 @@ bool Elf::loadModule(
                 loadEnd = (loadEnd & ~pageSzMask) + pageSz;
             }
 
-            NOTICE("MAP: " << Hex << baseAddr << " => " << loadEnd);
-
             for (uintptr_t addr = baseAddr; addr < loadEnd; addr += pageSz)
             {
                 void *virt = reinterpret_cast<void *>(addr);
                 if (!va.isMapped(virt))
                 {
-                    // NOTICE("MAP: " << virt);
                     physical_uintptr_t phys =
                         PhysicalMemoryManager::instance().allocatePage();
                     va.map(
@@ -607,9 +604,13 @@ bool Elf::loadModule(
                 }
             }
 
-            NOTICE("offset=" << Hex << m_pProgramHeaders[i].offset);
+            /// \todo Figure out how to map to the pages loaded by GRUB instead
+            /// of copying into newly-allocated pages here.
             MemoryCopy(reinterpret_cast<void *>(baseAddr), pBuffer + m_pProgramHeaders[i].offset, m_pProgramHeaders[i].filesz);
-            ByteSet(reinterpret_cast<void *>(baseAddr + m_pProgramHeaders[i].filesz), 0, m_pProgramHeaders[i].memsz - m_pProgramHeaders[i].filesz);
+            if (m_pProgramHeaders[i].memsz > m_pProgramHeaders[i].filesz)
+            {
+                ByteSet(reinterpret_cast<void *>(baseAddr + m_pProgramHeaders[i].filesz), 0, m_pProgramHeaders[i].memsz - m_pProgramHeaders[i].filesz);
+            }
         }
     }
 
@@ -622,64 +623,6 @@ bool Elf::loadModule(
         {
             m_pSectionHeaders[i].addr += loadBase;
         }
-
-        /*
-            const char *pStr = m_pShstrtab + m_pSectionHeaders[i].name;
-            NOTICE("handling section " << pStr);
-            NOTICE("!! " << Hex << m_pSectionHeaders[i].addr);
-
-            // Add load-base into the equation.
-            m_pSectionHeaders[i].addr += loadBase;
-
-            // We now know where to place this section, so map some memory for
-            // it.
-            uintptr_t sectionEnd = m_pSectionHeaders[i].addr + m_pSectionHeaders[i].size;
-            if (sectionEnd & pageSzMask)
-            {
-                sectionEnd = (sectionEnd & ~pageSzMask) + pageSz;
-            }
-            for (uintptr_t j = m_pSectionHeaders[i].addr; j < sectionEnd; j += pageSz)
-            {
-                void *virt = reinterpret_cast<void *>(j & ~pageSzMask);
-                if (!va.isMapped(virt))
-                {
-                    NOTICE("MAP: " << virt);
-                    physical_uintptr_t phys =
-                        PhysicalMemoryManager::instance().allocatePage();
-                    va.map(
-                        phys, virt,
-                        VirtualAddressSpace::Write |
-                            VirtualAddressSpace::KernelMode);
-                }
-                else
-                {
-                    NOTICE("ALREADY: " << virt);
-                }
-            }
-
-            if (m_pSectionHeaders[i].type != SHT_NOBITS)
-            {
-                // Copy section data from the file.
-                /// \todo we already have the data in RAM, can we just map to it?
-                MemoryCopy(
-                    reinterpret_cast<uint8_t *>(m_pSectionHeaders[i].addr),
-                    &pBuffer[m_pSectionHeaders[i].offset],
-                    m_pSectionHeaders[i].size);
-            }
-            else
-            {
-                ByteSet(
-                    reinterpret_cast<uint8_t *>(m_pSectionHeaders[i].addr), 0,
-                    m_pSectionHeaders[i].size);
-            }
-#if defined(PPC_COMMON) || defined(MIPS_COMMON)
-            Processor::flushDCacheAndInvalidateICache(
-                m_pSectionHeaders[i].addr,
-                m_pSectionHeaders[i].addr + m_pSectionHeaders[i].size);
-#endif
-            offset += m_pSectionHeaders[i].size;
-        }
-        */
 
         if ((m_pSectionHeaders[i].flags & SHF_ALLOC) == 0)
         {
@@ -740,23 +683,6 @@ bool Elf::loadModule(
 
     // Relocate the dynamic section
     rebaseDynamic();
-
-    // Firstly, we need to change the symbol table so that the ::value member is
-    // actually valid. Currently, it's the offset into the symbol's section - we
-    // add the section base address on to that to make it a valid pointer.
-    /*
-    ElfSymbol_t *pSymbol = m_pSymbolTable;
-    for (size_t i = 0; i < m_nSymbolTableSize / sizeof(ElfSymbol_t); i++)
-    {
-        // Only relocate functions, variables and notypes.
-        if (ST_TYPE(pSymbol->info) < STT_SECTION && pSymbol->shndx < m_nSectionHeaders)
-        {
-            ElfSectionHeader_t *pSh = &m_pSectionHeaders[pSymbol->shndx];
-            pSymbol->value += loadBase;
-        }
-        pSymbol++;
-    }
-    */
 
     preallocateSymbols(nullptr, pSymbolTableCopy);
 
@@ -842,7 +768,6 @@ bool Elf::loadModule(
     // If the module has a GOT, fix it up.
     if (m_pGotTable)
     {
-        NOTICE("GOT is at " << m_pGotTable);
         m_pGotTable[1] = 0;
         m_pGotTable[2] = reinterpret_cast<uintptr_t>(resolveNeeded);
     }
@@ -1348,33 +1273,6 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
                 }
             }
         }
-    }
-
-    // Finally perform PLT relocations - we fully relocate rather than do lazy fixups
-    if (m_pPltRelTable || m_pPltRelaTable)
-    {
-        NOTICE("Performing PLT relocations");
-        if (m_bUsesRela)
-        {
-            for (ElfRela_t *pRel = m_pPltRelaTable; pRel < adjust_pointer(m_pPltRelaTable, m_nPltSize); ++pRel)
-            {
-                if (!applyRelocation(*pRel, nullptr, nullptr, m_LoadBase))
-                {
-                    return false;
-                }
-            }
-        }
-        else
-        {
-            for (ElfRel_t *pRel = m_pPltRelTable; pRel < adjust_pointer(m_pPltRelTable, m_nPltSize); ++pRel)
-            {
-                if (!applyRelocation(*pRel, nullptr, nullptr, m_LoadBase))
-                {
-                    return false;
-                }
-            }
-        }
-        NOTICE("Performing PLT relocations completed");
     }
 
     // Success!

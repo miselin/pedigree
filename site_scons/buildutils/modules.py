@@ -22,8 +22,11 @@ import os
 import buildutils.misc
 
 
-def buildModule(env, stripped_target, target, sources):
+def buildModule(env, stripped_target, target, sources, depends=(), shtarget=None):
     module_env = env.Clone()
+
+    kernel_dir = env['PEDIGREE_BUILD_KERNEL']
+    kernel_so = kernel_dir.File('libkernel.so')
 
     if env['clang_cross']:
         module_env['LINKFLAGS'] = env['CLANG_BASE_LINKFLAGS']
@@ -41,32 +44,46 @@ def buildModule(env, stripped_target, target, sources):
 
     extra_linkflags = module_env.get('MODULE_LINKFLAGS', [])
 
-    buildutils.misc.removeFromAllFlags(module_env, ['-mcmodel=kernel'])
-
     module_env.MergeFlags({
-        # 'CCFLAGS': ['-mcmodel=large'],
-        'CCFLAGS': ['-fPIC'],
-        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-Wl,-T,$LSCRIPT', '-Wl,-shared'] +
-            extra_linkflags,
+        'LINKFLAGS': ['-nodefaultlibs', '-nostartfiles', '-Wl,-T,$LSCRIPT',
+                      '-Wl,-shared'] + extra_linkflags,
     })
 
     if env['lto']:
-        env_clone.MergeFlags({
+        module_env.MergeFlags({
             'CCFLAGS': ['-flto'],
             'LINKFLAGS': ['-flto'],
         })
 
     libmodule_dir = module_env['BUILDDIR'].Dir('modules')
+    libsubsys_dir = module_env['BUILDDIR'].Dir('subsys')
     libmodule_path = libmodule_dir.File('libmodule.a')
 
+    depend_libs = []
+    if shtarget:
+        for entry in depends:
+            depend_libs.append('%s.so' % (entry,))
+
+    buildutils.misc.removeFromAllFlags(module_env, ['-mcmodel=kernel'])
+
     module_env.MergeFlags({
-        'LIBS': ['module', 'gcc'],
-        'LIBPATH': [libmodule_dir],
+        'CCFLAGS': ['-fPIC', '-fno-omit-frame-pointer'],
+        'LIBS': ['module', 'gcc', kernel_so] + depend_libs,
+        'LIBPATH': [libmodule_dir, libsubsys_dir.glob('*')],
         'CPPDEFINES': ['IN_PEDIGREE_KERNEL'],  # modules are in-kernel
     })
 
+    if shtarget:
+        # No need for lto in the shared object build as it's only used for
+        # verifying needed symbols are present before runtime
+        shared_module_env = module_env.Clone()
+        buildutils.misc.removeFromAllFlags(shared_module_env, ['-flto'])
+        shared_module = shared_module_env.SharedLibrary(shtarget, sources)
+
     module_env.Depends(target, libmodule_path)
     module_env.Depends(stripped_target, libmodule_path)
+    if shtarget:
+        module_env.Depends(target, shared_module)
 
     if env['clang_cross'] and env['clang_analyse']:
         return module_env.Program(stripped_target, sources)

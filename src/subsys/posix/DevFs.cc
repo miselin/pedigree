@@ -455,7 +455,6 @@ uint64_t Tty0File::writeBytewise(
 File *Tty0File::open()
 {
     // easy - just return the currently-active VT
-    NOTICE("returning current terminal file");
     return m_pDevFs->getTerminalManager().getCurrentTerminalFile();
 }
 

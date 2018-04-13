@@ -21,7 +21,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 
-#define VERBOSE_X64_ELF 1
+#define VERBOSE_X64_ELF 0
 
 #if VERBOSE_X64_ELF
 #define VERBOSE_NOTICE(x) NOTICE(x)
@@ -100,17 +100,27 @@ bool Elf::applyRelocation(
     uint64_t S = 0;
     ElfSymbol_t *pSymbols = 0;
     if (!m_pDynamicSymbolTable)
+    {
         pSymbols = m_pSymbolTable;
+    }
     else
+    {
         pSymbols = m_pDynamicSymbolTable;
+    }
 
     const char *pStringTable = 0;
     if (!m_pDynamicStringTable)
+    {
         pStringTable = reinterpret_cast<const char *>(m_pStringTable);
+    }
     else
+    {
         pStringTable = m_pDynamicStringTable;
+    }
 
     String symbolName("(unknown)");
+
+    size_t symbolSize = 0;
 
     // If this is a section header, patch straight to it.
     if (pSymbols && ST_TYPE(pSymbols[R_SYM(rel.info)].info) == 3)
@@ -120,6 +130,7 @@ bool Elf::applyRelocation(
         int shndx = pSymbols[R_SYM(rel.info)].shndx;
         ElfSectionHeader_t *pReferencedSh = &m_pSectionHeaders[shndx];
         S = pReferencedSh->addr;
+        symbolSize = pSymbols[R_SYM(rel.info)].size;
     }
     else if (pSymbols && R_TYPE(rel.info) != R_X86_64_RELATIVE)  // Relative
                                                                  // doesn't need
@@ -156,6 +167,7 @@ bool Elf::applyRelocation(
         }
 
         symbolName = pStr;
+        symbolSize = pSymbols[R_SYM(rel.info)].size;
     }
 
     if (S == 0 && (R_TYPE(rel.info) != R_X86_64_RELATIVE))
@@ -197,6 +209,8 @@ bool Elf::applyRelocation(
                       "symbol.");
                 return false;
             }
+
+            NOTICE("Copy needed, " << symbolSize << " bytes wanted");
             result = *reinterpret_cast<uintptr_t *>(S);
             break;
         case R_X86_64_JUMP_SLOT:
@@ -238,6 +252,7 @@ bool Elf::applyRelocation(
     }
 
     VERBOSE_NOTICE("result=" << Hex << result);
+    VERBOSE_NOTICE("");
 
     // Write back the result.
     *pResult = result;

@@ -21,6 +21,7 @@ import os
 
 import buildutils.userspace
 import buildutils.modules
+import moduledeps
 
 Import(['env', 'userspace_env'])
 
@@ -32,7 +33,8 @@ kerneldir = env["PEDIGREE_BUILD_KERNEL"]
 moduledir = env["PEDIGREE_BUILD_MODULES"]
 subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
 
-pedigree_c_objname = subsysdir.File('pedigree-c.o')
+pedigree_c_objname = 'pedigree-c.o'
+pedigree_c_shtarget = 'pedigree-c.so'
 libpedigree_c_objname = builddir.File('libpedigree-c.a')
 libpedigree_c_shobjname = builddir.File('libpedigree-c.so')
 
@@ -60,8 +62,9 @@ env_clone['LIBPATH'] = []
 final_output = pedigree_c_objname
 pedigree_c_objname = '%s.debug' % (pedigree_c_objname,)
 
+depends = set(moduledeps.expandDependencies(moduledeps.module_dependencies.get('pedigree-c', ())))
 buildutils.modules.buildModule(env_clone, final_output, pedigree_c_objname,
-                               kernel_module_files)
+                               kernel_module_files, depends=depends, shtarget=pedigree_c_shtarget)
 
 libs_clone = userspace_env_clone.Clone()
 libs_clone.MergeFlags('-fPIC -DUSE_PIC_SYSCALLS')

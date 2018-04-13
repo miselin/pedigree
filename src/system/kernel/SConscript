@@ -17,7 +17,10 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
+import itertools
 import os
+
+import buildutils.misc
 
 Import(['env'])
 
@@ -29,6 +32,7 @@ kerneldir = env["PEDIGREE_BUILD_KERNEL"]
 imagesdir = env["PEDIGREE_IMAGES_DIR"]
 builddir = env["PEDIGREE_BUILD_BASE"]
 objname = kerneldir.File('kernel')
+kernel_so = kerneldir.File('libkernel.so')
 
 env.Alias("kernel", objname)
 
@@ -55,30 +59,30 @@ if env['lto']:
 
 # Base set of kernel files, common to all architectures.
 files = [
-    'Log.cc',
-    'SerialLog.cc',
+    env.File('Log.cc'),
+    env.File('SerialLog.cc'),
     builddir.File('Version.cc'),
-    'Archive.cc',
-    'Atomic.cc',
-    'Spinlock.cc',
-    'Subsystem.cc',
-    'ServiceManager.cc',
-    'ServiceFeatures.cc',
-    'Service.cc',
-    'syscallError.cc',
-    'LockGuard.cc',
-    Glob('utilities/*.cc'),
-    Glob('machine/*.cc'),
-    Glob('linker/*.cc'),
-    Glob('core/*.cc'),
-    Glob('core/process/*.cc'),
-    Glob('core/processor/*.cc'),
-    Glob('core/lib/*.cc'),
-    Glob('core/lib/*.c'),
-    Glob('config/*.cc'),
-    Glob('network/*.cc'),
-    Glob('graphics/*.cc'),
-    Glob('time/*.cc'),
+    env.File('Archive.cc'),
+    env.File('Atomic.cc'),
+    env.File('Spinlock.cc'),
+    env.File('Subsystem.cc'),
+    env.File('ServiceManager.cc'),
+    env.File('ServiceFeatures.cc'),
+    env.File('Service.cc'),
+    env.File('syscallError.cc'),
+    env.File('LockGuard.cc'),
+    env.Dir('utilities').glob('*.cc'),
+    env.Dir('machine').glob('*.cc'),
+    env.Dir('linker').glob('*.cc'),
+    env.Dir('core').glob('*.cc'),
+    env.Dir('core').Dir('process').glob('*.cc'),
+    env.Dir('core').Dir('processor').glob('*.cc'),
+    env.Dir('core').Dir('lib').glob('*.cc'),
+    env.Dir('core').Dir('lib').glob('*.c'),
+    env.Dir('config').glob('*.cc'),
+    env.Dir('network').glob('*.cc'),
+    env.Dir('graphics').glob('*.cc'),
+    env.Dir('time').glob('*.cc'),
 ]
 
 # Static drivers build all drivers directly into the kernel rather than building
@@ -89,48 +93,50 @@ if 'STATIC_DRIVERS' in env['CPPDEFINES']:
 # The debugger creates its own set of unique dependencies that must be handled.
 if env['debugger']:
     files += [
-        Glob('debugger/*.cc'),
-        Glob('debugger/commands/*.cc'),
+        env.Dir('debugger').glob('*.cc'),
+        env.Dir('debugger').Dir('commands').glob('*.cc'),
     ]
 else:
     files += [
-        'debugger/panic.cc',
-        'debugger/SerialIO.cc',
-        'debugger/LocalIO.cc',
-        'debugger/DebuggerIO.cc',
+        env.File('debugger/panic.cc'),
+        env.File('debugger/SerialIO.cc'),
+        env.File('debugger/LocalIO.cc'),
+        env.File('debugger/DebuggerIO.cc'),
     ]
 
 include_dirs = [
-    '../..',  # src/
-    '../include',  # src/system/include
+    env.Dir('#src'),
+    env.Dir('#src/system/include'),
     '.',  # for includes to e.g. x86_common etc
 ]
 
 # Pull in machine implementation.
+mach_dir = env.Dir('machine').Dir(env['MACH_DIR'])
 files += [
-    env.Dir('machine/$MACH_DIR').glob('*.cc'),
-    env.Dir('machine/$MACH_DIR').glob('*.c'),
+    mach_dir.glob('*.cc'),
+    mach_dir.glob('*.c'),
 ]
 
 # Pull in headers for machine implementation.
 include_dirs += [
-    env.Dir('machine/$MACH_DIR'),
+    mach_dir,
 ]
 
 # Add x86 emulator (for real-mode BIOS calls).
 if env['ARCH_TARGET'] in ['X86', 'X64']:
+    x86emu_dir = mach_dir.Dir('x86emu')
     x86emu_files = [
-        'machine/mach_pc/x86emu/debug.c',
-        'machine/mach_pc/x86emu/decode.c',
-        'machine/mach_pc/x86emu/fpu.c',
-        'machine/mach_pc/x86emu/ops.c',
-        'machine/mach_pc/x86emu/ops2.c',
-        'machine/mach_pc/x86emu/prim_ops.c',
-        'machine/mach_pc/x86emu/sys.c',
+        x86emu_dir.File('debug.c'),
+        x86emu_dir.File('decode.c'),
+        x86emu_dir.File('fpu.c'),
+        x86emu_dir.File('ops.c'),
+        x86emu_dir.File('ops2.c'),
+        x86emu_dir.File('prim_ops.c'),
+        x86emu_dir.File('sys.c'),
     ]
 
     include_dirs += [
-        'machine/mach_pc/x86_emu/x86emu',
+        x86emu_dir.Dir('x86emu'),
     ]
 
     # Quiet down x86emu's warnings, it's not our code.
@@ -146,20 +152,22 @@ elif env['ARCH_TARGET'] in ['HOSTED']:
     files += ['core/processor/x86_common/Disassembler.cc']
 
 # Pull in architecture implementation.
+processor_dir = env.Dir('core').Dir('processor').Dir(env['ARCH_DIR'])
 files += [
-    env.Dir('core/processor/$ARCH_DIR').glob('*.cc'),
-    env.Dir('core/processor/$ARCH_DIR').glob('*.c'),
-    env.Dir('core/processor/$ARCH_DIR/asm').glob('*.s'),
-    env.Dir('core/processor/$ARCH_DIR/asm').glob('*.S'),
+    processor_dir.glob('*.cc'),
+    processor_dir.glob('*.c'),
+    processor_dir.Dir('asm').glob('*.s'),
+    processor_dir.Dir('asm').glob('*.S'),
 ]
 
 # Pull in a sub-architecture implementation if it exists.
 if env['SUBARCH_DIR']:
+    processor_subarch_dir = env.Dir('core').Dir('processor').Dir(env['SUBARCH_DIR'])
     files += [
-        env.Dir('core/processor/$SUBARCH_DIR').glob('*.cc'),
-        env.Dir('core/processor/$SUBARCH_DIR').glob('*.c'),
-        env.Dir('core/processor/$SUBARCH_DIR/asm').glob('*.s'),
-        env.Dir('core/processor/$SUBARCH_DIR/asm').glob('*.S'),
+        processor_subarch_dir.glob('*.cc'),
+        processor_subarch_dir.glob('*.c'),
+        processor_subarch_dir.Dir('asm').glob('*.s'),
+        processor_subarch_dir.Dir('asm').glob('*.S'),
     ]
 
 # Set flags in the cloned environment for the build.
@@ -174,14 +182,18 @@ ext_libs_env = env_clone.Clone()
 ext_libs_env.MergeFlags({
     'CCFLAGS': ['-w'],
 }, unique=0)
-libudis86 = ext_libs_env.StaticLibrary('udis86', Glob('debugger/libudis86/*.c'))
+udis_files = [
+    env.Dir('debugger').Dir('libudis86').glob('*.c'),
+]
+libudis86 = ext_libs_env.StaticLibrary('udis86', udis_files)
 env_clone['LIBS'] += [libudis86]
 
-libhash = ext_libs_env.StaticLibrary('hash', [
-    Glob('utilities/sha1/*.cc'),
-    Glob('utilities/md5/*.cc'),
-    Glob('utilities/smhasher/*.cpp'),
-])
+hash_files = [
+    env.Dir('utilities').Dir('sha1').glob('*.cc'),
+    env.Dir('utilities').Dir('md5').glob('*.cc'),
+    env.Dir('utilities').Dir('smhasher').glob('*.cpp'),
+]
+libhash = ext_libs_env.StaticLibrary('hash', hash_files)
 env_clone['LIBS'] += [libhash]
 
 # Fix up flags for hosted builds.
@@ -205,9 +217,6 @@ final_output = objname
 stripped_objname = final_output
 objname = '%s.debug' % objname
 
-if 'LSCRIPT' in env_clone:
-    env_clone.Depends(objname, env_clone['LSCRIPT'])
-
 if env['clang_cross'] and env['clang_analyse']:
     stripped_objname = objname
     final_output = stripped_objname
@@ -216,7 +225,13 @@ elif env['ARCH_TARGET'] == 'X64':
     # we need to have an intermediate file that gets stripped.
     stripped_objname = '%s.stripped' % (objname,)
 
-env_clone.Program(objname, files)
+# Flatten the file list
+files = buildutils.misc.flattenFileLists(files)
+kernel = env_clone.Program(objname, files)
+
+if 'KERNEL_LSCRIPT' in env_clone:
+    env_clone.Depends(kernel, '#' + env_clone['KERNEL_LSCRIPT'])
+
 if objname != stripped_objname:
     env_clone.Command(stripped_objname, objname,
                       action="$STRIP -d -o $TARGET $SOURCE")
@@ -224,3 +239,20 @@ if objname != stripped_objname:
 if final_output != stripped_objname:
     action = "$OBJCOPY -I elf64-x86-64 -O elf32-i386 $SOURCE $TARGET"
     env_clone.Command(final_output, stripped_objname, action=action)
+
+
+def filteredFromSharedLibrary(x):
+    names = ('boot-standalone.s', 'trampoline.s')
+    return x.name in names
+
+# Build a copy of the kernel as a shared object for module linking
+shared_env = env_clone.Clone()
+buildutils.misc.removeFromAllFlags(shared_env, ['-mcmodel=kernel'])
+# Remove files which don't quite work properly in the shared object.
+shared_files = [x for x in files if not filteredFromSharedLibrary(x)] + [env.File('sharedshim.cc')]
+shared_env['LIBS'] = []
+shared_env.MergeFlags({
+    'CCFLAGS': ['-w'],  # No warnings in the shared object build
+})
+shared_files += x86emu_files + udis_files + hash_files
+shared_env.SharedLibrary(kernel_so, shared_files)

@@ -29,8 +29,6 @@
 #include "pedigree/kernel/processor/Processor.h"
 #endif
 
-#include "modules/system/ramfs/RamFs.h"
-
 /// \todo Figure out a way to clean up files after deletion. Directory::remove()
 ///       is not the right place to do this. There needs to be a way to add a
 ///       File to some sort of queue that cleans it up once it hits refcount
@@ -540,20 +538,6 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 #ifndef VFS_STANDALONE
 static bool initVFS()
 {
-    // Mount scratch filesystem (ie, pure ram filesystem, for POSIX /tmp etc)
-    RamFs *pRamFs = new RamFs;
-    pRamFs->initialise(0);
-    VFS::instance().addAlias(pRamFs, String("scratch"));
-
-    // Mount runtime filesystem.
-    // The runtime filesystem assigns a Process ownership to each file, only
-    // that process can modify/remove it. If the Process terminates without
-    // removing the file, the file is not removed.
-    RamFs *pRuntimeFs = new RamFs;
-    pRuntimeFs->initialise(0);
-    pRuntimeFs->setProcessOwnership(true);
-    VFS::instance().addAlias(pRuntimeFs, String("runtime"));
-
     return true;
 }
 

@@ -122,8 +122,9 @@ default_x64_cxxflags = []
 default_x64_asflags = ['-felf64']
 
 # x64 linker flags
-default_x64_linkflags = ['-Tsrc/system/kernel/core/processor/x64/kernel.ld',
-                         '-mcmodel=kernel', '-m64']
+default_x64_linkscript = 'src/system/kernel/core/processor/x64/kernel.ld'
+default_x64_linkflags = ['-T' + default_x64_linkscript, '-mcmodel=kernel',
+                         '-m64']
 
 # x64 images directory
 default_x64_imgdir = '#images/x64'
@@ -222,6 +223,9 @@ default_asflags = {
     'x64': x64_asflags,
     'arm': arm_asflags,
     'ppc': ppc_asflags
+}
+default_linkscript = {
+    'x64': default_x64_linkscript,
 }
 default_linkflags = {
     'x86': x86_linkflags,

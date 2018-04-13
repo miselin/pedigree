@@ -5,108 +5,86 @@ ENTRY(start)
 SECTIONS
 {
   . = 0xFFFFFFFF80000000 + SIZEOF_HEADERS;
+
+  . = ALIGN(4096);
+
+  PROVIDE(kernel_start = .);
+
   .init : AT(ADDR(.init) - 0xFFFFFFFF7FF00000)
   {
-    . = ALIGN(4096);
-    HIDDEN(init = .);
-    HIDDEN(_init = .);
-    HIDDEN(__init = .);
+    PROVIDE(kernel_init = .);
     *(.init.multiboot)
-    *(.init.text);
-    *(.init.data);
-    *(.asm.bss);
-    HIDDEN(trampoline = .);
-    *(.trampoline.text);
-    HIDDEN(trampoline_end = .);
+    *(.init.text)
+    *(.init.data)
+
     . = ALIGN(4096);
+    *(.asm.bss)
+    PROVIDE(kernel_init_end = .);
   }
+
+  . = ALIGN(4096);
 
   .text : AT(ADDR(.text) - 0xFFFFFFFF7FF00000)
   {
-    . = ALIGN(4096);
-    HIDDEN(code = .);
-    HIDDEN(_code = .);
-    HIDDEN(__code = .);
     *(.text*)
-    . = ALIGN(4096);
   }
+
+  . = ALIGN(4096);
 
   .data : AT(ADDR(.data) - 0xFFFFFFFF7FF00000)
   {
-    . = ALIGN(4096);
-    HIDDEN(start_ctors = .);
+    PROVIDE(start_kernel_ctors = .);
     *(.ctors)
-    HIDDEN(end_ctors = .);
-    HIDDEN(start_dtors = .);
+    PROVIDE(end_kernel_ctors = .);
+    PROVIDE(start_kernel_dtors = .);
     *(.dtors)
-    HIDDEN(end_dtors = .);
-    
-    HIDDEN(start_module_ctors = .);
-    *(.module_ctors)
-    HIDDEN(end_module_ctors = .);
+    PROVIDE(end_kernel_dtors = .);
 
-    HIDDEN(data = .);
-    HIDDEN(_data = .);
-    HIDDEN(__data = .);
     *(.data)
     *(.rodata*)
+
     . = ALIGN(4096);
-    
-    HIDDEN(start_modinfo = .);
+    PROVIDE(start_modinfo = .);
     *(.modinfo)
-    HIDDEN(end_modinfo = .);
+    PROVIDE(end_modinfo = .);
+
+    PROVIDE(start_module_ctors = .);
+    *(.module_ctors)
+    PROVIDE(end_module_ctors = .);
   }
 
-  .bss : AT(ADDR(.bss) - 0xFFFFFFFF7FF00000)
-  {
-    . = ALIGN(4096);
-    HIDDEN(bss = .);
-    HIDDEN(_bss = .);
-    HIDDEN(__bss = .);
-    *(.asm.preserve.bss)
-    *(.bss*)
-    . = ALIGN(4096);
-  }
+  . = ALIGN(4096);
   
   .mptrampoline : AT(ADDR(.mptrampoline) - 0xFFFFFFFF7FF00000)
   {
-    . = ALIGN(4);
-    
-    HIDDEN(trampoline16 = .);
     *(.trampoline.text16)
-    HIDDEN(trampoline16_end = .);
     
-    . = ALIGN(4);
-    
-    HIDDEN(trampoline32 = .);
+    . = ALIGN(0x100);
     *(.trampoline.text32)
-    HIDDEN(trampoline32_end = .);
     
-    . = ALIGN(4);
-    
-    HIDDEN(trampolinegdtr = .);
+    . = ALIGN(0x100);
     *(.trampoline.data.gdtr)
-    HIDDEN(trampolinegdtr_end = .);
     
-    . = ALIGN(4);
-    
-    HIDDEN(trampolinegdt = .);
+    . = ALIGN(0x100);
     *(.trampoline.data.gdt)
-    HIDDEN(trampolinegdt_end = .);
 
-    . = ALIGN(4);
-
+    . = ALIGN(0x100);
     *(.trampoline.data.gdtr64)
     *(.trampoline.data.gdt64)
   }
 
+  . = ALIGN(4096);
+
+  .bss : AT(ADDR(.bss) - 0xFFFFFFFF7FF00000)
+  {
+    *(.asm.preserve.bss)
+    *(.bss*)
+    *(COMMON)
+  }
+
   /DISCARD/ : { *(.comment) *(.eh_frame) }
 
-  .end : AT(ADDR(.end) - 0xFFFFFFFF7FF00000)
-  {
-    . = ALIGN(4096);
-    HIDDEN(end = .);
-    HIDDEN(_end = .);
-    HIDDEN(__end = .);
-  }
+  . = ALIGN(4096);
+
+  PROVIDE(kernel_end = .);
 }

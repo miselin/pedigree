@@ -26,6 +26,7 @@ import buildutils.modules
 import buildutils.userspace
 import buildutils.fs
 import buildutils.libs
+import moduledeps
 
 Import(['env', 'userspace_env'])
 
@@ -38,7 +39,8 @@ moduledir = env["PEDIGREE_BUILD_MODULES"]
 subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
 imagesdir = env["PEDIGREE_IMAGES_DIR"]
 
-posix_objname = subsysdir.File('posix.o')
+posix_objname = 'posix.o'
+posix_shtarget = 'posix.so'
 
 glue_objname = builddir.File('libpedigree-glue.a')
 
@@ -182,7 +184,8 @@ env_clone.MergeFlags({
     'TARGET_CCFLAGS': ['-Wno-undef', '-Wno-parentheses', '-isystem', builddir.Dir('musl').Dir('include')],
 })
 env_clone['CPPPATH'].append('#src/system/kernel')  # Version.h
-buildutils.modules.buildModule(env_clone, final_output, posix_objname, posix_files)
+depends_list = set(moduledeps.expandDependencies(moduledeps.module_dependencies.get('posix', ())))
+buildutils.modules.buildModule(env_clone, final_output, posix_objname, posix_files, depends=depends_list, shtarget=posix_shtarget)
 
 posix_env = userspace_env_clone.Clone()
 posix_env['CPPPATH'] = include

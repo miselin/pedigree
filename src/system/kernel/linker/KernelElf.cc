@@ -493,10 +493,19 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     }
     module->name = rebase(module, *pName);
     module->elf.setName(module->name);
-    module->entry = *reinterpret_cast<bool (**)()>(
-        module->elf.lookupSymbol("g_pModuleEntry"));
-    module->exit = *reinterpret_cast<void (**)()>(
-        module->elf.lookupSymbol("g_pModuleExit"));
+    auto entryPoint = *reinterpret_cast<bool (**)()>(module->elf.lookupSymbol("g_pModuleEntry"));
+    auto exitPoint = *reinterpret_cast<void (**)()>(module->elf.lookupSymbol("g_pModuleExit"));
+    // Readjust entry/exit functions for the loaded module if needed
+    if (entryPoint)
+    {
+        entryPoint = adjust_pointer(entryPoint, module->loadBase);
+    }
+    if (exitPoint)
+    {
+        exitPoint = adjust_pointer(exitPoint, module->loadBase);
+    }
+    module->entry = entryPoint;
+    module->exit = exitPoint;
     module->depends =
         reinterpret_cast<const char **>(module->elf.lookupSymbol("g_pDepends"));
     module->depends_opt = reinterpret_cast<const char **>(

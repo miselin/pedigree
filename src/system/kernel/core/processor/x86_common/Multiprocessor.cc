@@ -49,6 +49,13 @@
 Spinlock Multiprocessor::m_ProcessorLock1(false, true);
 Spinlock Multiprocessor::m_ProcessorLock2(true, true);
 
+extern "C" void mp_trampoline16(void);
+extern "C" void mp_trampoline32(void);
+extern "C" void *trampolinegdt;
+extern "C" void *trampolinegdtr;
+extern "C" void *trampolinegdt64;
+extern "C" void *trampolinegdtr64;
+
 size_t Multiprocessor::initialise1()
 {
     // Did we find a processor list?
@@ -87,25 +94,14 @@ size_t Multiprocessor::initialise1()
     /// the
     ///       kernel - we hard-code specific offsets. Avoids the "relocation
     ///       truncated to fit" error from ld.
-    extern void *trampoline16, *trampoline32, *trampolinegdt, *trampolinegdtr;
-    extern void *trampoline16_end, *trampoline32_end, *trampolinegdt_end,
-        *trampolinegdtr_end;
     MemoryCopy(
-        reinterpret_cast<void *>(0x7000), &trampoline16,
-        reinterpret_cast<uintptr_t>(&trampoline16_end) -
-            reinterpret_cast<uintptr_t>(&trampoline16));
+        reinterpret_cast<void *>(0x7000), reinterpret_cast<void *>(&mp_trampoline16), 0x100);
     MemoryCopy(
-        reinterpret_cast<void *>(0x7100), &trampoline32,
-        reinterpret_cast<uintptr_t>(&trampoline32_end) -
-            reinterpret_cast<uintptr_t>(&trampoline32));
+        reinterpret_cast<void *>(0x7100), reinterpret_cast<void *>(&mp_trampoline32), 0x100);
     MemoryCopy(
-        reinterpret_cast<void *>(0x7200), &trampolinegdtr,
-        reinterpret_cast<uintptr_t>(&trampolinegdtr_end) -
-            reinterpret_cast<uintptr_t>(&trampolinegdtr));
+        reinterpret_cast<void *>(0x7200), &trampolinegdtr64, 0x10);
     MemoryCopy(
-        reinterpret_cast<void *>(0x7210), &trampolinegdt,
-        reinterpret_cast<uintptr_t>(&trampolinegdt_end) -
-            reinterpret_cast<uintptr_t>(&trampolinegdt));
+        reinterpret_cast<void *>(0x7210), &trampolinegdt64, 0xF0);
 
 // Parameters for the trampoline code
 #if defined(X86)

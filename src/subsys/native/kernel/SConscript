@@ -21,6 +21,7 @@ import os
 
 import buildutils.fs
 import buildutils.modules
+import moduledeps
 
 Import(['env'])
 
@@ -31,7 +32,8 @@ kerneldir = env["PEDIGREE_BUILD_KERNEL"]
 moduledir = env["PEDIGREE_BUILD_MODULES"]
 subsysdir = env["PEDIGREE_BUILD_SUBSYS"]
 
-native_userlib_objname = subsysdir.File('native.o')
+native_userlib_objname = 'native.o'
+native_shtarget = 'native.so'
 
 env.Alias("subsys", native_userlib_objname)
 
@@ -63,5 +65,6 @@ env_clone.MergeFlags({
 final_output = native_userlib_objname
 native_userlib_objname = '%s.debug' % native_userlib_objname
 
+depends = set(moduledeps.expandDependencies(moduledeps.module_dependencies.get('native', ())))
 buildutils.modules.buildModule(env_clone, final_output, native_userlib_objname,
-                               files)
+                               files, depends=depends, shtarget=native_shtarget)

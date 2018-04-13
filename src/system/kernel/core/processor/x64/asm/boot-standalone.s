@@ -24,7 +24,7 @@ MBOOT_HEADER_MAGIC equ 0x1BADB002
 MBOOT_HEADER_FLAGS equ MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO
 MBOOT_CHECKSUM     equ -(MBOOT_HEADER_MAGIC + MBOOT_HEADER_FLAGS)
 
-[SECTION .init.multiboot]
+section .init.multiboot
 align 4
 mboot:
   dd MBOOT_HEADER_MAGIC
@@ -35,12 +35,15 @@ global start:function hidden
 global pml4:data hidden
 
 [EXTERN _main]
-[EXTERN init]
-[EXTERN end]
+[EXTERN kernel_start]
+[EXTERN kernel_end]
 
+; Virtual base of the kernel
 KERNEL_BASE        equ 0xFFFFFFFF7FF00000
+; Physical base of the kernel
+KERNEL_BASE32      equ 0x100000
 
-[SECTION .init.text]
+section .init.text
 [BITS 32]
 start:
   cli
@@ -220,8 +223,8 @@ start64:
         
   ; Map the kernel
   mov rax, pagetable0 - KERNEL_BASE + 0x08
-  mov rbx, init
-  mov rcx, end
+  mov rbx, kernel_start
+  mov rcx, kernel_end
   mov r8, KERNEL_BASE
   .mapkernel:
     mov rdx, rbx
@@ -312,6 +315,8 @@ callmain:
   ; Fix up first serial port
   call __fixup_first_serial
 
+  ; mov rax, _main
+  ; call rax
   call _main
   jmp $
 
@@ -427,7 +432,7 @@ ___startup_init_fpu_sse:
   pop rbp
   ret
 
-[SECTION .init.data]
+section .init.data
   CODE32GDTR:
     dw 23
     dq GDT - KERNEL_BASE
@@ -450,7 +455,8 @@ ___startup_init_fpu_sse:
     db "Sorry, this system lacks Long Mode (64-bit x86), which Pedigree requires.", 0
   CANNOTBOOT_END:
 
-[SECTION .asm.bss nobits]
+section .asm.bss nobits
+
 align 4096
 startup_32bit_region:
   resb 4096
@@ -504,7 +510,7 @@ pagetable1:
 pagetable2:
   resb 4096
 
-[SECTION .asm.preserve.bss nobits]
+section .asm.preserve.bss nobits
 ; The kernel stack
 stack:
   resb 0x10000
