@@ -91,7 +91,8 @@ opts.AddVariables(
     BoolVariable('superdebug', 'Super debug is like the debug_logging option, except even MORE verbose. Expect hundreds of thousands of lines of output to the kernel log.', 0),
     BoolVariable('tracing', 'Enable kernel traces, which may output to the screen or a spare serial port.', 1),
     BoolVariable('lto', 'Enable LTO for the kernel (not modules/drivers).', 0),
-    
+    BoolVariable('debug_allocator', 'Enable the debug allocator, which is a very trimmed-down version of the normal kernel allocator and helps find underflows/overflows.', 0),
+
     BoolVariable('usb_verbose_debug','When set, USB low-level drivers will dump massive amounts of debug information to the log. When not set, only layers such as mass storage will.',0),
 
     BoolVariable('verbose','Display verbose build output.',0),
@@ -107,10 +108,10 @@ opts.AddVariables(
     BoolVariable('travis', 'Set to one/true to indicate that this is a build on Travis-CI.', 0),
     BoolVariable('bochs', 'Set to one/true to change some defaults to improve performance under Bochs.', 0),
     ('iwyu', 'If set, use the given as a the C++ compiler for include-what-you-use. Use -i with scons if you use IWYU.', ''),
-    
+
     BoolVariable('cache', 'Cache SCons options across builds (highly recommended).', 1),
     BoolVariable('genversion', 'Whether or not to regenerate Version.cc if it already exists.', 1),
-    
+
     ('distdir', 'Directory to install a Pedigree directory structure to, instead of a disk image. Empty will use disk images.', ''),
     BoolVariable('forcemtools', 'Force use of mtools (and the FAT filesystem) even if losetup is available.', 0),
     BoolVariable('createvdi', 'Convert the created hard disk image to a VDI file for VirtualBox after it is created.', 0),
@@ -120,24 +121,24 @@ opts.AddVariables(
     BoolVariable('livecd', 'Whether or not the bootable ISO should be a Live CD (one with a disk image on it).', 1),
     BoolVariable('livecd_only_kernel', 'Don\t add the live CD disk image (if livecd=1), but act like a live CD in all other ways.', 0),
     BoolVariable('skip_hdd_image', 'Skip building a hard disk image but build everything as if one was to be built.', 0),
-    
+
     BoolVariable('pup', 'If 1, you are managing your images/local directory with the Pedigree UPdater (pup) and want that instead of the images/<arch> directory.', 1),
-    
+
     BoolVariable('serial_is_file', 'If 1, the serial port is connected to a file (ie, an emulated serial port). If zero, the serial port is connected to a VT100-compatible terminal.', 1),
     BoolVariable('ipv4_forwarding', 'If 1, enable IPv4 forwarding.', '0'),
-    
+
     BoolVariable('enable_ctrlc', 'If 1, the ability to use CTRL-C to kill running tasks is enabled.', 1),
     BoolVariable('multiple_consoles', 'If 1, the TUI is built with the ability to create and move between multiple virtual consoles.', 1),
     BoolVariable('memory_log', 'If 1, memory logging on the second serial line is enabled.', 1),
     BoolVariable('memory_log_inline', 'If 1, memory logging will be output alongside conventional serial output.', 0),
     BoolVariable('memory_tracing', 'If 1, trace memory allocations and frees (for statistics and for leak detection) on the second serial line. EXCEPTIONALLY SLOW.', 0),
     BoolVariable('track_locks', 'If 1, track spinlocks and ensure they are released in the order they are acquired. Also does some basic deadlock detection.', 1),
-    
+
     BoolVariable('multiprocessor', 'If 1, multiprocessor support is compiled in to the kernel.', 1),
     BoolVariable('apic', 'If 1, APIC support will be built in (not to be confused with ACPI).', 0),
     BoolVariable('acpi', 'If 1, ACPI support will be built in (not to be confused with APIC).', 0),
     BoolVariable('smp', 'If 1, SMP support will be built in.', 1),
-    
+
     BoolVariable('nogfx', 'If 1, the standard 80x25 text mode will be used. Will not load userspace if set to 1.', 0),
 
     # PC architecture options.
@@ -187,7 +188,7 @@ opts.AddVariables(
 
     # Compiler options.
     BoolVariable('gcc_profile_compilation', 'Profile compilation of each file using GCC\'s -Q/-ftime-report options.', 0),
-    
+
     ('uimage_target', 'Where to copy the generated uImage.bin file to.', '~'),
 )
 

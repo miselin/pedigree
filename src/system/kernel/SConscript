@@ -58,6 +58,7 @@ if env['lto']:
     })
 
 # Base set of kernel files, common to all architectures.
+core_lib_dir = env.Dir('core').Dir('lib')
 files = [
     env.File('Log.cc'),
     env.File('SerialLog.cc'),
@@ -77,13 +78,20 @@ files = [
     env.Dir('core').glob('*.cc'),
     env.Dir('core').Dir('process').glob('*.cc'),
     env.Dir('core').Dir('processor').glob('*.cc'),
-    env.Dir('core').Dir('lib').glob('*.cc'),
-    env.Dir('core').Dir('lib').glob('*.c'),
+    core_lib_dir.File('cppsupport.cc'),
+    core_lib_dir.File('demangle.cc'),
+    core_lib_dir.File('instrument.cc'),
+    core_lib_dir.glob('*.c'),
     env.Dir('config').glob('*.cc'),
     env.Dir('network').glob('*.cc'),
     env.Dir('graphics').glob('*.cc'),
     env.Dir('time').glob('*.cc'),
 ]
+
+if env['debug_allocator']:
+    files.append(core_lib_dir.File('DebugAllocator.cc'))
+else:
+    files.append(core_lib_dir.File('SlamAllocator.cc'))
 
 # Static drivers build all drivers directly into the kernel rather than building
 # them as actual modules.

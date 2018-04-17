@@ -206,16 +206,11 @@ inline void unmap(void *addr)
 }
 
 SlamCache::SlamCache()
-    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0)
-#if CRIPPLINGLY_VIGILANT
-      ,
-      m_FirstSlab()
-#endif
+    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0),
+      m_FirstSlab(),
 #ifdef THREADS
-      ,
-      m_RecoveryLock(false)
+      m_RecoveryLock(false),
 #endif
-      ,
       m_EmptyNode()
 {
 }
@@ -343,6 +338,10 @@ void SlamCache::free(uintptr_t object)
 #if EVERY_ALLOCATION_IS_A_SLAB
     // Free the slab in the address space, but don't return it to the allocator.
     size_t numPages = m_SlabSize / getPageSize();
+    if (m_SlabSize % getPageSize())
+    {
+        ++numPages;
+    }
     object = object & ~(getPageSize() - 1);
     for (size_t i = 0; i < numPages; ++i)
     {
@@ -389,7 +388,7 @@ void SlamCache::free(uintptr_t object)
     push(&m_PartialLists[thisCpu], N);
 }
 
-bool SlamCache::isPointerValid(uintptr_t object)
+bool SlamCache::isPointerValid(uintptr_t object) const
 {
 #if SLABS_FOR_HUGE_ALLOCS
     if (m_ObjectSize >= getPageSize())
@@ -1185,6 +1184,10 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     NOTICE_NOLOCK("SlabAllocator::allocate(" << Dec << nBytes << Hex << ")");
 #endif
 
+#if SLAM_LOCKED
+    LockGuard<Spinlock> guard(m_Lock);
+#endif
+
     if (UNLIKELY(!m_bInitialised))
         initialise();
 
@@ -1325,6 +1328,10 @@ void SlamAllocator::free(uintptr_t mem)
     NOTICE_NOLOCK("SlabAllocator::free");
 #endif
 
+#if SLAM_LOCKED
+    LockGuard<Spinlock> guard(m_Lock);
+#endif
+
     // If we're not initialised, fix that
     if (UNLIKELY(!m_bInitialised))
         initialise();
@@ -1397,14 +1404,23 @@ void SlamAllocator::free(uintptr_t mem)
 }
 
 bool SlamAllocator::isPointerValid(uintptr_t mem)
+#if !SLAM_LOCKED
+    const
+#endif
 {
 #if DEBUGGING_SLAB_ALLOCATOR
     NOTICE_NOLOCK("SlabAllocator::isPointerValid");
 #endif
 
+#if SLAM_LOCKED
+    LockGuard<Spinlock> guard(m_Lock);
+#endif
+
     // If we're not initialised, fix that
     if (UNLIKELY(!m_bInitialised))
-        initialise();
+    {
+        return false;
+    }
 
     // 0 is fine to free.
     if (!mem)
@@ -1475,6 +1491,22 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
 
     // Final validation.
     return head->cache->isPointerValid(mem - sizeof(AllocHeader));
+}
+
+bool SlamAllocator::isWithinHeap(uintptr_t mem) const
+{
+#ifndef PEDIGREE_BENCHMARK
+    if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
+            reinterpret_cast<void *>(mem)))
+    {
+#if VERBOSE_ISPOINTERVALID
+        WARNING("SlamAllocator::isWithinHeap: memory " << Hex << mem << " is not in the heap region.");
+#endif
+        return false;
+    }
+#endif
+
+    return true;
 }
 
 bool _assert_ptr_valid(uintptr_t ptr)

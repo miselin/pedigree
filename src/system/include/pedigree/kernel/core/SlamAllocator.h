@@ -109,7 +109,7 @@ class SlamAllocator;
 /// Scribble in freed memory; can be useful for finding bugs which are caused
 /// by reuse of freed objects (that would otherwise look like valid objects).
 /// It can also avoid leaking information in heap objects.
-#define SCRIBBLE_FREED_BLOCKS 0
+#define SCRIBBLE_FREED_BLOCKS 1
 
 /// Block allocations larger than or equal to the native page size.
 #define WARN_PAGE_SIZE_OR_LARGER 0
@@ -121,13 +121,21 @@ class SlamAllocator;
 #define SLABS_FOR_HUGE_ALLOCS 0
 
 /// Be verbose about reasons for invalidity in isPointerValid
-#define VERBOSE_ISPOINTERVALID 0
+#define VERBOSE_ISPOINTERVALID 1
 
 /// Turn every allocation into a slab, and unmap it without returning when
 /// freeing. This makes the kernel heap enormous (as it never truly frees
 /// address space), but allows for rapid discovery of use-after-frees as the
 /// freed allocations are completely unmapped.
-#define EVERY_ALLOCATION_IS_A_SLAB 0
+#define EVERY_ALLOCATION_IS_A_SLAB 1
+
+/// Use a lock to protect SlamAllocator. This comes with a performance cost,
+/// but guarantees only one thread is ever in the allocator at one time.
+#ifndef THREADS
+#define SLAM_LOCKED 0  // never use if no threading
+#else
+#define SLAM_LOCKED 1
+#endif
 
 /** A cache allocates objects of a constant size. */
 class SlamCache
@@ -161,7 +169,7 @@ class SlamCache
     /** Attempt to recover slabs from this cache. */
     size_t recovery(size_t maxSlabs);
 
-    bool isPointerValid(uintptr_t object);
+    bool isPointerValid(uintptr_t object) const;
 
     inline size_t objectSize() const
     {
@@ -203,13 +211,11 @@ class SlamCache
     size_t m_ObjectSize;
     size_t m_SlabSize;
 
-// This version of the allocator doesn't have a free list, instead
-// the reap() function returns memory directly to the VMM. This
-// avoids needing to lock the free list on MP systems.
+    // This version of the allocator doesn't have a free list, instead
+    // the reap() function returns memory directly to the VMM. This
+    // avoids needing to lock the free list on MP systems.
 
-#if CRIPPLINGLY_VIGILANT
     uintptr_t m_FirstSlab;
-#endif
 
 #ifdef THREADS
     /**
@@ -245,7 +251,12 @@ class SlamAllocator
 
     size_t recovery(size_t maxSlabs = 1);
 
-    bool isPointerValid(uintptr_t mem);
+    bool isPointerValid(uintptr_t mem)
+#if !SLAM_LOCKED
+    const
+#endif
+    ;
+    bool isWithinHeap(uintptr_t mem) const;
 
     size_t allocSize(uintptr_t mem);
 
@@ -268,26 +279,24 @@ class SlamAllocator
     void freeSlab(uintptr_t address, size_t length);
 
 #ifdef USE_DEBUG_ALLOCATOR
-    inline size_t headerSize()
+    inline size_t headerSize() const
     {
         return sizeof(AllocHeader);
     }
-    inline size_t footerSize()
+    inline size_t footerSize() const
     {
         return sizeof(AllocFooter);
     }
 #endif
 
-#if CRIPPLINGLY_VIGILANT
     void setVigilance(bool b)
     {
         m_bVigilant = b;
     }
-    bool getVigilance()
+    bool getVigilance() const
     {
         return m_bVigilant;
     }
-#endif
 
   private:
     SlamAllocator(const SlamAllocator &);
@@ -336,9 +345,7 @@ class SlamAllocator
   private:
     bool m_bInitialised;
 
-#if CRIPPLINGLY_VIGILANT
     bool m_bVigilant;
-#endif
 
 #ifdef THREADS
     Spinlock m_SlabRegionLock;
@@ -350,6 +357,10 @@ class SlamAllocator
     size_t m_SlabRegionBitmapEntries;
 
     uintptr_t m_Base;
+
+#if SLAM_LOCKED
+    Spinlock m_Lock;
+#endif
 };
 
 #endif
