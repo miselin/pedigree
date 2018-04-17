@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/Pointers.h"
+#include "pedigree/kernel/utilities/cpp.h"
 
 TEST(PedigreeUniquePointer, Construction)
 {
@@ -31,8 +32,7 @@ TEST(PedigreeUniquePointer, Construction)
 
 TEST(PedigreeUniquePointer, Allocate)
 {
-    UniquePointer<int> p;
-    p = UniquePointer<int>::allocate();
+    UniquePointer<int> p = UniquePointer<int>::allocate();
     EXPECT_NE(p.get(), nullptr);
     p.reset();
     EXPECT_EQ(p.get(), nullptr);

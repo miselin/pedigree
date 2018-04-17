@@ -547,8 +547,14 @@ class EXPORTED_PUBLIC Tree
     {
         if (!n)
             return;
-        traverseNode_Remove(n->leftChild);
-        traverseNode_Remove(n->rightChild);
+
+        Node *left = n->leftChild;
+        Node *right = n->rightChild;
+        n->leftChild = nullptr;
+        n->rightChild = nullptr;
+
+        traverseNode_Remove(left);
+        traverseNode_Remove(right);
         delete n;
     }
 

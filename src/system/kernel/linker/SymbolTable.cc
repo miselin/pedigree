@@ -45,8 +45,8 @@ void SymbolTable::copyTable(Elf *pNewElf, const SymbolTable &newSymtab)
     // Safe to do this, all members are SharedPointers and will be copy
     // constructed by these operations.
     m_LocalSymbols = newSymtab.m_LocalSymbols;
-    m_GlobalSymbols = newSymtab.m_GlobalSymbols;
-    m_WeakSymbols = newSymtab.m_WeakSymbols;
+    m_GlobalSymbols.copyFrom(newSymtab.m_GlobalSymbols);
+    m_WeakSymbols.copyFrom(newSymtab.m_WeakSymbols);
 }
 
 void SymbolTable::insert(

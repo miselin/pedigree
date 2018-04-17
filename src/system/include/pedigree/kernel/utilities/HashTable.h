@@ -311,6 +311,7 @@ class HashTable
         if (b->key == k)
         {
             b->set = false;
+            b->value = m_Default;
             didRemove = true;
         }
         else
@@ -319,6 +320,7 @@ class HashTable
             if (b)
             {
                 b->set = false;
+                b->value = m_Default;
                 didRemove = true;
             }
         }
@@ -376,6 +378,7 @@ class HashTable
             // No items in the array, just recreate it here
             delete [] m_Buckets;
             m_Buckets = new bucket[m_nBuckets];
+            setDefaults();
             resetParents();
         }
     }
@@ -427,19 +430,32 @@ class HashTable
         }
     }
 
-    SelfType &operator=(const SelfType &p)
+    /**
+     * \note We allow move assignment but not copy assignment/construction for
+     * HashTable. To copy a HashTable, the owner of the table needs to manage
+     * this itself - allowing for correct handling of copying elements (e.g.
+     * if V is a pointer type) without it happening "behind the scenes".
+     */
+    HashTable(const SelfType &other) = delete;
+    SelfType &operator = (const SelfType &p) = delete;
+
+    /**
+     * Forceful opt-in to copy values from the other table into this one.
+     * This is an explicit call which can be used for data types that are safe
+     * to copy, or in cases where callers accept the risk or will handle the
+     * lack of safety some other way.
+     */
+    void copyFrom(const SelfType &other)
     {
         clear();
 
-        m_Default = p.m_Default;
-        m_nBuckets = p.m_nBuckets;
-        m_nItems = p.m_nItems;
-        m_nMask = p.m_nMask;
+        m_Default = other.m_Default;
+        m_nBuckets = other.m_nBuckets;
+        m_nItems = other.m_nItems;
+        m_nMask = other.m_nMask;
         m_Buckets = new bucket[m_nBuckets];
-        pedigree_std::copy(m_Buckets, p.m_Buckets, m_nBuckets);
+        pedigree_std::copy(m_Buckets, other.m_Buckets, m_nBuckets);
         resetParents();
-
-        return *this;
     }
 
     SelfType &operator=(SelfType &&p)
@@ -482,6 +498,7 @@ class HashTable
             m_Buckets = new bucket[InitialBuckets];
             m_nBuckets = InitialBuckets;
             m_nMask = InitialBuckets - 1;
+            setDefaults();
             resetParents();
         }
     }
@@ -495,6 +512,7 @@ class HashTable
 
         bucket *oldBuckets = m_Buckets;
         m_Buckets = new bucket[m_nBuckets];
+        setDefaults();
         resetParents();
 
         if (m_nItems)
@@ -620,6 +638,20 @@ class HashTable
         }
 
         return b;
+    }
+
+    /** Set default value on all un-set buckets. */
+    void setDefaults()
+    {
+        for (size_t i = 0; i < m_nBuckets; ++i)
+        {
+            if (m_Buckets[i].set)
+            {
+                continue;
+            }
+
+            m_Buckets[i].value = m_Default;
+        }
     }
 
     void resetParents()

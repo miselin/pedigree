@@ -28,7 +28,6 @@ class UniqueCommon
 {
     public:
         UniqueCommon() : m_Pointer(nullptr) {}
-        UniqueCommon(T *p) : m_Pointer(p) {}
 
         virtual ~UniqueCommon()
         {
@@ -59,8 +58,10 @@ class UniqueCommon
             }
         }
 
+        NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon<T>);
+
     protected:
-        T *m_Pointer;
+        UniqueCommon(T *p) : m_Pointer(p) {}
 
         virtual void destroy()
         {
@@ -71,6 +72,14 @@ class UniqueCommon
         {
             m_Pointer = p;
         }
+
+        /** Stop tracking the memory but don't free it. */
+        void release()
+        {
+            m_Pointer = nullptr;
+        }
+
+        T *m_Pointer;
 };
 
 /** Provides a wrapper around a single-use pointer. The copy constructor
@@ -90,21 +99,20 @@ class UniquePointer : public UniqueCommon<T>
     // move constructor
     UniquePointer(UniquePointer<T> &&p)
     {
-        move(pedigree_std::move(p));
+        move_from(pedigree_std::move(p));
     }
 
     // no copy construction permitted
-    UniquePointer(UniquePointer<T> &p) = delete;
-    UniquePointer<T> &operator=(UniquePointer<T> &p) = delete;
+    NOT_COPYABLE_OR_ASSIGNABLE(UniquePointer<T>);
 
     UniquePointer<T> &operator=(UniquePointer<T> &&p)
     {
-        move(pedigree_std::move(p));
+        move_from(pedigree_std::move(p));
         return *this;
     }
 
     template <class... Args>
-    static UniquePointer<T> allocate(Args... args)
+    static UniquePointer<T> allocate(Args&&... args)
     {
         return UniquePointer<T>(new T(args...));
     }
@@ -114,10 +122,13 @@ class UniquePointer : public UniqueCommon<T>
     {
     }
 
-    void move(UniquePointer<T> &&p)
+    void move_from(UniquePointer<T> &&p)
     {
-        this->setPointer(p.get());
-        p.setPointer(nullptr);
+        T *ptr = p.get();
+        p.release();
+
+        this->reset();
+        this->setPointer(ptr);
     }
 };
 
@@ -136,16 +147,15 @@ class UniqueArray : public UniqueCommon<T>
     // move constructor
     UniqueArray(UniqueArray<T> &&p)
     {
-        move(pedigree_std::move(p));
+        move_from(pedigree_std::move(p));
     }
 
     // no copy construction permitted
-    UniqueArray(UniqueArray<T> &p) = delete;
-    UniqueArray<T> &operator=(UniqueArray<T> &p) = delete;
+    NOT_COPYABLE_OR_ASSIGNABLE(UniqueArray<T>);
 
     UniqueArray<T> &operator=(UniqueArray<T> &&p)
     {
-        move(pedigree_std::move(p));
+        move_from(pedigree_std::move(p));
         return *this;
     }
 
@@ -157,7 +167,8 @@ class UniqueArray : public UniqueCommon<T>
   protected:
     virtual void destroy() override
     {
-        delete [] this->get();
+        T *ptr = this->get();
+        delete [] ptr;
     }
 
    private:
@@ -165,10 +176,13 @@ class UniqueArray : public UniqueCommon<T>
     {
     }
 
-    void move(UniqueArray<T> &&p)
+    void move_from(UniqueArray<T> &&p)
     {
-        this->setPointer(p.get());
-        p.setPointer(nullptr);
+        T *ptr = p.get();
+        p.release();
+
+        this->reset();
+        this->setPointer(ptr);
     }
 };
 

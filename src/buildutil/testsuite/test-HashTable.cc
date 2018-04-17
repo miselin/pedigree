@@ -343,3 +343,25 @@ TEST(PedigreeHashTable, GetNth)
 
     EXPECT_EQ(results, expected);
 }
+
+TEST(PedigreeHashTable, Copy)
+{
+    HashTable<CollidingHashableInteger, int> hashtable(1234);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        CollidingHashableInteger key(i);
+        EXPECT_TRUE(hashtable.insert(key, i + 1));
+    }
+
+    HashTable<CollidingHashableInteger, int> hashtable2;
+    hashtable2.copyFrom(hashtable);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        CollidingHashableInteger key(i);
+        auto result = hashtable.lookup(key);
+        EXPECT_TRUE(result.hasValue());
+        EXPECT_EQ(result.value(), i + 1);
+    }
+}
