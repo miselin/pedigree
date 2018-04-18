@@ -305,33 +305,35 @@ void *operator new[](size_t size, void *memory) noexcept
 {
     return memory;
 }
-void operator delete(void *p) noexcept
+static void delete_shared(void *p) noexcept
 {
     if (p == 0)
         return;
-    if (SlamAllocator::instance().isPointerValid(
-            reinterpret_cast<uintptr_t>(p)))
+    uintptr_t mem = reinterpret_cast<uintptr_t>(p);
+    if (SlamAllocator::instance().isPointerValid(mem))
     {
-        SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
+        SlamAllocator::instance().free(mem);
     }
     else
     {
-        ERROR("operator delete failed as pointer was invalid: " << p);
+        if (SlamAllocator::instance().isWithinHeap(mem))
+        {
+            FATAL("delete_shared failed as pointer was invalid: " << p);
+        }
+        else
+        {
+            // less critical - still annoying
+            ERROR("delete_shared failed as pointer was not in the kernel heap: " << p);
+        }
     }
+}
+void operator delete(void *p) noexcept
+{
+    delete_shared(p);
 }
 void operator delete[](void *p) noexcept
 {
-    if (p == 0)
-        return;
-    if (SlamAllocator::instance().isPointerValid(
-            reinterpret_cast<uintptr_t>(p)))
-    {
-        SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
-    }
-    else
-    {
-        ERROR("operator delete[] failed as pointer was invalid: " << p);
-    }
+    delete_shared(p);
 }
 void operator delete(void *p, void *q) noexcept
 {
