@@ -194,7 +194,7 @@ SlamAllocator::~SlamAllocator()
 
 void SlamAllocator::initialise()
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     if (m_bInitialised)
     {
@@ -234,7 +234,7 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
         initialise();
     }
 
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     if (!nBytes)
     {
@@ -305,7 +305,7 @@ size_t SlamAllocator::allocSize(uintptr_t mem)
 
 void SlamAllocator::free(uintptr_t mem)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     assert(m_bInitialised);
 
@@ -322,6 +322,11 @@ void SlamAllocator::free(uintptr_t mem)
 #endif
 
     assert(isMapped(reinterpret_cast<void *>(mem)));
+
+    if (!isPointerValid(mem))
+    {
+        return;
+    }
 
     size_t numPages = *((size_t *) (mem - sizeof(size_t)));
     size_t nBytes = numPages * getPageSize();
@@ -351,7 +356,7 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     const
 #endif
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     if (!m_bInitialised)
     {

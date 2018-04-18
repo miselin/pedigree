@@ -75,8 +75,12 @@ void runKernelDestructors()
     }
 }
 
-#ifdef MEMORY_TRACING
+#ifndef MEMORY_TRACING
 static bool traceAllocations = false;
+#endif
+
+#ifdef MEMORY_TRACING
+static bool traceAllocations = true;
 void startTracingAllocations()
 {
     traceAllocations = true;
@@ -325,7 +329,10 @@ static void delete_shared(void *p) noexcept
     if (p == 0)
         return;
     uintptr_t mem = reinterpret_cast<uintptr_t>(p);
-    if (SlamAllocator::instance().isPointerValid(mem))
+    // We want to attempt to delete even if this is not a valid pointer if
+    // allocations are being traced, so we can catch the bad free and get a
+    // backtrace for it.
+    if (traceAllocations || SlamAllocator::instance().isPointerValid(mem))
     {
         SlamAllocator::instance().free(mem);
     }
