@@ -22,7 +22,7 @@
 
 template class HashTable<String, Directory::DirectoryEntry *>;
 
-Directory::Directory() : File(), m_Cache(), m_bCachePopulated(false)
+Directory::Directory() : File(), m_Cache(nullptr), m_bCachePopulated(false)
 {
 }
 
@@ -32,7 +32,7 @@ Directory::Directory(
     Filesystem *pFs, size_t size, File *pParent)
     : File(
           name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
-          pParent), m_Cache(), m_bCachePopulated(false)
+          pParent), m_Cache(nullptr), m_bCachePopulated(false)
 {
 }
 
@@ -116,6 +116,7 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
     if (!m_Cache.insert(name, entry))
     {
         ERROR("can't add directory entry for '" << name << "' as it already exists.");
+        delete entry;
     }
     else
     {
@@ -130,6 +131,7 @@ void Directory::addDirectoryEntry(const String &name, DirectoryEntryMetadata &&m
     if (!m_Cache.insert(name, entry))
     {
         ERROR("can't add directory entry for '" << name << "' as it already exists.");
+        delete entry;
     }
     else
     {
@@ -217,4 +219,18 @@ File *Directory::convertToFile(const DirectoryEntryMetadata &meta)
 void Directory::preallocateDirectoryEntries(size_t count)
 {
     m_Cache.reserve(count);
+}
+
+Directory::DirectoryEntryMetadata::DirectoryEntryMetadata() : pDirectory(nullptr), filename(), opaque() {}
+Directory::DirectoryEntryMetadata::DirectoryEntryMetadata(Directory::DirectoryEntryMetadata &&other) :
+  pDirectory(pedigree_std::move(other.pDirectory)),
+  filename(pedigree_std::move(other.filename)),
+  opaque(pedigree_std::move(other.opaque))
+{
+    other.pDirectory = nullptr;
+}
+
+Directory::DirectoryEntryMetadata::~DirectoryEntryMetadata()
+{
+  opaque.reset();
 }

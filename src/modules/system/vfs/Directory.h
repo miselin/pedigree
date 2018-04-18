@@ -125,14 +125,13 @@ class EXPORTED_PUBLIC Directory : public File
   protected:
     struct DirectoryEntryMetadata
     {
-        DirectoryEntryMetadata() : pDirectory(nullptr), filename(), opaque() {}
-        DirectoryEntryMetadata(DirectoryEntryMetadata &&other) :
-          pDirectory(pedigree_std::move(other.pDirectory)),
-          filename(pedigree_std::move(other.filename)),
-          opaque(pedigree_std::move(other.opaque))
-        {
-            other.pDirectory = nullptr;
-        }
+        DirectoryEntryMetadata();
+        DirectoryEntryMetadata(DirectoryEntryMetadata &&other);
+
+        ~DirectoryEntryMetadata();
+
+        // No copy construction (UniqueArray)
+        NOT_COPYABLE_OR_ASSIGNABLE(DirectoryEntryMetadata);
 
         // These two should always be known at metadata creation time.
         Directory *pDirectory;
