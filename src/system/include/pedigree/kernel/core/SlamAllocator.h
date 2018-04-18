@@ -121,20 +121,20 @@ class SlamAllocator;
 #define SLABS_FOR_HUGE_ALLOCS 0
 
 /// Be verbose about reasons for invalidity in isPointerValid
-#define VERBOSE_ISPOINTERVALID 1
+#define VERBOSE_ISPOINTERVALID 0
 
 /// Turn every allocation into a slab, and unmap it without returning when
 /// freeing. This makes the kernel heap enormous (as it never truly frees
 /// address space), but allows for rapid discovery of use-after-frees as the
 /// freed allocations are completely unmapped.
-#define EVERY_ALLOCATION_IS_A_SLAB 1
+#define EVERY_ALLOCATION_IS_A_SLAB 0
 
 /// Use a lock to protect SlamAllocator. This comes with a performance cost,
 /// but guarantees only one thread is ever in the allocator at one time.
 #ifndef THREADS
 #define SLAM_LOCKED 0  // never use if no threading
 #else
-#define SLAM_LOCKED 1
+#define SLAM_LOCKED 0
 #endif
 
 /** A cache allocates objects of a constant size. */
