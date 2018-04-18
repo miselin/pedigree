@@ -131,7 +131,7 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<ui
             if (doublefree)
             {
                 /// \todo add more info
-                std::cerr << "A double free has been detected [" << std::hex << record.data.ptr << "]." << std::endl;
+                std::cerr << "A double free has been detected [" << std::hex << extendPointer(record.data.ptr) << "]." << std::endl;
                 performBacktrace(record);
                 return false;
             }
@@ -148,7 +148,7 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<ui
         if (it != dataset.end())
         {
             /// \todo add more info
-            std::cerr << "A pointer was allocated twice." << std::endl;
+            std::cerr << "A pointer was allocated twice [" << std::hex << extendPointer(record.data.ptr) << "]." << std::endl;
             performBacktrace(record);
             return false;
         }
@@ -181,10 +181,10 @@ int processRecords(
     std::set<uintptr_t> *seenPointers = seen ? &seenPointersSet : nullptr;
 
     // Read several records at a time.
+    bool err = false;
     AllocationTraceEntry *records = new AllocationTraceEntry[RECORDS_PER_READ];
     while (!feof(fp))
     {
-        bool err = false;
         ssize_t record_count =
             fread(records, sizeof(AllocationTraceEntry), RECORDS_PER_READ, fp);
         for (ssize_t i = 0; i < record_count; ++i)
@@ -202,13 +202,14 @@ int processRecords(
         }
 
         totalRecords += record_count;
-
-        if (err)
-        {
-            return -1;
-        }
     }
     delete[] records;
+
+    // We wait until all records have been processed to quit due to errors.
+    if (err)
+    {
+        return -1;
+    }
 
     std::cout << "This data file contains " << totalAllocs
               << " allocations in total (" << totalRecords << " total records)." << std::endl;
