@@ -451,6 +451,5 @@ File *Ext2Directory::convertToFile(const DirectoryEntryMetadata &meta)
             break;
     }
 
-    delete [] reinterpret_cast<char *>(pDir);
     return pFile;
 }
