@@ -101,10 +101,23 @@ void traceAllocation(
     if (!traceAllocations)
         return;
 
+    // Ignore physical allocations just for now.
+    switch (type)
+    {
+        case MemoryTracing::Allocation:
+        case MemoryTracing::Free:
+        case MemoryTracing::Metadata:
+            break;
+        default:
+            return;  // ignore
+    }
+
+    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
+
     MemoryTracing::AllocationTraceEntry entry;
     entry.data.type = type;
     entry.data.sz = size & 0xFFFFFFFFU;
-    entry.data.ptr = reinterpret_cast<uintptr_t>(ptr) & 0xFFFFFFFFU;
+    entry.data.ptr = reinterpret_cast<uintptr_t>(ptr);
     for (size_t i = 0; i < MemoryTracing::num_backtrace_entries; ++i)
     {
         entry.data.bt[i] = 0;
@@ -113,7 +126,9 @@ void traceAllocation(
 #define BT_FRAME(M, N)                                                 \
     do                                                                 \
     {                                                                  \
-        if (!__builtin_frame_address(N))                               \
+        if (M && !entry.data.bt[M-1]) break ;                          \
+        void *frame_addr = __builtin_frame_address(N);                 \
+        if (!(frame_addr && va.isMapped(frame_addr)))                  \
         {                                                              \
             entry.data.bt[M] = 0;                                      \
             break;                                                     \
