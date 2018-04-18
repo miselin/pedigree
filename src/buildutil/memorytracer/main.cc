@@ -39,9 +39,9 @@ using namespace MemoryTracing;
 
 #define RECORDS_PER_READ 128
 
-typedef std::unordered_map<uint32_t, std::shared_ptr<AllocationTraceEntry>>
+typedef std::unordered_map<uint64_t, std::shared_ptr<AllocationTraceEntry>>
     dataset_t;
-typedef std::pair<uint32_t, std::shared_ptr<AllocationTraceEntry>>
+typedef std::pair<uint64_t, std::shared_ptr<AllocationTraceEntry>>
     dataset_pair_t;
 
 struct CallerCountEntry
