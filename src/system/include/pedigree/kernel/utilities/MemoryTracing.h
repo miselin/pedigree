@@ -42,7 +42,7 @@ union AllocationTraceEntry
     {
         AllocationTrace type;
         uint32_t sz;
-        uint32_t ptr;
+        uint64_t ptr;
         uint32_t bt[num_backtrace_entries];
     } data;
 
