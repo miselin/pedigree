@@ -99,6 +99,8 @@ class LazyEvaluate
         }
 
     private:
+        NOT_COPYABLE_OR_ASSIGNABLE(LazyEvaluate);
+
         M m_Metadata;
         T *m_Field;
         bool m_Ok;
