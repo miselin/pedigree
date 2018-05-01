@@ -23,6 +23,8 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <memory>

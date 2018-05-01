@@ -11,4 +11,7 @@ echo "NOTE: This Easy Build script only builds tools that run on your build " \
     " working on tests or benchmarks, you probably want one of the other Easy" \
     " Build scripts."
 
-scons build_tests_only=1
+mkdir build && cd build
+cmake ..
+
+make -j1

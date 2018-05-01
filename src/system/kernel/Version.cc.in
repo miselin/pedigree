@@ -1,0 +1,8 @@
+#include "pedigree/kernel/Version.h"
+#include "pedigree/kernel/compiler.h"
+EXPORTED_PUBLIC const char *g_pBuildTime = "todo";
+EXPORTED_PUBLIC const char *g_pBuildRevision = "todo";
+EXPORTED_PUBLIC const char *g_pBuildFlags = "todo";
+EXPORTED_PUBLIC const char *g_pBuildUser = "todo";
+EXPORTED_PUBLIC const char *g_pBuildMachine = "@PEDIGREE_BUILD_HOSTNAME@";
+EXPORTED_PUBLIC const char *g_pBuildTarget = "@PEDIGREE_ARCHDIR@-@PEDIGREE_MACHDIR@";

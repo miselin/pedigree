@@ -1,0 +1,192 @@
+find_package(BISON)
+find_package(FLEX)
+find_package(OpenSSL)
+find_package(Threads REQUIRED)
+
+# TODO: should detect a few of these things
+add_definitions(
+    -DHOSTED -DUTILITY_LINUX -DTARGET_IS_LITTLE_ENDIAN -DDONT_LOG_TO_SERIAL
+    -DPEDIGREE_BENCHMARK -DSTANDALONE_MUTEXES -DSTANDALONE_CACHE
+    -DSTANDALONE_MEMPOOL -DDEVICE_IGNORE_ADDRESSES -DBITS_64 -DLITTLE_ENDIAN
+    -DVFS_NOMMU -DVFS_STANDALONE -DEXT2_STANDALONE)
+
+if (OPENSSL_FOUND)
+    add_definitions(-DHAVE_OPENSSL)
+endif ()
+
+include_directories(
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/system/include
+)
+
+add_library(kernel
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
+)
+
+add_library(utility
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/List.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Vector.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Tree.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ExtensibleBitmap.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ObjectPool.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/utility.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/UnlikelyLock.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RequestQueue.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StaticString.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RangeList.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ProducerConsumer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RingBuffer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Result.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/sha1/sha1.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/smhasher/MurmurHash3.cpp
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/demangle.cc
+    # Optimized overrides here.
+    # TODO(miselin): handle non-x86 host OS.
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/x86_common/string.c
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/string.c
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/memory.c
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/vsprintf.c
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamAllocator.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/PhysicalMemoryManager.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Conversion.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Concurrent.cc  # Portable, unlike Delay.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/network/IpAddress.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/network/MacAddress.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/Atomic.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/Log.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/LockGuard.cc
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/shim.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/pocketknife.cc
+)
+target_link_libraries(utility INTERFACE )
+
+add_library(vfs
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Directory.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Filesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Symlink.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS.cc
+)
+
+add_library(ext2
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Directory.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Node.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Symlink.cc
+)
+
+add_library(partition
+    ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/Partition.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/apple.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/msdos.cc)
+
+add_library(debugger
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/Scrollable.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/DebuggerCommand.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/DebuggerIO.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/commands/LocksCommand.cc)
+target_compile_definitions(debugger PRIVATE -DTESTSUITE)
+
+add_library(config
+    ${CMAKE_SOURCE_DIR}/src/modules/system/config/Config.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/config/sqlite3/sqlite3.c)
+
+BISON_TARGET(KeymapParser
+    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.y
+    ${CMAKE_CURRENT_BINARY_DIR}/keymap-parser.c)
+FLEX_TARGET(KeymapScanner
+    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/lexer.l
+    ${CMAKE_CURRENT_BINARY_DIR}/keymap-lexer.c)
+ADD_FLEX_BISON_DEPENDENCY(KeymapScanner KeymapParser)
+
+add_executable(keymap
+    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c
+    ${BISON_KeymapParser_OUTPUTS}
+    ${FLEX_KeymapScanner_OUTPUTS})
+target_compile_definitions(keymap PRIVATE -DNOT_PEDIGREE)
+target_include_directories(keymap PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap)
+
+add_executable(ext2img
+    ext2img/DiskImage.cc
+    ext2img/main.cc
+    ext2img/stubs.cc)
+target_link_libraries(ext2img PRIVATE
+    ext2 vfs partition utility kernel
+    $<$<BOOL:OPENSSL_FOUND>:${OPENSSL_CRYPTO_LIBRARY}> Threads::Threads)
+
+add_executable(instrument instrument/main.cc)
+target_include_directories(instrument PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core)
+
+add_executable(memorytracer memorytracer/main.cc)
+target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
+
+# TODO: figure out how to build vdsotest given vdso.h could potentially not exist
+
+add_executable(testsuite
+    testsuite/test-Tree.cc
+    testsuite/test-ObjectPool.cc
+    testsuite/test-SlamAllocator.cc
+    testsuite/test-utility.cc
+    testsuite/test-String.cc
+    testsuite/test-Vector.cc
+    testsuite/test-memory.cc
+    testsuite/test-Result.cc
+    testsuite/test-RangeList.cc
+    testsuite/test-LocksCommand.cc
+    testsuite/test-List.cc
+    testsuite/test-SharedPointer.cc
+    testsuite/test-UniquePointer.cc
+    testsuite/test-Buffer.cc
+    testsuite/test-stringlib.cc
+    testsuite/test-ExtensibleBitmap.cc
+    testsuite/test-Time.cc
+    testsuite/test-SymbolTable.cc
+    testsuite/test-RadixTree.cc
+    testsuite/test-HashTable.cc
+    testsuite/test-StaticString.cc
+    testsuite/test-LazyEvaluate.cc
+    testsuite/test-ConditionVariable.cc
+)
+target_link_libraries(testsuite PRIVATE
+    kernel debugger vfs utility Threads::Threads gtest gtest_main)
+target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
+
+add_executable(benchmarker
+    testsuite/bench-ExtensibleBitmap.cc
+    testsuite/bench-SymbolTableConcepts.cc
+    testsuite/bench-stringlib.cc
+    testsuite/bench-RangeList.cc
+    testsuite/bench-HashTable.cc
+    testsuite/bench-List.cc
+    testsuite/bench-SlamAllocator.cc
+    testsuite/bench-main.cc
+    testsuite/bench-DirectoryStructures.cc
+    testsuite/bench-RadixTree.cc
+    testsuite/bench-StaticString.cc
+    testsuite/bench-Vector.cc
+    testsuite/bench-utility.cc
+    testsuite/bench-String.cc
+    testsuite/bench-memory.cc
+    testsuite/bench-Tree.cc
+)
+target_link_libraries(benchmarker PRIVATE
+    kernel utility Threads::Threads benchmark)
+target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
+
+# TODO: build netwrap
+
+export(
+    TARGETS keymap ext2img instrument memorytracer testsuite benchmarker
+    FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
+)
