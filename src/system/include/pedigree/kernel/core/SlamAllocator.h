@@ -137,6 +137,9 @@ class SlamAllocator;
 #define SLAM_LOCKED 0
 #endif
 
+// Define this to enable the debug allocator (which is basically placement new).
+// #define SLAM_USE_DEBUG_ALLOCATOR
+
 /** A cache allocates objects of a constant size. */
 class SlamCache
 {

@@ -3,8 +3,8 @@ language: cpp
 compiler: clang
 matrix:
   include:
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=x64
+  #- os: linux
+  #  env: OS=ubuntu EASY_BUILD=x64
   #- os: linux
   #  env: OS=ubuntu EASY_BUILD=arm
   # - os: linux

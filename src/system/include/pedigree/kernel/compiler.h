@@ -101,13 +101,17 @@
 // We don't use a custom allocator if asan is enabled.
 #if __has_feature(address_sanitizer) || __has_feature(memory_sanitizer)
 #define HAS_ADDRESS_SANITIZER 1
+#else
+#define HAS_ADDRESS_SANITIZER 0
 #endif
 
 #if __has_feature(thread_sanitizer)
 #define HAS_THREAD_SANITIZER 1
+#else
+#define HAS_THREAD_SANITIZER 0
 #endif
 
-#if defined(HAS_ADDRESS_SANITIZER) || defined(HAS_THREAD_SANITIZER)
+#if HAS_ADDRESS_SANITIZER || HAS_THREAD_SANITIZER
 #define HAS_SANITIZERS 1
 #endif
 

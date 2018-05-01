@@ -17,9 +17,14 @@ add_definitions(
     -DSTANDALONE_MEMPOOL -DDEVICE_IGNORE_ADDRESSES -DBITS_64 -DLITTLE_ENDIAN
     -DVFS_NOMMU -DVFS_STANDALONE -DEXT2_STANDALONE)
 
+set(BUILDUTIL_CFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
+set(BUILDUTIL_CXXFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
+
+set(COVERAGE_FLAGS "-fprofile-arcs" "-ftest-coverage")
+
 add_compile_options(
-    "$<$<COMPILE_LANGUAGE:C>:${GENERIC_CFLAGS}>"
-    "$<$<COMPILE_LANGUAGE:CXX>:${GENERIC_CXXFLAGS}>")
+    "$<$<COMPILE_LANGUAGE:C>:${BUILDUTIL_CFLAGS}>"
+    "$<$<COMPILE_LANGUAGE:CXX>:${BUILDUTIL_CXXFLAGS}>")
 
 if (OPENSSL_FOUND)
     add_definitions(-DHAVE_OPENSSL)
@@ -30,14 +35,20 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/system/include
 )
 
-add_library(kernel
+set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
-)
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc)
+add_library(kernel ${KERNEL_SRCS})
+add_library(kernel_coverage ${KERNEL_SRCS})
+# NOTE: using 'PUBLIC' here means anything using kernel_coverage will also get
+# these flags.
+target_compile_options(kernel_coverage PUBLIC -ggdb -g3 -O0 ${COVERAGE_FLAGS})
+target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
+target_compile_definitions(kernel_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
 
-add_library(utility
+set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/List.cc
@@ -75,9 +86,13 @@ add_library(utility
     ${CMAKE_SOURCE_DIR}/src/system/kernel/LockGuard.cc
 
     ${CMAKE_CURRENT_SOURCE_DIR}/shim.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/pocketknife.cc
-)
-target_link_libraries(utility INTERFACE )
+    ${CMAKE_CURRENT_SOURCE_DIR}/pocketknife.cc)
+
+add_library(utility ${UTILITY_SRCS})
+add_library(utility_coverage ${UTILITY_SRCS})
+target_compile_options(utility_coverage PUBLIC -ggdb -g3 -O0 ${COVERAGE_FLAGS})
+target_link_libraries(utility_coverage PUBLIC ${COVERAGE_FLAGS})
+target_compile_definitions(utility_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
 
 add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Directory.cc
@@ -170,7 +185,7 @@ add_executable(testsuite
     testsuite/test-ConditionVariable.cc
 )
 target_link_libraries(testsuite PRIVATE
-    kernel debugger vfs utility Threads::Threads gtest gtest_main)
+    kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 
 export(

@@ -53,7 +53,7 @@ EXPORT void *memmove(void *s1, const void *s2, size_t n);
 
 // asan provides a memcpy/memset/etc that we care about more than our custom
 // ones, in general.
-#ifndef HAS_ADDRESS_SANITIZER
+#if !HAS_ADDRESS_SANITIZER
 
 EXPORT int memcmp(const void *p1, const void *p2, size_t len)
 {

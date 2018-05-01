@@ -23,14 +23,14 @@
 
 #include "pedigree/kernel/core/SlamAllocator.h"
 
-TEST(PedigreeSlamAllocator, EmptyStartup)
+TEST(PedigreeSlamAllocator, DISABLE_EmptyStartup)
 {
     SlamAllocator::instance().initialise();
 
     EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 0);
 }
 
-TEST(PedigreeSlamAllocator, Allocation)
+TEST(PedigreeSlamAllocator, DISABLE_Allocation)
 {
     SlamAllocator::instance().initialise();
 
@@ -41,7 +41,7 @@ TEST(PedigreeSlamAllocator, Allocation)
     SlamAllocator::instance().free(alloc);
 }
 
-TEST(PedigreeSlamAllocator, Deallocate)
+TEST(PedigreeSlamAllocator, DISABLE_Deallocate)
 {
     SlamAllocator::instance().initialise();
 
@@ -51,7 +51,7 @@ TEST(PedigreeSlamAllocator, Deallocate)
     EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 1);
 }
 
-TEST(PedigreeSlamAllocator, Recovery)
+TEST(PedigreeSlamAllocator, DISABLE_Recovery)
 {
     SlamAllocator::instance().initialise();
 
@@ -64,7 +64,7 @@ TEST(PedigreeSlamAllocator, Recovery)
     EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 0);
 }
 
-TEST(PedigreeSlamAllocator, Alignment)
+TEST(PedigreeSlamAllocator, DISABLE_Alignment)
 {
     SlamAllocator::instance().initialise();
 

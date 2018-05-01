@@ -12,7 +12,7 @@ cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 
 # Set up some general default flags for the entire project.
 # NOTE: don't include optimization flags - they need to be added elsewhere based on input flags.
-set(GENERIC_COMPILE_FLAGS "-fvisibility=hidden" "-pipe" "-O0")
+set(GENERIC_COMPILE_FLAGS "-fvisibility=hidden" "-pipe" "-Os")
 set(GENERIC_COMPILE_CFLAGS "-std=gnu99")
 set(GENERIC_COMPILE_CXXFLAGS "-std=gnu++11")
 
@@ -51,6 +51,8 @@ if(CMAKE_CROSSCOMPILING)
 
     add_subdirectory(src/system/kernel)
 else ()
+    set(POSITION_INDEPENDENT_CODE TRUE)
+
     add_subdirectory(external/googletest)
     add_subdirectory(src/buildutil)
 endif ()

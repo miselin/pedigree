@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifndef SLAM_USE_DEBUG_ALLOCATOR
+
 #include "pedigree/kernel/core/SlamAllocator.h"
 
 #ifndef PEDIGREE_BENCHMARK
@@ -1513,3 +1515,5 @@ bool _assert_ptr_valid(uintptr_t ptr)
 {
     return SlamAllocator::instance().isPointerValid(ptr);
 }
+
+#endif  // !defined(SLAM_USE_DEBUG_ALLOCATOR)

@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifdef SLAM_USE_DEBUG_ALLOCATOR
+
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/MemoryTracing.h"
@@ -408,3 +410,5 @@ bool _assert_ptr_valid(uintptr_t ptr)
 {
     return SlamAllocator::instance().isPointerValid(ptr);
 }
+
+#endif  // defined(SLAM_USE_DEBUG_ALLOCATOR)
