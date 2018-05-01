@@ -29,6 +29,10 @@ add_definitions(
     -DSERIAL_IS_FILE -DVERBOSE_LINKER -DMEMORY_LOGGING_ENABLED
     -DDEBUGGER_QWERTY -DENABLE_CTRLC)
 
+add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>"
+    "$<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>")
+
 if (PEDIGREE_ARCHDIR STREQUAL "x64")
     add_library(processor STATIC
         # /core/processor/x64/
@@ -327,24 +331,3 @@ add_executable(kernel
 target_link_libraries(kernel PRIVATE
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} machine processor hash
     x86emu udis86)
-
-# Fix up all compiler flags as needed
-# TOOD: make this more generic
-target_compile_options(kernel PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>)
-target_compile_options(machine PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>)
-target_compile_options(processor PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>)
-target_compile_options(hash PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>)
-target_compile_options(x86emu PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>)
-target_compile_options(udis86 PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>)

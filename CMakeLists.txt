@@ -1,5 +1,5 @@
 project(Pedigree)
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.3)
 
 if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
     # All nasm on x86-based systems
