@@ -3,6 +3,13 @@ find_package(FLEX)
 find_package(OpenSSL)
 find_package(Threads REQUIRED)
 
+find_library(BENCHMARK_LIBRARY benchmark)
+find_path(BENCHMARK_INCLUDE_DIR benchmark/benchmark.h)
+
+if (BENCHMARK_INCLUDE_DIR)
+    include_directories(${BENCHMARK_INCLUDE_DIR})
+endif ()
+
 # TODO: should detect a few of these things
 add_definitions(
     -DHOSTED -DUTILITY_LINUX -DTARGET_IS_LITTLE_ENDIAN -DDONT_LOG_TO_SERIAL
@@ -166,31 +173,38 @@ target_link_libraries(testsuite PRIVATE
     kernel debugger vfs utility Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 
-add_executable(benchmarker
-    testsuite/bench-ExtensibleBitmap.cc
-    testsuite/bench-SymbolTableConcepts.cc
-    testsuite/bench-stringlib.cc
-    testsuite/bench-RangeList.cc
-    testsuite/bench-HashTable.cc
-    testsuite/bench-List.cc
-    testsuite/bench-SlamAllocator.cc
-    testsuite/bench-main.cc
-    testsuite/bench-DirectoryStructures.cc
-    testsuite/bench-RadixTree.cc
-    testsuite/bench-StaticString.cc
-    testsuite/bench-Vector.cc
-    testsuite/bench-utility.cc
-    testsuite/bench-String.cc
-    testsuite/bench-memory.cc
-    testsuite/bench-Tree.cc
-)
-target_link_libraries(benchmarker PRIVATE
-    kernel utility Threads::Threads benchmark)
-target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
-
-# TODO: build netwrap
-
 export(
-    TARGETS keymap ext2img instrument memorytracer testsuite benchmarker
+    TARGETS keymap ext2img instrument memorytracer testsuite
     FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
 )
+
+if (BENCHMARK_LIBRARY)
+    add_executable(benchmarker
+        testsuite/bench-ExtensibleBitmap.cc
+        testsuite/bench-SymbolTableConcepts.cc
+        testsuite/bench-stringlib.cc
+        testsuite/bench-RangeList.cc
+        testsuite/bench-HashTable.cc
+        testsuite/bench-List.cc
+        testsuite/bench-SlamAllocator.cc
+        testsuite/bench-main.cc
+        testsuite/bench-DirectoryStructures.cc
+        testsuite/bench-RadixTree.cc
+        testsuite/bench-StaticString.cc
+        testsuite/bench-Vector.cc
+        testsuite/bench-utility.cc
+        testsuite/bench-String.cc
+        testsuite/bench-memory.cc
+        testsuite/bench-Tree.cc
+    )
+    target_link_libraries(benchmarker PRIVATE
+        kernel utility Threads::Threads ${BENCHMARK_LIBRARY})
+    target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
+
+    export(
+        TARGETS benchmarker
+        APPEND FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
+    )
+endif ()
+
+# TODO: build netwrap
