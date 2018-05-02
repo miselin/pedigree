@@ -29,47 +29,27 @@ Import(['env', 'host_env'])
 if not env['build_tests_only']:
   Import(['userspace_env'])
 
-BUILDDIR = env['BUILDDIR']
-
-def path2sconscript(*args):
-  d = BUILDDIR.Dir(args[0])
-  for p in args[1:]:
-    d = d.Dir(p)
-  return d.File('SConscript')
-
 # Host utilities or libraries for host tools in git submodules.
-SConscript(path2sconscript('external'), exports=['host_env'])
+SConscript(fs.path2sconscript(env, 'external'), exports=['host_env'])
 
 # Build utilities that run on the host during the kernel build.
-SConscript(path2sconscript('buildutil'), exports=['host_env'])
-
-if env['build_subsys']:
-  # POSIX subsystem.
-  SConscript(path2sconscript('subsys', 'posix'),
-             exports=['env', 'userspace_env'])
-  # Pedigree-C subsystem.
-  SConscript(path2sconscript('subsys', 'pedigree-c'),
-             exports=['env', 'userspace_env'])
-  # Native subsystem.
-  if 'NATIVE_SUBSYSTEM' in env['EXTRA_CONFIG']:
-      SConscript(path2sconscript('subsys', 'native'),
-                 exports=['env', 'userspace_env'])
+SConscript(fs.path2sconscript(env, 'buildutil'), exports=['host_env'])
 
 if env['build_modules']:
   # Kernel drivers and modules.
-  SConscript(path2sconscript('modules'), exports=['env'])
+  SConscript(fs.path2sconscript(env, 'modules'), exports=['env', 'userspace_env'])
 
 if env['build_kernel']:
-  SConscript(path2sconscript('system', 'kernel'), exports=['env'])
+  SConscript(fs.path2sconscript(env, 'system', 'kernel'), exports=['env'])
   if env['BOOT_DIR']:
-    SConscript(path2sconscript('system', 'boot', env['BOOT_DIR']), exports=['env'])
+    SConscript(fs.path2sconscript(env, 'system', 'boot', env['BOOT_DIR']), exports=['env'])
 
 # On X86, X64 and PPC we build applications and LGPL libraries
 if env['build_apps'] or env['build_libs']:
-  SConscript(path2sconscript('user'),
+  SConscript(fs.path2sconscript(env, 'user'),
              exports=['env', 'userspace_env'])
 if env['build_lgpl']:
-  SConscript(path2sconscript('lgpl'),
+  SConscript(fs.path2sconscript(env, 'lgpl'),
              exports=['env', 'userspace_env'])
 
 # Build the configuration database (no dependencies)
@@ -89,7 +69,7 @@ if env['build_translations']:
   # Note: SConscript.i18n is NOT built in the VariantDir as we want to take
   # the generate POT and PO files and commit them to source control. The other
   # SConscript generates MO files, which should NOT be in source control.
-  SConscript(path2sconscript('po'), exports=['env'])
+  SConscript(fs.path2sconscript(env, 'po'), exports=['env'])
 
 # Build disk images.
 if env['build_images']:

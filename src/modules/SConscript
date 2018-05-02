@@ -19,11 +19,14 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import os
 
+import buildutils.fs
 import buildutils.misc
 import buildutils.modules
 import moduledeps
 
 Import(['env'])
+if not env['build_tests_only']:
+  Import(['userspace_env'])
 
 driverdir = env["PEDIGREE_BUILD_DRIVERS"]
 moduledir = env["PEDIGREE_BUILD_MODULES"]
@@ -470,3 +473,15 @@ if('STATIC_DRIVERS' in env['CPPDEFINES']):
     env['INITRD_LIST'] = initrdList
 elif not (env['clang_cross'] and env['clang_analyse']):
     env.CreateTar(initrdFile, initrdList)
+
+if env['build_subsys']:
+  # POSIX subsystem.
+  SConscript(buildutils.fs.path2sconscript(env, 'modules', 'subsys', 'posix'),
+             exports=['env', 'userspace_env'])
+  # Pedigree-C subsystem.
+  SConscript(buildutils.fs.path2sconscript(env, 'modules', 'subsys', 'pedigree-c'),
+             exports=['env', 'userspace_env'])
+  # Native subsystem.
+  if 'NATIVE_SUBSYSTEM' in env['EXTRA_CONFIG']:
+      SConscript(buildutils.fs.path2sconscript(env, 'modules', 'subsys', 'native'),
+                 exports=['env', 'userspace_env'])

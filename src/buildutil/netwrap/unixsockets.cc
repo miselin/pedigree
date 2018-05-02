@@ -25,10 +25,10 @@
 
 #include "modules/system/vfs/VFS.h"
 
-#include "subsys/posix/net-syscalls.h"
-#include "subsys/posix/poll-syscalls.h"
-#include "subsys/posix/UnixFilesystem.h"
-#include "subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/net-syscalls.h"
+#include "modules/subsys/posix/poll-syscalls.h"
+#include "modules/subsys/posix/UnixFilesystem.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 
 #include <sys/un.h>
 

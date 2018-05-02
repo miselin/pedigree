@@ -19,7 +19,7 @@
 
 #include <iostream>
 
-#include <subsys/posix/vdso.h>
+#include <modules/subsys/posix/vdso.h>
 
 extern "C" void vdso_init_from_auxv(void *auxv);
 extern "C" void vdso_init_from_sysinfo_ehdr(uintptr_t base);

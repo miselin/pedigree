@@ -230,7 +230,7 @@ void __cxa_pure_virtual()
 }
 
 /// Called by G++ if function local statics are initialised for the first time
-#ifndef HAS_THREAD_SANITIZER
+#if !HAS_THREAD_SANITIZER
 extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire();
 extern "C" EXPORTED_PUBLIC void __cxa_guard_release();
 

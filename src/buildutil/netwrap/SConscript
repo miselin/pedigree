@@ -41,7 +41,7 @@ header_paths = [
     env.Dir('#src/modules/system/lwip/include'),
     env.Dir('#src/system/include'),
     env.Dir('#src/system/kernel/core'),
-    env.Dir('#src/subsys/posix'),
+    env.Dir('#src/modules/subsys/posix'),
 ]
 
 build_env.Append(CPPPATH=header_paths)
@@ -98,16 +98,16 @@ liblwip_sources = [
 ]
 
 libposix_sources = [
-    '../../subsys/posix/FileDescriptor.cc',
-    '../../subsys/posix/FileDescriptor.h',
-    '../../subsys/posix/UnixFilesystem.cc',
-    '../../subsys/posix/UnixFilesystem.h',
-    '../../subsys/posix/net-syscalls.cc',
-    '../../subsys/posix/net-syscalls.h',
-    '../../subsys/posix/poll-syscalls.cc',
-    '../../subsys/posix/poll-syscalls.h',
-    '../../subsys/posix/util.cc',
-    '../../subsys/posix/PosixSubsystem.h',
+    '../../modules/subsys/posix/FileDescriptor.cc',
+    '../../modules/subsys/posix/FileDescriptor.h',
+    '../../modules/subsys/posix/UnixFilesystem.cc',
+    '../../modules/subsys/posix/UnixFilesystem.h',
+    '../../modules/subsys/posix/net-syscalls.cc',
+    '../../modules/subsys/posix/net-syscalls.h',
+    '../../modules/subsys/posix/poll-syscalls.cc',
+    '../../modules/subsys/posix/poll-syscalls.h',
+    '../../modules/subsys/posix/util.cc',
+    '../../modules/subsys/posix/PosixSubsystem.h',
 ]
 
 config = build_env.Library(libconfig, libconfig_sources, CPPDEFINES=sqlite_cppdefines)

@@ -1,0 +1,370 @@
+/*
+ * Copyright (c) 2008-2014, Pedigree Developers
+ *
+ * Please see the CONTRIB file in the root of the source tree for a full
+ * list of contributors.
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/kernel/debugger/libudis86/types.h"
+
+#include "modules/subsys/pedigree-c/pedigree-syscalls.h"
+
+#define PACKED __attribute__((packed))  /// \todo Move to a header
+
+using namespace PedigreeGraphics;
+
+struct blitargs
+{
+    Buffer *pBuffer;
+    uint32_t srcx, srcy, destx, desty, width, height;
+} PACKED;
+
+struct drawargs
+{
+    void *a;
+    uintptr_t b, c, d, e, f, g, h;
+} PACKED;
+
+struct createargs
+{
+    void *pFramebuffer;
+    void *pReturnProvider;
+    size_t x, y, w, h;
+} PACKED;
+
+struct fourargs
+{
+    uintptr_t a, b, c, d;
+} PACKED;
+
+struct sixargs
+{
+    uintptr_t a, b, c, d, e, f;
+} PACKED;
+
+Rect::Rect() : x(0), y(0), w(0), h(0){}
+Rect::Rect(size_t x_, size_t y_, size_t width_, size_t height_)
+    : x(x_), y(y_), w(width_), h(height_){}
+
+Rect::~Rect() = default;
+
+void Rect::update(size_t x_, size_t y_, size_t w_, size_t h_)
+{
+    this->x = x_;
+    this->y = y_;
+    this->w = w_;
+    this->h = h_;
+}
+
+size_t Rect::getX() const
+{
+    return x;
+}
+
+size_t Rect::getY() const
+{
+    return y;
+}
+
+size_t Rect::getW() const
+{
+    return w;
+}
+
+size_t Rect::getH() const
+{
+    return h;
+}
+
+Framebuffer::Framebuffer()
+    : m_Provider(), m_bProviderValid(false), m_bIsChild(false)
+{
+    int ret = pedigree_gfx_get_provider(&m_Provider);
+    if (ret >= 0)
+        m_bProviderValid = true;
+}
+
+Framebuffer::Framebuffer(GraphicsProvider &gfx)
+{
+    m_Provider = gfx;
+    m_bProviderValid = m_bIsChild = true;
+
+    // Because a GraphicsProvider is a generic structure, we could have been
+    // created in another address space. We need to 'transfer' the provider
+    // into our own address space.
+    // Fortunately, the provider is still valid, so we can call getters here.
+    // We just can't do anything that involves the actual framebuffer.
+    size_t nBytes = (getWidth() * getHeight() * getBytesPerPixel());
+    uint8_t *pBuffer = new uint8_t[nBytes];
+
+    GraphicsProvider ret = m_Provider;
+    createargs args;
+    args.pReturnProvider = &m_Provider;
+    args.pFramebuffer = reinterpret_cast<void *>(pBuffer);
+    args.x = 0;
+    args.y = 0;
+    args.w = getWidth();
+    args.h = getHeight();
+    int ok = pedigree_gfx_create_fbuffer(&gfx, &args);
+
+    if (ok < 0)
+    {
+        delete[] pBuffer;
+        m_bProviderValid = false;
+    }
+}
+
+Framebuffer::~Framebuffer()
+{
+    if (m_bIsChild)
+        pedigree_gfx_delete_fbuffer(&m_Provider);
+}
+
+void Framebuffer::setPalette(uint32_t *palette, size_t entries)
+{
+    if (!m_bProviderValid)
+        return;
+
+    pedigree_gfx_setpalette(&m_Provider, palette, entries);
+}
+
+size_t Framebuffer::getWidth()
+{
+    if (!m_bProviderValid)
+        return 0;
+
+    size_t ret = 0;
+    pedigree_gfx_fbinfo(&m_Provider, &ret, 0, 0, 0);
+
+    return ret;
+}
+
+size_t Framebuffer::getHeight()
+{
+    if (!m_bProviderValid)
+        return 0;
+
+    size_t ret = 0;
+    pedigree_gfx_fbinfo(&m_Provider, 0, &ret, 0, 0);
+
+    return ret;
+}
+
+PixelFormat Framebuffer::getFormat()
+{
+    if (!m_bProviderValid)
+        return Bits32_Argb;
+
+    uint32_t ret = 0;
+    pedigree_gfx_fbinfo(&m_Provider, 0, 0, &ret, 0);
+
+    return static_cast<PixelFormat>(ret);
+}
+
+size_t Framebuffer::getBytesPerPixel()
+{
+    if (!m_bProviderValid)
+        return 4;
+
+    size_t ret = 0;
+    pedigree_gfx_fbinfo(&m_Provider, 0, 0, 0, &ret);
+
+    return ret;
+}
+
+void *Framebuffer::getRawBuffer()
+{
+    if (!m_bProviderValid)
+        return 0;
+
+    return reinterpret_cast<void *>(pedigree_gfx_get_raw_buffer(&m_Provider));
+}
+
+Framebuffer *Framebuffer::createChild(size_t x, size_t y, size_t w, size_t h)
+{
+    if (!m_bProviderValid)
+        return 0;
+    if (!(w && h))
+        return 0;
+
+    size_t nBytes = (w * h * getBytesPerPixel());
+    uint8_t *pBuffer = new uint8_t[nBytes];
+
+    GraphicsProvider ret = m_Provider;
+    createargs args;
+    args.pReturnProvider = &ret;
+    args.pFramebuffer = reinterpret_cast<void *>(pBuffer);
+    args.x = x;
+    args.y = y;
+    args.w = w;
+    args.h = h;
+    int ok = pedigree_gfx_create_fbuffer(&m_Provider, &args);
+
+    if (ok < 0)
+    {
+        delete[] pBuffer;
+        return 0;
+    }
+
+    Framebuffer *pNewFB = new Framebuffer(ret);
+    return pNewFB;
+}
+
+Buffer *Framebuffer::createBuffer(
+    const void *srcData, PixelFormat srcFormat, size_t width, size_t height)
+{
+    if (!m_bProviderValid)
+        return 0;
+
+    Buffer *ret = 0;
+    fourargs args;
+    args.a = reinterpret_cast<uintptr_t>(srcData);
+    args.b = static_cast<uintptr_t>(srcFormat);
+    args.c = width;
+    args.d = height;
+    int ok = pedigree_gfx_create_buffer(
+        &m_Provider, reinterpret_cast<void **>(&ret), &args);
+
+    if (ok >= 0)
+        return ret;
+    else
+    {
+        delete ret;
+        return 0;
+    }
+}
+
+void Framebuffer::destroyBuffer(Buffer *pBuffer)
+{
+    if (!m_bProviderValid)
+        return;
+
+    pedigree_gfx_destroy_buffer(&m_Provider, pBuffer);
+}
+
+void Framebuffer::redraw(size_t x, size_t y, size_t w, size_t h, bool bChild)
+{
+    if (!m_bProviderValid)
+        return;
+
+    sixargs args;
+    args.a = x;
+    args.b = y;
+    args.c = w;
+    args.d = h;
+    args.e = bChild;
+
+    pedigree_gfx_redraw(&m_Provider, &args);
+}
+
+void Framebuffer::blit(
+    Buffer *pBuffer, size_t srcx, size_t srcy, size_t destx, size_t desty,
+    size_t width, size_t height)
+{
+    blitargs args;
+    args.pBuffer = pBuffer;
+    args.srcx = srcx;
+    args.srcy = srcy;
+    args.destx = destx;
+    args.desty = desty;
+    args.width = width;
+    args.height = height;
+
+    pedigree_gfx_blit(&m_Provider, &args);
+}
+
+void Framebuffer::draw(
+    void *pBuffer, size_t srcx, size_t srcy, size_t destx, size_t desty,
+    size_t width, size_t height, PixelFormat format)
+{
+    if (!m_bProviderValid)
+        return;
+
+    drawargs args;
+    args.a = pBuffer;
+    args.b = srcx;
+    args.c = srcy;
+    args.d = destx;
+    args.e = desty;
+    args.f = width;
+    args.g = height;
+    args.h = static_cast<uint32_t>(format);
+
+    pedigree_gfx_draw(&m_Provider, &args);
+}
+
+void Framebuffer::rect(
+    size_t x, size_t y, size_t width, size_t height, uint32_t colour,
+    PixelFormat format)
+{
+    if (!m_bProviderValid)
+        return;
+
+    sixargs args;
+    args.a = x;
+    args.b = y;
+    args.c = width;
+    args.d = height;
+    args.e = colour;
+    args.f = static_cast<uint32_t>(format);
+
+    pedigree_gfx_rect(&m_Provider, &args);
+}
+
+void Framebuffer::copy(
+    size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w, size_t h)
+{
+    if (!m_bProviderValid)
+        return;
+
+    sixargs args;
+    args.a = srcx;
+    args.b = srcy;
+    args.c = destx;
+    args.d = desty;
+    args.e = w;
+    args.f = h;
+
+    pedigree_gfx_copy(&m_Provider, &args);
+}
+
+void Framebuffer::line(
+    size_t x1, size_t y1, size_t x2, size_t y2, uint32_t colour,
+    PixelFormat format)
+{
+    if (!m_bProviderValid)
+        return;
+
+    sixargs args;
+    args.a = x1;
+    args.b = y1;
+    args.c = x2;
+    args.d = y2;
+    args.e = colour;
+    args.f = static_cast<uint32_t>(format);
+
+    pedigree_gfx_line(&m_Provider, &args);
+}
+
+void Framebuffer::setPixel(
+    size_t x, size_t y, uint32_t colour, PixelFormat format)
+{
+    if (!m_bProviderValid)
+        return;
+
+    pedigree_gfx_set_pixel(
+        &m_Provider, x, y, colour, static_cast<uint32_t>(format));
+}

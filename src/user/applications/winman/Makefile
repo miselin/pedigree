@@ -3,7 +3,7 @@ BUILDDIR := build
 
 CXX := ccache g++
 
-CFLAGS:=-I../../../subsys/native/include `freetype-config --cflags` -O2
+CFLAGS:=-I../../../modules/subsys/native/include `freetype-config --cflags` -O2
 CFLAGS:=$(CFLAGS) `libpng-config --cflags` `sdl-config --cflags`
 CFLAGS:=$(CFLAGS) `pkg-config --cflags cairo pangocairo pango`
 CFLAGS:=$(CFLAGS) -I../../libraries/libui/src -I../../libraries/libui/include

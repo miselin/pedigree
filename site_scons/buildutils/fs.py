@@ -17,8 +17,8 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
-
 import os
+
 
 def find_files(startdir, matcher, skip_paths):
     """Find files in the given directory, with blacklist and custom matcher.
@@ -41,6 +41,7 @@ def find_files(startdir, matcher, skip_paths):
             x.extend([os.path.join(root, f) for f in files if matcher(f)])
 
     return sorted(x)
+
 
 def install_tree(target_dir, source_dir, env, alias=None):
     """Install files from the given source directory into the given target.
@@ -67,3 +68,11 @@ def install_tree(target_dir, source_dir, env, alias=None):
             env.Alias(alias, targets)
 
     deep_install(target_dir, source_dir, env)
+
+
+def path2sconscript(env, *args):
+    builddir = env['BUILDDIR']
+    d = builddir.Dir(args[0])
+    for p in args[1:]:
+        d = d.Dir(p)
+    return d.File('SConscript')
