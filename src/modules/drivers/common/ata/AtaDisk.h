@@ -31,7 +31,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 
-#include <scsi/ScsiDisk.h>
+#include "modules/drivers/common/scsi/ScsiDisk.h"
 
 #include "ata-common.h"
 

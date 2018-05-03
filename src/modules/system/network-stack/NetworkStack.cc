@@ -24,11 +24,11 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include "lwip/include/lwip/netif.h"
-#include "lwip/include/lwip/etharp.h"
-#include "lwip/include/lwip/ethip6.h"
-#include "lwip/include/lwip/tcpip.h"
-#include "lwip/include/netif/ethernet.h"
+#include "modules/system/lwip/include/lwip/netif.h"
+#include "modules/system/lwip/include/lwip/etharp.h"
+#include "modules/system/lwip/include/lwip/ethip6.h"
+#include "modules/system/lwip/include/lwip/tcpip.h"
+#include "modules/system/lwip/include/netif/ethernet.h"
 
 #include "Filter.h"
 

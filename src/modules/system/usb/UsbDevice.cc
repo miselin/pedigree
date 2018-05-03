@@ -501,7 +501,9 @@ bool UsbDevice::controlRequest(
 
     // Return false if we had an error, true otherwise
     if (nResult < 0)
+    {
         DEBUG_LOG("USB: Control request failure - status is " << nResult);
+    }
     return nResult >= 0;  // >= sizeof(Setup) + nLength;
 }
 

@@ -1,14 +1,13 @@
 
 set(GENERIC_KERNEL_FLAGS
     "-fno-builtin" "-nostdlib" "-ffreestanding" "-fno-common" "-m64"
-    "-mno-red-zone" "-mcmodel=kernel" "-march=k8" "-mno-sse" "-mno-mmx"
-    "-fno-omit-frame-pointer")
+    "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fno-omit-frame-pointer")
 set(GENERIC_KERNEL_CFLAGS "")
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
     "-fno-use-cxa-atexit")
 set(GENERIC_KERNEL_LINKFLAGS
-    "-nostdlib" "-nostartfiles" "-mcmodel=kernel" "-m64" "-Wl,--discard-all")
+    "-nostdlib" "-nostartfiles" "-m64" "-Wl,--discard-all")
 if (PEDIGREE_LINKERSCRIPT)
     set(GENERIC_KERNEL_LINKFLAGS
         ${GENERIC_KERNEL_LINKFLAGS} "-T${PEDIGREE_LINKERSCRIPT}")
@@ -27,14 +26,18 @@ add_definitions(
     -DIN_PEDIGREE_KERNEL -DDEBUGGER -DADDITIONAL_CHECKS -DASSERTS
     -DDEBUG_LOGGING -DMULTIPLE_CONSOLES -DTRACING -D__UD_STANDALONE__
     -DSERIAL_IS_FILE -DVERBOSE_LINKER -DMEMORY_LOGGING_ENABLED
-    -DDEBUGGER_QWERTY -DENABLE_CTRLC)
+    -DDEBUGGER_QWERTY -DENABLE_CTRLC -DAPIC -DACPI -DSMP)
 
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>")
 
 if (PEDIGREE_ARCHDIR STREQUAL "x64")
-    add_library(processor STATIC
+    add_library(processor_unshared STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/boot-standalone.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/trampoline.s)
+
+    set(PROCESSOR_SRCS
         # /core/processor/x64/
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/Elf.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/gdt.cc
@@ -52,9 +55,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/instrument.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/gdt.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/SyscallManager.s
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/trampoline.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/InterruptManager.s
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/boot-standalone.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
         # /core/processor/x86_common/
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Disassembler.cc
@@ -63,11 +64,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/PhysicalMemoryManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Processor.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/ProcessorInformation.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/string.c
-    )
-    target_include_directories(processor PUBLIC
-    )
-    target_link_libraries(processor PUBLIC machine)
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/string.c)
 
     set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Processor.s
@@ -80,11 +77,11 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
         PROPERTIES LANGUAGE ASM_NASM)
 else ()
-    add_library(processor STATIC)
+    set(PROCESSOR_SRCS "")
 endif ()
 
 if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
-    add_library(machine STATIC
+    set(MACHINE_SRCS
         # /machine/mach_pc/
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Acpi.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Apic.cc
@@ -103,16 +100,9 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/SMBios.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Smp.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Trace.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Vga.cc
-    )
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Vga.cc)
 
-    # TODO: remove dependencies on this if possible
-    target_include_directories(machine PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-    target_compile_definitions(machine PUBLIC -DAPIC -DACPI -DSMP)
-
-    add_library(x86emu STATIC
+    set(X86EMU_SRCS
         # /machine/mach_pc/
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/prim_ops.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/ops2.c
@@ -120,18 +110,13 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/ops.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/sys.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/decode.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c
-    )
-    target_include_directories(x86emu PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/x86emu
-    )
-    target_compile_options(x86emu PRIVATE -w)
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c)
 else()
-    add_library(machine STATIC)
-    add_library(x86emu STATIC)
+    set(MACHINE_SRCS "")
+    set(X86EMU_SRCS "")
 endif ()
 
-add_library(udis86 STATIC
+set(UDIS86_SRCS
     # /debugger/
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/mnemonics.c
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/udis86.c
@@ -140,21 +125,17 @@ add_library(udis86 STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/syn-intel.c
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/input.c
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/syn.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/syn-att.c
-)
+    ${CMAKE_CURRENT_SOURCE_DIR}/debugger/libudis86/syn-att.c)
 
-add_library(hash STATIC
+set(HASH_SRCS
     # /utilities/sha1/
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/sha1/sha1.cc
     # /utilities/md5/
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/md5/md5.cc
     # /utilities/smhasher/
-    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/smhasher/MurmurHash3.cpp
-)
-target_compile_options(hash PRIVATE -w)
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/smhasher/MurmurHash3.cpp)
 
-# TODO: no-debugger builds need to not pull in quite as much debugger stuff
-add_executable(kernel
+set(KERNEL_SRCS
     # /
     ${CMAKE_CURRENT_BINARY_DIR}/Version.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/Archive.cc
@@ -325,9 +306,44 @@ add_executable(kernel
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/UnlikelyLock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/utility.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Vector.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ZombieQueue.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ZombieQueue.cc)
+
+# TODO: no-debugger builds need to not pull in quite as much debugger stuff
+
+add_library(kernel_shared SHARED
+    ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
+target_compile_options(kernel_shared PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
+    $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
+target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS})
+
+add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C>:-mcmodel=kernel>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-mcmodel=kernel>")
+
+add_library(machine STATIC ${MACHINE_SRCS})
+# TODO: remove dependencies on this if possible
+target_include_directories(machine PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+add_library(processor STATIC ${PROCESSOR_SRCS})
+target_link_libraries(processor PUBLIC machine)
+
+add_library(x86emu STATIC ${X86EMU_SRCS})
+target_include_directories(x86emu PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/x86emu)
+target_compile_options(x86emu PRIVATE -w)
+
+add_library(udis86 STATIC ${UDIS86_SRCS})
+
+add_library(hash STATIC ${HASH_SRCS})
+target_compile_options(hash PRIVATE -w)
+
+add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE
-    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} machine processor hash
-    x86emu udis86)
+    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS}
+    machine processor processor_unshared hash x86emu udis86)
+
+
+

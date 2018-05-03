@@ -23,7 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <hid/HidUtils.h>
+#include "modules/drivers/common/hid/HidUtils.h"
 
 class EXPORTED_PUBLIC HidReport
 {

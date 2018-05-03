@@ -22,7 +22,8 @@
 
 #include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/processor/types.h"
-#include <hid/HidReport.h>
+
+class HidReport;
 
 class UsbHumanInterfaceDevice : public UsbDevice
 {

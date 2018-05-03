@@ -23,7 +23,7 @@
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
-#include <hid/HidReport.h>
+#include "modules/drivers/common/hid/HidReport.h"
 
 #include "UsbHumanInterfaceDevice.h"
 

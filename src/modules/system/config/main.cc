@@ -265,7 +265,7 @@ static int xSleep(sqlite3_vfs *vfs, int microseconds)
     return 0;
 }
 
-static int xCurrentTime(sqlite3_vfs *vfs, double *)
+static int xCurrentTime(sqlite3_vfs *vfs, sqlite3_int64 *)
 {
     return 0;
 }

@@ -1539,7 +1539,7 @@ int posix_syslog(const char *msg, int prio)
         WARNING("[" << Dec << id << Hex << "]\tklog: " << msg);
     else if (prio == LOG_NOTICE || prio == LOG_INFO)
         NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
-#if DEBUGGER
+#ifdef DEBUGGER
     else
         NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
 #endif

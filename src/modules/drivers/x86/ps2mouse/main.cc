@@ -20,7 +20,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "Ps2Mouse.h"
 #include "modules/Module.h"
-#include <Ps2Controller.h>
+#include "system/kernel/machine/mach_pc/Ps2Controller.h"
 
 // Global static object for the PS/2 mouse we'll be working with
 EXPORTED_PUBLIC Ps2Mouse *g_Ps2Mouse = 0;

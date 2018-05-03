@@ -19,7 +19,7 @@
 
 #include "cdi/dma.h"
 
-#include <dma/IsaDma.h>
+#include "modules/drivers/common/dma/IsaDma.h"
 
 #ifndef X86_COMMON
 #warning ISA DMA not supported on non-x86 architectures. TODO: FIXME

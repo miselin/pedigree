@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "DynamicLinker.h"
+#include "modules/system/linker/DynamicLinker.h"
 #include "modules/Module.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"

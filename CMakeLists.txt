@@ -1,5 +1,10 @@
+# Add our internal CMake modules path before project() to enable our custom platform
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
+
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
+
+find_package(PythonInterp)
 
 if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
     # All nasm on x86-based systems
@@ -50,6 +55,7 @@ if(CMAKE_CROSSCOMPILING)
     include(${IMPORT_EXECUTABLES})
 
     add_subdirectory(src/system/kernel)
+    add_subdirectory(src/modules)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
 

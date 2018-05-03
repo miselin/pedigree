@@ -30,7 +30,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
-#include <scsi/ScsiController.h>
+#include "modules/drivers/common/scsi/ScsiController.h"
 
 /** Base class for an ATA controller. */
 class AtaController : public ScsiController, public IrqHandler
