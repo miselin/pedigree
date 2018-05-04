@@ -180,10 +180,10 @@ include_directories(src src/system/include)
 # Always do this regardless of cross-compile state
 BISON_TARGET(KeymapParser
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.y
-    ${CMAKE_BINARY_DIR}/src/user/applications/keymap/keymap-parser.c)
+    ${CMAKE_BINARY_DIR}/keymap-parser.c)
 FLEX_TARGET(KeymapScanner
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/lexer.l
-    ${CMAKE_BINARY_DIR}/src/user/applications/keymap/keymap-lexer.c)
+    ${CMAKE_BINARY_DIR}/keymap-lexer.c)
 ADD_FLEX_BISON_DEPENDENCY(KeymapScanner KeymapParser)
 
 # Build flex/bison files into a static library for use in targets that need it
