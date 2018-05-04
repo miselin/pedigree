@@ -14,12 +14,13 @@
 .easy_os
 .sconsign.dblite
 .tags
-build
+build/
 build-etc/travis-compilers/compilers
 build-etc/travis-compilers/debian/travis-compilers
 build-etc/travis-compilers/pedigree-compiler
 build-etc/travis-compilers/scripts
 build-etc/travis-compilers_*
+build-host/
 build_cache
 compilers*
 compilers/dir
