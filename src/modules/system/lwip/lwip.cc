@@ -22,8 +22,8 @@
 
 #include "pedigree/kernel/process/Mutex.h"
 
-#include "lwip/include/lwip/init.h"
-#include "lwip/include/lwip/tcpip.h"
+#include "modules/system/lwip/include/lwip/init.h"
+#include "modules/system/lwip/include/lwip/tcpip.h"
 
 // Switch the module-specific pieces of the module over to hidden visibility
 #pragma GCC visibility push(hidden)

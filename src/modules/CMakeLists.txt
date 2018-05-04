@@ -1,4 +1,21 @@
 
+set(PEDIGREE_POSIX_VERBOSE FALSE CACHE BOOL "Enable verbose logging for all POSIX syscalls.")
+set(PEDIGREE_POSIX_FILE_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX file syscalls.")
+set(PEDIGREE_POSIX_SYS_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX system syscalls.")
+set(PEDIGREE_POSIX_THR_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX pthread syscalls.")
+set(PEDIGREE_POSIX_NET_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX network syscalls.")
+set(PEDIGREE_POSIX_SUBSYS_VERBOSE FALSE CACHE BOOL "Enable verbose logging for the PosixSubsystem class.")
+set(PEDIGREE_POSIX_SIG_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX signal syscalls.")
+set(PEDIGREE_POSIX_SIG_ULTRA_VERBOSE FALSE CACHE BOOL "Enable even more verbose logging for POSIX signal syscalls.")
+set(PEDIGREE_POSIX_SYSCALL_VERBOSE FALSE CACHE BOOL "Enable logging of every incoming POSIX syscall (PID + syscall number).")
+set(PEDIGREE_POSIX_POLL_VERBOSE FALSE CACHE BOOL "Enable logging for POSIX poll/select syscalls.")
+set(PEDIGREE_POSIX_NOEFAULT FALSE CACHE BOOL "Disable checks for EFAULT conditions (unsafe - allows userspace to page fault the kernel).")
+
+set(PEDIGREE_PCAP TRUE CACHE BOOL "Build the pcap kernel module which writes a pcap log to a serial port.")
+
+set(MUSL_NAME "musl-1.1.14")
+set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
+
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
 # TODO: handle static drivers
@@ -20,6 +37,45 @@ include_directories(
 set(CDI_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/include
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/include)
+
+math(EXPR POSIX_LOGGING 0)
+if (PEDIGREE_POSIX_VERBOSE)
+    math(EXPR POSIX_LOGGING 0xffffffff)
+else ()
+    if (PEDIGREE_POSIX_FILE_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 1)
+    endif ()
+    if (PEDIGREE_POSIX_SYS_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 2)
+    endif ()
+    if (PEDIGREE_POSIX_THR_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 4)
+    endif ()
+    if (PEDIGREE_POSIX_NET_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 8)
+    endif ()
+    if (PEDIGREE_POSIX_SUBSYS_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 16)
+    endif ()
+    if (PEDIGREE_POSIX_SIG_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 32)
+    endif ()
+    if (PEDIGREE_POSIX_SIG_ULTRA_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 64)
+    endif ()
+    if (PEDIGREE_POSIX_SYSCALL_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 128)
+    endif ()
+    if (PEDIGREE_POSIX_POLL_VERBOSE)
+        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 256)
+    endif ()
+endif ()
+
+add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
+
+if (PEDIGREE_POSIX_NOEFAULT)
+    add_definitions(-DPOSIX_NO_EFAULT)
+endif ()
 
 function(pedigree_module name opts libs)
     add_executable(${name} ${ARGN})
@@ -118,7 +174,56 @@ set_source_files_properties(
 pedigree_module(lodisk "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/lodisk/LoDisk.cc)
 
-# TODO: lwip
+pedigree_module(lwip "-w" ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/lwip.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/sys_arch.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/api_lib.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/api_msg.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/err.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/netbuf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/netdb.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/netifapi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/sockets.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/api/tcpip.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/autoip.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/dhcp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/etharp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/icmp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/igmp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/ip4.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/ip4_addr.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv4/ip4_frag.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/dhcp6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/ethip6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/icmp6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/inet6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/ip6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/ip6_addr.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/ip6_frag.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/mld6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ipv6/nd6.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/def.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/dns.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/inet_chksum.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/init.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/ip.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/mem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/memp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/netif.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/pbuf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/raw.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/stats.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/sys.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/tcp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/tcp_in.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/tcp_out.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/timeouts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/core/udp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/netif/ethernet.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/netif/ethernetif.c)
+# lwip doesn't seem to offer an easy way to handle visibility, so we just use
+# default visibility rather than hiding everything by default.
+target_compile_options(lwip PRIVATE -fvisibility=default)
 
 pedigree_module(mountroot "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/mountroot/main.cc)
@@ -130,8 +235,10 @@ pedigree_module(network-stack "" ""
 pedigree_module(nics "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/nics/main.cc)
 
+if (PEDIGREE_PCAP)
 pedigree_module(pcap "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/pcap/main.cc)
+endif ()
 
 pedigree_module(preload "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/preload/main.cc)
@@ -255,22 +362,22 @@ pedigree_module(usb-mass-storage "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/UsbMassStorageDevice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/main.cc)
 
-pedigree_module(e1000 "" ""
+pedigree_module(e1000 "-w" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/main.c)
 target_include_directories(e1000 PRIVATE ${CDI_INCLUDE_DIRS})
 
-pedigree_module(pcnet "" ""
+pedigree_module(pcnet "-w" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/pcnet.c
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/main.c)
 target_include_directories(pcnet PRIVATE ${CDI_INCLUDE_DIRS})
 
-pedigree_module(rtl8139 "" ""
+pedigree_module(rtl8139 "-w" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/rtl8139.c
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/main.c)
 target_include_directories(rtl8139 PRIVATE ${CDI_INCLUDE_DIRS})
 
-pedigree_module(sis900 "" ""
+pedigree_module(sis900 "-w" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/device.c
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/eeprom.c
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/main.c
@@ -338,6 +445,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/VirtualTerminal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-amd64.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
     ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 target_include_directories(posix PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -346,6 +454,7 @@ target_include_directories(posix PRIVATE
 
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-amd64.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
     PROPERTIES LANGUAGE ASM_NASM)
 
 pedigree_module(native "" ""
@@ -369,8 +478,8 @@ add_library(native-user SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/ipc/Ipc.cc)
 target_include_directories(native-user PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include)
-target_link_libraries(native-user PRIVATE -nostdlib)
-set_target_properties(native-user PROPERTIES OUTPUT_NAME "native")
+target_link_libraries(native-user PRIVATE -nostdlib gcc)
+set_target_properties(native-user PROPERTIES OUTPUT_NAME "pedigree")
 
 pedigree_module(pedigree-c "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/PedigreeCSyscallManager.cc
@@ -387,3 +496,52 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
     COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
     DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
 add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar)
+
+file(DOWNLOAD "https://www.musl-libc.org/releases/${MUSL_FILENAME}" ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
+    COMMAND ${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}
+)
+add_custom_target(musl_extract ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure)
+
+# Build libc
+add_custom_command(
+    OUTPUT
+    ${CMAKE_BINARY_DIR}/musl/lib/libc.so
+    ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-x86_64.so.1
+    ${CMAKE_BINARY_DIR}/musl/lib/crt1.o
+    ${CMAKE_BINARY_DIR}/musl/lib/crti.o
+    ${CMAKE_BINARY_DIR}/musl/lib/crtn.o
+    ${CMAKE_BINARY_DIR}/musl/lib/rcrt1.o
+    ${CMAKE_BINARY_DIR}/musl/lib/Scrt1.o
+    ${CMAKE_BINARY_DIR}/musl/lib/libc.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libcrypt.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libdl.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libm.a
+    ${CMAKE_BINARY_DIR}/musl/lib/librt.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libpthread.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libresolv.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libutil.a
+    ${CMAKE_BINARY_DIR}/musl/lib/libxnet.a
+    COMMAND
+    ${CMAKE_COMMAND} -E env
+    CC=${CMAKE_C_COMPILER} LD=${CMAKE_C_COMPILER}
+    COMPILER_TARGET=${PEDIGREE_COMPILER_TARGET}
+    SRCDIR=${CMAKE_SOURCE_DIR}
+    TARGETDIR=${CMAKE_BINARY_DIR}/musl
+    ARCH_TARGET=${PEDIGREE_ARCH_TARGET}
+    ${CMAKE_SOURCE_DIR}/scripts/build-musl.sh
+    DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-x86_64.musl-s
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
+    ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}
+)
+
+add_custom_target(libc ALL DEPENDS ${CMAKE_BINARY_DIR}/musl/lib/libc.so)

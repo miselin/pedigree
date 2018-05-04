@@ -12,14 +12,19 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 set(TARGET_SUPPORTS_SHARED_LIBS TRUE)
 
+set(PEDIGREE_COMPILER_TARGET x86_64-pedigree)
+set(PEDIGREE_ARCH_TARGET X64)
 set(PEDIGREE_LINKERSCRIPT "${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/x64/kernel.ld")
 set(PEDIGREE_ARCHDIR "x64")
 set(PEDIGREE_MACHDIR "mach_pc")
 set(PEDIGREE_LINKERDIR "amd64")
 set(PEDIGREE_DRIVERDIR "x86")
+# TODO: normalize on this so the number of definitions above can be reduced
+set(PEDIGREE_ASMDIR "amd64")
 
 # Definitions for amd64 across the entire source tree.
-add_definitions(-DX86_COMMON -DX64 -DMACH_PC -DBITS_64 -DTHREADS -DKERNEL_STANDALONE -DMULTIBOOT -DTARGET_IS_LITTLE_ENDIAN)
+add_definitions(-DX86_COMMON -DX64 -DMACH_PC -DBITS_64 -DTHREADS
+    -DKERNEL_STANDALONE -DMULTIBOOT -DTARGET_IS_LITTLE_ENDIAN)
 
 # Hack around the shared library bits on the Linux platform.
 set(__LINUX_COMPILER_GNU 1)  # don't add -rdynamic

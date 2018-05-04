@@ -1,5 +1,6 @@
-find_package(BISON)
-find_package(FLEX)
+
+set(PEDIGREE_BUILDUTILS_ASAN OFF CACHE BOOL "Build build utilities with the address sanitizer enabled.")
+
 find_package(OpenSSL)
 find_package(Threads REQUIRED)
 
@@ -19,6 +20,13 @@ add_definitions(
 
 set(BUILDUTIL_CFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
 set(BUILDUTIL_CXXFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
+set(BUILDUTIL_LINKFLAGS "")
+
+if (PEDIGREE_BUILDUTILS_ASAN)
+    set(BUILDUTIL_CFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
+    set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
+    set(BUILDUTIL_LINKFLAGS ${BUILDUTIL_LINKFLAGS} -fsanitize=address)
+endif ()
 
 set(COVERAGE_FLAGS "-fprofile-arcs" "-ftest-coverage")
 
@@ -126,21 +134,12 @@ add_library(config
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/Config.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/sqlite3/sqlite3.c)
 
-BISON_TARGET(KeymapParser
-    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.y
-    ${CMAKE_CURRENT_BINARY_DIR}/keymap-parser.c)
-FLEX_TARGET(KeymapScanner
-    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/lexer.l
-    ${CMAKE_CURRENT_BINARY_DIR}/keymap-lexer.c)
-ADD_FLEX_BISON_DEPENDENCY(KeymapScanner KeymapParser)
-
 add_executable(keymap
-    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c
-    ${BISON_KeymapParser_OUTPUTS}
-    ${FLEX_KeymapScanner_OUTPUTS})
+    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c)
 target_compile_definitions(keymap PRIVATE -DNOT_PEDIGREE)
 target_include_directories(keymap PRIVATE
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap)
+target_link_libraries(keymap PRIVATE libkeymap)
 
 add_executable(ext2img
     ext2img/DiskImage.cc

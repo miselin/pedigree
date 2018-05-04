@@ -20,6 +20,7 @@
 #ifndef _INPUT_H
 #define _INPUT_H
 
+#include "pedigree/native/compiler.h"
 #include "pedigree/native/types.h"
 
 namespace Input
@@ -36,7 +37,7 @@ typedef int CallbackType;
 /// Structure containing notification to the remote application
 /// of input. Used to generalise input handling across the system
 /// for all types of devices.
-struct InputNotification
+struct EXPORTED_PUBLIC InputNotification
 {
     CallbackType type;
 
@@ -71,21 +72,21 @@ typedef void (*callback_t)(InputNotification &);
 
 /// Installs an input callback, to allow a program to be notified of
 /// input from any of the possible input devices.
-void installCallback(CallbackType type, callback_t cb);
+EXPORTED_PUBLIC void installCallback(CallbackType type, callback_t cb);
 
 /// Removes a given callback
-void removeCallback(callback_t cb);
+EXPORTED_PUBLIC void removeCallback(callback_t cb);
 
 /// Inhibits input events.
-void inhibitEvents();
+EXPORTED_PUBLIC void inhibitEvents();
 
 /// Uninhibits events.
-void uninhibitEvents();
+EXPORTED_PUBLIC void uninhibitEvents();
 
 /// Loads a new keymap and sets it as the system-wide keymap from the
 /// given file. There is currently no supported way to obtain mappings
 /// for keys from the kernel.
-void loadKeymapFromFile(const char *path);
+EXPORTED_PUBLIC void loadKeymapFromFile(const char *path);
 };
 
 #endif

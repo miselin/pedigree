@@ -20,12 +20,13 @@
 #ifndef _NATIVE_IPC_H
 #define _NATIVE_IPC_H
 
+#include "pedigree/native/compiler.h"
 #include "pedigree/native/types.h"
 
 namespace PedigreeIpc
 {
 /// A standard IPC message that is less than 4 KB in size.
-class StandardIpcMessage
+class EXPORTED_PUBLIC StandardIpcMessage
 {
   public:
     StandardIpcMessage();
@@ -47,7 +48,7 @@ class StandardIpcMessage
 
 /// A message that is over 4 KB in size, and is really a shared memory area
 /// rather than an IPC message, to be precise.
-class SharedIpcMessage : public StandardIpcMessage
+class EXPORTED_PUBLIC SharedIpcMessage : public StandardIpcMessage
 {
   public:
     SharedIpcMessage(size_t nBytes, void *existingHandle);
@@ -75,15 +76,15 @@ class SharedIpcMessage : public StandardIpcMessage
 typedef void *IpcEndpoint;
 
 /// System calls. Cast SharedIpcMessage pointers to StandardIpcMessage.
-bool send(
+EXPORTED_PUBLIC bool send(
     IpcEndpoint *pEndpoint, StandardIpcMessage *pMessage, bool bAsync = false);
-bool recv(
+EXPORTED_PUBLIC bool recv(
     IpcEndpoint *pEndpoint, StandardIpcMessage **pMessage, bool bAsync = false);
 
-IpcEndpoint *getEndpoint(const char *name);
+EXPORTED_PUBLIC IpcEndpoint *getEndpoint(const char *name);
 
-void createEndpoint(const char *name);
-void removeEndpoint(const char *name);
+EXPORTED_PUBLIC void createEndpoint(const char *name);
+EXPORTED_PUBLIC void removeEndpoint(const char *name);
 
 /// Shorthand for the < 4 KB message type.
 typedef StandardIpcMessage IpcMessage;

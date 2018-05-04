@@ -20,11 +20,12 @@
 #ifndef _GRAPHICS_H
 #define _GRAPHICS_H
 
+#include "pedigree/native/compiler.h"
 #include "pedigree/native/types.h"
 
 namespace PedigreeGraphics
 {
-class Rect
+class EXPORTED_PUBLIC Rect
 {
   public:
     Rect();

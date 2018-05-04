@@ -17,35 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _PEDIGREE_DEMO_H
-#define _PEDIGREE_DEMO_H
+#ifndef NATIVE_COMPILER_H
+#define NATIVE_COMPILER_H
 
-#include "pedigree/native/compiler.h"
-#include "pedigree/native/types.h"
-
-#include "pedigree/native/Object.h"
-
-/** Object is merely the base class for all native subsystem objects. */
-class EXPORTED_PUBLIC Demo : public Object
-{
-  public:
-    Demo();
-    virtual ~Demo();
-
-    void something();
-
-    /**
-     * Retrieves the global unique identifier for this class.
-     *
-     * The global unique identifier is used when creating a new object to
-     * register the application object with the kernel. This identifier
-     * must match with the kernel's mapping of identifiers to kernel classes
-     * otherwise the system calls will fail in unexpected ways.
-     */
-    virtual uint64_t guid() const
-    {
-        return 0xdeadbeef;
-    }
-};
+#define EXPORTED_PUBLIC __attribute__((visibility("default")))
 
 #endif

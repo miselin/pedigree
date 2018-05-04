@@ -61,7 +61,7 @@ def main():
         return 1
 
     # TODO(miselin): allow this to work with custom build directories.
-    build_dir = os.path.join(scriptdir, '..', 'build')
+    build_dir = os.path.join(scriptdir, '..', 'build-cmake')
 
     try:
         serial_file = sys.argv[1]
@@ -69,14 +69,14 @@ def main():
         print('No serial file given.')
         return 1
 
-    kernel_dir = os.path.join(build_dir, 'kernel')
+    kernel_dir = os.path.join(build_dir, 'src', 'system', 'kernel')
     if not os.path.isdir(kernel_dir):
         print('No kernel directory exists, cannot run.')
         return 1
 
-    modules_dir = os.path.join(build_dir, 'modules')
-    drivers_dir = os.path.join(build_dir, 'drivers')
-    subsystems_dir = os.path.join(build_dir, 'subsystems')
+    modules_dir = os.path.join(build_dir, 'src', 'modules')
+    drivers_dir = modules_dir
+    subsystems_dir = modules_dir
 
     modules = parse_serial(serial_file)
 
@@ -94,9 +94,9 @@ def main():
             addend = 0
 
         for d in (kernel_dir, modules_dir, drivers_dir, subsystems_dir):
-            filename = os.path.join(d, '%s.o.debug' % which)
+            filename = os.path.join(d, '%s.o' % which)
             if not os.path.isfile(filename):
-                filename = os.path.join(d, '%s.debug' % which)
+                filename = os.path.join(d, '%s' % which)
                 if not os.path.isfile(filename):
                     continue
 

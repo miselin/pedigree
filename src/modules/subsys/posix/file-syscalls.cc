@@ -3664,12 +3664,12 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
 
     /// \todo also check pathname
     if (!((!pathname) ||
-          PosixSubsystem::checkAddress(
+          (PosixSubsystem::checkAddress(
               reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
               PosixSubsystem::SafeRead) &&
               PosixSubsystem::checkAddress(
                   reinterpret_cast<uintptr_t>(buf), sizeof(struct stat),
-                  PosixSubsystem::SafeWrite)))
+                  PosixSubsystem::SafeWrite))))
     {
         F_NOTICE("fstat -> invalid address");
         SYSCALL_ERROR(InvalidArgument);

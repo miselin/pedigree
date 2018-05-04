@@ -545,5 +545,5 @@ static void destroyVFS()
 {
 }
 
-MODULE_INFO("vfs", &initVFS, &destroyVFS, "ramfs", "users");
+MODULE_INFO("vfs", &initVFS, &destroyVFS, "users");
 #endif

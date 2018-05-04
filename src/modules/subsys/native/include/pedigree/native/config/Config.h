@@ -20,12 +20,13 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "pedigree/native/compiler.h"
 #include "pedigree/native/types.h"
 #include <string>
 
 namespace Config
 {
-class Result
+class EXPORTED_PUBLIC Result
 {
   public:
     Result(size_t nResultIdx) : m_nResultIdx(nResultIdx)
@@ -68,7 +69,7 @@ class Result
 };
 
 /// Performs a select/update/insert/whatever query on the database
-Result *query(const char *sql);
+EXPORTED_PUBLIC Result *query(const char *sql);
 };
 
 #endif

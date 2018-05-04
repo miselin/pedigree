@@ -293,6 +293,7 @@ void Ext2Directory::cacheDirectoryContents()
 
         // Grab the block and pin it while we parse it.
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        assert(buffer);  /// \todo need to handle short/failed reads better
         pDir = reinterpret_cast<Dir *>(buffer);
 
         while (reinterpret_cast<uintptr_t>(pDir) <

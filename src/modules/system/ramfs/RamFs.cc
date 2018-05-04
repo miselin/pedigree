@@ -176,4 +176,4 @@ static void destroy()
 {
 }
 
-MODULE_INFO("ramfs", &entry, &destroy);
+MODULE_INFO("ramfs", &entry, &destroy, "vfs");

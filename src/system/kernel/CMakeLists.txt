@@ -1,13 +1,17 @@
 
+set(PEDIGREE_VERBOSE_KERNEL FALSE CACHE BOOL "Enable verbose logging throughout the kernel.")
+
 set(GENERIC_KERNEL_FLAGS
     "-fno-builtin" "-nostdlib" "-ffreestanding" "-fno-common" "-m64"
-    "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fno-omit-frame-pointer")
+    "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fno-omit-frame-pointer"
+    "-ggdb" "-g3" "-gdwarf-2")
 set(GENERIC_KERNEL_CFLAGS "")
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
     "-fno-use-cxa-atexit")
 set(GENERIC_KERNEL_LINKFLAGS
     "-nostdlib" "-nostartfiles" "-m64" "-Wl,--discard-all")
+set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
     set(GENERIC_KERNEL_LINKFLAGS
         ${GENERIC_KERNEL_LINKFLAGS} "-T${PEDIGREE_LINKERSCRIPT}")
@@ -23,17 +27,18 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/Version.cc)
 
 add_definitions(
-    -DIN_PEDIGREE_KERNEL -DDEBUGGER -DADDITIONAL_CHECKS -DASSERTS
-    -DDEBUG_LOGGING -DMULTIPLE_CONSOLES -DTRACING -D__UD_STANDALONE__
-    -DSERIAL_IS_FILE -DVERBOSE_LINKER -DMEMORY_LOGGING_ENABLED
-    -DDEBUGGER_QWERTY -DENABLE_CTRLC -DAPIC -DACPI -DSMP)
+    -DIN_PEDIGREE_KERNEL -DDEBUGGER_QWERTY -DKERNEL_STANDALONE)
+
+if (PEDIGREE_VERBOSE_KERNEL)
+    add_definitions(-DVERBOSE_KERNEL)
+endif ()
 
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>")
 
 if (PEDIGREE_ARCHDIR STREQUAL "x64")
-    add_library(processor_unshared STATIC
+    set(PROCESSOR_UNSHARED_SRCS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/boot-standalone.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/trampoline.s)
 
@@ -78,6 +83,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         PROPERTIES LANGUAGE ASM_NASM)
 else ()
     set(PROCESSOR_SRCS "")
+    set(PROCESSOR_UNSHARED_SRCS "")
 endif ()
 
 if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
@@ -111,6 +117,10 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/sys.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/decode.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c)
+
+    if (PEDIGREE_MULTIPROCESSOR)
+        add_definitions(-DAPIC -DSMP)
+    endif ()
 else()
     set(MACHINE_SRCS "")
     set(X86EMU_SRCS "")
@@ -315,7 +325,9 @@ add_library(kernel_shared SHARED
 target_compile_options(kernel_shared PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
     $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
-target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS})
+target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
+target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT})
+target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:-mcmodel=kernel>"
@@ -324,11 +336,12 @@ add_compile_options(
 add_library(machine STATIC ${MACHINE_SRCS})
 # TODO: remove dependencies on this if possible
 target_include_directories(machine PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
+    ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_library(processor STATIC ${PROCESSOR_SRCS})
-target_link_libraries(processor PUBLIC machine)
+add_library(processor STATIC ${PROCESSOR_SRCS} ${PROCESSOR_UNSHARED_SRCS})
+# TODO: remove dependencies on this if possible
+target_include_directories(processor PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(x86emu STATIC ${X86EMU_SRCS})
 target_include_directories(x86emu PUBLIC
@@ -336,14 +349,20 @@ target_include_directories(x86emu PUBLIC
 target_compile_options(x86emu PRIVATE -w)
 
 add_library(udis86 STATIC ${UDIS86_SRCS})
+target_compile_definitions(udis86 PRIVATE -D__UD_STANDALONE__)
 
 add_library(hash STATIC ${HASH_SRCS})
 target_compile_options(hash PRIVATE -w)
 
+# We link whole-archive for the kernel sources
 add_executable(kernel ${KERNEL_SRCS})
-target_link_libraries(kernel PRIVATE
-    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS}
-    machine processor processor_unshared hash x86emu udis86)
+target_link_libraries(kernel PRIVATE 
+    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} -Wl,--whole-archive
+    machine processor hash x86emu udis86)
 
-
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
+    COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
+    DEPENDS kernel)
+add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
 
