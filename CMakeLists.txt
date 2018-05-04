@@ -47,83 +47,6 @@ endif ()
 
 cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 
-if (NOT PEDIGREE_GRAPHICS)
-    add_definitions(-DNOGFX=1)
-endif ()
-
-if (PEDIGREE_CRIPPLE_HDD)
-    add_definitions(-DCRIPPLE_HDD=1)
-endif ()
-
-if (PEDIGREE_DEBUGGER)
-    add_definitions(-DDEBUGGER=1)
-endif ()
-
-if (PEDIGREE_ADDITIONAL_CHECKS)
-    add_definitions(-DADDITIONAL_CHECKS=1)
-endif ()
-
-if (PEDIGREE_ASSERTS)
-    add_definitions(-DASSERTS=1)
-endif ()
-
-if (PEDIGREE_DEBUG_LOGGING)
-    add_definitions(-DDEBUG_LOGGING=1)
-endif ()
-
-if (PEDIGREE_SUPERDEBUG)
-    add_definitions(-DSUPERDEBUG=1)
-endif ()
-
-if (PEDIGREE_TRACING)
-    add_definitions(-DTRACING=1)
-endif ()
-
-if (PEDIGREE_DEBUG_ALLOCATOR)
-    add_definitions(-DDEBUG_ALLOCATOR=1)
-endif ()
-
-if (PEDIGREE_SERIAL_IS_FILE)
-    add_definitions(-DSERIAL_IS_FILE=1)
-endif ()
-
-if (PEDIGREE_MEMORY_LOG)
-    add_definitions(-DMEMORY_LOGGING_ENABLED=1)
-endif ()
-
-if (PEDIGREE_MEMORY_LOG_INLINE)
-    add_definitions(-DMEMORY_LOG_INLINE=1)
-endif ()
-
-if (PEDIGREE_MEMORY_TRACING)
-    add_definitions(-DMEMORY_TRACING=1)
-endif ()
-
-if (PEDIGREE_TRACK_LOCKS)
-    add_definitions(-DTRACK_LOCKS=1)
-endif ()
-
-if (PEDIGREE_MULTIPROCESSOR)
-    add_definitions(-DMULTIPROCESSOR=1)
-endif ()
-
-if (PEDIGREE_ACPI)
-    add_definitions(-DACPI=1)
-endif ()
-
-if (PEDIGREE_GRAPHICS)
-    add_definitions(-DGRAPHICS=1)
-endif ()
-
-if (PEDIGREE_TRACK_HIDDEN_SYMBOLS)
-    add_definitions(-DTRACK_HIDDEN_SYMBOLS=1)
-endif ()
-
-
-if (PEDIGREE_LIVECD)
-    add_definitions(-DLIVECD=1)
-endif ()
-
 # Set up some general default flags for the entire project.
 # NOTE: don't include optimization flags - they need to be added elsewhere based on input flags.
 set(GENERIC_COMPILE_FLAGS "-fvisibility=hidden" "-pipe")
@@ -196,6 +119,82 @@ target_include_directories(libkeymap PRIVATE
 if(CMAKE_CROSSCOMPILING)
     set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to an exports file from a native build to be able to find build and test utilities.")
     include(${IMPORT_EXECUTABLES})
+
+    if (NOT PEDIGREE_GRAPHICS)
+        add_definitions(-DNOGFX=1)
+    endif ()
+
+    if (PEDIGREE_CRIPPLE_HDD)
+        add_definitions(-DCRIPPLE_HDD=1)
+    endif ()
+
+    if (PEDIGREE_DEBUGGER)
+        add_definitions(-DDEBUGGER=1)
+    endif ()
+
+    if (PEDIGREE_ADDITIONAL_CHECKS)
+        add_definitions(-DADDITIONAL_CHECKS=1)
+    endif ()
+
+    if (PEDIGREE_ASSERTS)
+        add_definitions(-DASSERTS=1)
+    endif ()
+
+    if (PEDIGREE_DEBUG_LOGGING)
+        add_definitions(-DDEBUG_LOGGING=1)
+    endif ()
+
+    if (PEDIGREE_SUPERDEBUG)
+        add_definitions(-DSUPERDEBUG=1)
+    endif ()
+
+    if (PEDIGREE_TRACING)
+        add_definitions(-DTRACING=1)
+    endif ()
+
+    if (PEDIGREE_DEBUG_ALLOCATOR)
+        add_definitions(-DDEBUG_ALLOCATOR=1)
+    endif ()
+
+    if (PEDIGREE_SERIAL_IS_FILE)
+        add_definitions(-DSERIAL_IS_FILE=1)
+    endif ()
+
+    if (PEDIGREE_MEMORY_LOG)
+        add_definitions(-DMEMORY_LOGGING_ENABLED=1)
+    endif ()
+
+    if (PEDIGREE_MEMORY_LOG_INLINE)
+        add_definitions(-DMEMORY_LOG_INLINE=1)
+    endif ()
+
+    if (PEDIGREE_MEMORY_TRACING)
+        add_definitions(-DMEMORY_TRACING=1)
+    endif ()
+
+    if (PEDIGREE_TRACK_LOCKS)
+        add_definitions(-DTRACK_LOCKS=1)
+    endif ()
+
+    if (PEDIGREE_MULTIPROCESSOR)
+        add_definitions(-DMULTIPROCESSOR=1)
+    endif ()
+
+    if (PEDIGREE_ACPI)
+        add_definitions(-DACPI=1)
+    endif ()
+
+    if (PEDIGREE_GRAPHICS)
+        add_definitions(-DGRAPHICS=1)
+    endif ()
+
+    if (PEDIGREE_TRACK_HIDDEN_SYMBOLS)
+        add_definitions(-DTRACK_HIDDEN_SYMBOLS=1)
+    endif ()
+
+    if (PEDIGREE_LIVECD)
+        add_definitions(-DLIVECD=1)
+    endif ()
 
     add_subdirectory(src/system/kernel)
     add_subdirectory(src/modules)
