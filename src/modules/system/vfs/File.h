@@ -253,7 +253,7 @@ class EXPORTED_PUBLIC File
         bool bCanBlock = true);
 
     /** Internal function to retrieve an aligned 512byte section of the file. */
-    virtual uintptr_t readBlock(uint64_t location) NORETURN;
+    virtual uintptr_t readBlock(uint64_t location);
     /**
      * Internal function to write a block retrieved with readBlock back to
      * the file. The address of the block is provided for convenience.
