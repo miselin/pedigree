@@ -13,8 +13,8 @@ echo
 
 compiler_build_options=""
 
-if [ -d "$script_dir/build/host/ext2img" ]; then
-    rm -rf "$script_dir/build/host/ext2img"
+if [ -d "$script_dir/build-host/src/buildutil/ext2img" ]; then
+    rm -rf "$script_dir/build-host/src/buildutil/ext2img"
 fi
 
 real_os=""

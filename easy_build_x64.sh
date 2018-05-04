@@ -62,14 +62,23 @@ $script_dir/run_pup.py sync
 # Needed for libc
 $script_dir/run_pup.py install ncurses
 
-# Run a quick build of libc and libm for the rest of the build system.
-# scons CROSS=$script_dir/compilers/dir/bin/x86_64-pedigree- build/musl/lib/libc.so
+# Build Pedigree.
+mkdir build-host && cd build-host
+cmake ..
+make
+cd ..
+
+mkdir build && cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake
+
+# Build libc/libm
+make musl/lib/libc.so
 
 # Pull down libtool.
-# $script_dir/run_pup.py install libtool
+$script_dir/run_pup.py install libtool
 
 # Enforce using our libtool.
-# export LIBTOOL=$script_dir/../images/local/applications:$PATH
+export LIBTOOL=$script_dir/../images/local/applications:$PATH
 
 # Build GCC again with access to the newly built libc.
 # This will create a libstdc++ that can be used by pedigree-apps to build GCC
@@ -77,7 +86,7 @@ $script_dir/run_pup.py install ncurses
 # again to build it against the shared libstdc++. Once a working shared
 # libstdc++ exists, the static one built here is no longer relevant.
 # What a mess!
-# $script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_DIR $compiler_build_options "libcpp"
+$script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_DIR $compiler_build_options "libcpp"
 
 set +e
 
@@ -122,18 +131,8 @@ echo
 echo "Beginning the Pedigree build."
 echo
 
-# Build Pedigree.
-mkdir build-host && cd build-host
-cmake ..
+# Build full kernel
 make
-cd ..
-
-mkdir build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake
-make
-
-# One day we might fix this bug (create proper disk image with built apps).
-# scons $TRAVIS_OPTIONS
 
 cd "$old"
 
