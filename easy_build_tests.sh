@@ -12,6 +12,6 @@ echo "NOTE: This Easy Build script only builds tools that run on your build" \
     " Build scripts."
 
 mkdir build-host && cd build-host
-cmake ..
+cmake -DPEDIGREE_TRAVIS=ON -DPEDIGREE_WARNINGS=ON ..
 
 make -j1
