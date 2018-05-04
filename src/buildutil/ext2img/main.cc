@@ -721,7 +721,7 @@ int handleImage(
 bool parseCommandFile(const char *cmdFile, std::vector<Command> &output)
 {
     std::ifstream f(cmdFile);
-    if (f.bad() || f.fail())
+    if (f.fail())
     {
         std::cerr << "Command file '" << cmdFile << "' could not be read."
                   << std::endl;

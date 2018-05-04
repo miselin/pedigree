@@ -18,17 +18,20 @@ add_definitions(
     -DSTANDALONE_MEMPOOL -DDEVICE_IGNORE_ADDRESSES -DBITS_64 -DLITTLE_ENDIAN
     -DVFS_NOMMU -DVFS_STANDALONE -DEXT2_STANDALONE)
 
-set(BUILDUTIL_CFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
-set(BUILDUTIL_CXXFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
-set(BUILDUTIL_LINKFLAGS ${GENERIC_LINKFLAGS})
+set(BUILDUTIL_FLAGS -ggdb -gdwarf-2 -Os)
+set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
+set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
+set(BUILDUTIL_LINKFLAGS "")
 
 if (PEDIGREE_BUILDUTILS_ASAN)
     set(BUILDUTIL_CFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
-    set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
-    set(BUILDUTIL_LINKFLAGS ${BUILDUTIL_LINKFLAGS} -fsanitize=address)
+    set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_CXXFLAGS} -fsanitize=address)
+    set(BUILDUTIL_LINKFLAGS "${BUILDUTIL_LINKFLAGS} -fsanitize=address")
 endif ()
 
 set(COVERAGE_FLAGS "-fprofile-arcs" "-ftest-coverage")
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${BUILDUTIL_LINKFLAGS}")
 
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${BUILDUTIL_CFLAGS}>"
@@ -47,12 +50,13 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc)
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc)
 add_library(kernel ${KERNEL_SRCS})
 add_library(kernel_coverage ${KERNEL_SRCS})
 # NOTE: using 'PUBLIC' here means anything using kernel_coverage will also get
 # these flags.
-target_compile_options(kernel_coverage PUBLIC -ggdb -g3 -O0 ${COVERAGE_FLAGS})
+target_compile_options(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
 target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
 target_compile_definitions(kernel_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
 
