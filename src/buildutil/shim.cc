@@ -111,8 +111,7 @@ uintptr_t getHeapBase()
         return reinterpret_cast<uintptr_t>(base);
     }
 
-    int fd = getDevZero();
-    base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE, fd, 0);
+    base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS, -1, 0);
     if (base == MAP_FAILED)
     {
         fprintf(
@@ -131,10 +130,9 @@ uintptr_t getHeapEnd()
 
 void getPageAt(void *addr)
 {
-    int fd = getDevZero();
     void *r = mmap(
         addr, 0x1000, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_FIXED, fd, 0);
+        MAP_PRIVATE | MAP_FIXED | MAP_NORESERVE | MAP_ANONYMOUS, -1, 0);
     if (r == MAP_FAILED)
     {
         fprintf(stderr, "map failed: %s\n", strerror(errno));
