@@ -81,7 +81,7 @@ def target_in_copylist(copylist, target):
     return False
 
 
-def add_copy_tree(copylist, base_dir, target_prefix='', replacements=None):
+def add_copy_tree(copylist, base_dir, target_prefix='', replacements=None, extensions=None):
     for (dirpath, dirs, files) in os.walk(base_dir):
         target_path = dirpath.replace(base_dir, '')
 
@@ -98,6 +98,17 @@ def add_copy_tree(copylist, base_dir, target_prefix='', replacements=None):
         for f in files:
             target_fullpath = os.path.join(target_path, f)
             source_fullpath = os.path.join(dirpath, f)
+            ok = True
+            if extensions:
+                ok = False
+                for ext in extensions:
+                    if source_fullpath.endswith('.' + ext):
+                        ok = True
+                        break
+
+            if not ok:
+                continue
+
             add_copy(copylist, source_fullpath, target_fullpath, True)
 
 
@@ -124,11 +135,9 @@ def safe_mkdirs_cmdlist(cmdlist, d, safe_dirs):
 
 def build_file_list(all_sources):
     """Builds a full command list for ext2img."""
-    imagesdir, srcdir, baseimagesdir, kernel, initrd, configdb, grublst, musldir = all_sources[:8]
-    additional_sources = all_sources[8:]
-
-    # imagesdir = os.path.relpath(imagesdir, srcdir)
-    # baseimagesdir = os.path.relpath(baseimagesdir, srcdir)
+    (imagesdir, srcdir, baseimagesdir, kernel, initrd, configdb, grublst,
+        musldir, binarydir) = all_sources[:9]
+    additional_sources = all_sources[9:]
 
     users, groups = build_user_map(configdb)
 
@@ -159,6 +168,13 @@ def build_file_list(all_sources):
                   replacements=(('/config/term', '/support/ncurses/share'),))
     add_copy_tree(copies, os.path.join(musldir, 'lib'), '/libraries')
     add_copy_tree(copies, os.path.join(musldir, 'include'), '/system/include')
+
+    # Add translations.
+    for lang in ('en_US', 'de_DE'):
+        add_copy_tree(copies, os.path.join(binarydir, 'src/po/' + lang), '/system/locale/' + lang + '.UTF-8/LC_MESSAGES', extensions=('gmo',))
+
+    # Add keymaps.
+    add_copy_tree(copies, os.path.join(binarydir, 'keymaps'), '/system/keymaps')
 
     # Build command list.
     cmdlist = []

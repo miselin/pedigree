@@ -116,8 +116,13 @@ pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype"
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
 pedigree_app(which ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
 
+pedigree_keymap(KeymapDeDe ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapDeDe)
+pedigree_keymap(KeymapEnUk ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUk)
+pedigree_keymap(KeymapEnUs ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUs)
+
 # Push lib and app list into parent scope.
 set(PEDIGREE_APPS ${PEDIGREE_APPS} PARENT_SCOPE)
 set(PEDIGREE_APPS_TARGETS ${PEDIGREE_APPS_TARGETS} PARENT_SCOPE)
 set(PEDIGREE_LIBS ${PEDIGREE_LIBS} PARENT_SCOPE)
 set(PEDIGREE_LIBS_TARGETS ${PEDIGREE_LIBS_TARGETS} PARENT_SCOPE)
+set(PEDIGREE_KEYMAPS_TARGETS ${PEDIGREE_KEYMAPS_TARGETS} PARENT_SCOPE)

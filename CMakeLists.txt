@@ -9,6 +9,8 @@ cmake_minimum_required(VERSION 3.3)
 include(CTest)
 enable_testing()
 
+include(FindGettext)
+
 find_package(BISON)
 find_package(FLEX)
 find_package(PythonInterp)
@@ -116,6 +118,23 @@ if(CMAKE_CROSSCOMPILING)
     set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to an exports file from a native build to be able to find build and test utilities.")
     include(${IMPORT_EXECUTABLES})
 
+    # Builds a keymap.
+    function(pedigree_keymap name source)
+        add_custom_command(OUTPUT
+            ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc
+            COMMAND
+            $<TARGET_FILE:host-keymap> compile ${source} &&
+            rm ${source}.h &&
+            mv ${source}.kmc ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc
+            DEPENDS ${source})
+        add_custom_target(keymap-${name} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc)
+
+        list(APPEND PEDIGREE_KEYMAPS ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc)
+        list(APPEND PEDIGREE_KEYMAPS_TARGETS keymap-${name})
+        set(PEDIGREE_KEYMAPS ${PEDIGREE_KEYMAPS} PARENT_SCOPE)
+        set(PEDIGREE_KEYMAPS_TARGETS ${PEDIGREE_KEYMAPS_TARGETS} PARENT_SCOPE)
+    endfunction()
+
     # Don't affect build utilities with kernel optimization flag choices.
     if (PEDIGREE_OPTIMIZE)
         if (PEDIGREE_OPTIMIZE_SIZE)
@@ -206,6 +225,9 @@ if(CMAKE_CROSSCOMPILING)
     add_subdirectory(src/system/kernel)
     add_subdirectory(src/modules)
     add_subdirectory(src/user)
+    add_subdirectory(src/po)
+
+    message("Keymaps: ${PEDIGREE_KEYMAPS_TARGETS}")
 
     # Build hard disk image ready for a live CD or imaging.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
@@ -220,6 +242,7 @@ if(CMAKE_CROSSCOMPILING)
         ${CMAKE_SOURCE_DIR}/build/config.db  # => config DB
         ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
         ${CMAKE_BINARY_DIR}/musl  # => musl build directory
+        ${CMAKE_BINARY_DIR}  # => build directory
         ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
         ${PEDIGREE_APPS}
         ${PEDIGREE_LIBS}
@@ -227,6 +250,7 @@ if(CMAKE_CROSSCOMPILING)
         kernel kernelfinal ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
         ${CMAKE_SOURCE_DIR}/build/config.db ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
         libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS} ${PEDIGREE_KERNEL_MODULE_TARGETS}
+        ${PEDIGREE_KEYMAPS_TARGETS} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
         )
     add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
 
