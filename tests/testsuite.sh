@@ -29,4 +29,4 @@ fi
 # we don't pull in e.g. all of the gtest code.
 lcov --directory . --capture --output-file testsuite_coverage.info || exit 0
 lcov --remove testsuite_coverage.info '/usr/*' --output-file testsuite_coverage.info || exit 0
-lcov --list coverage.info || exit 0
+lcov --list testsuite_coverage.info || exit 0
