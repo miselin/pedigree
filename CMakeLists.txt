@@ -42,6 +42,7 @@ set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
 
 # Build artifact controls.
 set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, which includes a hard disk image and relevant customizations.")
+set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
 
 if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
     # All nasm on x86-based systems
@@ -206,17 +207,54 @@ if(CMAKE_CROSSCOMPILING)
     add_subdirectory(src/modules)
     add_subdirectory(src/user)
 
-    # Build ISO file to run with
+    # Build hard disk image ready for a live CD or imaging.
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
+        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
+        ${CMAKE_CURRENT_BINARY_DIR}/hdd.img  # => target image
+        $<TARGET_FILE:host-ext2img>  # => ext2img binary
+        ${PEDIGREE_IMAGESDIR}  # => image tree directory
+        ${CMAKE_SOURCE_DIR}  # => base source directory
+        ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
+        ${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64  # => kernel
+        ${CMAKE_BINARY_DIR}/src/modules/initrd.tar  # => initrd
+        ${CMAKE_SOURCE_DIR}/build/config.db  # => config DB
+        ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
+        ${CMAKE_BINARY_DIR}/musl  # => musl build directory
+        ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
+        ${PEDIGREE_APPS}
+        ${PEDIGREE_LIBS}
+        DEPENDS
+        kernel kernelfinal ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
+        ${CMAKE_SOURCE_DIR}/build/config.db ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
+        libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS} ${PEDIGREE_KERNEL_MODULE_TARGETS}
+        )
+    add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
+
+    # Build ISO file for live CD.
+    set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
+    file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
+        DESTINATION ${CMAKE_BINARY_DIR})
+
+    if (PEDIGREE_LIVECD)
+        set(ISO_EXTRAFILES
+            livedisk.img=${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
+        set(ISO_EXTRADEPENDS hddimage)
+    else ()
+        set(ISO_EXTRAFILES "")
+        set(ISO_EXTRADEPENDS "")
+    endif ()
+
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
         COMMAND ${MKISOFS} -D -joliet -graft-points -quiet -input-charset iso8859-1
         -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
         -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
-        boot/grub/stage2_eltorito=${CMAKE_SOURCE_DIR}/images/grub/stage2_eltorito-x64
+        boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
         boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
         boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
         boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
         .pedigree-root=${CMAKE_SOURCE_DIR}/build/config.db
-        DEPENDS kernel kernelfinal ${CMAKE_BINARY_DIR}/src/modules/initrd.tar)
+        ${ISO_EXTRAFILES}
+        DEPENDS kernel kernelfinal ${CMAKE_BINARY_DIR}/src/modules/initrd.tar ${ISO_EXTRADEPENDS})
     add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)

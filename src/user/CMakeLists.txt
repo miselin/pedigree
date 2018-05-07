@@ -27,7 +27,7 @@ function(pedigree_app name posix native pedigreec libs)
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}/include)
 
-    list(APPEND PEDIGREE_APPS $<TARGET_FILE:${name}>)
+    list(APPEND PEDIGREE_APPS $<TARGET_FILE:app-${name}>)
     list(APPEND PEDIGREE_APPS_TARGETS app-${name})
 
     set(PEDIGREE_APPS ${PEDIGREE_APPS} PARENT_SCOPE)
@@ -44,7 +44,7 @@ function(pedigree_lib name libs)
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/libraries/lib${name}/include)
 
-    list(APPEND PEDIGREE_LIBS $<TARGET_FILE:${name}>)
+    list(APPEND PEDIGREE_LIBS $<TARGET_FILE:lib${name}>)
     list(APPEND PEDIGREE_LIBS_TARGETS lib${name})
 
     set(PEDIGREE_LIBS ${PEDIGREE_LIBS} PARENT_SCOPE)
@@ -115,3 +115,9 @@ pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype"
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
 pedigree_app(which ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
+
+# Push lib and app list into parent scope.
+set(PEDIGREE_APPS ${PEDIGREE_APPS} PARENT_SCOPE)
+set(PEDIGREE_APPS_TARGETS ${PEDIGREE_APPS_TARGETS} PARENT_SCOPE)
+set(PEDIGREE_LIBS ${PEDIGREE_LIBS} PARENT_SCOPE)
+set(PEDIGREE_LIBS_TARGETS ${PEDIGREE_LIBS_TARGETS} PARENT_SCOPE)

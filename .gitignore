@@ -36,7 +36,7 @@ scripts/*.pyc
 scripts/pup.whl
 scripts/pup/pup.conf
 serial[0-9]*.log
-src/subsys/posix/include/c++
+src/modules/subsys/posix/include/c++/
 src/system/kernel/TAGS
 src/system/kernel/Version.cc
 tmp
