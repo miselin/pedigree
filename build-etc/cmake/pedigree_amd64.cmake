@@ -4,6 +4,8 @@ set(CMAKE_SYSTEM_VERSION 1)
 set(CMAKE_C_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-gcc)
 set(CMAKE_CXX_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-g++)
 
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
 set(CMAKE_FIND_ROOT_PATH ${CMAKE_SOURCE_DIR}/compilers/dir ${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree)
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
