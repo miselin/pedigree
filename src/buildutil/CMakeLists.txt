@@ -1,6 +1,8 @@
 
 set(PEDIGREE_BUILDUTILS_ASAN OFF CACHE BOOL "Build build utilities with the address sanitizer enabled.")
 
+include(CodeCoverage)
+
 find_package(OpenSSL)
 find_package(Threads REQUIRED)
 
@@ -29,7 +31,8 @@ if (PEDIGREE_BUILDUTILS_ASAN)
     set(BUILDUTIL_LINKFLAGS "${BUILDUTIL_LINKFLAGS} -fsanitize=address")
 endif ()
 
-set(COVERAGE_FLAGS "-fprofile-arcs" "-ftest-coverage")
+set(COVERAGE_FLAGS -O0 -fprofile-arcs -ftest-coverage)
+set(COVERAGE_LINKFLAGS --coverage gcov)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${BUILDUTIL_LINKFLAGS}")
 
@@ -57,7 +60,7 @@ add_library(kernel_coverage ${KERNEL_SRCS})
 # NOTE: using 'PUBLIC' here means anything using kernel_coverage will also get
 # these flags.
 target_compile_options(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
-target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
+target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
 target_compile_definitions(kernel_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
 
 set(UTILITY_SRCS
@@ -102,8 +105,8 @@ set(UTILITY_SRCS
 
 add_library(utility ${UTILITY_SRCS})
 add_library(utility_coverage ${UTILITY_SRCS})
-target_compile_options(utility_coverage PUBLIC -ggdb -g3 -O0 ${COVERAGE_FLAGS})
-target_link_libraries(utility_coverage PUBLIC ${COVERAGE_FLAGS})
+target_compile_options(utility_coverage PUBLIC ${COVERAGE_FLAGS})
+target_link_libraries(utility_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
 target_compile_definitions(utility_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
 
 add_library(vfs
@@ -190,6 +193,8 @@ add_executable(testsuite
 target_link_libraries(testsuite PRIVATE
     kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
+target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
+target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
 
 export(
     TARGETS keymap ext2img instrument memorytracer testsuite
@@ -226,3 +231,10 @@ if (BENCHMARK_LIBRARY)
 endif ()
 
 # TODO: build netwrap
+
+SETUP_TARGET_FOR_COVERAGE(
+    NAME testsuite_coverage
+    EXECUTABLE $<TARGET_FILE:testsuite>
+    DEPENDENCIES testsuite)
+
+add_test(NAME testsuite COMMAND $<TARGET_FILE:testsuite>)

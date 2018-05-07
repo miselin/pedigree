@@ -1,8 +1,13 @@
 # Add our internal CMake modules path before project() to enable our custom platform
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
+SET(CMAKE_BUILD_TYPE_INIT Debug)
+
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
+
+include(CTest)
+enable_testing()
 
 find_package(BISON)
 find_package(FLEX)

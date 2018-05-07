@@ -7,28 +7,14 @@ GIT_ROOT=$(git rev-parse --show-toplevel)
 # Run the Python-based testsuites.
 /usr/bin/env python -m unittest discover -s $GIT_ROOT/tests -p "*_tests.py" -v -f -c
 
-if [ ! -x "$GIT_ROOT/build-host/src/buildutil/testsuite" ]; then
-    echo "C/C++ testsuite not present, not attempting to run it."
-    exit 0
-fi
-
 # Remove old coverage data.
 find "$GIT_ROOT" -type f -name '*.gcda' -delete
 
-WRAPPER=
-ARGS=
-if type valgrind >/dev/null 2>&1; then
-    WRAPPER=""
-    ARGS=""
-elif type iprofiler >/dev/null 2>&1; then
-    # Pass OSX_LEAK_CHECK=1 to run iprofiler (which needs admin rights).
-    if [ "x$OSX_LEAK_CHECK" != "x" ]; then
-        WRAPPER="iprofiler -leaks -d $HOME/tmp"
-    fi
-fi
+cd "$GIT_ROOT/build-host"
 
-# Run the C++ testsuites.
-$WRAPPER "$GIT_ROOT/build-host/src/buildutil/testsuite" $ARGS
+# Run testsuites and then collect coverage data if it passes.
+ctest
+make testsuite_coverage
 
 # Run the benchmarks (useful for discovering performance regressions).
 # TODO(miselin): figure out a way to tracking that the benchmark changed
@@ -39,10 +25,8 @@ if [ -x "$GIT_ROOT/build-host/src/buildutil/benchmarker" ]; then
     "$GIT_ROOT/build-host/src/buildutil/benchmarker"
 fi
 
-mkdir -p "$GIT_ROOT/coverage"
-
 # Coverage failing is not a problem; but make sure to filter only to src/ so
 # we don't pull in e.g. all of the gtest code.
-gcovr -k --object-directory="$GIT_ROOT/build-host" -r "$GIT_ROOT" \
-    --gcov-filter="src/*" --html --html-details --exclude=".*test\-.*" \
-    --exclude=".*buildutil/.*" -o "$GIT_ROOT/coverage/index.html" || exit 0
+lcov --directory . --capture --output-file testsuite_coverage.info || exit 0
+lcov --remove testsuite_coverage.info '/usr/*' --output-file testsuite_coverage.info || exit 0
+lcov --list coverage.info || exit 0

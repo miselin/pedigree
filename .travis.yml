@@ -1,10 +1,10 @@
 sudo: false
 language: cpp
-compiler: clang
+compiler: g++
 matrix:
   include:
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=x64
+  #- os: linux
+  #  env: OS=ubuntu EASY_BUILD=x64
   #- os: linux
   #  env: OS=ubuntu EASY_BUILD=arm
   # - os: linux
@@ -15,7 +15,7 @@ matrix:
   #   env: OS=osx EASY_BUILD=x64
   exclude:
     - os: linux
-    - compiler: clang
+    - compiler: g++
 script:
   - ./easy_build_$EASY_BUILD.sh nosudo $OS
   - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
@@ -24,7 +24,7 @@ before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install qemu; fi
   - if [[ "$EASY_BUILD" == "tests" ]]; then pip install --user codecov gcovr; fi
 after_success:
-  - if [[ "$EASY_BUILD" == "tests" ]]; then codecov; fi
+  - if [[ "$EASY_BUILD" == "tests" ]]; then cd build-host; codecov; fi
 install: true
 notifications:
   email: false
