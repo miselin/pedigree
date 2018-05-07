@@ -227,8 +227,6 @@ if(CMAKE_CROSSCOMPILING)
     add_subdirectory(src/user)
     add_subdirectory(src/po)
 
-    message("Keymaps: ${PEDIGREE_KEYMAPS_TARGETS}")
-
     # Build hard disk image ready for a live CD or imaging.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
         COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py

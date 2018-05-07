@@ -72,7 +72,7 @@ mkdir build && cd build
 cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
 
 # Build libc/libm
-make musl/lib/libc.so
+make libc
 
 # Pull down libtool.
 $script_dir/run_pup.py install libtool
