@@ -58,6 +58,7 @@ addons:
       - python-requests
       - g++-6
       - libstdc++-6-dev
+      - lcov
 cache:
   directories:
   - $HOME/.ccache
