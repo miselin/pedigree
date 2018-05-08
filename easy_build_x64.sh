@@ -73,6 +73,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EX
 
 # Build libc/libm
 make libc
+cd ..
 
 # Pull down libtool.
 $script_dir/run_pup.py install libtool
@@ -132,6 +133,7 @@ echo "Beginning the Pedigree build."
 echo
 
 # Build full kernel
+cd build
 make
 
 cd "$old"
