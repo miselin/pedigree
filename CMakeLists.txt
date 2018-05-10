@@ -113,6 +113,9 @@ add_library(libkeymap STATIC
     ${FLEX_KeymapScanner_OUTPUTS})
 target_include_directories(libkeymap PRIVATE
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap)
+if(CMAKE_CROSSCOMPILING)
+    add_dependencies(libkeymap libc)
+endif()
 
 if(CMAKE_CROSSCOMPILING)
     set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to an exports file from a native build to be able to find build and test utilities.")
@@ -227,6 +230,21 @@ if(CMAKE_CROSSCOMPILING)
     add_subdirectory(src/user)
     add_subdirectory(src/po)
 
+    # Build config database.
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
+        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_db.py
+        ${CMAKE_CURRENT_BINARY_DIR}/config.db
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/system/users/schema
+        DEPENDS
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/system/users/schema)
+    add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
+
     # Build hard disk image ready for a live CD or imaging.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
         COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
@@ -237,7 +255,7 @@ if(CMAKE_CROSSCOMPILING)
         ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
         ${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64  # => kernel
         ${CMAKE_BINARY_DIR}/src/modules/initrd.tar  # => initrd
-        ${CMAKE_SOURCE_DIR}/build/config.db  # => config DB
+        ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
         ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
         ${CMAKE_BINARY_DIR}/musl  # => musl build directory
         ${CMAKE_BINARY_DIR}  # => build directory
@@ -245,8 +263,7 @@ if(CMAKE_CROSSCOMPILING)
         ${PEDIGREE_APPS}
         ${PEDIGREE_LIBS}
         DEPENDS
-        kernel kernelfinal ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-        ${CMAKE_SOURCE_DIR}/build/config.db ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
+        kernel kernelfinal initrd configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
         libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS} ${PEDIGREE_KERNEL_MODULE_TARGETS}
         ${PEDIGREE_KEYMAPS_TARGETS} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
         )
@@ -276,7 +293,7 @@ if(CMAKE_CROSSCOMPILING)
         boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
         .pedigree-root=${CMAKE_SOURCE_DIR}/build/config.db
         ${ISO_EXTRAFILES}
-        DEPENDS kernel kernelfinal ${CMAKE_BINARY_DIR}/src/modules/initrd.tar ${ISO_EXTRADEPENDS})
+        DEPENDS kernel kernelfinal initrd ${ISO_EXTRADEPENDS})
     add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
