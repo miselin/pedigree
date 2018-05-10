@@ -9,7 +9,9 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/images/local/include/glib-2.0
     ${CMAKE_SOURCE_DIR}/images/local/include/pango-1.0
     ${CMAKE_SOURCE_DIR}/images/local/include/cairo
-    ${CMAKE_SOURCE_DIR}/images/local/include/freetype2)
+    ${CMAKE_SOURCE_DIR}/images/local/include/freetype2
+    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
+    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
 
 function(pedigree_app name posix native pedigreec libs)
     add_executable(app-${name} ${ARGN})
@@ -26,6 +28,7 @@ function(pedigree_app name posix native pedigreec libs)
     target_include_directories(app-${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}/include)
+    add_dependencies(app-${name} libc)
 
     list(APPEND PEDIGREE_APPS $<TARGET_FILE:app-${name}>)
     list(APPEND PEDIGREE_APPS_TARGETS app-${name})
@@ -43,6 +46,7 @@ function(pedigree_lib name libs)
         ${CMAKE_CURRENT_SOURCE_DIR}/libraries/lib${name}/src
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/libraries/lib${name}/include)
+    add_dependencies(lib${name} libc)
 
     list(APPEND PEDIGREE_LIBS $<TARGET_FILE:lib${name}>)
     list(APPEND PEDIGREE_LIBS_TARGETS lib${name})

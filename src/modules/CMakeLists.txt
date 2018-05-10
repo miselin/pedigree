@@ -78,6 +78,8 @@ if (PEDIGREE_POSIX_NOEFAULT)
 endif ()
 
 function(pedigree_module name opts libs)
+    # TODO: this doesn't correctly discover missing symbols if dependencies are
+    # not listed in full - need to work on that.
     add_executable(${name} ${ARGN})
     set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
     target_compile_options(${name} PRIVATE
@@ -122,9 +124,11 @@ target_compile_definitions(config PUBLIC
     -DSQLITE_OMIT_SCHEMA_VERSION_PRAGMAS=1 -DSQLITE_OMIT_TCL_VARIABLE=1
     -DSQLITE_OMIT_TEMPDB=1 -DSQLITE_OMIT_TRACE=1 -DSQLITE_OMIT_UTF16=1
     -DSQLITE_OMIT_WAL=1)
+add_dependencies(config libc)  # TODO: this shouldn't need headers.
 
 pedigree_module(confignics "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/confignics/main.cc)
+add_dependencies(confignics lwip)
 
 pedigree_module(console "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/console/Console.cc
@@ -224,6 +228,7 @@ pedigree_module(lwip "-w" ""
 # lwip doesn't seem to offer an easy way to handle visibility, so we just use
 # default visibility rather than hiding everything by default.
 target_compile_options(lwip PRIVATE -fvisibility=default)
+add_dependencies(lwip libc)  # TODO: modify arch.h to remove header dependency
 
 pedigree_module(mountroot "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/mountroot/main.cc)
@@ -231,6 +236,7 @@ pedigree_module(mountroot "" ""
 pedigree_module(network-stack "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/NetworkStack.cc)
+add_dependencies(network-stack lwip)
 
 pedigree_module(nics "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/nics/main.cc)
@@ -256,6 +262,7 @@ pedigree_module(splash "" ""
 
 pedigree_module(status_server "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/status_server/main.cc)
+add_dependencies(status_server lwip)
 
 pedigree_module(usb "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/usb/UsbDevice.cc
@@ -416,6 +423,7 @@ target_link_libraries(vdso PRIVATE
     "-nostdlib"
     "-T${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld"
     "-Wl,--version-script,${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.ld")
+add_dependencies(vdso libc)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/genvdso.py $<TARGET_FILE:vdso> ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
@@ -466,6 +474,7 @@ target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/include)
+add_dependencies(native libc)
 
 add_library(native-user SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/Object.cc
@@ -477,9 +486,12 @@ add_library(native-user SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/input/Input.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/ipc/Ipc.cc)
 target_include_directories(native-user PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include
+    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
+    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
 target_link_libraries(native-user PRIVATE -nostdlib gcc)
 set_target_properties(native-user PROPERTIES OUTPUT_NAME "pedigree")
+add_dependencies(native-user libc)
 
 pedigree_module(pedigree-c "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/PedigreeCSyscallManager.cc
@@ -491,6 +503,7 @@ target_include_directories(native PRIVATE
 add_library(pedigree-c-user SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
 set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
+add_dependencies(pedigree-c-user libc)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
     COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
