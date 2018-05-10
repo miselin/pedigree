@@ -283,8 +283,14 @@ if(CMAKE_CROSSCOMPILING)
         set(ISO_EXTRADEPENDS "")
     endif ()
 
+    if (MKISOFS MATCHES "xorriso$")
+        set(MKISOFS_EXTRA_OPTS -as mkisofs)
+    else ()
+        set(MKISOFS_EXTRA_OPTS "")
+    endif ()
+
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
-        COMMAND ${MKISOFS} -D -joliet -graft-points -quiet -input-charset iso8859-1
+        COMMAND ${MKISOFS} ${MKISOFS_EXTRA_OPTS} -D -joliet -graft-points -quiet -input-charset iso8859-1
         -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
         -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
         boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
