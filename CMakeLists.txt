@@ -297,9 +297,9 @@ if(CMAKE_CROSSCOMPILING)
         boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
         boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
         boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-        .pedigree-root=${CMAKE_SOURCE_DIR}/build/config.db
+        .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
         ${ISO_EXTRAFILES}
-        DEPENDS kernel kernelfinal initrd ${ISO_EXTRADEPENDS})
+        DEPENDS kernel kernelfinal initrd configdb ${ISO_EXTRADEPENDS})
     add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
