@@ -1,8 +1,10 @@
 
 link_directories(
+    ${CMAKE_BINARY_DIR}/musl/lib
     ${CMAKE_SOURCE_DIR}/images/local/libraries)
 
 include_directories(
+    ${CMAKE_BINARY_DIR}/musl/include
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/native/include
     ${CMAKE_SOURCE_DIR}/images/local/include
     ${CMAKE_SOURCE_DIR}/images/local/libraries/glib-2.0/include
