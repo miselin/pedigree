@@ -72,7 +72,6 @@ else ()
     endif ()
 endif ()
 
-message("POSIX logging ${POSIX_LOGGING}")
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
 if (PEDIGREE_POSIX_NOEFAULT)

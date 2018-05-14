@@ -64,12 +64,12 @@ $script_dir/run_pup.py install ncurses
 
 # Build Pedigree.
 mkdir build-host && cd build-host
-cmake ..
+cmake $TRAVIS_OPTIONS ..
 make
 cd ..
 
 mkdir build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
+cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake $TRAVIS_OPTIONS ..
 
 # Build libc/libm
 make libc

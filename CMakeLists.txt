@@ -74,6 +74,11 @@ if (PEDIGREE_LTO)
     set(GENERIC_LINKFLAGS ${GENERIC_LINKFLAGS} -flto)
 endif ()
 
+if (PEDIGREE_TRAVIS)
+    message("We appear to be building on Travis-CI.")
+    add_definitions(-DTRAVIS=1)
+endif ()
+
 # Set up warning flags for the full build.
 set(GENERIC_WARNING_FLAGS
     "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings"
