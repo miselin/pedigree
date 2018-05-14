@@ -146,13 +146,12 @@ class EXPORTED_PUBLIC Subsystem
 
     /** Invokes the given command (thread mechanism). */
     virtual bool invoke(
-        const char *name, Vector<SharedPointer<String>> &argv,
-        Vector<SharedPointer<String>> &env) = 0;
+        const char *name, Vector<String> &argv, Vector<String> &env) = 0;
 
     /** Invokes the given command (SyscallState mechanism). */
     virtual bool invoke(
-        const char *name, Vector<SharedPointer<String>> &argv,
-        Vector<SharedPointer<String>> &env, SyscallState &state) = 0;
+        const char *name, Vector<String> &argv, Vector<String> &env,
+        SyscallState &state) = 0;
 
   protected:
     /** Notifies the subsystem that the given thread has been removed. */

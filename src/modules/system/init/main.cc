@@ -61,13 +61,13 @@ static int init_stage2(void *param)
         tryingLinux = true;
     }
 
-    Vector<SharedPointer<String>> argv, env;
-    argv.pushBack(SharedPointer<String>::allocate(init_path));
+    Vector<String> argv, env;
+    argv.pushBack(init_path);
 
     if (tryingLinux)
     {
         // Jump to runlevel 5
-        argv.pushBack(SharedPointer<String>::allocate(String("5")));
+        argv.pushBack(String("5"));
     }
 
     Process *pProcess =

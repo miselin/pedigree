@@ -86,16 +86,16 @@ void Log::initialise1()
     char *cmdline = g_pBootstrapInfo->getCommandLine();
     if (cmdline)
     {
-        List<SharedPointer<String>> cmds = String(cmdline).tokenise(' ');
+        List<String> cmds = String(cmdline).tokenise(' ');
         for (auto it = cmds.begin(); it != cmds.end(); it++)
         {
             auto cmd = *it;
-            if (*cmd == String("--disable-log-to-serial"))
+            if (cmd == String("--disable-log-to-serial"))
             {
                 m_EchoToSerial = false;
                 break;
             }
-            else if (*cmd == String("--enable-log-to-serial"))
+            else if (cmd == String("--enable-log-to-serial"))
             {
                 m_EchoToSerial = true;
                 break;

@@ -377,7 +377,7 @@ void String::reserve(size_t size, bool zero)
 }
 void String::free()
 {
-    if (m_HeapData)
+    if (m_HeapData && m_Data)
     {
         delete[] m_Data;
     }
@@ -497,9 +497,9 @@ void String::rstrip()
     computeHash();
 }
 
-List<SharedPointer<String>> String::tokenise(char token)
+List<String> String::tokenise(char token)
 {
-    List<tokenise_t> list;
+    List<String> list;
     tokenise(token, list);
     return list;
 }
@@ -540,7 +540,7 @@ size_t String::Utf32ToUtf8(uint32_t utf32, char *utf8)
     return nbuf;
 }
 
-void String::tokenise(char token, List<SharedPointer<String>> &output) const
+void String::tokenise(char token, List<String> &output) const
 {
     const char *orig_buffer = extract();
     const char *buffer = orig_buffer;
@@ -562,19 +562,25 @@ void String::tokenise(char token, List<SharedPointer<String>> &output) const
             continue;
         }
 
-        tokenise_t pStr = tokenise_t(new String(buffer, pos - buffer));
-        if (pStr->length())
-            output.pushBack(pStr);
+        if (pos - buffer)
+        {
+            String str;
+            str.assign(buffer, pos - buffer, true);
+            output.pushBack(pedigree_std::move(str));
+        }
 
         buffer = pos + 1;
     }
 
     if (!pos)
     {
-        tokenise_t pStr =
-            tokenise_t(new String(buffer, m_Length - (buffer - orig_buffer)));
-        if (pStr->length())
-            output.pushBack(pStr);
+        size_t length = m_Length - (buffer - orig_buffer);
+        if (length)
+        {
+            String str;
+            str.assign(buffer, length, true);
+            output.pushBack(pedigree_std::move(str));
+        }
     }
 }
 

@@ -468,14 +468,14 @@ int posix_execve(
     }
 
     // Build argv and env lists.
-    Vector<SharedPointer<String>> listArgv, listEnv;
+    Vector<String> listArgv, listEnv;
     for (const char **arg = argv; *arg != 0; ++arg)
     {
-        listArgv.pushBack(SharedPointer<String>(new String(*arg)));
+        listArgv.pushBack(String(*arg));
     }
     for (const char **e = env; *e != 0; ++e)
     {
-        listEnv.pushBack(SharedPointer<String>(new String(*e)));
+        listEnv.pushBack(String(*e));
     }
 
     // Normalise path to ensure we have the correct path to invoke.

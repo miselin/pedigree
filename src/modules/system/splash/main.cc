@@ -644,11 +644,11 @@ static bool init()
     char *cmdline = g_pBootstrapInfo->getCommandLine();
     if (cmdline)
     {
-        List<SharedPointer<String>> cmds = String(cmdline).tokenise(' ');
+        List<String> cmds = String(cmdline).tokenise(' ');
         for (auto it = cmds.begin(); it != cmds.end(); it++)
         {
             auto cmd = *it;
-            if (*cmd == String("nosplash"))
+            if (cmd == String("nosplash"))
             {
                 g_NoGraphics = true;
                 break;

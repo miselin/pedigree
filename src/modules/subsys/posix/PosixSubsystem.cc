@@ -1164,21 +1164,21 @@ bool PosixSubsystem::loadElf(
         stack, (to) - ((to) - (reinterpret_cast<uintptr_t>(stack) & ((to) - 1))))
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<SharedPointer<String>> &argv,
-    Vector<SharedPointer<String>> &env)
+    const char *name, Vector<String> &argv,
+    Vector<String> &env)
 {
     return invoke(name, argv, env, 0);
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<SharedPointer<String>> &argv,
-    Vector<SharedPointer<String>> &env, SyscallState &state)
+    const char *name, Vector<String> &argv,
+    Vector<String> &env, SyscallState &state)
 {
     return invoke(name, argv, env, &state);
 }
 
 bool PosixSubsystem::parseShebang(
-    File *pFile, File *&pOutFile, Vector<SharedPointer<String>> &argv)
+    File *pFile, File *&pOutFile, Vector<String> &argv)
 {
     PS_NOTICE("Attempting to parse shebang in " << pFile->getFullPath());
 
@@ -1227,7 +1227,7 @@ bool PosixSubsystem::parseShebang(
     fileContents.lchomp();
 
     // OK, we have a shebang line. We need to tokenize.
-    List<SharedPointer<String>> additionalArgv = fileContents.tokenise(' ');
+    List<String> additionalArgv = fileContents.tokenise(' ');
     if (!additionalArgv.count())
     {
         // Not a true shebang line.
@@ -1237,15 +1237,15 @@ bool PosixSubsystem::parseShebang(
 
     // Normalise path to ensure we have the correct path to invoke.
     String invokePath;
-    SharedPointer<String> newTarget = *additionalArgv.begin();
-    if (normalisePath(invokePath, static_cast<const char *>(*newTarget)))
+    String newTarget = *additionalArgv.begin();
+    if (normalisePath(invokePath, static_cast<const char *>(newTarget)))
     {
         // rewrote, update argv[0] accordingly.
-        *newTarget = invokePath;
+        newTarget = invokePath;
     }
 
     // Can we load the new program?
-    File *pNewTarget = findFileWithAbiFallbacks(*newTarget);
+    File *pNewTarget = findFileWithAbiFallbacks(newTarget);
     if (!pNewTarget)
     {
         // No, we cannot.
@@ -1292,8 +1292,8 @@ static File *traverseForInvoke(File *pFile)
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<SharedPointer<String>> &argv,
-    Vector<SharedPointer<String>> &env, SyscallState *state)
+    const char *name, Vector<String> &argv,
+    Vector<String> &env, SyscallState *state)
 {
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -1575,7 +1575,7 @@ bool PosixSubsystem::invoke(
     size_t envc = 0;
     for (size_t i = 0; i < env.count(); ++i)
     {
-        String &str = *(env[i].get());
+        String &str = env[i];
         STACK_PUSH_STRING(
             loaderStack, static_cast<const char *>(str), str.length() + 1);
         PS_NOTICE("env[" << envc << "]: " << str);
@@ -1589,7 +1589,7 @@ bool PosixSubsystem::invoke(
     size_t argc = 0;
     for (size_t i = 0; i < argv.count(); ++i)
     {
-        String &str = *(argv[i].get());
+        String &str = argv[i];
         STACK_PUSH_STRING(
             loaderStack, static_cast<const char *>(str), str.length() + 1);
         PS_NOTICE("argv[" << argc << "]: " << str);

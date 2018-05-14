@@ -189,32 +189,33 @@ TEST(PedigreeString, SplitTooFar)
 TEST(PedigreeString, EmptyTokenise)
 {
     String s("  a  ");
-    List<SharedPointer<String>> result = s.tokenise(' ');
+    List<String> result = s.tokenise(' ');
     EXPECT_EQ(result.count(), 1);
-    EXPECT_EQ(*(result.popFront()), "a");
+    EXPECT_STREQ(result.popFront(), "a");
 }
 
 TEST(PedigreeString, Tokenise)
 {
     String s("hello world, this is a testcase that exercises tokenise");
-    List<SharedPointer<String>> result = s.tokenise(' ');
-    EXPECT_EQ(*(result.popFront()), "hello");
-    EXPECT_EQ(*(result.popFront()), "world,");
-    EXPECT_EQ(*(result.popFront()), "this");
-    EXPECT_EQ(*(result.popFront()), "is");
-    EXPECT_EQ(*(result.popFront()), "a");
-    EXPECT_EQ(*(result.popFront()), "testcase");
-    EXPECT_EQ(*(result.popFront()), "that");
-    EXPECT_EQ(*(result.popFront()), "exercises");
-    EXPECT_EQ(*(result.popFront()), "tokenise");
+    List<String> result = s.tokenise(' ');
+    EXPECT_STREQ(result.popFront(), "hello");
+    EXPECT_STREQ(result.popFront(), "world,");
+    EXPECT_STREQ(result.popFront(), "this");
+    EXPECT_STREQ(result.popFront(), "is");
+    EXPECT_STREQ(result.popFront(), "a");
+    EXPECT_STREQ(result.popFront(), "testcase");
+    EXPECT_STREQ(result.popFront(), "that");
+    EXPECT_STREQ(result.popFront(), "exercises");
+    EXPECT_STREQ(result.popFront(), "tokenise");
+    EXPECT_EQ(result.count(), 0);  // no more tokens
 }
 
 TEST(PedigreeString, TokeniseLength)
 {
     String s("hello world");
-    List<SharedPointer<String>> result = s.tokenise(' ');
-    EXPECT_EQ(result.popFront()->length(), 5);
-    EXPECT_EQ(result.popFront()->length(), 5);
+    List<String> result = s.tokenise(' ');
+    EXPECT_EQ(result.popFront().length(), 5);
+    EXPECT_EQ(result.popFront().length(), 5);
 }
 
 TEST(PedigreeString, NextCharacter)

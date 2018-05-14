@@ -37,8 +37,7 @@
 template <typename T>
 struct _ListNode_t
 {
-    static_assert(
-        sizeof(T) <= 16, "List<T> should not be used with large objects");
+    // static_assert(sizeof(T) <= 16, "List<T> should not be used with large objects");
 
     /** Get the next data structure in the list
      *\return pointer to the next data structure in the list */
@@ -96,13 +95,19 @@ class EXPORTED_PUBLIC List
     size_t count() const;
     /** Add a value to the end of the List
      *\param[in] value the value that should be added */
-    void pushBack(T value);
+    void pushBack(const T &value);
+    /** Add a value to the end of the List
+     *\param[in] value the value that should be added */
+    void pushBack(T &&value);
     /** Remove the last element from the List
      *\return the previously last element */
     T popBack();
     /** Add a value to the front of the List
      *\param[in] value the value that should be added */
-    void pushFront(T value);
+    void pushFront(const T &value);
+    /** Add a value to the front of the List
+     *\param[in] value the value that should be added */
+    void pushFront(T &&value);
     /** Remove the first element in the List
      *\return the previously first element */
     T popFront();
@@ -224,12 +229,28 @@ size_t List<T, nodePoolSize>::count() const
     return m_Count;
 }
 template <typename T, size_t nodePoolSize>
-void List<T, nodePoolSize>::pushBack(T value)
+void List<T, nodePoolSize>::pushBack(const T &value)
 {
     node_t *newNode = m_NodePool.allocate();
     newNode->m_Next = 0;
     newNode->m_Previous = m_Last;
     newNode->value = value;
+
+    if (m_Last == 0)
+        m_First = newNode;
+    else
+        m_Last->m_Next = newNode;
+
+    m_Last = newNode;
+    ++m_Count;
+}
+template <typename T, size_t nodePoolSize>
+void List<T, nodePoolSize>::pushBack(T &&value)
+{
+    node_t *newNode = m_NodePool.allocate();
+    newNode->m_Next = 0;
+    newNode->m_Previous = m_Last;
+    newNode->value = pedigree_std::move(value);
 
     if (m_Last == 0)
         m_First = newNode;
@@ -263,12 +284,28 @@ T List<T, nodePoolSize>::popBack()
     return value;
 }
 template <typename T, size_t nodePoolSize>
-void List<T, nodePoolSize>::pushFront(T value)
+void List<T, nodePoolSize>::pushFront(const T &value)
 {
     node_t *newNode = m_NodePool.allocate();
     newNode->m_Next = m_First;
     newNode->m_Previous = 0;
     newNode->value = value;
+
+    if (m_First == 0)
+        m_Last = newNode;
+    else
+        m_First->m_Previous = newNode;
+
+    m_First = newNode;
+    ++m_Count;
+}
+template <typename T, size_t nodePoolSize>
+void List<T, nodePoolSize>::pushFront(T &&value)
+{
+    node_t *newNode = m_NodePool.allocate();
+    newNode->m_Next = m_First;
+    newNode->m_Previous = 0;
+    newNode->value = pedigree_std::move(value);
 
     if (m_First == 0)
         m_Last = newNode;

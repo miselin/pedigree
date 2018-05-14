@@ -299,11 +299,10 @@ static void BM_CxxStringTokenizeRef(benchmark::State &state)
         }
     }
 
-    String s;
-    List<SharedPointer<String>> tokens;
+    String s(buf, state.range(0));
     while (state.KeepRunning())
     {
-        s.assign(buf, state.range(0));
+        List<String> tokens;
         s.tokenise(' ', tokens);
         benchmark::DoNotOptimize(s);
     }

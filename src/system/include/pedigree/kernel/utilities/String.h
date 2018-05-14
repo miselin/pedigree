@@ -113,8 +113,8 @@ class EXPORTED_PUBLIC String
     String split(size_t offset);
     void split(size_t offset, String &back);
 
-    List<SharedPointer<String>> tokenise(char token);
-    void tokenise(char token, List<SharedPointer<String>> &output) const;
+    List<String> tokenise(char token);
+    void tokenise(char token, List<String> &output) const;
 
     /** Converts a UTF-32 character to its UTF-8 representation.
      *\param[in] utf32 Input UTF-32 character.

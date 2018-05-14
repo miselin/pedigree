@@ -485,13 +485,13 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
 
     /** Invokes the given command (thread mechanism). */
     virtual bool invoke(
-        const char *name, Vector<SharedPointer<String>> &argv,
-        Vector<SharedPointer<String>> &env);
+        const char *name, Vector<String> &argv,
+        Vector<String> &env);
 
     /** Invokes the given command (SyscallState mechanism). */
     virtual bool invoke(
-        const char *name, Vector<SharedPointer<String>> &argv,
-        Vector<SharedPointer<String>> &env, SyscallState &state);
+        const char *name, Vector<String> &argv,
+        Vector<String> &env, SyscallState &state);
 
     /** Retrieves the currently-active ABI for the subsystem. */
     Abi getAbi() const
@@ -515,12 +515,12 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
 
     /** Invokes the given command - actual implementation. */
     bool invoke(
-        const char *name, Vector<SharedPointer<String>> &argv,
-        Vector<SharedPointer<String>> &env, SyscallState *pState);
+        const char *name, Vector<String> &argv,
+        Vector<String> &env, SyscallState *pState);
 
     /** Parse a file for a possible shebang line. */
     bool parseShebang(
-        File *pFile, File *&outFile, Vector<SharedPointer<String>> &argv);
+        File *pFile, File *&outFile, Vector<String> &argv);
 
     /** Signal handlers */
     Tree<size_t, SignalHandler *> m_SignalHandlers;
