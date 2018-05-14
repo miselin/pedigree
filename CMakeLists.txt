@@ -79,21 +79,23 @@ if (PEDIGREE_TRAVIS)
     add_definitions(-DTRAVIS=1)
 endif ()
 
+if (CMAKE_COMPILER_IS_GNUC)
+    set(COMPILER_SPECIFIC_WARNINGS "-Wlogical-op" "-Wsuggest-attribute=noreturn" "-Wtrampolines")
+    set(COMPILER_SPECIFIC_WARNINGS_C "")
+    set(COMPILER_SPECIFIC_WARNINGS_CXX "-Wuseless-cast")
+    set(COMPILER_SPECIFIC_WARNING_DISABLES "-Wno-packed-bitfield-compat")
+else ()
+    set(COMPILER_SPECIFIC_WARNINGS "")
+    set(COMPILER_SPECIFIC_WARNINGS_C "")
+    set(COMPILER_SPECIFIC_WARNINGS_CXX "")
+    set(COMPILER_SPECIFIC_WARNING_DISABLES "")
+endif ()
+
 # Set up warning flags for the full build.
-set(GENERIC_WARNING_FLAGS
-    "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings"
-    "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter"
-    "-Wuninitialized" "-Wstrict-aliasing" "-Wsuggest-attribute=noreturn"
-    "-Wtrampolines" "-Wfloat-equal" "-Wundef" "-Wcast-qual" "-Wlogical-op"
-    "-Wdisabled-optimization")
-set(GENERIC_WARNING_CFLAGS "-Wnested-externs" "-Wbad-function-cast")
-set(GENERIC_WARNING_CXXFLAGS
-    "-Wsign-promo" "-Woverloaded-virtual" "-Wnon-virtual-dtor"
-    "-Wctor-dtor-privacy" "-Wabi" "-Wuseless-cast")
-set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable"
-    "-Wno-conversion" "-Wno-format" "-Wno-packed-bitfield-compat"
-    "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations"
-    "-Wno-abi")
+set(GENERIC_WARNING_FLAGS "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings" "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter" "-Wuninitialized" "-Wstrict-aliasing" "-Wfloat-equal" "-Wundef" "-Wcast-qual" "-Wdisabled-optimization" ${COMPILER_SPECIFIC_WARNINGS})
+set(GENERIC_WARNING_CFLAGS "-Wnested-externs" "-Wbad-function-cast" ${COMPILER_SPECIFIC_WARNINGS_C})
+set(GENERIC_WARNING_CXXFLAGS "-Wsign-promo" "-Woverloaded-virtual" "-Wnon-virtual-dtor" "-Wctor-dtor-privacy" "-Wabi" ${COMPILER_SPECIFIC_WARNINGS_CXX})
+set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable" "-Wno-conversion" "-Wno-format" "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations" "-Wno-abi" ${COMPILER_SPECIFIC_WARNING_DISABLES})
 
 # Prepare flags for all builds across the entire project.
 set(GENERIC_CFLAGS
