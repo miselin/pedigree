@@ -57,7 +57,7 @@ class BootIO
     };
 
     /** Constructor. I hope you knew that already. */
-    BootIO();
+    BootIO() NOTHROW;
     /** Destructor. Let's hope you knew that too. */
     ~BootIO();
 

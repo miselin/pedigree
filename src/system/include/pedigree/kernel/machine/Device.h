@@ -171,7 +171,7 @@ class EXPORTED_PUBLIC Device
     /** Sets the specific type of the device, in string form. */
     virtual void setSpecificType(String str)
     {
-        m_SpecificType = str;
+        m_SpecificType = pedigree_std::move(str);
     }
 
     /** PCI-specific location identifiers **/
