@@ -34,6 +34,9 @@ add_definitions(-DUSE_PIC_SYSCALLS)
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/include)
 
+# TODO: adjust so musl paths only get added for -user targets
+link_directories(${CMAKE_BINARY_DIR}/musl/lib)
+
 set(CDI_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/include
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/include)
