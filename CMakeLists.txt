@@ -121,18 +121,20 @@ if(CMAKE_CROSSCOMPILING)
     set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to an exports file from a native build to be able to find build and test utilities.")
     include(${IMPORT_EXECUTABLES})
 
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/keymaps)
+
     # Builds a keymap.
     function(pedigree_keymap name source)
         add_custom_command(OUTPUT
-            ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc
+            ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc
             COMMAND
             $<TARGET_FILE:host-keymap> compile ${source} &&
             rm ${source}.h &&
-            mv ${source}.kmc ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc
+            mv ${source}.kmc ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc
             DEPENDS ${source})
-        add_custom_target(keymap-${name} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc)
+        add_custom_target(keymap-${name} ALL DEPENDS ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc)
 
-        list(APPEND PEDIGREE_KEYMAPS ${CMAKE_CURRENT_BINARY_DIR}/keymaps/${name}.kmc)
+        list(APPEND PEDIGREE_KEYMAPS ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc)
         list(APPEND PEDIGREE_KEYMAPS_TARGETS keymap-${name})
         set(PEDIGREE_KEYMAPS ${PEDIGREE_KEYMAPS} PARENT_SCOPE)
         set(PEDIGREE_KEYMAPS_TARGETS ${PEDIGREE_KEYMAPS_TARGETS} PARENT_SCOPE)
