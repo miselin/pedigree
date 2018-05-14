@@ -518,12 +518,12 @@ int File::select(bool bWriting, int timeout)
     return 1;
 }
 
-bool File::supports(const int command) const
+bool File::supports(const size_t command) const
 {
     return false;
 }
 
-int File::command(const int command, void *buffer)
+int File::command(const size_t command, void *buffer)
 {
     return 0;
 }

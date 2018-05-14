@@ -62,7 +62,7 @@ int posix_realpath(const char *path, char *buf, size_t bufsize);
 int posix_getdents(int fd, struct linux_dirent *ents, int count);
 int posix_getdents64(int fd, struct dirent *ents, int count);
 
-int posix_ioctl(int fd, int operation, void *buf);
+int posix_ioctl(int fd, size_t operation, void *buf);
 
 int posix_chmod(const char *path, mode_t mode);
 int posix_chown(const char *path, uid_t owner, gid_t group);

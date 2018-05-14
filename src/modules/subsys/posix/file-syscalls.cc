@@ -1228,7 +1228,7 @@ int posix_getdents64(int fd, struct dirent *ents, int count)
     return getdents_common(fd, getdents64_helper, ents, count);
 }
 
-int posix_ioctl(int fd, int command, void *buf)
+int posix_ioctl(int fd, size_t command, void *buf)
 {
     F_NOTICE(
         "ioctl(" << Dec << fd << ", " << Hex << command << ", "
@@ -1267,7 +1267,7 @@ int posix_ioctl(int fd, int command, void *buf)
         return f->file->command(command, buf);
     }
 
-    switch (static_cast<size_t>(command))
+    switch (command)
     {
         // KDGETLED
         case 0x4B31:

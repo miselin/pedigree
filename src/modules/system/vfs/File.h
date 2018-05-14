@@ -209,10 +209,10 @@ class EXPORTED_PUBLIC File
     void cullMonitorTargets(Thread *pThread);
 
     /** Does this File object support the given integer-based command? */
-    virtual bool supports(const int command) const;
+    virtual bool supports(const size_t command) const;
 
     /** Handle a command. */
-    virtual int command(const int command, void *buffer);
+    virtual int command(const size_t command, void *buffer);
 
     /** Function to retrieve the block size returned by readBlock.
         \note This must be constant throughout the life of the file. */

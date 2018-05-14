@@ -195,7 +195,7 @@ uint64_t RtcFile::writeBytewise(
     return 0;
 }
 
-bool RtcFile::supports(const int command) const
+bool RtcFile::supports(const size_t command) const
 {
     // read/set time
     return true;
@@ -203,7 +203,7 @@ bool RtcFile::supports(const int command) const
     // static_cast<size_t>(command) == 0x4024700aUL;
 }
 
-int RtcFile::command(const int command, void *buffer)
+int RtcFile::command(const size_t command, void *buffer)
 {
     NOTICE("RtcFile: command " << Hex << command << " with buffer " << buffer);
     return 0;
@@ -278,12 +278,12 @@ uintptr_t FramebufferFile::readBlock(uint64_t location)
            location;
 }
 
-bool FramebufferFile::supports(const int command) const
+bool FramebufferFile::supports(const size_t command) const
 {
     return (PEDIGREE_FB_CMD_MIN <= command) && (command <= PEDIGREE_FB_CMD_MAX);
 }
 
-int FramebufferFile::command(const int command, void *buffer)
+int FramebufferFile::command(const size_t command, void *buffer)
 {
     if (!m_pGraphicsParameters)
     {

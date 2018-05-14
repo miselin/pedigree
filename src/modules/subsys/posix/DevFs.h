@@ -180,8 +180,8 @@ class RtcFile : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-    virtual bool supports(const int command) const;
-    virtual int command(const int command, void *buffer);
+    virtual bool supports(const size_t command) const;
+    virtual int command(const size_t command, void *buffer);
 
    private:
     virtual bool isBytewise() const
@@ -201,8 +201,8 @@ class FramebufferFile : public File
 
     virtual uintptr_t readBlock(uint64_t location);
 
-    virtual bool supports(const int command) const;
-    virtual int command(const int command, void *buffer);
+    virtual bool supports(const size_t command) const;
+    virtual int command(const size_t command, void *buffer);
 
     /// \todo pinBlock/unpinBlock should pin/unpin physical pages!
 
