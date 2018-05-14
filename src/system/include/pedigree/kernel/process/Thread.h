@@ -27,6 +27,7 @@
 
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
+#include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -501,34 +502,45 @@ class EXPORTED_PUBLIC Thread
         SharedPointer<ExtensibleBitmap> m_InhibitMask;
 
         Thread *m_pBlockingThread;
-    } m_StateLevels[MAX_NESTED_EVENTS];
+    };
 
     /** The current index into m_States (head of the state stack). */
-    size_t m_nStateLevel;
+    size_t m_nStateLevel = 0;
 
     /** Our parent process. */
-    Process *m_pParent;
-
-    /** Our current status. */
-    volatile Status m_Status;
-
-    /** Our exit code. */
-    int m_ExitCode;
+    Process *m_pParent = nullptr;
 
     /** The stack that we allocated from the VMM. This may or may not also be
         the kernel stack - depends on whether we are a user or kernel mode
         thread. This is used solely for housekeeping/cleaning up purposes. */
-    void *m_pAllocatedStack;
+    void *m_pAllocatedStack = nullptr;
 
     /** Our thread ID. */
-    size_t m_Id;
+    size_t m_Id = 0;
 
     /** The number of the last error to occur. */
-    size_t m_Errno;
+    size_t m_Errno = 0;
 
-    /** Whether the thread was interrupted deliberately.
-        \see Thread::wasInterrupted */
-    bool m_bInterrupted;
+    /** Address to supplement the DebugState information */
+    uintptr_t m_DebugStateAddress = 0;
+
+    class PerProcessorScheduler *m_pScheduler = nullptr;
+
+    /** Thread priority: 0..MAX_PRIORITIES-1, 0 being highest. */
+    size_t m_Priority = DEFAULT_PRIORITY;
+
+    /** Memory mapping for the TLS base of this thread (userspace-only) */
+    void *m_pTlsBase = nullptr;
+
+#ifdef MULTIPROCESSOR
+    ProcessorId
+#else
+    size_t
+#endif
+        m_ProcId = 0;
+
+    /** Waiters on this thread. */
+    Thread *m_pWaiter = nullptr;
 
     /** Lock for schedulers. */
     Spinlock m_Lock;
@@ -539,50 +551,42 @@ class EXPORTED_PUBLIC Thread
     /** Queue of Events ready to run. */
     List<Event *> m_EventQueue;
 
-    /** Debug state - a higher level state information for display in the
-     * debugger for debugging races and deadlocks. */
-    DebugState m_DebugState;
-    /** Address to supplement the DebugState information */
-    uintptr_t m_DebugStateAddress;
-
-    UnwindType m_UnwindState;
-
-    class PerProcessorScheduler *m_pScheduler;
-
-    /** Thread priority: 0..MAX_PRIORITIES-1, 0 being highest. */
-    size_t m_Priority;
-
     /** List of requests pending on this Thread */
     List<RequestQueue::Request *> m_PendingRequests;
 
-    /** Memory mapping for the TLS base of this thread (userspace-only) */
-    void *m_pTlsBase;
+    /** List of wakeup watchers that need to be informed when we wake up. */
+    List<WakeReason *> m_WakeWatchers;
+
+    StateLevel m_StateLevels[MAX_NESTED_EVENTS];
+
+    /** Our current status. */
+    volatile Status m_Status = Ready;
+
+    /** Our exit code. */
+    int m_ExitCode = 0;
+
+    /** Debug state - a higher level state information for display in the
+     * debugger for debugging races and deadlocks. */
+    DebugState m_DebugState = None;
+
+    UnwindType m_UnwindState = Continue;
+
+    /** Whether the thread was interrupted deliberately.
+        \see Thread::wasInterrupted */
+    bool m_bInterrupted = false;
 
     /** Whether or not userspace has overridden its TLS base. */
-    bool m_bTlsBaseOverride;
-
-#ifdef MULTIPROCESSOR
-    ProcessorId
-#else
-    size_t
-#endif
-        m_ProcId;
+    bool m_bTlsBaseOverride = false;
 
     /** Are we in the process of removing tracked RequestQueue::Request objects?
      */
-    bool m_bRemovingRequests;
-
-    /** Waiters on this thread. */
-    Thread *m_pWaiter;
+    bool m_bRemovingRequests = false;
 
     /** Whether this thread has been detached or not. */
-    bool m_bDetached;
+    bool m_bDetached = false;
 
     /** Whether this thread has been marked interruptible or not. */
-    bool m_bInterruptible;
-
-    /** List of wakeup watchers that need to be informed when we wake up. */
-    List<WakeReason *> m_WakeWatchers;
+    bool m_bInterruptible = true;
 };
 
 #endif
