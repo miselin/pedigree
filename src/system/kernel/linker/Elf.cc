@@ -30,7 +30,8 @@
 
 static void resolveNeeded()
 {
-    FATAL("ELF: resolveNeeded() called but binary should have been fully relocated.");
+    FATAL("ELF: resolveNeeded() called but binary should have been fully "
+          "relocated.");
 }
 
 /** Helper function: copies data into a new buffer given a certain number of
@@ -195,7 +196,7 @@ bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
 #else
         2 /* ELFCLASS64 */
 #endif
-        )
+    )
     {
         ERROR("ELF file: wrong bit length!");
     }
@@ -296,7 +297,7 @@ bool Elf::validate(uint8_t *pBuffer, size_t length)
 #else
         2 /* ELFCLASS64 */
 #endif
-        )
+    )
     {
         return false;
     }
@@ -329,7 +330,7 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
 #else
         2 /* ELFCLASS64 */
 #endif
-        )
+    )
     {
         ERROR("ELF file: wrong bit length!");
     }
@@ -606,10 +607,17 @@ bool Elf::loadModule(
 
             /// \todo Figure out how to map to the pages loaded by GRUB instead
             /// of copying into newly-allocated pages here.
-            MemoryCopy(reinterpret_cast<void *>(baseAddr), pBuffer + m_pProgramHeaders[i].offset, m_pProgramHeaders[i].filesz);
+            MemoryCopy(
+                reinterpret_cast<void *>(baseAddr),
+                pBuffer + m_pProgramHeaders[i].offset,
+                m_pProgramHeaders[i].filesz);
             if (m_pProgramHeaders[i].memsz > m_pProgramHeaders[i].filesz)
             {
-                ByteSet(reinterpret_cast<void *>(baseAddr + m_pProgramHeaders[i].filesz), 0, m_pProgramHeaders[i].memsz - m_pProgramHeaders[i].filesz);
+                ByteSet(
+                    reinterpret_cast<void *>(
+                        baseAddr + m_pProgramHeaders[i].filesz),
+                    0,
+                    m_pProgramHeaders[i].memsz - m_pProgramHeaders[i].filesz);
             }
         }
     }
@@ -740,13 +748,15 @@ bool Elf::loadModule(
                 if (*pStr != '\0' && pSymbol->shndx != 0)
                 {
                     String name(pStr);
-                    m_SymbolTable.insert(name, binding, this, pSymbol->value + loadBase);
+                    m_SymbolTable.insert(
+                        name, binding, this, pSymbol->value + loadBase);
 #ifndef TRACK_HIDDEN_SYMBOLS
                     if (pSymbol->other != STV_HIDDEN)
 #endif
                     {
                         // not hidden - add to the copied symbol table
-                        pSymbolTableCopy->insert(name, binding, this, pSymbol->value + loadBase);
+                        pSymbolTableCopy->insert(
+                            name, binding, this, pSymbol->value + loadBase);
                     }
                 }
             }
@@ -928,7 +938,7 @@ bool Elf::allocate(
                     binding = SymbolTable::Global;
             }
 
-            // Don't let hidden symbols work for lookups
+                // Don't let hidden symbols work for lookups
 #ifndef TRACK_HIDDEN_SYMBOLS
             if (pSymbol->other != STV_HIDDEN)
 #endif
@@ -945,8 +955,9 @@ bool Elf::allocate(
                                 String(pStr), binding, this, pSymbol->value);
                             if (pSymtab)
                             {
-                                // Add loadBase in when adding to the user-defined
-                                // symtab, to give the user a "real" value.
+                                // Add loadBase in when adding to the
+                                // user-defined symtab, to give the user a
+                                // "real" value.
                                 pSymtab->insert(
                                     String(pStr), binding, this,
                                     pSymbol->value + loadBase);
@@ -964,7 +975,8 @@ bool Elf::allocate(
                             if (*pStr != 0)
                             {
                                 m_SymbolTable.insertMultiple(
-                                    pSymtab, String(pStr), binding, this, value);
+                                    pSymtab, String(pStr), binding, this,
+                                    value);
                             }
                         }
                     }
@@ -1426,7 +1438,7 @@ void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
                         binding = SymbolTable::Global;
                 }
 
-                // Don't insert hidden symbols
+                    // Don't insert hidden symbols
 #ifndef TRACK_HIDDEN_SYMBOLS
                 if (pSymbol->other != STV_HIDDEN)
 #endif
@@ -1450,7 +1462,8 @@ void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
     }
 }
 
-void Elf::preallocateSymbols(SymbolTable *pSymtabOverride, SymbolTable *pAdditionalSymtab)
+void Elf::preallocateSymbols(
+    SymbolTable *pSymtabOverride, SymbolTable *pAdditionalSymtab)
 {
     if (!pSymtabOverride)
     {
@@ -1490,7 +1503,8 @@ void Elf::preallocateSymbols(SymbolTable *pSymtabOverride, SymbolTable *pAdditio
         ElfSymbol_t *pSymbol = m_pDynamicSymbolTable;
 
         // quick pass to preallocate for the symbol table
-        for (size_t i = 0; i < m_nDynamicSymbolTableSize / sizeof(*pSymbol); i++)
+        for (size_t i = 0; i < m_nDynamicSymbolTableSize / sizeof(*pSymbol);
+             i++)
         {
             switch (ST_BIND(m_pDynamicSymbolTable[i].info))
             {
@@ -1511,11 +1525,15 @@ void Elf::preallocateSymbols(SymbolTable *pSymtabOverride, SymbolTable *pAdditio
 
     if (numLocal || numWeak || numGlobal)
     {
-        NOTICE("ELF: preallocating symbol table with " << numGlobal << " global " << numWeak << " weak and " << numLocal << " local symbols.");
+        NOTICE(
+            "ELF: preallocating symbol table with "
+            << numGlobal << " global " << numWeak << " weak and " << numLocal
+            << " local symbols.");
         pSymtabOverride->preallocate(numGlobal, numWeak, this, numLocal);
         if (pAdditionalSymtab)
         {
-            pAdditionalSymtab->preallocateAdditional(numGlobal, numWeak, this, numLocal);
+            pAdditionalSymtab->preallocateAdditional(
+                numGlobal, numWeak, this, numLocal);
         }
     }
 }

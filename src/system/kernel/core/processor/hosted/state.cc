@@ -20,7 +20,9 @@
 #include "pedigree/kernel/processor/state.h"
 
 const char *HostedInterruptStateRegisterName[3] = {
-    "state", "extra", "meta",
+    "state",
+    "extra",
+    "meta",
 };
 
 HostedInterruptState::HostedInterruptState() : state(0), which(0)

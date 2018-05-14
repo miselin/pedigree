@@ -83,9 +83,13 @@ class BootIO
     size_t m_CursorX, m_CursorY;
 };
 
-extern template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(TinyStaticString &str, Colour foreColour, Colour backColour);
-extern template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(NormalStaticString &str, Colour foreColour, Colour backColour);
-extern template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(LargeStaticString &str, Colour foreColour, Colour backColour);
-extern template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(HugeStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(
+    TinyStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(
+    NormalStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(
+    LargeStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(
+    HugeStaticString &str, Colour foreColour, Colour backColour);
 
 #endif

@@ -20,9 +20,9 @@
 #ifndef LODISK_H
 #define LODISK_H
 
-#include "pedigree/kernel/compiler.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"

@@ -41,7 +41,8 @@ PhysicalMemoryManager &PhysicalMemoryManager::instance()
     return stub;
 }
 
-physical_uintptr_t StubbedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
+physical_uintptr_t
+StubbedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
     return 0;
 }

@@ -33,8 +33,8 @@
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 
-#include "modules/subsys/posix/VirtualTerminal.h"
 #include "modules/subsys/posix/PsAuxFile.h"
+#include "modules/subsys/posix/VirtualTerminal.h"
 
 #define DEVFS_NUMTTYS 7
 
@@ -65,7 +65,7 @@ class RandomFile : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-   private:
+  private:
     virtual bool isBytewise() const
     {
         return true;
@@ -94,7 +94,7 @@ class NullFile : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-   private:
+  private:
     virtual bool isBytewise() const
     {
         return true;
@@ -123,7 +123,7 @@ class ZeroFile : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-   private:
+  private:
     virtual bool isBytewise() const
     {
         return true;
@@ -183,7 +183,7 @@ class RtcFile : public File
     virtual bool supports(const size_t command) const;
     virtual int command(const size_t command, void *buffer);
 
-   private:
+  private:
     virtual bool isBytewise() const
     {
         return true;

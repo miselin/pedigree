@@ -35,8 +35,8 @@
 
 #include "pedigree/kernel/utilities/assert.h"
 
-#include "PosixProcess.h"
 #include "FileDescriptor.h"
+#include "PosixProcess.h"
 #include "logging.h"
 
 #include "modules/system/linker/DynamicLinker.h"
@@ -92,7 +92,7 @@ void ProcessGroupManager::setGroupId(size_t gid)
     if (m_GroupIds.test(gid))
     {
         PS_NOTICE("ProcessGroupManager: setGroupId called on a group ID that "
-                "existed already!");
+                  "existed already!");
     }
     m_GroupIds.set(gid);
 }
@@ -399,7 +399,9 @@ void PosixSubsystem::exit(int code)
     Thread *pThread = Processor::information().getCurrentThread();
 
     Process *pProcess = pThread->getParent();
-    NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code << ")");
+    NOTICE(
+        "PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code
+                                << ")");
     pProcess->markTerminating();
 
     if (pProcess->getExitStatus() == 0 ||     // Normal exit.
@@ -454,7 +456,8 @@ void PosixSubsystem::exit(int code)
         {
             if (p->getGroupMembership() == PosixProcess::Member)
             {
-                for (List<PosixProcess *>::Iterator it = pGroup->Members.begin();
+                for (List<PosixProcess *>::Iterator it =
+                         pGroup->Members.begin();
                      it != pGroup->Members.end(); it++)
                 {
                     if ((*it) == p)
@@ -583,7 +586,7 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
             break;
         case TerminalInput:
             PS_NOTICE("    (Attempt to read from terminal by non-foreground "
-                   "process)");
+                      "process)");
             // Send SIGTTIN
             signal = SIGTTIN;
             break;
@@ -636,8 +639,9 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
 void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
 {
     PS_NOTICE(
-        "PosixSubsystem::sendSignal #" << signal << " -> pid:tid "
-        << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
+        "PosixSubsystem::sendSignal #" << signal << " -> pid:tid " << Dec
+                                       << pThread->getParent()->getId() << ":"
+                                       << pThread->getId());
 
     Process *pProcess = pThread->getParent();
     if (pProcess->getType() != Process::Posix)
@@ -664,7 +668,8 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
         {
             // yep! we need to drop this generated signal instead of sending it
             // again to the target thread
-            WARNING("PosixSubsystem::sendSignal dropping signal as a previous generation has not delivered yet.");
+            WARNING("PosixSubsystem::sendSignal dropping signal as a previous "
+                    "generation has not delivered yet.");
         }
         else
         {
@@ -672,7 +677,8 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
 
             if (yield)
             {
-                Thread *pCurrentThread = Processor::information().getCurrentThread();
+                Thread *pCurrentThread =
+                    Processor::information().getCurrentThread();
                 if (pCurrentThread == pThread)
                 {
                     // Attempt to execute the new event immediately.
@@ -688,8 +694,11 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
     }
     else
     {
-        // PS_NOTICE("No event configured for signal #" << signal << ", silently dropping!");
-        NOTICE("No event configured for signal #" << signal << ", silently dropping!");
+        // PS_NOTICE("No event configured for signal #" << signal << ", silently
+        // dropping!");
+        NOTICE(
+            "No event configured for signal #" << signal
+                                               << ", silently dropping!");
     }
 }
 
@@ -1103,8 +1112,8 @@ bool PosixSubsystem::loadElf(
         }
 
         PS_NOTICE(
-            pFile->getName() << " PHDR[" << i << "]: @" << Hex << base <<
-            " -> " << base + length);
+            pFile->getName() << " PHDR[" << i << "]: @" << Hex << base << " -> "
+                             << base + length);
         MemoryMappedObject *pObject = MemoryMapManager::instance().mapFile(
             pFile, base, length, perms, offset);
         if (!pObject)
@@ -1151,28 +1160,28 @@ bool PosixSubsystem::loadElf(
     STACK_PUSH(stack, value1);             \
     STACK_PUSH(stack, value2)
 #define STACK_PUSH_COPY(stack, value, length) \
-    stack = adjust_pointer(stack, -(length));   \
+    stack = adjust_pointer(stack, -(length)); \
     MemoryCopy(stack, value, length)
 #define STACK_PUSH_STRING(stack, str, length) \
-    stack = adjust_pointer(stack, -(length));   \
+    stack = adjust_pointer(stack, -(length)); \
     StringCopyN(reinterpret_cast<char *>(stack), str, length)
-#define STACK_PUSH_ZEROES(stack, length)    \
+#define STACK_PUSH_ZEROES(stack, length)      \
     stack = adjust_pointer(stack, -(length)); \
     ByteSet(stack, 0, length)
-#define STACK_ALIGN(stack, to)    \
-    STACK_PUSH_ZEROES( \
-        stack, (to) - ((to) - (reinterpret_cast<uintptr_t>(stack) & ((to) - 1))))
+#define STACK_ALIGN(stack, to) \
+    STACK_PUSH_ZEROES(         \
+        stack,                 \
+        (to) - ((to) - (reinterpret_cast<uintptr_t>(stack) & ((to) -1))))
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<String> &argv,
-    Vector<String> &env)
+    const char *name, Vector<String> &argv, Vector<String> &env)
 {
     return invoke(name, argv, env, 0);
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<String> &argv,
-    Vector<String> &env, SyscallState &state)
+    const char *name, Vector<String> &argv, Vector<String> &env,
+    SyscallState &state)
 {
     return invoke(name, argv, env, &state);
 }
@@ -1292,8 +1301,8 @@ static File *traverseForInvoke(File *pFile)
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<String> &argv,
-    Vector<String> &env, SyscallState *state)
+    const char *name, Vector<String> &argv, Vector<String> &env,
+    SyscallState *state)
 {
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -1301,8 +1310,7 @@ bool PosixSubsystem::invoke(
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
 #ifdef POSIX_VERBOSE_SUBSYSTEM
-    PS_NOTICE(
-        "PosixSubsystem::invoke(" << name << ")");
+    PS_NOTICE("PosixSubsystem::invoke(" << name << ")");
 #else
     // smaller message that always shows up to make tracking progress in logs
     // easier, but without all the extra bits that come with more verbose
@@ -1327,7 +1335,8 @@ bool PosixSubsystem::invoke(
     File *originalFile = findFileWithAbiFallbacks(String(name));
     if (!originalFile)
     {
-        PS_NOTICE("PosixSubsystem::invoke: could not find file '" << name << "'");
+        PS_NOTICE(
+            "PosixSubsystem::invoke: could not find file '" << name << "'");
         SYSCALL_ERROR(DoesNotExist);
         return false;
     }
@@ -1542,21 +1551,27 @@ bool PosixSubsystem::invoke(
     else
     {
         // All good, copy in the VDSO ELF image now.
-        MemoryCopy(reinterpret_cast<void *>(vdsoAddress), __vdso_so, __vdso_so_len);
+        MemoryCopy(
+            reinterpret_cast<void *>(vdsoAddress), __vdso_so, __vdso_so_len);
 
-        // Readjust permissions to remove write access now that the image is loaded.
+        // Readjust permissions to remove write access now that the image is
+        // loaded.
         MemoryMapManager::instance().setPermissions(
             vdsoAddress, __vdso_so_pages * PhysicalMemoryManager::getPageSize(),
             vdsoPerms & ~MemoryMappedObject::Write);
     }
 
     // Map in the vsyscall space.
-    if (!Processor::information().getVirtualAddressSpace().isMapped(reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS)))
+    if (!Processor::information().getVirtualAddressSpace().isMapped(
+            reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS)))
     {
         physical_uintptr_t vsyscallBase = 0;
         size_t vsyscallFlags = 0;
-        Processor::information().getVirtualAddressSpace().getMapping(&__posix_compat_vsyscall_base, vsyscallBase, vsyscallFlags);
-        Processor::information().getVirtualAddressSpace().map(vsyscallBase, reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS), VirtualAddressSpace::Execute);
+        Processor::information().getVirtualAddressSpace().getMapping(
+            &__posix_compat_vsyscall_base, vsyscallBase, vsyscallFlags);
+        Processor::information().getVirtualAddressSpace().map(
+            vsyscallBase, reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS),
+            VirtualAddressSpace::Execute);
     }
 
     // We can now build the auxiliary vector to pass to the dynamic linker.
@@ -1626,16 +1641,17 @@ bool PosixSubsystem::invoke(
     STACK_PUSH2(
         loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
     STACK_PUSH2(loaderStack, 0, 23);
-    STACK_PUSH2(loaderStack, pProcess->getUserId(), 14);  // AT_EGID
-    STACK_PUSH2(loaderStack, pProcess->getGroupId(), 13);  // AT_GID
-    STACK_PUSH2(loaderStack, pProcess->getEffectiveUserId(), 12);  // AT_EUID
+    STACK_PUSH2(loaderStack, pProcess->getUserId(), 14);            // AT_EGID
+    STACK_PUSH2(loaderStack, pProcess->getGroupId(), 13);           // AT_GID
+    STACK_PUSH2(loaderStack, pProcess->getEffectiveUserId(), 12);   // AT_EUID
     STACK_PUSH2(loaderStack, pProcess->getEffectiveGroupId(), 11);  // AT_UID
-    STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(execfn), 31);  // AT_EXECFN
+    STACK_PUSH2(
+        loaderStack, reinterpret_cast<uintptr_t>(execfn), 31);  // AT_EXECFN
 
     // Push the vDSO shared object.
     if (pVdso)
     {
-        STACK_PUSH2(loaderStack, 0, 32);  // AT_SYSINFO - not present
+        STACK_PUSH2(loaderStack, 0, 32);            // AT_SYSINFO - not present
         STACK_PUSH2(loaderStack, vdsoAddress, 33);  // AT_SYSINFO_EHDR
     }
 
@@ -1685,9 +1701,8 @@ bool PosixSubsystem::invoke(
         // Just create a new thread, this is not a full replace.
         Thread *pNewThread = new Thread(
             pProcess,
-            reinterpret_cast<Thread::ThreadStartFunc>(
-                interpreterEntryPoint),
-            0, loaderStack);
+            reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint), 0,
+            loaderStack);
         pNewThread->detach();
 
         return true;
@@ -1708,8 +1723,7 @@ bool PosixSubsystem::invoke(
 
         // Jump to the new process.
         Processor::jumpUser(
-            0, interpreterEntryPoint,
-            reinterpret_cast<uintptr_t>(loaderStack));
+            0, interpreterEntryPoint, reinterpret_cast<uintptr_t>(loaderStack));
     }
 
     // unreachable

@@ -64,8 +64,8 @@ bool Scheduler::initialise(Process *pKernelProcess)
 
 #ifdef MULTIPROCESSOR
     size_t i = 0;
-    for (Vector<ProcessorInformation *>::Iterator
-             it = Processor::m_ProcessorInformation.begin();
+    for (Vector<ProcessorInformation *>::Iterator it =
+             Processor::m_ProcessorInformation.begin();
          it != Processor::m_ProcessorInformation.end(); it++, i += 2)
     {
         procList.pushBack(&((*it)->getScheduler()));

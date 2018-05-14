@@ -76,8 +76,8 @@ class EXPORTED_PUBLIC SharedIpcMessage : public StandardIpcMessage
 typedef void *IpcEndpoint;
 
 /// System calls. Cast SharedIpcMessage pointers to StandardIpcMessage.
-EXPORTED_PUBLIC bool send(
-    IpcEndpoint *pEndpoint, StandardIpcMessage *pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool
+send(IpcEndpoint *pEndpoint, StandardIpcMessage *pMessage, bool bAsync = false);
 EXPORTED_PUBLIC bool recv(
     IpcEndpoint *pEndpoint, StandardIpcMessage **pMessage, bool bAsync = false);
 
@@ -88,6 +88,6 @@ EXPORTED_PUBLIC void removeEndpoint(const char *name);
 
 /// Shorthand for the < 4 KB message type.
 typedef StandardIpcMessage IpcMessage;
-};
+};  // namespace PedigreeIpc
 
 #endif

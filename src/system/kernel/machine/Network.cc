@@ -24,10 +24,9 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 StationInfo::StationInfo()
-    : ipv4(), ipv6(0), nIpv6Addresses(0), subnetMask(),
-      broadcast(0xFFFFFFFF), gateway(), gatewayIpv6(IpAddress::IPv6),
-      dnsServers(0), nDnsServers(0), mac(), nPackets(0), nDropped(0),
-      nBad(0)
+    : ipv4(), ipv6(0), nIpv6Addresses(0), subnetMask(), broadcast(0xFFFFFFFF),
+      gateway(), gatewayIpv6(IpAddress::IPv6), dnsServers(0), nDnsServers(0),
+      mac(), nPackets(0), nDropped(0), nBad(0)
 {
 }
 
@@ -35,9 +34,8 @@ StationInfo::StationInfo(const StationInfo &info)
     : ipv4(info.ipv4), ipv6(info.ipv6), nIpv6Addresses(info.nIpv6Addresses),
       subnetMask(info.subnetMask), broadcast(info.broadcast),
       gateway(info.gateway), gatewayIpv6(info.gatewayIpv6),
-      dnsServers(info.dnsServers), nDnsServers(info.nDnsServers),
-      mac(info.mac), nPackets(info.nPackets), nDropped(info.nDropped),
-      nBad(info.nBad)
+      dnsServers(info.dnsServers), nDnsServers(info.nDnsServers), mac(info.mac),
+      nPackets(info.nPackets), nDropped(info.nDropped), nBad(info.nBad)
 {
 }
 

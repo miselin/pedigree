@@ -169,7 +169,8 @@ void X64SyscallManager::initialiseProcessor()
     // Set the IA32_LSTAR/LSTAR (RIP)
     Processor::writeMachineSpecificRegister(
         0xC0000082, reinterpret_cast<uint64_t>(syscall_handler));
-    // Set the IA32_FMASK/SF_MASK (RFLAGS mask, RFLAGS.IF,TF cleared after syscall)
+    // Set the IA32_FMASK/SF_MASK (RFLAGS mask, RFLAGS.IF,TF cleared after
+    // syscall)
     Processor::writeMachineSpecificRegister(0xC0000084, 0x0000000000000300LL);
 }
 

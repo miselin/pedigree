@@ -38,10 +38,10 @@
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#include "pedigree/kernel/Subsystem.h"
-#include <PosixSubsystem.h>
-#include <FileDescriptor.h>
 #include "modules/subsys/posix/PollEvent.h"
+#include "pedigree/kernel/Subsystem.h"
+#include <FileDescriptor.h>
+#include <PosixSubsystem.h>
 
 extern void pollEventHandler(uint8_t *pBuffer);
 
@@ -105,8 +105,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 #ifdef THREADS
     // Grab the subsystem for this process
     Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess =
-        pThread->getParent();
+    Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
@@ -147,7 +146,8 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         if (!pFd)
         {
             // Error - no such file descriptor.
-            POLL_NOTICE("poll: no such file descriptor (" << Dec << me->fd << ")");
+            POLL_NOTICE(
+                "poll: no such file descriptor (" << Dec << me->fd << ")");
             me->revents |= POLLNVAL;
             bError = true;
             continue;
@@ -180,20 +180,22 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     else if (!bWillReturnImmediately)
                     {
                         // Need to set up a PollEvent.
-                        PollEvent *pEvent = new PollEvent(&sem, me, event, pFd->file);
-                        pFd->file->monitor(
-                            pThread, pEvent);
+                        PollEvent *pEvent =
+                            new PollEvent(&sem, me, event, pFd->file);
+                        pFd->file->monitor(pThread, pEvent);
 
                         reentrancyLock.acquire();
 
                         events.pushBack(pEvent);
 
-                        // Quickly check again now we've added the monitoring event,
-                        // to avoid a race condition where we could miss the event.
+                        // Quickly check again now we've added the monitoring
+                        // event, to avoid a race condition where we could miss
+                        // the event.
                         //
-                        /// \note This is safe because the event above can only be
-                        ///       dispatched to this thread, and while we hold the
-                        ///       reentrancy spinlock that cannot happen!
+                        /// \note This is safe because the event above can only
+                        /// be
+                        ///       dispatched to this thread, and while we hold
+                        ///       the reentrancy spinlock that cannot happen!
                         if (pFd->file->select(checkWrite, 0))
                         {
                             me->revents |= event;
@@ -216,18 +218,22 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         bool extraCheckingRead = checkingRead;
                         bool extraCheckingError = checkingError;
 
-                        bool pollResult = pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, pSem);
+                        bool pollResult = pFd->networkImpl->poll(
+                            checkingRead, checkingWrite, checkingError, pSem);
                         if (pollResult)
                         {
                             bWillReturnImmediately = pollResult;
                         }
 
-                        // need to do one more check, just in case between polling
-                        // and setting up the waiter semaphore we managed to get
-                        // a change which would otherwise not wake the semaphore
+                        // need to do one more check, just in case between
+                        // polling and setting up the waiter semaphore we
+                        // managed to get a change which would otherwise not
+                        // wake the semaphore
 #ifdef THREADS
                         reentrancyLock.acquire();
-                        pollResult = pFd->networkImpl->poll(extraCheckingRead, extraCheckingWrite, extraCheckingError, nullptr);
+                        pollResult = pFd->networkImpl->poll(
+                            extraCheckingRead, extraCheckingWrite,
+                            extraCheckingError, nullptr);
                         if (pollResult)
                         {
                             bWillReturnImmediately = pollResult;
@@ -275,7 +281,8 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         //
         // We wait on the semaphore 'sem': Its address has been given to all
         // the events and will be raised whenever an FD has action.
-        Semaphore::SemaphoreResult result = sem.acquireWithResult(1, timeoutSecs, timeoutUSecs);
+        Semaphore::SemaphoreResult result =
+            sem.acquireWithResult(1, timeoutSecs, timeoutUSecs);
 
         // Did we actually get the semaphore or did we timeout?
         if (result.hasValue())
@@ -313,7 +320,8 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     bool checkingRead = me->events & POLLIN;
                     bool checkingError = false;
 
-                    pFd->networkImpl->poll(checkingRead, checkingWrite, checkingError, nullptr);
+                    pFd->networkImpl->poll(
+                        checkingRead, checkingWrite, checkingError, nullptr);
 
                     if (checkingWrite && (me->events & POLLOUT))
                     {
@@ -364,21 +372,18 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         // Block any more events being sent to us so we can safely clean up.
 #ifdef THREADS
         reentrancyLock.acquire();
-        pThread->inhibitEvent(
-            EventNumbers::PollEvent, true);
+        pThread->inhibitEvent(EventNumbers::PollEvent, true);
         reentrancyLock.release();
 #endif
 
         for (auto pEvent : events)
         {
-            pEvent->getFile()->cullMonitorTargets(
-                pThread);
+            pEvent->getFile()->cullMonitorTargets(pThread);
         }
 
         // Ensure there are no events still pending for this thread.
 #ifdef THREADS
-        pThread->cullEvent(
-            EventNumbers::PollEvent);
+        pThread->cullEvent(EventNumbers::PollEvent);
 #endif
 
         for (auto pEvent : events)
@@ -388,8 +393,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 
         // Cleanup is complete, stop inhibiting events now.
 #ifdef THREADS
-        pThread->inhibitEvent(
-            EventNumbers::PollEvent, false);
+        pThread->inhibitEvent(EventNumbers::PollEvent, false);
 #endif
     }
 
@@ -420,7 +424,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
     }
 
-    POLL_NOTICE("    -> " << Dec << ((bError) ? -1 : (int)nRet) << Hex);
+    POLL_NOTICE("    -> " << Dec << ((bError) ? -1 : (int) nRet) << Hex);
     POLL_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
 
     return (bError) ? -1 : nRet;

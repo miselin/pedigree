@@ -29,7 +29,7 @@ namespace __pedigree_hosted
 {
 #include <signal.h>
 #include <time.h>
-}
+}  // namespace __pedigree_hosted
 
 /** @addtogroup kernelmachinehosted
  * @{ */

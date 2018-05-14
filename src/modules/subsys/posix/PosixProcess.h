@@ -23,9 +23,9 @@
 #include "PosixSubsystem.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/types.h"
 
 class PosixProcess;
 
@@ -73,7 +73,7 @@ class ProcessGroup
 
 class IntervalTimer : public TimerHandler
 {
-   public:
+  public:
     enum Mode
     {
         /// Hardware-backed timer (wall time).
@@ -91,13 +91,18 @@ class IntervalTimer : public TimerHandler
 
     /// Set the interval for the timer, which is loaded once the timer expires.
     /// Set zero to make a non-reloading timer.
-    void setInterval(Time::Timestamp interval, Time::Timestamp *prevInterval = nullptr);
+    void setInterval(
+        Time::Timestamp interval, Time::Timestamp *prevInterval = nullptr);
 
     /// Set the current value of the timer.
-    void setTimerValue(Time::Timestamp value, Time::Timestamp *prevValue = nullptr);
+    void
+    setTimerValue(Time::Timestamp value, Time::Timestamp *prevValue = nullptr);
 
     /// Set both interval and value atomically.
-    void setIntervalAndValue(Time::Timestamp interval, Time::Timestamp value, Time::Timestamp *prevInterval = nullptr, Time::Timestamp *prevValue = nullptr);
+    void setIntervalAndValue(
+        Time::Timestamp interval, Time::Timestamp value,
+        Time::Timestamp *prevInterval = nullptr,
+        Time::Timestamp *prevValue = nullptr);
 
     void getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value);
 
@@ -107,7 +112,7 @@ class IntervalTimer : public TimerHandler
     Time::Timestamp getInterval() const;
     Time::Timestamp getValue() const;
 
-   private:
+  private:
     virtual void timer(uint64_t delta, InterruptState &state);
 
     void signal();
@@ -194,7 +199,8 @@ class EXPORTED_PUBLIC PosixProcess : public Process
     void registerProcess();
     void unregisterProcess();
 
-    virtual void reportTimesUpdated(Time::Timestamp user, Time::Timestamp system);
+    virtual void
+    reportTimesUpdated(Time::Timestamp user, Time::Timestamp system);
     virtual void processTerminated();
 
     PosixProcess(const PosixProcess &);

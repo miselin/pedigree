@@ -18,9 +18,9 @@
  */
 
 #include "gdt.h"
-#include "pedigree/kernel/stddef.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/x64/tss.h"
+#include "pedigree/kernel/stddef.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 // These will all be safe for use when entering a double fault handler
@@ -51,8 +51,8 @@ void X64GdtManager::initialise(size_t processorCount)
     /// \todo Multiprocessor #DF handler
 
     size_t i = 0;
-    for (Vector<ProcessorInformation *>::Iterator
-             it = Processor::m_ProcessorInformation.begin();
+    for (Vector<ProcessorInformation *>::Iterator it =
+             Processor::m_ProcessorInformation.begin();
          it != Processor::m_ProcessorInformation.end(); it++, i += 2)
     {
         NOTICE("Setting up TSS segment for CPU #" << Dec << i << Hex << ".");

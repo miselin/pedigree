@@ -40,7 +40,8 @@ ConfigurationManager &ConfigurationManager::instance()
 size_t ConfigurationManager::createTable(String configStore, String table)
 {
     // Lookup the backend
-    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    RadixTree<ConfigurationBackend *>::LookupType result =
+        m_Backends.lookup(configStore);
     if (!result.hasValue())
         return 0;
     return result.value()->createTable(table);
@@ -50,7 +51,8 @@ void ConfigurationManager::insert(
     String configStore, String table, String key, ConfigValue &value)
 {
     // Lookup the backend
-    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    RadixTree<ConfigurationBackend *>::LookupType result =
+        m_Backends.lookup(configStore);
     if (!result.hasValue())
         return;
     return result.value()->insert(table, key, value);
@@ -62,7 +64,8 @@ ConfigurationManager::select(String configStore, String table, String key)
     static ConfigValue v;
 
     // Lookup the backend
-    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    RadixTree<ConfigurationBackend *>::LookupType result =
+        m_Backends.lookup(configStore);
     if (!result.hasValue())
         return v;
     return result.value()->select(table, key);
@@ -72,7 +75,8 @@ void ConfigurationManager::watch(
     String configStore, String table, String key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
-    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    RadixTree<ConfigurationBackend *>::LookupType result =
+        m_Backends.lookup(configStore);
     if (!result.hasValue())
         return;
     return result.value()->watch(table, key, watcher);
@@ -82,7 +86,8 @@ void ConfigurationManager::unwatch(
     String configStore, String table, String key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
-    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    RadixTree<ConfigurationBackend *>::LookupType result =
+        m_Backends.lookup(configStore);
     if (!result.hasValue())
         return;
     return result.value()->unwatch(table, key, watcher);
@@ -113,7 +118,8 @@ bool ConfigurationManager::installBackend(
 void ConfigurationManager::removeBackend(String configStore)
 {
     // Lookup the backend
-    RadixTree<ConfigurationBackend *>::LookupType result = m_Backends.lookup(configStore);
+    RadixTree<ConfigurationBackend *>::LookupType result =
+        m_Backends.lookup(configStore);
     if (!result.hasValue())
         return;
 

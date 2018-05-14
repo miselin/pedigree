@@ -20,12 +20,11 @@
 #ifndef _PS2_MOUSE_H
 #define _PS2_MOUSE_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
 
 extern class Ps2Mouse *g_Ps2Mouse WEAK;
 

@@ -20,13 +20,13 @@
 #include "Keyboard.h"
 #include "Ps2Controller.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
+#include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Trace.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 
 #ifdef DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
@@ -179,7 +179,8 @@ void X86Keyboard::setLedState(char state)
 
 void X86Keyboard::startReaderThread()
 {
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(pProcess, readerThreadTrampoline, this);
     pThread->detach();
 
@@ -260,7 +261,8 @@ void X86Keyboard::readerThread()
             }
         }
 
-        InputManager::instance().machineKeyUpdate(scancode & 0x7F, scancode & 0x80);
+        InputManager::instance().machineKeyUpdate(
+            scancode & 0x7F, scancode & 0x80);
 
         // Get the HID keycode corresponding to the scancode
         uint8_t keyCode =
@@ -268,7 +270,9 @@ void X86Keyboard::readerThread()
                 scancode, m_Escape);
         if (!keyCode)
         {
-            ERROR("X86Keyboard: failed to translate scancode " << Hex << scancode);
+            ERROR(
+                "X86Keyboard: failed to translate scancode " << Hex
+                                                             << scancode);
             continue;
         }
 

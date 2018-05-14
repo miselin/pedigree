@@ -47,6 +47,6 @@ void fixNegativeValue(int64_t nMin, int64_t nMax, int64_t &nValue);
 void sendInputToManager(
     HidDeviceType deviceType, uint16_t nUsagePage, uint16_t nUsage,
     int64_t nRelativeValue);
-};
+};  // namespace HidUtils
 
 #endif

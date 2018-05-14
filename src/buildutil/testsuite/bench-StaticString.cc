@@ -117,7 +117,8 @@ static void BM_CxxStaticStringAppendPaddedInteger(benchmark::State &state)
 
 static void BM_CxxStaticStringContainsCStr(benchmark::State &state)
 {
-    HugeStaticString s("llama llama llama llama llama llama alpaca! llama llama llama llama llama llama");
+    HugeStaticString s("llama llama llama llama llama llama alpaca! llama "
+                       "llama llama llama llama llama");
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(s.contains("alpaca!"));
@@ -139,7 +140,8 @@ static void BM_CxxStaticStringContainsCStrWorstCase(benchmark::State &state)
 
 static void BM_CxxStaticStringContainsStaticString(benchmark::State &state)
 {
-    HugeStaticString s("llama llama llama llama llama llama alpaca! llama llama llama llama llama llama");
+    HugeStaticString s("llama llama llama llama llama llama alpaca! llama "
+                       "llama llama llama llama llama");
     HugeStaticString other("alpaca!");
     while (state.KeepRunning())
     {
@@ -149,7 +151,8 @@ static void BM_CxxStaticStringContainsStaticString(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State &state)
+static void
+BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State &state)
 {
     HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
     HugeStaticString other("aaaaaab");
@@ -160,7 +163,6 @@ static void BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State &st
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
-
 
 BENCHMARK(BM_CxxStaticStringCreation);
 BENCHMARK(BM_CxxStaticStringCopy);

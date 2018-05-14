@@ -18,16 +18,16 @@
  */
 
 #include "modules/subsys/posix/VirtualTerminal.h"
-#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/DevFs.h"
-#include "pedigree/kernel/process/Process.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/system/console/Console.h"
+#include "pedigree/kernel/process/Process.h"
 
 extern DevFs *g_pDevFs;
 
-VirtualTerminalManager::VirtualTerminalManager(DevFsDirectory *parentDir) :
-    m_pTty(nullptr), m_CurrentTty(0), m_WantedTty(~0U), m_NumTtys(0),
-    m_ParentDir(parentDir), m_bSwitchingLocked(false), m_SystemMode(Text)
+VirtualTerminalManager::VirtualTerminalManager(DevFsDirectory *parentDir)
+    : m_pTty(nullptr), m_CurrentTty(0), m_WantedTty(~0U), m_NumTtys(0),
+      m_ParentDir(parentDir), m_bSwitchingLocked(false), m_SystemMode(Text)
 {
     for (size_t i = 0; i < MAX_VT; ++i)
     {
@@ -50,7 +50,8 @@ VirtualTerminalManager::~VirtualTerminalManager()
 bool VirtualTerminalManager::initialise()
 {
     // Create /dev/textui for the text-only UI device.
-    m_pTty = new TextIO(String("textui"), g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
+    m_pTty = new TextIO(
+        String("textui"), g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
     m_pTty->markPrimary();
     if (m_pTty->initialise(false))
     {
@@ -58,7 +59,8 @@ bool VirtualTerminalManager::initialise()
     }
     else
     {
-        WARNING("POSIX: no /dev/tty - VirtualTerminalManager failed to initialise.");
+        WARNING("POSIX: no /dev/tty - VirtualTerminalManager failed to "
+                "initialise.");
         g_pDevFs->revertInode();
         delete m_pTty;
         m_pTty = nullptr;
@@ -80,7 +82,8 @@ bool VirtualTerminalManager::initialise()
         String ttyname;
         ttyname.Format("tty%u", i + 1);
 
-        TextIO *tio = new TextIO(ttyname, g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
+        TextIO *tio = new TextIO(
+            ttyname, g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
         if (tio->initialise(true))
         {
             ConsolePhysicalFile *file =
@@ -156,7 +159,8 @@ void VirtualTerminalManager::reportPermission(SwitchPermission perm)
     if (m_WantedTty == static_cast<size_t>(~0))
     {
         // No switch in progress.
-        NOTICE("VirtualTerminalManager: can't acknowledge as no switch in progress");
+        NOTICE("VirtualTerminalManager: can't acknowledge as no switch in "
+               "progress");
         return;
     }
 
@@ -190,7 +194,8 @@ size_t VirtualTerminalManager::openInactive()
             String ttyname;
             ttyname.Format("tty%u", i + 1);
 
-            TextIO *tio = new TextIO(ttyname, g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
+            TextIO *tio = new TextIO(
+                ttyname, g_pDevFs->getNextInode(), g_pDevFs, m_ParentDir);
             if (tio->initialise(true))
             {
                 ConsolePhysicalFile *file =
@@ -200,10 +205,10 @@ size_t VirtualTerminalManager::openInactive()
                 m_Terminals[i].textio = tio;
                 m_Terminals[i].file = file;
 
-                // activate the terminal by performing an empty write, which will
-                // ensure users switching to the terminal see a blank screen if
-                // nothing has actually opened it - this is better than seeing the
-                // previous tty's output...
+                // activate the terminal by performing an empty write, which
+                // will ensure users switching to the terminal see a blank
+                // screen if nothing has actually opened it - this is better
+                // than seeing the previous tty's output...
                 tio->writeStr("", 0);
 
                 return i;
@@ -256,7 +261,8 @@ void VirtualTerminalManager::setTerminalMode(size_t n, struct vt_mode mode)
 #ifdef THREADS
     if (mode.mode == VT_PROCESS)
     {
-        m_Terminals[n].owner = Processor::information().getCurrentThread()->getParent();
+        m_Terminals[n].owner =
+            Processor::information().getCurrentThread()->getParent();
     }
     else
     {
@@ -301,7 +307,9 @@ void VirtualTerminalManager::setInputMode(size_t n, TextIO::InputMode newMode)
 {
     if (!m_Terminals[n].textio)
     {
-        NOTICE("VirtualTerminalManager: can't set mode of VT #" << n << " as it is inactive");
+        NOTICE(
+            "VirtualTerminalManager: can't set mode of VT #"
+            << n << " as it is inactive");
         return;
     }
 
@@ -312,7 +320,9 @@ TextIO::InputMode VirtualTerminalManager::getInputMode(size_t n) const
 {
     if (!m_Terminals[n].textio)
     {
-        NOTICE("VirtualTerminalManager: can't get mode of VT #" << n << " as it is inactive");
+        NOTICE(
+            "VirtualTerminalManager: can't get mode of VT #"
+            << n << " as it is inactive");
         return TextIO::Standard;
     }
 
@@ -323,14 +333,18 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
 {
     if (!m_Terminals[n].textio)
     {
-        NOTICE("VirtualTerminalManager: can't send signal to VT #" << n << " as it is inactive");
+        NOTICE(
+            "VirtualTerminalManager: can't send signal to VT #"
+            << n << " as it is inactive");
         return;
     }
-    
+
     auto mode = getTerminalMode(n);
     if (mode.mode != VT_PROCESS)
     {
-        NOTICE("VirtualTerminalManager: can't send signal to VT #" << n << " as it is not owned");
+        NOTICE(
+            "VirtualTerminalManager: can't send signal to VT #"
+            << n << " as it is not owned");
         return;
     }
 
@@ -345,6 +359,7 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
     }
 
     NOTICE("VirtualTerminalManager: signaling VT #" << n);
-    pSubsystem->sendSignal(pProcess->getThread(0), acq ? mode.acqsig : mode.relsig);
+    pSubsystem->sendSignal(
+        pProcess->getThread(0), acq ? mode.acqsig : mode.relsig);
 #endif
 }

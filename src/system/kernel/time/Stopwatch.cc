@@ -64,4 +64,4 @@ Timestamp Stopwatch::value()
 {
     return m_Value;
 }
-}
+}  // namespace Time

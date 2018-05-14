@@ -111,7 +111,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
 #ifdef POSIX_VERBOSE_SYSCALLS
         else
         {
-            NOTICE("TRANSLATED syscall: Linux #" << syscallNumber << " -> Pedigree #" << which);
+            NOTICE(
+                "TRANSLATED syscall: Linux #" << syscallNumber
+                                              << " -> Pedigree #" << which);
         }
 #endif
 
@@ -607,9 +609,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_SETRESGID:
             return posix_setresgid(p1, p2, p3);
         case POSIX_GETRESUID:
-            return posix_getresuid(reinterpret_cast<uid_t *>(p1), reinterpret_cast<uid_t *>(p2), reinterpret_cast<uid_t *>(p3));
+            return posix_getresuid(
+                reinterpret_cast<uid_t *>(p1), reinterpret_cast<uid_t *>(p2),
+                reinterpret_cast<uid_t *>(p3));
         case POSIX_GETRESGID:
-            return posix_getresgid(reinterpret_cast<gid_t *>(p1), reinterpret_cast<gid_t *>(p2), reinterpret_cast<gid_t *>(p3));
+            return posix_getresgid(
+                reinterpret_cast<gid_t *>(p1), reinterpret_cast<gid_t *>(p2),
+                reinterpret_cast<gid_t *>(p3));
         case POSIX_STATFS:
             return posix_statfs(
                 reinterpret_cast<const char *>(p1),
@@ -651,19 +657,26 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_TIME:
             return posix_time(reinterpret_cast<time_t *>(p1));
         case POSIX_GETITIMER:
-            return posix_getitimer(p1, reinterpret_cast<struct itimerval *>(p2));
+            return posix_getitimer(
+                p1, reinterpret_cast<struct itimerval *>(p2));
         case POSIX_SETITIMER:
-            return posix_setitimer(p1, reinterpret_cast<const struct itimerval *>(p2), reinterpret_cast<struct itimerval *>(p3));
+            return posix_setitimer(
+                p1, reinterpret_cast<const struct itimerval *>(p2),
+                reinterpret_cast<struct itimerval *>(p3));
         case POSIX_SOCKETPAIR:
             return posix_socketpair(p1, p2, p3, reinterpret_cast<int *>(p4));
         case POSIX_SENDMSG:
-            return posix_sendmsg(p1, reinterpret_cast<const struct msghdr *>(p2), p3);
+            return posix_sendmsg(
+                p1, reinterpret_cast<const struct msghdr *>(p2), p3);
         case POSIX_RECVMSG:
             return posix_recvmsg(p1, reinterpret_cast<struct msghdr *>(p2), p3);
         case POSIX_CAPGET:
-            return posix_capget(reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
+            return posix_capget(
+                reinterpret_cast<void *>(p1), reinterpret_cast<void *>(p2));
         case POSIX_CAPSET:
-            return posix_capset(reinterpret_cast<void *>(p1), reinterpret_cast<const void *>(p2));
+            return posix_capset(
+                reinterpret_cast<void *>(p1),
+                reinterpret_cast<const void *>(p2));
         case POSIX_PRCTL:
             return posix_prctl(p1, p2, p3, p4, p5);
 

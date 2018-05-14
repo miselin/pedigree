@@ -26,60 +26,64 @@
 template <class T>
 class UniqueCommon
 {
-    public:
-        UniqueCommon() : m_Pointer(nullptr) {}
+  public:
+    UniqueCommon() : m_Pointer(nullptr)
+    {
+    }
 
-        virtual ~UniqueCommon()
+    virtual ~UniqueCommon()
+    {
+        reset();
+    }
+
+    T *operator*() const
+    {
+        return get();
+    }
+
+    operator void *() const
+    {
+        return get();
+    }
+
+    T *get() const
+    {
+        return m_Pointer;
+    }
+
+    void reset()
+    {
+        if (m_Pointer)
         {
-            reset();
+            destroy();
+            m_Pointer = 0;
         }
+    }
 
-        T *operator* () const
-        {
-            return get();
-        }
+    NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon<T>);
 
-        operator void*() const
-        {
-            return get();
-        }
+  protected:
+    UniqueCommon(T *p) : m_Pointer(p)
+    {
+    }
 
-        T *get() const
-        {
-            return m_Pointer;
-        }
+    virtual void destroy()
+    {
+        delete m_Pointer;
+    }
 
-        void reset()
-        {
-            if (m_Pointer)
-            {
-                destroy();
-                m_Pointer = 0;
-            }
-        }
+    void setPointer(T *p)
+    {
+        m_Pointer = p;
+    }
 
-        NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon<T>);
+    /** Stop tracking the memory but don't free it. */
+    void release()
+    {
+        m_Pointer = nullptr;
+    }
 
-    protected:
-        UniqueCommon(T *p) : m_Pointer(p) {}
-
-        virtual void destroy()
-        {
-            delete m_Pointer;
-        }
-
-        void setPointer(T *p)
-        {
-            m_Pointer = p;
-        }
-
-        /** Stop tracking the memory but don't free it. */
-        void release()
-        {
-            m_Pointer = nullptr;
-        }
-
-        T *m_Pointer;
+    T *m_Pointer;
 };
 
 /** Provides a wrapper around a single-use pointer. The copy constructor
@@ -112,12 +116,12 @@ class UniquePointer : public UniqueCommon<T>
     }
 
     template <class... Args>
-    static UniquePointer<T> allocate(Args&&... args)
+    static UniquePointer<T> allocate(Args &&... args)
     {
         return UniquePointer<T>(new T(args...));
     }
 
-   private:
+  private:
     UniquePointer(T *p) : UniqueCommon<T>(p)
     {
     }
@@ -168,10 +172,10 @@ class UniqueArray : public UniqueCommon<T>
     virtual void destroy() override
     {
         T *ptr = this->get();
-        delete [] ptr;
+        delete[] ptr;
     }
 
-   private:
+  private:
     UniqueArray(T *p) : UniqueCommon<T>(p)
     {
     }

@@ -95,13 +95,13 @@ size_t Multiprocessor::initialise1()
     ///       kernel - we hard-code specific offsets. Avoids the "relocation
     ///       truncated to fit" error from ld.
     MemoryCopy(
-        reinterpret_cast<void *>(0x7000), reinterpret_cast<void *>(&mp_trampoline16), 0x100);
+        reinterpret_cast<void *>(0x7000),
+        reinterpret_cast<void *>(&mp_trampoline16), 0x100);
     MemoryCopy(
-        reinterpret_cast<void *>(0x7100), reinterpret_cast<void *>(&mp_trampoline32), 0x100);
-    MemoryCopy(
-        reinterpret_cast<void *>(0x7200), &trampolinegdtr64, 0x10);
-    MemoryCopy(
-        reinterpret_cast<void *>(0x7210), &trampolinegdt64, 0xF0);
+        reinterpret_cast<void *>(0x7100),
+        reinterpret_cast<void *>(&mp_trampoline32), 0x100);
+    MemoryCopy(reinterpret_cast<void *>(0x7200), &trampolinegdtr64, 0x10);
+    MemoryCopy(reinterpret_cast<void *>(0x7210), &trampolinegdt64, 0xF0);
 
 // Parameters for the trampoline code
 #if defined(X86)

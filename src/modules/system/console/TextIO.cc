@@ -44,22 +44,28 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
       m_SavedCursorX(0), m_SavedCursorY(0), m_ScrollStart(0), m_ScrollEnd(0),
       m_LeftMargin(0), m_RightMargin(0), m_CurrentParam(0), m_Params(),
       m_Fore(TextIO::LightGrey), m_Back(TextIO::Black),
-      m_Backbuffer("TextIO Backbuffer"),
-      m_pFramebuffer(0), m_pBackbuffer(0), m_pVga(0), m_TabStops(),
-      m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'), m_G1('B'), m_bUtf8(false),
-      m_nCharacter(0), m_nUtf8Handled(0), m_bActive(false), m_Lock(false),
-      m_bOwnsConsole(false), m_InputMode(TextIO::Standard)
+      m_Backbuffer("TextIO Backbuffer"), m_pFramebuffer(0), m_pBackbuffer(0),
+      m_pVga(0), m_TabStops(), m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'),
+      m_G1('B'), m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0),
+      m_bActive(false), m_Lock(false), m_bOwnsConsole(false),
+      m_InputMode(TextIO::Standard)
 {
-    size_t backbufferSize = BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell);
-    size_t backbufferPages = (backbufferSize + PhysicalMemoryManager::getPageSize() - 1) / PhysicalMemoryManager::getPageSize();
+    size_t backbufferSize =
+        BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell);
+    size_t backbufferPages =
+        (backbufferSize + PhysicalMemoryManager::getPageSize() - 1) /
+        PhysicalMemoryManager::getPageSize();
 
-    if (!PhysicalMemoryManager::instance().allocateRegion(m_Backbuffer, backbufferPages, 0, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write))
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_Backbuffer, backbufferPages, 0,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write))
     {
         ERROR("TextIO: failed to allocate backbuffer!");
     }
     else
     {
-        m_pBackbuffer = reinterpret_cast<VgaCell *>(m_Backbuffer.virtualAddress());
+        m_pBackbuffer =
+            reinterpret_cast<VgaCell *>(m_Backbuffer.virtualAddress());
     }
 
     clearBackbuffer();
@@ -1640,8 +1646,8 @@ void TextIO::flip(bool timer, bool hideState)
     }
 }
 
-uint64_t
-TextIO::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t TextIO::readBytewise(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     return m_OutBuffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
 }
@@ -1989,7 +1995,8 @@ void TextIO::handleInput(InputManager::InputNotification &in)
             return;
         }
 
-        uint8_t buf = in.data.rawkey.scancode | (in.data.rawkey.keyUp ? 0x80 : 0);
+        uint8_t buf =
+            in.data.rawkey.scancode | (in.data.rawkey.keyUp ? 0x80 : 0);
         m_OutBuffer.write(reinterpret_cast<char *>(&buf), sizeof(buf));
 
         dataChanged();

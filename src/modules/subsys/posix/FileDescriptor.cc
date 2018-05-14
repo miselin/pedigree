@@ -20,8 +20,8 @@
 #include "FileDescriptor.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
 
-#include "modules/system/vfs/File.h"
 #include "modules/subsys/posix/IoEvent.h"
+#include "modules/system/vfs/File.h"
 
 #include <fcntl.h>
 
@@ -79,7 +79,8 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0), ioevent(nullptr)
+    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0),
+      ioevent(nullptr)
 {
     if (!desc)
         return;
@@ -162,5 +163,6 @@ FileDescriptor::~FileDescriptor()
     }
 #endif
 
-    /// \note sockets are cleaned up by their reference count hitting zero (SharedPointer)
+    /// \note sockets are cleaned up by their reference count hitting zero
+    /// (SharedPointer)
 }

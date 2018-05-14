@@ -20,8 +20,8 @@
 #ifndef SERVICE_H
 #define SERVICE_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /// \todo Integrate with the Event system somehow

@@ -243,7 +243,11 @@ void BootIO::endColour(Serial *pSerial)
 {
 }
 
-template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(TinyStaticString &str, Colour foreColour, Colour backColour);
-template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(NormalStaticString &str, Colour foreColour, Colour backColour);
-template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(LargeStaticString &str, Colour foreColour, Colour backColour);
-template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(HugeStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(
+    TinyStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(
+    NormalStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(
+    LargeStaticString &str, Colour foreColour, Colour backColour);
+template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(
+    HugeStaticString &str, Colour foreColour, Colour backColour);

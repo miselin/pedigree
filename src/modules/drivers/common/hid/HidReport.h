@@ -20,10 +20,10 @@
 #ifndef HIDREPORT_H
 #define HIDREPORT_H
 
+#include "modules/drivers/common/hid/HidUtils.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "modules/drivers/common/hid/HidUtils.h"
 
 class EXPORTED_PUBLIC HidReport
 {

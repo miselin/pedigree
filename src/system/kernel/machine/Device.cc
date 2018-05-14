@@ -90,11 +90,11 @@ Device::~Device()
     }
 }
 
-void Device::foreach(Device::Callback callback, Device *root)
+void Device::foreach (Device::Callback callback, Device * root)
 {
     // Forward to the Callable<> version.
     pedigree_std::Callable<decltype(callback)> cb(callback);
-    foreach(cb, root)
+    foreach (cb, root)
         ;
 }
 

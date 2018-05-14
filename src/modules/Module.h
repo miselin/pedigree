@@ -121,8 +121,8 @@ struct ModuleInfo
 
 #define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \
-    static ModuleInfo __module SECTION(".modinfo") USED (     \
-        name, entry, exit, __mod_deps);
+    static ModuleInfo __module SECTION(".modinfo")      \
+        USED(name, entry, exit, __mod_deps);
 
 #define MODULE_OPTIONAL_DEPENDS(...)
 

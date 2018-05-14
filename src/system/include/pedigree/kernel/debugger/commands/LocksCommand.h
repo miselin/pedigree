@@ -152,10 +152,11 @@ class LocksCommand : public DebuggerCommand, public Scrollable
 
     struct LockDescriptor
     {
-        LockDescriptor() :
-            pLock(0), state(Inactive)
+        LockDescriptor()
+            : pLock(0), state(Inactive)
 #if LOCKS_COMMAND_DO_BACKTRACES
-            , n(0), ra()
+              ,
+              n(0), ra()
 #endif
         {
         }

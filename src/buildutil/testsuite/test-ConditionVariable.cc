@@ -21,8 +21,8 @@
 
 #include <gtest/gtest.h>
 
-#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Mutex.h"
 
 TEST(PedigreeConditionVariable, Timeout)
 {

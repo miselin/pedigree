@@ -39,11 +39,11 @@ using std::cin;
 using std::copy;
 using std::cout;
 using std::endl;
+using std::list;
 using std::map;
+using std::regex;
 using std::string;
 using std::stringstream;
-using std::list;
-using std::regex;
 using std::vector;
 
 int processOpts(int argc, char *argv[]);

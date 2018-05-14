@@ -256,9 +256,9 @@ class SlamAllocator
 
     bool isPointerValid(uintptr_t mem)
 #if !SLAM_LOCKED
-    const
+        const
 #endif
-    ;
+        ;
     bool isWithinHeap(uintptr_t mem) const;
 
     size_t allocSize(uintptr_t mem);

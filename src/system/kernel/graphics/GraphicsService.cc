@@ -110,7 +110,8 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider()
         pProvider->pDisplay->getName(name);
         DEBUG_LOG(
             "GraphicsService: provider with display name '"
-            << name << "' got " << points << " points (" << textPoints << " text points)");
+            << name << "' got " << points << " points (" << textPoints
+            << " text points)");
 
         // Is this the new best?
         bool bNewBest = false;

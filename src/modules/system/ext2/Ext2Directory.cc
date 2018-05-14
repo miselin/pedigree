@@ -21,8 +21,8 @@
 #include "Ext2File.h"
 #include "Ext2Filesystem.h"
 #include "Ext2Symlink.h"
-#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/stddef.h"
+#include "pedigree/kernel/syscallError.h"
 
 Ext2Directory::Ext2Directory(
     const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,
@@ -320,7 +320,8 @@ void Ext2Directory::cacheDirectoryContents()
 
             DirectoryEntryMetadata meta;
             meta.pDirectory = this;
-            meta.opaque = pedigree_std::move(UniqueArray<char>::allocate(copylen));
+            meta.opaque =
+                pedigree_std::move(UniqueArray<char>::allocate(copylen));
             MemoryCopy(meta.opaque.get(), pDir, copylen);
 
             size_t namelen = pDir->d_namelen;
@@ -338,7 +339,9 @@ void Ext2Directory::cacheDirectoryContents()
                     case EXT2_SYMLINK:
                         break;
                     default:
-                        ERROR("EXT2: Directory entry has unsupported file type: " << pDir->d_file_type);
+                        ERROR(
+                            "EXT2: Directory entry has unsupported file type: "
+                            << pDir->d_file_type);
                         ok = false;
                         break;
                 }
@@ -435,8 +438,8 @@ File *Ext2Directory::convertToFile(const DirectoryEntryMetadata &meta)
     switch (fileType)
     {
         case EXT2_FILE:
-            pFile = new Ext2File(
-                meta.filename, inodeNum, inode, m_pExt2Fs, this);
+            pFile =
+                new Ext2File(meta.filename, inodeNum, inode, m_pExt2Fs, this);
             break;
         case EXT2_DIRECTORY:
             pFile = new Ext2Directory(

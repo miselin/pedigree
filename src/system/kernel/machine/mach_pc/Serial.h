@@ -35,7 +35,7 @@ const int mctrl = 4;
 const int lstat = 5;
 const int mstat = 6;
 const int scratch = 7;
-}
+}  // namespace serial
 
 /**
  * Serial device abstraction.

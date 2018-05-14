@@ -98,7 +98,8 @@ Device *UsbPnP::doProbe(Device *pDeviceBase)
         if (pNewDevice->getUsbState() == UsbDevice::HasDriver)
         {
             // Replace the old device with the new one
-            UsbDeviceContainer *pNewContainer = new UsbDeviceContainer(pNewDevice);
+            UsbDeviceContainer *pNewContainer =
+                new UsbDeviceContainer(pNewDevice);
             return pNewContainer;
         }
         else
@@ -122,7 +123,7 @@ void UsbPnP::reprobeDevices(Device *pParent)
     };
 
     auto c = pedigree_std::make_callable(performReprobe);
-    Device::foreach(c, pParent);
+    Device::foreach (c, pParent);
 }
 
 void UsbPnP::registerCallback(

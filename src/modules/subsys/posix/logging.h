@@ -20,9 +20,9 @@
 #ifndef _POSIX_KERNEL_LOGGING_H
 #define _POSIX_KERNEL_LOGGING_H
 
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 // Logs to the kernel log with the current PID.
 #ifdef THREADS
@@ -39,11 +39,10 @@
                 << ____level << Hex << "]\t" << x);                            \
     } while (0)
 #else
-#define POSIX_VERBOSE_LOG(f, x)                                                \
-    do                                                                         \
-    {                                                                          \
-        NOTICE(                                                                \
-            "[" << f << "]\t" << x);                                           \
+#define POSIX_VERBOSE_LOG(f, x)         \
+    do                                  \
+    {                                   \
+        NOTICE("[" << f << "]\t" << x); \
     } while (0)
 #endif
 

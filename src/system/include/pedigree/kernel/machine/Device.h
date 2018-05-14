@@ -138,7 +138,7 @@ class EXPORTED_PUBLIC Device
     static void foreach (Callback callback, Device *root = 0);
     template <class F, class... Args>
     static void foreach (
-        pedigree_std::Callable<F> &callback, Device *root, Args... args);
+        pedigree_std::Callable<F> &callback, Device * root, Args... args);
 
     /** Adds the given object to the root of the device tree, atomically. */
     static void addToRoot(Device *device);
@@ -399,7 +399,7 @@ class EXPORTED_PUBLIC Device
 
 template <class F, class... Args>
 void Device::foreach (
-    pedigree_std::Callable<F> &callback, Device *root, Args... args)
+    pedigree_std::Callable<F> &callback, Device * root, Args... args)
 {
 #ifdef THREADS
     LockGuard<Mutex> guard(m_TreeLock);

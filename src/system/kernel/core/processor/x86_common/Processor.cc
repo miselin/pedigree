@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/state.h"
 #include "PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/state.h"
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
 #else

@@ -27,8 +27,8 @@
 #include "Rtc.h"
 #include "Serial.h"
 #include "Vga.h"
-#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Bus.h"
+#include "pedigree/kernel/machine/Machine.h"
 #if defined(SMBIOS)
 #include "SMBios.h"
 #endif

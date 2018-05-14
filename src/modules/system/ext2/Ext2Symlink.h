@@ -42,10 +42,10 @@ class Ext2Symlink : public Symlink, public Ext2Node
     /** Destructor */
     virtual ~Ext2Symlink();
 
-    virtual uint64_t
-    readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
-    virtual uint64_t
-    writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+    virtual uint64_t readBytewise(
+        uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+    virtual uint64_t writeBytewise(
+        uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
 
     void truncate();
 

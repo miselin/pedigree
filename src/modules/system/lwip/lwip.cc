@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #include "modules/Module.h"
 
 #include "pedigree/kernel/process/Mutex.h"

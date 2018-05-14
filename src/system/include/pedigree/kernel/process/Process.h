@@ -231,7 +231,8 @@ class EXPORTED_PUBLIC Process
         m_pEffectiveGroup = pGroup;
     }
 
-    /** Direct, overrideable ways to get IDs (redirects to User/Group interface by default) */
+    /** Direct, overrideable ways to get IDs (redirects to User/Group interface
+     * by default) */
     virtual int64_t getUserId() const;
     virtual int64_t getGroupId() const;
     virtual int64_t getEffectiveUserId() const;
@@ -422,10 +423,15 @@ class EXPORTED_PUBLIC Process
     Process &operator=(const Process &);
 
     /** Called when process times are updated. */
-    virtual void reportTimesUpdated(Time::Timestamp user, Time::Timestamp system) {}
+    virtual void
+    reportTimesUpdated(Time::Timestamp user, Time::Timestamp system)
+    {
+    }
 
     /** Called when the process is terminated to allow for subclass cleanup. */
-    virtual void processTerminated() {}
+    virtual void processTerminated()
+    {
+    }
 
     /**
      * Our list of threads.

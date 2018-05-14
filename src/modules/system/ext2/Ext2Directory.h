@@ -57,7 +57,7 @@ class Ext2Directory : public Directory, public Ext2Node
     /** Updates inode attributes. */
     void fileAttributeChanged();
 
-   private:
+  private:
     virtual File *convertToFile(const DirectoryEntryMetadata &meta);
 };
 

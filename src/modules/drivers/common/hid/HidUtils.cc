@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "modules/drivers/common/hid/HidUtils.h"
+#include "modules/drivers/common/hid/HidUsages.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
-#include "modules/drivers/common/hid/HidUsages.h"
-#include "modules/drivers/common/hid/HidUtils.h"
 
 uint64_t
 HidUtils::getBufferField(uint8_t *pBuffer, size_t nStart, size_t nLength)

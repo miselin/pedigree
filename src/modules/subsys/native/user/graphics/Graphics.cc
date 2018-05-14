@@ -55,9 +55,13 @@ struct sixargs
     uintptr_t a, b, c, d, e, f;
 } PACKED;
 
-Rect::Rect() : x(0), y(0), w(0), h(0){}
+Rect::Rect() : x(0), y(0), w(0), h(0)
+{
+}
 Rect::Rect(size_t x_, size_t y_, size_t width_, size_t height_)
-    : x(x_), y(y_), w(width_), h(height_){}
+    : x(x_), y(y_), w(width_), h(height_)
+{
+}
 
 Rect::~Rect() = default;
 

@@ -107,7 +107,7 @@ class MountFile : public File
 
     virtual size_t getSize();
 
-   private:
+  private:
     virtual bool isBytewise() const
     {
         return true;
@@ -142,8 +142,8 @@ class ConstantFile : public File
 {
   public:
     ConstantFile(
-        String name, const char *value, size_t size, size_t inode, Filesystem *pParentFS,
-        File *pParent);
+        String name, const char *value, size_t size, size_t inode,
+        Filesystem *pParentFS, File *pParent);
     ~ConstantFile();
 
     virtual uint64_t readBytewise(

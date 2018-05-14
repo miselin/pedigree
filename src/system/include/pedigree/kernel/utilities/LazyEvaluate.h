@@ -38,73 +38,88 @@
 template <class T, class M, T *(*create)(const M &), void (*destroy)(T *)>
 class LazyEvaluate
 {
-    public:
-        // Default constructor builds a version that can never be evaluated.
-        LazyEvaluate() : m_Metadata(), m_Field(nullptr), m_Ok(false) {}
-        // Lazy variant (only evaluates on access)
-        LazyEvaluate(const M &metadata) : m_Metadata(metadata), m_Field(nullptr), m_Ok(true) {}
-        LazyEvaluate(M &&metadata) : m_Metadata(pedigree_std::move(metadata)), m_Field(nullptr), m_Ok(true) {}
-        // Explicit variants (if the result of evaluation is known already)
-        LazyEvaluate(T *value) : m_Metadata(), m_Field(value), m_Ok(true) {}
-        LazyEvaluate(T *value, const M &metadata) : m_Metadata(metadata), m_Field(value), m_Ok(true) {}
-        LazyEvaluate(T *value, M &&metadata) : m_Metadata(pedigree_std::move(metadata)), m_Field(value), m_Ok(true) {}
-        virtual ~LazyEvaluate()
+  public:
+    // Default constructor builds a version that can never be evaluated.
+    LazyEvaluate() : m_Metadata(), m_Field(nullptr), m_Ok(false)
+    {
+    }
+    // Lazy variant (only evaluates on access)
+    LazyEvaluate(const M &metadata)
+        : m_Metadata(metadata), m_Field(nullptr), m_Ok(true)
+    {
+    }
+    LazyEvaluate(M &&metadata)
+        : m_Metadata(pedigree_std::move(metadata)), m_Field(nullptr), m_Ok(true)
+    {
+    }
+    // Explicit variants (if the result of evaluation is known already)
+    LazyEvaluate(T *value) : m_Metadata(), m_Field(value), m_Ok(true)
+    {
+    }
+    LazyEvaluate(T *value, const M &metadata)
+        : m_Metadata(metadata), m_Field(value), m_Ok(true)
+    {
+    }
+    LazyEvaluate(T *value, M &&metadata)
+        : m_Metadata(pedigree_std::move(metadata)), m_Field(value), m_Ok(true)
+    {
+    }
+    virtual ~LazyEvaluate()
+    {
+        reset();
+    }
+
+    bool active() const
+    {
+        return m_Ok && (m_Field != nullptr);
+    }
+
+    void reset()
+    {
+        if (active())
         {
-            reset();
+            destroy(m_Field);
+            m_Field = nullptr;
+        }
+    }
+
+    T *get()
+    {
+        if (m_Ok && !active())
+        {
+            m_Field = create(m_Metadata);
         }
 
-        bool active() const
-        {
-            return m_Ok && (m_Field != nullptr);
-        }
+        return m_Field;
+    }
 
-        void reset()
-        {
-            if (active())
-            {
-                destroy(m_Field);
-                m_Field = nullptr;
-            }
-        }
+    T *operator->()
+    {
+        return get();
+    }
 
-        T *get()
-        {
-            if (m_Ok && !active())
-            {
-                m_Field = create(m_Metadata);
-            }
+    T &operator*()
+    {
+        return *get();
+    }
 
-            return m_Field;
-        }
+    operator bool() const
+    {
+        // !ok = default constructed
+        return m_Ok;
+    }
 
-        T *operator ->()
-        {
-            return get();
-        }
+    operator T *()
+    {
+        return get();
+    }
 
-        T &operator *()
-        {
-            return *get();
-        }
+  private:
+    NOT_COPYABLE_OR_ASSIGNABLE(LazyEvaluate);
 
-        operator bool() const
-        {
-            // !ok = default constructed
-            return m_Ok;
-        }
-
-        operator T *()
-        {
-            return get();
-        }
-
-    private:
-        NOT_COPYABLE_OR_ASSIGNABLE(LazyEvaluate);
-
-        M m_Metadata;
-        T *m_Field;
-        bool m_Ok;
+    M m_Metadata;
+    T *m_Field;
+    bool m_Ok;
 };
 
-
-#endif // KERNEL_UTILITIES_LAZYEVALUATE_H
+#endif  // KERNEL_UTILITIES_LAZYEVALUATE_H

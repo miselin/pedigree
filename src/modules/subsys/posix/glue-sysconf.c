@@ -79,9 +79,9 @@ long sysconf(int name)
         case _SC_CLK_TCK:
             //#ifdef CLK_TCK
             return CLK_TCK;
-        //#else
-        //      return -1;
-        //#endif
+            //#else
+            //      return -1;
+            //#endif
 
         case _SC_DELAYTIMER_MAX:
 #ifdef DELAYTIMER_MAX

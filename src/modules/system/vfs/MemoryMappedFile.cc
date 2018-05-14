@@ -39,7 +39,7 @@ MemoryMappedObject::~MemoryMappedObject()
 AnonymousMemoryMap::AnonymousMemoryMap(
     uintptr_t address, size_t length, MemoryMappedObject::Permissions perms)
     : MemoryMappedObject(address, true, length, perms), m_Mappings(),
-    m_Lock(false)
+      m_Lock(false)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -529,7 +529,8 @@ void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms)
     m_Permissions = perms;
 }
 
-static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset, Spinlock &lock)
+static physical_uintptr_t
+getBackingPage(File *pBacking, size_t fileOffset, Spinlock &lock)
 {
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -540,11 +541,15 @@ static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset, Spin
         uint64_t actual = 0;
 
         // Have to give up the lock to safely read (as the read could block).
-        /// \todo get mutual exclusion here even with the unlock - mark trap page as being processed for example?
+        /// \todo get mutual exclusion here even with the unlock - mark trap
+        /// page as being processed for example?
         lock.release();
         if ((actual = pBacking->read(fileOffset, pageSz, 0)) != pageSz)
         {
-            ERROR("Short read of " << pBacking->getName() << " in getBackingPage() - wanted " << pageSz << " bytes but got " << actual << " instead");
+            ERROR(
+                "Short read of " << pBacking->getName()
+                                 << " in getBackingPage() - wanted " << pageSz
+                                 << " bytes but got " << actual << " instead");
         }
         lock.acquire();
 
@@ -554,7 +559,8 @@ static physical_uintptr_t getBackingPage(File *pBacking, size_t fileOffset, Spin
             ERROR(
                 "*** Could not manage to get a physical page for a "
                 "MemoryMappedFile ("
-                << pBacking->getName() << ") - read got " << actual << " bytes!");
+                << pBacking->getName() << ") - read got " << actual
+                << " bytes!");
         }
     }
 
@@ -717,7 +723,8 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
     if (!bShouldCopy)
     {
         // No need to lock this section - only accessing m_Mappings once
-        physical_uintptr_t phys = getBackingPage(m_pBacking, fileOffset, m_Lock);
+        physical_uintptr_t phys =
+            getBackingPage(m_pBacking, fileOffset, m_Lock);
         if (phys == ~0UL)
         {
             ERROR("MemoryMappedFile::trap couldn't get a backing page");
@@ -768,7 +775,8 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite)
         if (nBytes > pageSz)
             nBytes = pageSz;
 
-        // Same thing as in getBackingPage - must unlock as read is allowed to block
+        // Same thing as in getBackingPage - must unlock as read is allowed to
+        // block
         /// \todo how to manage this with potentially more traps taking place?
         m_Lock.release();
         size_t nRead = m_pBacking->read(fileOffset, nBytes, address);
@@ -1496,8 +1504,8 @@ bool MemoryMapManager::trap(
 
 #ifdef DEBUG_MMOBJECTS
     NOTICE(
-        "Trap start: " << Hex
-        << address << ", pid:tid " << Dec
+        "Trap start: "
+        << Hex << address << ", pid:tid " << Dec
         << Processor::information().getCurrentThread()->getParent()->getId()
         << ":" << Processor::information().getCurrentThread()->getId());
 #endif

@@ -22,8 +22,8 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class File;
 class LockedFile;

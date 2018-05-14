@@ -32,7 +32,8 @@ Directory::Directory(
     Filesystem *pFs, size_t size, File *pParent)
     : File(
           name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
-          pParent), m_Cache(nullptr), m_bCachePopulated(false)
+          pParent),
+      m_Cache(nullptr), m_bCachePopulated(false)
 {
 }
 
@@ -115,7 +116,9 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
 
     if (!m_Cache.insert(name, entry))
     {
-        ERROR("can't add directory entry for '" << name << "' as it already exists.");
+        ERROR(
+            "can't add directory entry for '" << name
+                                              << "' as it already exists.");
         delete entry;
     }
     else
@@ -124,13 +127,16 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
     }
 }
 
-void Directory::addDirectoryEntry(const String &name, DirectoryEntryMetadata &&meta)
+void Directory::addDirectoryEntry(
+    const String &name, DirectoryEntryMetadata &&meta)
 {
     DirectoryEntry *entry = new DirectoryEntry(pedigree_std::move(meta));
 
     if (!m_Cache.insert(name, entry))
     {
-        ERROR("can't add directory entry for '" << name << "' as it already exists.");
+        ERROR(
+            "can't add directory entry for '" << name
+                                              << "' as it already exists.");
         delete entry;
     }
     else
@@ -184,7 +190,8 @@ bool Directory::empty()
     {
         if (!getFilesystem()->remove(this, it))
         {
-            /// \note partial failure - some entries have been deleted by this point!
+            /// \note partial failure - some entries have been deleted by this
+            /// point!
             return false;
         }
     }
@@ -221,16 +228,20 @@ void Directory::preallocateDirectoryEntries(size_t count)
     m_Cache.reserve(count);
 }
 
-Directory::DirectoryEntryMetadata::DirectoryEntryMetadata() : pDirectory(nullptr), filename(), opaque() {}
-Directory::DirectoryEntryMetadata::DirectoryEntryMetadata(Directory::DirectoryEntryMetadata &&other) :
-  pDirectory(pedigree_std::move(other.pDirectory)),
-  filename(pedigree_std::move(other.filename)),
-  opaque(pedigree_std::move(other.opaque))
+Directory::DirectoryEntryMetadata::DirectoryEntryMetadata()
+    : pDirectory(nullptr), filename(), opaque()
+{
+}
+Directory::DirectoryEntryMetadata::DirectoryEntryMetadata(
+    Directory::DirectoryEntryMetadata &&other)
+    : pDirectory(pedigree_std::move(other.pDirectory)),
+      filename(pedigree_std::move(other.filename)),
+      opaque(pedigree_std::move(other.opaque))
 {
     other.pDirectory = nullptr;
 }
 
 Directory::DirectoryEntryMetadata::~DirectoryEntryMetadata()
 {
-  opaque.reset();
+    opaque.reset();
 }

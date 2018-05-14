@@ -28,10 +28,10 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
-#include <set>
 
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 
@@ -109,7 +109,9 @@ static void performBacktrace(const AllocationTraceEntry &entry)
     }
 }
 
-bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<uintptr_t> *seen_pointers)
+bool processRecord(
+    AllocationTraceEntry &record, dataset_t &dataset,
+    std::set<uintptr_t> *seen_pointers)
 {
     if (record.data.type == Free)
     {
@@ -122,7 +124,8 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<ui
                 // if the pointer has never been allocated in this trace, we
                 // skip this as we might be missing the allocation record (e.g.
                 // if a trace is started after system startup)
-                if (seen_pointers->find(record.data.ptr) == seen_pointers->end())
+                if (seen_pointers->find(record.data.ptr) ==
+                    seen_pointers->end())
                 {
                     doublefree = false;
                 }
@@ -131,7 +134,9 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<ui
             if (doublefree)
             {
                 /// \todo add more info
-                std::cerr << "A double free has been detected [" << std::hex << extendPointer(record.data.ptr) << "]." << std::endl;
+                std::cerr << "A double free has been detected [" << std::hex
+                          << extendPointer(record.data.ptr) << "]."
+                          << std::endl;
                 performBacktrace(record);
                 return false;
             }
@@ -148,7 +153,8 @@ bool processRecord(AllocationTraceEntry &record, dataset_t &dataset, std::set<ui
         if (it != dataset.end())
         {
             /// \todo add more info
-            std::cerr << "A pointer was allocated twice [" << std::hex << extendPointer(record.data.ptr) << "]." << std::endl;
+            std::cerr << "A pointer was allocated twice [" << std::hex
+                      << extendPointer(record.data.ptr) << "]." << std::endl;
             performBacktrace(record);
             return false;
         }
@@ -212,7 +218,8 @@ int processRecords(
     }
 
     std::cout << "This data file contains " << totalAllocs
-              << " allocations in total (" << totalRecords << " total records)." << std::endl;
+              << " allocations in total (" << totalRecords << " total records)."
+              << std::endl;
 
     // All that remains in the dataset is the unfreed memory.
     std::vector<dataset_pair_t> vec(dataset.begin(), dataset.end());

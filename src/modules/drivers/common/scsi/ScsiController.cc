@@ -20,7 +20,8 @@
 #include "ScsiController.h"
 #include "ScsiDisk.h"
 
-ScsiController::ScsiController(Controller *pDev) : Controller(pDev), RequestQueue("ScsiController")
+ScsiController::ScsiController(Controller *pDev)
+    : Controller(pDev), RequestQueue("ScsiController")
 {
     initialise();
 }

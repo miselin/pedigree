@@ -18,21 +18,25 @@
  */
 
 #include "UnixFilesystem.h"
+#include "modules/subsys/posix/logging.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "modules/subsys/posix/logging.h"
 
-UnixSocket::UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other, SocketType type)
+UnixSocket::UnixSocket(
+    String name, Filesystem *pFs, File *pParent, UnixSocket *other,
+    SocketType type)
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
-      m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other), m_Stream(MAX_UNIX_STREAM_QUEUE),
-      m_PendingSockets(), m_Mutex(false)
+      m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other),
+      m_Stream(MAX_UNIX_STREAM_QUEUE), m_PendingSockets(), m_Mutex(false)
 #ifdef THREADS
-      , m_AckWaiter(0)
+      ,
+      m_AckWaiter(0)
 #endif
-      , m_Creds()
+      ,
+      m_Creds()
 {
     if (m_Type == Datagram)
     {
@@ -54,7 +58,8 @@ UnixSocket::~UnixSocket()
         {
             LockGuard<Mutex> guard(m_pOther->m_Mutex);
 
-            /// \todo update read/write to handle the other socket going away correctly
+            /// \todo update read/write to handle the other socket going away
+            /// correctly
             assert(m_pOther->m_pOther == this);
             m_pOther->m_pOther = nullptr;
             m_pOther->m_State = Inactive;
@@ -99,7 +104,8 @@ int UnixSocket::select(bool bWriting, int timeout)
     {
         if (timeout)
         {
-            return m_Datagrams.waitFor(bWriting ? RingBufferWait::Writing : RingBufferWait::Reading);
+            return m_Datagrams.waitFor(
+                bWriting ? RingBufferWait::Writing : RingBufferWait::Reading);
         }
         else if (bWriting)
         {
@@ -119,7 +125,8 @@ uint64_t UnixSocket::readBytewise(
     return recvfrom(size, buffer, bCanBlock, remote);
 }
 
-uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String &from)
+uint64_t UnixSocket::recvfrom(
+    uint64_t size, uintptr_t buffer, bool bCanBlock, String &from)
 {
     if (m_State != Active)
     {
@@ -132,7 +139,8 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
     if (m_pOther)
     {
         from = String();
-        return m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+        return m_Stream.read(
+            reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
     }
 
     if (bCanBlock)
@@ -155,9 +163,9 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
     if (b->remotePath)
     {
         from = b->remotePath;
-        delete [] b->remotePath;
+        delete[] b->remotePath;
     }
-    delete [] b->pBuffer;
+    delete[] b->pBuffer;
     delete b;
 
     return size;
@@ -175,7 +183,8 @@ uint64_t UnixSocket::writeBytewise(
 
     if (m_pOther)
     {
-        return m_pOther->m_Stream.write(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+        return m_pOther->m_Stream.write(
+            reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
     }
 
     if (bCanBlock)
@@ -220,7 +229,8 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
         LockGuard<Mutex> guard1(m_Mutex);
         if (m_State != Inactive)
         {
-            N_NOTICE("bind failed because this socket is already in a non-inactive state");
+            N_NOTICE("bind failed because this socket is already in a "
+                     "non-inactive state");
             return false;
         }
 
@@ -229,7 +239,8 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
         LockGuard<Mutex> guard2(m_pOther->m_Mutex);
         if (m_pOther->m_State != Inactive)
         {
-            N_NOTICE("bind failed because other socket is already in a non-inactive state");
+            N_NOTICE("bind failed because other socket is already in a "
+                     "non-inactive state");
             m_pOther = nullptr;
             return false;
         }
@@ -339,7 +350,8 @@ void UnixSocket::addSocket(UnixSocket *socket)
 
     N_NOTICE("adding listening socket");
 
-    // No data moving on listen sockets so we use the stream buffer as a signaling primitive.
+    // No data moving on listen sockets so we use the stream buffer as a
+    // signaling primitive.
     uint8_t c = 0;
     m_Stream.write(&c, 1);
 }
@@ -426,7 +438,8 @@ bool UnixSocket::markListening()
 void UnixSocket::setCreds()
 {
 #ifdef THREADS
-    Process *pCurrentProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pCurrentProcess =
+        Processor::information().getCurrentThread()->getParent();
     m_Creds.uid = pCurrentProcess->getUserId();
     m_Creds.gid = pCurrentProcess->getGroupId();
     m_Creds.pid = pCurrentProcess->getId();

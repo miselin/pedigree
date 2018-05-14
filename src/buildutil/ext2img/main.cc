@@ -64,7 +64,8 @@ static uint32_t defaultPermissions[3] = {
 
 static size_t defaultOwner[2] = {
     // root:root
-    0, 0,
+    0,
+    0,
 };
 
 enum CommandType

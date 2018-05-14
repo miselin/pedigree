@@ -135,13 +135,15 @@ class IpcEndpoint
     Mutex m_QueueLock;
 };
 
-EXPORTED_PUBLIC bool send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync = false);
-EXPORTED_PUBLIC bool recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool
+send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool
+recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync = false);
 
 EXPORTED_PUBLIC IpcEndpoint *getEndpoint(String &name);
 
 EXPORTED_PUBLIC void createEndpoint(String &name);
 EXPORTED_PUBLIC void removeEndpoint(String &name);
-};
+};  // namespace Ipc
 
 #endif

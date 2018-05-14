@@ -41,4 +41,4 @@ int attachTo(void *handle)
     thread->join();
     return 0;  /// \todo get return value from thread?
 }
-}
+}  // namespace pocketknife

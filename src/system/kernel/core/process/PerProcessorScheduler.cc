@@ -76,7 +76,8 @@ int PerProcessorScheduler::processorAddThread(void *instance)
         if (!pInstance->m_NewThreadData.count())
         {
             /// \todo handle result
-            pInstance->m_NewThreadDataCondition.wait(pInstance->m_NewThreadDataLock);
+            pInstance->m_NewThreadDataCondition.wait(
+                pInstance->m_NewThreadDataLock);
             continue;
         }
 
@@ -180,7 +181,8 @@ void PerProcessorScheduler::schedule(
             {
                 if (pCurrentThread->getScheduler() == this)
                 {
-                    // Nothing to switch to, but we aren't sleeping. Just return.
+                    // Nothing to switch to, but we aren't sleeping. Just
+                    // return.
                     pCurrentThread->getLock().release();
                     Processor::setInterrupts(bWasInterrupts);
                     return;

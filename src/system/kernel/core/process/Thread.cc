@@ -25,9 +25,9 @@
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/StackFrame.h"
-#include "pedigree/kernel/processor/NMFaultHandler.h"
 
 #include "pedigree/kernel/machine/InputManager.h"
 
@@ -557,7 +557,8 @@ bool Thread::sendEvent(Event *pEvent)
         }
         else
         {
-            WARNING("Thread: not immediately waking up from event as we're not interruptible");
+            WARNING("Thread: not immediately waking up from event as we're not "
+                    "interruptible");
         }
     }
 
@@ -658,7 +659,8 @@ Event *Thread::getNextEvent()
                 continue;
             }
 
-            if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(e->getNumber()) ||
+            if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(
+                    e->getNumber()) ||
                 (e->getSpecificNestingLevel() != ~0UL &&
                  e->getSpecificNestingLevel() != m_nStateLevel))
             {

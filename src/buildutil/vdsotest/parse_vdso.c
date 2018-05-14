@@ -34,10 +34,10 @@
  * architecture that has a vDSO.
  */
 
+#include <elf.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <elf.h>
 
 /*
  * To use this vDSO parser, first call one of the vdso_init_* functions.
@@ -62,11 +62,10 @@ extern void vdso_init_from_auxv(void *auxv);
 extern void vdso_init_from_sysinfo_ehdr(uintptr_t base);
 extern void *vdso_sym(const char *version, const char *name);
 
-
 /* And here's the code. */
 
 #ifndef __x86_64__
-# error Not yet ported to non-x86_64 architectures
+#error Not yet ported to non-x86_64 architectures
 #endif
 
 static struct vdso_info
@@ -75,7 +74,7 @@ static struct vdso_info
 
     /* Load information */
     uintptr_t load_addr;
-    uintptr_t load_offset;  /* load_addr - recorded vaddr */
+    uintptr_t load_offset; /* load_addr - recorded vaddr */
 
     /* Symbol table */
     Elf64_Sym *symtab;
@@ -111,8 +110,8 @@ void vdso_init_from_sysinfo_ehdr(uintptr_t base)
 
     vdso_info.load_addr = base;
 
-    Elf64_Ehdr *hdr = (Elf64_Ehdr*)base;
-    Elf64_Phdr *pt = (Elf64_Phdr*)(vdso_info.load_addr + hdr->e_phoff);
+    Elf64_Ehdr *hdr = (Elf64_Ehdr *) base;
+    Elf64_Phdr *pt = (Elf64_Phdr *) (vdso_info.load_addr + hdr->e_phoff);
     Elf64_Dyn *dyn = 0;
 
     /*
@@ -121,18 +120,20 @@ void vdso_init_from_sysinfo_ehdr(uintptr_t base)
      */
     for (i = 0; i < hdr->e_phnum; i++)
     {
-        if (pt[i].p_type == PT_LOAD && !found_vaddr) {
+        if (pt[i].p_type == PT_LOAD && !found_vaddr)
+        {
             found_vaddr = true;
-            vdso_info.load_offset = base
-                + (uintptr_t)pt[i].p_offset
-                - (uintptr_t)pt[i].p_vaddr;
-        } else if (pt[i].p_type == PT_DYNAMIC) {
-            dyn = (Elf64_Dyn*)(base + pt[i].p_offset);
+            vdso_info.load_offset =
+                base + (uintptr_t) pt[i].p_offset - (uintptr_t) pt[i].p_vaddr;
+        }
+        else if (pt[i].p_type == PT_DYNAMIC)
+        {
+            dyn = (Elf64_Dyn *) (base + pt[i].p_offset);
         }
     }
 
     if (!found_vaddr || !dyn)
-        return;  /* Failed */
+        return; /* Failed */
 
     /*
      * Fish out the useful bits of the dynamic table.
@@ -142,37 +143,39 @@ void vdso_init_from_sysinfo_ehdr(uintptr_t base)
     vdso_info.symtab = 0;
     vdso_info.versym = 0;
     vdso_info.verdef = 0;
-    for (i = 0; dyn[i].d_tag != DT_NULL; i++) {
-        switch (dyn[i].d_tag) {
-        case DT_STRTAB:
-            vdso_info.symstrings = (const char *)
-                ((uintptr_t)dyn[i].d_un.d_ptr
-                 + vdso_info.load_offset);
-            break;
-        case DT_SYMTAB:
-            vdso_info.symtab = (Elf64_Sym *)
-                ((uintptr_t)dyn[i].d_un.d_ptr
-                 + vdso_info.load_offset);
-            break;
-        case DT_HASH:
-            hash = (Elf64_Word *)
-                ((uintptr_t)dyn[i].d_un.d_ptr
-                 + vdso_info.load_offset);
-            break;
-        case DT_VERSYM:
-            vdso_info.versym = (Elf64_Versym *)
-                ((uintptr_t)dyn[i].d_un.d_ptr
-                 + vdso_info.load_offset);
-            break;
-        case DT_VERDEF:
-            vdso_info.verdef = (Elf64_Verdef *)
-                ((uintptr_t)dyn[i].d_un.d_ptr
-                 + vdso_info.load_offset);
-            break;
+    for (i = 0; dyn[i].d_tag != DT_NULL; i++)
+    {
+        switch (dyn[i].d_tag)
+        {
+            case DT_STRTAB:
+                vdso_info.symstrings =
+                    (const char
+                         *) ((uintptr_t) dyn[i].d_un.d_ptr + vdso_info.load_offset);
+                break;
+            case DT_SYMTAB:
+                vdso_info.symtab =
+                    (Elf64_Sym
+                         *) ((uintptr_t) dyn[i].d_un.d_ptr + vdso_info.load_offset);
+                break;
+            case DT_HASH:
+                hash =
+                    (Elf64_Word
+                         *) ((uintptr_t) dyn[i].d_un.d_ptr + vdso_info.load_offset);
+                break;
+            case DT_VERSYM:
+                vdso_info.versym =
+                    (Elf64_Versym
+                         *) ((uintptr_t) dyn[i].d_un.d_ptr + vdso_info.load_offset);
+                break;
+            case DT_VERDEF:
+                vdso_info.verdef =
+                    (Elf64_Verdef
+                         *) ((uintptr_t) dyn[i].d_un.d_ptr + vdso_info.load_offset);
+                break;
         }
     }
     if (!vdso_info.symstrings || !vdso_info.symtab || !hash)
-        return;  /* Failed */
+        return; /* Failed */
 
     if (!vdso_info.verdef)
         vdso_info.versym = 0;
@@ -187,8 +190,8 @@ void vdso_init_from_sysinfo_ehdr(uintptr_t base)
     vdso_info.valid = true;
 }
 
-static bool vdso_match_version(Elf64_Versym ver,
-                   const char *name, Elf64_Word hash)
+static bool
+vdso_match_version(Elf64_Versym ver, const char *name, Elf64_Word hash)
 {
     /*
      * This is a helper function to check if the version indexed by
@@ -206,23 +209,24 @@ static bool vdso_match_version(Elf64_Versym ver,
      */
 
     /* First step: find the version definition */
-    ver &= 0x7fff;  /* Apparently bit 15 means "hidden" */
+    ver &= 0x7fff; /* Apparently bit 15 means "hidden" */
     Elf64_Verdef *def = vdso_info.verdef;
-    while(true) {
-        if ((def->vd_flags & VER_FLG_BASE) == 0
-            && (def->vd_ndx & 0x7fff) == ver)
+    while (true)
+    {
+        if ((def->vd_flags & VER_FLG_BASE) == 0 &&
+            (def->vd_ndx & 0x7fff) == ver)
             break;
 
         if (def->vd_next == 0)
-            return false;  /* No definition. */
+            return false; /* No definition. */
 
-        def = (Elf64_Verdef *)((char *)def + def->vd_next);
+        def = (Elf64_Verdef *) ((char *) def + def->vd_next);
     }
 
     /* Now figure out whether it matches. */
-    Elf64_Verdaux *aux = (Elf64_Verdaux*)((char *)def + def->vd_aux);
-    return def->vd_hash == hash
-        && !strcmp(name, vdso_info.symstrings + aux->vda_name);
+    Elf64_Verdaux *aux = (Elf64_Verdaux *) ((char *) def + def->vd_aux);
+    return def->vd_hash == hash &&
+           !strcmp(name, vdso_info.symstrings + aux->vda_name);
 }
 
 void *vdso_sym(const char *version, const char *name)
@@ -234,7 +238,8 @@ void *vdso_sym(const char *version, const char *name)
     ver_hash = elf_hash(version);
     Elf64_Word chain = vdso_info.bucket[elf_hash(name) % vdso_info.nbucket];
 
-    for (; chain != STN_UNDEF; chain = vdso_info.chain[chain]) {
+    for (; chain != STN_UNDEF; chain = vdso_info.chain[chain])
+    {
         Elf64_Sym *sym = &vdso_info.symtab[chain];
 
         /* Check for a defined global or weak function w/ right name. */
@@ -249,12 +254,11 @@ void *vdso_sym(const char *version, const char *name)
             continue;
 
         /* Check symbol version. */
-        if (vdso_info.versym
-            && !vdso_match_version(vdso_info.versym[chain],
-                       version, ver_hash))
+        if (vdso_info.versym &&
+            !vdso_match_version(vdso_info.versym[chain], version, ver_hash))
             continue;
 
-        return (void *)(vdso_info.load_offset + sym->st_value);
+        return (void *) (vdso_info.load_offset + sym->st_value);
     }
 
     return 0;
@@ -265,7 +269,8 @@ void vdso_init_from_auxv(void *auxv)
     Elf64_auxv_t *elf_auxv = auxv;
     for (int i = 0; elf_auxv[i].a_type != AT_NULL; i++)
     {
-        if (elf_auxv[i].a_type == AT_SYSINFO_EHDR) {
+        if (elf_auxv[i].a_type == AT_SYSINFO_EHDR)
+        {
             vdso_init_from_sysinfo_ehdr(elf_auxv[i].a_un.a_val);
             return;
         }

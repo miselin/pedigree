@@ -81,7 +81,8 @@ size_t X86CommonPhysicalMemoryManager::freePageCount() const
     return m_PageStack.freePages();
 }
 
-physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage(size_t pageConstraints)
+physical_uintptr_t
+X86CommonPhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
     static bool bDidHitWatermark = false;
     static bool bHandlingPressure = false;
@@ -259,7 +260,9 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
             {
                 if ((pageConstraints & force) != force)
                 {
-                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] - failed to get space from general range list and force is not set");
+                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] "
+                          "- failed to get space from general range list and "
+                          "force is not set");
                     return false;
                 }
                 else
@@ -273,7 +276,8 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
                 if (m_RangeBelow1MB.allocateSpecific(
                         start, cPages * getPageSize()) == false)
                 {
-                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] - failed to get space from <1MB range list");
+                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] "
+                          "- failed to get space from <1MB range list");
                     return false;
                 }
             }
@@ -284,7 +288,12 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
                 if (m_RangeBelow16MB.allocateSpecific(
                         start, cPages * getPageSize()) == false)
                 {
-                    ERROR("PhysicalMemoryManager::allocateRegion() [specific] - failed to get " << cPages << " pages of memory from <16MB range list at " << Hex << start);
+                    ERROR(
+                        "PhysicalMemoryManager::allocateRegion() [specific] - "
+                        "failed to get "
+                        << cPages
+                        << " pages of memory from <16MB range list at " << Hex
+                        << start);
                     return false;
                 }
             }
@@ -378,7 +387,8 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
                     if (m_RangeBelow1MB.allocate(
                             cPages * getPageSize(), allocatedStart) == false)
                     {
-                        ERROR("PhysicalMemoryManager::allocateRegion() - failed to get space from <1MB range list");
+                        ERROR("PhysicalMemoryManager::allocateRegion() - "
+                              "failed to get space from <1MB range list");
                         return false;
                     }
                 }
@@ -387,7 +397,8 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(
                     if (m_RangeBelow16MB.allocate(
                             cPages * getPageSize(), allocatedStart) == false)
                     {
-                        ERROR("PhysicalMemoryManager::allocateRegion() - failed to get space from <16MB range list");
+                        ERROR("PhysicalMemoryManager::allocateRegion() - "
+                              "failed to get space from <16MB range list");
                         return false;
                     }
                 }
@@ -665,8 +676,7 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
             }
 
             NOTICE(
-                " " << Hex << addr << " - "
-                    << (addr + length)
+                " " << Hex << addr << " - " << (addr + length)
                     << ", type: " << type);
 
             if (type == 1)
@@ -689,7 +699,10 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
     /// \todo this will break if there's over 64 TiB of RAM on the machine.
     VirtualAddressSpace &kernelSpace =
         VirtualAddressSpace::getKernelAddressSpace();
-    bool ok = kernelSpace.mapHuge(base, reinterpret_cast<void *>(0xFFFF800000000000 + base), numPagesOver4G, VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);
+    bool ok = kernelSpace.mapHuge(
+        base, reinterpret_cast<void *>(0xFFFF800000000000 + base),
+        numPagesOver4G,
+        VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);
     if (!ok)
     {
         FATAL("failed to map physical memory");
@@ -780,8 +793,8 @@ void X86CommonPhysicalMemoryManager::initialisationDone()
                    getPageSize();
     for (size_t i = 0; i < count; i++)
     {
-        void *vAddress =
-            adjust_pointer(reinterpret_cast<void *>(&kernel_init), i * getPageSize());
+        void *vAddress = adjust_pointer(
+            reinterpret_cast<void *>(&kernel_init), i * getPageSize());
 
         // Get the physical address
         size_t flags;
@@ -961,7 +974,8 @@ X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
 }
 
 template <class T>
-static void performPush(T *stack, size_t &stackSize, uint64_t physicalAddress, size_t count)
+static void
+performPush(T *stack, size_t &stackSize, uint64_t physicalAddress, size_t count)
 {
     size_t nextEntry = stackSize / sizeof(T);
     T addend = 0;
@@ -974,7 +988,8 @@ static void performPush(T *stack, size_t &stackSize, uint64_t physicalAddress, s
     stackSize += sizeof(T) * count;
 }
 
-void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, size_t length)
+void X86CommonPhysicalMemoryManager::PageStack::free(
+    uint64_t physicalAddress, size_t length)
 {
     // Select the right stack
     /// \todo make sure callers split any regions that cross over before calling
@@ -1016,11 +1031,15 @@ void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, s
 
     if (index == 0)
     {
-        performPush(reinterpret_cast<uint32_t *>(m_Stack[index]), m_StackSize[index], physicalAddress, numPages);
+        performPush(
+            reinterpret_cast<uint32_t *>(m_Stack[index]), m_StackSize[index],
+            physicalAddress, numPages);
     }
     else
     {
-        performPush(reinterpret_cast<uint64_t *>(m_Stack[index]), m_StackSize[index], physicalAddress, numPages);
+        performPush(
+            reinterpret_cast<uint64_t *>(m_Stack[index]), m_StackSize[index],
+            physicalAddress, numPages);
     }
 
     /// \note Testing.
@@ -1075,7 +1094,8 @@ void X86CommonPhysicalMemoryManager::PageStack::markBelow4GReady()
     m_StackReady[0] = true;
 }
 
-bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t physicalAddress)
+bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(
+    size_t index, uint64_t physicalAddress)
 {
     bool mapped = false;
 
@@ -1101,10 +1121,9 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t 
     if (!index)
     {
         if (AddressSpace.mapPageStructures(
-                physicalAddress,
-                virtualAddress,
-                VirtualAddressSpace::KernelMode |
-                    VirtualAddressSpace::Write) == true)
+                physicalAddress, virtualAddress,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
+            true)
         {
             mapped = true;
         }
@@ -1113,10 +1132,9 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t 
     {
 #if defined(X64)
         if (AddressSpace.mapPageStructuresAbove4GB(
-                physicalAddress,
-                virtualAddress,
-                VirtualAddressSpace::KernelMode |
-                    VirtualAddressSpace::Write) == true)
+                physicalAddress, virtualAddress,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
+            true)
         {
             mapped = true;
         }

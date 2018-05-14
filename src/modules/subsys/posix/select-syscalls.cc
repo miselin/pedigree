@@ -18,19 +18,21 @@
  */
 
 #include "select-syscalls.h"
-#include "poll-syscalls.h"
 #include "net-syscalls.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
-#include "pedigree/kernel/Subsystem.h"
+#include "poll-syscalls.h"
 #include <PosixSubsystem.h>
 
 int posix_select(
     int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
     timeval *timeout)
 {
-    POLL_NOTICE("select(" << nfds << ", " << readfds << ", " << writefds << ", " << errorfds << ", " << timeout << ")");
+    POLL_NOTICE(
+        "select(" << nfds << ", " << readfds << ", " << writefds << ", "
+                  << errorfds << ", " << timeout << ")");
     bool bValidAddresses = true;
     if (readfds)
         bValidAddresses =
@@ -90,15 +92,19 @@ int posix_select(
 
         fds[j].fd = i;
         fds[j].events = 0;
-        if (checkRead) fds[j].events |= POLLIN;
-        if (checkWrite) fds[j].events |= POLLOUT;
-        if (checkError) fds[j].events |= POLLERR;
+        if (checkRead)
+            fds[j].events |= POLLIN;
+        if (checkWrite)
+            fds[j].events |= POLLOUT;
+        if (checkError)
+            fds[j].events |= POLLERR;
         fds[j].revents = 0;
 
         ++j;
     }
 
-    // Default to infinite wait, but handle immediate wait or a specific timeout too.
+    // Default to infinite wait, but handle immediate wait or a specific timeout
+    // too.
     int timeoutMs = -1;
     if (timeout)
     {
@@ -106,7 +112,9 @@ int posix_select(
     }
 
     // Go!
-    POLL_NOTICE(" -> redirecting select() to poll() with " << trueFdCount << " actual fds");
+    POLL_NOTICE(
+        " -> redirecting select() to poll() with " << trueFdCount
+                                                   << " actual fds");
     int r = posix_poll_safe(fds, trueFdCount, timeoutMs);
 
     // Fill fd_sets as needed.
@@ -162,7 +170,7 @@ int posix_select(
         ++j;
     }
 
-    delete [] fds;
+    delete[] fds;
 
     POLL_NOTICE(" -> select via poll returns " << r);
     return r;

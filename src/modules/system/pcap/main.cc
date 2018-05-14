@@ -19,13 +19,13 @@
 
 #include "modules/Module.h"
 #include "modules/system/network-stack/Filter.h"
+#include "modules/system/pcap/pcap.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/LockGuard.h"
-#include "modules/system/pcap/pcap.h"
 
 struct PcapHeader
 {
@@ -136,8 +136,7 @@ static bool entry()
         return false;
     }
 
-    g_FilterEntry =
-        NetworkFilter::instance().installCallback(1, pcapLogPacket);
+    g_FilterEntry = NetworkFilter::instance().installCallback(1, pcapLogPacket);
     if (g_FilterEntry == static_cast<size_t>(-1))
     {
         NOTICE("pcap: could not install callback");

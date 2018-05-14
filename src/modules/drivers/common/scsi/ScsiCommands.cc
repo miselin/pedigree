@@ -24,7 +24,8 @@ ScsiCommand::~ScsiCommand() = default;
 
 namespace ScsiCommands
 {
-Inquiry::Inquiry(uint16_t len, bool enableVitalData, uint8_t pageCode, uint8_t ctl)
+Inquiry::Inquiry(
+    uint16_t len, bool enableVitalData, uint8_t pageCode, uint8_t ctl)
 {
     ByteSet(&command, 0, sizeof(command));
     command.opcode = 0x12;
@@ -70,8 +71,7 @@ size_t ReadSense::serialise(uintptr_t &addr)
 }
 
 StartStop::StartStop(
-    bool imm, uint8_t newpower, bool eject_load, bool start,
-    uint8_t ctl)
+    bool imm, uint8_t newpower, bool eject_load, bool start, uint8_t ctl)
 {
     ByteSet(&command, 0, sizeof(command));
     command.opcode = 0x1b;
@@ -88,9 +88,8 @@ size_t StartStop::serialise(uintptr_t &addr)
 }
 
 SendDiagnostic::SendDiagnostic(
-    bool selfTest, uint8_t selfTestCode, uintptr_t params,
-    size_t paramLen, bool deviceOffline,
-    bool unitOffline, uint8_t ctl)
+    bool selfTest, uint8_t selfTestCode, uintptr_t params, size_t paramLen,
+    bool deviceOffline, bool unitOffline, uint8_t ctl)
 {
     ByteSet(&command, 0, sizeof(command));
     command.opcode = 0x1d;

@@ -238,8 +238,8 @@ class EXPORTED_PUBLIC Framebuffer
     void swDestroyBuffer(Graphics::Buffer *pBuffer);
 
     /// Inherited by drivers that provide a hardware redraw function
-    virtual void
-    hwRedraw(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
+    virtual void hwRedraw(
+        size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
 };
 
 #endif

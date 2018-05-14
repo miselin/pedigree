@@ -20,8 +20,8 @@
 #ifndef MACHINE_X86_PS2CONTROLLER_H
 #define MACHINE_X86_PS2CONTROLLER_H
 
-#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 
@@ -83,7 +83,7 @@ class Ps2Controller : public Controller, private IrqHandler
         return m_bDebugState;
     }
 
-   private:
+  private:
     virtual bool irq(irq_id_t number, InterruptState &state);
 
     void waitForReading();

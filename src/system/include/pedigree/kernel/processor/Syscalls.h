@@ -27,7 +27,8 @@ enum Service_t
     linuxCompat = 0,
 
     /** Service number for the POSIX subsystem
-     * \note If you change this, ensure you change src/modules/subsys/posix/syscall.h !
+     * \note If you change this, ensure you change
+     * src/modules/subsys/posix/syscall.h !
      */
     posix = 1,
 

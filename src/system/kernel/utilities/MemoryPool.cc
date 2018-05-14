@@ -97,8 +97,7 @@ bool MemoryPoolPressureHandler::compact()
 MemoryPool::MemoryPool()
     :
 #ifdef THREADS
-      m_Condition(),
-      m_Lock(),
+      m_Condition(), m_Lock(),
 #endif
       m_BufferSize(1024), m_BufferCount(0), m_Pool("memory-pool"),
       m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
@@ -108,8 +107,7 @@ MemoryPool::MemoryPool()
 MemoryPool::MemoryPool(const char *poolName)
     :
 #ifdef THREADS
-      m_Condition(),
-      m_Lock(),
+      m_Condition(), m_Lock(),
 #endif
       m_BufferSize(1024), m_BufferCount(0), m_Pool(poolName),
       m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)

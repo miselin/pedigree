@@ -20,8 +20,8 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Spinlock.h"
 #ifdef THREADS
-#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #endif
 
 template class LockGuard<Spinlock>;

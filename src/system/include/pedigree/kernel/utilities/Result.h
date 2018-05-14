@@ -35,59 +35,61 @@
 template <class T, class E>
 class Result
 {
-    public:
-        static Result<T, E> withValue(const T &v)
-        {
-            return Result<T, E>(v);
-        }
+  public:
+    static Result<T, E> withValue(const T &v)
+    {
+        return Result<T, E>(v);
+    }
 
-        static Result<T, E> withError(const E &e)
-        {
-            return Result<T, E>(e, true);
-        }
+    static Result<T, E> withError(const E &e)
+    {
+        return Result<T, E>(e, true);
+    }
 
-        const T &value() const
-        {
-            assert(hasValue());
-            return m_Value;
-        }
+    const T &value() const
+    {
+        assert(hasValue());
+        return m_Value;
+    }
 
-        const E &error() const
-        {
-            assert(hasError());
-            return m_Error;
-        }
+    const E &error() const
+    {
+        assert(hasError());
+        return m_Error;
+    }
 
-        bool hasError() const
-        {
-            return m_HasError;
-        }
+    bool hasError() const
+    {
+        return m_HasError;
+    }
 
-        bool hasValue() const
-        {
-            return !hasError();
-        }
+    bool hasValue() const
+    {
+        return !hasError();
+    }
 
-    private:
-        Result() = delete;
+  private:
+    Result() = delete;
 
-        Result(const T &v) : m_Value(v), m_Error(), m_HasError(false)
-        {
-        }
+    Result(const T &v) : m_Value(v), m_Error(), m_HasError(false)
+    {
+    }
 
-        Result(const E &e, bool) : m_Value(m_DefaultValue), m_Error(e), m_HasError(true)
-        {
-        }
+    Result(const E &e, bool)
+        : m_Value(m_DefaultValue), m_Error(e), m_HasError(true)
+    {
+    }
 
-        T m_Value;
-        E m_Error;
-        bool m_HasError;
+    T m_Value;
+    E m_Error;
+    bool m_HasError;
 
-        typedef typename pedigree_std::remove_reference<T>::type BaseValueType;
-        static const BaseValueType m_DefaultValue;
+    typedef typename pedigree_std::remove_reference<T>::type BaseValueType;
+    static const BaseValueType m_DefaultValue;
 };
 
 template <class T, class E>
-const typename Result<T, E>::BaseValueType Result<T, E>::m_DefaultValue = Result<T, E>::BaseValueType();
+const typename Result<T, E>::BaseValueType
+    Result<T, E>::m_DefaultValue = Result<T, E>::BaseValueType();
 
 #endif  // KERNEL_UTILITIES_RESULT_H

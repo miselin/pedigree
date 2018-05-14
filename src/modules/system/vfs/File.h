@@ -25,11 +25,11 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "pedigree/kernel/utilities/HashTable.h"
 
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
@@ -334,23 +334,25 @@ class EXPORTED_PUBLIC File
 
     class DataCacheKey
     {
-        public:
-            DataCacheKey() = default;
-            DataCacheKey(size_t block) : m_Block(block) {}
-            ~DataCacheKey() = default;
+      public:
+        DataCacheKey() = default;
+        DataCacheKey(size_t block) : m_Block(block)
+        {
+        }
+        ~DataCacheKey() = default;
 
-            size_t hash() const
-            {
-                return m_Block;
-            }
+        size_t hash() const
+        {
+            return m_Block;
+        }
 
-            bool operator== (const DataCacheKey &other) const
-            {
-                return m_Block == other.m_Block;
-            }
+        bool operator==(const DataCacheKey &other) const
+        {
+            return m_Block == other.m_Block;
+        }
 
-        private:
-            size_t m_Block = ~static_cast<size_t>(0);
+      private:
+        size_t m_Block = ~static_cast<size_t>(0);
     };
 
     HashTable<DataCacheKey, uintptr_t> m_DataCache;
@@ -391,7 +393,8 @@ class EXPORTED_PUBLIC File
     /** Set a page in our cache. */
     void setCachedPage(size_t block, uintptr_t value, bool locked = true);
 
-    /** Indicate whether the 'fill cache' is needed to handle sub-page block sizes. */
+    /** Indicate whether the 'fill cache' is needed to handle sub-page block
+     * sizes. */
     bool useFillCache() const;
 
     /** Read the given block into the relevant cache. */

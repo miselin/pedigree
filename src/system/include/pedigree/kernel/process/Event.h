@@ -123,7 +123,8 @@ class EXPORTED_PUBLIC Event
     Event &operator=(const Event &other);
 
 #ifdef THREADS
-    /** Register a thread with this object (to detect deletion while Thread still knows about it). */
+    /** Register a thread with this object (to detect deletion while Thread
+     * still knows about it). */
     void registerThread(Thread *thread);
 
     /** Deregister a thread with this object. */

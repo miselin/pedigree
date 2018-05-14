@@ -20,13 +20,13 @@
 #include "NetworkStack.h"
 
 #include "modules/Module.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include "modules/system/lwip/include/lwip/netif.h"
 #include "modules/system/lwip/include/lwip/etharp.h"
 #include "modules/system/lwip/include/lwip/ethip6.h"
+#include "modules/system/lwip/include/lwip/netif.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/lwip/include/netif/ethernet.h"
 
@@ -49,7 +49,8 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
     pbuf_copy_partial(p, output, totalLength, 0);
 
     // Check for filtering
-    if (!NetworkFilter::instance().filter(1, reinterpret_cast<uintptr_t>(output), totalLength))
+    if (!NetworkFilter::instance().filter(
+            1, reinterpret_cast<uintptr_t>(output), totalLength))
     {
         pDevice->droppedPacket();
         return ERR_IF;  // Drop the packet.
@@ -62,7 +63,7 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
         e = ERR_IF;
     }
 
-    delete [] output;
+    delete[] output;
 
     return e;
 }
@@ -93,11 +94,14 @@ static err_t netifInit(struct netif *netif)
 }
 
 NetworkStack::NetworkStack()
-    : RequestQueue("Network Stack"), m_pLoopback(0), m_Children(), m_MemPool("network-pool")
+    : RequestQueue("Network Stack"), m_pLoopback(0), m_Children(),
+      m_MemPool("network-pool")
 #ifdef UTILITY_LINUX
-    , m_Lock(false)
+      ,
+      m_Lock(false)
 #endif
-    , m_NextInterfaceNumber(0)
+      ,
+      m_NextInterfaceNumber(0)
 {
     if (stack)
     {
@@ -179,7 +183,8 @@ void NetworkStack::receive(
         while (buf != nullptr)
         {
             size_t copyLength = buf->len;
-            MemoryCopy(buf->payload, reinterpret_cast<void *>(packet), buf->len);
+            MemoryCopy(
+                buf->payload, reinterpret_cast<void *>(packet), buf->len);
 
             packet += buf->len;
             nBytes -= buf->len;
@@ -195,7 +200,8 @@ void NetworkStack::receive(
         return;
     }
 
-    uint64_t result = addRequest(0, reinterpret_cast<uint64_t>(p), reinterpret_cast<uintptr_t>(iface));
+    uint64_t result = addRequest(
+        0, reinterpret_cast<uint64_t>(p), reinterpret_cast<uintptr_t>(iface));
 }
 
 void NetworkStack::registerDevice(Network *pDevice)
@@ -231,7 +237,8 @@ void NetworkStack::registerDevice(Network *pDevice)
 
     m_Interfaces.insert(pDevice, iface);
 
-    netif_add(iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, tcpip_input);
+    netif_add(
+        iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, tcpip_input);
 }
 
 Network *NetworkStack::getDevice(size_t n)
@@ -279,7 +286,8 @@ NetworkStack::Packet::~Packet()
 
 bool NetworkStack::Packet::copyFrom(uintptr_t otherPacket, size_t size)
 {
-    uint8_t *safePacket = reinterpret_cast<uint8_t *>(NetworkStack::instance().m_MemPool.allocateNow());
+    uint8_t *safePacket = reinterpret_cast<uint8_t *>(
+        NetworkStack::instance().m_MemPool.allocateNow());
     if (!safePacket)
     {
         return false;

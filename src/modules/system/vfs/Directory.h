@@ -24,11 +24,11 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/HashTable.h"
+#include "pedigree/kernel/utilities/LazyEvaluate.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/LazyEvaluate.h"
-#include "pedigree/kernel/utilities/HashTable.h"
-#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 /**
@@ -154,7 +154,9 @@ class EXPORTED_PUBLIC Directory : public File
     }
 
   protected:
-    typedef LazyEvaluate<File, DirectoryEntryMetadata, evaluateEntry, destroyEntry> DirectoryEntry;
+    typedef LazyEvaluate<
+        File, DirectoryEntryMetadata, evaluateEntry, destroyEntry>
+        DirectoryEntry;
 
   private:
     typedef HashTable<String, DirectoryEntry *> DirectoryEntryCache;

@@ -20,8 +20,8 @@
 #ifndef CACHE_H
 #define CACHE_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BloomFilter.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
@@ -202,7 +202,8 @@ class EXPORTED_PUBLIC Cache
      *        page that already existed, and no mapping was completed. This can
      *        be used to do an 'insert or get' operation atomically.
      */
-    uintptr_t insert(uintptr_t key, size_t size, bool *alreadyExisted = nullptr);
+    uintptr_t
+    insert(uintptr_t key, size_t size, bool *alreadyExisted = nullptr);
 
     /** Checks if the entire range specified exists in the cache. */
     bool exists(uintptr_t key, size_t length);

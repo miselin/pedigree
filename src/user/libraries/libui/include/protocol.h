@@ -322,7 +322,7 @@ struct RawKeyEventMessage
     ButtonState state;
     uint16_t scancode;
 };
-};
+};  // namespace LibUiProtocol
 
 /** @} */
 

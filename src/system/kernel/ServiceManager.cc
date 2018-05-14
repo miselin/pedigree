@@ -32,7 +32,8 @@ ServiceManager::~ServiceManager()
 
 ServiceFeatures *ServiceManager::enumerateOperations(String serviceName)
 {
-    RadixTree<InternalService *>::LookupType result = m_Services.lookup(serviceName);
+    RadixTree<InternalService *>::LookupType result =
+        m_Services.lookup(serviceName);
     if (result.hasValue())
         return result.value()->pFeatures;
     else
@@ -55,7 +56,8 @@ void ServiceManager::removeService(String serviceName)
 
 Service *ServiceManager::getService(String serviceName)
 {
-    RadixTree<InternalService *>::LookupType result = m_Services.lookup(serviceName);
+    RadixTree<InternalService *>::LookupType result =
+        m_Services.lookup(serviceName);
     if (result.hasValue())
         return result.value()->pService;
     else

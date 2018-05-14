@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/IoEvent.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/system/vfs/File.h"
 
 #include <signal.h>
@@ -30,8 +30,7 @@ IoEvent::IoEvent()
 {
 }
 
-IoEvent::IoEvent(
-    PosixSubsystem *subsystem, File *file)
+IoEvent::IoEvent(PosixSubsystem *subsystem, File *file)
     : Event(reinterpret_cast<uintptr_t>(&ioEventHandler), false),
       m_pSubsystem(subsystem), m_pFile(file), m_pRetriggerInstance(0)
 {

@@ -25,8 +25,8 @@
 #include "pipe-syscalls.h"
 
 #include "pedigree/kernel/Subsystem.h"
-#include <PosixSubsystem.h>
 #include <FileDescriptor.h>
+#include <PosixSubsystem.h>
 
 #include "modules/Module.h"
 

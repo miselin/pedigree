@@ -96,7 +96,8 @@ class EXPORTED_PUBLIC Network : public Device
     virtual bool isConnected();
 
     /** Converts an IPv4 address into an integer */
-    EXPORTED_PUBLIC static uint32_t convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
+    EXPORTED_PUBLIC static uint32_t
+    convertToIpv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d);
 
     /** Converts an IPv6 address into an IpAddress object */
     EXPORTED_PUBLIC static IpAddress convertToIpv6(
@@ -106,7 +107,8 @@ class EXPORTED_PUBLIC Network : public Device
         uint8_t n = 0, uint8_t o = 0, uint8_t p = 0);
 
     /** Calculates a checksum */
-    EXPORTED_PUBLIC static uint16_t calculateChecksum(uintptr_t buffer, size_t nBytes);
+    EXPORTED_PUBLIC static uint16_t
+    calculateChecksum(uintptr_t buffer, size_t nBytes);
 
     /** Packet statistics */
 

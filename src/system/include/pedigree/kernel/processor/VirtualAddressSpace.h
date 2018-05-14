@@ -115,7 +115,9 @@ class VirtualAddressSpace
      * Default implementation calls map() in a loop.
      * \return true if successful, false otherwise.
      */
-    virtual bool mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags);
+    virtual bool mapHuge(
+        physical_uintptr_t physAddress, void *virtualAddress, size_t count,
+        size_t flags);
     /** Get the physical address and the flags associated with the specific
      *virtual address. \note This function is only valid on memory that was
      *mapped with VirtualAddressSpace::map() and that is still mapped or marked
@@ -177,7 +179,8 @@ class VirtualAddressSpace
         m_HeapEnd = heapEnd;
     }
 
-    /** Determines whether a given address is within the kernel's heap region. */
+    /** Determines whether a given address is within the kernel's heap region.
+     */
     virtual bool memIsInKernelHeap(void *pMem) = 0;
 
     /** Determines if a given point is within the virtual address space region

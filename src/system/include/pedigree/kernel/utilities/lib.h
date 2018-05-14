@@ -21,6 +21,7 @@
 #define KERNEL_UTILITIES_LIB_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 #include <stdarg.h>
 
 // Condense X86-ish systems into one define for utilities.
@@ -48,17 +49,22 @@ EXPORTED_PUBLIC size_t _StringLength(const char *buf) PURE;
 EXPORTED_PUBLIC char *StringCopy(char *dest, const char *src);
 EXPORTED_PUBLIC char *StringCopyN(char *dest, const char *src, size_t len);
 EXPORTED_PUBLIC int StringCompare(const char *p1, const char *p2) PURE;
-EXPORTED_PUBLIC int StringCompareN(const char *p1, const char *p2, size_t n) PURE;
-EXPORTED_PUBLIC int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset) PURE;
+EXPORTED_PUBLIC int
+StringCompareN(const char *p1, const char *p2, size_t n) PURE;
+EXPORTED_PUBLIC int StringCompareNOffset(
+    const char *p1, const char *p2, size_t n, size_t *offset) PURE;
 EXPORTED_PUBLIC char *StringConcat(char *dest, const char *src);
 EXPORTED_PUBLIC char *StringConcatN(char *dest, const char *src, size_t n);
 EXPORTED_PUBLIC const char *StringFind(const char *str, int target) PURE;
 EXPORTED_PUBLIC const char *StringReverseFind(const char *str, int target) PURE;
 EXPORTED_PUBLIC int StringContains(const char *str, const char *search) PURE;
-EXPORTED_PUBLIC int StringContainsN(const char *str, size_t len, const char *search, size_t slen) PURE;
+EXPORTED_PUBLIC int StringContainsN(
+    const char *str, size_t len, const char *search, size_t slen) PURE;
 EXPORTED_PUBLIC int VStringFormat(char *buf, const char *fmt, va_list arg);
-EXPORTED_PUBLIC int StringFormat(char *buf, const char *fmt, ...) FORMAT(printf, 2, 3);
-EXPORTED_PUBLIC unsigned long StringToUnsignedLong(const char *nptr, char const **endptr, int base);
+EXPORTED_PUBLIC int StringFormat(char *buf, const char *fmt, ...)
+    FORMAT(printf, 2, 3);
+EXPORTED_PUBLIC unsigned long
+StringToUnsignedLong(const char *nptr, char const **endptr, int base);
 
 // Performs NOTICE/ERROR/etc() on the formatted output, which allows the
 // Pedigree log to be used from C code.
@@ -85,11 +91,14 @@ EXPORTED_PUBLIC void *DoubleWordSet(void *buf, unsigned int c, size_t len);
 EXPORTED_PUBLIC void *QuadWordSet(void *buf, unsigned long long c, size_t len);
 EXPORTED_PUBLIC void *ForwardMemoryCopy(void *s1, const void *s2, size_t n);
 EXPORTED_PUBLIC void *MemoryCopy(void *s1, const void *s2, size_t n);
-EXPORTED_PUBLIC int MemoryCompare(const void *p1, const void *p2, size_t len) PURE;
+EXPORTED_PUBLIC int
+MemoryCompare(const void *p1, const void *p2, size_t len) PURE;
 
 // Misc utilities for paths etc
-EXPORTED_PUBLIC const char *SDirectoryName(const char *path, char *buf, size_t buflen) PURE;
-EXPORTED_PUBLIC const char *SBaseName(const char *path, char *buf, size_t buflen) PURE;
+EXPORTED_PUBLIC const char *
+SDirectoryName(const char *path, char *buf, size_t buflen) PURE;
+EXPORTED_PUBLIC const char *
+SBaseName(const char *path, char *buf, size_t buflen) PURE;
 EXPORTED_PUBLIC const char *DirectoryName(const char *path) PURE;
 EXPORTED_PUBLIC const char *BaseName(const char *path) PURE;
 

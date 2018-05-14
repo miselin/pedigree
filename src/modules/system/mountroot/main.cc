@@ -19,11 +19,11 @@
 
 #include "modules/Module.h"
 #include "modules/system/lodisk/LoDisk.h"
+#include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/machine/Disk.h"
-#include "modules/system/ramfs/RamFs.h"
 
 static bool bRootMounted = false;
 

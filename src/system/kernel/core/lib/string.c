@@ -175,7 +175,8 @@ WEAK int StringCompareN(const char *p1, const char *p2, size_t n)
     return *p1 - *p2;
 }
 
-WEAK int StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
+WEAK int
+StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
 {
     if (!n)
     {
@@ -390,18 +391,19 @@ int StringContains(const char *str, const char *search)
 static int isPrefix(const char *word, size_t wordLength, size_t pos)
 {
     size_t suffixLength = wordLength - pos;
-	return StringCompareN(word, word + pos, suffixLength) == 0 ? 1 : 0;
+    return StringCompareN(word, word + pos, suffixLength) == 0 ? 1 : 0;
 }
 
 static size_t suffixLength(const char *word, size_t wordLength, size_t pos)
 {
     size_t i = 0;
-    for (; (word[pos-i] == word[wordLength - 1 - i]) && (i < pos); i++)
+    for (; (word[pos - i] == word[wordLength - 1 - i]) && (i < pos); i++)
         ;
     return i;
 }
 
-int StringContainsN(const char *str, size_t len, const char *search, size_t slen)
+int StringContainsN(
+    const char *str, size_t len, const char *search, size_t slen)
 {
     // Quick exit cases (these shouldn't really be "contains" queries).
     if (len < slen)

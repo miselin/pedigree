@@ -54,10 +54,10 @@ static int doThreadKill(Thread *p, int sig);
     {                                      \
         posix_exit(errcode);               \
     }
-#define SIGNAL_HANDLER_EMPTY(name)            \
-    static void name(int s)                   \
-    {                                         \
-        NOTICE("EMPTY handler.");          \
+#define SIGNAL_HANDLER_EMPTY(name) \
+    static void name(int s)        \
+    {                              \
+        NOTICE("EMPTY handler.");  \
     }
 #define SIGNAL_HANDLER_EXITMSG(name, errcode, msg)    \
     static void name(int) NORETURN;                   \
@@ -73,14 +73,14 @@ static int doThreadKill(Thread *p, int sig);
     {                                                                        \
         Process *pParent =                                                   \
             Processor::information().getCurrentThread()->getParent();        \
-        NOTICE(                                                           \
+        NOTICE(                                                              \
             "SUSPEND [pid=" << pParent->getId() << ", signal " << s << "]"); \
         pParent->suspend();                                                  \
     }
 #define SIGNAL_HANDLER_RESUME(name)                                         \
     static void name(int s)                                                 \
     {                                                                       \
-        NOTICE("RESUME [signal " << s << "]");                           \
+        NOTICE("RESUME [signal " << s << "]");                              \
         Processor::information().getCurrentThread()->getParent()->resume(); \
     }
 
@@ -478,7 +478,9 @@ int posix_kill(int pid, int sig)
         {
             SG_NOTICE(
                 " -> not killing current process, killing " << member->getId());
-            NOTICE("sending #" << Dec << member->getId() << " signal #" << sig << " from #" << pThisProcess->getId());
+            NOTICE(
+                "sending #" << Dec << member->getId() << " signal #" << sig
+                            << " from #" << pThisProcess->getId());
             doProcessKill(member, sig);
         }
         else
@@ -496,7 +498,9 @@ int posix_kill(int pid, int sig)
     if (bKillingSelf)
     {
         SG_NOTICE("performing kill of " << pThisProcess->getId() << "...");
-        NOTICE("sending self #" << Dec << pThisProcess->getId() << " signal #" << sig);
+        NOTICE(
+            "sending self #" << Dec << pThisProcess->getId() << " signal #"
+                             << sig);
         doProcessKill(pThisProcess, sig);
 
         // If it was us, try to handle the signal *now*, or else we're going to
@@ -773,7 +777,8 @@ void pedigree_init_sigret()
         // disposition was present (SIG_IGN does in fact carry through an exec)
         int signalDisposition = 1;
 
-        PosixSubsystem::SignalHandler *existingHandler = pSubsystem->getSignalHandler(i);
+        PosixSubsystem::SignalHandler *existingHandler =
+            pSubsystem->getSignalHandler(i);
         if (existingHandler)
         {
             if (existingHandler->type == 2)
@@ -785,13 +790,15 @@ void pedigree_init_sigret()
         // Constructor zeroes out everything, which is correct for this initial
         // setup of the signal handlers (except, of course, the handler
         // location).
-        PosixSubsystem::SignalHandler *sigHandler = new PosixSubsystem::SignalHandler();
+        PosixSubsystem::SignalHandler *sigHandler =
+            new PosixSubsystem::SignalHandler();
         sigHandler->sig = i;
         sigHandler->type = signalDisposition;
 
-        uintptr_t newHandler = signalDisposition == 1 ?
-            reinterpret_cast<uintptr_t>(default_sig_handlers[i]) :
-            reinterpret_cast<uintptr_t>(sigign);
+        uintptr_t newHandler =
+            signalDisposition == 1 ?
+                reinterpret_cast<uintptr_t>(default_sig_handlers[i]) :
+                reinterpret_cast<uintptr_t>(sigign);
 
         sigHandler->pEvent = new SignalEvent(newHandler, i);
 

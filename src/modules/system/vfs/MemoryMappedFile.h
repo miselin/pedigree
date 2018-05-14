@@ -22,8 +22,8 @@
 
 #include "File.h"
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Process.h"
@@ -392,7 +392,8 @@ class MemoryMappedFile : public MemoryMappedObject
  * This class is a multiplexing trap handler, to handle traps for
  * MemoryMappedObjects, dispatching them to the right place.
  */
-class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler
+class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler,
+                                         public MemoryPressureHandler
 {
     friend class PosixSubsystem;
 

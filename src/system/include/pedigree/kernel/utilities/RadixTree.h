@@ -20,8 +20,8 @@
 #ifndef KERNEL_UTILITIES_RADIX_TREE_H
 #define KERNEL_UTILITIES_RADIX_TREE_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/IteratorAdapter.h"
@@ -568,12 +568,14 @@ void RadixTree<T>::remove(const String &key)
                         if (pNode == m_pRoot)
                             return;
 
-                        if (pNode->m_Children.count() == 1 && !pNode->hasValue())
+                        if (pNode->m_Children.count() == 1 &&
+                            !pNode->hasValue())
                             // Break out of this loop and get caught in the next
                             // if(pNode->m_nChildren == 1)
                             break;
 
-                        if (pNode->m_Children.count() == 0 && !pNode->hasValue())
+                        if (pNode->m_Children.count() == 0 &&
+                            !pNode->hasValue())
                         {
                             // Leaf node, can just delete.
                             pParent = pNode->getParent();
@@ -758,7 +760,8 @@ RadixTree<T>::Node::matchKey(const char *cpKey, size_t &offset) const
     const char *myKey = getKey();
 
     // Do some quick checks early.
-    if ((m_bCaseSensitive && (cpKey[0] != myKey[0])) || ((!m_bCaseSensitive) && (toLower(cpKey[0]) != toLower(myKey[0]))))
+    if ((m_bCaseSensitive && (cpKey[0] != myKey[0])) ||
+        ((!m_bCaseSensitive) && (toLower(cpKey[0]) != toLower(myKey[0]))))
     {
         // non-partial, first character didn't even match
         return NoMatch;
@@ -871,8 +874,7 @@ void RadixTree<T>::Node::dump(void (*emit_line)(const char *s)) const
         s.Format(
             "  \"Node<%p: %s>\" -> \"Node<%p: %s>\";",
             static_cast<const void *>(it), it->getKey(),
-            static_cast<const void *>(this),
-            static_cast<const char *>(m_Key));
+            static_cast<const void *>(this), static_cast<const char *>(m_Key));
         emit_line(static_cast<const char *>(s));
     }
 }

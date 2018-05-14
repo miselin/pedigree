@@ -20,6 +20,7 @@
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/eventNumbers.h"
 
+class File;
 class PosixSubsystem;
 
 /** Event class for passing to File::monitor. */

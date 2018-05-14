@@ -27,7 +27,8 @@ RoundRobinCoreAllocator::~RoundRobinCoreAllocator()
 {
 }
 
-bool RoundRobinCoreAllocator::initialise(List<PerProcessorScheduler *> &procList)
+bool RoundRobinCoreAllocator::initialise(
+    List<PerProcessorScheduler *> &procList)
 {
     List<PerProcessorScheduler *>::Iterator it = procList.begin();
     PerProcessorScheduler *pFirst = m_pNext = *it;

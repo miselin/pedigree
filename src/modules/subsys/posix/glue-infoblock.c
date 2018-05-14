@@ -22,10 +22,10 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
+#include <sys/select.h>
 #include <syslog.h>
 #include <time.h>
-#include <sys/select.h>
+#include <unistd.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/InfoBlock.h"
@@ -102,5 +102,4 @@ int gettimeofday(struct timeval *__restrict, void *__restrict)
     __attribute__((weak, alias("__vdso_gettimeofday")));
 int getcpu(unsigned *, unsigned *, struct getcpu_cache *)
     __attribute__((weak, alias("__vdso_getcpu")));
-time_t time(time_t *)
-    __attribute__((weak, alias("__vdso_time")));
+time_t time(time_t *) __attribute__((weak, alias("__vdso_time")));

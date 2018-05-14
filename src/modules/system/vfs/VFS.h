@@ -23,9 +23,9 @@
 #include "Filesystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/HashTable.h"
 
 /** This class implements a virtual file system.
  *

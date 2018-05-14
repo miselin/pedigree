@@ -44,7 +44,7 @@ enum HidUsagePages
     Pid = 0x0f,
     Unicode = 0x10
 };
-};
+};  // namespace HidUsagePages
 
 namespace HidUsages
 {
@@ -66,6 +66,6 @@ enum HidUsages
     Rz = 0x35,
     Wheel = 0x38,
 };
-};
+};  // namespace HidUsages
 
 #endif

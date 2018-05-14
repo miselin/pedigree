@@ -173,7 +173,7 @@ const char *MemoryInspector::getLine2(
 #if !defined(MIPS_COMMON) && !defined(ARM_COMMON)
     }
 #else
-        return 0;
+    return 0;
 #endif
 }
 
@@ -184,7 +184,7 @@ size_t MemoryInspector::getLineCount()
 #if defined(BITS_32)
     return 0x20000000;
 #elif defined(BITS_64)
-        return 0x2000000000000000;
+    return 0x2000000000000000;
 #endif
 }
 

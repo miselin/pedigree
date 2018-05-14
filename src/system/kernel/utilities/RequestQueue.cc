@@ -19,11 +19,11 @@
 
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/machine/Machine.h"
 
 #include "pedigree/kernel/utilities/assert.h"
 
@@ -65,7 +65,8 @@ void RequestQueue::initialise()
         new Thread(pProcess, &trampoline, reinterpret_cast<void *>(this));
     m_Halted = false;
 
-    // Add our timer so we can figure out if we're not keeping up with synchronous requests
+    // Add our timer so we can figure out if we're not keeping up with
+    // synchronous requests
     Timer *t = Machine::instance().getTimer();
     if (t)
     {
@@ -300,8 +301,10 @@ uint64_t RequestQueue::addAsyncRequest(
     // already overloaded with async requests.
     if (m_nAsyncRequests >= m_nMaxAsyncRequests)
     {
-        ERROR("RequestQueue: '" << m_Name << "' is not keeping up with demand for "
-              "async requests");
+        ERROR(
+            "RequestQueue: '" << m_Name
+                              << "' is not keeping up with demand for "
+                                 "async requests");
         ERROR(
             " -> priority=" << priority << ", p1=" << Hex << p1 << ", p2=" << p2
                             << ", p3=" << p3 << ", p4=" << p4);
@@ -481,7 +484,8 @@ int RequestQueue::work()
 }
 
 #ifdef THREADS
-void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta, InterruptState &)
+void RequestQueue::RequestQueueOverrunChecker::timer(
+    uint64_t delta, InterruptState &)
 {
     m_Tick += delta;
     if (delta < Time::Multiplier::Second)
@@ -499,9 +503,12 @@ void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta, InterruptSt
 
     if (lastSize < currentSize)
     {
-        FATAL("RequestQueue '" << queue->m_Name << "' is NOT keeping up with incoming requests [1s ago we had " << lastSize << " requests, now have " << currentSize << "]!");
+        FATAL(
+            "RequestQueue '"
+            << queue->m_Name
+            << "' is NOT keeping up with incoming requests [1s ago we had "
+            << lastSize << " requests, now have " << currentSize << "]!");
     }
-
 }
 #endif
 

@@ -248,7 +248,7 @@ void String::assign(const String &x)
     }
 
     m_HeapData = true;
-// m_ConstData = nullptr;
+    // m_ConstData = nullptr;
 
     // no need to recompute in this case
     m_Hash = x.m_Hash;
@@ -282,7 +282,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
         m_Length = len;
         copyLength = len;
     }
-    else  if (!s || !*s)
+    else if (!s || !*s)
     {
         m_Length = 0;
     }
@@ -799,5 +799,4 @@ void String::computeHash()
     {
         m_Hash = 0;
     }
-
 }

@@ -54,7 +54,7 @@ enum BaseRegisters
     AddressChannel3_7 = 0xC6,
     CountChannel3_7 = 0xC7,
 };
-}
+}  // namespace MasterChip
 
 /** ISA DMA (PC) Slave chip */
 namespace SlaveChip
@@ -85,7 +85,7 @@ enum BaseRegisters
     AddressChannel3_7 = 0x05,
     CountChannel3_7 = 0x07,
 };
-}
+}  // namespace SlaveChip
 
 /** ISA DMA (PC) Page address registers */
 namespace PageRegisters

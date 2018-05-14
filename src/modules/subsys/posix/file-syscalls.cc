@@ -27,6 +27,10 @@
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -37,16 +41,12 @@
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Keyboard.h"
-#include "pedigree/kernel/machine/KeymapManager.h"
-#include "pedigree/kernel/compiler.h"
 
+#include "modules/subsys/posix/IoEvent.h"
 #include "pedigree/kernel/Subsystem.h"
+#include <FileDescriptor.h>
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
-#include <FileDescriptor.h>
-#include "modules/subsys/posix/IoEvent.h"
 
 #include "console-syscalls.h"
 #include "file-syscalls.h"
@@ -740,8 +740,7 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
         // called, as this does not always end up zero-terminated.
         String debug;
         debug.assign(ptr, len - 1, true);
-        F_NOTICE(
-            "write(" << fd << ", " << debug << ", " << len << ")");
+        F_NOTICE("write(" << fd << ", " << debug << ", " << len << ")");
     }
 
     // Lookup this process.
@@ -1271,20 +1270,20 @@ int posix_ioctl(int fd, size_t command, void *buf)
     {
         // KDGETLED
         case 0x4B31:
-            {
-                F_NOTICE(" -> KDGETLED, arg=" << buf);
-                char *cbuf = reinterpret_cast<char *>(buf);
-                *cbuf = Machine::instance().getKeyboard()->getLedState();
-            }
+        {
+            F_NOTICE(" -> KDGETLED, arg=" << buf);
+            char *cbuf = reinterpret_cast<char *>(buf);
+            *cbuf = Machine::instance().getKeyboard()->getLedState();
+        }
             return 0;
 
         // KDSETLED
         case 0x4B32:
-            {
-                F_NOTICE(" -> KDSETLED, arg=" << buf);
-                uintptr_t leds = reinterpret_cast<uintptr_t>(buf);
-                Machine::instance().getKeyboard()->setLedState(leds);
-            }
+        {
+            F_NOTICE(" -> KDSETLED, arg=" << buf);
+            uintptr_t leds = reinterpret_cast<uintptr_t>(buf);
+            Machine::instance().getKeyboard()->setLedState(leds);
+        }
             return 0;
 
         case 0x4B33:  // KDGKBTYPE
@@ -1307,30 +1306,32 @@ int posix_ioctl(int fd, size_t command, void *buf)
         case 0x4b3a:
             /// \todo what do we do when switching to graphics mode?
             F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
-            if (buf == reinterpret_cast<void*>(1))
+            if (buf == reinterpret_cast<void *>(1))
             {
-                g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Graphics);
+                g_pDevFs->getTerminalManager().setSystemMode(
+                    VirtualTerminalManager::Graphics);
             }
             else
             {
-                g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Text);
+                g_pDevFs->getTerminalManager().setSystemMode(
+                    VirtualTerminalManager::Text);
             }
             return 0;
 
         // KDGETMODE
         case 0x4b3b:
+        {
+            F_NOTICE(" -> KDGETMODE");
+            switch (g_pDevFs->getTerminalManager().getSystemMode())
             {
-                F_NOTICE(" -> KDGETMODE");
-                switch (g_pDevFs->getTerminalManager().getSystemMode())
-                {
-                    case VirtualTerminalManager::Graphics:
-                        *reinterpret_cast<int *>(buf) = 1;
-                        break;
-                    case VirtualTerminalManager::Text:
-                        *reinterpret_cast<int *>(buf) = 0;
-                        break;
-                }
+                case VirtualTerminalManager::Graphics:
+                    *reinterpret_cast<int *>(buf) = 1;
+                    break;
+                case VirtualTerminalManager::Text:
+                    *reinterpret_cast<int *>(buf) = 0;
+                    break;
             }
+        }
             return 0;
 
         // KDGKBMODE
@@ -1340,66 +1341,80 @@ int posix_ioctl(int fd, size_t command, void *buf)
 
         // KDSKBMODE
         case 0x4B45:
-            {
-                F_NOTICE(" -> KDSKBMODE, arg=" << buf);
+        {
+            F_NOTICE(" -> KDSKBMODE, arg=" << buf);
 
-                size_t consoleNumber = 0;
-                if (ConsoleManager::instance().isConsole(f->file))
+            size_t consoleNumber = 0;
+            if (ConsoleManager::instance().isConsole(f->file))
+            {
+                ConsoleFile *pConsole = static_cast<ConsoleFile *>(f->file);
+                consoleNumber = pConsole->getPhysicalConsoleNumber();
+                if (consoleNumber == ~0U)
                 {
-                    ConsoleFile *pConsole = static_cast<ConsoleFile *>(f->file);
-                    consoleNumber = pConsole->getPhysicalConsoleNumber();
-                    if (consoleNumber == ~0U)
-                    {
-                        ERROR("KDSKBMODE used on something that is not a VT");
-                        return -1;
-                    }
-                }
-                else
-                {
-                    SYSCALL_ERROR(NotAConsole);
+                    ERROR("KDSKBMODE used on something that is not a VT");
                     return -1;
                 }
-
-                long mode = reinterpret_cast<long>(buf);
-                if (mode == 0)
-                {
-                    g_pDevFs->getTerminalManager().setInputMode(consoleNumber, TextIO::Raw);
-                }
-                else
-                {
-                    g_pDevFs->getTerminalManager().setInputMode(consoleNumber, TextIO::Standard);
-                }
             }
+            else
+            {
+                SYSCALL_ERROR(NotAConsole);
+                return -1;
+            }
+
+            long mode = reinterpret_cast<long>(buf);
+            if (mode == 0)
+            {
+                g_pDevFs->getTerminalManager().setInputMode(
+                    consoleNumber, TextIO::Raw);
+            }
+            else
+            {
+                g_pDevFs->getTerminalManager().setInputMode(
+                    consoleNumber, TextIO::Standard);
+            }
+        }
             return 0;
 
         // KDGKBENT
         case 0x4B46:
+        {
+            F_NOTICE(" -> KDGKBENT, arg=" << buf);
+            POSIX_VERBOSE_LOG("io", " -> KDGKBENT, arg=" << buf);
+
+            struct kbentry *kbent = reinterpret_cast<struct kbentry *>(buf);
+            bool shift = kbent->kb_table & 0x1;
+            bool altgr = kbent->kb_table & 0x2;
+            bool ctrl = kbent->kb_table & 0x4;
+            bool alt = kbent->kb_table & 0x8;
+
+            // convert to HID so we can look in the keymap
+            KeymapManager::EscapeState escape = KeymapManager::EscapeNone;
+            uint8_t keyCode =
+                KeymapManager::instance().convertPc102ScancodeToHidKeycode(
+                    kbent->kb_index, escape);
+            KeymapManager::KeymapEntry *entry =
+                KeymapManager::instance().getKeymapEntry(
+                    ctrl, shift, alt, altgr, 0, keyCode);
+            if (entry)
             {
-                F_NOTICE(" -> KDGKBENT, arg=" << buf);
-                POSIX_VERBOSE_LOG("io", " -> KDGKBENT, arg=" << buf);
-
-                struct kbentry *kbent = reinterpret_cast<struct kbentry *>(buf);
-                bool shift = kbent->kb_table & 0x1;
-                bool altgr = kbent->kb_table & 0x2;
-                bool ctrl = kbent->kb_table & 0x4;
-                bool alt = kbent->kb_table & 0x8;
-
-                // convert to HID so we can look in the keymap
-                KeymapManager::EscapeState escape = KeymapManager::EscapeNone;
-                uint8_t keyCode = KeymapManager::instance().convertPc102ScancodeToHidKeycode(kbent->kb_index, escape);
-                KeymapManager::KeymapEntry *entry = KeymapManager::instance().getKeymapEntry(ctrl, shift, alt, altgr, 0, keyCode);
-                if (entry)
-                {
-                    F_NOTICE(" -> no keymap entry for table #" << Dec << kbent->kb_table << " index #" << Hex << kbent->kb_index);
-                    kbent->kb_value = 0xF000 | static_cast<uint16_t>(entry->value & 0xFFFF);
-                }
-                else
-                {
-                    kbent->kb_value = 0;
-                }
-
-                POSIX_VERBOSE_LOG("io", " -> val for table #" << Dec << kbent->kb_table << " #" << Hex << kbent->kb_index << " is now " << kbent->kb_value << "!");
+                F_NOTICE(
+                    " -> no keymap entry for table #" << Dec << kbent->kb_table
+                                                      << " index #" << Hex
+                                                      << kbent->kb_index);
+                kbent->kb_value =
+                    0xF000 | static_cast<uint16_t>(entry->value & 0xFFFF);
             }
+            else
+            {
+                kbent->kb_value = 0;
+            }
+
+            POSIX_VERBOSE_LOG(
+                "io", " -> val for table #" << Dec << kbent->kb_table << " #"
+                                            << Hex << kbent->kb_index
+                                            << " is now " << kbent->kb_value
+                                            << "!");
+        }
             return 0;
 
         // KDSKBENT
@@ -1624,71 +1639,78 @@ int posix_ioctl(int fd, size_t command, void *buf)
 
         // VT_GETMODE
         case 0x5601:
-            {
-                F_NOTICE(" -> VT_GETMODE (stubbed)");
+        {
+            F_NOTICE(" -> VT_GETMODE (stubbed)");
 
-                /// \todo this should actually use the tty number of the file descriptor
-                size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
+            /// \todo this should actually use the tty number of the file
+            /// descriptor
+            size_t currentTty =
+                g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
 
-                struct vt_mode *mode = reinterpret_cast<struct vt_mode *>(buf);
-                *mode = g_pDevFs->getTerminalManager().getTerminalMode(currentTty);
-            }
+            struct vt_mode *mode = reinterpret_cast<struct vt_mode *>(buf);
+            *mode = g_pDevFs->getTerminalManager().getTerminalMode(currentTty);
+        }
             return 0;
 
         // VT_SETMODE
         case 0x5602:
-            {
-                F_NOTICE(" -> VT_SETMODE (stubbed)");
+        {
+            F_NOTICE(" -> VT_SETMODE (stubbed)");
 
-                const struct vt_mode *mode = reinterpret_cast<const struct vt_mode *>(buf);
+            const struct vt_mode *mode =
+                reinterpret_cast<const struct vt_mode *>(buf);
 
-                /// \todo this should actually use the tty number of the file descriptor
-                size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
-                g_pDevFs->getTerminalManager().setTerminalMode(currentTty, *mode);
-            }
+            /// \todo this should actually use the tty number of the file
+            /// descriptor
+            size_t currentTty =
+                g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
+            g_pDevFs->getTerminalManager().setTerminalMode(currentTty, *mode);
+        }
             return 0;
 
         // VT_GETSTATE
         case 0x5603:
-            {
-                F_NOTICE(" -> VT_GETSTATE (stubbed)");
+        {
+            F_NOTICE(" -> VT_GETSTATE (stubbed)");
 
-                struct vt_stat *stat = reinterpret_cast<struct vt_stat *>(buf);
-                *stat = g_pDevFs->getTerminalManager().getState();
-            }
+            struct vt_stat *stat = reinterpret_cast<struct vt_stat *>(buf);
+            *stat = g_pDevFs->getTerminalManager().getState();
+        }
             return 0;
 
         // VT_RELDISP
         case 0x5605:
-            {
-                F_NOTICE(" -> VT_RELDISP (stubbed)");
+        {
+            F_NOTICE(" -> VT_RELDISP (stubbed)");
 
-                NOTICE("VT_RELDISP");
-                uintptr_t ibuf = reinterpret_cast<uintptr_t>(buf);
-                if (ibuf == 0)
-                {
-                    NOTICE(" -> switch disallowed");
-                    g_pDevFs->getTerminalManager().reportPermission(VirtualTerminalManager::Disallowed);
-                }
-                else if (ibuf == 1)
-                {
-                    NOTICE(" -> switch allowed");
-                    g_pDevFs->getTerminalManager().reportPermission(VirtualTerminalManager::Allowed);
-                }
-                else
-                {
-                    NOTICE(" -> switch acknowledged");
-                }
+            NOTICE("VT_RELDISP");
+            uintptr_t ibuf = reinterpret_cast<uintptr_t>(buf);
+            if (ibuf == 0)
+            {
+                NOTICE(" -> switch disallowed");
+                g_pDevFs->getTerminalManager().reportPermission(
+                    VirtualTerminalManager::Disallowed);
             }
+            else if (ibuf == 1)
+            {
+                NOTICE(" -> switch allowed");
+                g_pDevFs->getTerminalManager().reportPermission(
+                    VirtualTerminalManager::Allowed);
+            }
+            else
+            {
+                NOTICE(" -> switch acknowledged");
+            }
+        }
             return 0;
 
         // VT_ACTIVATE
         case 0x5606:
-            {
-                uintptr_t ttyNum = reinterpret_cast<uintptr_t>(buf);
-                F_NOTICE(" -> VT_ACTIVATE -> " << ttyNum);
-                g_pDevFs->getTerminalManager().activate(ttyNum - 1);
-            }
+        {
+            uintptr_t ttyNum = reinterpret_cast<uintptr_t>(buf);
+            F_NOTICE(" -> VT_ACTIVATE -> " << ttyNum);
+            g_pDevFs->getTerminalManager().activate(ttyNum - 1);
+        }
             return 0;
 
         // VT_WAITACTIVE
@@ -1912,8 +1934,8 @@ int posix_fcntl(int fd, int cmd, void *arg)
             return f->flflags;
         case F_SETFL:
             F_NOTICE("  -> set flags " << arg);
-            f->flflags =
-                reinterpret_cast<size_t>(arg) & (O_APPEND | O_NONBLOCK | O_CLOEXEC);
+            f->flflags = reinterpret_cast<size_t>(arg) &
+                         (O_APPEND | O_NONBLOCK | O_CLOEXEC);
             F_NOTICE("  -> new flags " << f->flflags);
             return 0;
         case F_GETLK:   // Get record-locking information
@@ -1940,7 +1962,10 @@ int posix_fcntl(int fd, int cmd, void *arg)
                 else
                 {
                     /// \todo errno
-                    ERROR("F_SETOWN on something that can't raise events [fd=" << fd << " file=" << f->file << " impl=" << f->networkImpl.get() << "!");
+                    ERROR(
+                        "F_SETOWN on something that can't raise events [fd="
+                        << fd << " file=" << f->file
+                        << " impl=" << f->networkImpl.get() << "!");
                     return -1;
                 }
             }
@@ -1958,9 +1983,9 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 {
     F_NOTICE("mmap");
     F_NOTICE(
-        "  -> addr=" << addr << ", len=" << len
-                     << ", prot=" << prot << ", flags=" << flags
-                     << ", fildes=" << fd << ", off=" << off << ".");
+        "  -> addr=" << addr << ", len=" << len << ", prot=" << prot
+                     << ", flags=" << flags << ", fildes=" << fd
+                     << ", off=" << off << ".");
 
     // Get the File object to map
     Process *pProcess =
@@ -2294,7 +2319,8 @@ int posix_fsync(int fd)
     return 0;
 }
 
-EXPORTED_PUBLIC int pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
+EXPORTED_PUBLIC int
+pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
 {
     if (!(PosixSubsystem::checkAddress(
               reinterpret_cast<uintptr_t>(mount_buf), PATH_MAX,
@@ -2882,7 +2908,8 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     {
         F_NOTICE("FIFO => checking if we have any readers");
 
-        /// \todo should block until a reader is present if O_NONBLOCK is not set
+        /// \todo should block until a reader is present if O_NONBLOCK is not
+        /// set
         Pipe *pipe = Pipe::fromFile(file);
         if (!pipe->getReaderCount())
         {
@@ -3663,13 +3690,12 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     }
 
     /// \todo also check pathname
-    if (!((!pathname) ||
-          (PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-              PosixSubsystem::checkAddress(
-                  reinterpret_cast<uintptr_t>(buf), sizeof(struct stat),
-                  PosixSubsystem::SafeWrite))))
+    if (!((!pathname) || (PosixSubsystem::checkAddress(
+                              reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
+                              PosixSubsystem::SafeRead) &&
+                          PosixSubsystem::checkAddress(
+                              reinterpret_cast<uintptr_t>(buf),
+                              sizeof(struct stat), PosixSubsystem::SafeWrite))))
     {
         F_NOTICE("fstat -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -3718,7 +3744,9 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
         String realPath;
         normalisePath(realPath, pathname);
 
-        F_NOTICE(" -> finding file with real path " << realPath << " in " << cwd->getFullPath());
+        F_NOTICE(
+            " -> finding file with real path " << realPath << " in "
+                                               << cwd->getFullPath());
 
         file = findFileWithAbiFallbacks(realPath, cwd);
         if (!file)

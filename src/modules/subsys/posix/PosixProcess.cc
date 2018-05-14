@@ -48,9 +48,8 @@ PosixProcess::PosixProcess()
     : Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup),
       m_Mask(0), m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
-      m_ProfileIntervalTimer(this, IntervalTimer::Profile),
-      m_Uid(0), m_Gid(0), m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0),
-      m_SupplementalIds()
+      m_ProfileIntervalTimer(this, IntervalTimer::Profile), m_Uid(0), m_Gid(0),
+      m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0), m_SupplementalIds()
 {
     registerProcess();
 }
@@ -215,7 +214,8 @@ IntervalTimer &PosixProcess::getProfileIntervalTimer()
     return m_ProfileIntervalTimer;
 }
 
-void PosixProcess::reportTimesUpdated(Time::Timestamp user, Time::Timestamp system)
+void PosixProcess::reportTimesUpdated(
+    Time::Timestamp user, Time::Timestamp system)
 {
     m_VirtualIntervalTimer.adjustValue(-user);
     m_ProfileIntervalTimer.adjustValue(-(user + system));
@@ -229,9 +229,9 @@ void PosixProcess::processTerminated()
     m_ProfileIntervalTimer.setIntervalAndValue(0, 0);
 }
 
-IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode) :
-    m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0), m_Lock(false),
-    m_Armed(false)
+IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode)
+    : m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0),
+      m_Lock(false), m_Armed(false)
 {
     if (m_Mode == Hardware)
     {
@@ -255,7 +255,8 @@ IntervalTimer::~IntervalTimer()
     }
 }
 
-void IntervalTimer::setInterval(Time::Timestamp interval, Time::Timestamp *prevInterval)
+void IntervalTimer::setInterval(
+    Time::Timestamp interval, Time::Timestamp *prevInterval)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -266,7 +267,8 @@ void IntervalTimer::setInterval(Time::Timestamp interval, Time::Timestamp *prevI
     m_Interval = interval;
 }
 
-void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp *prevValue)
+void IntervalTimer::setTimerValue(
+    Time::Timestamp value, Time::Timestamp *prevValue)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -278,7 +280,9 @@ void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp *prevVa
     m_Armed = m_Value > 0;
 }
 
-void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestamp value, Time::Timestamp *prevInterval, Time::Timestamp *prevValue)
+void IntervalTimer::setIntervalAndValue(
+    Time::Timestamp interval, Time::Timestamp value,
+    Time::Timestamp *prevInterval, Time::Timestamp *prevValue)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -297,7 +301,8 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
     m_Armed = m_Value > 0;
 }
 
-void IntervalTimer::getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value)
+void IntervalTimer::getIntervalAndValue(
+    Time::Timestamp &interval, Time::Timestamp &value)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -312,7 +317,8 @@ void IntervalTimer::adjustValue(int64_t adjustment)
         LockGuard<Spinlock> guard(m_Lock);
 
         // Fixup in case of potential underflow
-        if ((adjustment < 0) && (static_cast<uint64_t>(adjustment * -1) > m_Value))
+        if ((adjustment < 0) &&
+            (static_cast<uint64_t>(adjustment * -1) > m_Value))
         {
             m_Value = 0;
         }
@@ -362,7 +368,6 @@ void IntervalTimer::timer(uint64_t delta, InterruptState &state)
             // Disarmed - ignore the timer event.
             return;
         }
-
 
         if (m_Value < delta)
         {

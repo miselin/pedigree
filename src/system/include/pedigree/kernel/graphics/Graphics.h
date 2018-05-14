@@ -241,6 +241,6 @@ EXPORTED_PUBLIC Framebuffer *createFramebuffer(
 
 /// Destroys a given framebuffer.
 EXPORTED_PUBLIC void destroyFramebuffer(Framebuffer *pFramebuffer);
-};
+};  // namespace Graphics
 
 #endif

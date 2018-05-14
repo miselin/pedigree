@@ -196,8 +196,7 @@ class EXPORTED_PUBLIC Buffer
         {
         }
 
-        MonitorTarget(Semaphore *sem)
-            : pThread(0), pEvent(0), pSemaphore(sem)
+        MonitorTarget(Semaphore *sem) : pThread(0), pEvent(0), pSemaphore(sem)
         {
         }
 

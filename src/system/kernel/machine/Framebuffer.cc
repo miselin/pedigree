@@ -161,8 +161,8 @@ void Framebuffer::blit(
 {
     if (m_pParent)
         m_pParent->blit(
-            pBuffer, srcx, srcy, m_XPos + destx, m_YPos + desty, width,
-            height, false);
+            pBuffer, srcx, srcy, m_XPos + destx, m_YPos + desty, width, height,
+            false);
     if (bLowestCall || !m_pParent)
         swBlit(pBuffer, srcx, srcy, destx, desty, width, height);
 }
@@ -175,8 +175,7 @@ void Framebuffer::draw(
     // avoid checking for parent here as we don't want to poison the
     // parent's buffer.
     swDraw(
-        pBuffer, srcx, srcy, destx, desty, width, height, format,
-        bLowestCall);
+        pBuffer, srcx, srcy, destx, desty, width, height, format, bLowestCall);
 }
 
 void Framebuffer::rect(
@@ -191,13 +190,13 @@ void Framebuffer::rect(
 }
 
 void Framebuffer::copy(
-    size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w,
-    size_t h, bool bLowestCall)
+    size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w, size_t h,
+    bool bLowestCall)
 {
     if (m_pParent)
         m_pParent->copy(
-            m_XPos + srcx, m_YPos + srcy, m_XPos + destx, m_YPos + desty, w,
-            h, false);
+            m_XPos + srcx, m_YPos + srcy, m_XPos + destx, m_YPos + desty, w, h,
+            false);
     if (bLowestCall || !m_pParent)
         swCopy(srcx, srcy, destx, desty, w, h);
 }
@@ -208,15 +207,15 @@ void Framebuffer::line(
 {
     if (m_pParent)
         m_pParent->line(
-            m_XPos + x1, m_YPos + y1, m_XPos + x2, m_YPos + y2, colour,
-            format, false);
+            m_XPos + x1, m_YPos + y1, m_XPos + x2, m_YPos + y2, colour, format,
+            false);
     if (bLowestCall || !m_pParent)
         swLine(x1, y1, x2, y2, colour, format);
 }
 
 void Framebuffer::setPixel(
-    size_t x, size_t y, uint32_t colour,
-    Graphics::PixelFormat format, bool bLowestCall)
+    size_t x, size_t y, uint32_t colour, Graphics::PixelFormat format,
+    bool bLowestCall)
 {
     if (m_pParent)
         m_pParent->setPixel(m_XPos + x, m_YPos + y, colour, format, false);

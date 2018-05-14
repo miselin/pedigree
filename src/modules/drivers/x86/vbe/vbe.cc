@@ -89,7 +89,8 @@ class VbeFramebuffer : public Framebuffer
     VbeFramebuffer(Display *pDisplay);
     virtual ~VbeFramebuffer();
 
-    virtual void hwRedraw(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
+    virtual void hwRedraw(
+        size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
     virtual void setFramebuffer(uintptr_t p);
 
   private:
@@ -446,8 +447,7 @@ void VbeFramebuffer::hwRedraw(size_t x, size_t y, size_t w, size_t h)
     {
         // Full-screen refresh.
         MemoryCopy(
-            m_pDisplay->getFramebuffer(), m_pBackbuffer,
-            m_nBackbufferBytes);
+            m_pDisplay->getFramebuffer(), m_pBackbuffer, m_nBackbufferBytes);
         return;
     }
 
@@ -458,8 +458,7 @@ void VbeFramebuffer::hwRedraw(size_t x, size_t y, size_t w, size_t h)
 
     void *firstRowTarget =
         adjust_pointer(m_pDisplay->getFramebuffer(), yOffset + xOffset);
-    void *firstRowBackbuffer =
-        adjust_pointer(m_pBackbuffer, yOffset + xOffset);
+    void *firstRowBackbuffer = adjust_pointer(m_pBackbuffer, yOffset + xOffset);
     for (size_t yy = 0; yy < h; ++yy)
     {
         void *targetRow =
@@ -499,8 +498,7 @@ void VbeFramebuffer::setFramebuffer(uintptr_t p)
         m_pFramebufferRegion = new MemoryRegion("VBE Backbuffer");
         if (!PhysicalMemoryManager::instance().allocateRegion(
                 *m_pFramebufferRegion, nPages,
-                PhysicalMemoryManager::continuous,
-                VirtualAddressSpace::Write))
+                PhysicalMemoryManager::continuous, VirtualAddressSpace::Write))
         {
             delete m_pFramebufferRegion;
             m_pFramebufferRegion = 0;
@@ -514,7 +512,6 @@ void VbeFramebuffer::setFramebuffer(uintptr_t p)
                 m_pFramebufferRegion->virtualAddress());
         }
 
-        Framebuffer::setFramebuffer(
-            reinterpret_cast<uintptr_t>(m_pBackbuffer));
+        Framebuffer::setFramebuffer(reinterpret_cast<uintptr_t>(m_pBackbuffer));
     }
 }

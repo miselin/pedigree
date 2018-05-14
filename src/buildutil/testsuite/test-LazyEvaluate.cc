@@ -25,7 +25,7 @@
 
 int *createInt(const int &meta)
 {
-    return new int (meta);
+    return new int(meta);
 }
 
 void destroyInt(int *v)

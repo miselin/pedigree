@@ -21,6 +21,7 @@
 #define _MEMORY_COUNT_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** RAII handler to figure out memory usage delta from start to end of scope. */
 class EXPORTED_PUBLIC MemoryCount

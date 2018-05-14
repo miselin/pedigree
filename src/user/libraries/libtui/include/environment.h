@@ -72,7 +72,7 @@ struct ScreenMode
     uintptr_t framebuffer;
     PixelFormat pf;
 };
-}
+}  // namespace Display
 
 class DirtyRectangle
 {

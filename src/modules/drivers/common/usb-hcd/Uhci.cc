@@ -49,10 +49,11 @@ static int threadStub(void *p)
 }
 
 Uhci::Uhci(Device *pDev)
-    : UsbHub(pDev), RequestQueue("UHCI"), m_pBase(0), m_nPorts(0), m_AsyncQueueListChangeLock(),
-      m_UhciMR("Uhci-MR"), m_pCurrentAsyncQueueTail(0),
-      m_pCurrentAsyncQueueHead(0), m_AsyncSchedule(), m_DequeueList(),
-      m_DequeueCount(0), m_nPortCheckTicks(0)
+    : UsbHub(pDev), RequestQueue("UHCI"), m_pBase(0), m_nPorts(0),
+      m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
+      m_pCurrentAsyncQueueTail(0), m_pCurrentAsyncQueueHead(0),
+      m_AsyncSchedule(), m_DequeueList(), m_DequeueCount(0),
+      m_nPortCheckTicks(0)
 {
     setSpecificType(String("UHCI"));
 
@@ -511,9 +512,8 @@ void Uhci::addTransferToTransaction(
 
     // Active, and only allow one retry
     pTD->nStatus = 0x80;
-    pTD->bIoc =
-        0;  // Don't issue an interrupt on completion until the very last
-            // TD in the transaction.
+    pTD->bIoc = 0;  // Don't issue an interrupt on completion until the very
+                    // last TD in the transaction.
     pTD->nErr = 3;
 
     // PID for this transfer
@@ -792,35 +792,30 @@ uint64_t Uhci::executeRequest(
         if (m_pBase->read16(UHCI_PORTSC + (p1 * 2)) & UHCI_PORTSC_LOSPEED)
         {
             DEBUG_LOG(
-                "USB: UHCI [" << this << "]: Port "
-                              << Dec << p1 << Hex
+                "USB: UHCI [" << this << "]: Port " << Dec << p1 << Hex
                               << " has a low-speed device connected to it");
             if (!deviceConnected(p1, LowSpeed))
                 WARNING(
                     "USB: UHCI ["
-                    << this << "]: Port " << Dec
-                    << p1 << Hex
+                    << this << "]: Port " << Dec << p1 << Hex
                     << " appeared to be connected but could not be set up");
         }
         else
         {
             DEBUG_LOG(
-                "USB: UHCI [" << this << "]: Port "
-                              << Dec << p1 << Hex
+                "USB: UHCI [" << this << "]: Port " << Dec << p1 << Hex
                               << " has a full-speed device connected to it");
             if (!deviceConnected(p1, FullSpeed))
                 WARNING(
                     "USB UHCI ["
-                    << this << "]: Port " << Dec
-                    << p1 << Hex
+                    << this << "]: Port " << Dec << p1 << Hex
                     << " appeared to be connected but could not be set up");
         }
     }
     else
     {
         DEBUG_LOG(
-            "USB: UHCI [" << this
-                          << "]: Device on port " << Dec << p1 << Hex
+            "USB: UHCI [" << this << "]: Device on port " << Dec << p1 << Hex
                           << " disconnected.");
         deviceDisconnected(p1);
     }

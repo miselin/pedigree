@@ -46,11 +46,11 @@
 #include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/utilities/pocketknife.h"
 
-#include "modules/system/lwip/include/lwip/init.h"
-#include "modules/system/lwip/include/lwip/netif.h"
-#include "modules/system/lwip/include/lwip/ip_addr.h"
-#include "modules/system/lwip/include/lwip/tcp.h"
 #include "modules/system/lwip/include/lwip/api.h"
+#include "modules/system/lwip/include/lwip/init.h"
+#include "modules/system/lwip/include/lwip/ip_addr.h"
+#include "modules/system/lwip/include/lwip/netif.h"
+#include "modules/system/lwip/include/lwip/tcp.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 
 static jmp_buf g_jb;
@@ -69,7 +69,8 @@ static void sigint(int signo)
     siglongjmp(g_jb, 1);
 }
 
-static err_t echo_server_rx(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+static err_t
+echo_server_rx(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     struct pbuf *q = p;
     bool needDisconnect = false;
@@ -82,7 +83,8 @@ static err_t echo_server_rx(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_
         tcp_recved(pcb, totalBytes);
 
         /// \todo check for errors
-        err_t e = tcp_write(pcb, q->payload, q->len, q->next ? TCP_WRITE_FLAG_MORE : 0);
+        err_t e = tcp_write(
+            pcb, q->payload, q->len, q->next ? TCP_WRITE_FLAG_MORE : 0);
         if (e != ERR_OK)
         {
             ERROR("failed to send some data!");
@@ -160,8 +162,7 @@ static int echo_server_conn(void *arg)
             }
 
             netconn_write(connection, data, len, NETCONN_COPY);
-        }
-        while (netbuf_next(buf) >= 0);
+        } while (netbuf_next(buf) >= 0);
 
         netbuf_delete(buf);
     }
@@ -191,7 +192,8 @@ static int echo_server(void *p)
         if (netconn_accept(server, &connection) == ERR_OK)
         {
             NOTICE("accepting connection!");
-            // pocketknife::runConcurrently(echo_server_conn, reinterpret_cast<void *>(connection));
+            // pocketknife::runConcurrently(echo_server_conn,
+            // reinterpret_cast<void *>(connection));
             echo_server_conn(connection);
         }
         else

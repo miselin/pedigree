@@ -316,11 +316,11 @@ NMFaultHandler::NMFaultHandler()
 
 void NMFaultHandler::threadTerminated(Thread *pThread)
 {
-  // Remove owner if the terminated thread is the current owner
-  // There's no way to pick a new owner so we'll do that on the next fault
-  X64SchedulerState *state = &pThread->state();
-  if (x87FPU_MMX_XMM_MXCSR_StateOwner == state)
-  {
-    x87FPU_MMX_XMM_MXCSR_StateOwner = nullptr;
-  }
+    // Remove owner if the terminated thread is the current owner
+    // There's no way to pick a new owner so we'll do that on the next fault
+    X64SchedulerState *state = &pThread->state();
+    if (x87FPU_MMX_XMM_MXCSR_StateOwner == state)
+    {
+        x87FPU_MMX_XMM_MXCSR_StateOwner = nullptr;
+    }
 }

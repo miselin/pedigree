@@ -17,23 +17,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Controller.h"
-#include "pedigree/kernel/machine/Trace.h"
-#include "pedigree/kernel/Log.h"
 #include "Ps2Controller.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Trace.h"
 
-Ps2Controller::Ps2Controller(Controller *pDev) :
-    Controller(pDev), m_pBase(0), m_bHasSecondPort(false), m_FirstPortBuffer(16384),
-    m_SecondPortBuffer(16384), m_bFirstIrqEnabled(false), m_bSecondIrqEnabled(false),
-    m_ConfigByte(0), m_bDebugStateFirstIrqEnabled(false), m_bDebugStateSecondIrqEnabled(false)
+Ps2Controller::Ps2Controller(Controller *pDev)
+    : Controller(pDev), m_pBase(0), m_bHasSecondPort(false),
+      m_FirstPortBuffer(16384), m_SecondPortBuffer(16384),
+      m_bFirstIrqEnabled(false), m_bSecondIrqEnabled(false), m_ConfigByte(0),
+      m_bDebugStateFirstIrqEnabled(false), m_bDebugStateSecondIrqEnabled(false)
 {
 }
 
-Ps2Controller::Ps2Controller() : m_FirstPortBuffer(16384), m_SecondPortBuffer(16384)
+Ps2Controller::Ps2Controller()
+    : m_FirstPortBuffer(16384), m_SecondPortBuffer(16384)
 {
 }
-
 
 void Ps2Controller::initialise()
 {
@@ -48,7 +49,8 @@ void Ps2Controller::initialise()
 
     TRACE("PS2: disabling IRQs");
     m_ConfigByte = sendCommandWithResponse(0x20);
-    m_ConfigByte = (m_ConfigByte & ~0x3) | 0x40;  // disable IRQs, leave translation enabled
+    m_ConfigByte = (m_ConfigByte & ~0x3) |
+                   0x40;  // disable IRQs, leave translation enabled
     sendCommand(0x60, m_ConfigByte);
 
     m_bHasSecondPort = (m_ConfigByte & (1 << 5)) != 0;
@@ -76,7 +78,9 @@ void Ps2Controller::initialise()
     readSecondPort(ack);
     readSecondPort(status);
     readSecondPort(extra);
-    NOTICE("PS/2: second port reset result: " << Hex << ack << ", " << status << ", " << extra);
+    NOTICE(
+        "PS/2: second port reset result: " << Hex << ack << ", " << status
+                                           << ", " << extra);
 
     IrqManager &irqManager = *Machine::instance().getIrqManager();
     m_FirstIrqId = irqManager.registerIsaIrqHandler(1, this, true);
@@ -260,7 +264,8 @@ void Ps2Controller::setDebugState(bool debugState)
     }
     else
     {
-        setIrqEnable(m_bDebugStateFirstIrqEnabled, m_bDebugStateSecondIrqEnabled);
+        setIrqEnable(
+            m_bDebugStateFirstIrqEnabled, m_bDebugStateSecondIrqEnabled);
 
         // re-enable mouse reports
         if (m_bDebugStateSecondIrqEnabled)
@@ -313,7 +318,9 @@ bool Ps2Controller::irq(irq_id_t number, InterruptState &state)
 #ifdef VERBOSE_KERNEL
     if (ok && !numWritten)
     {
-        ERROR("PS/2: dropping byte " << Hex << received << " from device, not enough buffer space");
+        ERROR(
+            "PS/2: dropping byte " << Hex << received
+                                   << " from device, not enough buffer space");
     }
 #endif
 

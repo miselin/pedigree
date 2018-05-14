@@ -155,7 +155,7 @@
 #ifdef HOSTED
 namespace __pedigree_hosted
 {
-};  // In case it's not defined.
+};  // namespace __pedigree_hosted
 using namespace __pedigree_hosted;
 #include <stdio.h>
 #endif
@@ -445,7 +445,7 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     ZombieQueue::instance().initialise();
 #endif
 
-/// \todo Seed random number generator.
+    /// \todo Seed random number generator.
 
     TRACE("starting module load thread");
 

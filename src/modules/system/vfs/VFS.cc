@@ -119,7 +119,8 @@ void VFS::addAlias(Filesystem *pFs, const String &alias)
 
 void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
-    HashTable<String, Filesystem *>::LookupResult result = m_Aliases.lookup(oldAlias);
+    HashTable<String, Filesystem *>::LookupResult result =
+        m_Aliases.lookup(oldAlias);
     if (result.hasValue())
     {
         Filesystem *pFs = result.value();
@@ -201,7 +202,8 @@ void VFS::removeAllAliases(Filesystem *pFs)
 
 Filesystem *VFS::lookupFilesystem(const String &alias)
 {
-    HashTable<String, Filesystem *>::LookupResult result = m_Aliases.lookup(alias);
+    HashTable<String, Filesystem *>::LookupResult result =
+        m_Aliases.lookup(alias);
     return result.hasValue() ? result.value() : nullptr;
 }
 
@@ -468,7 +470,8 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
         return true;
     }
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
 
     int64_t fuid = pFile->getUid();
     int64_t fgid = pFile->getGid();
@@ -518,15 +521,20 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 
     if (!check)
     {
-        NOTICE("no permissions? perms=" << Oct << permissions << ", check=" << check);
+        NOTICE(
+            "no permissions? perms=" << Oct << permissions
+                                     << ", check=" << check);
         return false;
     }
 
     // Needed permissions.
-    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
+    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) |
+                      (bExecute ? FILE_UX : 0);
     if ((check & needed) != needed)
     {
-        NOTICE("VFS::checkAccess: needed " << Oct << needed << ", check was " << check);
+        NOTICE(
+            "VFS::checkAccess: needed " << Oct << needed << ", check was "
+                                        << check);
         SYSCALL_ERROR(PermissionDenied);
         return false;
     }

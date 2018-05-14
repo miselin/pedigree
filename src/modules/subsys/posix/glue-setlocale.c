@@ -77,19 +77,26 @@ char *__lc_ctype = __locale_ctype;
 
 static char *__locale_entry[] = {
     // LC_ALL
-    __locale_all, __locale_last_all,
+    __locale_all,
+    __locale_last_all,
     // LC_COLLATE
-    __locale_collate, __locale_last_collate,
+    __locale_collate,
+    __locale_last_collate,
     // LC_CTYPE
-    __locale_ctype, __locale_last_ctype,
+    __locale_ctype,
+    __locale_last_ctype,
     // LC_MONETARY
-    __locale_monetary, __locale_last_monetary,
+    __locale_monetary,
+    __locale_last_monetary,
     // LC_NUMERIC
-    __locale_numeric, __locale_last_numeric,
+    __locale_numeric,
+    __locale_last_numeric,
     // LC_TIME
-    __locale_time, __locale_last_time,
+    __locale_time,
+    __locale_last_time,
     // LC_MESSAGES
-    __locale_messages, __locale_last_time,
+    __locale_messages,
+    __locale_last_time,
 };
 
 static const char *__locale_env[] = {

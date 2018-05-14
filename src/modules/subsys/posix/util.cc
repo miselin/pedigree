@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "modules/subsys/posix/PosixSubsystem.h"
-#include "modules/subsys/posix/FileDescriptor.h"
 
 #ifdef UTILITY_LINUX
 #include <vector>

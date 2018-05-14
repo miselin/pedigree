@@ -129,8 +129,7 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         sectionHeadersLength += pageSz;
     }
     if (physicalMemoryManager.allocateRegion(
-            *m_AdditionalSectionHeaders,
-            sectionHeadersLength / pageSz,
+            *m_AdditionalSectionHeaders, sectionHeadersLength / pageSz,
             PhysicalMemoryManager::continuous,
             VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
             pBootstrap.getSectionHeaders()) == false)
@@ -208,8 +207,9 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         reinterpret_cast<const char *>(stringTableShdr->addr);
 
 #ifdef X86_COMMON
-    tmpStringTable = m_AdditionalSectionContents.convertPhysicalPointer<const char>(
-                    stringTableShdr->addr);
+    tmpStringTable =
+        m_AdditionalSectionContents.convertPhysicalPointer<const char>(
+            stringTableShdr->addr);
 #endif
 
     // Search for the symbol/string table and adjust sections
@@ -219,8 +219,9 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
                               i * pBootstrap.getSectionHeaderEntrySize();
 
 #ifdef X86_COMMON
-        KernelElfSectionHeader_t *pTruncatedSh = m_AdditionalSectionHeaders
-                  ->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
+        KernelElfSectionHeader_t *pTruncatedSh =
+            m_AdditionalSectionHeaders
+                ->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
 
         // Copy into larger format for analysis
         ElfSectionHeader_t sh;
@@ -261,8 +262,7 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
 
         if (pSh->type == SHT_SYMTAB)
         {
-            m_pSymbolTable =
-                reinterpret_cast<KernelElfSymbol_t *>(pSh->addr);
+            m_pSymbolTable = reinterpret_cast<KernelElfSymbol_t *>(pSh->addr);
             m_nSymbolTableSize = pSh->size;
         }
         else if (!StringCompare(pStr, ".strtab"))
@@ -318,7 +318,10 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
             }
         }
 
-        NOTICE("KERNELELF: preallocating symbol table with " << numGlobal << " global " << numWeak << " weak and " << numLocal << " local symbols.");
+        NOTICE(
+            "KERNELELF: preallocating symbol table with "
+            << numGlobal << " global " << numWeak << " weak and " << numLocal
+            << " local symbols.");
         m_SymbolTable.preallocate(numGlobal, numWeak, this, numLocal);
 
         for (size_t i = 1; i < m_nSymbolTableSize / sizeof(*pSymbol); i++)
@@ -493,8 +496,10 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     }
     module->name = rebase(module, *pName);
     module->elf.setName(module->name);
-    auto entryPoint = *reinterpret_cast<bool (**)()>(module->elf.lookupSymbol("g_pModuleEntry"));
-    auto exitPoint = *reinterpret_cast<void (**)()>(module->elf.lookupSymbol("g_pModuleExit"));
+    auto entryPoint = *reinterpret_cast<bool (**)()>(
+        module->elf.lookupSymbol("g_pModuleEntry"));
+    auto exitPoint = *reinterpret_cast<void (**)()>(
+        module->elf.lookupSymbol("g_pModuleExit"));
     // Readjust entry/exit functions for the loaded module if needed
     if (entryPoint)
     {
@@ -817,7 +822,8 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
             for (size_t j = 0; j < m_LoadedModules.count(); ++j)
             {
                 if (!StringCompare(
-                        m_LoadedModules[j]->name, rebase(module, module->depends_opt[i])))
+                        m_LoadedModules[j]->name,
+                        rebase(module, module->depends_opt[i])))
                 {
                     found = true;
                     break;
@@ -858,7 +864,9 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
         bool found = false;
         for (size_t j = 0; j < m_LoadedModules.count(); j++)
         {
-            if (!StringCompare(m_LoadedModules[j]->name, rebase(module, module->depends[i])))
+            if (!StringCompare(
+                    m_LoadedModules[j]->name,
+                    rebase(module, module->depends[i])))
             {
                 found = true;
                 break;
@@ -881,7 +889,9 @@ static int executeModuleThread(void *mod)
     {
         if (!module->elf.finaliseModule(module->buffer, module->buflen))
         {
-            FATAL("KERNELELF: Module relocation failed for module " << module->name);
+            FATAL(
+                "KERNELELF: Module relocation failed for module "
+                << module->name);
             return false;
         }
 

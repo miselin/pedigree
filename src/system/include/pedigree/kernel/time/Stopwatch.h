@@ -58,6 +58,6 @@ class Stopwatch
     /// Running or not.
     bool m_bRunning;
 };
-}
+}  // namespace Time
 
 #endif

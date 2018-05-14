@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "modules/drivers/common/hid/HidReport.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
-#include "modules/drivers/common/hid/HidReport.h"
 
 #include "UsbHumanInterfaceDevice.h"
 

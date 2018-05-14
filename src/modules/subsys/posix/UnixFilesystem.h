@@ -114,14 +114,16 @@ class UnixSocket : public File
 
     enum SocketState
     {
-        Listening,  // listening for connections
+        Listening,   // listening for connections
         Connecting,  // waiting for bind to be acked
-        Inactive,  // unbound
-        Active,  // bound, ready for data transfer
-        Closed  // unbound but was once bound
+        Inactive,    // unbound
+        Active,      // bound, ready for data transfer
+        Closed       // unbound but was once bound
     };
 
-    UnixSocket(String name, Filesystem *pFs, File *pParent, UnixSocket *other = nullptr, SocketType type = Datagram);
+    UnixSocket(
+        String name, Filesystem *pFs, File *pParent,
+        UnixSocket *other = nullptr, SocketType type = Datagram);
     virtual ~UnixSocket();
 
     virtual uint64_t readBytewise(
@@ -131,7 +133,8 @@ class UnixSocket : public File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-    uint64_t recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String &from);
+    uint64_t
+    recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String &from);
 
     virtual int select(bool bWriting = false, int timeout = 0);
 
@@ -237,7 +240,7 @@ class UnixSocket : public File
 
     // List of sockets pending accept() on this socket.
     List<UnixSocket *> m_PendingSockets;
-    
+
     // Mutual exclusion for this socket.
     Mutex m_Mutex;
 

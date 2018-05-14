@@ -315,7 +315,8 @@ void compile(char *filename)
             header_guard[i] = toupper(fname[i]);
     }
 
-    fprintf(stream, "/*\n\
+    fprintf(
+        stream, "/*\n\
  * Copyright (c) 2010 James Molloy, Burtescu Eduard\n\
  *\n\
  * Permission to use, copy, modify, and distribute this software for any\n\
@@ -334,7 +335,8 @@ void compile(char *filename)
 #ifndef %s\n\
 #define %s\n\
 \n\
-static char sparseBuff[%d] =\n\"", header_guard, header_guard, sparse_buffsz + 1);
+static char sparseBuff[%d] =\n\"",
+        header_guard, header_guard, sparse_buffsz + 1);
 
     for (i = 0; i < sparse_buffsz; i++)
     {

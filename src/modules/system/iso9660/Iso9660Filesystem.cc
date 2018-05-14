@@ -267,7 +267,8 @@ String Iso9660Filesystem::parseName(Iso9660DirRecord &dirRecord)
     ret.clear();
 
     // ISO9660 maximum name length is 31 bytes
-    uint8_t *fileIdent = reinterpret_cast<uint8_t *>(adjust_pointer(&dirRecord, sizeof(dirRecord)));
+    uint8_t *fileIdent = reinterpret_cast<uint8_t *>(
+        adjust_pointer(&dirRecord, sizeof(dirRecord)));
     size_t len = (dirRecord.FileIdentLen < 31) ? dirRecord.FileIdentLen : 31;
     size_t i;
     for (i = 0; i < len; i++)
@@ -287,7 +288,8 @@ String Iso9660Filesystem::parseName(Iso9660DirRecord &dirRecord)
 
 String Iso9660Filesystem::parseJolietName(Iso9660DirRecord &name)
 {
-    uint8_t *fileIdent = reinterpret_cast<uint8_t *>(adjust_pointer(&name, sizeof(name)));
+    uint8_t *fileIdent =
+        reinterpret_cast<uint8_t *>(adjust_pointer(&name, sizeof(name)));
     String s = WideToMultiByteStr(fileIdent, name.FileIdentLen >> 1, 64);
     NormalStaticString str;
     str.append(s);

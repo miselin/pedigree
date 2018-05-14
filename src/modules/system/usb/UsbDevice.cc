@@ -630,7 +630,8 @@ String UsbDevice::getString(uint8_t nString)
     return String(pString);
 }
 
-UsbDeviceContainer::UsbDeviceContainer(UsbDevice *pDev) : Device(), m_pUsbDevice(pDev)
+UsbDeviceContainer::UsbDeviceContainer(UsbDevice *pDev)
+    : Device(), m_pUsbDevice(pDev)
 {
     pDev->m_pContainer = this;
 

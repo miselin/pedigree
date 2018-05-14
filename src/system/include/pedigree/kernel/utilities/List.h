@@ -37,7 +37,8 @@
 template <typename T>
 struct _ListNode_t
 {
-    // static_assert(sizeof(T) <= 16, "List<T> should not be used with large objects");
+    // static_assert(sizeof(T) <= 16, "List<T> should not be used with large
+    // objects");
 
     /** Get the next data structure in the list
      *\return pointer to the next data structure in the list */

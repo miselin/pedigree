@@ -232,7 +232,9 @@ const Log::LogEntry &Log::getLatestEntry() const
     return m_StaticLog[m_StaticEntries - 1];
 }
 
-Log::LogEntry::LogEntry() : timestamp(), severity(), str(), numberType(Dec) {}
+Log::LogEntry::LogEntry() : timestamp(), severity(), str(), numberType(Dec)
+{
+}
 
 Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 {
@@ -351,7 +353,8 @@ void Log::flushEntry(bool lock)
     static bool handlingFatal = false;
 
 #ifdef THREADS
-    if (lock) m_Lock.acquire();
+    if (lock)
+        m_Lock.acquire();
 #endif
 
     if (m_StaticEntries >= LOG_ENTRIES)
@@ -367,7 +370,8 @@ void Log::flushEntry(bool lock)
 #ifdef THREADS
     // no need for lock anymore - all tracked now
     // remaining work hits callbacks which can lock themselves
-    if (lock) m_Lock.release();
+    if (lock)
+        m_Lock.release();
 #endif
 
     if (m_nOutputCallbacks)
@@ -405,8 +409,7 @@ void Log::flushEntry(bool lock)
         {
             if (m_OutputCallbacks[i] != nullptr)
             {
-                m_OutputCallbacks[i]->callback(
-                    static_cast<const char *>(str));
+                m_OutputCallbacks[i]->callback(static_cast<const char *>(str));
             }
         }
     }

@@ -25,8 +25,8 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 PageFaultHandler PageFaultHandler::m_Instance;
 
@@ -74,12 +74,14 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             MemoryRegion tmpRegion("CoW Temporary Page");
             if (!PhysicalMemoryManager::instance().allocateRegion(
                     tmpRegion, 1,
-                    PhysicalMemoryManager::force | PhysicalMemoryManager::continuous | PhysicalMemoryManager::anonymous,
+                    PhysicalMemoryManager::force |
+                        PhysicalMemoryManager::continuous |
+                        PhysicalMemoryManager::anonymous,
                     VirtualAddressSpace::KernelMode, phys))
             {
                 FATAL(
-                    "PageFaultHandler: CoW temporary map() failed @"
-                    << Hex << page);
+                    "PageFaultHandler: CoW temporary map() failed @" << Hex
+                                                                     << page);
                 return;
             }
 
@@ -107,7 +109,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                 reinterpret_cast<uint8_t *>(tmpRegion.virtualAddress()),
                 PhysicalMemoryManager::getPageSize());
 
-            // Done with the memory region now - ready to release any additional references too
+            // Done with the memory region now - ready to release any additional
+            // references too
             tmpRegion.free();
 
             // Clean up old reference to memory (may free the page, if we were
@@ -117,7 +120,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         }
     }
 
-    /// \todo probably can just skip checking for traps across the entire kernel address space?
+    /// \todo probably can just skip checking for traps across the entire kernel
+    /// address space?
     if (!va.memIsInKernelHeap(reinterpret_cast<void *>(page)))
     {
         // Check our handler list.

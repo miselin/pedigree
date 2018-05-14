@@ -25,8 +25,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/fcntl.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -92,7 +92,7 @@ Timestamp getTimeNanoseconds(bool sync)
 
     return (ts.tv_sec * Multiplier::Second) + ts.tv_nsec;
 }
-}  // Time
+}  // namespace Time
 
 extern "C" void panic(const char *s)
 {
@@ -111,7 +111,9 @@ uintptr_t getHeapBase()
         return reinterpret_cast<uintptr_t>(base);
     }
 
-    base = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS, -1, 0);
+    base = mmap(
+        0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS, -1,
+        0);
     if (base == MAP_FAILED)
     {
         fprintf(
@@ -205,7 +207,8 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
     return wait(mutex, zero);
 }
 
-ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
+ConditionVariable::WaitResult
+ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
 {
     pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
     pthread_mutex_t *m =
@@ -368,8 +371,7 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
     }
 
     int fd = getDevZero();
-    void *p = mmap(
-        0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    void *p = mmap(0, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
     if (p != MAP_FAILED)
     {
         alloc_start = reinterpret_cast<uintptr_t>(p);

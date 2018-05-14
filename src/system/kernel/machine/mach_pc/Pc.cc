@@ -191,7 +191,8 @@ void Pc::initialiseDeviceTree()
     m_Ps2Controller.setSpecificType(String("ps2"));
     m_Ps2Controller.addresses().pushBack(
         new Device::Address(String("ps2-base"), 0x60, 5, true));
-    m_Ps2Controller.setInterruptNumber(1);  // 12 for mouse, handled by the driver
+    m_Ps2Controller.setInterruptNumber(
+        1);  // 12 for mouse, handled by the driver
     m_IsaBus.addChild(&m_Ps2Controller);
     m_Ps2Controller.setParent(&m_IsaBus);
 
@@ -274,7 +275,8 @@ Pc::Pc()
       ,
       m_LocalApic()
 #endif
-      , m_Keyboard(&m_Ps2Controller), m_IsaBus("ISA"), m_Ps2Controller()
+      ,
+      m_Keyboard(&m_Ps2Controller), m_IsaBus("ISA"), m_Ps2Controller()
 {
     m_pKeyboard = &m_Keyboard;
 }

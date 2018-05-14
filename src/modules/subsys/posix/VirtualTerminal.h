@@ -20,101 +20,101 @@
 #ifndef POSIX_VIRTUALTERMINAL_H
 #define POSIX_VIRTUALTERMINAL_H
 
+#include "modules/subsys/posix/console-syscalls.h"
 #include "modules/system/console/TextIO.h"
 #include "modules/system/vfs/File.h"
-#include "modules/subsys/posix/console-syscalls.h"
 
-#define MAX_VT  64
+#define MAX_VT 64
 
 class DevFsDirectory;
 class Process;
 
 class VirtualTerminalManager
 {
-    public:
-        VirtualTerminalManager(DevFsDirectory *parentDir);
-        virtual ~VirtualTerminalManager();
+  public:
+    VirtualTerminalManager(DevFsDirectory *parentDir);
+    virtual ~VirtualTerminalManager();
 
-        enum SwitchPermission
-        {
-            Allowed,
-            Disallowed
-        };
+    enum SwitchPermission
+    {
+        Allowed,
+        Disallowed
+    };
 
-        enum SystemMode
-        {
-            Text,
-            Graphics
-        };
+    enum SystemMode
+    {
+        Text,
+        Graphics
+    };
 
-        bool initialise();
+    bool initialise();
 
-        /**
-         * \brief Starts the process of activating the given tty.
-         *
-         * If we are currently using a VT with VT_AUTO mode, this just directly
-         * switches over. However, if the current VT is in VT_PROCESS mode, this
-         * tracks the pending switchover and then signals the current VT. That
-         * owning process will respond with an ioctl that leads to a call to
-         * reportPermission() that may or may not block the transition.
-         */
-        void activate(size_t n);
+    /**
+     * \brief Starts the process of activating the given tty.
+     *
+     * If we are currently using a VT with VT_AUTO mode, this just directly
+     * switches over. However, if the current VT is in VT_PROCESS mode, this
+     * tracks the pending switchover and then signals the current VT. That
+     * owning process will respond with an ioctl that leads to a call to
+     * reportPermission() that may or may not block the transition.
+     */
+    void activate(size_t n);
 
-        /** Report permission to switch. */
-        void reportPermission(SwitchPermission perm);
+    /** Report permission to switch. */
+    void reportPermission(SwitchPermission perm);
 
-        /** Find an inactive VT and open it, returning its number. */
-        size_t openInactive();
+    /** Find an inactive VT and open it, returning its number. */
+    size_t openInactive();
 
-        /** Lock switching altogether. */
-        void lockSwitching(bool locked);
+    /** Lock switching altogether. */
+    void lockSwitching(bool locked);
 
-        size_t getCurrentTerminalNumber() const;
-        TextIO *getCurrentTerminal() const;
-        File *getCurrentTerminalFile() const;
+    size_t getCurrentTerminalNumber() const;
+    TextIO *getCurrentTerminal() const;
+    File *getCurrentTerminalFile() const;
 
-        struct vt_mode getTerminalMode(size_t n) const;
-        void setTerminalMode(size_t n, struct vt_mode mode);
+    struct vt_mode getTerminalMode(size_t n) const;
+    void setTerminalMode(size_t n, struct vt_mode mode);
 
-        struct vt_stat getState() const;
+    struct vt_stat getState() const;
 
-        void setSystemMode(SystemMode mode);
-        SystemMode getSystemMode() const;
+    void setSystemMode(SystemMode mode);
+    SystemMode getSystemMode() const;
 
-        void setInputMode(size_t n, TextIO::InputMode newMode);
-        TextIO::InputMode getInputMode(size_t n) const;
+    void setInputMode(size_t n, TextIO::InputMode newMode);
+    TextIO::InputMode getInputMode(size_t n) const;
 
-    private:
-        void sendSignal(size_t n, bool acq);
+  private:
+    void sendSignal(size_t n, bool acq);
 
-        struct VirtualTerminal
-        {
-            TextIO *textio;
-            File *file;
-            struct vt_mode mode;
+    struct VirtualTerminal
+    {
+        TextIO *textio;
+        File *file;
+        struct vt_mode mode;
 
 #ifdef THREADS
-            Process *owner;
+        Process *owner;
 #endif
-        };
+    };
 
-        VirtualTerminal m_Terminals[MAX_VT];
+    VirtualTerminal m_Terminals[MAX_VT];
 
-        TextIO *m_pTty;
+    TextIO *m_pTty;
 
-        TextIO *m_pTtys[MAX_VT];
-        File *m_pTtyFiles[MAX_VT];
-        struct vt_mode m_Modes[MAX_VT];
+    TextIO *m_pTtys[MAX_VT];
+    File *m_pTtyFiles[MAX_VT];
+    struct vt_mode m_Modes[MAX_VT];
 
-        size_t m_CurrentTty;
-        size_t m_WantedTty;
-        size_t m_NumTtys;
+    size_t m_CurrentTty;
+    size_t m_WantedTty;
+    size_t m_NumTtys;
 
-        DevFsDirectory *m_ParentDir;
+    DevFsDirectory *m_ParentDir;
 
-        bool m_bSwitchingLocked;
+    bool m_bSwitchingLocked;
 
-        SystemMode m_SystemMode;
+    SystemMode m_SystemMode;
 };
 
 #endif

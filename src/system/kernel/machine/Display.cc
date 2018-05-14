@@ -159,8 +159,8 @@ bool Display::setScreenMode(size_t nWidth, size_t nHeight, size_t nBpp)
     if (pSm == 0)
     {
         ERROR(
-            "Screenmode not found: " << Dec << nWidth << "x" << nHeight
-                                     << "x" << nBpp << Hex);
+            "Screenmode not found: " << Dec << nWidth << "x" << nHeight << "x"
+                                     << nBpp << Hex);
         return false;
     }
 

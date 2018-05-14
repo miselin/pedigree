@@ -23,9 +23,9 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
 
 #include "modules/system/vfs/File.h"
 
@@ -110,7 +110,7 @@ class EXPORTED_PUBLIC TextIO : public File
     enum InputMode
     {
         Standard,  // use built-in system keymap translation
-        Raw,  // write scancodes directly
+        Raw,       // write scancodes directly
     };
 
     TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent);

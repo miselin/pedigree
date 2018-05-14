@@ -17,19 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #include <lwip/arch/sys_arch.h>
 #include <lwip/err.h>
-#include <lwip/sys.h>
 #include <lwip/errno.h>
+#include <lwip/sys.h>
 
-#include <pedigree/kernel/utilities/pocketknife.h>
-#include <pedigree/kernel/process/Semaphore.h>
+#include <pedigree/kernel/Log.h>
 #include <pedigree/kernel/process/Mutex.h>
+#include <pedigree/kernel/process/Semaphore.h>
 #include <pedigree/kernel/process/Thread.h>
 #include <pedigree/kernel/processor/Processor.h>
-#include <pedigree/kernel/Log.h>
 #include <pedigree/kernel/utilities/RingBuffer.h>
+#include <pedigree/kernel/utilities/pocketknife.h>
 
 // errno for lwIP usage, this is not ideal as it'll be exposed to ALL modules.
 int errno;
@@ -42,7 +41,9 @@ static Spinlock g_Protection(false);
 
 struct pedigree_mbox
 {
-    pedigree_mbox() : buffer(64) {}
+    pedigree_mbox() : buffer(64)
+    {
+    }
 
     RingBuffer<void *> buffer;
 };
@@ -77,7 +78,8 @@ static int thread_shim(void *arg)
     return 0;
 }
 
-sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread, void *arg, int stacksize, int prio)
+sys_thread_t sys_thread_new(
+    const char *name, lwip_thread_fn thread, void *arg, int stacksize, int prio)
 {
     /// \todo stacksize might be important
     auto meta = new struct thread_meta;

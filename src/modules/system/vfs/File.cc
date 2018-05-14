@@ -62,8 +62,8 @@ void File::writeCallback(
 File::File()
     : m_Name(), m_AccessedTime(0), m_ModifiedTime(0), m_CreationTime(0),
       m_Inode(0), m_pFilesystem(0), m_Size(0), m_pParent(0), m_nWriters(0),
-      m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK),
-      m_bDirect(false)
+      m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0),
+      m_DataCache(FILE_BAD_BLOCK), m_bDirect(false)
 #ifndef VFS_NOMMU
       ,
       m_FillCache()
@@ -133,7 +133,8 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         }
     }
 
-    const size_t blockSize = useFillCache() ? PhysicalMemoryManager::getPageSize() : getBlockSize();
+    const size_t blockSize =
+        useFillCache() ? PhysicalMemoryManager::getPageSize() : getBlockSize();
 
     size_t n = 0;
     while (size)
@@ -152,7 +153,8 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         uintptr_t buff = readIntoCache(block);
         if (buff == FILE_BAD_BLOCK)
         {
-            ERROR("File::read - failed to get page from cache, returning early");
+            ERROR(
+                "File::read - failed to get page from cache, returning early");
             return n;
         }
 
@@ -196,7 +198,8 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         uintptr_t buff = readIntoCache(block);
         if (buff == FILE_BAD_BLOCK)
         {
-            ERROR("File::read - failed to get page from cache, returning early");
+            ERROR(
+                "File::read - failed to get page from cache, returning early");
             return n;
         }
 
@@ -561,7 +564,8 @@ bool File::isBytewise() const
     return false;
 }
 
-uint64_t File::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t File::readBytewise(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (isBytewise())
     {
@@ -570,7 +574,8 @@ uint64_t File::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, 
     return 0;
 }
 
-uint64_t File::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
+uint64_t File::writeBytewise(
+    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
     if (isBytewise())
     {
@@ -810,7 +815,8 @@ uintptr_t File::readIntoCache(uintptr_t block)
         // lookup() followed by an insert() - means we don't need to lock the
         // File object to do this.
         bool didExist = false;
-        uintptr_t vaddr = m_FillCache.insert(offset, nativeBlockSize, &didExist);
+        uintptr_t vaddr =
+            m_FillCache.insert(offset, nativeBlockSize, &didExist);
 
         // If in direct mode we are required to read() again
         if (didExist && !m_bDirect)
@@ -824,7 +830,9 @@ uintptr_t File::readIntoCache(uintptr_t block)
         {
             uintptr_t blockAddr = readBlock(offset + i);
             /// \todo handle readBlock failing here
-            MemoryCopy(reinterpret_cast<void *>(vaddr), reinterpret_cast<void *>(blockAddr), blockSize);
+            MemoryCopy(
+                reinterpret_cast<void *>(vaddr),
+                reinterpret_cast<void *>(blockAddr), blockSize);
         }
 
         m_FillCache.markNoLongerEditing(offset, nativeBlockSize);

@@ -26,8 +26,8 @@
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 // lwIP network interface type
 struct netif;
@@ -88,38 +88,38 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
     {
         friend class NetworkStack;
 
-        public:
-            Packet();
-            virtual ~Packet();
+      public:
+        Packet();
+        virtual ~Packet();
 
-            uintptr_t getBuffer() const
-            {
-                return m_Buffer;
-            }
+        uintptr_t getBuffer() const
+        {
+            return m_Buffer;
+        }
 
-            size_t getLength() const
-            {
-                return m_PacketLength;
-            }
+        size_t getLength() const
+        {
+            return m_PacketLength;
+        }
 
-            Network *getCard() const
-            {
-                return m_pCard;
-            }
+        Network *getCard() const
+        {
+            return m_pCard;
+        }
 
-            uint32_t getOffset() const
-            {
-                return m_Offset;
-            }
+        uint32_t getOffset() const
+        {
+            return m_Offset;
+        }
 
-        private:
-            bool copyFrom(uintptr_t otherPacket, size_t size);
+      private:
+        bool copyFrom(uintptr_t otherPacket, size_t size);
 
-            uintptr_t m_Buffer;
-            size_t m_PacketLength;
-            Network *m_pCard;
-            uint32_t m_Offset;
-            Mutex m_Pushed;
+        uintptr_t m_Buffer;
+        size_t m_PacketLength;
+        Network *m_pCard;
+        uint32_t m_Offset;
+        Mutex m_Pushed;
     };
 
     /** Get an interface for a card. */

@@ -71,7 +71,8 @@ void SymbolTable::insertMultiple(
         pOther->insertShared(name, ptr);
 }
 
-void SymbolTable::preallocate(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
+void SymbolTable::preallocate(
+    size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
 {
     m_GlobalSymbols.reserve(numGlobal);
     m_WeakSymbols.reserve(numWeak);
@@ -80,7 +81,8 @@ void SymbolTable::preallocate(size_t numGlobal, size_t numWeak, Elf *localElf, s
     tree->reserve(numLocal);
 }
 
-void SymbolTable::preallocateAdditional(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
+void SymbolTable::preallocateAdditional(
+    size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
 {
     m_GlobalSymbols.reserve(m_GlobalSymbols.count() + numGlobal);
     m_WeakSymbols.reserve(m_WeakSymbols.count() + numWeak);
@@ -151,8 +153,8 @@ void SymbolTable::eraseByElf(Elf *pParent)
     }
 }
 
-uintptr_t
-SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBinding)
+uintptr_t SymbolTable::lookup(
+    const String &name, Elf *pElf, Policy policy, Binding *pBinding)
 {
     RAII_LOCK;
 
@@ -193,7 +195,8 @@ SymbolTable::lookup(const String &name, Elf *pElf, Policy policy, Binding *pBind
         }
     }
 
-    // NOTICE("SymbolTable::lookup(" << name << ", " << pElf->getName() << ") ==> " << Hex << lookupResult);
+    // NOTICE("SymbolTable::lookup(" << name << ", " << pElf->getName() << ")
+    // ==> " << Hex << lookupResult);
 
     return lookupResult;
 }

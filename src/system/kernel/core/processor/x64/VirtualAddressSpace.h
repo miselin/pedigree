@@ -23,8 +23,8 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /**
  * Virtual address space layout
@@ -51,25 +51,34 @@
 #define KERNEL_VIRTUAL_EVENT_BASE \
     reinterpret_cast<void *>(0x00007FFFF0000000)  // right above the stacks
 
+#define KERNEL_SPACE_START reinterpret_cast<void *>(0xFFFF800000000000)
+#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB1 \
+    reinterpret_cast<void *>(0xFFFF800100000000)
+#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB2 \
+    reinterpret_cast<void *>(0xFFFF801000000000)
+#define KERNEL_VIRTUAL_HEAP reinterpret_cast<void *>(0xFFFF900000000000)
+#define KERNEL_VIRTUAL_CACHE reinterpret_cast<void *>(0xFFFFB00000000000)
+#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS \
+    reinterpret_cast<void *>(0xFFFFF00000000000)
+#define KERNEL_VIRTUAL_PAGESTACK_4GB \
+    reinterpret_cast<void *>(0xFFFFFFFF7FC00000)
+#define KERNEL_VIRTUAL_ADDRESS reinterpret_cast<void *>(0xFFFFFFFF7FF00000)
+#define KERNEL_VIRTUAL_INFO_BLOCK reinterpret_cast<void *>(0xFFFFFFFF8FFF0000)
+#define KERNEL_VIRTUAL_MODULE_BASE reinterpret_cast<void *>(0xFFFFFFFF90000000)
+#define KERNEL_VIRTUAL_LOWEST_STACK reinterpret_cast<void *>(0xFFFFFFFFE0000000)
+#define KERNEL_VIRTUAL_STACK reinterpret_cast<void *>(0xFFFFFFFFFFFF7000)
 
-#define KERNEL_SPACE_START                      reinterpret_cast<void *>(0xFFFF800000000000)
-#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB1        reinterpret_cast<void *>(0xFFFF800100000000)
-#define KERNEL_VIRTUAL_PAGESTACK_ABV4GB2        reinterpret_cast<void *>(0xFFFF801000000000)
-#define KERNEL_VIRTUAL_HEAP                     reinterpret_cast<void *>(0xFFFF900000000000)
-#define KERNEL_VIRTUAL_CACHE                    reinterpret_cast<void *>(0xFFFFB00000000000)
-#define KERNEL_VIRTUAL_MEMORYREGION_ADDRESS     reinterpret_cast<void *>(0xFFFFF00000000000)
-#define KERNEL_VIRTUAL_PAGESTACK_4GB            reinterpret_cast<void *>(0xFFFFFFFF7FC00000)
-#define KERNEL_VIRTUAL_ADDRESS                  reinterpret_cast<void *>(0xFFFFFFFF7FF00000)
-#define KERNEL_VIRTUAL_INFO_BLOCK               reinterpret_cast<void *>(0xFFFFFFFF8FFF0000)
-#define KERNEL_VIRTUAL_MODULE_BASE              reinterpret_cast<void *>(0xFFFFFFFF90000000)
-#define KERNEL_VIRTUAL_LOWEST_STACK             reinterpret_cast<void *>(0xFFFFFFFFE0000000)
-#define KERNEL_VIRTUAL_STACK                    reinterpret_cast<void *>(0xFFFFFFFFFFFF7000)
-
-#define KERNEL_VIRTUAL_MODULE_SIZE              pointer_diff_const(KERNEL_VIRTUAL_MODULE_BASE, KERNEL_VIRTUAL_LOWEST_STACK)
-#define KERNEL_VIRTUAL_HEAP_SIZE                pointer_diff_const(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_CACHE)
-#define KERNEL_VIRTUAL_CACHE_SIZE               pointer_diff_const(KERNEL_VIRTUAL_CACHE, KERNEL_VIRTUAL_MEMORYREGION_ADDRESS)
-#define KERNEL_VIRTUAL_MEMORYREGION_SIZE        pointer_diff_const(KERNEL_VIRTUAL_MEMORYREGION_ADDRESS, KERNEL_VIRTUAL_PAGESTACK_4GB)
-#define KERNEL_STACK_SIZE                       0x8000
+#define KERNEL_VIRTUAL_MODULE_SIZE \
+    pointer_diff_const(KERNEL_VIRTUAL_MODULE_BASE, KERNEL_VIRTUAL_LOWEST_STACK)
+#define KERNEL_VIRTUAL_HEAP_SIZE \
+    pointer_diff_const(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_CACHE)
+#define KERNEL_VIRTUAL_CACHE_SIZE \
+    pointer_diff_const(           \
+        KERNEL_VIRTUAL_CACHE, KERNEL_VIRTUAL_MEMORYREGION_ADDRESS)
+#define KERNEL_VIRTUAL_MEMORYREGION_SIZE \
+    pointer_diff_const(                  \
+        KERNEL_VIRTUAL_MEMORYREGION_ADDRESS, KERNEL_VIRTUAL_PAGESTACK_4GB)
+#define KERNEL_STACK_SIZE 0x8000
 
 /** @addtogroup kernelprocessorx64
  * @{ */
@@ -98,7 +107,9 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
 
     virtual bool
     map(physical_uintptr_t physAddress, void *virtualAddress, size_t flags);
-    virtual bool mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags);
+    virtual bool mapHuge(
+        physical_uintptr_t physAddress, void *virtualAddress, size_t count,
+        size_t flags);
     virtual void getMapping(
         void *virtualAddress, physical_uintptr_t &physAddress, size_t &flags);
     virtual void setFlags(void *virtualAddress, size_t newFlags);

@@ -106,7 +106,8 @@ Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
             }
 
             // No, we need to wait.
-            ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock);
+            ConditionVariable::WaitResult result =
+                m_WriteCondition.wait(m_Lock);
             if (result.hasError())
             {
                 return countSoFar;

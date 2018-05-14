@@ -17,11 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/utilities/PointerGuard.h"
 #include "modules/drivers/common/hid/HidReport.h"
 #include "modules/drivers/common/hid/HidUsages.h"
 #include "modules/drivers/common/hid/HidUtils.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
 
 // Handy macro for mixing tag and type in a single value
 #define MIX_TYPE_N_TAG(type, tag) (type | (tag << 2))
@@ -472,9 +472,9 @@ void HidReport::InputBlock::feedInput(
 }
 
 HidReport::LocalState::LocalState()
-    : nUsagePage(~0), nLogMin(~0), nLogMax(~0), nPhysMin(~0),
-      nPhysMax(~0), nReportSize(~0), nReportID(~0), nReportCount(~0),
-      pUsages(0), nUsageMin(~0), nUsageMax(~0)
+    : nUsagePage(~0), nLogMin(~0), nLogMax(~0), nPhysMin(~0), nPhysMax(~0),
+      nReportSize(~0), nReportID(~0), nReportCount(~0), pUsages(0),
+      nUsageMin(~0), nUsageMax(~0)
 {
 }
 
@@ -506,14 +506,10 @@ uint16_t HidReport::LocalState::getUsageByIndex(uint16_t nUsageIndex)
     // If there's an usage vector, return the usage value in it or zero
     // if the index is not valid
     if (pUsages)
-        return nUsageIndex < pUsages->count() ?
-                   (*pUsages)[nUsageIndex] :
-                   0;
+        return nUsageIndex < pUsages->count() ? (*pUsages)[nUsageIndex] : 0;
 
     // The usage value if in range, 0 otherwise
-    return (nUsageMin + nUsageIndex) <= nUsageMax ?
-               nUsageMin + nUsageIndex :
-               0;
+    return (nUsageMin + nUsageIndex) <= nUsageMax ? nUsageMin + nUsageIndex : 0;
 }
 
 /// Copy constructor

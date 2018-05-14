@@ -56,7 +56,8 @@ class EXPORTED_PUBLIC ConditionVariable
      * the amount of time remaining in the timeout.
      *
      * \param[in] mutex an acquired mutex protecting the resource.
-     * \param[inout] timeout a timeout in nanoseconds to wait (or zero for none).
+     * \param[inout] timeout a timeout in nanoseconds to wait (or zero for
+     * none).
      */
     WaitResult wait(Mutex &mutex, Time::Timestamp &timeout);
 

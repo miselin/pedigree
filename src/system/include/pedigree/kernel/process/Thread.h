@@ -22,12 +22,12 @@
 
 #ifdef THREADS
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 
 #include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 

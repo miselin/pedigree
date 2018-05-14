@@ -90,7 +90,8 @@ int pedigree_reboot();
 
 int posix_uname(struct utsname *n);
 
-int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
+int posix_prctl(
+    int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 int posix_arch_prctl(int code, unsigned long addr);
 
 int posix_pause();
@@ -119,7 +120,8 @@ int posix_ioperm(unsigned long from, unsigned long num, int turn_on);
 int posix_iopl(int level);
 
 int posix_getitimer(int which, struct itimerval *curr_value);
-int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value);
+int posix_setitimer(
+    int which, const struct itimerval *new_value, struct itimerval *old_value);
 
 int posix_capget(void *hdrp, void *datap);
 int posix_capset(void *hdrp, const void *datap);

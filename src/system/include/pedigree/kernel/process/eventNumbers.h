@@ -47,6 +47,6 @@ const size_t DelayTimer = 41;
 const size_t IoEvent = 42;
 
 const size_t UserStart = 0xFFFF;  ///< Start of user-defined events.
-}
+}  // namespace EventNumbers
 
 #endif

@@ -23,8 +23,8 @@
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -263,7 +263,8 @@ class EXPORTED_PUBLIC ConsoleSlaveFile : public ConsoleFile
 class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile
 {
   public:
-    ConsolePhysicalFile(size_t nth, File *pTerminal, String consoleName, Filesystem *pFs);
+    ConsolePhysicalFile(
+        size_t nth, File *pTerminal, String consoleName, Filesystem *pFs);
     virtual ~ConsolePhysicalFile()
     {
     }

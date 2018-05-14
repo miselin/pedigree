@@ -19,8 +19,8 @@
 
 #define IMPLEMENTING_LOG_FORMAT_FUNCTIONS
 
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 const char *SDirectoryName(const char *path, char *buf, size_t buflen)
@@ -68,7 +68,7 @@ const char *DirectoryName(const char *path)
     const char *result = SDirectoryName(path, buf, len);
     if (!result)
     {
-        delete [] buf;
+        delete[] buf;
     }
     return result;
 }
@@ -80,7 +80,7 @@ const char *BaseName(const char *path)
     const char *result = SBaseName(path, buf, len);
     if (!result)
     {
-        delete [] buf;
+        delete[] buf;
     }
     return result;
 }
@@ -172,14 +172,15 @@ uint32_t jenkinsHash(const char *buffer, size_t length)
     return h;
 }
 
-#define LOG_FORMAT_COMMON   \
-    char buf[1024]; \
-    int i = 0; \
-    va_list ap; \
-    va_start(ap, fmt); \
+#define LOG_FORMAT_COMMON            \
+    char buf[1024];                  \
+    int i = 0;                       \
+    va_list ap;                      \
+    va_start(ap, fmt);               \
     i = VStringFormat(buf, fmt, ap); \
-    va_end(ap); \
-    if (i && (buf[i - 1] == '\n')) buf[i - 1] = '\0';
+    va_end(ap);                      \
+    if (i && (buf[i - 1] == '\n'))   \
+        buf[i - 1] = '\0';
 
 int Debugf(const char *fmt, ...)
 {

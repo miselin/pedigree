@@ -56,4 +56,4 @@ int attachTo(void *handle)
     return reinterpret_cast<int>(handle);
 #endif
 }
-}
+}  // namespace pocketknife

@@ -19,16 +19,16 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <stdio.h>
 #include <errno.h>
+#include <stdio.h>
 #include <unistd.h>
 
 #include "modules/system/vfs/VFS.h"
 
+#include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
-#include "modules/subsys/posix/UnixFilesystem.h"
-#include "modules/subsys/posix/PosixSubsystem.h"
 
 #include <sys/un.h>
 
@@ -68,14 +68,18 @@ int main(int argc, char **argv)
     int s1 = posix_socket(AF_UNIX, SOCK_DGRAM, 0);
     if (s1 == -1)
     {
-        fprintf(stderr, "FAIL: could not get a UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not get a UNIX socket: %d [%s]\n", errno,
+            strerror(errno));
         return 1;
     }
 
     int s2 = posix_socket(AF_UNIX, SOCK_DGRAM, 0);
     if (s2 == -1)
     {
-        fprintf(stderr, "FAIL: could not get a UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not get a UNIX socket: %d [%s]\n", errno,
+            strerror(errno));
         return 1;
     }
 
@@ -93,16 +97,22 @@ int main(int argc, char **argv)
     int rc = posix_bind(s1, reinterpret_cast<const sockaddr *>(&sun1), socklen);
     if (rc != 0)
     {
-        fprintf(stderr, "FAIL: could not bind UNIX socket to 's1': %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not bind UNIX socket to 's1': %d [%s]\n",
+            errno, strerror(errno));
         return 1;
     }
 
-    assert(posix_connect(s2, reinterpret_cast<sockaddr *>(&sun1), socklen) == 0);
+    assert(
+        posix_connect(s2, reinterpret_cast<sockaddr *>(&sun1), socklen) == 0);
 
     const char *msg = "hello";
 
     assert(posix_send(s2, msg, 6, 0) == 6);
-    assert(posix_recvfrom(s1, buf, 128, 0, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc) == 6);
+    assert(
+        posix_recvfrom(
+            s1, buf, 128, 0, reinterpret_cast<sockaddr *>(&sun_misc),
+            &socklen_misc) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
 
@@ -114,7 +124,9 @@ int main(int argc, char **argv)
 
     s2 = posix_socket(AF_UNIX, SOCK_DGRAM, 0);
 
-    assert(posix_sendto(s2, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun1), socklen) == 6);
+    assert(
+        posix_sendto(
+            s2, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun1), socklen) == 6);
     assert(posix_recv(s1, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -131,16 +143,25 @@ int main(int argc, char **argv)
     rc = posix_bind(s2, reinterpret_cast<const sockaddr *>(&sun2), socklen);
     if (rc != 0)
     {
-        fprintf(stderr, "FAIL: could not bind UNIX socket to 's1': %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not bind UNIX socket to 's1': %d [%s]\n",
+            errno, strerror(errno));
         return 1;
     }
 
-    assert(posix_sendto(s1, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun2), socklen) == 6);
-    assert(posix_sendto(s2, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun1), socklen) == 6);
+    assert(
+        posix_sendto(
+            s1, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun2), socklen) == 6);
+    assert(
+        posix_sendto(
+            s2, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun1), socklen) == 6);
     assert(posix_recv(s1, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
-    assert(posix_recvfrom(s2, buf, 128, 0, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc) == 6);
+    assert(
+        posix_recvfrom(
+            s2, buf, 128, 0, reinterpret_cast<sockaddr *>(&sun_misc),
+            &socklen_misc) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
 
@@ -159,35 +180,45 @@ int main(int argc, char **argv)
     s1 = posix_socket(AF_UNIX, SOCK_STREAM, 0);
     if (s1 < 0)
     {
-        fprintf(stderr, "FAIL: could not get a streaming UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not get a streaming UNIX socket: %d [%s]\n",
+            errno, strerror(errno));
         return 1;
     }
 
     s2 = posix_socket(AF_UNIX, SOCK_STREAM, 0);
     if (s2 < 0)
     {
-        fprintf(stderr, "FAIL: could not get a streaming UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not get a streaming UNIX socket: %d [%s]\n",
+            errno, strerror(errno));
         return 1;
     }
 
     rc = posix_bind(s1, reinterpret_cast<const sockaddr *>(&sun1), socklen);
     if (rc != 0)
     {
-        fprintf(stderr, "FAIL: could not bind UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not bind UNIX socket: %d [%s]\n", errno,
+            strerror(errno));
         return 1;
     }
 
     rc = posix_listen(s1, 0);
     if (rc != 0)
     {
-        fprintf(stderr, "FAIL: could not listen on UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not listen on UNIX socket: %d [%s]\n", errno,
+            strerror(errno));
         return 1;
     }
 
     rc = posix_connect(s2, reinterpret_cast<const sockaddr *>(&sun1), socklen);
     if (rc != 0)
     {
-        fprintf(stderr, "FAIL: could not connect to UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not connect to UNIX socket: %d [%s]\n", errno,
+            strerror(errno));
         return 1;
     }
 
@@ -200,13 +231,20 @@ int main(int argc, char **argv)
     rc = posix_poll(fds, 1, 0);
     if (rc <= 0)
     {
-        fprintf(stderr, "WARNING: poll did not indicate readable on UNIX socket for accept(): %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr,
+            "WARNING: poll did not indicate readable on UNIX socket for "
+            "accept(): %d [%s]\n",
+            errno, strerror(errno));
     }
 
-    int fd2 = posix_accept(s1, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc);
+    int fd2 = posix_accept(
+        s1, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc);
     if (fd2 < 0)
     {
-        fprintf(stderr, "FAIL: could not accept() on UNIX socket: %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr, "FAIL: could not accept() on UNIX socket: %d [%s]\n", errno,
+            strerror(errno));
         return 1;
     }
 
@@ -221,7 +259,11 @@ int main(int argc, char **argv)
     rc = posix_poll(fds, 1, 0);
     if (rc > 0)
     {
-        fprintf(stderr, "WARNING: poll incorrectly indicated readable on UNIX socket before send(): %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr,
+            "WARNING: poll incorrectly indicated readable on UNIX socket "
+            "before send(): %d [%s]\n",
+            errno, strerror(errno));
     }
 
     // should now have a pipe between s2 and fd2
@@ -232,7 +274,11 @@ int main(int argc, char **argv)
     rc = posix_poll(fds, 1, 0);
     if (rc <= 0)
     {
-        fprintf(stderr, "WARNING: poll did not indicate readable on UNIX socket for recv(): %d [%s]\n", errno, strerror(errno));
+        fprintf(
+            stderr,
+            "WARNING: poll did not indicate readable on UNIX socket for "
+            "recv(): %d [%s]\n",
+            errno, strerror(errno));
     }
 
     assert(posix_recv(fd2, buf, 128, 0) == 6);

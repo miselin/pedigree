@@ -18,6 +18,9 @@
  */
 
 #include "modules/Module.h"
+#include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixProcess.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/system/linker/DynamicLinker.h"
 #include "modules/system/users/UserManager.h"
 #include "modules/system/vfs/VFS.h"
@@ -26,9 +29,6 @@
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "modules/subsys/posix/PosixProcess.h"
-#include "modules/subsys/posix/PosixSubsystem.h"
-#include "modules/subsys/posix/FileDescriptor.h"
 
 static void error(const char *s)
 {

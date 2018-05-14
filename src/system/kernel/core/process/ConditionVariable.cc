@@ -40,7 +40,8 @@ ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
     return wait(mutex, zero);
 }
 
-ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
+ConditionVariable::WaitResult
+ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
 {
     Time::Timestamp startTime = Time::getTimeNanoseconds();
 

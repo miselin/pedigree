@@ -24,13 +24,13 @@
 #include "modules/Module.h"
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
+#include "net-syscalls.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
-#include "net-syscalls.h"
 
 static PosixSyscallManager g_PosixSyscallManager;
 
@@ -108,6 +108,6 @@ static void destroy()
 #ifdef ARM_COMMON
 MODULE_INFO("posix", &init, &destroy, "console", "mountroot");
 #else
-MODULE_INFO("posix", &init, &destroy, "console", "network-stack", "mountroot",
-    "lwip");
+MODULE_INFO(
+    "posix", &init, &destroy, "console", "network-stack", "mountroot", "lwip");
 #endif

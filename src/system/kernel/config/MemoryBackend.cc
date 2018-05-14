@@ -54,7 +54,8 @@ ConfigValue &MemoryBackend::select(String table, String key)
     if (!result.hasValue())
         return v;
 
-    RadixTree<ConfigValue *>::LookupType val = result.value()->m_Rows.lookup(key);
+    RadixTree<ConfigValue *>::LookupType val =
+        result.value()->m_Rows.lookup(key);
     if (val.hasValue())
         return *val.value();
     else
@@ -68,7 +69,8 @@ void MemoryBackend::watch(
     if (!result.hasValue())
         return;
 
-    RadixTree<ConfigValue *>::LookupType val = result.value()->m_Rows.lookup(key);
+    RadixTree<ConfigValue *>::LookupType val =
+        result.value()->m_Rows.lookup(key);
     if (val.hasValue())
     {
         for (int i = 0; i < MAX_WATCHERS; i++)
@@ -89,7 +91,8 @@ void MemoryBackend::unwatch(
     if (!result.hasValue())
         return;
 
-    RadixTree<ConfigValue *>::LookupType val = result.value()->m_Rows.lookup(key);
+    RadixTree<ConfigValue *>::LookupType val =
+        result.value()->m_Rows.lookup(key);
     if (val.hasValue())
     {
         for (int i = 0; i < MAX_WATCHERS; i++)

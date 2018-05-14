@@ -26,8 +26,8 @@ class Thread;
 #include "pedigree/kernel/processor/state.h"
 class Process;
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -145,8 +145,8 @@ class EXPORTED_PUBLIC Subsystem
     }
 
     /** Invokes the given command (thread mechanism). */
-    virtual bool invoke(
-        const char *name, Vector<String> &argv, Vector<String> &env) = 0;
+    virtual bool
+    invoke(const char *name, Vector<String> &argv, Vector<String> &env) = 0;
 
     /** Invokes the given command (SyscallState mechanism). */
     virtual bool invoke(

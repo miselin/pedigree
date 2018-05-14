@@ -43,7 +43,6 @@
 #include "pedigree/kernel/process/Thread.h"
 #endif
 
-
 #ifdef MULTIPROCESSOR
 #define ATOMIC_MEMORY_ORDER __ATOMIC_RELEASE
 #define ATOMIC_CAS_WEAK true
@@ -139,7 +138,8 @@ inline void allocateAndMapAt(void *addr, bool cowOk = false)
 #ifdef PEDIGREE_BENCHMARK
     SlamSupport::getPageAt(addr);
 #else
-    size_t standardFlags = VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
+    size_t standardFlags =
+        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
 
     static physical_uintptr_t physZero = 0;
     bool needZeroPage = false;
@@ -208,8 +208,7 @@ inline void unmap(void *addr)
 }
 
 SlamCache::SlamCache()
-    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0),
-      m_FirstSlab(),
+    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0), m_FirstSlab(),
 #ifdef THREADS
       m_RecoveryLock(false),
 #endif
@@ -417,7 +416,10 @@ bool SlamCache::isPointerValid(uintptr_t object) const
     if (N->magic == MAGIC_VALUE)
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamCache::isPointerValid: memory " << Hex << object << " has invalid magic (" << N->magic << " != " << MAGIC_VALUE << ").");
+        WARNING(
+            "SlamCache::isPointerValid: memory "
+            << Hex << object << " has invalid magic (" << N->magic
+            << " != " << MAGIC_VALUE << ").");
 #endif
         return false;
     }
@@ -843,7 +845,8 @@ void SlamAllocator::initialise()
     size_t numPages = 0;
     for (uintptr_t addr = bitmapBase; addr < m_Base; addr += getPageSize())
     {
-        // Don't CoW the first 32 pages so we have some slabs on hand for startup before CoW is viable
+        // Don't CoW the first 32 pages so we have some slabs on hand for
+        // startup before CoW is viable
         allocateAndMapAt(reinterpret_cast<void *>(addr), numPages++ >= 32);
     }
 
@@ -1114,7 +1117,7 @@ void SlamAllocator::freeSlab(uintptr_t address, size_t length)
     LockGuard<Spinlock> guard(m_SlabRegionLock);
 #endif
 
-// Perform unmapping first (so we can just modify 'address').
+    // Perform unmapping first (so we can just modify 'address').
 
 #ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
@@ -1236,7 +1239,10 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
         // return address of operator new()
         void *ret0 = __builtin_return_address(0);
         void *ret1 = __builtin_return_address(1);
-        ERROR("alloc of " << origSize << " rounded to " << nBytes << " exceeds page size [at " << ret0 << " " << ret1 << "]!");
+        ERROR(
+            "alloc of " << origSize << " rounded to " << nBytes
+                        << " exceeds page size [at " << ret0 << " " << ret1
+                        << "]!");
 #pragma GCC diagnostic pop
     }
 #endif
@@ -1363,7 +1369,7 @@ void SlamAllocator::free(uintptr_t mem)
     assert(head->cache != 0);
 #if OVERRUN_CHECK
     assert(head->magic == VIGILANT_MAGIC);
-// Footer gets checked in SlamCache::free, as we don't know the object size.
+    // Footer gets checked in SlamCache::free, as we don't know the object size.
 
 #if BOCHS_MAGIC_WATCHPOINTS
 /// \todo head->catcher should be used for underrun checking
@@ -1436,7 +1442,9 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
             reinterpret_cast<void *>(mem)))
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " is not in the heap region.");
+        WARNING(
+            "SlamAllocator::isPointerValid: memory "
+            << Hex << mem << " is not in the heap region.");
 #endif
         return false;
     }
@@ -1456,7 +1464,10 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     if (head->magic != VIGILANT_MAGIC)
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " failed magic check (" << head->magic << " != " << VIGILANT_MAGIC << ").");
+        WARNING(
+            "SlamAllocator::isPointerValid: memory "
+            << Hex << mem << " failed magic check (" << head->magic
+            << " != " << VIGILANT_MAGIC << ").");
 #endif
         return false;
     }
@@ -1467,7 +1478,9 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     if (head->cache == 0)
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " does not reference a valid SlamCache.");
+        WARNING(
+            "SlamAllocator::isPointerValid: memory "
+            << Hex << mem << " does not reference a valid SlamCache.");
 #endif
         return false;
     }
@@ -1502,7 +1515,9 @@ bool SlamAllocator::isWithinHeap(uintptr_t mem) const
             reinterpret_cast<void *>(mem)))
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isWithinHeap: memory " << Hex << mem << " is not in the heap region.");
+        WARNING(
+            "SlamAllocator::isWithinHeap: memory "
+            << Hex << mem << " is not in the heap region.");
 #endif
         return false;
     }

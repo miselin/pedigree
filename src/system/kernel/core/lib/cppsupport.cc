@@ -130,7 +130,8 @@ void traceAllocation(
 #define BT_FRAME(M, N)                                                 \
     do                                                                 \
     {                                                                  \
-        if (M && !entry.data.bt[M-1]) break ;                          \
+        if (M && !entry.data.bt[M - 1])                                \
+            break;                                                     \
         void *frame_addr = __builtin_frame_address(N);                 \
         if (!(frame_addr && va.isMapped(frame_addr)))                  \
         {                                                              \
@@ -142,7 +143,8 @@ void traceAllocation(
             0xFFFFFFFFU;                                               \
     } while (0)
 
-    // we want to skip the allocate()/free() call and get a little bit of context
+    // we want to skip the allocate()/free() call and get a little bit of
+    // context
     if (MemoryTracing::num_backtrace_entries >= 1)
         BT_FRAME(0, 1);
     if (MemoryTracing::num_backtrace_entries >= 2)
@@ -259,14 +261,12 @@ void __cxa_guard_release()
 
 extern "C" void *MALLOC(size_t sz)
 {
-    return reinterpret_cast<void *>(
-        new uint8_t[sz]);
+    return reinterpret_cast<void *>(new uint8_t[sz]);
 }
 
 extern "C" void *CALLOC(size_t num, size_t sz)
 {
-    void *result = reinterpret_cast<void *>(
-        new uint8_t[num * sz]);
+    void *result = reinterpret_cast<void *>(new uint8_t[num * sz]);
     ByteSet(result, 0, num * sz);
     return result;
 }
@@ -345,7 +345,9 @@ static void delete_shared(void *p) noexcept
         else
         {
             // less critical - still annoying
-            ERROR("delete_shared failed as pointer was not in the kernel heap: " << p);
+            ERROR(
+                "delete_shared failed as pointer was not in the kernel heap: "
+                << p);
         }
     }
 }

@@ -343,7 +343,8 @@ void InputManager::mainThread()
                     NOTICE("InputManager: sending event " << pEvent << "!");
                     if (!pThread->sendEvent(pEvent))
                     {
-                        WARNING("InputManager - Thread::sendEvent failed, skipping this callback");
+                        WARNING("InputManager - Thread::sendEvent failed, "
+                                "skipping this callback");
                         delete pEvent;
                     }
                 }
@@ -378,8 +379,7 @@ size_t InputEvent::serialize(uint8_t *pBuffer)
     buf[1] = m_nParam;
     MemoryCopy(
         &buf[2], &m_Notification, sizeof(InputManager::InputNotification));
-    return sizeof(InputManager::InputNotification) +
-           (sizeof(uintptr_t) * 2);
+    return sizeof(InputManager::InputNotification) + (sizeof(uintptr_t) * 2);
 }
 
 bool InputEvent::unserialize(uint8_t *pBuffer, InputEvent &event)

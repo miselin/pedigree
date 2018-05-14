@@ -114,6 +114,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     class PageStack
     {
         friend class X86CommonPhysicalMemoryManager;
+
       public:
         /** Default constructor does nothing */
         PageStack() INITIALISATION_ONLY;

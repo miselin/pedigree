@@ -48,4 +48,4 @@ EXPORTED_PUBLIC void *runConcurrentlyAttached(int (*func)(void *), void *param);
  * Join the given handle returned from runConcurrentlyAttached.
  */
 EXPORTED_PUBLIC int attachTo(void *handle);
-}
+}  // namespace pocketknife

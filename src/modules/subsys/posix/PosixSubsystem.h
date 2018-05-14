@@ -20,8 +20,8 @@
 #ifndef POSIX_SUBSYSTEM_H
 #define POSIX_SUBSYSTEM_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
@@ -48,17 +48,17 @@ extern void addDescriptor(int fd, FileDescriptor *f);
 extern size_t getAvailableDescriptor();
 
 // Grabs a subsystem for use.
-#define GRAB_POSIX_SUBSYSTEM(returnValue)                                 \
-    PosixSubsystem *pSubsystem = getSubsystem();                          \
-    if (!pSubsystem)                                                      \
-    {                                                                     \
-        return (returnValue);                                             \
+#define GRAB_POSIX_SUBSYSTEM(returnValue)        \
+    PosixSubsystem *pSubsystem = getSubsystem(); \
+    if (!pSubsystem)                             \
+    {                                            \
+        return (returnValue);                    \
     }
-#define GRAB_POSIX_SUBSYSTEM_NORET                                        \
-    PosixSubsystem *pSubsystem = getSubsystem();                          \
-    if (!pSubsystem)                                                      \
-    {                                                                     \
-        return;                                                           \
+#define GRAB_POSIX_SUBSYSTEM_NORET               \
+    PosixSubsystem *pSubsystem = getSubsystem(); \
+    if (!pSubsystem)                             \
+    {                                            \
+        return;                                  \
     }
 
 /** A map linking full paths to (advisory) locked files */
@@ -170,7 +170,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     virtual void threadException(Thread *pThread, ExceptionType eType);
 
     /** Send a POSIX signal to the given thread. */
-    virtual void sendSignal(Thread *pThread, int signal, bool yield=true);
+    virtual void sendSignal(Thread *pThread, int signal, bool yield = true);
 
     /** Alternate signal stack */
     /// \todo Figure out how to make this work for more than just the current
@@ -484,14 +484,13 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         bool bExecute) const;
 
     /** Invokes the given command (thread mechanism). */
-    virtual bool invoke(
-        const char *name, Vector<String> &argv,
-        Vector<String> &env);
+    virtual bool
+    invoke(const char *name, Vector<String> &argv, Vector<String> &env);
 
     /** Invokes the given command (SyscallState mechanism). */
     virtual bool invoke(
-        const char *name, Vector<String> &argv,
-        Vector<String> &env, SyscallState &state);
+        const char *name, Vector<String> &argv, Vector<String> &env,
+        SyscallState &state);
 
     /** Retrieves the currently-active ABI for the subsystem. */
     Abi getAbi() const
@@ -515,12 +514,11 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
 
     /** Invokes the given command - actual implementation. */
     bool invoke(
-        const char *name, Vector<String> &argv,
-        Vector<String> &env, SyscallState *pState);
+        const char *name, Vector<String> &argv, Vector<String> &env,
+        SyscallState *pState);
 
     /** Parse a file for a possible shebang line. */
-    bool parseShebang(
-        File *pFile, File *&outFile, Vector<String> &argv);
+    bool parseShebang(File *pFile, File *&outFile, Vector<String> &argv);
 
     /** Signal handlers */
     Tree<size_t, SignalHandler *> m_SignalHandlers;

@@ -47,8 +47,8 @@ void X86GdtManager::initialise(size_t processorCount)
     /// \todo Multiprocessor #DF handler
 
     size_t i = 0;
-    for (Vector<ProcessorInformation *>::Iterator
-             it = Processor::m_ProcessorInformation.begin();
+    for (Vector<ProcessorInformation *>::Iterator it =
+             Processor::m_ProcessorInformation.begin();
          it != Processor::m_ProcessorInformation.end(); it++, i += 2)
     {
         NOTICE("Setting up TSS segment for CPU #" << Dec << i << Hex << ".");

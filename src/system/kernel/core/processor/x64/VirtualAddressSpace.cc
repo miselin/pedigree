@@ -101,7 +101,8 @@ bool X64VirtualAddressSpace::memIsInKernelHeap(void *pMem)
     {
         return false;
     }
-    else if (pMem >= adjust_pointer(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_HEAP_SIZE))
+    else if (
+        pMem >= adjust_pointer(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_HEAP_SIZE))
     {
         return false;
     }
@@ -118,7 +119,9 @@ bool X64VirtualAddressSpace::memIsInHeap(void *pMem)
     }
     else if (pMem >= getEndOfHeap())
     {
-        WARNING("memIsInHeap: " << pMem << " is beyond the end of the heap (" << getEndOfHeap() << ").");
+        WARNING(
+            "memIsInHeap: " << pMem << " is beyond the end of the heap ("
+                            << getEndOfHeap() << ").");
         return false;
     }
     else
@@ -196,7 +199,9 @@ bool X64VirtualAddressSpace::map(
     return mapUnlocked(physAddress, virtualAddress, flags, m_Lock.acquired());
 }
 
-bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags)
+bool X64VirtualAddressSpace::mapHuge(
+    physical_uintptr_t physAddress, void *virtualAddress, size_t count,
+    size_t flags)
 {
     uint32_t a, b, c, d;
     Processor::cpuid(0x80000001UL, 0, a, b, c, d);
@@ -221,7 +226,8 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtu
     if (numHugePages == 0)
     {
         // Just map the normal way - less than 2MB!
-        return VirtualAddressSpace::mapHuge(physAddress, virtualAddress, count, flags);
+        return VirtualAddressSpace::mapHuge(
+            physAddress, virtualAddress, count, flags);
     }
 
     LockGuard<Spinlock> guard(m_Lock);
@@ -258,7 +264,8 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtu
         uint64_t *pageDirectoryPointerEntry = TABLE_ENTRY(
             PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), pageDirectoryPointerIndex);
 
-        /// \todo we should unmap everything in the region first, clean up tables etc
+        /// \todo we should unmap everything in the region first, clean up
+        /// tables etc
 
         if (hasHuge)
         {
@@ -272,8 +279,8 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtu
             // 2 MB pages.
 
             // Is a page directory present?
-            if (conditionalTableEntryAllocation(pageDirectoryPointerEntry, flags) ==
-                false)
+            if (conditionalTableEntryAllocation(
+                    pageDirectoryPointerEntry, flags) == false)
             {
                 return false;
             }
@@ -431,7 +438,8 @@ void X64VirtualAddressSpace::unmap(void *virtualAddress)
     unmapUnlocked(virtualAddress);
 }
 
-void X64VirtualAddressSpace::unmapUnlocked(void *virtualAddress, bool requireMapped)
+void X64VirtualAddressSpace::unmapUnlocked(
+    void *virtualAddress, bool requireMapped)
 {
     // Get a pointer to the page-table entry (Also checks whether the page is
     // actually present or marked swapped out)
@@ -1192,7 +1200,8 @@ bool X64VirtualAddressSpace::conditionalTableEntryAllocation(
         uint64_t page = PMemoryManager.allocatePage();
         if (page == 0)
         {
-            ERROR("OOM in X64VirtualAddressSpace::conditionalTableEntryAllocation!");
+            ERROR("OOM in "
+                  "X64VirtualAddressSpace::conditionalTableEntryAllocation!");
             return false;
         }
 

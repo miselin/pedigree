@@ -68,10 +68,10 @@ union pat
 static int doInitialise64(const BootstrapStruct_t &info)
 {
     // Initialise the 64-bit physical memory management
-    // This could  be done in parallel with system startup, as other parts of the
-    // system that *need* pages above 4GB will be able to block until they are
-    // available, and otherwise page allocations will be adequately completed
-    // by the presence of pages under 4GB.
+    // This could  be done in parallel with system startup, as other parts of
+    // the system that *need* pages above 4GB will be able to block until they
+    // are available, and otherwise page allocations will be adequately
+    // completed by the presence of pages under 4GB.
     X86CommonPhysicalMemoryManager &physicalMemoryManager =
         X86CommonPhysicalMemoryManager::instance();
     physicalMemoryManager.initialise64(info);

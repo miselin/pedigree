@@ -48,7 +48,7 @@ union AllocationTraceEntry
 
     char buf[sizeof(data)];
 };
-}
+}  // namespace MemoryTracing
 
 /**
  * Adds an allocation field to the memory trace.

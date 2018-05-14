@@ -21,8 +21,8 @@
 
 #include <gtest/gtest.h>
 
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 TEST(PedigreeUtility, SDirectoryName)
 {
@@ -46,26 +46,26 @@ TEST(PedigreeUtility, DirectoryName)
 {
     const char *result = DirectoryName("/a/b/c");
     EXPECT_STREQ(result, "/a/b");
-    delete [] result;
+    delete[] result;
 
     result = DirectoryName("c");
     EXPECT_EQ(result, nullptr);
-    delete [] result;
+    delete[] result;
 }
 
 TEST(PedigreeUtility, BaseName)
 {
     const char *result = BaseName("/a/b/c");
     EXPECT_STREQ(result, "c");
-    delete [] result;
+    delete[] result;
 
     result = BaseName("/a/b/");
     EXPECT_STREQ(result, nullptr);
-    delete [] result;
+    delete[] result;
 
     result = BaseName("c");
     EXPECT_STREQ(result, "c");
-    delete [] result;
+    delete[] result;
 }
 
 TEST(PedigreeUtility, Fletcher16)
@@ -143,7 +143,8 @@ TEST(PedigreeUtility, NonTrivialCopies)
 
     sharedintptr_t a[] = {ptr1, ptr2, ptr3, ptr4};
     sharedintptr_t expect[] = {ptr1, ptr1, ptr2, ptr3};
-    sharedintptr_t b[] = {sharedintptr_t(), sharedintptr_t(), sharedintptr_t(), sharedintptr_t()};
+    sharedintptr_t b[] = {sharedintptr_t(), sharedintptr_t(), sharedintptr_t(),
+                          sharedintptr_t()};
     size_t items = 4;
 
     // non-overlapping copy

@@ -65,25 +65,25 @@ static bool init()
 {
     /// \todo figure out why this causes numerous problems with ext2
     return false;
-/*
-    size_t n = 0;
-    const char *s = g_FilesToPreload[n++];
-    do
-    {
-        NOTICE("PRELOAD: Queue " << s);
-        Thread *pThread = new Thread(
-            Processor::information().getCurrentThread()->getParent(),
-            preloadThread, const_cast<char *>(s));
-        pThread->detach();
-        s = g_FilesToPreload[n++];
-    } while (s);
+    /*
+        size_t n = 0;
+        const char *s = g_FilesToPreload[n++];
+        do
+        {
+            NOTICE("PRELOAD: Queue " << s);
+            Thread *pThread = new Thread(
+                Processor::information().getCurrentThread()->getParent(),
+                preloadThread, const_cast<char *>(s));
+            pThread->detach();
+            s = g_FilesToPreload[n++];
+        } while (s);
 
-    g_Preloads.acquire(n - 1);
-    NOTICE("PRELOAD: preloaded " << n << " files.");
+        g_Preloads.acquire(n - 1);
+        NOTICE("PRELOAD: preloaded " << n << " files.");
 
-    // Trick: return false, which unloads this module (its purpose is complete.)
-    return false;
-*/
+        // Trick: return false, which unloads this module (its purpose is
+       complete.) return false;
+    */
 }
 
 static void destroy()

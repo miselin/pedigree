@@ -22,9 +22,9 @@
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
@@ -33,8 +33,8 @@
 #include "modules/system/lwip/include/lwip/tcp.h"
 
 #include "pedigree/kernel/Subsystem.h"
-#include <PosixSubsystem.h>
 #include <FileDescriptor.h>
+#include <PosixSubsystem.h>
 #include <UnixFilesystem.h>
 
 #include "file-syscalls.h"
@@ -44,14 +44,15 @@
 
 #ifndef UTILITY_LINUX
 #include <netdb.h>
-#include <sys/socket.h>
 #include <netinet/tcp.h>
+#include <sys/socket.h>
 #endif
 
-#include <sys/un.h>
 #include <netinet/in.h>
+#include <sys/un.h>
 
-Tree<struct netconn *, LwipSocketSyscalls*> LwipSocketSyscalls::m_SyscallObjects;
+Tree<struct netconn *, LwipSocketSyscalls *>
+    LwipSocketSyscalls::m_SyscallObjects;
 
 extern UnixFilesystem *g_pUnixFilesystem;
 
@@ -81,13 +82,16 @@ static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
     return true;
 }
 
-static err_t sockaddrToIpaddr(const struct sockaddr *saddr, uint16_t &port, ip_addr_t *result, bool isbind = true)
+static err_t sockaddrToIpaddr(
+    const struct sockaddr *saddr, uint16_t &port, ip_addr_t *result,
+    bool isbind = true)
 {
     ByteSet(result, 0, sizeof(*result));
 
     if (saddr->sa_family == AF_INET)
     {
-        const struct sockaddr_in *sin = reinterpret_cast<const struct sockaddr_in *>(saddr);
+        const struct sockaddr_in *sin =
+            reinterpret_cast<const struct sockaddr_in *>(saddr);
         result->u_addr.ip4.addr = sin->sin_addr.s_addr;
         result->type = IPADDR_TYPE_V4;
 
@@ -112,8 +116,6 @@ static err_t sockaddrToIpaddr(const struct sockaddr *saddr, uint16_t &port, ip_a
 
     return ERR_VAL;
 }
-
-
 
 int posix_socket(int domain, int type, int protocol)
 {
@@ -174,7 +176,8 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2])
         return -1;
     }
 
-    UnixSocketSyscalls *syscallsA = new UnixSocketSyscalls(domain, type, protocol);
+    UnixSocketSyscalls *syscallsA =
+        new UnixSocketSyscalls(domain, type, protocol);
     if (!syscallsA->create())
     {
         delete syscallsA;
@@ -182,7 +185,8 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2])
         return -1;
     }
 
-    UnixSocketSyscalls *syscallsB = new UnixSocketSyscalls(domain, type, protocol);
+    UnixSocketSyscalls *syscallsB =
+        new UnixSocketSyscalls(domain, type, protocol);
     if (!syscallsB->create())
     {
         delete syscallsA;
@@ -238,7 +242,7 @@ int posix_connect(int sock, const struct sockaddr *address, socklen_t addrlen)
 
     N_NOTICE(
         "connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address)
-                         << ", " << addrlen << ")");
+                   << ", " << addrlen << ")");
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f, true))
@@ -270,8 +274,8 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
     }
 
     N_NOTICE(
-        "send(" << sock << ", " << buff << ", " << bufflen << ", "
-                      << flags << ")");
+        "send(" << sock << ", " << buff << ", " << bufflen << ", " << flags
+                << ")");
 
     if (buff && bufflen)
     {
@@ -290,8 +294,8 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
 }
 
 ssize_t posix_sendto(
-    int sock, const void *buff, size_t bufflen, int flags, struct sockaddr *address,
-    socklen_t addrlen)
+    int sock, const void *buff, size_t bufflen, int flags,
+    struct sockaddr *address, socklen_t addrlen)
 {
     N_NOTICE("sendto");
 
@@ -305,8 +309,8 @@ ssize_t posix_sendto(
     }
 
     N_NOTICE(
-        "sendto(" << sock << ", " << buff << ", " << bufflen << ", "
-                        << flags << ", " << address << ", " << addrlen << ")");
+        "sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags
+                  << ", " << address << ", " << addrlen << ")");
 
     if (buff && bufflen)
     {
@@ -338,8 +342,8 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     }
 
     N_NOTICE(
-        "recv(" << sock << ", " << buff << ", " << bufflen << ", "
-                      << flags << ")");
+        "recv(" << sock << ", " << buff << ", " << bufflen << ", " << flags
+                << ")");
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -347,7 +351,8 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
         return -1;
     }
 
-    ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
+    ssize_t n =
+        f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
 
     if (buff && n > 0)
     {
@@ -380,8 +385,8 @@ ssize_t posix_recvfrom(
     }
 
     N_NOTICE(
-        "recvfrom(" << sock << ", " << buff << ", " << bufflen << ", "
-                          << flags << ", " << address << ", " << addrlen);
+        "recvfrom(" << sock << ", " << buff << ", " << bufflen << ", " << flags
+                    << ", " << address << ", " << addrlen);
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -389,7 +394,8 @@ ssize_t posix_recvfrom(
         return -1;
     }
 
-    ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
+    ssize_t n =
+        f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
 
     if (buff && n > 0)
     {
@@ -415,8 +421,7 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
         return -1;
     }
 
-    N_NOTICE(
-        "bind(" << sock << ", " << address << ", " << addrlen << ")");
+    N_NOTICE("bind(" << sock << ", " << address << ", " << addrlen << ")");
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f, true))
@@ -468,8 +473,7 @@ int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
         return -1;
     }
 
-    N_NOTICE(
-        "accept(" << sock << ", " << address << ", " << addrlen << ")");
+    N_NOTICE("accept(" << sock << ", " << address << ", " << addrlen << ")");
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -520,7 +524,7 @@ int posix_getpeername(
 
     N_NOTICE(
         "getpeername(" << socket << ", " << address << ", " << address_len
-                             << ")");
+                       << ")");
 
     FileDescriptor *f = getDescriptor(socket);
     if (!isSaneSocket(f))
@@ -550,7 +554,7 @@ int posix_getsockname(
 
     N_NOTICE(
         "getsockname(" << socket << ", " << address << ", " << address_len
-                             << ")");
+                       << ")");
 
     FileDescriptor *f = getDescriptor(socket);
     if (!isSaneSocket(f))
@@ -564,7 +568,9 @@ int posix_getsockname(
 int posix_setsockopt(
     int sock, int level, int optname, const void *optvalue, socklen_t optlen)
 {
-    N_NOTICE("setsockopt(" << sock << ", " << level << ", " << optname << ", " << optvalue << ", " << optlen << ")");
+    N_NOTICE(
+        "setsockopt(" << sock << ", " << level << ", " << optname << ", "
+                      << optvalue << ", " << optlen << ")");
 
     if (!(PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(optvalue), optlen,
@@ -672,7 +678,10 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr *msg, int flags)
     return n;
 }
 
-NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol) : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Fd(nullptr) {}
+NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
+    : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Fd(nullptr)
+{
+}
 
 NetworkSyscalls::~NetworkSyscalls() = default;
 
@@ -681,7 +690,9 @@ bool NetworkSyscalls::create()
     return true;
 }
 
-ssize_t NetworkSyscalls::sendto(const void *buffer, size_t bufferlen, int flags, const struct sockaddr *address, socklen_t addrlen)
+ssize_t NetworkSyscalls::sendto(
+    const void *buffer, size_t bufferlen, int flags,
+    const struct sockaddr *address, socklen_t addrlen)
 {
     struct iovec iov;
     iov.iov_base = const_cast<void *>(buffer);
@@ -698,7 +709,9 @@ ssize_t NetworkSyscalls::sendto(const void *buffer, size_t bufferlen, int flags,
 
     return sendto_msg(&msg);
 }
-ssize_t NetworkSyscalls::recvfrom(void *buffer, size_t bufferlen, int flags, struct sockaddr *address, socklen_t *addrlen)
+ssize_t NetworkSyscalls::recvfrom(
+    void *buffer, size_t bufferlen, int flags, struct sockaddr *address,
+    socklen_t *addrlen)
 {
     struct iovec iov;
     iov.iov_base = buffer;
@@ -726,7 +739,8 @@ bool NetworkSyscalls::canPoll() const
     return false;
 }
 
-bool NetworkSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
+bool NetworkSyscalls::poll(
+    bool &read, bool &write, bool &error, Semaphore *waiter)
 {
     read = false;
     write = false;
@@ -758,8 +772,10 @@ bool NetworkSyscalls::isBlocking() const
     return !((m_Fd->flflags & O_NONBLOCK) == O_NONBLOCK);
 }
 
-
-LwipSocketSyscalls::LwipSocketSyscalls(int domain, int type, int protocol) : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr), m_Metadata() {}
+LwipSocketSyscalls::LwipSocketSyscalls(int domain, int type, int protocol)
+    : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr), m_Metadata()
+{
+}
 
 LwipSocketSyscalls::~LwipSocketSyscalls()
 {
@@ -850,7 +866,8 @@ bool LwipSocketSyscalls::create()
     return true;
 }
 
-int LwipSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrlen)
+int LwipSocketSyscalls::connect(
+    const struct sockaddr *address, socklen_t addrlen)
 {
     /// \todo need to track if we've already done a bind() and not bind if so
     ip_addr_t ipaddr;
@@ -872,11 +889,14 @@ int LwipSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
     }
 
     // set blocking status if needed
-    bool blocking = !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
+    bool blocking =
+        !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
     netconn_set_nonblocking(m_Socket, blocking ? 0 : 1);
 
     N_NOTICE("using socket " << m_Socket << "!");
-    N_NOTICE(" -> connecting to remote " << ipaddr_ntoa(&ipaddr) << " on port " << Dec << port);
+    N_NOTICE(
+        " -> connecting to remote " << ipaddr_ntoa(&ipaddr) << " on port "
+                                    << Dec << port);
 
     err = netconn_connect(m_Socket, &ipaddr, port);
     if (err != ERR_OK)
@@ -927,7 +947,9 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
             size_t bufferlen = msghdr->msg_iov[i].iov_len;
 
             size_t thisBytesWritten = 0;
-            err = netconn_write_partly(m_Socket, buffer, bufferlen, NETCONN_COPY | NETCONN_MORE, &thisBytesWritten);
+            err = netconn_write_partly(
+                m_Socket, buffer, bufferlen, NETCONN_COPY | NETCONN_MORE,
+                &thisBytesWritten);
             if (err != ERR_OK)
             {
                 lwipToSyscallError(err);
@@ -943,7 +965,8 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
         struct netbuf *buf = netbuf_new();
         for (int i = 0; i < msghdr->msg_iovlen; ++i)
         {
-            netbuf_ref(buf, msghdr->msg_iov[i].iov_base, msghdr->msg_iov[i].iov_len);
+            netbuf_ref(
+                buf, msghdr->msg_iov[i].iov_base, msghdr->msg_iov[i].iov_len);
         }
 
         /// \todo implement sendto
@@ -1064,7 +1087,8 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
         }
         else
         {
-            // will indirectly clean up m_Metadata.pb as it's a member of the netbuf
+            // will indirectly clean up m_Metadata.pb as it's a member of the
+            // netbuf
             netbuf_free(m_Metadata.buf);
         }
 
@@ -1130,14 +1154,14 @@ int LwipSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
     }
 
     /// \todo handle other families
-    struct sockaddr_in *sin =
-        reinterpret_cast<struct sockaddr_in *>(address);
+    struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(address);
     sin->sin_family = AF_INET;
     sin->sin_port = HOST_TO_BIG16(port);
     sin->sin_addr.s_addr = peer.u_addr.ip4.addr;
     *addrlen = sizeof(sockaddr_in);
 
-    LwipSocketSyscalls *obj = new LwipSocketSyscalls(m_Domain, m_Type, m_Protocol);
+    LwipSocketSyscalls *obj =
+        new LwipSocketSyscalls(m_Domain, m_Type, m_Protocol);
     obj->m_Socket = new_conn;
     obj->create();
     m_SyscallObjects.insert(new_conn, obj);
@@ -1180,7 +1204,8 @@ int LwipSocketSyscalls::shutdown(int how)
     return 0;
 }
 
-int LwipSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address_len)
+int LwipSocketSyscalls::getpeername(
+    struct sockaddr *address, socklen_t *address_len)
 {
     ip_addr_t peer;
     uint16_t port;
@@ -1193,8 +1218,7 @@ int LwipSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address
     }
 
     /// \todo handle other families
-    struct sockaddr_in *sin =
-        reinterpret_cast<struct sockaddr_in *>(address);
+    struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(address);
     sin->sin_family = AF_INET;
     sin->sin_port = HOST_TO_BIG16(port);
     sin->sin_addr.s_addr = peer.u_addr.ip4.addr;
@@ -1203,7 +1227,8 @@ int LwipSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address
     return 0;
 }
 
-int LwipSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address_len)
+int LwipSocketSyscalls::getsockname(
+    struct sockaddr *address, socklen_t *address_len)
 {
     ip_addr_t self;
     uint16_t port;
@@ -1215,8 +1240,7 @@ int LwipSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address
     }
 
     /// \todo handle other families
-    struct sockaddr_in *sin =
-        reinterpret_cast<struct sockaddr_in *>(address);
+    struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(address);
     sin->sin_family = AF_INET;
     sin->sin_port = HOST_TO_BIG16(port);
     sin->sin_addr.s_addr = self.u_addr.ip4.addr;
@@ -1225,7 +1249,8 @@ int LwipSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address
     return 0;
 }
 
-int LwipSocketSyscalls::setsockopt(int level, int optname, const void *optvalue, socklen_t optlen)
+int LwipSocketSyscalls::setsockopt(
+    int level, int optname, const void *optvalue, socklen_t optlen)
 {
     if (m_Protocol == IPPROTO_TCP && level == IPPROTO_TCP)
     {
@@ -1258,7 +1283,8 @@ int LwipSocketSyscalls::setsockopt(int level, int optname, const void *optvalue,
     return -1;
 }
 
-int LwipSocketSyscalls::getsockopt(int level, int optname, void *optvalue, socklen_t *optlen)
+int LwipSocketSyscalls::getsockopt(
+    int level, int optname, void *optvalue, socklen_t *optlen)
 {
     // SO_ERROR etc
     /// \todo implement with lwIP functionality
@@ -1270,7 +1296,8 @@ bool LwipSocketSyscalls::canPoll() const
     return true;
 }
 
-bool LwipSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
+bool LwipSocketSyscalls::poll(
+    bool &read, bool &write, bool &error, Semaphore *waiter)
 {
     bool ok = false;
 
@@ -1320,7 +1347,8 @@ void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 {
 #ifdef THREADS
     m_Metadata.lock.acquire();
-    for (auto it = m_Metadata.semaphores.begin(); it != m_Metadata.semaphores.end();)
+    for (auto it = m_Metadata.semaphores.begin();
+         it != m_Metadata.semaphores.end();)
     {
         if ((*it) == waiter)
         {
@@ -1335,7 +1363,8 @@ void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 #endif
 }
 
-void LwipSocketSyscalls::netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
+void LwipSocketSyscalls::netconnCallback(
+    struct netconn *conn, enum netconn_evt evt, u16_t len)
 {
     LwipSocketSyscalls *obj = m_SyscallObjects.lookup(conn);
     if (!obj)
@@ -1347,7 +1376,7 @@ void LwipSocketSyscalls::netconnCallback(struct netconn *conn, enum netconn_evt 
     obj->m_Metadata.lock.acquire();
 #endif
 
-    switch(evt)
+    switch (evt)
     {
         case NETCONN_EVT_RCVPLUS:
             N_NOTICE("RCV+");
@@ -1370,13 +1399,14 @@ void LwipSocketSyscalls::netconnCallback(struct netconn *conn, enum netconn_evt 
             break;
         case NETCONN_EVT_ERROR:
             N_NOTICE("ERR");
-            obj->m_Metadata.error = true;  /// \todo figure out how to bubble errors
+            obj->m_Metadata.error =
+                true;  /// \todo figure out how to bubble errors
             break;
         default:
             N_NOTICE("Unknown netconn callback error.");
     }
 
-    /// \todo need a way to do this with lwip when threads are off
+        /// \todo need a way to do this with lwip when threads are off
 #ifdef THREADS
     for (auto &it : obj->m_Metadata.semaphores)
     {
@@ -1394,7 +1424,7 @@ void LwipSocketSyscalls::lwipToSyscallError(err_t err)
         N_NOTICE(" -> lwip strerror gives '" << lwip_strerr(err) << "'");
     }
     // Based on lwIP's err_to_errno_table.
-    switch(err)
+    switch (err)
     {
         case ERR_OK:
             break;
@@ -1450,11 +1480,17 @@ void LwipSocketSyscalls::lwipToSyscallError(err_t err)
     }
 }
 
-LwipSocketSyscalls::LwipMetadata::LwipMetadata() : recv(0), send(0), error(false), lock(false), semaphores(), offset(0), pb(nullptr), buf(nullptr)
+LwipSocketSyscalls::LwipMetadata::LwipMetadata()
+    : recv(0), send(0), error(false), lock(false), semaphores(), offset(0),
+      pb(nullptr), buf(nullptr)
 {
 }
 
-UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol) : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr), m_Remote(nullptr), m_LocalPath(), m_RemotePath() {}
+UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol)
+    : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr),
+      m_Remote(nullptr), m_LocalPath(), m_RemotePath()
+{
+}
 
 UnixSocketSyscalls::~UnixSocketSyscalls()
 {
@@ -1472,12 +1508,14 @@ bool UnixSocketSyscalls::create()
     }
 
     // Create an unnamed unix socket by default.
-    m_Socket = new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType());
+    m_Socket = new UnixSocket(
+        String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType());
 
     return true;
 }
 
-int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrlen)
+int UnixSocketSyscalls::connect(
+    const struct sockaddr *address, socklen_t addrlen)
 {
     // Find the remote socket
     const struct sockaddr_un *un =
@@ -1499,8 +1537,7 @@ int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
     {
         /// \todo wrong error
         SYSCALL_ERROR(DoesNotExist);
-        N_NOTICE(
-            " -> target '" << pathname << "' is not a unix socket");
+        N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
         return -1;
     }
 
@@ -1511,10 +1548,13 @@ int UnixSocketSyscalls::connect(const struct sockaddr *address, socklen_t addrle
         N_NOTICE(" -> stream");
 
         // Create the remote for accept() on the server side.
-        UnixSocket *remote = new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, UnixSocket::Streaming);
+        UnixSocket *remote = new UnixSocket(
+            String(), g_pUnixFilesystem, nullptr, nullptr,
+            UnixSocket::Streaming);
         m_Remote->addSocket(remote);
 
-        bool blocking = !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
+        bool blocking =
+            !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
 
         // Bind our local socket to the remote side
         N_NOTICE(" -> stream is binding blocking=" << blocking);
@@ -1540,8 +1580,9 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
     UnixSocket *remote = getRemote();
     if (getType() == SOCK_STREAM && !remote)
     {
-        /// \todo this doesn't handle a connection going away - only a connection
-        /// not being made in the first place (I think it's a different errno)
+        /// \todo this doesn't handle a connection going away - only a
+        /// connection not being made in the first place (I think it's a
+        /// different errno)
         N_NOTICE(" -> not connected");
         SYSCALL_ERROR(NotConnected);
         return -1;
@@ -1553,7 +1594,8 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
         {
             // sendto() can't be used for streaming sockets
             /// \todo errno
-            N_NOTICE(" -> sendto on streaming socket with no remote is invalid");
+            N_NOTICE(
+                " -> sendto on streaming socket with no remote is invalid");
             return -1;
         }
         else if (!msghdr->msg_name)
@@ -1583,8 +1625,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
         {
             /// \todo wrong error
             SYSCALL_ERROR(DoesNotExist);
-            N_NOTICE(
-                " -> target '" << pathname << "' is not a unix socket");
+            N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
             return -1;
         }
 
@@ -1600,10 +1641,8 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
 
         uint64_t thisWrite = remote->write(
-            reinterpret_cast<uintptr_t>(
-                static_cast<const char *>(m_LocalPath)),
-            bufferlen, reinterpret_cast<uintptr_t>(buffer),
-            isBlocking());
+            reinterpret_cast<uintptr_t>(static_cast<const char *>(m_LocalPath)),
+            bufferlen, reinterpret_cast<uintptr_t>(buffer), isBlocking());
 
         if (!thisWrite)
         {
@@ -1638,8 +1677,8 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
 
         uint64_t thisRead = m_Socket->recvfrom(
-            bufferlen, reinterpret_cast<uintptr_t>(buffer),
-            isBlocking(), remote);
+            bufferlen, reinterpret_cast<uintptr_t>(buffer), isBlocking(),
+            remote);
         if (!thisRead)
         {
             // eof or some other similar condition
@@ -1737,9 +1776,7 @@ int UnixSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
         parentDirectory = VFS::instance().find(dirname);
         if (!parentDirectory)
         {
-            N_NOTICE(
-                " -> parent directory '" << dirname
-                                         << "' doesn't exist");
+            N_NOTICE(" -> parent directory '" << dirname << "' doesn't exist");
             SYSCALL_ERROR(DoesNotExist);
             return -1;
         }
@@ -1755,7 +1792,8 @@ int UnixSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
 
     /// \todo does this actually create a findable file?
     UnixSocket *socket = new UnixSocket(
-        basename, parentDirectory->getFilesystem(), parentDirectory, nullptr, getSocketType());
+        basename, parentDirectory->getFilesystem(), parentDirectory, nullptr,
+        getSocketType());
     if (!pDir->addEphemeralFile(socket))
     {
         /// \todo errno?
@@ -1811,7 +1849,8 @@ int UnixSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
 
         sun->sun_family = AF_UNIX;
 
-        UnixSocketSyscalls *obj = new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
+        UnixSocketSyscalls *obj =
+            new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
         obj->m_Socket = remote;
         obj->m_Remote = remote->getOther();
         obj->m_LocalPath = String();
@@ -1839,11 +1878,11 @@ int UnixSocketSyscalls::shutdown(int how)
     return 0;
 }
 
-int UnixSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address_len)
+int UnixSocketSyscalls::getpeername(
+    struct sockaddr *address, socklen_t *address_len)
 {
     N_NOTICE("UNIX getpeername");
-    struct sockaddr_un *sun =
-        reinterpret_cast<struct sockaddr_un *>(address);
+    struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
     StringCopy(sun->sun_path, m_RemotePath);
     *address_len = sizeof(sa_family_t) + m_RemotePath.length();
@@ -1852,11 +1891,11 @@ int UnixSocketSyscalls::getpeername(struct sockaddr *address, socklen_t *address
     return 0;
 }
 
-int UnixSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address_len)
+int UnixSocketSyscalls::getsockname(
+    struct sockaddr *address, socklen_t *address_len)
 {
     N_NOTICE("UNIX getsockname");
-    struct sockaddr_un *sun =
-        reinterpret_cast<struct sockaddr_un *>(address);
+    struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
     StringCopy(sun->sun_path, m_LocalPath);
     *address_len = sizeof(sa_family_t) + m_LocalPath.length();
@@ -1865,13 +1904,15 @@ int UnixSocketSyscalls::getsockname(struct sockaddr *address, socklen_t *address
     return 0;
 }
 
-int UnixSocketSyscalls::setsockopt(int level, int optname, const void *optvalue, socklen_t optlen)
+int UnixSocketSyscalls::setsockopt(
+    int level, int optname, const void *optvalue, socklen_t optlen)
 {
     // nothing to do here
     return -1;
 }
 
-int UnixSocketSyscalls::getsockopt(int level, int optname, void *optvalue, socklen_t *optlen)
+int UnixSocketSyscalls::getsockopt(
+    int level, int optname, void *optvalue, socklen_t *optlen)
 {
     if (level == SOL_SOCKET)
     {
@@ -1880,7 +1921,8 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void *optvalue, sockl
             N_NOTICE(" -> SO_PEERCRED");
 
             // get credentials of other side of this socket
-            struct ucred *targetCreds = reinterpret_cast<struct ucred *>(optvalue);
+            struct ucred *targetCreds =
+                reinterpret_cast<struct ucred *>(optvalue);
             struct ucred sourceCreds = m_Socket->getPeerCredentials();
 
             N_NOTICE(" --> pid=" << Dec << sourceCreds.pid);
@@ -1902,18 +1944,21 @@ bool UnixSocketSyscalls::canPoll() const
     return getRemote() || m_Socket;
 }
 
-bool UnixSocketSyscalls::poll(bool &read, bool &write, bool &error, Semaphore *waiter)
+bool UnixSocketSyscalls::poll(
+    bool &read, bool &write, bool &error, Semaphore *waiter)
 {
     UnixSocket *remote = getRemote();
     UnixSocket *local = m_Socket;
 
     if (read && !local)
     {
-        ERROR("UnixSocketSyscalls::poll - no local socket to poll for reading!");
+        ERROR(
+            "UnixSocketSyscalls::poll - no local socket to poll for reading!");
     }
     if (write && !remote)
     {
-        ERROR("UnixSocketSyscalls::poll - no remote socket to poll for writing!");
+        ERROR(
+            "UnixSocketSyscalls::poll - no remote socket to poll for writing!");
     }
 
     bool ok = false;

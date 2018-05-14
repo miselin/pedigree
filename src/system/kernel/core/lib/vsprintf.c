@@ -51,11 +51,11 @@ static int skip_atoi(const char **s)
 
 /// \note this will break testsuite/hosted builds on non-x86 hosts.
 #if defined(X86_COMMON) || defined(HOSTED_X86_COMMON) || defined(UTILITY_LINUX)
-#define do_div(n, base)                                                        \
-    ({                                                                         \
-        int __res;                                                             \
+#define do_div(n, base)                                                       \
+    ({                                                                        \
+        int __res;                                                            \
         __asm__("div %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"(base)); \
-        __res;                                                                 \
+        __res;                                                                \
     })
 #else
 #define do_div(n, base) ({ n / base; })

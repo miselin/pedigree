@@ -21,8 +21,8 @@
 #define STATICSTRING_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelutilities
  * @{ */

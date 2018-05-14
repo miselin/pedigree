@@ -1376,7 +1376,7 @@ static int input(void)
                     /* Reset buffer status. */
                     yyrestart(yyin);
 
-                /*FALLTHROUGH*/
+                    /*FALLTHROUGH*/
 
                 case EOB_ACT_END_OF_FILE:
                 {

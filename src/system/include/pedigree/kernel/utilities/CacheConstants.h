@@ -38,6 +38,6 @@ enum CallbackCause
     Eviction,
     PleaseEvict,
 };
-}
+}  // namespace CacheConstants
 
 #endif  // CACHE_CONSTANTS_H

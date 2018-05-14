@@ -26,8 +26,10 @@
 class PsAuxFile : public File
 {
   public:
-    PsAuxFile(String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
-        : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_Lock(false), m_Buffer(1024)
+    PsAuxFile(
+        String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
+        : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_Lock(false),
+          m_Buffer(1024)
     {
         setPermissionsOnly(
             FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
@@ -49,7 +51,7 @@ class PsAuxFile : public File
 
     virtual int select(bool bWriting = false, int timeout = 0);
 
-   private:
+  private:
     Mutex m_Lock;
     Buffer<uint8_t> m_Buffer;
 

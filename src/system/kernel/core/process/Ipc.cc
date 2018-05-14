@@ -178,9 +178,8 @@ Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle)
 {
     nPages = (nBytes / 4096) + 1;
 
-    if (nPages ==
-        1)  // Don't be silly with memory regions and such when the pool
-            // is adequate.
+    if (nPages == 1)  // Don't be silly with memory regions and such when the
+                      // pool is adequate.
         IpcMessage();
     else
     {

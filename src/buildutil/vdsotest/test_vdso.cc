@@ -36,12 +36,14 @@ int main(int argc, char *argv[])
 
     if (gtod == nullptr)
     {
-        std::cerr << "Could not successfully look up gettimeofday()" << std::endl;
+        std::cerr << "Could not successfully look up gettimeofday()"
+                  << std::endl;
         ok = false;
     }
     if (vdso_gtod == nullptr)
     {
-        std::cerr << "Could not successfully look up __vdso_gettimeofday()" << std::endl;
+        std::cerr << "Could not successfully look up __vdso_gettimeofday()"
+                  << std::endl;
         ok = false;
     }
 

@@ -20,8 +20,8 @@
 #ifndef RINGBUFFER_H
 #define RINGBUFFER_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -61,7 +61,7 @@ class EXPORTED_PUBLIC RingBuffer
     /// Constructor - pass in the desired size of the ring buffer.
     RingBuffer(size_t ringSize)
         : m_RingSize(ringSize), m_WriteCondition(), m_ReadCondition(), m_Ring(),
-        m_Lock(false)
+          m_Lock(false)
     {
     }
 
@@ -79,7 +79,8 @@ class EXPORTED_PUBLIC RingBuffer
             // Wait for room in the buffer if we're full.
             if (m_Ring.count() >= m_RingSize)
             {
-                ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock, timeout);
+                ConditionVariable::WaitResult result =
+                    m_WriteCondition.wait(m_Lock, timeout);
                 if (result.hasError())
                 {
                     /// \todo oh dear, writes are always assumed to succeed
@@ -141,7 +142,8 @@ class EXPORTED_PUBLIC RingBuffer
             // Wait for room in the buffer if we're full.
             if (m_Ring.count() == 0)
             {
-                ConditionVariable::WaitResult result = m_ReadCondition.wait(m_Lock, timeout);
+                ConditionVariable::WaitResult result =
+                    m_ReadCondition.wait(m_Lock, timeout);
                 if (result.hasError())
                 {
                     /// \todo need to allow read() to fail - use Result<>
@@ -220,7 +222,8 @@ class EXPORTED_PUBLIC RingBuffer
                     return true;
                 }
 
-                ConditionVariable::WaitResult result = m_WriteCondition.wait(m_Lock, timeout);
+                ConditionVariable::WaitResult result =
+                    m_WriteCondition.wait(m_Lock, timeout);
                 if (result.hasError())
                 {
                     return false;
@@ -237,7 +240,8 @@ class EXPORTED_PUBLIC RingBuffer
                     return true;
                 }
 
-                ConditionVariable::WaitResult result = m_ReadCondition.wait(m_Lock, timeout);
+                ConditionVariable::WaitResult result =
+                    m_ReadCondition.wait(m_Lock, timeout);
                 if (result.hasError())
                 {
                     return false;

@@ -20,24 +20,24 @@
 #ifndef KERNEL_UTILITIES_HASHTABLE_H
 #define KERNEL_UTILITIES_HASHTABLE_H
 
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/lib.h"
-#include "pedigree/kernel/utilities/Iterator.h"
-#include "pedigree/kernel/utilities/Result.h"
-#include "pedigree/kernel/utilities/Pair.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/Pair.h"
+#include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 /** @addtogroup kernelutilities
  * @{ */
 
 namespace HashTableError
 {
-    enum Error
-    {
-        HashTableEmpty,
-        NotFound,
-        IterationComplete
-    };
+enum Error
+{
+    HashTableEmpty,
+    NotFound,
+    IterationComplete
+};
 }
 
 /**
@@ -57,11 +57,14 @@ namespace HashTableError
  *
  * \todo check InitialBuckets for is a power of two
  */
-template <class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = true, size_t GrowthFactor = 2>
+template <
+    class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = true,
+    size_t GrowthFactor = 2>
 class HashTable
 {
-   private:
-    typedef HashTable<K, V, InitialBuckets, QuadraticProbe, GrowthFactor> SelfType;
+  private:
+    typedef HashTable<K, V, InitialBuckets, QuadraticProbe, GrowthFactor>
+        SelfType;
 
     static_assert(
         InitialBuckets > 0, "At least one initial bucket must be available.");
@@ -116,14 +119,16 @@ class HashTable
         }
     };
 
-   public:
+  public:
     typedef ::Iterator<V, struct bucket> Iterator;
     typedef typename Iterator::Const ConstIterator;
 
     typedef Result<const V &, HashTableError::Error> LookupResult;
     typedef Result<Pair<K, V>, HashTableError::Error> PairLookupResult;
 
-    HashTable() : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0), m_nMask(0)
+    HashTable()
+        : m_Buckets(nullptr), m_Default(), m_nBuckets(0), m_nItems(0),
+          m_nMask(0)
     {
     }
 
@@ -140,7 +145,7 @@ class HashTable
      */
     void clear()
     {
-        delete [] m_Buckets;
+        delete[] m_Buckets;
         m_Buckets = nullptr;
         m_nItems = 0;
     }
@@ -376,7 +381,7 @@ class HashTable
         else
         {
             // No items in the array, just recreate it here
-            delete [] m_Buckets;
+            delete[] m_Buckets;
             m_Buckets = new bucket[m_nBuckets];
             setDefaults();
             resetParents();
@@ -437,7 +442,7 @@ class HashTable
      * if V is a pointer type) without it happening "behind the scenes".
      */
     HashTable(const SelfType &other) = delete;
-    SelfType &operator = (const SelfType &p) = delete;
+    SelfType &operator=(const SelfType &p) = delete;
 
     /**
      * Forceful opt-in to copy values from the other table into this one.
@@ -529,7 +534,7 @@ class HashTable
                 }
             }
         }
-        delete [] oldBuckets;
+        delete[] oldBuckets;
     }
 
     size_t nextIndex(size_t i, size_t &index, size_t &step) const
@@ -553,7 +558,8 @@ class HashTable
         size_t step = 1;
         for (size_t i = 0; i < m_nBuckets; ++i)
         {
-            size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
+            size_t nextHash =
+                (currentHash + nextIndex(i, index, step)) & m_nMask;
             bucket *b = &m_Buckets[nextHash];
             if (!b->set)
             {
@@ -570,7 +576,8 @@ class HashTable
         size_t step = 1;
         for (size_t i = 0; i < m_nBuckets; ++i)
         {
-            size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
+            size_t nextHash =
+                (currentHash + nextIndex(i, index, step)) & m_nMask;
             bucket *b = &m_Buckets[nextHash];
 
             // Hash comparison is likely to be faster than raw object
@@ -593,7 +600,8 @@ class HashTable
         size_t step = 1;
         for (size_t i = 0; i < m_nBuckets; ++i)
         {
-            size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
+            size_t nextHash =
+                (currentHash + nextIndex(i, index, step)) & m_nMask;
             const bucket *b = &m_Buckets[nextHash];
 
             // Hash comparison is likely to be faster than raw object

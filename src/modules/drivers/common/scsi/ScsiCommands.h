@@ -355,6 +355,6 @@ class Synchronise16 : public ScsiCommand
         uint8_t nControl;
     } PACKED command;
 };
-};
+};  // namespace ScsiCommands
 
 #endif

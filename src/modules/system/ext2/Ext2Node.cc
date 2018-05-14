@@ -59,12 +59,16 @@ uintptr_t Ext2Node::readBlock(uint64_t location)
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
     if (nBlock > m_Blocks.count())
     {
-        ERROR("Ext2Node::readBlock beyond blocks [" << nBlock << ", " << m_Blocks.count() << "]");
+        ERROR(
+            "Ext2Node::readBlock beyond blocks [" << nBlock << ", "
+                                                  << m_Blocks.count() << "]");
         return 0;
     }
     if (location > m_nSize)
     {
-        ERROR("Ext2Node::readBlock beyond size [" << location << ", " << m_nSize << "]");
+        ERROR(
+            "Ext2Node::readBlock beyond size [" << location << ", " << m_nSize
+                                                << "]");
         return 0;
     }
 

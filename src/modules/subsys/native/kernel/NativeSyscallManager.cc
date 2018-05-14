@@ -31,7 +31,8 @@
 class Foo : public NativeBase
 {
   public:
-    virtual ReturnState syscall(uint64_t subid, void *params, size_t params_size);
+    virtual ReturnState
+    syscall(uint64_t subid, void *params, size_t params_size);
 };
 
 NativeSyscallManager::NativeSyscallManager()

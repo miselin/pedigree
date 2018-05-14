@@ -87,6 +87,6 @@ EXPORTED_PUBLIC void uninhibitEvents();
 /// given file. There is currently no supported way to obtain mappings
 /// for keys from the kernel.
 EXPORTED_PUBLIC void loadKeymapFromFile(const char *path);
-};
+};  // namespace Input
 
 #endif

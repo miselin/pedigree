@@ -168,12 +168,16 @@ void VirtualAddressSpace::rollbackHeapExpansion(
     }
 }
 
-bool VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void *virtualAddress, size_t count, size_t flags)
+bool VirtualAddressSpace::mapHuge(
+    physical_uintptr_t physAddress, void *virtualAddress, size_t count,
+    size_t flags)
 {
     for (size_t i = 0; i < count; ++i)
     {
         size_t addend = PhysicalMemoryManager::getPageSize() * i;
-        if (!map(physAddress + addend, adjust_pointer(virtualAddress, addend), flags))
+        if (!map(
+                physAddress + addend, adjust_pointer(virtualAddress, addend),
+                flags))
         {
             return false;
         }

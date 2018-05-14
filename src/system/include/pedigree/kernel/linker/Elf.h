@@ -333,7 +333,9 @@ class EXPORTED_PUBLIC Elf
     void populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase);
 
     /** Preallocate space for the symbols in this ELF in the symbol table. */
-    void preallocateSymbols(SymbolTable *pSymtabOverride = nullptr, SymbolTable *pAdditionalSymtab = nullptr);
+    void preallocateSymbols(
+        SymbolTable *pSymtabOverride = nullptr,
+        SymbolTable *pAdditionalSymtab = nullptr);
 
     SymbolTable *getSymbolTable()
     {
@@ -347,10 +349,16 @@ class EXPORTED_PUBLIC Elf
     uintptr_t debugFrameTableLength();
 
     /** Sets a friendly name for debugging. */
-    void setName(const String &s) { m_Name = s; }
+    void setName(const String &s)
+    {
+        m_Name = s;
+    }
 
     /** Gets the friendly name. */
-    const String &getName() const { return m_Name; }
+    const String &getName() const
+    {
+        return m_Name;
+    }
 
   protected:
 #endif

@@ -53,7 +53,8 @@ size_t Semaphore::SemaphoreEvent::serialize(uint8_t *pBuffer)
     return 0;
 }
 
-bool Semaphore::SemaphoreEvent::unserialize(uint8_t *pBuffer, Semaphore::SemaphoreEvent &event)
+bool Semaphore::SemaphoreEvent::unserialize(
+    uint8_t *pBuffer, Semaphore::SemaphoreEvent &event)
 {
     return true;
 }
@@ -91,7 +92,8 @@ void Semaphore::removeThread(Thread *pThread)
     m_BeingModified.release();
 }
 
-Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
+Semaphore::SemaphoreResult
+Semaphore::acquireWithResult(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
 {
     if (magic != 0xdeadbaba)
     {

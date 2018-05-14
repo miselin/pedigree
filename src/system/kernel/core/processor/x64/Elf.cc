@@ -147,7 +147,8 @@ bool Elf::applyRelocation(
         if (S == 0)
         {
             // Failed to find - fall back to kernel symbol table.
-            S = KernelElf::instance().getSymbolTable()->lookup(String(pStr), this, policy);
+            S = KernelElf::instance().getSymbolTable()->lookup(
+                String(pStr), this, policy);
         }
 
         if (S == 0 && ST_BIND(pSymbols[R_SYM(rel.info)].info) == 2)
@@ -230,7 +231,9 @@ bool Elf::applyRelocation(
 
             if ((r_type == R_X86_64_32) && ((tmp & 0xFFFFFFFF00000000ULL) != 0))
             {
-                ERROR("Relocation for symbol '" << symbolName << "' will be truncated to fit!");
+                ERROR(
+                    "Relocation for symbol '" << symbolName
+                                              << "' will be truncated to fit!");
             }
             else if (r_type == R_X86_64_32S)
             {
@@ -239,7 +242,11 @@ bool Elf::applyRelocation(
                 uint64_t top = (tmp & 0xFFFFFFFF00000000ULL) >> 32ULL;
                 if ((sign * 0xFFFFFFFFUL) != top)
                 {
-                    ERROR("Relocation for symbol '" << symbolName << "' will be truncated to fit (sign-extension was incorrect)");
+                    ERROR(
+                        "Relocation for symbol '"
+                        << symbolName
+                        << "' will be truncated to fit (sign-extension was "
+                           "incorrect)");
                 }
             }
 

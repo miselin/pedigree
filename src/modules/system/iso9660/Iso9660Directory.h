@@ -114,7 +114,8 @@ class Iso9660Directory : public Directory
                 Iso9660DirRecord *record =
                     reinterpret_cast<Iso9660DirRecord *>(block + offset);
                 offset += record->RecLen;
-                uint8_t *fileIdent = reinterpret_cast<uint8_t *>(adjust_pointer(record, sizeof(*record)));
+                uint8_t *fileIdent = reinterpret_cast<uint8_t *>(
+                    adjust_pointer(record, sizeof(*record)));
 
                 if (record->RecLen == 0)
                 {

@@ -19,12 +19,12 @@
 
 #ifdef SLAM_USE_DEBUG_ALLOCATOR
 
-#include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/utilities/MemoryTracing.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 #ifdef THREADS
@@ -51,7 +51,8 @@ inline size_t getPageSize()
 
 inline void allocateAndMapAt(void *addr)
 {
-    size_t standardFlags = VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
+    size_t standardFlags =
+        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
 
     static physical_uintptr_t physZero = 0;
 
@@ -91,8 +92,7 @@ inline void markReadOnly(void *addr)
 }
 
 SlamCache::SlamCache()
-    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0),
-      m_FirstSlab()
+    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0), m_FirstSlab()
 #ifdef THREADS
       ,
       m_RecoveryLock(false)
@@ -256,7 +256,8 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
 
     m_Base += getPageSize();  // gap between allocations
     uintptr_t mapStart = m_Base;
-    m_Base += getPageSize(); // page for the allocation header (readonly once it's written to)
+    m_Base += getPageSize();  // page for the allocation header (readonly once
+                              // it's written to)
     uintptr_t result = m_Base;
     m_Base += numPages * getPageSize();
     uintptr_t mapEnd = m_Base;
@@ -284,7 +285,8 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
 
 #ifdef MEMORY_TRACING
     traceAllocation(
-        reinterpret_cast<void *>(result), MemoryTracing::Allocation, nTotalBytes);
+        reinterpret_cast<void *>(result), MemoryTracing::Allocation,
+        nTotalBytes);
 #endif
 
     return result;
@@ -370,7 +372,9 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
             reinterpret_cast<void *>(mem)))
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " is not in the heap region.");
+        WARNING(
+            "SlamAllocator::isPointerValid: memory "
+            << Hex << mem << " is not in the heap region.");
 #endif
         return false;
     }
@@ -378,12 +382,16 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     if (!isMapped(reinterpret_cast<void *>(mem)))
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem << " is not mapped [current base = " << Hex << m_Base << "].");
+        WARNING(
+            "SlamAllocator::isPointerValid: memory "
+            << Hex << mem << " is not mapped [current base = " << Hex << m_Base
+            << "].");
 #endif
         if (mem >= m_Base)
         {
 #if VERBOSE_ISPOINTERVALID
-        WARNING(" (pointer being deleted is beyond the end of the heap somehow)");
+            WARNING(" (pointer being deleted is beyond the end of the heap "
+                    "somehow)");
 #endif
         }
         return false;
@@ -398,7 +406,9 @@ bool SlamAllocator::isWithinHeap(uintptr_t mem) const
             reinterpret_cast<void *>(mem)))
     {
 #if VERBOSE_ISPOINTERVALID
-        WARNING("SlamAllocator::isWithinHeap: memory " << Hex << mem << " is not in the heap region.");
+        WARNING(
+            "SlamAllocator::isWithinHeap: memory "
+            << Hex << mem << " is not in the heap region.");
 #endif
         return false;
     }

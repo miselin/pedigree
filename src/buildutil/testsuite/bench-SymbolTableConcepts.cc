@@ -29,10 +29,10 @@
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/RadixTree.h"
-#include "pedigree/kernel/utilities/HashTable.h"
-#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 #include "pedigree/kernel/linker/SymbolTable.h"
+#include "pedigree/kernel/utilities/HashTable.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 static uint32_t elf_hash(const String &str)
 {
@@ -47,7 +47,8 @@ static uint32_t jenkins_hash(const String &str)
 static uint32_t murmur_hash(const String &str)
 {
     uint32_t output = 0;
-    MurmurHash3_x86_32(static_cast<const char *>(str), str.length(), 0, &output);
+    MurmurHash3_x86_32(
+        static_cast<const char *>(str), str.length(), 0, &output);
     return output;
 }
 

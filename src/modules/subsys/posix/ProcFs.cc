@@ -111,7 +111,8 @@ uint64_t MeminfoFile::writeBytewise(
     return 0;
 }
 
-PciDevicesFile::PciDevicesFile(size_t inode, Filesystem *pParentFS, File *pParent)
+PciDevicesFile::PciDevicesFile(
+    size_t inode, Filesystem *pParentFS, File *pParent)
     : File(String("devices"), 0, 0, 0, inode, pParentFS, 0, pParent),
       m_Contents()
 {
@@ -163,14 +164,12 @@ void PciDevicesFile::resync()
 {
     m_Contents = String();
 
-    auto printer = [this] (Device *p) -> Device * {
+    auto printer = [this](Device *p) -> Device * {
         String initial;
-        initial.Format("%02x%02x\t%04x%04x\t%x",
-                p->getPciBusPosition(),
-                (p->getPciDevicePosition() << 4) | p->getPciFunctionNumber(),
-                p->getPciVendorId(),
-                p->getPciDeviceId(),
-                p->getInterruptNumber());
+        initial.Format(
+            "%02x%02x\t%04x%04x\t%x", p->getPciBusPosition(),
+            (p->getPciDevicePosition() << 4) | p->getPciFunctionNumber(),
+            p->getPciVendorId(), p->getPciDeviceId(), p->getInterruptNumber());
 
         String resStart;
         String resLength;
@@ -214,7 +213,7 @@ void PciDevicesFile::resync()
     };
 
     auto callback = pedigree_std::make_callable(printer);
-    Device::foreach(callback, nullptr);
+    Device::foreach (callback, nullptr);
 }
 
 MountFile::MountFile(size_t inode, Filesystem *pParentFS, File *pParent)
@@ -320,8 +319,8 @@ String UptimeFile::generateString()
 }
 
 ConstantFile::ConstantFile(
-    String name, const char *value, size_t size, size_t inode, Filesystem *pParentFS,
-    File *pParent)
+    String name, const char *value, size_t size, size_t inode,
+    Filesystem *pParentFS, File *pParent)
     : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents()
 {
     setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
@@ -335,7 +334,7 @@ ConstantFile::ConstantFile(
 
 ConstantFile::~ConstantFile()
 {
-    delete [] m_Contents;
+    delete[] m_Contents;
 }
 
 uint64_t ConstantFile::readBytewise(
@@ -413,8 +412,7 @@ bool ProcFs::initialise(Disk *pDisk)
 
     String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
     ConstantFile *pFilesystems = new ConstantFile(
-        String("filesystems"), fs, fs.length(),
-        getNextInode(), this, m_pRoot);
+        String("filesystems"), fs, fs.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
     // Kernel command line
@@ -422,7 +420,8 @@ bool ProcFs::initialise(Disk *pDisk)
     cmdline = "noswap quiet boot=live\n";
     NOTICE("cmdline is '" << cmdline << "'");
     ConstantFile *pCmdline = new ConstantFile(
-        String("cmdline"), cmdline, cmdline.length(), getNextInode(), this, m_pRoot);
+        String("cmdline"), cmdline, cmdline.length(), getNextInode(), this,
+        m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
     // /proc/version contains some extra version info (not same as uname)
@@ -431,55 +430,64 @@ bool ProcFs::initialise(Disk *pDisk)
         "Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser,
         g_pBuildMachine, g_pBuildTime);
     ConstantFile *pVersion = new ConstantFile(
-        String("version"), version, version.length(), getNextInode(), this, m_pRoot);
+        String("version"), version, version.length(), getNextInode(), this,
+        m_pRoot);
     m_pRoot->addEntry(pVersion->getName(), pVersion);
 
-    ProcFsDirectory *pBusDir = new ProcFsDirectory(String("bus"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
-    ProcFsDirectory *pPciDir = new ProcFsDirectory(String("pci"), 0, 0, 0, getNextInode(), this, 0, pBusDir);
+    ProcFsDirectory *pBusDir = new ProcFsDirectory(
+        String("bus"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+    ProcFsDirectory *pPciDir = new ProcFsDirectory(
+        String("pci"), 0, 0, 0, getNextInode(), this, 0, pBusDir);
 
-    pBusDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
-    pPciDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+    pBusDir->setPermissions(
+        FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+    pPciDir->setPermissions(
+        FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
 
     m_pRoot->addEntry(pBusDir->getName(), pBusDir);
     pBusDir->addEntry(pPciDir->getName(), pPciDir);
 
     // Load PCI devices into bus/pci/devices file
-    auto printer = [pPciDir, this] (Device *p) -> Device * {
+    auto printer = [pPciDir, this](Device *p) -> Device * {
         String bus;
         bus.Format("%02x", p->getPciBusPosition());
 
-        // create config space file for this 
+        // create config space file for this
         File *d = VFS::instance().find(bus, pPciDir);
         if (!d)
         {
-            ProcFsDirectory *dir = new ProcFsDirectory(bus, 0, 0, 0, getNextInode(), this, 0, pPciDir);
+            ProcFsDirectory *dir = new ProcFsDirectory(
+                bus, 0, 0, 0, getNextInode(), this, 0, pPciDir);
             pPciDir->addEntry(dir->getName(), dir);
 
             d = dir;
         }
 
-        ProcFsDirectory *dir = static_cast<ProcFsDirectory *>(Directory::fromFile(d));
+        ProcFsDirectory *dir =
+            static_cast<ProcFsDirectory *>(Directory::fromFile(d));
 
         String fn;
-        fn.Format("%02x.%01x", p->getPciDevicePosition(), p->getPciFunctionNumber());
+        fn.Format(
+            "%02x.%01x", p->getPciDevicePosition(), p->getPciFunctionNumber());
 
-        // Sometimes the device file already exists, avoid creating duplicate files
+        // Sometimes the device file already exists, avoid creating duplicate
+        // files
         File *e = VFS::instance().find(fn, dir);
         if (!e)
         {
             PciBus::ConfigSpace space = p->getPciConfigHeader();
 
-            ConstantFile *cf = new ConstantFile(fn, reinterpret_cast<const char *>(&space), sizeof(space), getNextInode(), this, dir);
+            ConstantFile *cf = new ConstantFile(
+                fn, reinterpret_cast<const char *>(&space), sizeof(space),
+                getNextInode(), this, dir);
             dir->addEntry(cf->getName(), cf);
         }
 
         String initial;
-        initial.Format("%02x%02x\t%04x%04x\t%x",
-                p->getPciBusPosition(),
-                (p->getPciDevicePosition() << 4) | p->getPciFunctionNumber(),
-                p->getPciVendorId(),
-                p->getPciDeviceId(),
-                p->getInterruptNumber());
+        initial.Format(
+            "%02x%02x\t%04x%04x\t%x", p->getPciBusPosition(),
+            (p->getPciDevicePosition() << 4) | p->getPciFunctionNumber(),
+            p->getPciVendorId(), p->getPciDeviceId(), p->getInterruptNumber());
 
         String resStart;
         String resLength;
@@ -523,10 +531,11 @@ bool ProcFs::initialise(Disk *pDisk)
     };
 
     auto callback = pedigree_std::make_callable(printer);
-    Device::foreach(callback, nullptr);
+    Device::foreach (callback, nullptr);
 
     ConstantFile *pPciDevices = new ConstantFile(
-        String("devices"), m_PciDevices, m_PciDevices.length(), getNextInode(), this, pPciDir);
+        String("devices"), m_PciDevices, m_PciDevices.length(), getNextInode(),
+        this, pPciDir);
     pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
 
     return true;

@@ -41,10 +41,12 @@ static Tree<struct netconn *, Mutex *> g_Netconns;
 static bool g_Running = false;
 static Thread *g_pServerThread = nullptr;
 
-static void netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
+static void
+netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
 {
     Mutex *mutex = g_Netconns.lookup(conn);
-    if (mutex && (evt == NETCONN_EVT_RCVPLUS || evt == NETCONN_EVT_SENDPLUS || evt == NETCONN_EVT_ERROR))
+    if (mutex && (evt == NETCONN_EVT_RCVPLUS || evt == NETCONN_EVT_SENDPLUS ||
+                  evt == NETCONN_EVT_ERROR))
     {
         // wake up waiter, positive event
         mutex->release();
@@ -95,25 +97,30 @@ static int clientThread(void *p)
 
                 if (httpRequest.length() >= 4)
                 {
-                    if (!(httpRequest.startswith("GET") || httpRequest.startswith("HEAD")))
+                    if (!(httpRequest.startswith("GET") ||
+                          httpRequest.startswith("HEAD")))
                     {
                         // We really don't want to deal with this.
-                        httpResponse = "HTTP/1.1 400 Bad Request\r\nAllow: GET, HEAD\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThe Pedigree built-in status server only accepts GET and HEAD requests.";
+                        httpResponse =
+                            "HTTP/1.1 400 Bad Request\r\nAllow: GET, "
+                            "HEAD\r\nContent-Type: text/plain; "
+                            "charset=utf-8\r\n\r\nThe Pedigree built-in status "
+                            "server only accepts GET and HEAD requests.";
                         stillOk = false;
                     }
                 }
 
                 if (stillOk)
                 {
-                    if (StringContains(static_cast<const char *>(httpRequest), "\r\n\r\n"))
+                    if (StringContains(
+                            static_cast<const char *>(httpRequest), "\r\n\r\n"))
                     {
                         // no more data needed, we have the full request
                         requestComplete = true;
                     }
                 }
             }
-        }
-        while (netbuf_next(buf) >= 0);
+        } while (netbuf_next(buf) >= 0);
 
         netbuf_delete(buf);
     }
@@ -125,7 +132,9 @@ static int clientThread(void *p)
     {
         if (httpResponse.length())
         {
-            netconn_write(connection, static_cast<const char *>(httpResponse), httpResponse.length(), 0);
+            netconn_write(
+                connection, static_cast<const char *>(httpResponse),
+                httpResponse.length(), 0);
             netconn_shutdown(connection, 1, 1);
         }
 
@@ -155,10 +164,10 @@ static int clientThread(void *p)
     else
     {
         responseContent += "<html><head><title>Pedigree - Live System Status "
-                    "Report</title></head><body>";
+                           "Report</title></head><body>";
         responseContent += "<h1>Pedigree Live Status Report</h1>";
         responseContent += "<p>This is a live status report from a running "
-                    "Pedigree system.</p>";
+                           "Pedigree system.</p>";
         responseContent += "<h3>Current Build</h3><pre>";
 
         {
@@ -180,12 +189,12 @@ static int clientThread(void *p)
         responseContent += "</pre>";
 
         responseContent += "<h3>Network Interfaces</h3>";
-        responseContent += "<table border='1'><tr><th>Interface</th><th>IP "
-                    "Addresses</th><th>Subnet "
-                    "Mask</th><th>Gateway</th><th>Driver Name</th><th>MAC "
-                    "address</th><th>Statistics</th></tr>";
-        for (size_t i = 0; i < NetworkStack::instance().getNumDevices();
-             i++)
+        responseContent +=
+            "<table border='1'><tr><th>Interface</th><th>IP "
+            "Addresses</th><th>Subnet "
+            "Mask</th><th>Gateway</th><th>Driver Name</th><th>MAC "
+            "address</th><th>Statistics</th></tr>";
+        for (size_t i = 0; i < NetworkStack::instance().getNumDevices(); i++)
         {
             /// \todo switch to using netif interface for all this
             Network *card = NetworkStack::instance().getDevice(i);
@@ -267,7 +276,8 @@ static int clientThread(void *p)
         responseContent += "</table>";
 
         responseContent += "<h3>VFS</h3>";
-        responseContent += "<table border='1'><tr><th>VFS Alias</th><th>Disk</th></tr>";
+        responseContent +=
+            "<table border='1'><tr><th>VFS Alias</th><th>Disk</th></tr>";
 
         typedef List<String *> StringList;
         typedef Tree<Filesystem *, List<String *> *> VFSMountTree;
@@ -311,8 +321,8 @@ static int clientThread(void *p)
 #ifdef X86_COMMON
         responseContent += "<h3>Memory Usage (KiB)</h3>";
         responseContent += "<table "
-                    "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"
-                    "th></tr>";
+                           "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"
+                           "th></tr>";
         {
             extern size_t g_FreePages;
             extern size_t g_AllocedPages;
@@ -331,20 +341,19 @@ static int clientThread(void *p)
 #endif
 
         responseContent += "<h3>Processes</h3>";
-        responseContent += "<table "
-                    "border='1'><tr><th>PID</th><th>Description</"
-                    "th><th>Virtual Memory (KiB)</th><th>Physical Memory "
-                    "(KiB)</th><th>Shared Memory (KiB)</th>";
+        responseContent +=
+            "<table "
+            "border='1'><tr><th>PID</th><th>Description</"
+            "th><th>Virtual Memory (KiB)</th><th>Physical Memory "
+            "(KiB)</th><th>Shared Memory (KiB)</th>";
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
         {
             responseContent += "<tr>";
             Process *pProcess = Scheduler::instance().getProcess(i);
             HugeStaticString str;
 
-            ssize_t virtK =
-                (pProcess->getVirtualPageCount() * 0x1000) / 1024;
-            ssize_t physK =
-                (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
+            ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
+            ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
             ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
 
             /// \todo add timing
@@ -383,7 +392,9 @@ static int clientThread(void *p)
     g_Netconns.insert(connection, mutex);
 
     /// \todo error handling
-    netconn_write(connection, static_cast<const char *>(httpResponse), httpResponse.length(), 0);
+    netconn_write(
+        connection, static_cast<const char *>(httpResponse),
+        httpResponse.length(), 0);
     netconn_close(connection);
 
     while (!mutex->acquire())

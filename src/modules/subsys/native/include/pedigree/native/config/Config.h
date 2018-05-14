@@ -70,6 +70,6 @@ class EXPORTED_PUBLIC Result
 
 /// Performs a select/update/insert/whatever query on the database
 EXPORTED_PUBLIC Result *query(const char *sql);
-};
+};  // namespace Config
 
 #endif

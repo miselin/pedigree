@@ -20,11 +20,10 @@
 // Define a bunch of symbols that are removed from the kernel shared library
 // so that it can be linked against.
 
-extern "C"
-{
-    void *mp_trampoline16;
-    void *mp_trampoline32;
-    void *trampolinegdt64;
-    void *trampolinegdtr64;
-    void *pml4;
+extern "C" {
+void *mp_trampoline16;
+void *mp_trampoline32;
+void *trampolinegdt64;
+void *trampolinegdtr64;
+void *pml4;
 }

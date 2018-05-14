@@ -25,7 +25,7 @@
 
 namespace __pedigree_hosted
 {
-};  // In case it doesn't exist yet.
+};  // namespace __pedigree_hosted
 using namespace __pedigree_hosted;
 
 #include <signal.h>

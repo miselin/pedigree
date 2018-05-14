@@ -19,10 +19,10 @@
 
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #include "pedigree/kernel/Log.h"
 
@@ -31,7 +31,8 @@ Event::Event(
     : m_HandlerAddress(handlerAddress), m_bIsDeletable(isDeletable),
       m_NestingLevel(specificNestingLevel), m_Magic(EVENT_MAGIC)
 #ifdef THREADS
-      , m_Threads(), m_Lock(false)
+      ,
+      m_Threads(), m_Lock(false)
 #endif
 {
 }
@@ -46,9 +47,14 @@ Event::~Event()
         ERROR("UNSAFE EVENT DELETION");
         for (auto it : m_Threads)
         {
-            ERROR(" => Pending delivery to thread " << it << " (" << it->getParent()->getId() << ":" << it->getId() << ").");
+            ERROR(
+                " => Pending delivery to thread "
+                << it << " (" << it->getParent()->getId() << ":" << it->getId()
+                << ").");
         }
-        FATAL("Unsafe event deletion: " << m_Threads.count() << " threads reference it!");
+        FATAL(
+            "Unsafe event deletion: " << m_Threads.count()
+                                      << " threads reference it!");
 
         m_Threads.clear();
     }
@@ -96,13 +102,11 @@ size_t Event::getEventType(uint8_t *pBuffer)
 }
 
 Event::Event(const Event &other)
-    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel)
-{
+    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel){
 #ifdef THREADS
-    {
-        LockGuard<Spinlock> guard(m_Lock);
-        m_Threads.clear();
-    }
+          {LockGuard<Spinlock> guard(m_Lock);
+m_Threads.clear();
+}
 #endif
 }
 

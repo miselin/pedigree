@@ -31,7 +31,8 @@
 #include "system/kernel/machine/mach_pc/Ps2Controller.h"
 
 Ps2Mouse::Ps2Mouse(Device *pDev)
-    : m_pController(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(), m_IrqWait(0)
+    : m_pController(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(),
+      m_IrqWait(0)
 {
     setSpecificType(String("ps2-mouse"));
 
@@ -62,7 +63,8 @@ bool Ps2Mouse::initialise(Ps2Controller *pController)
     // Finally, enable IRQs for the mouse
     m_pController->setIrqEnable(true, true);
 
-    Process *pProcess = Processor::information().getCurrentThread()->getParent();
+    Process *pProcess =
+        Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(pProcess, readerThreadTrampoline, this);
     pThread->detach();
 

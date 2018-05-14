@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 class SerialLogger : public Log::LogCallback
 {
@@ -29,7 +29,7 @@ class SerialLogger : public Log::LogCallback
 
     void callback(const char *str);
 
-   private:
+  private:
     Serial *m_pSerial;
     bool m_bInitialised;
     Spinlock m_Lock;
@@ -42,7 +42,10 @@ void installSerialLogger()
     Log::instance().installCallback(&g_SerialCallback, false);
 }
 
-SerialLogger::SerialLogger() : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false) {}
+SerialLogger::SerialLogger()
+    : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false)
+{
+}
 SerialLogger::~SerialLogger() = default;
 
 void SerialLogger::callback(const char *str)

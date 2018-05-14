@@ -20,9 +20,9 @@
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
 
-#include "pedigree/kernel/compiler.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/state.h"

@@ -36,7 +36,7 @@ const Timestamp Second = Millisecond * 1000U;
 const Timestamp Minute = Second * 60U;
 const Timestamp Hour = Minute * 60U;
 const Timestamp Day = Hour * 24U;
-}
+}  // namespace Multiplier
 
 /** Magic identifier for infinite time durations. */
 const Timestamp Infinity = 0xFFFFFFFFFFFFFFFFULL;
@@ -54,7 +54,8 @@ EXPORTED_PUBLIC void *addAlarm(Timestamp nanoseconds);
 EXPORTED_PUBLIC void removeAlarm(void *handle);
 
 /** Run the given function (asynchronously) after the specified delay. */
-EXPORTED_PUBLIC void runAfter(int (*func)(void *), void *param, Timestamp nanoseconds);
+EXPORTED_PUBLIC void
+runAfter(int (*func)(void *), void *param, Timestamp nanoseconds);
 
 /** Gets the system's current time. */
 EXPORTED_PUBLIC Timestamp getTime(bool sync = false);

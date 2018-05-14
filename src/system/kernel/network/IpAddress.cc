@@ -74,10 +74,9 @@ String IpAddress::toString() const
         NormalStaticString str;
         str.clear();
         bool bZeroComp = false;
-        bool alreadyZeroComp =
-            false;  // Compression can only come once.
-                    // Naive algorithm, compresses first zeroes
-                    // but not the largest set.
+        bool alreadyZeroComp = false;  // Compression can only come once.
+                                       // Naive algorithm, compresses first
+                                       // zeroes but not the largest set.
         for (size_t i = 0; i < 16; i++)
         {
             if (i && ((i % 2) == 0))

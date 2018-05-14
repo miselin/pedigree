@@ -25,9 +25,9 @@
 #include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#include "modules/system/lwip/include/lwip/netif.h"
-#include "modules/system/lwip/include/lwip/ip_addr.h"
 #include "modules/system/lwip/include/lwip/dhcp.h"
+#include "modules/system/lwip/include/lwip/ip_addr.h"
+#include "modules/system/lwip/include/lwip/netif.h"
 
 static int configureInterfaces()
 {
@@ -81,6 +81,5 @@ static void destroy()
 {
 }
 
-MODULE_INFO(
-    "confignics", &init, &destroy, "network-stack", "lwip");
+MODULE_INFO("confignics", &init, &destroy, "network-stack", "lwip");
 MODULE_OPTIONAL_DEPENDS("nics", "pcap");

@@ -21,8 +21,8 @@
 #include "pedigree/kernel/Log.h"
 
 #if PRODUCERCONSUMER_ASYNCHRONOUS
-#include "pedigree/kernel/utilities/pocketknife.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
 #endif
 
 ProducerConsumer::ProducerConsumer() = default;
@@ -70,7 +70,9 @@ bool ProducerConsumer::initialise()
 #endif
 }
 
-void ProducerConsumer::produce(uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+void ProducerConsumer::produce(
+    uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+    uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
 #if PRODUCERCONSUMER_ASYNCHRONOUS
     Task *task = new Task;
@@ -116,7 +118,9 @@ void ProducerConsumer::consumerThread()
         // Don't hold lock while we actually perform the consume operation.
         m_Lock.release();
 
-        consume(task->p0, task->p1, task->p2, task->p3, task->p4, task->p5, task->p6, task->p7, task->p8);
+        consume(
+            task->p0, task->p1, task->p2, task->p3, task->p4, task->p5,
+            task->p6, task->p7, task->p8);
 
         delete task;
 

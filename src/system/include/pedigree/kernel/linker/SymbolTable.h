@@ -21,11 +21,11 @@
 #define KERNEL_LINKER_SYMBOLTABLE_H
 
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/HashTable.h"
 
 class Elf;
 
@@ -72,7 +72,8 @@ class SymbolTable
     void copyTable(Elf *pNewElf, const SymbolTable &newSymtab);
 
     /** Insert a symbol into the table. */
-    void insert(const String &name, Binding binding, Elf *pParent, uintptr_t value);
+    void
+    insert(const String &name, Binding binding, Elf *pParent, uintptr_t value);
 
     /** Insert a symbol into two SymbolTables, using the memory once. */
     void insertMultiple(
@@ -80,11 +81,13 @@ class SymbolTable
         uintptr_t value);
 
     /**  Preallocate at least the minimum space for the given symbol tables. */
-    void preallocate(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
+    void preallocate(
+        size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
     /**
      * Preallocate additional symbols to the existing count.
      */
-    void preallocateAdditional(size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
+    void preallocateAdditional(
+        size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
 
     void eraseByElf(Elf *pParent);
 
@@ -140,8 +143,8 @@ class SymbolTable
     };
 
     /** Insert doer. */
-    SharedPointer<Symbol>
-    doInsert(const String &name, Binding binding, Elf *pParent, uintptr_t value);
+    SharedPointer<Symbol> doInsert(
+        const String &name, Binding binding, Elf *pParent, uintptr_t value);
     /** Insert the given shared symbol. */
     void insertShared(const String &name, SharedPointer<Symbol> &symbol);
 

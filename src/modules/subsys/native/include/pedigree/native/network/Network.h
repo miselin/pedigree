@@ -44,6 +44,6 @@ NetworkInterface *getInterface(EthernetAddress &ethaddr);
 void releaseInterface(NetworkInterface *iface);
 
 /** \todo Interface for endpoints and such */
-};
+};  // namespace PedigreeNetwork
 
 #endif

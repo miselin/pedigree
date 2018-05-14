@@ -64,8 +64,8 @@
     } while (0)
 
 Ehci::Ehci(Device *pDev)
-    : UsbHub(pDev), RequestQueue("EHCI"), m_pCurrentQueueTail(0), m_pCurrentQueueHead(0),
-      m_EhciMR("Ehci-MR")
+    : UsbHub(pDev), RequestQueue("EHCI"), m_pCurrentQueueTail(0),
+      m_pCurrentQueueHead(0), m_EhciMR("Ehci-MR")
 {
     setSpecificType(String("EHCI"));
 }

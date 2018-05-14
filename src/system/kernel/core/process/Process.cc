@@ -34,9 +34,9 @@
 
 #include "pedigree/kernel/Subsystem.h"
 
-#include "modules/system/vfs/File.h"
-#include "modules/system/users/User.h"
 #include "modules/system/users/Group.h"
+#include "modules/system/users/User.h"
+#include "modules/system/vfs/File.h"
 
 Process *Process::m_pInitProcess = 0;
 

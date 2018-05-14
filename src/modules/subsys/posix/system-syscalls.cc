@@ -25,6 +25,7 @@
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
@@ -41,7 +42,6 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "pedigree/kernel/compiler.h"
 #include "pipe-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "pthread-syscalls.h"
@@ -73,19 +73,20 @@
 #define ARCH_GET_FS 0x1003
 
 // capget/capset
-#define _LINUX_CAPABILITY_VERSION_1  0x19980330
+#define _LINUX_CAPABILITY_VERSION_1 0x19980330
 
-struct cap_header {
+struct cap_header
+{
     uint32_t version;
     int pid;
 };
 
-struct cap_data {
+struct cap_data
+{
     uint32_t effective;
     uint32_t permitted;
     uint32_t inheritable;
 };
-
 
 //
 // Syscalls pertaining to system operations.
@@ -622,7 +623,8 @@ int posix_waitpid(const int pid, int *status, int options)
         if (bBlock || (pProcess->getState() == Process::Terminating))
         {
             SC_NOTICE(
-                "  -> adding our wait lock to process " << Dec << pProcess->getId());
+                "  -> adding our wait lock to process " << Dec
+                                                        << pProcess->getId());
             pProcess->addWaiter(&waitLock);
             bBlock = true;
         }
@@ -652,7 +654,8 @@ int posix_waitpid(const int pid, int *status, int options)
             // Because processes don't get actually destroyed until no more
             // waiters exist on them, we can safely do this and it makes sure
             // multiple waitpid() calls on the same process do the right thing
-            if (pProcess->getState() == Process::Terminated || pProcess->getState() == Process::Reaped)
+            if (pProcess->getState() == Process::Terminated ||
+                pProcess->getState() == Process::Reaped)
             {
                 if (status)
                     *status = pProcess->getExitStatus();
@@ -694,7 +697,8 @@ int posix_waitpid(const int pid, int *status, int options)
             }
             else
             {
-                SC_NOTICE("waitpid: " << Dec << this_pid << " has no status change");
+                SC_NOTICE(
+                    "waitpid: " << Dec << this_pid << " has no status change");
             }
         }
 
@@ -813,8 +817,8 @@ time_t posix_time(time_t *tval)
     SC_NOTICE("time");
 
     if (tval && !PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(tval), sizeof(time_t),
-            PosixSubsystem::SafeWrite))
+                    reinterpret_cast<uintptr_t>(tval), sizeof(time_t),
+                    PosixSubsystem::SafeWrite))
     {
         SC_NOTICE(" -> invalid address");
         SYSCALL_ERROR(BadAddress);
@@ -1286,12 +1290,14 @@ int posix_setpgid(int pid_, int pgid)
         if (parent != pProcess)
         {
             // Not a child!
-            SC_NOTICE("  -> target process is not a descendant of the current process");
+            SC_NOTICE("  -> target process is not a descendant of the current "
+                      "process");
             SYSCALL_ERROR(NoSuchProcess);
             return -1;
         }
 
-        if (static_cast<PosixProcess *>(pTargetProcess)->getSession() != pSession)
+        if (static_cast<PosixProcess *>(pTargetProcess)->getSession() !=
+            pSession)
         {
             SC_NOTICE("  -> target process is in a different session");
             SYSCALL_ERROR(NotEnoughPermissions);
@@ -1672,9 +1678,12 @@ int posix_uname(struct utsname *n)
     return 0;
 }
 
-int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+int posix_prctl(
+    int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    NOTICE("prctl(" << Hex << option << ", " << arg2 << ", " << arg3 << ", " << arg4 << ", " << arg5 << ")");
+    NOTICE(
+        "prctl(" << Hex << option << ", " << arg2 << ", " << arg3 << ", "
+                 << arg4 << ", " << arg5 << ")");
     return 0;
 }
 
@@ -1748,8 +1757,8 @@ int posix_getgroups(size_t size, gid_t *list)
     SC_NOTICE("getgroups(" << size << ", " << list << ")");
 
     if (size && !PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
-            PosixSubsystem::SafeWrite))
+                    reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
+                    PosixSubsystem::SafeWrite))
     {
         SC_NOTICE("getgroups -> invalid address");
         SYSCALL_ERROR(BadAddress);
@@ -2042,7 +2051,8 @@ int posix_ioperm(unsigned long from, unsigned long num, int turn_on)
 {
     SC_NOTICE("ioperm(" << from << ", " << num << ", " << turn_on << ")");
 
-    /// \todo set the io permissions bitmap properly and use this to enable stuff
+    /// \todo set the io permissions bitmap properly and use this to enable
+    /// stuff
     return 0;
 }
 
@@ -2093,22 +2103,35 @@ int posix_getitimer(int which, struct itimerval *curr_value)
     itimer->getIntervalAndValue(interval, value);
 
     curr_value->it_interval.tv_sec = interval / Time::Multiplier::Second;
-    curr_value->it_interval.tv_usec = (interval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+    curr_value->it_interval.tv_usec =
+        (interval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
 
     curr_value->it_value.tv_sec = value / Time::Multiplier::Second;
-    curr_value->it_value.tv_usec = (value % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+    curr_value->it_value.tv_usec =
+        (value % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
 
-    SC_NOTICE(" -> period = " << Dec << curr_value->it_interval.tv_sec << "s " << curr_value->it_interval.tv_usec << "us");
-    SC_NOTICE(" -> value = " << Dec << curr_value->it_value.tv_sec << "s " << curr_value->it_value.tv_usec << "us");
+    SC_NOTICE(
+        " -> period = " << Dec << curr_value->it_interval.tv_sec << "s "
+                        << curr_value->it_interval.tv_usec << "us");
+    SC_NOTICE(
+        " -> value = " << Dec << curr_value->it_value.tv_sec << "s "
+                       << curr_value->it_value.tv_usec << "us");
 
     return 0;
 }
 
-int posix_setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value)
+int posix_setitimer(
+    int which, const struct itimerval *new_value, struct itimerval *old_value)
 {
-    SC_NOTICE("posix_setitimer(" << which << ", " << new_value << ", " << old_value << ")");
-    SC_NOTICE(" -> period = " << Dec << new_value->it_interval.tv_sec << "s " << new_value->it_interval.tv_usec << "us");
-    SC_NOTICE(" -> value = " << Dec << new_value->it_value.tv_sec << "s " << new_value->it_value.tv_usec << "us");
+    SC_NOTICE(
+        "posix_setitimer(" << which << ", " << new_value << ", " << old_value
+                           << ")");
+    SC_NOTICE(
+        " -> period = " << Dec << new_value->it_interval.tv_sec << "s "
+                        << new_value->it_interval.tv_usec << "us");
+    SC_NOTICE(
+        " -> value = " << Dec << new_value->it_value.tv_sec << "s "
+                       << new_value->it_value.tv_usec << "us");
 
     /// \todo check addresses for safety
 
@@ -2121,8 +2144,10 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
     Time::Timestamp prevInterval = 0;
     Time::Timestamp prevValue = 0;
 
-    interval = (new_value->it_interval.tv_sec * Time::Multiplier::Second) + (new_value->it_interval.tv_usec * Time::Multiplier::Microsecond);
-    value = (new_value->it_value.tv_sec * Time::Multiplier::Second) + (new_value->it_value.tv_usec * Time::Multiplier::Microsecond);
+    interval = (new_value->it_interval.tv_sec * Time::Multiplier::Second) +
+               (new_value->it_interval.tv_usec * Time::Multiplier::Microsecond);
+    value = (new_value->it_value.tv_sec * Time::Multiplier::Second) +
+            (new_value->it_value.tv_usec * Time::Multiplier::Microsecond);
 
     IntervalTimer *itimer = &pProcess->getRealIntervalTimer();
     if (which == ITIMER_REAL)
@@ -2152,10 +2177,13 @@ int posix_setitimer(int which, const struct itimerval *new_value, struct itimerv
     if (old_value)
     {
         old_value->it_interval.tv_sec = prevInterval / Time::Multiplier::Second;
-        old_value->it_interval.tv_usec = (prevInterval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+        old_value->it_interval.tv_usec =
+            (prevInterval % Time::Multiplier::Second) /
+            Time::Multiplier::Microsecond;
 
         old_value->it_value.tv_sec = prevValue / Time::Multiplier::Second;
-        old_value->it_value.tv_usec = (prevValue % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+        old_value->it_value.tv_usec = (prevValue % Time::Multiplier::Second) /
+                                      Time::Multiplier::Microsecond;
     }
 
     return 0;
@@ -2201,7 +2229,8 @@ int posix_capget(void *hdrp, void *datap)
 int posix_capset(void *hdrp, const void *datap)
 {
     struct cap_header *header = reinterpret_cast<struct cap_header *>(hdrp);
-    const struct cap_data *data = reinterpret_cast<const struct cap_data *>(datap);
+    const struct cap_data *data =
+        reinterpret_cast<const struct cap_data *>(datap);
 
     if (!header)
     {
@@ -2216,6 +2245,7 @@ int posix_capset(void *hdrp, const void *datap)
         return -1;
     }
 
-    // no-op - capget says all capabilities are given, and the posix subsystem doesn't use them yet
+    // no-op - capget says all capabilities are given, and the posix subsystem
+    // doesn't use them yet
     return 0;
 }

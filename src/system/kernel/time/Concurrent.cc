@@ -47,4 +47,4 @@ void runAfter(int (*func)(void *), void *param, Timestamp nanoseconds)
     p->duration = nanoseconds;
     pocketknife::runConcurrently(runAfterThread, p);
 }
-}
+}  // namespace Time

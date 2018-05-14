@@ -42,8 +42,8 @@ SerialIO::~SerialIO()
 
 void SerialIO::initialise()
 {
-// Save cursor and attributes.
-//   m_pSerial->write("\033[s");
+    // Save cursor and attributes.
+    //   m_pSerial->write("\033[s");
 
 #ifndef SERIAL_IS_FILE
     // Read cursor location.

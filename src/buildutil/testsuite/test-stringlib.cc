@@ -154,7 +154,8 @@ TEST(PedigreeStringLibrary, CompareCaseSame)
     EXPECT_EQ(off, 3);
     EXPECT_EQ(StringCompareCase(str_upper, str_upper, true, 3, &off), 0);
     EXPECT_EQ(off, 3);
-    EXPECT_EQ(StringCompareCase(str_upper, str_lower, true, 3, &off), 'A' - 'a');
+    EXPECT_EQ(
+        StringCompareCase(str_upper, str_lower, true, 3, &off), 'A' - 'a');
     EXPECT_EQ(off, 0);
 }
 

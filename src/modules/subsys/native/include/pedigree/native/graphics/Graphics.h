@@ -379,6 +379,6 @@ inline bool convertPixel(
 
     return false;
 }
-};
+};  // namespace PedigreeGraphics
 
 #endif

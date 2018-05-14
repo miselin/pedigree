@@ -35,11 +35,13 @@ EXPORTED_PUBLIC void pedigree_reboot(void);
 
 EXPORTED_PUBLIC void pedigree_haltfs(void);
 
-EXPORTED_PUBLIC int pedigree_get_mount(char *mount_buf, char *info_buf, size_t n);
+EXPORTED_PUBLIC int
+pedigree_get_mount(char *mount_buf, char *info_buf, size_t n);
 
 EXPORTED_PUBLIC void *pedigree_sys_request_mem(size_t len);
 
-EXPORTED_PUBLIC void pedigree_input_install_callback(void *p, uint32_t type, uintptr_t param);
+EXPORTED_PUBLIC void
+pedigree_input_install_callback(void *p, uint32_t type, uintptr_t param);
 
 EXPORTED_PUBLIC void pedigree_input_remove_callback(void *p);
 
@@ -53,10 +55,11 @@ EXPORTED_PUBLIC void pedigree_module_unload(char *name);
 
 EXPORTED_PUBLIC int pedigree_module_is_loaded(char *name);
 
-EXPORTED_PUBLIC int pedigree_module_get_depending(char *name, char *buf, size_t bufsz);
+EXPORTED_PUBLIC int
+pedigree_module_get_depending(char *name, char *buf, size_t bufsz);
 
-EXPORTED_PUBLIC void pedigree_config_getcolname(
-    size_t resultIdx, size_t n, char *buf, size_t bufsz);
+EXPORTED_PUBLIC void
+pedigree_config_getcolname(size_t resultIdx, size_t n, char *buf, size_t bufsz);
 
 EXPORTED_PUBLIC void pedigree_config_getstr_n(
     size_t resultIdx, size_t row, size_t n, char *buf, size_t bufsz);
@@ -64,13 +67,17 @@ EXPORTED_PUBLIC void pedigree_config_getstr_n(
 EXPORTED_PUBLIC void pedigree_config_getstr_s(
     size_t resultIdx, size_t row, const char *col, char *buf, size_t bufsz);
 
-EXPORTED_PUBLIC int pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n);
+EXPORTED_PUBLIC int
+pedigree_config_getnum_n(size_t resultIdx, size_t row, size_t n);
 
-EXPORTED_PUBLIC int pedigree_config_getnum_s(size_t resultIdx, size_t row, const char *col);
+EXPORTED_PUBLIC int
+pedigree_config_getnum_s(size_t resultIdx, size_t row, const char *col);
 
-EXPORTED_PUBLIC int pedigree_config_getbool_n(size_t resultIdx, size_t row, size_t n);
+EXPORTED_PUBLIC int
+pedigree_config_getbool_n(size_t resultIdx, size_t row, size_t n);
 
-EXPORTED_PUBLIC int pedigree_config_getbool_s(size_t resultIdx, size_t row, const char *col);
+EXPORTED_PUBLIC int
+pedigree_config_getbool_s(size_t resultIdx, size_t row, const char *col);
 
 EXPORTED_PUBLIC int pedigree_config_query(const char *query);
 
@@ -82,7 +89,8 @@ EXPORTED_PUBLIC int pedigree_config_numrows(size_t resultIdx);
 
 EXPORTED_PUBLIC int pedigree_config_was_successful(size_t resultIdx);
 
-EXPORTED_PUBLIC void pedigree_config_get_error_message(size_t resultIdx, char *buf, int buflen);
+EXPORTED_PUBLIC void
+pedigree_config_get_error_message(size_t resultIdx, char *buf, int buflen);
 
 EXPORTED_PUBLIC char *pedigree_config_escape_string(const char *str);
 
@@ -117,10 +125,11 @@ EXPORTED_PUBLIC int pedigree_gfx_create_fbuffer(void *p, void *args);
 
 EXPORTED_PUBLIC void pedigree_gfx_delete_fbuffer(void *p);
 
-EXPORTED_PUBLIC void pedigree_gfx_fbinfo(
-    void *p, size_t *w, size_t *h, uint32_t *fmt, size_t *bypp);
+EXPORTED_PUBLIC void
+pedigree_gfx_fbinfo(void *p, size_t *w, size_t *h, uint32_t *fmt, size_t *bypp);
 
-EXPORTED_PUBLIC void pedigree_gfx_setpalette(void *p, uint32_t *data, size_t entries);
+EXPORTED_PUBLIC void
+pedigree_gfx_setpalette(void *p, uint32_t *data, size_t entries);
 
 // These are provided by libc
 void *malloc(size_t);

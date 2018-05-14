@@ -28,9 +28,9 @@
 #include "pedigree/kernel/utilities/Tree.h"
 
 #include "pedigree/kernel/Subsystem.h"
+#include <FileDescriptor.h>
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
-#include <FileDescriptor.h>
 
 #include "console-syscalls.h"
 #include "file-syscalls.h"
@@ -712,7 +712,8 @@ unsigned int console_getptn(int fd)
     return result;
 }
 
-PosixTerminalEvent::PosixTerminalEvent() : Event(0, false), pGroup(0), pConsole(0)
+PosixTerminalEvent::PosixTerminalEvent()
+    : Event(0, false), pGroup(0), pConsole(0)
 {
 }
 
@@ -777,4 +778,3 @@ bool PosixTerminalEvent::isDeleteable()
 {
     return false;
 }
-

@@ -198,7 +198,8 @@ class Log
     void initialise2();
 
     /** Installs an output callback */
-    EXPORTED_PUBLIC void installCallback(LogCallback *pCallback, bool bSkipBacklog = false);
+    EXPORTED_PUBLIC void
+    installCallback(LogCallback *pCallback, bool bSkipBacklog = false);
 
     /** Removes an output callback */
     EXPORTED_PUBLIC void removeCallback(LogCallback *pCallback);
@@ -210,7 +211,8 @@ class Log
     EXPORTED_PUBLIC Log &operator<<(Modifier type);
 
     /** Adds an entry to the log and immediately flushes. */
-    EXPORTED_PUBLIC void addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
+    EXPORTED_PUBLIC void
+    addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
 
     /** Perform a flush. */
     void flushEntry(bool lock = true);

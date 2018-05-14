@@ -19,4 +19,5 @@
 
 // Weak definition of pcapLogPacket in case pcap module is not loaded.
 extern bool pcapLogPacket(uintptr_t packet, size_t size) WEAK;
-extern bool pcapLogPacketFakeHeader(uintptr_t packet, size_t size, void *from, void *to) WEAK;
+extern bool pcapLogPacketFakeHeader(
+    uintptr_t packet, size_t size, void *from, void *to) WEAK;

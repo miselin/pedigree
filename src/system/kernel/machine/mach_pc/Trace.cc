@@ -19,7 +19,6 @@
 
 #include "pedigree/kernel/machine/Trace.h"
 
-
 namespace pedigree_trace
 {
 void trace(const char *msg)
@@ -27,8 +26,8 @@ void trace(const char *msg)
     short com1 = 0x3F8;
     for (; *msg; ++msg)
     {
-        asm volatile("outb %1, %0" :: "dN" (com1), "a" (*msg));
+        asm volatile("outb %1, %0" ::"dN"(com1), "a"(*msg));
     }
-    asm volatile("outb %1, %0" :: "dN" (com1), "a" ('\n'));
+    asm volatile("outb %1, %0" ::"dN"(com1), "a"('\n'));
 }
-}
+}  // namespace pedigree_trace
