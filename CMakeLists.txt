@@ -79,7 +79,7 @@ if (PEDIGREE_TRAVIS)
     add_definitions(-DTRAVIS=1)
 endif ()
 
-if (CMAKE_COMPILER_IS_GNUC)
+if (CMAKE_COMPILER_IS_GNU)
     set(COMPILER_SPECIFIC_WARNINGS "-Wlogical-op" "-Wsuggest-attribute=noreturn" "-Wtrampolines")
     set(COMPILER_SPECIFIC_WARNINGS_C "")
     set(COMPILER_SPECIFIC_WARNINGS_CXX "-Wuseless-cast")
