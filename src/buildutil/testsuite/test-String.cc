@@ -32,14 +32,11 @@ std::ostream &operator<<(::std::ostream &os, const String &s)
               << static_cast<const void *>(s) << "]";
 }
 
+#define BIGSTRING "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 static const char *bigstring()
 {
-    static char buf[128] = {0};
-    if (!buf[0])
-    {
-        memset(buf, 'a', 127);
-    }
-    return buf;
+    return BIGSTRING;
 }
 
 TEST(PedigreeString, Construction)
@@ -228,14 +225,31 @@ TEST(PedigreeString, NextCharacter)
     EXPECT_EQ(s.nextCharacter(2), 3);
 }
 
-/// \todo(miselin): String::nextCharacter does not pass this today.
-TEST(PedigreeString, NextCharacterUnicode)
+TEST(PedigreeString, NextCharacterUnicode2Byte)
 {
-    // 2-character UTF-8 in the middle of two single-byte characters.
+    // 2-byte UTF-8 in the middle of two single-byte characters.
     String s("h»b");
     EXPECT_EQ(s.nextCharacter(0), 1);
     EXPECT_EQ(s.nextCharacter(1), 3);
     EXPECT_EQ(s.nextCharacter(3), 4);
+}
+
+TEST(PedigreeString, NextCharacterUnicode3Byte)
+{
+    // 3-byte UTF-8 in the middle of two single-byte characters.
+    String s("h€b");
+    EXPECT_EQ(s.nextCharacter(0), 1);
+    EXPECT_EQ(s.nextCharacter(1), 4);
+    EXPECT_EQ(s.nextCharacter(4), 5);
+}
+
+TEST(PedigreeString, NextCharacterUnicode4Byte)
+{
+    // 4-byte UTF-8 in the middle of two single-byte characters.
+    String s("h𐍈b");
+    EXPECT_EQ(s.nextCharacter(0), 1);
+    EXPECT_EQ(s.nextCharacter(1), 5);
+    EXPECT_EQ(s.nextCharacter(5), 6);
 }
 
 TEST(PedigreeString, Equality)
@@ -266,6 +280,13 @@ TEST(PedigreeString, EqualityRawCharBuffer)
     a.free();
     EXPECT_EQ(a, nullptr);
     EXPECT_NE(a, "hello");
+}
+
+TEST(PedigreeString, AssignCString)
+{
+    String s;
+    s = "hello";
+    EXPECT_EQ(s, "hello");
 }
 
 TEST(PedigreeString, AssignBig)
@@ -413,6 +434,13 @@ TEST(PedigreeString, EndsWith)
     EXPECT_TRUE(s.endswith(String("ello")));
 }
 
+TEST(PedigreeString, EndsWithEmpty)
+{
+    String s;
+    EXPECT_FALSE(s.endswith('x'));
+    EXPECT_FALSE(s.endswith("x"));
+}
+
 TEST(PedigreeString, EndsWithCharacter)
 {
     String s("hello");
@@ -425,6 +453,13 @@ TEST(PedigreeString, StartsWith)
     String s("hello");
     EXPECT_TRUE(s.startswith("hel"));
     EXPECT_TRUE(s.startswith(String("hel")));
+}
+
+TEST(PedigreeString, StartsWithEmpty)
+{
+    String s;
+    EXPECT_FALSE(s.startswith('x'));
+    EXPECT_FALSE(s.startswith("x"));
 }
 
 TEST(PedigreeString, StartsWithCharacter)
@@ -491,11 +526,26 @@ TEST(PedigreeString, Find)
     EXPECT_EQ(s.rfind('!'), -1);
 }
 
+TEST(PedigreeString, FindEmpty)
+{
+    String s;
+    EXPECT_EQ(s.find('x'), -1);
+    EXPECT_EQ(s.find('\0'), -1);
+}
+
+TEST(PedigreeString, ReverseFindEmpty)
+{
+    String s;
+    EXPECT_EQ(s.rfind('x'), -1);
+    EXPECT_EQ(s.rfind('\0'), -1);
+}
+
 TEST(PedigreeString, UnicodeConversion)
 {
     uint32_t a = 'a';
     uint32_t b = 0x263a;  // 16-bit, U+263A (smiling face)
     uint32_t c = 0x1f389;  // U+1F389 (party popper)
+    uint32_t d = 0xbb;  // 8-bit, U+BB (pedigree's path separator)
 
     char buf[5];
     ByteSet(buf, 0, 5);
@@ -508,6 +558,9 @@ TEST(PedigreeString, UnicodeConversion)
 
     String::Utf32ToUtf8(c, buf);
     EXPECT_STREQ(buf, "🎉");
+
+    String::Utf32ToUtf8(d, buf);
+    EXPECT_STREQ(buf, "»");
 }
 
 TEST(PedigreeString, Move)
@@ -527,4 +580,34 @@ TEST(PedigreeString, MoveConstruct)
     String s2(pedigree_std::move(s1));
     EXPECT_STREQ(s1, "");
     EXPECT_STREQ(s2, "hello");
+}
+
+TEST(PedigreeString, AppendOtherString)
+{
+    String s1("hello");
+    String s2(" world");
+    s1 += s2;
+    EXPECT_STREQ(s1, "hello world");
+}
+
+TEST(PedigreeString, AppendOtherCString)
+{
+    String s1("hello");
+    s1 += " world";
+    EXPECT_STREQ(s1, "hello world");
+}
+
+TEST(PedigreeString, AppendOtherStringBig)
+{
+    String s1("hello");
+    String s2(BIGSTRING);
+    s1 += s2;
+    EXPECT_STREQ(s1, "hello" BIGSTRING);
+}
+
+TEST(PedigreeString, AppendOtherCStringBig)
+{
+    String s1("hello");
+    s1 += BIGSTRING;
+    EXPECT_STREQ(s1, "hello" BIGSTRING);
 }
