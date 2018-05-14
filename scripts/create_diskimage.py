@@ -160,7 +160,10 @@ def build_file_list(all_sources):
             else:
                 prefix = '/applications'
         elif dirname.endswith('src/modules'):
-            prefix = '/system/modules'
+            if basename.startswith('lib') and basename.endswith('.so'):
+                prefix = '/libraries'
+            else:
+                prefix = '/system/modules'
 
         add_copy(copies, source, os.path.join(prefix, basename))
 

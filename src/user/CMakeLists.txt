@@ -26,7 +26,11 @@ function(pedigree_app name posix native pedigreec libs)
         set(TARGET_LIBS ${TARGET_LIBS} pedigree-c-user)
     endif ()
 
-    target_link_libraries(app-${name} PRIVATE ${TARGET_LIBS})
+    # Using rpath-link option to help find the libraries at link time. At
+    # runtime these will be found by the dynamic linker automatically.
+    target_link_libraries(app-${name} PRIVATE
+        ${TARGET_LIBS}
+        -Wl,-rpath-link=${CMAKE_SOURCE_DIR}/images/local/libraries)
     target_include_directories(app-${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}/include)
@@ -114,6 +118,7 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mprotect.c)
 pedigree_app(thread-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
 pedigree_app(tour ON OFF OFF "intl;dialog" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
+pedigree_app(ttyterm ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
 pedigree_app(uitest ON ON OFF "libui" ${CMAKE_CURRENT_SOURCE_DIR}/applications/uitest/main.cc)
 pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype"
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/Png.cc

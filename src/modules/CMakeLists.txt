@@ -19,15 +19,13 @@ set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
 # TODO: handle static drivers
+# TODO: x64-specific
 set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link.ld")
-set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} "-fPIC" "-fno-omit-frame-pointer" "-nostdlib")
+set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} "-fPIC" "-fno-omit-frame-pointer" "-nostdlib" "-m64"
+    "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
 set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
 set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit")
 set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" "-Wl,-shared" "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
-
-add_compile_options(
-    "$<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>"
-    "$<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS}>")
 
 add_definitions(-DUSE_PIC_SYSCALLS)
 
@@ -41,39 +39,40 @@ set(CDI_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/include
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/include)
 
-math(EXPR POSIX_LOGGING 0)
+set(POSIX_LOGGING 0)
 if (PEDIGREE_POSIX_VERBOSE)
-    math(EXPR POSIX_LOGGING 0xffffffff)
+    set(POSIX_LOGGING 0xffffffff)
 else ()
     if (PEDIGREE_POSIX_FILE_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 1)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 1")
     endif ()
     if (PEDIGREE_POSIX_SYS_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 2)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 2")
     endif ()
     if (PEDIGREE_POSIX_THR_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 4)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 4")
     endif ()
     if (PEDIGREE_POSIX_NET_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 8)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 8")
     endif ()
     if (PEDIGREE_POSIX_SUBSYS_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 16)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 16")
     endif ()
     if (PEDIGREE_POSIX_SIG_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 32)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 32")
     endif ()
     if (PEDIGREE_POSIX_SIG_ULTRA_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 64)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 64")
     endif ()
     if (PEDIGREE_POSIX_SYSCALL_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 128)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 128")
     endif ()
     if (PEDIGREE_POSIX_POLL_VERBOSE)
-        math(EXPR POSIX_LOGGING ${POSIX_LOGGING} + 256)
+        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 256")
     endif ()
 endif ()
 
+message("POSIX logging ${POSIX_LOGGING}")
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
 if (PEDIGREE_POSIX_NOEFAULT)
@@ -87,6 +86,8 @@ function(pedigree_module name opts libs)
     set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
     target_compile_options(${name} PRIVATE
         ${opts}
+        $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
+        $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS}>
         $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
     target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
 
@@ -103,6 +104,12 @@ function(pedigree_module name opts libs)
 
     set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
     set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
+
+    # split debug info into a .debug file so it's accessible but not present in the module binary itself
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
+        COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${name}>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
 endfunction()
 
 add_library(module STATIC
@@ -507,6 +514,8 @@ add_library(pedigree-c-user SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
 set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
 add_dependencies(pedigree-c-user libc)
+
+set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> $<TARGET_FILE:pedigree-c-user> PARENT_SCOPE)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
     COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}

@@ -16,6 +16,9 @@ find_package(FLEX)
 find_package(PythonInterp)
 find_program(MKISOFS NAMES mkisofs genisoimage xorriso)
 
+# No rpath for anything.
+set(CMAKE_SKIP_RPATH TRUE)
+
 # Flags that affect the entire build.
 set(PEDIGREE_DEBUGGER TRUE CACHE BOOL "Enable the kernel debugger.")
 set(PEDIGREE_ADDITIONAL_CHECKS TRUE CACHE BOOL "Enable additional checks on some operations across the kernel.")
@@ -264,9 +267,12 @@ if(CMAKE_CROSSCOMPILING)
         ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
         ${PEDIGREE_APPS}
         ${PEDIGREE_LIBS}
+        ${PEDIGREE_SUBSYSTEM_LIBS}
         DEPENDS
-        kernel kernelfinal initrd configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
-        libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS} ${PEDIGREE_KERNEL_MODULE_TARGETS}
+        kernel kernelfinal initrd
+        ${PEDIGREE_KERNEL_MODULE_TARGETS}
+        configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
+        libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
         ${PEDIGREE_KEYMAPS_TARGETS} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
         )
     add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
@@ -301,7 +307,8 @@ if(CMAKE_CROSSCOMPILING)
         boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
         .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
         ${ISO_EXTRAFILES}
-        DEPENDS kernel kernelfinal initrd configdb ${ISO_EXTRADEPENDS})
+        DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
+        ${ISO_EXTRADEPENDS})
     add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)

@@ -61,7 +61,7 @@ def main():
         return 1
 
     # TODO(miselin): allow this to work with custom build directories.
-    build_dir = os.path.join(scriptdir, '..', 'build-cmake')
+    build_dir = os.path.join(scriptdir, '..', 'build')
 
     try:
         serial_file = sys.argv[1]
@@ -94,11 +94,13 @@ def main():
             addend = 0
 
         for d in (kernel_dir, modules_dir, drivers_dir, subsystems_dir):
-            filename = os.path.join(d, '%s.o' % which)
+            filename = os.path.join(d, '%s.debug' % which)
             if not os.path.isfile(filename):
-                filename = os.path.join(d, '%s' % which)
+                filename = os.path.join(d, '%s.o' % which)
                 if not os.path.isfile(filename):
-                    continue
+                    filename = os.path.join(d, '%s' % which)
+                    if not os.path.isfile(filename):
+                        continue
 
             os.system('addr2line -p -C -f -i -e %s 0x%x' % (filename, address + addend))
 
