@@ -192,7 +192,7 @@ TEST(PedigreeString, SplitTooFar)
 TEST(PedigreeString, EmptyTokenise)
 {
     String s("  a  ");
-    List<String> result = s.tokenise(' ');
+    Vector<String> result = s.tokenise(' ');
     EXPECT_EQ(result.count(), 1);
     EXPECT_STREQ(result.popFront(), "a");
 }
@@ -200,7 +200,8 @@ TEST(PedigreeString, EmptyTokenise)
 TEST(PedigreeString, Tokenise)
 {
     String s("hello world, this is a testcase that exercises tokenise");
-    List<String> result = s.tokenise(' ');
+    Vector<String> result = s.tokenise(' ');
+    EXPECT_EQ(result.count(), 9);
     EXPECT_STREQ(result.popFront(), "hello");
     EXPECT_STREQ(result.popFront(), "world,");
     EXPECT_STREQ(result.popFront(), "this");
@@ -216,8 +217,9 @@ TEST(PedigreeString, Tokenise)
 TEST(PedigreeString, TokeniseWithViews)
 {
     String s("hello world, this is a testcase that exercises tokenise");
-    List<StringView> result;
+    Vector<StringView> result;
     s.tokenise(' ', result);
+    EXPECT_EQ(result.count(), 9);
     EXPECT_EQ(result.popFront(), "hello");
     EXPECT_EQ(result.popFront(), "world,");
     EXPECT_EQ(result.popFront(), "this");
@@ -233,7 +235,7 @@ TEST(PedigreeString, TokeniseWithViews)
 TEST(PedigreeString, TokeniseLength)
 {
     String s("hello world");
-    List<String> result = s.tokenise(' ');
+    Vector<String> result = s.tokenise(' ');
     EXPECT_EQ(result.popFront().length(), 5);
     EXPECT_EQ(result.popFront().length(), 5);
 }

@@ -248,7 +248,7 @@ void Vector<T>::pushFront(const T &value)
 template <class T>
 T Vector<T>::popFront()
 {
-    T ret = m_Data[0];
+    T ret = m_Data[m_Start];
     m_Count--;
     m_Start++;
     return ret;

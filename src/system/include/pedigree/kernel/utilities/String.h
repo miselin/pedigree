@@ -25,7 +25,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/StringView.h"
 
@@ -124,10 +124,10 @@ class EXPORTED_PUBLIC String
     String split(size_t offset);
     void split(size_t offset, String &back);
 
-    List<String> tokenise(char token);
-    void tokenise(char token, List<String> &output) const;
+    Vector<String> tokenise(char token);
+    void tokenise(char token, Vector<String> &output) const;
     /** No-copy version of tokenise() that provides views instead of Strings */
-    void tokenise(char token, List<StringView> &output) const;
+    void tokenise(char token, Vector<StringView> &output) const;
 
     /** Converts a UTF-32 character to its UTF-8 representation.
      *\param[in] utf32 Input UTF-32 character.

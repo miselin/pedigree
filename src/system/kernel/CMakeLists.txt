@@ -312,6 +312,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/SharedPointer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/StaticString.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/String.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/StringView.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/TimeoutGuard.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Tree.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/UnlikelyLock.cc

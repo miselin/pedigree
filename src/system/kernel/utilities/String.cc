@@ -20,6 +20,7 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 #include "pedigree/kernel/Log.h"
 
@@ -502,9 +503,9 @@ void String::rstrip()
     computeHash();
 }
 
-List<String> String::tokenise(char token)
+Vector<String> String::tokenise(char token)
 {
-    List<String> list;
+    Vector<String> list;
     tokenise(token, list);
     return list;
 }
@@ -545,7 +546,7 @@ size_t String::Utf32ToUtf8(uint32_t utf32, char *utf8)
     return nbuf;
 }
 
-void String::tokenise(char token, List<StringView> &output) const
+void String::tokenise(char token, Vector<StringView> &output) const
 {
     const char *orig_buffer = extract();
     const char *buffer = orig_buffer;
@@ -589,9 +590,9 @@ void String::tokenise(char token, List<StringView> &output) const
     }
 }
 
-void String::tokenise(char token, List<String> &output) const
+void String::tokenise(char token, Vector<String> &output) const
 {
-    List<StringView> views;
+    Vector<StringView> views;
     tokenise(token, views);
 
     output.clear();

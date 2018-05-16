@@ -86,7 +86,7 @@ void Log::initialise1()
     char *cmdline = g_pBootstrapInfo->getCommandLine();
     if (cmdline)
     {
-        List<String> cmds = String(cmdline).tokenise(' ');
+        Vector<String> cmds = String(cmdline).tokenise(' ');
         for (auto it = cmds.begin(); it != cmds.end(); it++)
         {
             auto cmd = *it;

@@ -25,6 +25,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/IteratorAdapter.h"
+#include "pedigree/kernel/utilities/ObjectPool.h"
 #include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/String.h"
 

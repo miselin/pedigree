@@ -1236,7 +1236,7 @@ bool PosixSubsystem::parseShebang(
     fileContents.lchomp();
 
     // OK, we have a shebang line. We need to tokenize.
-    List<String> additionalArgv = fileContents.tokenise(' ');
+    Vector<String> additionalArgv = fileContents.tokenise(' ');
     if (!additionalArgv.count())
     {
         // Not a true shebang line.
@@ -1265,9 +1265,9 @@ bool PosixSubsystem::parseShebang(
 
     // OK, we can now insert to argv - we do so backwards so it's just a simple
     // pushFront.
-    for (auto it = additionalArgv.rbegin(); it != additionalArgv.rend(); ++it)
+    while (additionalArgv.count())
     {
-        argv.pushFront(*it);
+        argv.pushFront(additionalArgv.popBack());
     }
 
     pOutFile = pNewTarget;

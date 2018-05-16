@@ -300,7 +300,7 @@ static void BM_CxxStringTokenizeRef(benchmark::State &state)
     String s(buf, state.range(0));
     while (state.KeepRunning())
     {
-        List<String> tokens;
+        Vector<String> tokens;
         s.tokenise(' ', tokens);
         benchmark::DoNotOptimize(s);
     }
@@ -328,7 +328,7 @@ static void BM_CxxStringTokenizeViews(benchmark::State &state)
     String s(buf, state.range(0));
     while (state.KeepRunning())
     {
-        List<StringView> tokens;
+        Vector<StringView> tokens;
         s.tokenise(' ', tokens);
         benchmark::DoNotOptimize(s);
     }

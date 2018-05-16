@@ -428,3 +428,18 @@ TEST(PedigreeVector, NonTrivialObjects)
     EXPECT_NE(x[4].get(), (int *) 0);
     EXPECT_NE(x[5].get(), (int *) 0);
 }
+
+TEST(PedigreeVector, PopFrontWorks)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+    x.pushBack(4);
+
+    EXPECT_EQ(x.popFront(), 1);
+    EXPECT_EQ(x.popFront(), 2);
+    EXPECT_EQ(x.popFront(), 3);
+    EXPECT_EQ(x.popFront(), 4);
+    EXPECT_EQ(x.count(), 0);
+}
