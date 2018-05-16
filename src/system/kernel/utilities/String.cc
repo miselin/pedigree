@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "pedigree/kernel/Log.h"
@@ -39,10 +40,12 @@ String::String(const char *s, size_t length) : String()
     assign(s, length);
 }
 
+#if !STRING_DISABLE_COPY_CONSTRUCTION
 String::String(const String &x) : String()
 {
     assign(x);
 }
+#endif
 
 String::String(String &&x)
 {
@@ -80,6 +83,7 @@ String &String::operator=(String &&x)
     return *this;
 }
 
+#if !STRING_DISABLE_COPY_CONSTRUCTION
 String &String::operator=(const String &x)
 {
     assign(x);
@@ -91,6 +95,7 @@ String &String::operator=(const char *s)
     assign(s);
     return *this;
 }
+#endif
 
 String &String::operator+=(const String &x)
 {
@@ -540,47 +545,59 @@ size_t String::Utf32ToUtf8(uint32_t utf32, char *utf8)
     return nbuf;
 }
 
-void String::tokenise(char token, List<String> &output) const
+void String::tokenise(char token, List<StringView> &output) const
 {
     const char *orig_buffer = extract();
     const char *buffer = orig_buffer;
 
     output.clear();
 
-    const char *pos = nullptr;
-    while (*buffer)
+    const char *pos = buffer ? StringFind(buffer, token) : nullptr;
+    while (pos && (*buffer))
     {
-        pos = StringFind(buffer, token);
-        if (!pos)
-        {
-            break;
-        }
-
         if (pos == buffer)
         {
             ++buffer;
             continue;
         }
 
-        if (pos - buffer)
+        if (pos > buffer)
         {
-            String str;
-            str.assign(buffer, pos - buffer, true);
-            output.pushBack(pedigree_std::move(str));
+            output.pushBack(StringView(buffer, pos - buffer));
         }
 
         buffer = pos + 1;
+
+        pos = StringFind(buffer, token);
     }
 
-    if (!pos)
+    if (buffer && !pos)
     {
-        size_t length = m_Length - (buffer - orig_buffer);
-        if (length)
+        // might be able to just copy this string rather than copy & move
+        if (buffer == orig_buffer)
         {
-            String str;
-            str.assign(buffer, length, true);
-            output.pushBack(pedigree_std::move(str));
+            output.pushBack(view());
         }
+        else
+        {
+            size_t length = m_Length - (buffer - orig_buffer);
+            if (length)
+            {
+                output.pushBack(StringView(buffer, length));
+            }
+        }
+    }
+}
+
+void String::tokenise(char token, List<String> &output) const
+{
+    List<StringView> views;
+    tokenise(token, views);
+
+    output.clear();
+    for (auto &it : views)
+    {
+        output.pushBack(it.toString());
     }
 }
 
@@ -799,4 +816,16 @@ void String::computeHash()
     {
         m_Hash = 0;
     }
+}
+
+String String::copy() const
+{
+    String result;
+    result.assign(*this);
+    return pedigree_std::move(result);
+}
+
+StringView String::view() const
+{
+    return StringView(extract(), m_Length);
 }

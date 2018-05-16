@@ -83,6 +83,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/SharedPointer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StaticString.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StringView.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Tree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/UnlikelyLock.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/utility.cc
@@ -197,6 +198,7 @@ add_executable(testsuite
     testsuite/test-StaticString.cc
     testsuite/test-LazyEvaluate.cc
     testsuite/test-ConditionVariable.cc
+    testsuite/test-StringView.cc
 )
 target_link_libraries(testsuite PRIVATE
     kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)

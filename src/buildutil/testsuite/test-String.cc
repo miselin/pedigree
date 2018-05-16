@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 
 // Output our String objects nicely (not as a list of bytes).
 std::ostream &operator<<(::std::ostream &os, const String &s)
@@ -209,6 +210,23 @@ TEST(PedigreeString, Tokenise)
     EXPECT_STREQ(result.popFront(), "that");
     EXPECT_STREQ(result.popFront(), "exercises");
     EXPECT_STREQ(result.popFront(), "tokenise");
+    EXPECT_EQ(result.count(), 0);  // no more tokens
+}
+
+TEST(PedigreeString, TokeniseWithViews)
+{
+    String s("hello world, this is a testcase that exercises tokenise");
+    List<StringView> result;
+    s.tokenise(' ', result);
+    EXPECT_EQ(result.popFront(), "hello");
+    EXPECT_EQ(result.popFront(), "world,");
+    EXPECT_EQ(result.popFront(), "this");
+    EXPECT_EQ(result.popFront(), "is");
+    EXPECT_EQ(result.popFront(), "a");
+    EXPECT_EQ(result.popFront(), "testcase");
+    EXPECT_EQ(result.popFront(), "that");
+    EXPECT_EQ(result.popFront(), "exercises");
+    EXPECT_EQ(result.popFront(), "tokenise");
     EXPECT_EQ(result.count(), 0);  // no more tokens
 }
 
@@ -613,4 +631,11 @@ TEST(PedigreeString, AppendOtherCStringBig)
     String s1("hello");
     s1 += BIGSTRING;
     EXPECT_STREQ(s1, "hello" BIGSTRING);
+}
+
+TEST(PedigreeString, View)
+{
+    String s1("hello");
+    StringView s1_view = s1.view();
+    EXPECT_EQ(s1_view, s1);
 }

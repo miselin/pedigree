@@ -26,12 +26,17 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/utilities/StringView.h"
 
 // If non-zero, a constexpr constructor will be available in String. It is an
 // experimental change that needs some more work to be stable.
 #define STRING_WITH_CONSTEXPR_CONSTRUCTOR 0
+
+// If non-zero, all copy-construction will be disabled. An explicit call to
+// copy() is needed to actively copy a String object in that case. This can be
+// helpful for removing copies that are not necessary.
+#define STRING_DISABLE_COPY_CONSTRUCTION 0
 
 /** String class for ASCII strings
  *\todo provide documentation */
@@ -42,7 +47,11 @@ class EXPORTED_PUBLIC String
     String();
     String(const char *s);
     String(const char *s, size_t length);
+#if STRING_DISABLE_COPY_CONSTRUCTION
+    String(const String &x) = delete;
+#else
     String(const String &x);
+#endif
     String(String &&x);
     ~String();
 
@@ -52,8 +61,10 @@ class EXPORTED_PUBLIC String
 #endif
 
     String &operator=(String &&x);
+#if !STRING_DISABLE_COPY_CONSTRUCTION
     String &operator=(const String &x);
     String &operator=(const char *s);
+#endif
     operator const char *() const
     {
         if (m_Size == StaticSize)
@@ -115,6 +126,8 @@ class EXPORTED_PUBLIC String
 
     List<String> tokenise(char token);
     void tokenise(char token, List<String> &output) const;
+    /** No-copy version of tokenise() that provides views instead of Strings */
+    void tokenise(char token, List<StringView> &output) const;
 
     /** Converts a UTF-32 character to its UTF-8 representation.
      *\param[in] utf32 Input UTF-32 character.
@@ -149,6 +162,14 @@ class EXPORTED_PUBLIC String
     ssize_t find(const char c) const;
     ssize_t rfind(const char c) const;
 
+    /** Copy the String object into a new String. */
+    String copy() const;
+
+    /** Get a StringView of this String.
+     * \note this view may become invalid if the String is modified.
+     */
+    StringView view() const;
+
   private:
     /** Internal doer for reserve() */
     void reserve(size_t size, bool zero);
@@ -175,8 +196,6 @@ class EXPORTED_PUBLIC String
     /** Is the given character whitespace? (for *strip()) */
     bool iswhitespace(const char c) const;
 
-    /** tokenise() pointer type. */
-    typedef SharedPointer<String> tokenise_t;
     /** Hash of the string. */
     uint32_t m_Hash;
 };

@@ -309,6 +309,34 @@ static void BM_CxxStringTokenizeRef(benchmark::State &state)
     state.SetComplexityN(state.range(0));
 }
 
+static void BM_CxxStringTokenizeViews(benchmark::State &state)
+{
+    char buf[state.range(0)];
+    memset(buf, 0, state.range(0));
+    for (size_t i = 0; i < state.range(0) - 1; ++i)
+    {
+        if (i % 2)
+        {
+            buf[i] = ' ';
+        }
+        else
+        {
+            buf[i] = 'a';
+        }
+    }
+
+    String s(buf, state.range(0));
+    while (state.KeepRunning())
+    {
+        List<StringView> tokens;
+        s.tokenise(' ', tokens);
+        benchmark::DoNotOptimize(s);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
 static void BM_CxxStringCompareBestCase(benchmark::State &state)
 {
     char left[state.range(0)];
@@ -433,6 +461,7 @@ BENCHMARK(BM_CxxStringSplit)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringSplitRef)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringTokenize)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringTokenizeRef)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringTokenizeViews)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringCompareBestCase)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringCompareAverageCase)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringCompareWorstCase)->Range(8, 4096)->Complexity();
