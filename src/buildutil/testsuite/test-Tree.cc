@@ -76,3 +76,110 @@ TEST(PedigreeTree, Removal)
 
     EXPECT_EQ(x.lookup(2), 2);
 }
+
+TEST(PedigreeTree, RootRemoval)
+{
+    Tree<int, int> x;
+    x.insert(1, 1);
+    x.insert(2, 2);  // should become the root of the tree
+    x.insert(3, 3);
+    x.remove(2);
+    EXPECT_EQ(x.count(), 2);
+
+    EXPECT_EQ(x.lookup(1), 1);
+    EXPECT_EQ(x.lookup(2), 0);
+    EXPECT_EQ(x.lookup(3), 3);
+}
+
+TEST(PedigreeTree, LeftRemoval)
+{
+    Tree<int, int> x;
+    x.insert(1, 1);
+    x.insert(2, 2);  // should become the root of the tree
+    x.insert(3, 3);
+    x.remove(1);
+    EXPECT_EQ(x.count(), 2);
+
+    EXPECT_EQ(x.lookup(1), 0);
+    EXPECT_EQ(x.lookup(2), 2);
+    EXPECT_EQ(x.lookup(3), 3);
+}
+
+TEST(PedigreeTree, RightRemoval)
+{
+    Tree<int, int> x;
+    x.insert(1, 1);
+    x.insert(2, 2);  // should become the root of the tree
+    x.insert(3, 3);
+    x.remove(3);
+    EXPECT_EQ(x.count(), 2);
+
+    EXPECT_EQ(x.lookup(1), 1);
+    EXPECT_EQ(x.lookup(2), 2);
+    EXPECT_EQ(x.lookup(3), 0);
+}
+
+TEST(PedigreeTree, DoubleInsertionValueUnchanged)
+{
+    Tree<int, int> x;
+    x.insert(1, 1);
+    x.insert(1, 2);
+    EXPECT_EQ(x.lookup(1), 1);
+}
+
+TEST(PedigreeTree, SortedInsertion)
+{
+    Tree<int, int> x;
+    size_t insertions = 0;
+    for (int i = 1; i < 1024; ++i)
+    {
+        x.insert(i, i);
+        ++insertions;
+    }
+
+    EXPECT_EQ(x.count(), insertions);
+    for (int i = 1; i < 1024; ++i)
+    {
+        EXPECT_EQ(x.lookup(i), i);
+    }
+}
+
+TEST(PedigreeTree, ReverseSortedInsertion)
+{
+    Tree<int, int> x;
+    size_t insertions = 0;
+    for (int i = 1023; i > 0; --i)
+    {
+        x.insert(i, i);
+        ++insertions;
+    }
+
+    EXPECT_EQ(x.count(), insertions);
+    for (int i = 1; i < 1024; ++i)
+    {
+        EXPECT_EQ(x.lookup(i), i);
+    }
+}
+
+TEST(PedigreeTree, Iteration)
+{
+    Tree<int, int> x;
+    x.insert(1, 1);
+    x.insert(2, 2);
+    x.insert(3, 3);
+    x.insert(4, 4);
+    x.insert(5, 5);
+
+    auto it = x.begin();
+    EXPECT_EQ(it.value(), 1);
+    ++it;
+    EXPECT_EQ(it.value(), 2);
+    ++it;
+    EXPECT_EQ(it.value(), 3);
+    ++it;
+    EXPECT_EQ(it.value(), 4);
+    ++it;
+    EXPECT_EQ(it.value(), 5);
+    ++it;
+    EXPECT_EQ(it, x.end());
+}

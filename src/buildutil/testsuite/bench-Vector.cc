@@ -21,6 +21,8 @@
 
 #include <string.h>
 
+#include <vector>
+
 #include <benchmark/benchmark.h>
 
 #include "pedigree/kernel/utilities/Vector.h"
@@ -38,6 +40,19 @@ static void BM_VectorPushBack(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
+static void BM_VectorPushBackSTL(benchmark::State &state)
+{
+    std::vector<int64_t> vector;
+    const int64_t value = 1;
+
+    while (state.KeepRunning())
+    {
+        vector.push_back(value);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
 static void BM_VectorPushFront(benchmark::State &state)
 {
     Vector<int64_t> vector;
@@ -46,6 +61,19 @@ static void BM_VectorPushFront(benchmark::State &state)
     while (state.KeepRunning())
     {
         vector.pushFront(value);
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_VectorPushFrontSTL(benchmark::State &state)
+{
+    std::vector<int64_t> vector;
+    const int64_t value = 1;
+
+    while (state.KeepRunning())
+    {
+        vector.insert(vector.begin(), value);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -132,7 +160,9 @@ static void BM_VectorPopBack(benchmark::State &state)
 // Vector is *not fast* to do huge amounts of insertions/deletions in, so we
 // don't have quite as large a range as, say, List<T>'s tests.
 BENCHMARK(BM_VectorPushFront);
+BENCHMARK(BM_VectorPushFrontSTL);
 BENCHMARK(BM_VectorPushBack);
+BENCHMARK(BM_VectorPushBackSTL);
 BENCHMARK(BM_VectorReservedPushFront);
 BENCHMARK(BM_VectorReservedPushBack);
 BENCHMARK(BM_VectorPopFront)->Range(8, 8 << 8);

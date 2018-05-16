@@ -42,7 +42,6 @@ class BloomFilter
 
     void add(const T *data, size_t length)
     {
-        return;
         uint64_t baseHash[2];
         MurmurHash3_x64_128(data, length, 0, baseHash);
 
@@ -60,7 +59,6 @@ class BloomFilter
 
     bool contains(const T *data, size_t length)
     {
-        return true;
         uint64_t baseHash[2];
         MurmurHash3_x64_128(data, length, 0, baseHash);
 

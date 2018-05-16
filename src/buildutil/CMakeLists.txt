@@ -20,7 +20,7 @@ add_definitions(
     -DSTANDALONE_MEMPOOL -DDEVICE_IGNORE_ADDRESSES -DBITS_64 -DLITTLE_ENDIAN
     -DVFS_NOMMU -DVFS_STANDALONE -DEXT2_STANDALONE)
 
-set(BUILDUTIL_FLAGS -ggdb -gdwarf-2 -Os)
+set(BUILDUTIL_FLAGS -ggdb -gdwarf-2)
 set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
 set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
 set(BUILDUTIL_LINKFLAGS "")
@@ -31,6 +31,7 @@ if (PEDIGREE_BUILDUTILS_ASAN)
     set(BUILDUTIL_LINKFLAGS "${BUILDUTIL_LINKFLAGS} -fsanitize=address")
 endif ()
 
+set(NONCOVERAGE_FLAGS -Os)
 set(COVERAGE_FLAGS -O0 -fprofile-arcs -ftest-coverage)
 set(COVERAGE_LINKFLAGS --coverage gcov)
 
@@ -57,6 +58,7 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc)
 add_library(kernel ${KERNEL_SRCS})
 add_library(kernel_coverage ${KERNEL_SRCS})
+target_compile_options(kernel PRIVATE ${NONCOVERAGE_FLAGS})
 # NOTE: using 'PUBLIC' here means anything using kernel_coverage will also get
 # these flags.
 target_compile_options(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
@@ -64,23 +66,27 @@ target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFL
 target_compile_definitions(kernel_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
 
 set(UTILITY_SRCS
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/List.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Vector.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Tree.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ExtensibleBitmap.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ObjectPool.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/utility.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/UnlikelyLock.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RequestQueue.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StaticString.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RangeList.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ExtensibleBitmap.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/HashTable.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/LazyEvaluate.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/List.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ObjectPool.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ProducerConsumer.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RingBuffer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RadixTree.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RangeList.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RequestQueue.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Result.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RingBuffer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/SharedPointer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StaticString.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Tree.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/UnlikelyLock.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/utility.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Vector.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/sha1/sha1.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/smhasher/MurmurHash3.cpp
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/demangle.cc
@@ -105,6 +111,7 @@ set(UTILITY_SRCS
 
 add_library(utility ${UTILITY_SRCS})
 add_library(utility_coverage ${UTILITY_SRCS})
+target_compile_options(utility PRIVATE ${NONCOVERAGE_FLAGS})
 target_compile_options(utility_coverage PUBLIC ${COVERAGE_FLAGS})
 target_link_libraries(utility_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
 target_compile_definitions(utility_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
@@ -166,6 +173,7 @@ target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
 # TODO: figure out how to build vdsotest given vdso.h could potentially not exist
 
 add_executable(testsuite
+    testsuite/test-BloomFilter.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc
@@ -203,6 +211,7 @@ export(
 
 if (BENCHMARK_LIBRARY)
     add_executable(benchmarker
+        testsuite/bench-BloomFilter.cc
         testsuite/bench-ExtensibleBitmap.cc
         testsuite/bench-SymbolTableConcepts.cc
         testsuite/bench-stringlib.cc
@@ -222,6 +231,7 @@ if (BENCHMARK_LIBRARY)
     )
     target_link_libraries(benchmarker PRIVATE
         kernel utility Threads::Threads ${BENCHMARK_LIBRARY})
+    target_compile_options(benchmarker PRIVATE -Os)
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 
     export(

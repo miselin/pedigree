@@ -24,6 +24,7 @@
 #include <time.h>
 
 #include <map>
+#include <iostream>
 
 #include <benchmark/benchmark.h>
 
@@ -133,7 +134,7 @@ static void BM_TreeLookupWithFilter(benchmark::State &state)
 
     for (size_t i = 0; i < state.range(0); ++i)
     {
-        int64_t key = RandomNumber();
+        int64_t key = static_cast<int64_t>(i);
         tree.insert(key, RandomNumber());
         filter.add(key);
     }
@@ -145,10 +146,11 @@ static void BM_TreeLookupWithFilter(benchmark::State &state)
         int64_t key = a++ % state.range(0);
         if (filter.contains(key))
         {
-            benchmark::DoNotOptimize(tree.lookup(a++ % state.range(0)));
+            benchmark::DoNotOptimize(tree.lookup(key));
         }
         else
         {
+            std::cerr << "Bloom filter did not contain key " << key << " [range=" << state.range(0) << "]" << std::endl;
             abort();
         }
     }
@@ -208,13 +210,11 @@ static void BM_TreeLookupDoesNotExist(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-/*
-BENCHMARK(BM_TreeInsert)->Range(4, 1 << 22)->Complexity();
-BENCHMARK(BM_TreeLookup)->Range(4, 1 << 22)->Complexity();
-BENCHMARK(BM_TreeInsertReverse)->Range(4, 1 << 22)->Complexity();
-BENCHMARK(BM_TreeLookupSingle)->Range(4, 1 << 22)->Complexity();
-BENCHMARK(BM_TreeLookupDoesNotExist)->Range(4, 1 << 22);
-*/
+BENCHMARK(BM_TreeInsert)->Range(4, 1 << 18)->Complexity();
+BENCHMARK(BM_TreeLookup)->Range(4, 1 << 18)->Complexity();
+BENCHMARK(BM_TreeInsertReverse)->Range(4, 1 << 18)->Complexity();
+BENCHMARK(BM_TreeLookupSingle)->Range(4, 1 << 18)->Complexity();
+BENCHMARK(BM_TreeLookupDoesNotExist)->Range(4, 1 << 18);
 
-BENCHMARK(BM_TreeLookupWithFilter)->Range(4, 1 << 22)->Complexity();
-BENCHMARK(BM_TreeFailedLookupWithFilter)->Range(4, 1 << 22)->Complexity();
+BENCHMARK(BM_TreeLookupWithFilter)->Range(4, 1 << 18)->Complexity();
+BENCHMARK(BM_TreeFailedLookupWithFilter)->Range(4, 1 << 18)->Complexity();

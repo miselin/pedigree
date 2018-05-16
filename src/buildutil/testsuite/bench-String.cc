@@ -136,8 +136,6 @@ static void BM_CxxStringStartswithWorstCase(benchmark::State &state)
     state.SetComplexityN(s.length());
 }
 
-#include <iostream>
-
 static void BM_CxxStringEndswith(benchmark::State &state)
 {
     String tail("hello, world!");
