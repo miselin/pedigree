@@ -299,6 +299,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/HashTable.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/LazyEvaluate.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/List.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/LruCache.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/MemoryCount.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/MemoryPool.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ObjectPool.cc

@@ -50,7 +50,9 @@ File *Filesystem::getTrueRoot()
 File *Filesystem::find(const StringView &path, File *pStartNode)
 {
     if (!pStartNode)
+    {
         pStartNode = getTrueRoot();
+    }
     File *a = findNode(pStartNode, path);
     return a;
 }

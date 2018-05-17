@@ -209,7 +209,18 @@ void VFS::removeAllAliases(Filesystem *pFs)
 
 Filesystem *VFS::lookupFilesystem(const String &alias)
 {
-    return lookupFilesystem(alias.view());
+    Filesystem *fs;
+#if VFS_WITH_LRU_CACHES
+    if (!m_AliasCache.get(alias, fs))
+    {
+#endif
+        fs = lookupFilesystem(alias.view());
+#if VFS_WITH_LRU_CACHES
+    }
+
+    m_AliasCache.store(alias, fs);
+#endif
+    return fs;
 }
 
 Filesystem *VFS::lookupFilesystem(const StringView &alias)
@@ -240,21 +251,45 @@ File *VFS::find(const String &path, File *pStartNode)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
+        {
             return 0;
+        }
         else
+        {
             return pStartNode->getFilesystem()->find(pathView, pStartNode);
+        }
     }
     else
     {
+        // Can only cache lookups with the colon as they are not ambiguous
+        File *result;
+#if VFS_WITH_LRU_CACHES
+        if (m_FindCache.get(path, result))
+        {
+            m_FindCache.store(path, result);
+            return result;
+        }
+#endif
+
         StringView left, right;
         splitPathOnColon(i, pathView, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
+        {
             return 0;
+        }
 
-        return pFs->find(right, 0);
+        result = pFs->find(right, 0);
+#if VFS_WITH_LRU_CACHES
+        if (result)
+        {
+            m_FindCache.store(path, result);
+        }
+#endif
+
+        return result;
     }
 }
 

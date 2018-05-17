@@ -73,6 +73,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/HashTable.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/LazyEvaluate.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/List.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/LruCache.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ObjectPool.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ProducerConsumer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RadixTree.cc
@@ -203,6 +204,7 @@ add_executable(testsuite
     testsuite/test-LazyEvaluate.cc
     testsuite/test-ConditionVariable.cc
     testsuite/test-StringView.cc
+    testsuite/test-LruCache.cc
 )
 target_link_libraries(testsuite PRIVATE
     kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)
@@ -235,6 +237,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-memory.cc
         testsuite/bench-Tree.cc
         testsuite/bench-VFS.cc
+        testsuite/bench-LruCache.cc
     )
     target_link_libraries(benchmarker PRIVATE
         kernel ramfs vfs utility Threads::Threads ${BENCHMARK_LIBRARY})

@@ -26,6 +26,10 @@
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/LruCache.h"
+
+/** Set to zero to disable the builtin VFS LRU caches. */
+#define VFS_WITH_LRU_CACHES 0
 
 /** This class implements a virtual file system.
  *
@@ -155,6 +159,9 @@ class EXPORTED_PUBLIC VFS
 
     List<Filesystem::ProbeCallback *> m_ProbeCallbacks;
     List<MountCallback *> m_MountCallbacks;
+
+    LruCache<String, Filesystem *> m_AliasCache;
+    LruCache<String, File *> m_FindCache;
 };
 
 #endif
