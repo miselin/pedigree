@@ -251,6 +251,7 @@ class EXPORTED_PUBLIC Process
     void setSubsystem(Subsystem *pSubsystem)
     {
         m_pSubsystem = pSubsystem;
+        m_pSubsystem->setProcess(this);
     }
     Subsystem *getSubsystem()
     {

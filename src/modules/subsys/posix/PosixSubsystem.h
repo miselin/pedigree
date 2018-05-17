@@ -29,6 +29,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/LruCache.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
@@ -37,6 +38,7 @@
 #include "modules/subsys/posix/logging.h"
 
 class File;
+class Filesystem;
 class UnixSocket;
 class LockedFile;
 class FileDescriptor;
@@ -492,6 +494,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         const char *name, Vector<String> &argv, Vector<String> &env,
         SyscallState &state);
 
+    virtual File *findFile(const String &path, File *workingDir);
+
     /** Retrieves the currently-active ABI for the subsystem. */
     Abi getAbi() const
     {
@@ -590,6 +594,17 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
      * Safety spinlock for mutual exclusion in acquire().
      */
     Spinlock m_Lock;
+
+    /**
+     * \brief LRU cache for file lookups.
+     * Many usage patterns involve something like a stat() immediately followed
+     * by an open() or other similar system call. Rather than have both fully
+     * complete a filesystem traversal, we can cache the result and save time.
+     */
+    LruCache<String, File *> m_FindFileCache;
+
+    /** Cached lookup of the root filesystem. */
+    Filesystem *m_pRootFs = nullptr;
 };
 
 #endif

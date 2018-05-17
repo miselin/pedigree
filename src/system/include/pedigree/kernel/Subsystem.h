@@ -32,6 +32,8 @@ class Process;
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
+class File;
+
 /** The abstract base class for a generic application subsystem. This provides
  * a well-defined interface to the kernel that allows global behaviour to have
  * correct results on different applications. This also allows the kernel to
@@ -137,7 +139,7 @@ class EXPORTED_PUBLIC Subsystem
     /** Sets the process that this subsystem is linked to. */
     virtual void setProcess(Process *p)
     {
-        if (!m_pProcess)
+        if ((!m_pProcess) | (m_pProcess == p))
             m_pProcess = p;
         else
             WARNING(
@@ -152,6 +154,9 @@ class EXPORTED_PUBLIC Subsystem
     virtual bool invoke(
         const char *name, Vector<String> &argv, Vector<String> &env,
         SyscallState &state) = 0;
+
+    /** Finds a file, performing any subsystem-specific logic as needed. */
+    virtual File *findFile(const String &path, File *workingDir) = 0;
 
   protected:
     /** Notifies the subsystem that the given thread has been removed. */

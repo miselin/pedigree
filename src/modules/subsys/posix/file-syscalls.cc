@@ -103,46 +103,14 @@ static PosixProcess *getPosixProcess()
     return pProcess;
 }
 
-File *findFileWithAbiFallbacks(String name, File *cwd)
+File *findFileWithAbiFallbacks(const String &name, File *cwd)
 {
+
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
-    if (cwd == nullptr)
-    {
-        cwd = pProcess->getCwd();
-    }
-
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    bool mountAwareAbi = pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
-
-    File *target = VFS::instance().find(name, cwd);
-
-    if (mountAwareAbi)
-    {
-        // no fall back for mount-aware ABIs (e.g. Pedigree's ABI)
-        return target;
-    }
-
-    // for non-mount-aware ABIs, we need to fall back if the path is absolute
-    // this means we can be on dev»/ and still run things like /bin/ls because
-    // the lookup for dev»/bin/ls fails and falls back to root»/bin/ls
-    if (name[0] != '/')
-    {
-        return target;
-    }
-
-    if (!target)
-    {
-        // fall back to root filesystem
-        Filesystem *pRootFs = VFS::instance().lookupFilesystem(String("root"));
-        if (pRootFs)
-        {
-            target = VFS::instance().find(name, pRootFs->getRoot());
-        }
-    }
-
-    return target;
+    return pSubsystem->findFile(name, cwd);
 }
 
 static File *traverseSymlink(File *file)

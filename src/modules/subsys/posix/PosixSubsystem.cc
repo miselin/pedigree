@@ -492,6 +492,10 @@ void PosixSubsystem::exit(int code)
     // Clean up the descriptor table
     freeMultipleFds();
 
+    // Tell some interesting info
+    NOTICE("at exit for pid " << Dec << pProcess->getId() << "...");
+    NOTICE(" -> file lookup LRU cache had " << m_FindFileCache.hits() << " hits and " << m_FindFileCache.misses() << " misses");
+
     pProcess->kill();
 
     // Should NEVER get here.
@@ -1153,6 +1157,50 @@ bool PosixSubsystem::loadElf(
     }
 
     return true;
+}
+
+File *PosixSubsystem::findFile(const String &path, File *workingDir)
+{
+    if (workingDir == nullptr)
+    {
+        assert(m_pProcess);
+        workingDir = m_pProcess->getCwd();
+    }
+
+    bool mountAwareAbi = getAbi() != PosixSubsystem::LinuxAbi;
+
+    // for non-mount-aware ABIs, we need to fall back if the path is absolute
+    // this means we can be on dev»/ and still run things like /bin/ls because
+    // the lookup for dev»/bin/ls fails and falls back to root»/bin/ls
+    if (mountAwareAbi || (path[0] != '/'))
+    {
+        // no fall back for mount-aware ABIs (e.g. Pedigree's ABI)
+        // or it's a non-absolute path on a non-mount-aware ABI, and therefore
+        // needs to be based on the working directory - not a different FS
+        return VFS::instance().find(path, workingDir);
+    }
+
+    File *target = nullptr;
+    if (!m_FindFileCache.get(path, target))
+    {
+        // fall back to root filesystem
+        if (!m_pRootFs)
+        {
+            m_pRootFs = VFS::instance().lookupFilesystem(String("root"));
+        }
+
+        if (m_pRootFs)
+        {
+            target = VFS::instance().find(path, m_pRootFs->getRoot());
+        }
+    }
+
+    if (target)
+    {
+        m_FindFileCache.store(path, target);
+    }
+
+    return target;
 }
 
 #define STACK_PUSH(stack, value) *--stack = value

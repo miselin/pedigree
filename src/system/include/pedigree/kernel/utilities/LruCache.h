@@ -67,9 +67,11 @@ class LruCache
                 }
 
                 object = m_Slots[i].object;
+                ++m_Hits;
                 return true;
             }
 
+            ++m_Misses;
             return false;
         }
 
@@ -88,8 +90,21 @@ class LruCache
             m_Slots[0].set = true;
         }
 
+        size_t hits() const
+        {
+            return m_Hits;
+        }
+
+        size_t misses() const
+        {
+            return m_Misses;
+        }
+
     private:
         Slot m_Slots[Slots];
+
+        size_t m_Hits = 0;
+        size_t m_Misses = 0;
 };
 
 /** @} */
