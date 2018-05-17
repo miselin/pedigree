@@ -496,7 +496,7 @@ UnixFilesystem::~UnixFilesystem()
     delete m_pRoot;
 }
 
-bool UnixFilesystem::createFile(File *parent, String filename, uint32_t mask)
+bool UnixFilesystem::createFile(File *parent, const String &filename, uint32_t mask)
 {
     UnixDirectory *pParent =
         static_cast<UnixDirectory *>(Directory::fromFile(parent));
@@ -517,7 +517,7 @@ bool UnixFilesystem::createFile(File *parent, String filename, uint32_t mask)
 }
 
 bool UnixFilesystem::createDirectory(
-    File *parent, String filename, uint32_t mask)
+    File *parent, const String &filename, uint32_t mask)
 {
     UnixDirectory *pParent =
         static_cast<UnixDirectory *>(Directory::fromFile(parent));

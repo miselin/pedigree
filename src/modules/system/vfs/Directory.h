@@ -29,6 +29,7 @@
 #include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 /**
@@ -90,10 +91,10 @@ class EXPORTED_PUBLIC Directory : public File
     }
 
     /** Look up the given filename in the directory. */
-    File *lookup(const String &s) const;
+    File *lookup(const StringView &s) const;
 
     /** Remove the given filename in the directory. */
-    void remove(const String &s);
+    void remove(const StringView &s);
 
     /**
      * \brief Get the reparse point attached to this directory.
@@ -159,7 +160,7 @@ class EXPORTED_PUBLIC Directory : public File
         DirectoryEntry;
 
   private:
-    typedef HashTable<String, DirectoryEntry *> DirectoryEntryCache;
+    typedef HashTable<String, DirectoryEntry *, StringView> DirectoryEntryCache;
 
     /** Directory contents cache. */
     DirectoryEntryCache m_Cache;

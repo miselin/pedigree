@@ -271,7 +271,7 @@ static void BM_DirentsLookup_MurmurHash(benchmark::State &state)
     LoadDirents(symbols);
     CreateKeys(symbols, keys);
 
-    HashTable<MurmurHashedString, int64_t, 1024> map;
+    HashTable<MurmurHashedString, int64_t> map;
     for (auto &key : keys)
     {
         map.insert(key, value);

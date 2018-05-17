@@ -36,6 +36,13 @@
 
 VFS VFS::m_Instance;
 
+static void splitPathOnColon(size_t colonPosition, const StringView &path, StringView &left, StringView &right)
+{
+    size_t afterColon = path.nextCharacter(colonPosition);
+    right = path.substring(afterColon, path.length());
+    left = path.substring(0, colonPosition);
+}
+
 VFS &VFS::instance()
 {
     return m_Instance;
@@ -119,7 +126,7 @@ void VFS::addAlias(Filesystem *pFs, const String &alias)
 
 void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
-    HashTable<String, Filesystem *>::LookupResult result =
+    AliasTable::LookupResult result =
         m_Aliases.lookup(oldAlias);
     if (result.hasValue())
     {
@@ -171,7 +178,7 @@ void VFS::removeAllAliases(Filesystem *pFs)
     if (!pFs)
         return;
 
-    for (HashTable<String, Filesystem *>::Iterator it = m_Aliases.begin();
+    for (AliasTable::Iterator it = m_Aliases.begin();
          it != m_Aliases.end();)
     {
         if (pFs == (*it))
@@ -202,20 +209,27 @@ void VFS::removeAllAliases(Filesystem *pFs)
 
 Filesystem *VFS::lookupFilesystem(const String &alias)
 {
-    HashTable<String, Filesystem *>::LookupResult result =
+    return lookupFilesystem(alias.view());
+}
+
+Filesystem *VFS::lookupFilesystem(const StringView &alias)
+{
+    AliasTable::LookupResult result =
         m_Aliases.lookup(alias);
     return result.hasValue() ? result.value() : nullptr;
 }
 
 File *VFS::find(const String &path, File *pStartNode)
 {
+    StringView pathView = path.view();
+
     // Search for a colon.
     bool bColon = false;
     size_t i;
-    for (i = 0; i < path.length(); i++)
+    for (i = 0; i < pathView.length(); i++)
     {
         // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
+        if (pathView[i] == '\xc2' && pathView[i + 1] == '\xbb')
         {
             bColon = true;
             break;
@@ -228,21 +242,19 @@ File *VFS::find(const String &path, File *pStartNode)
         if (!pStartNode)
             return 0;
         else
-            return pStartNode->getFilesystem()->find(path, pStartNode);
+            return pStartNode->getFilesystem()->find(pathView, pStartNode);
     }
     else
     {
-        String tail(path);
-        String newPath = tail.split(i + 2);
-        tail.chomp();
-        tail.chomp();
+        StringView left, right;
+        splitPathOnColon(i, pathView, left, right);
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(tail);
+        Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
             return 0;
 
-        return pFs->find(newPath, 0);
+        return pFs->find(right, 0);
     }
 }
 
@@ -286,16 +298,14 @@ bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
     }
     else
     {
-        String tail(path);
-        String newPath = tail.split(i + 2);
-        tail.chomp();
-        tail.chomp();
+        StringView left, right;
+        splitPathOnColon(i, path, left, right);
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(tail);
+        Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
             return false;
-        return pFs->createFile(newPath, mask, 0);
+        return pFs->createFile(right, mask, 0);
     }
 }
 
@@ -318,24 +328,27 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
+        {
             return false;
+        }
         else
+        {
             return pStartNode->getFilesystem()->createDirectory(
                 path, mask, pStartNode);
+        }
     }
     else
     {
-        // i+2 as the delimiter character (») is two bytes long.
-        String tail(path);
-        String newPath = tail.split(i + 2);
-        tail.chomp();
-        tail.chomp();
+        StringView left, right;
+        splitPathOnColon(i, path, left, right);
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(tail);
+        Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
+        {
             return false;
-        return pFs->createDirectory(newPath, mask, 0);
+        }
+        return pFs->createDirectory(right, mask, 0);
     }
 }
 
@@ -366,16 +379,14 @@ bool VFS::createSymlink(
     }
     else
     {
-        String tail(path);
-        String newPath = tail.split(i + 2);
-        tail.chomp();
-        tail.chomp();
+        StringView left, right;
+        splitPathOnColon(i, path, left, right);
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(tail);
+        Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
             return false;
-        return pFs->createSymlink(newPath, value, 0);
+        return pFs->createSymlink(right, value, 0);
     }
 }
 
@@ -405,16 +416,14 @@ bool VFS::createLink(const String &path, File *target, File *pStartNode)
     }
     else
     {
-        String tail(path);
-        String newPath = tail.split(i + 2);
-        tail.chomp();
-        tail.chomp();
+        StringView left, right;
+        splitPathOnColon(i, path, left, right);
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(tail);
+        Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
             return false;
-        return pFs->createLink(newPath, target, 0);
+        return pFs->createLink(right, target, 0);
     }
 }
 
@@ -443,16 +452,14 @@ bool VFS::remove(const String &path, File *pStartNode)
     }
     else
     {
-        String tail(path);
-        String newPath = tail.split(i + 2);
-        tail.chomp();
-        tail.chomp();
+        StringView left, right;
+        splitPathOnColon(i, path, left, right);
 
         // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(tail);
+        Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
             return false;
-        return pFs->remove(newPath, 0);
+        return pFs->remove(right, 0);
     }
 }
 

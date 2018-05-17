@@ -546,6 +546,44 @@ int StringCompareCase(
     return toLower(*s1) - toLower(*s2);
 }
 
+size_t nextCharacter(const char *s, size_t i)
+{
+    if (!s)
+    {
+        return i;
+    }
+
+    // UTF-8 version of getting the next character
+    const uint8_t *u8buf = (const uint8_t *)s;
+    if ((u8buf[i] & 0xC0) == 0xC0)
+    {
+        if ((u8buf[i] & 0xF8) == 0xF0)
+        {
+            return i + 4;  // 4-byte sequence
+        }
+        else if ((u8buf[i] & 0xF0) == 0xE0)
+        {
+            return i + 3;
+        }
+        else
+        {
+            return i + 2;
+        }
+    }
+    return i + 1;
+}
+
+size_t prevCharacter(const char *s, size_t i)
+{
+    if (!s)
+    {
+        return i;
+    }
+
+    // TODO handle multibyte chars.
+    return i - 1;
+}
+
 #ifndef UTILITY_LINUX
 // Provide forwarding functions to handle GCC optimising things.
 size_t strlen(const char *s)

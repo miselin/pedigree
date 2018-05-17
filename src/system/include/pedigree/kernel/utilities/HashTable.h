@@ -51,6 +51,10 @@ enum Error
  * The key type 'K' should also be able to compare against other 'K'
  * types for equality.
  *
+ * An optional type 'SiblingK' can be provided for a type which can be used as
+ * an alternative to type 'K' for lookups. It should be able to hash in the
+ * same way as well as being able to compare with 'K' types successfully.
+ *
  * GrowthFactor defines how quickly the bucket count should grow. The default
  * of two balances memory usage against performance, but some use cases would
  * be better served by significant growth in each resize.
@@ -58,12 +62,12 @@ enum Error
  * \todo check InitialBuckets for is a power of two
  */
 template <
-    class K, class V, size_t InitialBuckets = 4, bool QuadraticProbe = true,
+    class K, class V, class SiblingK = K, size_t InitialBuckets = 4, bool QuadraticProbe = true,
     size_t GrowthFactor = 2>
 class HashTable
 {
   private:
-    typedef HashTable<K, V, InitialBuckets, QuadraticProbe, GrowthFactor>
+    typedef HashTable<K, V, SiblingK, InitialBuckets, QuadraticProbe, GrowthFactor>
         SelfType;
 
     static_assert(
@@ -195,7 +199,23 @@ class HashTable
     LookupResult lookup(const K &k) const
     {
         HashTableError::Error err;
-        const struct bucket *b = doLookup(k, err);
+        const struct bucket *b = doLookup<K>(k, err);
+        if (b)
+        {
+            return LookupResult::withValue(b->value);
+        }
+        else
+        {
+            return LookupResult::withError(err);
+        }
+    }
+
+    template <typename SK = SiblingK>
+    typename pedigree_std::enable_if<!pedigree_std::is_same<K, SK>::value, LookupResult>::type
+    lookup(const SK &k) const
+    {
+        HashTableError::Error err;
+        const struct bucket *b = doLookup<SK>(k, err);
         if (b)
         {
             return LookupResult::withValue(b->value);
@@ -594,7 +614,8 @@ class HashTable
         return nullptr;
     }
 
-    const bucket *findNextSet(size_t currentHash, const K &k) const
+    template <class FindK = K>
+    const bucket *findNextSet(size_t currentHash, const FindK &k) const
     {
         size_t index = 0;
         size_t step = 1;
@@ -618,7 +639,8 @@ class HashTable
         return nullptr;
     }
 
-    const struct bucket *doLookup(const K &k, HashTableError::Error &err) const
+    template <class LookupK>
+    const struct bucket *doLookup(const LookupK &k, HashTableError::Error &err) const
     {
         if ((!m_Buckets) || (!m_nItems))
         {

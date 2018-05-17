@@ -24,6 +24,8 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/HashTable.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 
 template <int hashModulo = 0>
 class HashableIntegerBase
@@ -212,7 +214,7 @@ TEST(PedigreeHashTable, InsertionWithChains)
 
 TEST(PedigreeHashTable, RemoveChained)
 {
-    HashTable<CollidingHashableInteger, int, 4> hashtable(-1);
+    HashTable<CollidingHashableInteger, int, int, 4> hashtable(-1);
 
     CollidingHashableInteger key1(0), key2(1), key3(2);
 
@@ -364,4 +366,24 @@ TEST(PedigreeHashTable, Copy)
         EXPECT_TRUE(result.hasValue());
         EXPECT_EQ(result.value(), i + 1);
     }
+}
+
+TEST(PedigreeHashTable, SiblingKeys)
+{
+    String key("key");
+    StringView keyView = key.view();
+
+    HashTable<String, int, StringView> hashtable(1234);
+
+    hashtable.insert(key, 1234);
+
+    // Native key type
+    auto resultA = hashtable.lookup(key);
+    EXPECT_TRUE(resultA.hasValue());
+    EXPECT_EQ(resultA.value(), 1234);
+
+    // Sibling key type
+    auto resultB = hashtable.lookup(keyView);
+    EXPECT_TRUE(resultB.hasValue());
+    EXPECT_EQ(resultB.value(), 1234);
 }

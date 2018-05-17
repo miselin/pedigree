@@ -126,6 +126,9 @@ EXPORTED_PUBLIC void *realloc(void *, size_t);
 EXPORTED_PUBLIC void free(void *);
 #endif
 
+EXPORTED_PUBLIC size_t nextCharacter(const char *s, size_t i);
+EXPORTED_PUBLIC size_t prevCharacter(const char *s, size_t i);
+
 /// Basic 8-bit checksum check (returns 1 if checksum is correct).
 uint8_t checksum(const uint8_t *pMemory, size_t sMemory);
 

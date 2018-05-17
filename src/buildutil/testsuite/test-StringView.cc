@@ -25,6 +25,7 @@
 
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/template.h"
 
 TEST(PedigreeStringView, ExplicitConstruction)
 {
@@ -45,6 +46,13 @@ TEST(PedigreeStringView, EqualityCString)
     StringView view("Hello world", 11);
 
     EXPECT_EQ(view, "Hello world");
+}
+
+TEST(PedigreeStringView, InEqualityCString)
+{
+    StringView view("Hello world", 11);
+
+    EXPECT_NE(view, "Hello world this shouldn't match");
 }
 
 TEST(PedigreeStringView, EqualityStringView)

@@ -25,15 +25,19 @@
 #include "pedigree/kernel/processor/Processor.h"
 
 RamFile::RamFile(
-    String name, uintptr_t inode, Filesystem *pParentFS, File *pParent)
+    const String &name, uintptr_t inode, Filesystem *pParentFS, File *pParent)
     : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_FileBlocks(),
       m_nOwnerPid(0)
 {
     // Full permissions.
     setPermissions(0777);
 
+#ifdef THREADS
     m_nOwnerPid =
         Processor::information().getCurrentThread()->getParent()->getId();
+#else
+    m_nOwnerPid = 0;
+#endif
 }
 
 RamFile::~RamFile()
@@ -59,9 +63,13 @@ bool RamFile::canWrite()
         return true;
     }
 
+#ifdef THREADS
     size_t pid =
         Processor::information().getCurrentThread()->getParent()->getId();
     return pid == m_nOwnerPid;
+#else
+    return true;
+#endif
 }
 
 uintptr_t RamFile::readBlock(uint64_t location)
@@ -88,7 +96,7 @@ void RamFile::unpinBlock(uint64_t location)
     m_FileBlocks.release(location);
 }
 
-RamDir::RamDir(String name, size_t inode, class Filesystem *pFs, File *pParent)
+RamDir::RamDir(const String &name, size_t inode, class Filesystem *pFs, File *pParent)
     : Directory(name, 0, 0, 0, inode, pFs, 0, pParent)
 {
     // Full permissions.
@@ -131,7 +139,7 @@ bool RamFs::initialise(Disk *pDisk)
     return true;
 }
 
-bool RamFs::createFile(File *parent, String filename, uint32_t mask)
+bool RamFs::createFile(File *parent, const String &filename, uint32_t mask)
 {
     if (!parent->isDirectory())
         return false;
@@ -142,7 +150,7 @@ bool RamFs::createFile(File *parent, String filename, uint32_t mask)
     return p->addEntry(filename, f);
 }
 
-bool RamFs::createDirectory(File *parent, String filename, uint32_t mask)
+bool RamFs::createDirectory(File *parent, const String &filename, uint32_t mask)
 {
     if (!parent->isDirectory())
         return false;
@@ -153,7 +161,7 @@ bool RamFs::createDirectory(File *parent, String filename, uint32_t mask)
     return pParent->addEntry(filename, pDir);
 }
 
-bool RamFs::createSymlink(File *parent, String filename, String value)
+bool RamFs::createSymlink(File *parent, const String &filename, const String &value)
 {
     return false;
 }

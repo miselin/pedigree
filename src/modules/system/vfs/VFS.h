@@ -49,6 +49,9 @@ class EXPORTED_PUBLIC VFS
     /** Callback type, called when a disk is mounted or unmounted. */
     typedef void (*MountCallback)();
 
+    /** Type of the alias lookup table. */
+    typedef HashTable<String, Filesystem *, StringView> AliasTable;
+
     /** Constructor */
     VFS();
     /** Destructor */
@@ -75,7 +78,7 @@ class EXPORTED_PUBLIC VFS
     bool aliasExists(const String &alias);
 
     /** Obtains a list of all filesystem aliases */
-    inline HashTable<String, Filesystem *> &getAliases()
+    inline AliasTable &getAliases()
     {
         return m_Aliases;
     }
@@ -99,6 +102,7 @@ class EXPORTED_PUBLIC VFS
      *\param pAlias The alias to search for.
      *\return The filesystem aliased by pAlias or 0 if none found. */
     Filesystem *lookupFilesystem(const String &alias);
+    Filesystem *lookupFilesystem(const StringView &alias);
 
     /** Attempts to obtain a File for a specific path. */
     File *find(const String &path, File *pStartNode = 0);
@@ -146,8 +150,7 @@ class EXPORTED_PUBLIC VFS
     /** A static File object representing an invalid file */
     static File *m_EmptyFile;
 
-  private:
-    HashTable<String, Filesystem *> m_Aliases;
+    AliasTable m_Aliases;
     Tree<Filesystem *, List<String *> *> m_Mounts;
 
     List<Filesystem::ProbeCallback *> m_ProbeCallbacks;

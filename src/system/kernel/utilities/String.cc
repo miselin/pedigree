@@ -179,6 +179,12 @@ bool String::operator==(const String &s) const
     return !StringCompareN(buf, other_buf, m_Length + 1);
 }
 
+bool String::operator==(const StringView &s) const
+{
+    // use StringView::operator==(const String &)
+    return s == *this;
+}
+
 bool String::operator==(const char *s) const
 {
     const char *buf = extract();
@@ -203,33 +209,16 @@ bool String::operator==(const char *s) const
     }
 }
 
-size_t String::nextCharacter(size_t c)
+size_t String::nextCharacter(size_t c) const
 {
-    // UTF-8 version of getting the next character
     const char *buf = extract();
-    const uint8_t *u8buf = reinterpret_cast<const uint8_t *>(buf);
-    if ((buf[c] & 0xC0) == 0xC0)
-    {
-        if ((buf[c] & 0xF8) == 0xF0)
-        {
-            return c + 4;  // 4-byte sequence
-        }
-        else if ((buf[c] & 0xF0) == 0xE0)
-        {
-            return c + 3;
-        }
-        else
-        {
-            return c + 2;
-        }
-    }
-    return c + 1;
+    return ::nextCharacter(buf, c);
 }
 
-size_t String::prevCharacter(size_t c)
+size_t String::prevCharacter(size_t c) const
 {
-    // TODO handle multibyte chars.
-    return c - 1;
+    const char *buf = extract();
+    return ::prevCharacter(buf, c);
 }
 
 void String::assign(const String &x)
@@ -828,5 +817,5 @@ String String::copy() const
 
 StringView String::view() const
 {
-    return StringView(extract(), m_Length);
+    return StringView(extract(), m_Length, m_Hash);
 }

@@ -245,7 +245,7 @@ String Ext2Filesystem::getVolumeLabel()
 }
 
 bool Ext2Filesystem::createNode(
-    File *parent, String filename, uint32_t mask, String value, size_t type,
+    File *parent, const String &filename, uint32_t mask, const String &value, size_t type,
     uint32_t inodeOverride)
 {
     NOTICE("CREATE: " << filename);
@@ -429,25 +429,27 @@ bool Ext2Filesystem::createNode(
     return true;
 }
 
-bool Ext2Filesystem::createFile(File *parent, String filename, uint32_t mask)
+bool Ext2Filesystem::createFile(File *parent, const String &filename, uint32_t mask)
 {
     return createNode(parent, filename, mask, String(""), EXT2_S_IFREG);
 }
 
 bool Ext2Filesystem::createDirectory(
-    File *parent, String filename, uint32_t mask)
+    File *parent, const String &filename, uint32_t mask)
 {
     if (!createNode(parent, filename, mask, String(""), EXT2_S_IFDIR))
+    {
         return false;
+    }
     return true;
 }
 
-bool Ext2Filesystem::createSymlink(File *parent, String filename, String value)
+bool Ext2Filesystem::createSymlink(File *parent, const String &filename, const String &value)
 {
     return createNode(parent, filename, 0777, value, EXT2_S_IFLNK);
 }
 
-bool Ext2Filesystem::createLink(File *parent, String filename, File *target)
+bool Ext2Filesystem::createLink(File *parent, const String &filename, File *target)
 {
     Ext2Directory *pE2Parent = reinterpret_cast<Ext2Directory *>(parent);
 

@@ -81,7 +81,7 @@ void Directory::cacheDirectoryContents()
 {
 }
 
-File *Directory::lookup(const String &s) const
+File *Directory::lookup(const StringView &s) const
 {
     if (!m_bCachePopulated)
     {
@@ -99,13 +99,14 @@ File *Directory::lookup(const String &s) const
     }
 }
 
-void Directory::remove(const String &s)
+void Directory::remove(const StringView &s)
 {
     DirectoryEntryCache::LookupResult result = m_Cache.lookup(s);
     if (result.hasValue())
     {
         DirectoryEntry *v = result.value();
-        m_Cache.remove(s);
+        /// \todo add sibling keys for other HashTable functions
+        m_Cache.remove(s.toString());
         delete v;
     }
 }

@@ -248,6 +248,12 @@ Log::LogEntry &Log::LogEntry::operator<<(const String &s)
     return *this;
 }
 
+Log::LogEntry &Log::LogEntry::operator<<(const StringView &s)
+{
+    str.appendBytes(s.str(), s.length());
+    return *this;
+}
+
 Log::LogEntry &Log::LogEntry::operator<<(char *append_str)
 {
     return (*this) << (reinterpret_cast<const char *>(append_str));

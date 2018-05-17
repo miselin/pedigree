@@ -31,11 +31,15 @@ class String;
 
 class EXPORTED_PUBLIC StringView
 {
+        friend class String;
     public:
         StringView();
-        StringView(const char *s);
+        explicit StringView(const char *s);
         StringView(const char *s, size_t length);
+        StringView(const StringView &other);
         virtual ~StringView();
+
+        StringView &operator= (const StringView &s);
 
         bool operator== (const char *s) const;
         bool operator== (const String &s) const;
@@ -47,9 +51,22 @@ class EXPORTED_PUBLIC StringView
 
         String toString() const;
 
+        char operator[] (size_t index) const;
+
+        size_t nextCharacter(size_t i) const;
+        size_t prevCharacter(size_t i) const;
+
+        uint32_t hash() const;
+
+        const char *str() const;
+
     private:
+        // String::view() can set m_Hash to avoid recalculating.
+        StringView(const char *s, size_t length, uint32_t hash);
+
         const char *m_String;
         size_t m_Length;
+        uint32_t m_Hash;
 };
 
 /** @} */

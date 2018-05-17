@@ -51,7 +51,11 @@
 class Cache;
 
 /** Provides a clean abstraction to a set of data caches. */
-class CacheManager : public TimerHandler, public RequestQueue
+class CacheManager :
+#ifndef STANDALONE_CACHE
+    public TimerHandler,
+#endif
+    public RequestQueue
 {
   public:
     CacheManager();

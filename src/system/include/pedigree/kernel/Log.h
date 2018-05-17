@@ -27,6 +27,7 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 
 class String;
+class StringView;
 
 /** @addtogroup kernel
  * @{ */
@@ -245,6 +246,7 @@ class Log
          */
         LogEntry &operator<<(const char *);
         LogEntry &operator<<(const String &);
+        LogEntry &operator<<(const StringView &);
         /** Adds an entry to the log
          *\param[in] str the null-terminated ASCII string that should be added
          */

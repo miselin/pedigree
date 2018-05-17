@@ -47,7 +47,7 @@ File *Filesystem::getTrueRoot()
     return getRoot();
 }
 
-File *Filesystem::find(const String &path, File *pStartNode)
+File *Filesystem::find(const StringView &path, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -55,7 +55,12 @@ File *Filesystem::find(const String &path, File *pStartNode)
     return a;
 }
 
-bool Filesystem::createFile(String path, uint32_t mask, File *pStartNode)
+File *Filesystem::find(const String &path, File *pStartNode)
+{
+    return find(path.view(), pStartNode);
+}
+
+bool Filesystem::createFile(const StringView &path, uint32_t mask, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -88,11 +93,10 @@ bool Filesystem::createFile(String path, uint32_t mask, File *pStartNode)
     Filesystem *pFs = pParent->getFilesystem();
 
     // Now make the file.
-    NOTICE("createFile: " << filename);
     return pFs->createFile(pParent, filename, mask);
 }
 
-bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
+bool Filesystem::createDirectory(const StringView &path, uint32_t mask, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -125,12 +129,10 @@ bool Filesystem::createDirectory(String path, uint32_t mask, File *pStartNode)
     Filesystem *pFs = pParent->getFilesystem();
 
     // Now make the directory.
-    pFs->createDirectory(pParent, filename, mask);
-
-    return true;
+    return pFs->createDirectory(pParent, filename, mask);
 }
 
-bool Filesystem::createSymlink(String path, String value, File *pStartNode)
+bool Filesystem::createSymlink(const StringView &path, const String &value, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -168,7 +170,7 @@ bool Filesystem::createSymlink(String path, String value, File *pStartNode)
     return true;
 }
 
-bool Filesystem::createLink(String path, File *target, File *pStartNode)
+bool Filesystem::createLink(const StringView &path, File *target, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -213,7 +215,7 @@ bool Filesystem::createLink(String path, File *target, File *pStartNode)
     return true;
 }
 
-bool Filesystem::remove(String path, File *pStartNode)
+bool Filesystem::remove(const StringView &path, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -295,24 +297,26 @@ bool Filesystem::remove(String path, File *pStartNode)
     return bRemoved;
 }
 
-File *Filesystem::findNode(File *pNode, String path)
+File *Filesystem::findNode(File *pNode, StringView path)
 {
     if (path.length() == 0)
+    {
         return pNode;
+    }
 
     // If the pathname has a leading slash, cd to root and remove it.
     if (path[0] == '/')
     {
         pNode = getTrueRoot();
-        path.lchomp();
+        path = path.substring(1, path.length());
     }
 
     // Grab the next filename component.
     size_t i = 0;
     size_t nExtra = 0;
-    while (path[i] != '/' && path[i] != '\0')
+    while ((i < path.length()) && path[i] != '/')
         i = path.nextCharacter(i);
-    while (path[i] != '\0')
+    while (i < path.length())
     {
         size_t n = path.nextCharacter(i);
         if (path[n] == '/')
@@ -324,26 +328,14 @@ File *Filesystem::findNode(File *pNode, String path)
             break;
     }
 
-    String restOfPath;
-    // Why did the loop exit?
-    if (path[i] != '\0')
-    {
-        path.split(path.nextCharacter(i), restOfPath);
-        // restOfPath is now 'path', but starting at the next token, and with no
-        // leading slash. Unfortunately 'path' now has a trailing slash, so
-        // chomp it off.
-        path.chomp();
+    StringView currentComponent = path.substring(0, i - nExtra);
+    StringView restOfPath = path.substring(path.nextCharacter(i), path.length());
 
-        // Remove any extra slashes, for example in a '/a//b' path.
-        for (size_t z = 0; z < nExtra; ++z)
-            path.chomp();
-    }
-
-    // At this point 'path' contains the token to search for. 'restOfPath'
+    // At this point 'currentComponent' contains the token to search for. 'restOfPath'
     // contains the path for the next recursion (or nil).
 
     // If 'path' is zero-lengthed, ignore and recurse.
-    if (path.length() == 0)
+    if (currentComponent.length() == 0)
         return findNode(pNode, restOfPath);
 
     // Firstly, if the current node is a symlink, follow it.
@@ -358,8 +350,8 @@ File *Filesystem::findNode(File *pNode, String path)
         return 0;
     }
 
-    bool dot = !StringCompare(path, ".");
-    bool dotdot = !StringCompare(path, "..");
+    bool dot = currentComponent == ".";
+    bool dotdot = currentComponent == "..";
 
     // '.' section, or '..' with no parent, or '..' and we're at the root.
     if (dot || (dotdot && pNode->m_pParent == 0) ||
@@ -405,7 +397,7 @@ File *Filesystem::findNode(File *pNode, String path)
         pDir->cacheDirectoryContents();
     }
 
-    pFile = pDir->lookup(path);
+    pFile = pDir->lookup(currentComponent);
     if (pFile)
     {
         // Cache lookup succeeded, recurse and return.
@@ -418,14 +410,14 @@ File *Filesystem::findNode(File *pNode, String path)
     }
 }
 
-File *Filesystem::findParent(String path, File *pStartNode, String &filename)
+File *Filesystem::findParent(StringView path, File *pStartNode, String &filename)
 {
     // If the final character of the string is '/', this log falls apart. So,
     // check for that and chomp it. But, we also need to not do that for e.g.
     // path == '/'.
-    if (path.length() > 1 && path.endswith('/'))
+    if (path.length() > 1 && path[path.length() - 1] == '/')
     {
-        path.chomp();
+        path = path.substring(0, path.length() - 1);
     }
 
     // Work forwards to the end of the path string, attempting to find the last
@@ -444,15 +436,14 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     File *parentNode = nullptr;
     if (lastSlash == -1)
     {
-        filename = path;
+        filename = path.toString();
         parentNode = pStartNode;
     }
     else
     {
         // Else split the filename off from the rest of the path and follow it.
-        path.split(lastSlash + 1, filename);
-        // Remove the trailing '/' from path;
-        path.chomp();
+        filename = path.substring(path.nextCharacter(lastSlash), path.length()).toString();
+        path = path.substring(0, lastSlash);
         parentNode = findNode(pStartNode, path);
     }
 
@@ -473,7 +464,7 @@ File *Filesystem::findParent(String path, File *pStartNode, String &filename)
     return parentNode;
 }
 
-bool Filesystem::createLink(File *parent, String filename, File *target)
+bool Filesystem::createLink(File *parent, const String &filename, File *target)
 {
     // Default stubbed implementation, works for filesystems that can't handle
     // hard links.

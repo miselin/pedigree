@@ -133,6 +133,10 @@ add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Symlink.cc
 )
 
+add_library(ramfs
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ramfs/RamFs.cc
+)
+
 add_library(partition
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/Partition.cc
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/apple.cc
@@ -230,9 +234,10 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-String.cc
         testsuite/bench-memory.cc
         testsuite/bench-Tree.cc
+        testsuite/bench-VFS.cc
     )
     target_link_libraries(benchmarker PRIVATE
-        kernel utility Threads::Threads ${BENCHMARK_LIBRARY})
+        kernel ramfs vfs utility Threads::Threads ${BENCHMARK_LIBRARY})
     target_compile_options(benchmarker PRIVATE -Os)
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 

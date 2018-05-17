@@ -92,7 +92,7 @@ static void BM_HashTableInsertPreallocate(benchmark::State &state)
 {
     int64_t value = 1;
 
-    HashTable<HashedInteger, int64_t, 32768> table;
+    HashTable<HashedInteger, int64_t, int64_t, 32768> table;
     while (state.KeepRunning())
     {
         state.PauseTiming();
@@ -159,7 +159,7 @@ static void BM_HashTableInsertNoChainsLinear(benchmark::State &state)
 {
     int64_t value = 1;
 
-    HashTable<HashedInteger, int64_t, 4, false> table;
+    HashTable<HashedInteger, int64_t, int64_t, 4, false> table;
     while (state.KeepRunning())
     {
         state.PauseTiming();
@@ -181,7 +181,7 @@ static void BM_HashTableInsertNoChainsReservedLinear(benchmark::State &state)
 {
     int64_t value = 1;
 
-    HashTable<HashedInteger, int64_t, 4, false> table;
+    HashTable<HashedInteger, int64_t, int64_t, 4, false> table;
     while (state.KeepRunning())
     {
         state.PauseTiming();
@@ -225,7 +225,7 @@ static void BM_HashTableLookupNoChains(benchmark::State &state)
 
 static void BM_HashTableLookupNoChainsLinear(benchmark::State &state)
 {
-    HashTable<HashedInteger, int64_t, 4, false> table;
+    HashTable<HashedInteger, int64_t, int64_t, 4, false> table;
     int64_t value = 1;
     for (size_t i = 0; i < state.range(0); ++i)
     {

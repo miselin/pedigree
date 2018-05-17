@@ -65,9 +65,9 @@ class FatFilesystem : public Filesystem
     virtual void extend(File *pFile, size_t size);
 
   protected:
-    virtual bool createFile(File *parent, String filename, uint32_t mask);
-    virtual bool createDirectory(File *parent, String filename, uint32_t mask);
-    virtual bool createSymlink(File *parent, String filename, String value);
+    virtual bool createFile(File *parent, const String &filename, uint32_t mask);
+    virtual bool createDirectory(File *parent, const String &filename, uint32_t mask);
+    virtual bool createSymlink(File *parent, const String &filename, const String &value);
     virtual bool remove(File *parent, File *file);
 
     FatFilesystem(const FatFilesystem &);
@@ -123,7 +123,7 @@ class FatFilesystem : public Filesystem
 
     /** Creates a file - actual doer for the public createFile */
     File *createFile(
-        File *parentDir, String filename, uint32_t mask,
+        File *parentDir, const String &filename, uint32_t mask,
         bool bDirectory = false, uint32_t dirClus = 0);
 
     /** Reads a directory entry from disk */

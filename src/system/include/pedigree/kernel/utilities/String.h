@@ -74,10 +74,16 @@ class EXPORTED_PUBLIC String
         else
             return m_Data;
     }
+    /** Allow implicit typecasts to StringView for passing String to functions taking a StringView. */
+    operator StringView() const
+    {
+        return view();
+    }
     String &operator+=(const String &x);
     String &operator+=(const char *s);
 
     bool operator==(const String &s) const;
+    bool operator==(const StringView &s) const;
     bool operator==(const char *s) const;
 
     size_t length() const
@@ -97,11 +103,11 @@ class EXPORTED_PUBLIC String
 
     /** Given a character index, return the index of the next character,
        interpreting the string as UTF-8 encoded. */
-    size_t nextCharacter(size_t c);
+    size_t nextCharacter(size_t c) const;
 
     /** Given a character index, return the index of the previous character,
        interpreting the string as UTF-8 encoded. */
-    size_t prevCharacter(size_t c);
+    size_t prevCharacter(size_t c) const;
 
     /** Removes the first character from the string. */
     void lchomp();

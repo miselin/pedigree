@@ -37,7 +37,7 @@ class Disk;
 class EXPORTED_PUBLIC RamFile : public File
 {
   public:
-    RamFile(String name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
+    RamFile(const String &name, uintptr_t inode, Filesystem *pParentFS, File *pParent);
 
     virtual ~RamFile();
 
@@ -66,7 +66,7 @@ class EXPORTED_PUBLIC RamDir : public Directory
     RamDir &operator=(const RamDir &);
 
   public:
-    RamDir(String name, size_t inode, class Filesystem *pFs, File *pParent);
+    RamDir(const String &name, size_t inode, class Filesystem *pFs, File *pParent);
     virtual ~RamDir();
 
     virtual void cacheDirectoryContents()
@@ -107,9 +107,9 @@ class EXPORTED_PUBLIC RamFs : public Filesystem
     }
 
   protected:
-    virtual bool createFile(File *parent, String filename, uint32_t mask);
-    virtual bool createDirectory(File *parent, String filename, uint32_t mask);
-    virtual bool createSymlink(File *parent, String filename, String value);
+    virtual bool createFile(File *parent, const String &filename, uint32_t mask);
+    virtual bool createDirectory(File *parent, const String &filename, uint32_t mask);
+    virtual bool createSymlink(File *parent, const String &filename, const String &value);
     virtual bool remove(File *parent, File *file);
 
     RamFs(const RamFs &);

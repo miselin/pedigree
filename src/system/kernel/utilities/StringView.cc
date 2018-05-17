@@ -20,20 +20,41 @@
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/Log.h"
 
 StringView::StringView() : m_String(nullptr), m_Length(0)
 {
+    m_Hash = 0;
 }
 
-StringView::StringView(const char *s) : m_String(s), m_Length(StringLength(s))
+StringView::StringView(const char *s) : m_String(s), m_Length(StringLength(s)), m_Hash(0)
+{
+    m_Hash = jenkinsHash(m_String, m_Length);
+}
+
+StringView::StringView(const char *s, size_t length) : m_String(s), m_Length(length), m_Hash(0)
+{
+    m_Hash = jenkinsHash(m_String, m_Length);
+}
+
+StringView::StringView(const char *s, size_t length, uint32_t hash) : m_String(s), m_Length(length), m_Hash(hash)
 {
 }
 
-StringView::StringView(const char *s, size_t length) : m_String(s), m_Length(length)
+StringView::StringView(const StringView &other) : m_String(other.m_String), m_Length(other.m_Length), m_Hash(other.m_Hash)
 {
 }
 
 StringView::~StringView() = default;
+
+StringView &StringView::operator= (const StringView &s)
+{
+    m_String = s.m_String;
+    m_Length = s.m_Length;
+    m_Hash = s.m_Hash;
+    return *this;
+}
 
 bool StringView::operator== (const char *s) const
 {
@@ -46,7 +67,17 @@ bool StringView::operator== (const char *s) const
         }
         return false;
     }
-    return !StringCompareN(m_String, s, m_Length);
+
+    // This is a little slow, but necessary as we aren't guaranteed to own a
+    // null-terminated string - so StringCompareN doesn't work for things like
+    // StringView("hello") == "hello world".
+    size_t otherLength = StringLength(s);
+    if (otherLength != m_Length)
+    {
+        return false;
+    }
+
+    return !StringCompareN(s, m_String, m_Length);
 }
 
 bool StringView::operator== (const String &s) const
@@ -64,6 +95,10 @@ bool StringView::operator== (const StringView &s) const
     {
         return false;
     }
+    else if (m_Hash != s.m_Hash)
+    {
+        return false;
+    }
 
     return !StringCompareN(m_String, s.m_String, m_Length);
 }
@@ -75,6 +110,11 @@ size_t StringView::length() const
 
 StringView StringView::substring(size_t start, size_t end) const
 {
+    if (start == 0 && end == m_Length)
+    {
+        return StringView(m_String, m_Length, m_Hash);
+    }
+
     if (end > m_Length)
     {
         end = m_Length;
@@ -91,4 +131,34 @@ StringView StringView::substring(size_t start, size_t end) const
 String StringView::toString() const
 {
     return String(m_String, m_Length);
+}
+
+char StringView::operator[] (size_t index) const
+{
+    if (index >= m_Length)
+    {
+        ERROR("operator[] - index " << index << " exceeds length " << m_Length);
+    }
+    assert(index < m_Length);
+    return m_String[index];
+}
+
+size_t StringView::nextCharacter(size_t c) const
+{
+    return ::nextCharacter(m_String, c);
+}
+
+size_t StringView::prevCharacter(size_t c) const
+{
+    return ::prevCharacter(m_String, c);
+}
+
+uint32_t StringView::hash() const
+{
+    return m_Hash;
+}
+
+const char *StringView::str() const
+{
+    return m_String;
 }

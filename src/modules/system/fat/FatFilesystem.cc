@@ -1383,7 +1383,7 @@ void FatFilesystem::extend(File *pFile, size_t size)
 }
 
 File *FatFilesystem::createFile(
-    File *parentDir, String filename, uint32_t mask, bool bDirectory,
+    File *parentDir, const String &filename, uint32_t mask, bool bDirectory,
     uint32_t dirClus)
 {
     // Validate input
@@ -1445,14 +1445,14 @@ File *FatFilesystem::createFile(
     return pFile;
 }
 
-bool FatFilesystem::createFile(File *parent, String filename, uint32_t mask)
+bool FatFilesystem::createFile(File *parent, const String &filename, uint32_t mask)
 {
     File *f = createFile(parent, filename, mask, false);
     return (f != 0);
 }
 
 bool FatFilesystem::createDirectory(
-    File *parent, String filename, uint32_t mask)
+    File *parent, const String &filename, uint32_t mask)
 {
     // Allocate a cluster for the directory itself
     uint32_t clus = findFreeCluster(true);
@@ -1493,7 +1493,7 @@ bool FatFilesystem::createDirectory(
     return true;
 }
 
-bool FatFilesystem::createSymlink(File *parent, String filename, String value)
+bool FatFilesystem::createSymlink(File *parent, const String &filename, const String &value)
 {
     // Validate input
     if (!parent->isDirectory())
@@ -1517,11 +1517,12 @@ bool FatFilesystem::createSymlink(File *parent, String filename, String value)
         0xbeefdead,  // before being set to correct values.
         parent);
 
-    filename += FatDirectory::symlinkSuffix();
+    String symlinkFilename = filename;
+    symlinkFilename += FatDirectory::symlinkSuffix();
 
     FatDirectory *fatParent =
         static_cast<FatDirectory *>(Directory::fromFile(parent));
-    if (!fatParent->addEntry(filename, pFile, 0))
+    if (!fatParent->addEntry(symlinkFilename, pFile, 0))
     {
         delete pFile;
         return 0;

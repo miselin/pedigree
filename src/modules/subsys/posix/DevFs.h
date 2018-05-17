@@ -315,15 +315,15 @@ class DevFs : public Filesystem
     }
 
   protected:
-    virtual bool createFile(File *parent, String filename, uint32_t mask)
+    virtual bool createFile(File *parent, const String &filename, uint32_t mask)
     {
         return false;
     }
-    virtual bool createDirectory(File *parent, String filename, uint32_t mask)
+    virtual bool createDirectory(File *parent, const String &filename, uint32_t mask)
     {
         return false;
     }
-    virtual bool createSymlink(File *parent, String filename, String value)
+    virtual bool createSymlink(File *parent, const String &filename, const String &value)
     {
         return false;
     }
