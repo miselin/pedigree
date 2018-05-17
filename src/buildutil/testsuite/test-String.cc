@@ -530,12 +530,36 @@ TEST(PedigreeString, Equality2)
     EXPECT_EQ(s2, s4);
 }
 
+TEST(PedigreeString, Equality3)
+{
+    String s1("/boot/kernel"), s2("/boot/kernel");
+    EXPECT_STREQ(s1, s2);
+    EXPECT_EQ(s1, s2);
+    EXPECT_STREQ(s1, "/boot/kernel");
+    EXPECT_EQ(s1, "/boot/kernel");
+}
+
 TEST(PedigreeString, Inequality)
 {
     String s1("/dev/tty"), s2("/"), s3("/dev/tty0"), s4("/");
     EXPECT_NE(s1, s2);
     EXPECT_NE(s1, s3);
     EXPECT_EQ(s2, s4);
+}
+
+TEST(PedigreeString, InequalityOperators)
+{
+    String s1("hello world"), s2("hello world"), s3("different");
+    // Standard eq/ne
+    EXPECT_EQ(s1, s2);
+    EXPECT_NE(s1, s3);
+
+    // Explicit operator usage
+    EXPECT_TRUE(s1 == s2);
+    EXPECT_FALSE(s1 != s2);
+
+    EXPECT_FALSE(s1 == s3);
+    EXPECT_TRUE(s1 != s3);
 }
 
 TEST(PedigreeString, Find)

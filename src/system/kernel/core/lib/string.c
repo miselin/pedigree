@@ -223,7 +223,7 @@ char *StringConcatN(char *dest, const char *src, size_t n)
 {
     size_t di = StringLength(dest);
     size_t si = 0;
-    while (src[si] && n)
+    while (src && src[si] && n)
     {
         dest[di++] = src[si++];
         n--;

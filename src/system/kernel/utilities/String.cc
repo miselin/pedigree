@@ -252,7 +252,10 @@ void String::assign(const String &x)
     if (*this != x)
     {
         ERROR("mismatch: '" << *this << "' != '" << x << "'");
-        ERROR("const data was " << m_ConstData);
+        if (m_ConstData)
+        {
+            ERROR("const data was " << m_ConstData);
+        }
     }
     assert(*this == x);
 #endif

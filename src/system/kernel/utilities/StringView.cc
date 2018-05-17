@@ -82,6 +82,15 @@ bool StringView::operator== (const char *s) const
 
 bool StringView::operator== (const String &s) const
 {
+    if (m_Length != s.length())
+    {
+        return false;
+    }
+    else if (m_Hash != s.hash())
+    {
+        return false;
+    }
+
     return *this == static_cast<const char *>(s);
 }
 
