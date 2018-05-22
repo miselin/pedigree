@@ -133,6 +133,9 @@
 // FENCE performs a full load/store hardware memory fence.
 #define FENCE() __sync_synchronize()
 
+// Export thread-safety annotations if we're being compiled by clang
+#include "pedigree/kernel/utilities/threadsafety.h"  // IWYU: keep
+
 /** @} */
 
 #endif
