@@ -137,42 +137,42 @@ class EXPORTED_PUBLIC Vector
 
     /** Get an iterator pointing to the beginning of the Vector
      *\return iterator pointing to the beginning of the Vector */
-    inline Iterator begin()
+    Iterator begin()
     {
         return m_Data + m_Start;
     }
     /** Get a constant iterator pointing to the beginning of the Vector
      *\return constant iterator pointing to the beginning of the Vector */
-    inline ConstIterator begin() const
+    ConstIterator begin() const
     {
         return m_Data + m_Start;
     }
     /** Get an iterator pointing to the last element + 1
      *\return iterator pointing to the last element + 1 */
-    inline Iterator end()
+    Iterator end()
     {
         return m_Data + m_Start + m_Count;
     }
     /** Get a constant iterator pointing to the last element + 1
      *\return constant iterator pointing to the last element + 1 */
-    inline ConstIterator end() const
+    ConstIterator end() const
     {
         return m_Data + m_Start + m_Count;
     }
 
-    inline ReverseIterator rbegin()
+    ReverseIterator rbegin()
     {
         return ReverseIterator{value: m_Data + m_Start + m_Count - 1};
     }
-    inline ConstReverseIterator rbegin() const
+    ConstReverseIterator rbegin() const
     {
         return ConstReverseIterator{value: m_Data + m_Start + m_Count - 1};
     }
-    inline ReverseIterator rend()
+    ReverseIterator rend()
     {
         return ReverseIterator{value: m_Data + m_Start - 1};
     }
-    inline ConstReverseIterator rend() const
+    ConstReverseIterator rend() const
     {
         return ConstReverseIterator{value: m_Data + m_Start - 1};
     }
