@@ -37,6 +37,53 @@ class EXPORTED_PUBLIC Vector
     typedef T *Iterator;
     /** Contant random-access iterator for the Vector */
     typedef T const *ConstIterator;
+    /** Random-access reversed iterator for the Vector. */
+    template <class T_>
+    struct ReverseIteratorContainer
+    {
+        T_ value;
+
+        ReverseIteratorContainer<T_> &operator ++()
+        {
+            --value;
+            return *this;
+        }
+        ReverseIteratorContainer<T_> &operator --()
+        {
+            ++value;
+            return *this;
+        }
+
+        ReverseIteratorContainer<T_> operator ++(int)
+        {
+            T_ origValue = value;
+            --value;
+            return ReverseIteratorContainer<T_>{value: origValue};
+        }
+        ReverseIteratorContainer<T_> operator --(int)
+        {
+            T_ origValue = value;
+            ++value;
+            return ReverseIteratorContainer<T_>{value: origValue};
+        }
+
+        operator T_() const
+        {
+            return value;
+        }
+
+        typename pedigree_std::remove_pointer<T_>::type operator *() const
+        {
+            return *value;
+        }
+
+        bool operator ==(const ReverseIteratorContainer<T_> &other)
+        {
+            return value == other.value;
+        }
+    };
+    typedef ReverseIteratorContainer<T *> ReverseIterator;
+    typedef ReverseIteratorContainer<const T *> ConstReverseIterator;
 
     /** The default constructor, does nothing */
     Vector();
@@ -111,6 +158,23 @@ class EXPORTED_PUBLIC Vector
     inline ConstIterator end() const
     {
         return m_Data + m_Start + m_Count;
+    }
+
+    inline ReverseIterator rbegin()
+    {
+        return ReverseIterator{value: m_Data + m_Start + m_Count - 1};
+    }
+    inline ConstReverseIterator rbegin() const
+    {
+        return ConstReverseIterator{value: m_Data + m_Start + m_Count - 1};
+    }
+    inline ReverseIterator rend()
+    {
+        return ReverseIterator{value: m_Data + m_Start - 1};
+    }
+    inline ConstReverseIterator rend() const
+    {
+        return ConstReverseIterator{value: m_Data + m_Start - 1};
     }
     /** Copy the content of a Vector into this Vector
      *\param[in] x the reference Vector */

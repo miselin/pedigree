@@ -289,6 +289,22 @@ TEST(PedigreeVector, ForwardIterate)
     EXPECT_EQ(it, y.end());
 }
 
+TEST(PedigreeVector, ReverseIterate)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+
+    const Vector<int> &y = x;
+    EXPECT_NE(y.rbegin(), y.rend());
+    auto it = y.rbegin();
+    EXPECT_EQ(*it++, 3);
+    EXPECT_EQ(*it++, 2);
+    EXPECT_EQ(*it++, 1);
+    EXPECT_EQ(it, y.rend());
+}
+
 TEST(PedigreeVector, PopBack)
 {
     Vector<int> x;
