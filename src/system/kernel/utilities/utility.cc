@@ -33,7 +33,9 @@ const char *SDirectoryName(const char *path, char *buf, size_t buflen)
 
     size_t dirlength = last_slash - path;
 
-    StringCopyN(buf, path, min(buflen, dirlength));
+    size_t copylen = min(buflen, dirlength);
+    StringCopyN(buf, path, copylen);
+    buf[copylen] = '\0';
 
     return buf;
 }
@@ -56,7 +58,9 @@ const char *SBaseName(const char *path, char *buf, size_t buflen)
     }
 
     size_t baselength = len - (last_slash - path);
-    StringCopyN(buf, last_slash + 1, min(buflen, baselength));
+    size_t copylen = min(buflen, baselength);
+    StringCopyN(buf, last_slash + 1, copylen);
+    buf[copylen] = '\0';
 
     return buf;
 }
@@ -65,7 +69,7 @@ const char *DirectoryName(const char *path)
 {
     size_t len = StringLength(path);
     char *buf = new char[len + 1];
-    const char *result = SDirectoryName(path, buf, len);
+    const char *result = SDirectoryName(path, buf, len + 1);
     if (!result)
     {
         delete[] buf;
@@ -77,7 +81,7 @@ const char *BaseName(const char *path)
 {
     size_t len = StringLength(path);
     char *buf = new char[len + 1];
-    const char *result = SBaseName(path, buf, len);
+    const char *result = SBaseName(path, buf, len + 1);
     if (!result)
     {
         delete[] buf;

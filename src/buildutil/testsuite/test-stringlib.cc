@@ -61,6 +61,14 @@ TEST(PedigreeStringLibrary, BasicStrncpy)
     EXPECT_STREQ(buf, "abc");
 }
 
+TEST(PedigreeStringLibrary, EmbeddedNulStrncpy)
+{
+    char buf[32] = {0};
+    const char *source = "abc\0def";
+    StringCopyN(buf, source, 6);
+    EXPECT_STREQ(buf, "abc");
+}
+
 TEST(PedigreeStringLibrary, EmptyStrncpy)
 {
     char buf[32] = {0};

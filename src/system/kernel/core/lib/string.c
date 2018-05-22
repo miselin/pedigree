@@ -112,14 +112,21 @@ char *StringCopy(char *dest, const char *src)
 char *StringCopyN(char *dest, const char *src, size_t len)
 {
     char *orig_dest = dest;
-    for (size_t i = 0; i < len; ++i)
+    while (len && LIKELY(*src))
     {
-        if (*src)
-            *dest++ = *src++;
-        else
-            break;
+        *dest = *src;
+        --len;
+        ++dest;
+        ++src;
     }
-    *dest = '\0';
+
+    // zero-pad if we hit the end of src but len is still non-zero
+    while (len)
+    {
+        *dest = '\0';
+        --len;
+        ++dest;
+    }
 
     return orig_dest;
 }
