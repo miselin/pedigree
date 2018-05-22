@@ -30,7 +30,7 @@ ServiceManager::~ServiceManager()
     /// \todo Delete all the pointers!
 }
 
-ServiceFeatures *ServiceManager::enumerateOperations(String serviceName)
+ServiceFeatures *ServiceManager::enumerateOperations(const String &serviceName)
 {
     RadixTree<InternalService *>::LookupType result =
         m_Services.lookup(serviceName);
@@ -41,7 +41,7 @@ ServiceFeatures *ServiceManager::enumerateOperations(String serviceName)
 }
 
 void ServiceManager::addService(
-    String serviceName, Service *s, ServiceFeatures *feats)
+    const String &serviceName, Service *s, ServiceFeatures *feats)
 {
     InternalService *p = new InternalService;
     p->pService = s;
@@ -49,12 +49,12 @@ void ServiceManager::addService(
     m_Services.insert(serviceName, p);
 }
 
-void ServiceManager::removeService(String serviceName)
+void ServiceManager::removeService(const String &serviceName)
 {
     m_Services.remove(serviceName);
 }
 
-Service *ServiceManager::getService(String serviceName)
+Service *ServiceManager::getService(const String &serviceName)
 {
     RadixTree<InternalService *>::LookupType result =
         m_Services.lookup(serviceName);

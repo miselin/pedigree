@@ -97,7 +97,7 @@ class EXPORTED_PUBLIC IpcMessage
 class IpcEndpoint
 {
   public:
-    IpcEndpoint(String name)
+    IpcEndpoint(const String &name)
         : m_Name(name), m_Queue(), m_QueueSize(0), m_QueueLock(false)
     {
         NOTICE("Creating endpoint with name " << name);

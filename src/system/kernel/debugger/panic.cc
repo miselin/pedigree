@@ -75,10 +75,10 @@ static void _panic(const char *msg, DebuggerIO *pScreen)
         if (iEntry < log.getStaticEntryCount())
         {
             const Log::StaticLogEntry &entry = log.getStaticEntry(iEntry);
-            level = entry.severity;
 
-            //      if( level == Log::Fatal || level == Log::Error )
-            //      {
+            // level = entry.severity;
+            // if( level == Log::Fatal || level == Log::Error )
+            // {
             Line.clear();
             Line.append("[");
             Line.append(entry.timestamp, 10, 8, '0');
@@ -87,7 +87,7 @@ static void _panic(const char *msg, DebuggerIO *pScreen)
             Line.append("\n");
 
             bPrintThisLine = true;
-            //      }
+            // }
         }
         else
         {

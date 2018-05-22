@@ -352,7 +352,7 @@ void Device::searchByClassSubclassAndProgInterfaceInternal(
     }
 }
 
-Device::Address::Address(String n, uintptr_t a, size_t s, bool io, size_t pad)
+Device::Address::Address(const String &n, uintptr_t a, size_t s, bool io, size_t pad)
     : m_Name(n), m_Address(a), m_Size(s), m_IsIoSpace(io), m_Io(0),
       m_Padding(pad), m_bMapped(false)
 {

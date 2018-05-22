@@ -49,9 +49,9 @@ class Dm9601 : public UsbDevice, public Network
 
     virtual bool send(size_t nBytes, uintptr_t buffer);
 
-    virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(const StationInfo &info);
 
-    virtual StationInfo getStationInfo();
+    virtual const StationInfo &getStationInfo();
 
   private:
     static int recvTrampoline(void *p) NORETURN;

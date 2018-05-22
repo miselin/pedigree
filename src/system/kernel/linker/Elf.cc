@@ -623,7 +623,6 @@ bool Elf::loadModule(
     }
 
     // Now actually map and populate the sections.
-    uintptr_t offset = loadBase;
     for (size_t i = 0; i < m_nSectionHeaders; i++)
     {
         // rebase section headers into the loaded program header regions
@@ -1476,10 +1475,8 @@ void Elf::preallocateSymbols(
 
     if (m_pSymbolTable)
     {
-        ElfSymbol_t *pSymbol = m_pSymbolTable;
-
         // quick pass to preallocate for the symbol table
-        for (size_t i = 0; i < m_nSymbolTableSize / sizeof(*pSymbol); i++)
+        for (size_t i = 0; i < m_nSymbolTableSize / sizeof(ElfSymbol_t); i++)
         {
             switch (ST_BIND(m_pSymbolTable[i].info))
             {
@@ -1500,10 +1497,8 @@ void Elf::preallocateSymbols(
 
     if (m_pDynamicSymbolTable)
     {
-        ElfSymbol_t *pSymbol = m_pDynamicSymbolTable;
-
         // quick pass to preallocate for the symbol table
-        for (size_t i = 0; i < m_nDynamicSymbolTableSize / sizeof(*pSymbol);
+        for (size_t i = 0; i < m_nDynamicSymbolTableSize / sizeof(ElfSymbol_t);
              i++)
         {
             switch (ST_BIND(m_pDynamicSymbolTable[i].info))

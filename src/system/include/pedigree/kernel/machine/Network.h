@@ -87,10 +87,10 @@ class EXPORTED_PUBLIC Network : public Device
 
     /** Sets station information (such as IP addresses)
      * \param info The information to set as the station info */
-    virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(const StationInfo &info);
 
     /** Gets station information (such as IP addresses) */
-    virtual StationInfo getStationInfo();
+    virtual const StationInfo &getStationInfo();
 
     /** Is this device actually connected to a network? */
     virtual bool isConnected();

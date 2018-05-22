@@ -203,13 +203,14 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
              pBootstrap.getSectionHeaderEntrySize());
     KernelElfSectionHeader_t *stringTableShdr =
         reinterpret_cast<KernelElfSectionHeader_t *>(stringTableHeader);
-    const char *tmpStringTable =
-        reinterpret_cast<const char *>(stringTableShdr->addr);
 
 #ifdef X86_COMMON
-    tmpStringTable =
+    const char *tmpStringTable =
         m_AdditionalSectionContents.convertPhysicalPointer<const char>(
             stringTableShdr->addr);
+#else
+    const char *tmpStringTable =
+        reinterpret_cast<const char *>(stringTableShdr->addr);
 #endif
 
     // Search for the symbol/string table and adjust sections

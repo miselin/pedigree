@@ -249,10 +249,6 @@ bool X64VirtualAddressSpace::mapHuge(
         size_t pml4Index = PML4_INDEX(virtualAddress);
         uint64_t *pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
 
-        // Check if a page directory pointer table was present *before* the
-        // conditional allocation.
-        bool pdWasPresent = (*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT;
-
         // Is a page directory pointer table present?
         if (conditionalTableEntryAllocation(pml4Entry, flags) == false)
         {

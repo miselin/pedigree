@@ -46,9 +46,9 @@ class Nic3C90x : public Network, public IrqHandler
 
     virtual bool send(size_t nBytes, uintptr_t buffer);
 
-    virtual bool setStationInfo(StationInfo info);
+    virtual bool setStationInfo(const StationInfo &info);
 
-    virtual StationInfo getStationInfo();
+    virtual const StationInfo &getStationInfo();
 
     // IRQ handler callback.
     virtual bool irq(irq_id_t number, InterruptState &state);

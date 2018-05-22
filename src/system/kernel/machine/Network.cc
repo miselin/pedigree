@@ -71,12 +71,12 @@ void Network::dump(String &str)
     str = "Generic Network Device";
 }
 
-bool Network::setStationInfo(StationInfo info)
+bool Network::setStationInfo(const StationInfo &info)
 {
     return false;  // failed by default
 }
 
-StationInfo Network::getStationInfo()
+const StationInfo &Network::getStationInfo()
 {
     static StationInfo info;
     return info;  // not to be trusted

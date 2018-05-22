@@ -25,15 +25,6 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#if !defined(ACPI_NOTICE)
-#undef NOTICE
-#define NOTICE(x)
-#endif
-#if !defined(ACPI_ERROR)
-#undef ERROR
-#define ERROR(x)
-#endif
-
 Acpi Acpi::m_Instance;
 
 void Acpi::initialise()

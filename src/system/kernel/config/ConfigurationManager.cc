@@ -37,7 +37,7 @@ ConfigurationManager &ConfigurationManager::instance()
     return m_Instance;
 }
 
-size_t ConfigurationManager::createTable(String configStore, String table)
+size_t ConfigurationManager::createTable(const String &configStore, const String &table)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -48,7 +48,7 @@ size_t ConfigurationManager::createTable(String configStore, String table)
 }
 
 void ConfigurationManager::insert(
-    String configStore, String table, String key, ConfigValue &value)
+    const String &configStore, const String &table, const String &key, const ConfigValue &value)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -59,7 +59,7 @@ void ConfigurationManager::insert(
 }
 
 ConfigValue &
-ConfigurationManager::select(String configStore, String table, String key)
+ConfigurationManager::select(const String &configStore, const String &table, const String &key)
 {
     static ConfigValue v;
 
@@ -72,7 +72,7 @@ ConfigurationManager::select(String configStore, String table, String key)
 }
 
 void ConfigurationManager::watch(
-    String configStore, String table, String key, ConfigurationWatcher watcher)
+    const String &configStore, const String &table, const String &key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -83,7 +83,7 @@ void ConfigurationManager::watch(
 }
 
 void ConfigurationManager::unwatch(
-    String configStore, String table, String key, ConfigurationWatcher watcher)
+    const String &configStore, const String &table, const String &key, ConfigurationWatcher watcher)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -94,16 +94,14 @@ void ConfigurationManager::unwatch(
 }
 
 bool ConfigurationManager::installBackend(
-    ConfigurationBackend *pBackend, String configStore)
+    ConfigurationBackend *pBackend, const String &configStore)
 {
     // Check for sanity
     if (!pBackend)
         return false;
 
     // Get the real config store to use
-    String realConfigStore = configStore;
-    if (configStore.length() == 0)
-        realConfigStore = pBackend->getConfigStore();
+    const String &realConfigStore = configStore.length() ? configStore : pBackend->getConfigStore();
 
     // Install into the list
     if (!backendExists(realConfigStore))
@@ -115,7 +113,7 @@ bool ConfigurationManager::installBackend(
         return false;
 }
 
-void ConfigurationManager::removeBackend(String configStore)
+void ConfigurationManager::removeBackend(const String &configStore)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -128,7 +126,7 @@ void ConfigurationManager::removeBackend(String configStore)
     delete result.value();
 }
 
-bool ConfigurationManager::backendExists(String configStore)
+bool ConfigurationManager::backendExists(const String &configStore)
 {
     return m_Backends.lookup(configStore).hasValue();
 }

@@ -22,7 +22,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 
-ConfigurationBackend::ConfigurationBackend(String configStore)
+ConfigurationBackend::ConfigurationBackend(const String &configStore)
     : m_ConfigStore(configStore)
 {
 }
@@ -32,12 +32,13 @@ ConfigurationBackend::~ConfigurationBackend()
     ConfigurationManager::instance().removeBackend(m_ConfigStore);
 }
 
-String ConfigurationBackend::getConfigStore()
+const String &ConfigurationBackend::getConfigStore()
 {
     return m_ConfigStore;
 }
 
-String ConfigurationBackend::getTypeName()
+const String &ConfigurationBackend::getTypeName()
 {
-    return String("ConfigurationBackend [pure]");
+    static String typeName("ConfigurationBackend [pure]");
+    return typeName;
 }

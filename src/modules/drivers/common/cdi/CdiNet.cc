@@ -70,12 +70,12 @@ bool CdiNet::send(size_t nBytes, uintptr_t buffer)
     return false;
 }
 
-StationInfo CdiNet::getStationInfo()
+const StationInfo &CdiNet::getStationInfo()
 {
     return m_StationInfo;
 }
 
-bool CdiNet::setStationInfo(StationInfo info)
+bool CdiNet::setStationInfo(const StationInfo &info)
 {
     // free the old DNS servers list, if there is one
     if (m_StationInfo.dnsServers)

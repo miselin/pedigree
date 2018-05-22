@@ -53,8 +53,8 @@ class CdiNet : public Network
 
         virtual bool send(size_t nBytes, uintptr_t buffer);
 
-        virtual bool setStationInfo(StationInfo info);
-        virtual StationInfo getStationInfo();
+        virtual bool setStationInfo(const StationInfo &info);
+        virtual const StationInfo &getStationInfo();
 
         const struct cdi_net_device *getCdiDevice() const
         {

@@ -1159,7 +1159,6 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(
         // next page in the stack. This way we always have the entire stack
         // mapped before we start pushing pages into it.
         m_StackMax[index] += getPageSize();
-        virtualAddress = adjust_pointer(virtualAddress, getPageSize());
 
         // Top of stack mapped, do we need to expand further?
         if (m_Capacity >= m_DesiredCapacity)

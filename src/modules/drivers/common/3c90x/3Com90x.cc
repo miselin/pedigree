@@ -749,7 +749,7 @@ bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
     return true;
 }
 
-bool Nic3C90x::setStationInfo(StationInfo info)
+bool Nic3C90x::setStationInfo(const StationInfo &info)
 {
     // free the old DNS servers list, if there is one
     if (m_StationInfo.dnsServers)
@@ -783,7 +783,7 @@ bool Nic3C90x::setStationInfo(StationInfo info)
     return true;
 }
 
-StationInfo Nic3C90x::getStationInfo()
+const StationInfo &Nic3C90x::getStationInfo()
 {
     return m_StationInfo;
 }

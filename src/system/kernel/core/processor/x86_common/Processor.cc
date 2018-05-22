@@ -132,16 +132,16 @@ void Processor::enableDebugBreakpoint(
     switch (nLength)
     {
         case 1:
-            nLength = 0;
+            lengthField = 0;
             break;
         case 2:
-            nLength = 1;
+            lengthField = 1;
             break;
         case 8:
-            nLength = 2;
+            lengthField = 2;
             break;
         case 4:
-            nLength = 3;
+            lengthField = 3;
             break;
     }
 

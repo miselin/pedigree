@@ -200,10 +200,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
 #endif
 
     Scheduler &scheduler = Scheduler::instance();
-    if (UNLIKELY(scheduler.getNumProcesses() == 0))
+    if (UNLIKELY(scheduler.getNumProcesses() == 0) || (pThread == nullptr))
     {
-        //  We are in the early stages of the boot process (no processes
-        //  started)
+        // We are in the early stages of the boot process (no processes started)
         panic(sError);
     }
     else

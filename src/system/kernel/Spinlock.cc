@@ -208,8 +208,6 @@ void Spinlock::trackRelease() const
 
 void Spinlock::exit()
 {
-    Thread *pThread = Processor::information().getCurrentThread();
-
     bool bWasInterrupts = Processor::getInterrupts();
     if (bWasInterrupts == true)
     {

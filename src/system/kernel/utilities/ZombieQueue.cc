@@ -29,7 +29,6 @@ ZombieQueue::ZombieQueue() : RequestQueue("ZombieQueue")
 
 ZombieQueue::~ZombieQueue()
 {
-    destroy();
 }
 
 ZombieQueue &ZombieQueue::instance()

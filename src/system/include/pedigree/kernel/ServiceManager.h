@@ -50,16 +50,16 @@ class EXPORTED_PUBLIC ServiceManager
      *  Enumerates all possible operations that can be performed for a
      *  given Service
      */
-    ServiceFeatures *enumerateOperations(String serviceName);
+    ServiceFeatures *enumerateOperations(const String &serviceName);
 
     /** Adds a service to the manager */
-    void addService(String serviceName, Service *s, ServiceFeatures *feats);
+    void addService(const String &serviceName, Service *s, ServiceFeatures *feats);
 
     /** Removes a service from the manager */
-    void removeService(String serviceName);
+    void removeService(const String &serviceName);
 
     /** Gets the Service object for a service */
-    Service *getService(String serviceName);
+    Service *getService(const String &serviceName);
 
   private:
     static ServiceManager m_Instance;

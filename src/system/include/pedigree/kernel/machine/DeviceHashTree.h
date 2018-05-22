@@ -64,7 +64,7 @@ class EXPORTED_PUBLIC DeviceHashTree
     Device *getDevice(uint32_t hash);
 
     /** Gets a device from a string hash */
-    Device *getDevice(String hash);
+    Device *getDevice(const String &hash);
 
     /** Grabs the hash for a given device */
     size_t getHash(Device *p);

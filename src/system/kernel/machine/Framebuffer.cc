@@ -423,12 +423,14 @@ Graphics::Buffer *Framebuffer::swCreateBuffer(
 
 void Framebuffer::swDestroyBuffer(Graphics::Buffer *pBuffer)
 {
-    if (pBuffer && pBuffer->base)
+    if (pBuffer)
     {
-        MemoryRegion *pRegion =
-            reinterpret_cast<MemoryRegion *>(pBuffer->pBacking);
-        delete pRegion;  // Unmaps the memory as well
-
+        if (pBuffer->base)
+        {
+            MemoryRegion *pRegion =
+                reinterpret_cast<MemoryRegion *>(pBuffer->pBacking);
+            delete pRegion;  // Unmaps the memory as well
+        }
         delete pBuffer;
     }
 }
@@ -861,7 +863,9 @@ void Framebuffer::swDraw(
     Graphics::Buffer *p =
         createBuffer(pBuffer, format, srcx + width, srcy + height, m_Palette);
     if (!p)
+    {
         return;
+    }
     blit(p, srcx, srcy, destx, desty, width, height, bLowestCall);
     destroyBuffer(p);
 }

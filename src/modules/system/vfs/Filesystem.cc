@@ -321,6 +321,10 @@ File *Filesystem::findNode(File *pNode, StringView path)
     while (i < path.length())
     {
         size_t n = path.nextCharacter(i);
+        if (n >= path.length())
+        {
+            break;
+        }
         if (path[n] == '/')
         {
             i = n;

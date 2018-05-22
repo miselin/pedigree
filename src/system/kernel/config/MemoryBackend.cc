@@ -19,8 +19,8 @@
 
 #include "pedigree/kernel/config/MemoryBackend.h"
 
-MemoryBackend::MemoryBackend(String configStore)
-    : ConfigurationBackend(configStore), m_Tables()
+MemoryBackend::MemoryBackend(const String &configStore)
+    : ConfigurationBackend(configStore), m_Tables(), m_TypeName("MemoryBackend")
 {
 }
 
@@ -29,13 +29,13 @@ MemoryBackend::~MemoryBackend()
     ConfigurationManager::instance().removeBackend(m_ConfigStore);
 }
 
-size_t MemoryBackend::createTable(String table)
+size_t MemoryBackend::createTable(const String &table)
 {
     m_Tables.insert(table, new Table());
     return 0;
 }
 
-void MemoryBackend::insert(String table, String key, ConfigValue &value)
+void MemoryBackend::insert(const String &table, const String &key, const ConfigValue &value)
 {
     RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
     if (!result.hasValue())
@@ -45,7 +45,7 @@ void MemoryBackend::insert(String table, String key, ConfigValue &value)
     result.value()->m_Rows.insert(key, pConfigValue);
 }
 
-ConfigValue &MemoryBackend::select(String table, String key)
+ConfigValue &MemoryBackend::select(const String &table, const String &key)
 {
     static ConfigValue v;
     v.type = Invalid;
@@ -63,7 +63,7 @@ ConfigValue &MemoryBackend::select(String table, String key)
 }
 
 void MemoryBackend::watch(
-    String table, String key, ConfigurationWatcher watcher)
+    const String &table, const String &key, ConfigurationWatcher watcher)
 {
     RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
     if (!result.hasValue())
@@ -85,7 +85,7 @@ void MemoryBackend::watch(
 }
 
 void MemoryBackend::unwatch(
-    String table, String key, ConfigurationWatcher watcher)
+    const String &table, const String &key, ConfigurationWatcher watcher)
 {
     RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
     if (!result.hasValue())
@@ -106,7 +106,7 @@ void MemoryBackend::unwatch(
     }
 }
 
-String MemoryBackend::getTypeName()
+const String &MemoryBackend::getTypeName()
 {
-    return String("MemoryBackend");
+    return m_TypeName;
 }

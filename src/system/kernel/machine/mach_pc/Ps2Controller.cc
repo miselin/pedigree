@@ -297,7 +297,7 @@ bool Ps2Controller::irq(irq_id_t number, InterruptState &state)
     {
         if (m_bFirstIrqEnabled)
         {
-            numWritten = m_FirstPortBuffer.write(&received, 1, false);
+            m_FirstPortBuffer.write(&received, 1, false);
             ok = true;
         }
     }
@@ -305,7 +305,7 @@ bool Ps2Controller::irq(irq_id_t number, InterruptState &state)
     {
         if (m_bSecondIrqEnabled)
         {
-            numWritten = m_SecondPortBuffer.write(&received, 1, false);
+            m_SecondPortBuffer.write(&received, 1, false);
             ok = true;
         }
     }

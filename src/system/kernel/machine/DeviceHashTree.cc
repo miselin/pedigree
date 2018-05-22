@@ -69,7 +69,7 @@ Device *DeviceHashTree::getDevice(uint32_t hash)
         return m_DeviceTree.lookup(hash);
 }
 
-Device *DeviceHashTree::getDevice(String hash)
+Device *DeviceHashTree::getDevice(const String &hash)
 {
     if (!m_bInitialised)
         return 0;

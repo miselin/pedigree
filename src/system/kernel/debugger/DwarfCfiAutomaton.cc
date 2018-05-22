@@ -32,7 +32,7 @@ DwarfCfiAutomaton::~DwarfCfiAutomaton()
 }
 
 void DwarfCfiAutomaton::initialise(
-    DwarfState startingState, uintptr_t nCodeLocation, size_t nCodeLen,
+    const DwarfState &startingState, uintptr_t nCodeLocation, size_t nCodeLen,
     int32_t nCodeAlignmentFactor, int32_t nDataAlignmentFactor,
     uintptr_t nStartingPc)
 {

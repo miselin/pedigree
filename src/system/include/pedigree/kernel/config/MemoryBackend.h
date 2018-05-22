@@ -30,23 +30,23 @@
 class MemoryBackend : public ConfigurationBackend
 {
   public:
-    MemoryBackend(String configStore);
+    MemoryBackend(const String &configStore);
     virtual ~MemoryBackend();
 
-    virtual size_t createTable(String table);
+    virtual size_t createTable(const String &table);
     /** Inserts the value 'value' into the table 'table', with its key as 'key'
      */
-    virtual void insert(String table, String key, ConfigValue &value);
+    virtual void insert(const String &table, const String &key, const ConfigValue &value);
     /** Returns the value in table, with key matching 'key', or zero. */
-    virtual ConfigValue &select(String table, String key);
+    virtual ConfigValue &select(const String &table, const String &key);
 
     /** Watch a specific table entry. */
-    virtual void watch(String table, String key, ConfigurationWatcher watcher);
+    virtual void watch(const String &table, const String &key, ConfigurationWatcher watcher);
     /** Remove a watcher from a table entry. */
     virtual void
-    unwatch(String table, String key, ConfigurationWatcher watcher);
+    unwatch(const String &table, const String &key, ConfigurationWatcher watcher);
 
-    String getTypeName();
+    const String &getTypeName();
 
   private:
     // A Table
@@ -64,6 +64,8 @@ class MemoryBackend : public ConfigurationBackend
 
     // Our tables
     RadixTree<Table *> m_Tables;
+
+    String m_TypeName;
 };
 
 #endif

@@ -45,7 +45,7 @@ struct ConfigValue
         for (int i = 0; i < MAX_WATCHERS; i++)
             watchers[i] = 0;
     }
-    ConfigValue(ConfigValue &cv)
+    ConfigValue(const ConfigValue &cv)
         : str(cv.str), num(cv.num), b(cv.b), type(cv.type)
     {
         for (int i = 0; i < MAX_WATCHERS; i++)
@@ -75,29 +75,29 @@ class ConfigurationManager
 
     static ConfigurationManager &instance();
 
-    size_t createTable(String configStore, String table);
+    size_t createTable(const String &configStore, const String &table);
     /** Inserts the value 'value' into the table 'table', with its key as 'key'
      */
     void
-    insert(String configStore, String table, String key, ConfigValue &value);
+    insert(const String &configStore, const String &table, const String &key, const ConfigValue &value);
     /** Returns the value in table, with key matching 'key', or a Value with
      * "type" field as Invalid. */
-    ConfigValue &select(String configStore, String table, String key);
+    ConfigValue &select(const String &configStore, const String &table, const String &key);
 
     /** Watch a specific table entry. */
     void watch(
-        String configStore, String table, String key,
+        const String &configStore, const String &table, const String &key,
         ConfigurationWatcher watcher);
     /** Remove a watcher from a table entry. */
     void unwatch(
-        String configStore, String table, String key,
+        const String &configStore, const String &table, const String &key,
         ConfigurationWatcher watcher);
 
     bool installBackend(
-        ConfigurationBackend *pBackend, String configStore = String(""));
-    void removeBackend(String configStore);
+        ConfigurationBackend *pBackend, const String &configStore = String(""));
+    void removeBackend(const String &configStore);
 
-    bool backendExists(String configStore);
+    bool backendExists(const String &configStore);
 
   private:
     static ConfigurationManager m_Instance;

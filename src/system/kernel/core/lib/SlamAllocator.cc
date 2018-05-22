@@ -898,9 +898,6 @@ void SlamAllocator::wipe()
 
     m_bInitialised = false;
 
-    uint64_t *bitmap = m_SlabRegionBitmap;
-    size_t numEntries = m_SlabRegionBitmapEntries;
-
     // Clean up all slabs we obtained.
     for (size_t entry = 0; entry < m_SlabRegionBitmapEntries; ++entry)
     {

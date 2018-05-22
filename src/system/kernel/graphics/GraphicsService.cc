@@ -114,13 +114,10 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider()
             << " text points)");
 
         // Is this the new best?
-        bool bNewBest = false;
         if (points > bestPoints)
         {
             bestPoints = points;
             result.bestBase = pProvider;
-
-            bNewBest = true;
 
             DEBUG_LOG("  => new best provider");
         }

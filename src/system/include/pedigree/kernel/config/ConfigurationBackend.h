@@ -33,26 +33,26 @@
 class ConfigurationBackend
 {
   public:
-    ConfigurationBackend(String configStore);
+    ConfigurationBackend(const String &configStore);
     virtual ~ConfigurationBackend();
 
-    virtual size_t createTable(String table) = 0;
+    virtual size_t createTable(const String &table) = 0;
     /** Inserts the value 'value' into the table 'table', with its key as 'key'
      */
-    virtual void insert(String table, String key, ConfigValue &value) = 0;
+    virtual void insert(const String &table, const String &key, const ConfigValue &value) = 0;
     /** Returns the value in table, with key matching 'key', or zero. */
-    virtual ConfigValue &select(String table, String key) = 0;
+    virtual ConfigValue &select(const String &table, const String &key) = 0;
 
     /** Watch a specific table entry. */
     virtual void
-    watch(String table, String key, ConfigurationWatcher watcher) = 0;
+    watch(const String &table, const String &key, ConfigurationWatcher watcher) = 0;
     /** Remove a watcher from a table entry. */
     virtual void
-    unwatch(String table, String key, ConfigurationWatcher watcher) = 0;
+    unwatch(const String &table, const String &key, ConfigurationWatcher watcher) = 0;
 
-    virtual String getConfigStore();
+    virtual const String &getConfigStore();
 
-    virtual String getTypeName() = 0;
+    virtual const String &getTypeName() = 0;
 
   protected:
     String m_ConfigStore;

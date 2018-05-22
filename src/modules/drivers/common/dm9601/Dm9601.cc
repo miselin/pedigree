@@ -264,7 +264,7 @@ void Dm9601::doReceive()
     m_IncomingPackets.release();
 }
 
-bool Dm9601::setStationInfo(StationInfo info)
+bool Dm9601::setStationInfo(const StationInfo &info)
 {
     // Free the old DNS server list, if there is one
     if (m_StationInfo.dnsServers)
@@ -298,7 +298,7 @@ bool Dm9601::setStationInfo(StationInfo info)
     return true;
 }
 
-StationInfo Dm9601::getStationInfo()
+const StationInfo &Dm9601::getStationInfo()
 {
     return m_StationInfo;
 }

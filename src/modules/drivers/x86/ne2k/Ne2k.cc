@@ -326,7 +326,7 @@ void Ne2k::receiveThread()
     }
 }
 
-bool Ne2k::setStationInfo(StationInfo info)
+bool Ne2k::setStationInfo(const StationInfo &info)
 {
     // free the old DNS servers list, if there is one
     if (m_StationInfo.dnsServers)
@@ -362,7 +362,7 @@ bool Ne2k::setStationInfo(StationInfo info)
     return true;
 }
 
-StationInfo Ne2k::getStationInfo()
+const StationInfo &Ne2k::getStationInfo()
 {
     return m_StationInfo;
 }
