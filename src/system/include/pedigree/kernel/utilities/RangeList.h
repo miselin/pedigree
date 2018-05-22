@@ -29,25 +29,25 @@
 /** This class manages a List of ranges. It automatically merges adjacent
  *entries in the list. \param[in] T the integer type the range address and
  *length is encoded in */
-template <typename T>
+template <typename T, bool Reversed = false>
 class EXPORTED_PUBLIC RangeList
 {
   public:
     /** Default constructor does nothing */
-    inline RangeList() : m_List(), m_bReverse(false), m_bPreferUsed(false)
+    inline RangeList() : m_List(), m_bPreferUsed(false)
     {
     }
     /** Construct with reverse order, without an initial allocation. */
-    inline RangeList(bool reverse, bool preferUsed = false)
-        : m_List(), m_bReverse(reverse), m_bPreferUsed(preferUsed)
+    inline RangeList(bool preferUsed)
+        : m_List(), m_bPreferUsed(preferUsed)
     {
     }
     /** Construct with a preexisting range
      *\param[in] Address beginning of the range
      *\param[in] Length length of the range */
     RangeList(
-        T Address, T Length, bool bReverse = false, bool preferUsed = false)
-        : m_List(), m_bReverse(bReverse), m_bPreferUsed(preferUsed)
+        T Address, T Length, bool XXX, bool preferUsed = false)
+        : m_List(), m_bPreferUsed(preferUsed)
     {
         Range *range = new Range(Address, Length);
         m_List.pushBack(range);
@@ -105,9 +105,6 @@ class EXPORTED_PUBLIC RangeList
     /** List of ranges */
     List<Range *> m_List;
 
-    /** Should we allocate in reverse order? */
-    bool m_bReverse;
-
     /** Should we prefer previously-used ranges where possible? */
     bool m_bPreferUsed;
 
@@ -122,11 +119,10 @@ class EXPORTED_PUBLIC RangeList
 /** @} */
 
 /** Copy constructor - performs deep copy. */
-template <typename T>
-RangeList<T>::RangeList(const RangeList<T> &other) : m_List()
+template <typename T, bool Reversed>
+RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other) : m_List()
 {
     m_List.clear();
-    m_bReverse = other.m_bReverse;
 
     for (Iterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
     {
@@ -135,8 +131,8 @@ RangeList<T>::RangeList(const RangeList<T> &other) : m_List()
     }
 }
 
-template <typename T>
-void RangeList<T>::free(T address, T length)
+template <typename T, bool Reversed>
+void RangeList<T, Reversed>::free(T address, T length)
 {
     Iterator cur(m_List.begin());
     ConstIterator end(m_List.end());
@@ -179,7 +175,7 @@ void RangeList<T>::free(T address, T length)
 
     // Decide which side of the list to push to. If we prefer used ranges over
     // fresh ranges, we want to invert the push decision.
-    bool front = m_bReverse;
+    bool front = Reversed;
     if (m_bPreferUsed)
         front = !front;
 
@@ -189,14 +185,14 @@ void RangeList<T>::free(T address, T length)
         m_List.pushBack(range);
 }
 
-template <typename T>
-bool RangeList<T>::allocate(T length, T &address)
+template <typename T, bool Reversed>
+bool RangeList<T, Reversed>::allocate(T length, T &address)
 {
     bool bSuccess = false;
 
     // Try and find enough space. This logic differs slightly if we are working
     // in reverse, as the direction changes.
-    if (m_bReverse)
+    if (Reversed)
     {
         for (ReverseIterator it = m_List.rbegin(); it != m_List.rend(); ++it)
         {
@@ -248,8 +244,8 @@ bool RangeList<T>::allocate(T length, T &address)
     return bSuccess;
 }
 
-template <typename T>
-bool RangeList<T>::allocateSpecific(T address, T length)
+template <typename T, bool Reversed>
+bool RangeList<T, Reversed>::allocateSpecific(T address, T length)
 {
     bool bSuccess = false;
     for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
@@ -301,8 +297,8 @@ bool RangeList<T>::allocateSpecific(T address, T length)
     return bSuccess;
 }
 
-template <typename T>
-typename RangeList<T>::Range RangeList<T>::getRange(size_t index) const
+template <typename T, bool Reversed>
+typename RangeList<T, Reversed>::Range RangeList<T, Reversed>::getRange(size_t index) const
 {
     if (index >= m_List.size())
         return Range(0, 0);
@@ -313,22 +309,22 @@ typename RangeList<T>::Range RangeList<T>::getRange(size_t index) const
     return Range(**cur);
 }
 
-template <typename T>
-RangeList<T>::~RangeList()
+template <typename T, bool Reversed>
+RangeList<T, Reversed>::~RangeList()
 {
     clear();
 }
 
-template <typename T>
-void RangeList<T>::clear()
+template <typename T, bool Reversed>
+void RangeList<T, Reversed>::clear()
 {
     for (ConstIterator it = m_List.begin(); it != m_List.end(); ++it)
         delete *it;
     m_List.clear();
 }
 
-template <typename T>
-void RangeList<T>::sweep()
+template <typename T, bool Reversed>
+void RangeList<T, Reversed>::sweep()
 {
     // Try and clean up, merging as needed.
     for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)

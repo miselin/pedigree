@@ -43,69 +43,32 @@ static const int RandomNumber()
 
 static void BM_RangeListAllocate(benchmark::State &state)
 {
+    RangeList<int64_t> list;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        RangeList<int64_t> list;
-        list.free(0, state.range(0));
-        state.ResumeTiming();
-
-        int64_t addr;
-        for (size_t i = 0; i < state.range(0); ++i)
+        int64_t addr = 0;
+        if (!list.allocate(1, addr))
         {
-            benchmark::DoNotOptimize(list.allocate(1, addr));
+            state.PauseTiming();
+            list.free(0, 0x100000);
+            state.ResumeTiming();
         }
     }
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
 static void BM_RangeListFree(benchmark::State &state)
 {
+    RangeList<int64_t> list;
+    int64_t addr = 0;
     while (state.KeepRunning())
     {
-        state.PauseTiming();
-        RangeList<int64_t> list;
-        state.ResumeTiming();
-
-        int64_t addr;
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            list.free(i, 1);
-        }
+        list.free(addr++, 1);
     }
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_RangeListScatter(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        RangeList<int64_t> list;
-        state.ResumeTiming();
-
-        int64_t addr;
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            if (i % 2)
-            {
-                list.free(i, 10);
-            }
-            else
-            {
-                list.allocate(1, addr);
-            }
-        }
-    }
-
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
-}
-
-BENCHMARK(BM_RangeListAllocate)->Range(1, 2 << 24);
-BENCHMARK(BM_RangeListFree)->Range(1, 2 << 24);
-BENCHMARK(BM_RangeListScatter)->Range(1, 2 << 24);
+BENCHMARK(BM_RangeListAllocate);
+BENCHMARK(BM_RangeListFree);

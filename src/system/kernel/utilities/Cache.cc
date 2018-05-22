@@ -38,7 +38,7 @@
 // This gives us wins because we don't need to reallocate page tables for
 // evicted pages. Without reuse, we end up needing to clean up old page tables
 // eventually.
-MemoryAllocator Cache::m_Allocator(false, true);
+MemoryAllocator Cache::m_Allocator(true);
 Spinlock Cache::m_AllocatorLock;
 static bool g_AllocatorInited = false;
 
