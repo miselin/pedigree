@@ -134,6 +134,8 @@ class EXPORTED_PUBLIC Vector
     void clear();
     /** Erase one Element */
     Iterator erase(Iterator iter);
+    /** Erase one Element */
+    ReverseIterator erase(ReverseIterator iter);
 
     /** Get an iterator pointing to the beginning of the Vector
      *\return iterator pointing to the beginning of the Vector */
@@ -338,6 +340,15 @@ template <class T>
 typename Vector<T>::Iterator Vector<T>::erase(Iterator iter)
 {
     size_t which = iter - begin();
+    pedigree_std::copy(&m_Data[which], &m_Data[which + 1], m_Count - which - 1);
+    m_Count--;
+    return iter;
+}
+
+template <class T>
+typename Vector<T>::ReverseIterator Vector<T>::erase(ReverseIterator iter)
+{
+    size_t which = iter.value - m_Data;
     pedigree_std::copy(&m_Data[which], &m_Data[which + 1], m_Count - which - 1);
     m_Count--;
     return iter;

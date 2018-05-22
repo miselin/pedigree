@@ -328,6 +328,7 @@ TEST(PedigreeVector, Erase)
     ++it;
 
     x.erase(it);
+    EXPECT_EQ(*it, 3);  // shifted downwards
 
     EXPECT_EQ(x[0], 1);
     EXPECT_EQ(x[1], 3);
@@ -347,6 +348,23 @@ TEST(PedigreeVector, EraseAtEnd)
     EXPECT_NE(it, x.end());
     it = x.erase(it);
     EXPECT_EQ(it, x.end());
+}
+
+TEST(PedigreeVector, EraseReversed)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+
+    auto it = x.rbegin();
+    ++it;
+    x.erase(it);
+    EXPECT_EQ(*it, 3);  // should have shifted end downwards
+
+    EXPECT_EQ(x[0], 1);
+    EXPECT_EQ(x[1], 3);
+    EXPECT_EQ(x.count(), 2);
 }
 
 TEST(PedigreeVector, ReducedCopies)
