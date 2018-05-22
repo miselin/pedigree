@@ -22,3 +22,41 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/RangeList.h"
+
+TEST(PedigreeRangeList, Forward)
+{
+    RangeList<int64_t> list;
+
+    list.free(0, 1024);
+
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(1, addr));
+    EXPECT_EQ(addr, 0);
+    EXPECT_TRUE(list.allocate(1, addr));
+    EXPECT_EQ(addr, 1);
+}
+
+TEST(PedigreeRangeList, Reversed)
+{
+    RangeList<int64_t, true> list;
+
+    list.free(0, 1024);
+
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(1, addr));
+    EXPECT_EQ(addr, 1023);
+    EXPECT_TRUE(list.allocate(1, addr));
+    EXPECT_EQ(addr, 1022);
+}
+
+TEST(PedigreeRangeList, NeedsFreeFirst)
+{
+    RangeList<int64_t> list;
+    int64_t addr = 0;
+    EXPECT_FALSE(list.allocate(1, addr));
+
+    list.free(0, 1024);
+
+    EXPECT_TRUE(list.allocate(1, addr));
+    EXPECT_EQ(addr, 0);
+}

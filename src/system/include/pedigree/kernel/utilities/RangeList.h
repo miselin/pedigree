@@ -103,17 +103,17 @@ class EXPORTED_PUBLIC RangeList
 
   private:
     /** List of ranges */
-    List<Range *> m_List;
+    Vector<Range *> m_List;
 
     /** Should we prefer previously-used ranges where possible? */
     bool m_bPreferUsed;
 
     RangeList &operator=(const RangeList &l);
 
-    typedef typename List<Range *>::Iterator Iterator;
-    typedef typename List<Range *>::ConstIterator ConstIterator;
-    typedef typename List<Range *>::ReverseIterator ReverseIterator;
-    typedef typename List<Range *>::ConstReverseIterator ConstReverseIterator;
+    typedef typename decltype(m_List)::Iterator Iterator;
+    typedef typename decltype(m_List)::ConstIterator ConstIterator;
+    typedef typename decltype(m_List)::ReverseIterator ReverseIterator;
+    typedef typename decltype(m_List)::ConstReverseIterator ConstReverseIterator;
 };
 
 /** @} */
@@ -122,9 +122,14 @@ class EXPORTED_PUBLIC RangeList
 template <typename T, bool Reversed>
 RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other) : m_List()
 {
+    // Need to clean up all our existing ranges.
+    for (Iterator it = m_List.begin(); it != m_List.end(); ++it)
+    {
+        delete *it;
+    }
     m_List.clear();
 
-    for (Iterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
+    for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
     {
         Range *pRange = new Range((*it)->address, (*it)->length);
         m_List.pushBack(pRange);
@@ -134,8 +139,8 @@ RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other) : m_List(
 template <typename T, bool Reversed>
 void RangeList<T, Reversed>::free(T address, T length)
 {
-    Iterator cur(m_List.begin());
-    ConstIterator end(m_List.end());
+    Iterator cur = m_List.begin();
+    ConstIterator end = m_List.end();
 
     // Try and find a place to merge immediately.
     bool needsNew = true;
@@ -160,8 +165,10 @@ void RangeList<T, Reversed>::free(T address, T length)
         }
     }
 
-    // Clean up any merges that we may have just created.
-    sweep();
+    // NOTE: we defer sweeping to allocate(), and only if a first attempt at
+    // allocate() fails to successfully find a range it can use. This saves
+    // time when freeing regions and is useful for RangeLists that are not
+    // heavily utilized.
 
     if (!needsNew)
         return;
@@ -190,57 +197,56 @@ bool RangeList<T, Reversed>::allocate(T length, T &address)
 {
     bool bSuccess = false;
 
-    // Try and find enough space. This logic differs slightly if we are working
-    // in reverse, as the direction changes.
-    if (Reversed)
+    for (int i = 0; i < 2; ++i)
     {
-        for (ReverseIterator it = m_List.rbegin(); it != m_List.rend(); ++it)
+        auto it = Reversed ? m_List.rbegin() : m_List.begin();
+        auto end = Reversed ? m_List.rend() : m_List.end();
+
+        for (; it != end; ++it)
         {
-            if ((*it)->length >= length)
+            if ((*it)->length < length)
+            {
+                continue;
+            }
+
+            if (Reversed)
             {
                 // Big enough. Cut into the END of this range.
                 T offset = (*it)->length - length;
                 address = (*it)->address + offset;
-                (*it)->length -= length;
-
-                // Remove if the entry no longer exists.
-                if (!(*it)->length)
-                {
-                    delete (*it);
-                    m_List.erase(it);
-                }
-
-                bSuccess = true;
-                break;
             }
-        }
-    }
-    else
-    {
-        for (Iterator it = m_List.begin(); it != m_List.end(); ++it)
-        {
-            if ((*it)->length >= length)
+            else
             {
-                // Big enough. Cut into the START of this range.
                 address = (*it)->address;
                 (*it)->address += length;
-                (*it)->length -= length;
-
-                // Remove if the entry no longer exists.
-                if (!(*it)->length)
-                {
-                    delete (*it);
-                    m_List.erase(it);
-                }
-
-                bSuccess = true;
-                break;
             }
+            (*it)->length -= length;
+
+            // Remove if the entry no longer exists.
+            if (!(*it)->length)
+            {
+                delete (*it);
+                m_List.erase(it);
+            }
+
+            bSuccess = true;
+            break;
+        }
+
+        if (bSuccess)
+        {
+            return true;
+        }
+        else if (!i)
+        {
+            // Failed on first pass, try another pass after a sweep.
+            // The sweep could merge some regions and let us allocate.
+            // This is better than sweeping on every single allocation, which
+            // could be really slow and unnecessary.
+            sweep();
         }
     }
 
-    // Now that we've possibly removed items or rearranged them, re-sweep.
-    sweep();
     return bSuccess;
 }
 
@@ -248,52 +254,65 @@ template <typename T, bool Reversed>
 bool RangeList<T, Reversed>::allocateSpecific(T address, T length)
 {
     bool bSuccess = false;
-    for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
+    for (int i = 0; i < 2; ++i)
     {
-        // Precise match.
-        if ((*cur)->address == address && (*cur)->length == length)
+        for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
         {
-            delete *cur;
-            m_List.erase(cur);
-            bSuccess = true;
-            break;
+            // Precise match.
+            if ((*cur)->address == address && (*cur)->length == length)
+            {
+                delete *cur;
+                m_List.erase(cur);
+                bSuccess = true;
+                break;
+            }
+
+            // Match at end.
+            else if (
+                (*cur)->address < address &&
+                ((*cur)->address + (*cur)->length) == (address + length))
+            {
+                (*cur)->length -= length;
+                bSuccess = true;
+                break;
+            }
+
+            // Match at start.
+            else if ((*cur)->address == address && (*cur)->length > length)
+            {
+                (*cur)->address += length;
+                (*cur)->length -= length;
+                bSuccess = true;
+                break;
+            }
+
+            // Match within.
+            else if (
+                (*cur)->address < address &&
+                ((*cur)->address + (*cur)->length) > (address + length))
+            {
+                // Need to split the range.
+                Range *newRange = new Range(
+                    address + length,
+                    (*cur)->address + (*cur)->length - address - length);
+                m_List.pushBack(newRange);
+                (*cur)->length = address - (*cur)->address;
+                bSuccess = true;
+            }
         }
 
-        // Match at end.
-        else if (
-            (*cur)->address < address &&
-            ((*cur)->address + (*cur)->length) == (address + length))
+        if (bSuccess)
         {
-            (*cur)->length -= length;
-            bSuccess = true;
-            break;
+            return bSuccess;
         }
-
-        // Match at start.
-        else if ((*cur)->address == address && (*cur)->length > length)
+        else if (!i)
         {
-            (*cur)->address += length;
-            (*cur)->length -= length;
-            bSuccess = true;
-            break;
-        }
-
-        // Match within.
-        else if (
-            (*cur)->address < address &&
-            ((*cur)->address + (*cur)->length) > (address + length))
-        {
-            // Need to split the range.
-            Range *newRange = new Range(
-                address + length,
-                (*cur)->address + (*cur)->length - address - length);
-            m_List.pushBack(newRange);
-            (*cur)->length = address - (*cur)->address;
-            bSuccess = true;
+            // Failed in the first pass, sweep to merge potential regions and
+            // then we'll try again.
+            sweep();
         }
     }
 
-    sweep();
     return bSuccess;
 }
 
