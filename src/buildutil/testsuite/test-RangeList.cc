@@ -184,3 +184,43 @@ TEST(PedigreeRangeList, AllocateSpecificMiddle)
     int64_t addr = 0;
     EXPECT_TRUE(list.allocateSpecific(128, 128));
 }
+
+TEST(PedigreeRangeList, Sweep)
+{
+    RangeList<int64_t> list;
+    list.free(0, 64, false);
+    list.free(64, 64, false);
+    list.free(128, 64, false);
+
+    EXPECT_EQ(list.size(), 3);
+    EXPECT_EQ(list.getRange(0), RangeList<int64_t>::Range(0, 64));
+    EXPECT_EQ(list.getRange(1), RangeList<int64_t>::Range(64, 64));
+    EXPECT_EQ(list.getRange(2), RangeList<int64_t>::Range(128, 64));
+
+    list.sweep();
+
+    EXPECT_EQ(list.size(), 1);
+    EXPECT_EQ(list.getRange(0), RangeList<int64_t>::Range(0, 192));
+}
+
+TEST(PedigreeRangeList, Copy)
+{
+    RangeList<int64_t> list;
+    list.free(0, 64, false);
+    list.free(64, 64, false);
+    list.free(128, 64, false);
+    RangeList<int64_t> list2;
+    list2.free(0, 1024);
+    list2 = list;
+
+    EXPECT_EQ(list2.size(), 3);
+    EXPECT_EQ(list2.getRange(0), RangeList<int64_t>::Range(0, 64));
+    EXPECT_EQ(list2.getRange(1), RangeList<int64_t>::Range(64, 64));
+    EXPECT_EQ(list2.getRange(2), RangeList<int64_t>::Range(128, 64));
+
+    RangeList<int64_t> list3(list);
+    EXPECT_EQ(list3.size(), 3);
+    EXPECT_EQ(list3.getRange(0), RangeList<int64_t>::Range(0, 64));
+    EXPECT_EQ(list3.getRange(1), RangeList<int64_t>::Range(64, 64));
+    EXPECT_EQ(list3.getRange(2), RangeList<int64_t>::Range(128, 64));
+}

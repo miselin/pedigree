@@ -57,13 +57,13 @@ class EXPORTED_PUBLIC RangeList
     ~RangeList();
 
     RangeList(const RangeList &);
+    RangeList &operator=(const RangeList &l);
 
     /** Structure of one range */
-    class Range
+    struct Range
     {
-      public:
         /** Construct a Range */
-        inline Range(T Address, T Length) : address(Address), length(Length)
+        Range(T Address, T Length) : address(Address), length(Length)
         {
         }
 
@@ -71,6 +71,11 @@ class EXPORTED_PUBLIC RangeList
         T address;
         /** Length of the range  */
         T length;
+
+        bool operator== (const Range &other) const
+        {
+            return (address == other.address) && (length == other.length);
+        }
     };
 
     /** Free a range
@@ -114,8 +119,6 @@ class EXPORTED_PUBLIC RangeList
     /** Should we prefer previously-used ranges where possible? */
     bool m_bPreferUsed;
 
-    RangeList &operator=(const RangeList &l);
-
     typedef typename decltype(m_List)::Iterator Iterator;
     typedef typename decltype(m_List)::ConstIterator ConstIterator;
     typedef typename decltype(m_List)::ReverseIterator ReverseIterator;
@@ -126,20 +129,31 @@ class EXPORTED_PUBLIC RangeList
 
 /** Copy constructor - performs deep copy. */
 template <typename T, bool Reversed>
-RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other) : m_List()
+RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other)
 {
     // Need to clean up all our existing ranges.
-    for (Iterator it = m_List.begin(); it != m_List.end(); ++it)
-    {
-        delete *it;
-    }
-    m_List.clear();
+    clear();
 
     for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
     {
         Range *pRange = new Range((*it)->address, (*it)->length);
         m_List.pushBack(pRange);
     }
+}
+
+template <typename T, bool Reversed>
+RangeList<T, Reversed> &RangeList<T, Reversed>::operator=(const RangeList &other)
+{
+    // Need to clean up all our existing ranges.
+    clear();
+
+    for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
+    {
+        Range *pRange = new Range((*it)->address, (*it)->length);
+        m_List.pushBack(pRange);
+    }
+
+    return *this;
 }
 
 template <typename T, bool Reversed>
@@ -345,7 +359,9 @@ template <typename T, bool Reversed>
 void RangeList<T, Reversed>::clear()
 {
     for (size_t i = 0; i < m_List.count(); ++i)
+    {
         delete m_List[i];
+    }
     m_List.clear();
 }
 
