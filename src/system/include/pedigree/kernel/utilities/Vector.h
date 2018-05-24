@@ -132,6 +132,8 @@ class EXPORTED_PUBLIC Vector
 
     /** Clear the Vector */
     void clear();
+    /** Erase the element at the given index. */
+    void erase(size_t index);
     /** Erase one Element */
     Iterator erase(Iterator iter);
     /** Erase one Element */
@@ -337,20 +339,33 @@ void Vector<T>::clear()
 }
 
 template <class T>
+void Vector<T>::erase(size_t index)
+{
+    if (!m_Count)
+    {
+        return;
+    }
+    else if (index >= m_Count)
+    {
+        return;
+    }
+
+    T *base = m_Data + m_Start;
+    pedigree_std::copy(base + index, base + index + 1, m_Count - index - 1);
+    m_Count--;
+}
+
+template <class T>
 typename Vector<T>::Iterator Vector<T>::erase(Iterator iter)
 {
-    size_t which = iter - begin();
-    pedigree_std::copy(&m_Data[which], &m_Data[which + 1], m_Count - which - 1);
-    m_Count--;
+    erase(static_cast<size_t>(iter - begin()));
     return iter;
 }
 
 template <class T>
 typename Vector<T>::ReverseIterator Vector<T>::erase(ReverseIterator iter)
 {
-    size_t which = iter.value - m_Data;
-    pedigree_std::copy(&m_Data[which], &m_Data[which + 1], m_Count - which - 1);
-    m_Count--;
+    erase(static_cast<size_t>(iter.value - (m_Data + m_Start)));
     return iter;
 }
 

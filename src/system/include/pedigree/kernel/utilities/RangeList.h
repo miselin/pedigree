@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -74,8 +75,10 @@ class EXPORTED_PUBLIC RangeList
 
     /** Free a range
      *\param[in] address beginning address of the range
-     *\param[in] length length of the range */
-    void free(T address, T length);
+     *\param[in] length length of the range
+     *\param[in] merge set to force creation of a new range rather than merging
+     * with an existing one */
+    void free(T address, T length, bool merge = true);
     /** Allocate a range of a specific size
      *\param[in] length the requested length
      *\param[in,out] address the beginning address of the allocated range
@@ -93,13 +96,16 @@ class EXPORTED_PUBLIC RangeList
      *\return the number of ranges in the list */
     inline size_t size() const
     {
-        return m_List.size();
+        return m_List.count();
     }
     /** Get a range at a specific index */
     Range getRange(size_t index) const;
 
     /** Sweep the RangeList and re-merge items. */
     void sweep();
+
+    /** Render the RangeList, emitting each range using the given callback. */
+    void dump(void (*emit_line)(const char *s)) const;
 
   private:
     /** List of ranges */
@@ -137,43 +143,41 @@ RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other) : m_List(
 }
 
 template <typename T, bool Reversed>
-void RangeList<T, Reversed>::free(T address, T length)
+void RangeList<T, Reversed>::free(T address, T length, bool merge)
 {
-    Iterator cur = m_List.begin();
-    ConstIterator end = m_List.end();
-
-    // Try and find a place to merge immediately.
-    bool needsNew = true;
-    for (; cur != end; ++cur)
+    if (merge)
     {
-        // Region ends at our freed address.
-        if (((*cur)->address + (*cur)->length) == address)
+        Iterator cur = m_List.begin();
+        ConstIterator end = m_List.end();
+
+        // Try and find a place to merge immediately.
+        bool needsNew = true;
+        for (; cur != end; ++cur)
         {
-            // Update - all done.
-            (*cur)->length += length;
-            needsNew = false;
-            break;
+            // Region ends at our freed address.
+            if (((*cur)->address + (*cur)->length) == address)
+            {
+                // Update - all done.
+                (*cur)->length += length;
+                needsNew = false;
+                break;
+            }
+            // Region starts after our address.
+            else if ((*cur)->address == (address + length))
+            {
+                // Expand.
+                (*cur)->address -= length;
+                (*cur)->length += length;
+                needsNew = false;
+                break;
+            }
         }
-        // Region starts after our address.
-        else if ((*cur)->address == (address + length))
-        {
-            // Expand.
-            (*cur)->address -= length;
-            (*cur)->length += length;
-            needsNew = false;
-            break;
-        }
+
+        if (!needsNew)
+            return;
     }
 
-    // NOTE: we defer sweeping to allocate(), and only if a first attempt at
-    // allocate() fails to successfully find a range it can use. This saves
-    // time when freeing regions and is useful for RangeLists that are not
-    // heavily utilized.
-
-    if (!needsNew)
-        return;
-
-    // Couldn't find a merge, so we need to add a new region.
+    // Couldn't find a merge or didn't want one, so we need to add a new region.
 
     // Add the range back to our list, but in such a way that it is allocated
     // last rather than first (if another allocation of the same length comes
@@ -190,6 +194,11 @@ void RangeList<T, Reversed>::free(T address, T length)
         m_List.pushFront(range);
     else
         m_List.pushBack(range);
+
+    // NOTE: we defer sweeping to allocate(), and only if a first attempt at
+    // allocate() fails to successfully find a range it can use. This saves
+    // time when freeing regions and is useful for RangeLists that are not
+    // heavily utilized.
 }
 
 template <typename T, bool Reversed>
@@ -295,9 +304,10 @@ bool RangeList<T, Reversed>::allocateSpecific(T address, T length)
                 Range *newRange = new Range(
                     address + length,
                     (*cur)->address + (*cur)->length - address - length);
-                m_List.pushBack(newRange);
                 (*cur)->length = address - (*cur)->address;
+                m_List.pushBack(newRange);
                 bSuccess = true;
+                break;
             }
         }
 
@@ -322,10 +332,7 @@ typename RangeList<T, Reversed>::Range RangeList<T, Reversed>::getRange(size_t i
     if (index >= m_List.size())
         return Range(0, 0);
 
-    ConstIterator cur(m_List.begin());
-    for (size_t i = 0; i < index; ++i)
-        ++cur;
-    return Range(**cur);
+    return Range(*m_List[index]);
 }
 
 template <typename T, bool Reversed>
@@ -337,42 +344,67 @@ RangeList<T, Reversed>::~RangeList()
 template <typename T, bool Reversed>
 void RangeList<T, Reversed>::clear()
 {
-    for (ConstIterator it = m_List.begin(); it != m_List.end(); ++it)
-        delete *it;
+    for (size_t i = 0; i < m_List.count(); ++i)
+        delete m_List[i];
     m_List.clear();
 }
 
 template <typename T, bool Reversed>
 void RangeList<T, Reversed>::sweep()
 {
-    // Try and clean up, merging as needed.
-    for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
+    if (m_List.count() < 2)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < (m_List.count() - 1);)
     {
         // Can we merge? (note: preincrement modifies the iterator)
-        Iterator next = cur;
-        ++next;
-        if (next == m_List.end())
-            break;
+        Range *cur = m_List[i];
+        Range *next = m_List[i + 1];
 
-        uintptr_t cur_address = (*cur)->address;
-        uintptr_t next_address = (*next)->address;
-        size_t cur_len = (*cur)->length;
-        size_t next_len = (*next)->length;
+        uintptr_t cur_address = cur->address;
+        uintptr_t next_address = next->address;
+        size_t cur_len = cur->length;
+        size_t next_len = next->length;
 
         if ((cur_address + cur_len) == next_address)
         {
             // Merge.
-            (*cur)->length += next_len;
-            delete *next;
-            m_List.erase(next);
+            cur->length += next_len;
+            delete next;
+            m_List.erase(i + 1);
         }
         else if ((next_address + next_len) == cur_address)
         {
-            (*cur)->address -= next_len;
-            (*cur)->length += next_len;
-            delete *next;
-            m_List.erase(next);
+            cur->address -= next_len;
+            cur->length += next_len;
+            delete next;
+            m_List.erase(i + 1);
         }
+        else
+        {
+            ++i;
+        }
+    }
+}
+
+template <typename T, bool Reversed>
+void RangeList<T, Reversed>::dump(void (*emit_line)(const char *s)) const
+{
+    for (size_t i = 0; i < m_List.count(); ++i)
+    {
+        const Range *range = m_List[i];
+
+        HugeStaticString str;
+        str.append("range ");
+        str.append(range->address, 16, 16, '0');
+        str.append(" -> ");
+        str.append(range->address + range->length, 16, 16, '0');
+        str.append(" (");
+        str.append(range->length, 10);
+        str.append(" bytes)");
+        emit_line(static_cast<const char *>(str));
     }
 }
 

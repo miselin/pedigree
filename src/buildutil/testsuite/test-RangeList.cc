@@ -60,3 +60,127 @@ TEST(PedigreeRangeList, NeedsFreeFirst)
     EXPECT_TRUE(list.allocate(1, addr));
     EXPECT_EQ(addr, 0);
 }
+
+TEST(PedigreeRangeList, AllocateEntireRange)
+{
+    RangeList<int64_t> list;
+
+    // create 3 ranges (don't sweep)
+    list.free(0, 128);
+    list.free(0, 128);
+    list.free(0, 128);
+
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(128, addr));
+    EXPECT_EQ(addr, 0);
+}
+
+TEST(PedigreeRangeList, AllocateSkipsTooSmallRanges)
+{
+    RangeList<int64_t> list;
+
+    // create 3 ranges (don't sweep)
+    list.free(0, 64);
+    list.free(0, 64);
+    list.free(0, 128);
+
+    // the first pass doesn't sweep - just returns the first range that fits
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(128, addr));
+    EXPECT_EQ(addr, 0);
+}
+
+TEST(PedigreeRangeList, AllocateSkipsTooSmallRangesWithSweep)
+{
+    RangeList<int64_t> list;
+
+    list.free(0, 64, false);
+    list.free(64, 64, false);
+    list.free(128, 64, false);
+
+    // this will have to do a retry and sweep to succeed
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(128, addr));
+    EXPECT_EQ(addr, 0);
+}
+
+TEST(PedigreeRangeList, AllocateSpecificWorks)
+{
+    RangeList<int64_t> list;
+    list.free(0, 1024);
+
+    EXPECT_TRUE(list.allocateSpecific(0, 512));
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(1, addr));
+    EXPECT_EQ(addr, 512);
+}
+
+TEST(PedigreeRangeList, AllocateSpecificFailsAlreadyAllocated)
+{
+    RangeList<int64_t> list;
+    list.free(0, 1024);
+
+    // four allocations to consume 0-512
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocate(128, addr));
+    EXPECT_TRUE(list.allocate(128, addr));
+    EXPECT_TRUE(list.allocate(128, addr));
+    EXPECT_TRUE(list.allocate(128, addr));
+
+    // can't allocate addresses 0-256, already allocated
+    EXPECT_FALSE(list.allocateSpecific(0, 256));
+
+    // clean up addresses 128-256
+    list.free(128, 128);
+
+    // still can't allocate 0-256
+    EXPECT_FALSE(list.allocateSpecific(0, 256));
+
+    // clean up so 0-256 is fully freed
+    list.free(0, 128);
+
+    // now we can allocate the whole range
+    EXPECT_TRUE(list.allocateSpecific(0, 256));
+}
+
+TEST(PedigreeRangeList, AllocateSpecificOnlyOnce)
+{
+    RangeList<int64_t> list;
+    list.free(0, 1024);
+
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocateSpecific(0, 512));
+    EXPECT_FALSE(list.allocateSpecific(0, 512));
+}
+
+TEST(PedigreeRangeList, AllocateSpecificWithMerges)
+{
+    RangeList<int64_t> list;
+    list.free(0, 128, false);
+    list.free(128, 128, false);
+    list.free(256, 128, false);
+    list.free(384, 128, false);
+
+    int64_t addr = 0;
+    // this will need to merge the first two freed ranges
+    EXPECT_TRUE(list.allocateSpecific(0, 256));
+}
+
+TEST(PedigreeRangeList, AllocateSpecificAtEnd)
+{
+    RangeList<int64_t> list;
+    list.free(0, 256);
+
+    int64_t addr = 0;
+    // this has to split a range in the middle and return the end half
+    EXPECT_TRUE(list.allocateSpecific(128, 128));
+}
+
+TEST(PedigreeRangeList, AllocateSpecificMiddle)
+{
+    RangeList<int64_t> list;
+    list.free(0, 384);
+
+    int64_t addr = 0;
+    EXPECT_TRUE(list.allocateSpecific(128, 128));
+}

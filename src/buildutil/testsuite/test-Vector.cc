@@ -367,6 +367,20 @@ TEST(PedigreeVector, EraseReversed)
     EXPECT_EQ(x.count(), 2);
 }
 
+TEST(PedigreeVector, ReducedCopiesWithErase)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+    x.popFront();  // offsets vector
+
+    x.erase(static_cast<size_t>(0));
+
+    EXPECT_EQ(x.count(), 1);
+    EXPECT_EQ(x[0], 3);
+}
+
 TEST(PedigreeVector, ReducedCopies)
 {
     Vector<int> x;
