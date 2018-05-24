@@ -22,7 +22,6 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
-#include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 template <class T>
@@ -33,7 +32,7 @@ class BloomFilter
         : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
     {
     }
-    ~BloomFilter() = default;
+    virtual ~BloomFilter() {};
 
     void add(const T &data)
     {
