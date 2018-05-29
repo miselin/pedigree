@@ -19,12 +19,8 @@
 
 #include "pedigree/kernel/debugger/SerialIO.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/debugger/DebuggerCommand.h"
-#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#include "pedigree/kernel/utilities/utility.h"
-/// \todo needs a bit of a tidyup!
-#include "pedigree/kernel/processor/Processor.h"
 
 SerialIO::SerialIO(Serial *pSerial)
     : m_UpperCliLimit(0), m_LowerCliLimit(0), m_nWidth(80), m_nHeight(25),

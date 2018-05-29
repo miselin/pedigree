@@ -20,6 +20,7 @@
 #include "pedigree/kernel/debugger/commands/DumpCommand.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/processor/state.h"
 
 DumpCommand::DumpCommand() : DebuggerCommand()
 {

@@ -20,8 +20,8 @@
 #ifndef BACKTRACE_H
 #define BACKTRACE_H
 
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kerneldebugger

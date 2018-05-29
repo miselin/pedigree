@@ -23,8 +23,7 @@
 /** @addtogroup kerneldebugger
  * @{ */
 
-#include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
 class DwarfUnwinder

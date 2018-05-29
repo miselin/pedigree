@@ -20,6 +20,7 @@
 #ifndef DEBUGGER_IO_H
 #define DEBUGGER_IO_H
 
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kerneldebugger

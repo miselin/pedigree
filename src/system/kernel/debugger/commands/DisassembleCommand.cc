@@ -23,6 +23,7 @@
 #include "pedigree/kernel/debugger/libudis86/udis86.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/processor/Disassembler.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/demangle.h"
 
 DisassembleCommand::DisassembleCommand()

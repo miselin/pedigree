@@ -23,11 +23,11 @@
 /** @addtogroup kerneldebugger
  * @{ */
 
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
-#include "pedigree/kernel/machine/Keyboard.h"
-#include "pedigree/kernel/machine/Vga.h"
 
-class DebuggerCommand;
+class Keyboard;
+class Vga;
 
 #ifdef PPC_COMMON
 #define MAX_CONSOLE_WIDTH 128

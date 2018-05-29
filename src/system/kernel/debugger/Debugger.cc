@@ -19,6 +19,10 @@
 
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/LocalIO.h"
 #include "pedigree/kernel/debugger/SerialIO.h"
@@ -44,13 +48,18 @@
 #include "pedigree/kernel/debugger/commands/ThreadsCommand.h"
 #include "pedigree/kernel/debugger/commands/TraceCommand.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
-#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Display.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/x64/state.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/ServiceManager.h"
+
+class Thread;
 
 Debugger Debugger::m_Instance;
 

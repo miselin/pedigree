@@ -24,6 +24,7 @@
 #if defined(DEBUGGER)
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
+#include "pedigree/kernel/processor/Processor.h"
 
 #ifdef THREADS
 #include "pedigree/kernel/Subsystem.h"

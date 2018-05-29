@@ -20,10 +20,10 @@
 #ifndef DEBUGGER_H
 #define DEBUGGER_H
 
-#include "pedigree/kernel/debugger/LocalIO.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kerneldebugger
  * @{ */

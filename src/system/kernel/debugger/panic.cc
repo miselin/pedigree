@@ -18,24 +18,21 @@
  */
 
 #include "pedigree/kernel/panic.h"
-
-#include "pedigree/kernel/debugger/Debugger.h"
-
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/LocalIO.h"
 #include "pedigree/kernel/debugger/SerialIO.h"
-
-#include "pedigree/kernel/utilities/StaticString.h"
-
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Display.h"
-#include "pedigree/kernel/processor/Processor.h"
-
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/utilities/utility.h"
-
-#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static size_t newlineCount(const char *pString)
 {

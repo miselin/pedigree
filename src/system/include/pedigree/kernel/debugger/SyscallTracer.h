@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/Processor.h"
-
 class SyscallTracer
 {
   public:

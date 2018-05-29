@@ -21,12 +21,12 @@
 #define SERIALIO_H
 
 #include "pedigree/kernel/debugger/DebuggerIO.h"
-#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/processor/types.h"
+
+class Serial;
 
 /** @addtogroup kerneldebugger
  * @{ */
-
-class DebuggerCommand;
 
 /**
  * Provides an implementation of DebuggerIO, using the serial port.

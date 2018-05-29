@@ -21,6 +21,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/demangle.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/Log.h"
 
 #ifndef TESTSUITE
 #include "pedigree/kernel/debugger/Backtrace.h"

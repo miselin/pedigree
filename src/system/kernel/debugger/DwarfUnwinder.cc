@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/DwarfCfiAutomaton.h"
 #include "pedigree/kernel/debugger/DwarfState.h"
+#include "pedigree/kernel/processor/state.h"
 
 DwarfUnwinder::DwarfUnwinder(uintptr_t nData, size_t nLength)
     : m_nData(nData), m_nLength(nLength)

@@ -20,7 +20,7 @@
 #ifndef DEBUGGER_COMMAND_H
 #define DEBUGGER_COMMAND_H
 
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
 /** @addtogroup kerneldebugger
