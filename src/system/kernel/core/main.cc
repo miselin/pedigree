@@ -93,64 +93,46 @@
  * - You can also find us in \#pedigree on irc.freenode.net.
  */
 
+#include "pedigree/kernel/Archive.h"
 #include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Version.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/core/BootIO.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/core/cppsupport.h"
+
+#include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Trace.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/InfoBlock.h"
+#include "pedigree/kernel/process/MemoryPressureKiller.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
 
 #ifdef DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
-#include "pedigree/kernel/Archive.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/Version.h"
-#include "pedigree/kernel/linker/KernelElf.h"
-#include "pedigree/kernel/panic.h"
-
-#include "pedigree/kernel/core/cppsupport.h"  // initialiseConstructors()
-
-#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-
-#include "pedigree/kernel/core/BootIO.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
-#include "pedigree/kernel/debugger/LocalIO.h"
-#include "pedigree/kernel/debugger/SerialIO.h"
-#include "pedigree/kernel/machine/Machine.h"
-
-#include "pedigree/kernel/process/InfoBlock.h"
-#include "pedigree/kernel/process/MemoryPressureKiller.h"
-#include "pedigree/kernel/process/MemoryPressureManager.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/SchedulingAlgorithm.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/initialiseMultitasking.h"
-
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Trace.h"
-
 #ifdef OPENFIRMWARE
 #include "pedigree/kernel/machine/openfirmware/Device.h"
 #endif
 
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/RadixTree.h"
-#include "pedigree/kernel/utilities/StaticString.h"
-
-#include "pedigree/kernel/utilities/Cache.h"
-
-#include "pedigree/kernel/machine/InputManager.h"
-
 #ifdef THREADS
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 #endif
-
-#include "modules/Module.h"
-
-#include "pedigree/kernel/graphics/GraphicsService.h"
-
-#include "pedigree/kernel/core/SlamAllocator.h"
 
 #ifdef HOSTED
 namespace __pedigree_hosted
