@@ -20,10 +20,8 @@
 #ifndef MAC_ADDRESS_H
 #define MAC_ADDRESS_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
-
-#include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 
 /** A MAC address */

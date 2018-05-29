@@ -28,11 +28,13 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 
 static size_t newlineCount(const char *pString)

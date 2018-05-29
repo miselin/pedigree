@@ -25,6 +25,8 @@
 #include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/new"
 #endif
 
 /** @addtogroup kernellinker

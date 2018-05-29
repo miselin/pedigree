@@ -30,9 +30,12 @@
 
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
+#include "pedigree/kernel/machine/Display.h"
 
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/ServiceManager.h"
 
 #include "modules/system/users/UserManager.h"
 

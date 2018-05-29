@@ -31,6 +31,7 @@
 
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/ServiceManager.h"
 
 #include "pedigree/kernel/machine/x86_common/Bios.h"
 

@@ -19,8 +19,9 @@
 
 #include "pedigree/kernel/config/ConfigurationManager.h"
 #include "pedigree/kernel/config/ConfigurationBackend.h"
-
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/new"
 
 ConfigurationManager ConfigurationManager::m_Instance;
 

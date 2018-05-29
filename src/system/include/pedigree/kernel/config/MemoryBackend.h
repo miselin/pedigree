@@ -23,6 +23,8 @@
 #include "pedigree/kernel/config/ConfigurationBackend.h"
 #include "pedigree/kernel/config/ConfigurationManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** Memory configuration backend. Stores everything in RAM,
  * won't save to file. Good for runtime-only information.

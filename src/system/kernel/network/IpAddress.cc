@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/network/IpAddress.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 bool IpAddress::isLinkLocal() const
 {

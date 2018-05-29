@@ -18,13 +18,16 @@
  */
 
 #include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/MemoryCount.h"
-#include "pedigree/kernel/utilities/MemoryTracing.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 KernelElf KernelElf::m_Instance;

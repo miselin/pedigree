@@ -30,7 +30,6 @@
 
 #include "pedigree/kernel/network/IpAddress.h"
 #include "pedigree/kernel/network/MacAddress.h"
-#include "pedigree/kernel/network/NetworkBlockTimeout.h"
 
 /** Station information - basically information about this station, per NIC */
 class EXPORTED_PUBLIC StationInfo

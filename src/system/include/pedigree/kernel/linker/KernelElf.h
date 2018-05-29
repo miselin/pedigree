@@ -20,13 +20,14 @@
 #ifndef KERNEL_LINKER_KERNELELF_H
 #define KERNEL_LINKER_KERNELELF_H
 
-#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
@@ -36,6 +37,9 @@
 #ifdef STATIC_DRIVERS
 #include "modules/Module.h"
 #endif
+
+class BootstrapStruct_t;
+class String;
 
 /** @addtogroup kernellinker
  * @{ */

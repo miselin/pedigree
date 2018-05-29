@@ -34,6 +34,7 @@
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/machine/Framebuffer.h"
+#include "pedigree/kernel/ServiceManager.h"
 
 #include "svga_reg.h"
 #include "vm_device_version.h"

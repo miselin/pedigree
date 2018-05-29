@@ -20,8 +20,6 @@
 #include "pedigree/kernel/config/ConfigurationBackend.h"
 #include "pedigree/kernel/config/ConfigurationManager.h"
 
-#include "pedigree/kernel/processor/types.h"
-
 ConfigurationBackend::ConfigurationBackend(const String &configStore)
     : m_ConfigStore(configStore)
 {

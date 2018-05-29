@@ -18,7 +18,12 @@
  */
 
 #include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 bool GraphicsService::serve(
     ServiceFeatures::Type type, void *pData, size_t dataLen)

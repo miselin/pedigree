@@ -284,7 +284,6 @@ set(KERNEL_SRCS
     # /network/
     ${CMAKE_CURRENT_SOURCE_DIR}/network/IpAddress.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/network/MacAddress.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/network/NetworkBlockTimeout.cc
     # /time/
     ${CMAKE_CURRENT_SOURCE_DIR}/time/Concurrent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/time/Conversion.cc

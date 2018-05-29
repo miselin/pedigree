@@ -45,10 +45,12 @@
 #include "pedigree/kernel/debugger/commands/TraceCommand.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/ServiceManager.h"
 
 Debugger Debugger::m_Instance;
 

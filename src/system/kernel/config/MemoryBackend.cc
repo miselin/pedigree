@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/config/MemoryBackend.h"
+#include "pedigree/kernel/utilities/new"
 
 MemoryBackend::MemoryBackend(const String &configStore)
     : ConfigurationBackend(configStore), m_Tables(), m_TypeName("MemoryBackend")

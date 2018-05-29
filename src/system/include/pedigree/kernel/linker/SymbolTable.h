@@ -20,12 +20,14 @@
 #ifndef KERNEL_LINKER_SYMBOLTABLE_H
 #define KERNEL_LINKER_SYMBOLTABLE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/HashTable.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 class Elf;
 

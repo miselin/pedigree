@@ -20,13 +20,14 @@
 #ifndef _GRAPHICS_SERVICE_H
 #define _GRAPHICS_SERVICE_H
 
-#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
 
-#include "pedigree/kernel/machine/Display.h"
-#include "pedigree/kernel/machine/Framebuffer.h"
+class Display;
+class Framebuffer;
 
 class GraphicsService : public Service
 {

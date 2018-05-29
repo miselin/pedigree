@@ -19,8 +19,7 @@
 
 #include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/linker/Elf.h"
-#include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
+#include "pedigree/kernel/utilities/Iterator.h"
 
 #ifdef THREADS
 #define RAII_LOCK LockGuard<Mutex> guard(m_Lock)

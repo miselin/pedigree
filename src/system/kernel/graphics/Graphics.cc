@@ -18,7 +18,9 @@
  */
 
 #include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Framebuffer.h"
+#include "pedigree/kernel/utilities/new"
 
 Framebuffer *Graphics::createFramebuffer(
     Framebuffer *pParent, size_t x, size_t y, size_t w, size_t h,

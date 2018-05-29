@@ -30,6 +30,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/template.h"  // IWYU pragma: export
 
 // Include our custom <new> header which defines all operators as noexcept
 #include "pedigree/kernel/utilities/new"  // IWYU pragma: export

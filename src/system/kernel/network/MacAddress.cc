@@ -18,6 +18,8 @@
  */
 
 #include "pedigree/kernel/network/MacAddress.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 MacAddress::MacAddress() : m_Mac(), m_Valid(false)
 {
