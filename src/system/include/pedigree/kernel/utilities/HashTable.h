@@ -20,12 +20,11 @@
 #ifndef KERNEL_UTILITIES_HASHTABLE_H
 #define KERNEL_UTILITIES_HASHTABLE_H
 
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/Pair.h"
 #include "pedigree/kernel/utilities/Result.h"
-#include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelutilities
  * @{ */

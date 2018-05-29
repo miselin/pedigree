@@ -26,9 +26,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/StringView.h"
-#include "pedigree/kernel/utilities/template.h"  // for operator !=
+#include "pedigree/kernel/utilities/template.h"  // IWYU pragma: keep
 
 // If non-zero, a constexpr constructor will be available in String. It is an
 // experimental change that needs some more work to be stable.

@@ -20,6 +20,8 @@
 #ifndef KERNEL_UTILITIES_CPP_H
 #define KERNEL_UTILITIES_CPP_H
 
+// IWYU pragma: private, include "pedigree/kernel/utilities/utility.h"
+
 #ifdef __cplusplus
 
 #ifdef UTILITY_LINUX
@@ -28,7 +30,9 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/lib.h"
-#include "pedigree/kernel/utilities/new"
+
+// Include our custom <new> header which defines all operators as noexcept
+#include "pedigree/kernel/utilities/new"  // IWYU pragma: export
 
 namespace pedigree_std
 {

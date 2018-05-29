@@ -20,7 +20,8 @@
 #ifndef KERNEL_UTILITIES_LAZYEVALUATE_H
 #define KERNEL_UTILITIES_LAZYEVALUATE_H
 
-#include "pedigree/kernel/utilities/cpp.h"  // for pedigree_std::move
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/utility.h"  // for pedigree_std::move
 
 /**
  * LazyEvaluate offers a way to defer potentially-expensive evaluation to the

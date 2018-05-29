@@ -21,7 +21,7 @@
 #define STATICSTRING_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelutilities
@@ -454,10 +454,10 @@ class EXPORTED_PUBLIC StaticString
 };
 
 // Specializations for the typedefs below (in StaticString.cc)
-extern template class EXPORTED_PUBLIC StaticString<32>;
-extern template class EXPORTED_PUBLIC StaticString<64>;
-extern template class EXPORTED_PUBLIC StaticString<128>;
-extern template class EXPORTED_PUBLIC StaticString<1024>;
+extern template class EXPORTED_PUBLIC StaticString<32>;  // IWYU pragma: keep
+extern template class EXPORTED_PUBLIC StaticString<64>;  // IWYU pragma: keep
+extern template class EXPORTED_PUBLIC StaticString<128>;  // IWYU pragma: keep
+extern template class EXPORTED_PUBLIC StaticString<1024>;  // IWYU pragma: keep
 
 typedef StaticString<32> TinyStaticString;
 typedef StaticString<64> NormalStaticString;

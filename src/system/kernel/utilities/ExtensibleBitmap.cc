@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 ExtensibleBitmap::ExtensibleBitmap()

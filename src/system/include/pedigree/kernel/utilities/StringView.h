@@ -25,8 +25,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/utilities/template.h"  // for operator !=
+#include "pedigree/kernel/utilities/template.h"  // IWYU pragma: keep
 
 class String;
 

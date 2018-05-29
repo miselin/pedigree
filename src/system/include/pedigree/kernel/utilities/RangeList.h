@@ -21,8 +21,9 @@
 #define KERNEL_UTILITIES_RANGELIST_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -424,7 +425,7 @@ void RangeList<T, Reversed>::dump(void (*emit_line)(const char *s)) const
     }
 }
 
-extern template class RangeList<uint64_t>;
-extern template class RangeList<uint32_t>;
+extern template class RangeList<uint64_t>;  // IWYU pragma: keep
+extern template class RangeList<uint32_t>;  // IWYU pragma: keep
 
 #endif

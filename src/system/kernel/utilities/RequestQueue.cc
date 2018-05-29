@@ -18,14 +18,18 @@
  */
 
 #include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
-
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/new"
+
+class Process;
 
 RequestQueue::RequestQueue(const String &name)
     : m_Stop(false),

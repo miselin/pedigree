@@ -20,6 +20,8 @@
 #ifndef KERNEL_UTILITIES_LIB_H
 #define KERNEL_UTILITIES_LIB_H
 
+// IWYU pragma: private, include "pedigree/kernel/utilities/utility.h"
+
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include <stdarg.h>

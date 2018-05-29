@@ -23,12 +23,17 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
-#include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
 
-class Thread;
+#ifdef THREADS
+#include "pedigree/kernel/process/Thread.h"
+#endif
+
+class Event;
 
 /// \todo rewrite this in the same way as TcpBuffer!
 
@@ -343,7 +348,7 @@ class EXPORTED_PUBLIC RingBuffer
     List<MonitorTarget *> m_MonitorTargets;
 };
 
-extern template class RingBuffer<char>;
-extern template class RingBuffer<void *>;
+extern template class RingBuffer<char>;  // IWYU pragma: keep
+extern template class RingBuffer<void *>;  // IWYU pragma: keep
 
 #endif

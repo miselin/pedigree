@@ -20,8 +20,10 @@
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static void map(uintptr_t location)
 {

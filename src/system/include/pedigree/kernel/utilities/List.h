@@ -23,10 +23,9 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
-#include "pedigree/kernel/utilities/IteratorAdapter.h"
 #include "pedigree/kernel/utilities/ObjectPool.h"
 #include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/template.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -410,15 +409,15 @@ void List<T, nodePoolSize>::assign(const List &x)
         pushBack(*Cur);
 }
 
-extern template class List<void *>;
-extern template class List<uint64_t>;
-extern template class List<uint32_t>;
-extern template class List<uint16_t>;
-extern template class List<uint8_t>;
-extern template class List<int64_t>;
-extern template class List<int32_t>;
-extern template class List<int16_t>;
-extern template class List<int8_t>;
+extern template class List<void *>;  // IWYU pragma: keep
+extern template class List<uint64_t>;  // IWYU pragma: keep
+extern template class List<uint32_t>;  // IWYU pragma: keep
+extern template class List<uint16_t>;  // IWYU pragma: keep
+extern template class List<uint8_t>;  // IWYU pragma: keep
+extern template class List<int64_t>;  // IWYU pragma: keep
+extern template class List<int32_t>;  // IWYU pragma: keep
+extern template class List<int16_t>;  // IWYU pragma: keep
+extern template class List<int8_t>;  // IWYU pragma: keep
 
 /** @} */
 

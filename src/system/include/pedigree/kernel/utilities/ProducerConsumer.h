@@ -26,6 +26,9 @@
 #define PRODUCERCONSUMER_ASYNCHRONOUS 0
 #endif
 
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/new"
+
 #if PRODUCERCONSUMER_ASYNCHRONOUS
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"

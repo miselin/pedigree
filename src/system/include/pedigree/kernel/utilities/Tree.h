@@ -24,10 +24,6 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 
-#include "pedigree/kernel/Log.h"
-
-#include "pedigree/kernel/utilities/new"
-
 /** @addtogroup kernelutilities
  * @{ */
 
@@ -565,23 +561,23 @@ class EXPORTED_PUBLIC Tree
 };
 
 // External specializations.
-extern template class Tree<void *, void *>;
-extern template class Tree<int8_t, void *>;
-extern template class Tree<int16_t, void *>;
-extern template class Tree<int32_t, void *>;
-extern template class Tree<int64_t, void *>;
-extern template class Tree<uint8_t, void *>;
-extern template class Tree<uint16_t, void *>;
-extern template class Tree<uint32_t, void *>;
-extern template class Tree<uint64_t, void *>;
-extern template class Tree<int8_t, int8_t>;
-extern template class Tree<int16_t, int16_t>;
-extern template class Tree<int32_t, int32_t>;
-extern template class Tree<int64_t, int64_t>;
-extern template class Tree<uint8_t, uint8_t>;
-extern template class Tree<uint16_t, uint16_t>;
-extern template class Tree<uint32_t, uint32_t>;
-extern template class Tree<uint64_t, uint64_t>;
+extern template class Tree<void *, void *>;  // IWYU pragma: keep
+extern template class Tree<int8_t, void *>;  // IWYU pragma: keep
+extern template class Tree<int16_t, void *>;  // IWYU pragma: keep
+extern template class Tree<int32_t, void *>;  // IWYU pragma: keep
+extern template class Tree<int64_t, void *>;  // IWYU pragma: keep
+extern template class Tree<uint8_t, void *>;  // IWYU pragma: keep
+extern template class Tree<uint16_t, void *>;  // IWYU pragma: keep
+extern template class Tree<uint32_t, void *>;  // IWYU pragma: keep
+extern template class Tree<uint64_t, void *>;  // IWYU pragma: keep
+extern template class Tree<int8_t, int8_t>;  // IWYU pragma: keep
+extern template class Tree<int16_t, int16_t>;  // IWYU pragma: keep
+extern template class Tree<int32_t, int32_t>;  // IWYU pragma: keep
+extern template class Tree<int64_t, int64_t>;  // IWYU pragma: keep
+extern template class Tree<uint8_t, uint8_t>;  // IWYU pragma: keep
+extern template class Tree<uint16_t, uint16_t>;  // IWYU pragma: keep
+extern template class Tree<uint32_t, uint32_t>;  // IWYU pragma: keep
+extern template class Tree<uint64_t, uint64_t>;  // IWYU pragma: keep
 
 /** @} */
 

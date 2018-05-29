@@ -24,10 +24,11 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
-#include "pedigree/kernel/utilities/IteratorAdapter.h"
 #include "pedigree/kernel/utilities/ObjectPool.h"
 #include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /**\file  RadixTree.h
  *\author James Molloy <jamesm@osdev.org>
@@ -881,7 +882,7 @@ void RadixTree<T>::Node::dump(void (*emit_line)(const char *s)) const
 }
 
 // Explicitly instantiate RadixTree<void*> early.
-extern template class RadixTree<void *>;
+extern template class RadixTree<void *>;  // IWYU pragma: keep
 
 /** @} */
 

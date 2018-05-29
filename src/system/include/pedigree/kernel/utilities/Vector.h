@@ -22,7 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -58,13 +58,13 @@ class EXPORTED_PUBLIC Vector
         {
             T_ origValue = value;
             --value;
-            return ReverseIteratorContainer<T_>{value: origValue};
+            return ReverseIteratorContainer<T_>{.value = origValue};
         }
         ReverseIteratorContainer<T_> operator --(int)
         {
             T_ origValue = value;
             ++value;
-            return ReverseIteratorContainer<T_>{value: origValue};
+            return ReverseIteratorContainer<T_>{.value = origValue};
         }
 
         operator T_() const
@@ -166,19 +166,19 @@ class EXPORTED_PUBLIC Vector
 
     ReverseIterator rbegin()
     {
-        return ReverseIterator{value: m_Data + m_Start + m_Count - 1};
+        return ReverseIterator{.value = m_Data + m_Start + m_Count - 1};
     }
     ConstReverseIterator rbegin() const
     {
-        return ConstReverseIterator{value: m_Data + m_Start + m_Count - 1};
+        return ConstReverseIterator{.value = m_Data + m_Start + m_Count - 1};
     }
     ReverseIterator rend()
     {
-        return ReverseIterator{value: m_Data + m_Start - 1};
+        return ReverseIterator{.value = m_Data + m_Start - 1};
     }
     ConstReverseIterator rend() const
     {
-        return ConstReverseIterator{value: m_Data + m_Start - 1};
+        return ConstReverseIterator{.value = m_Data + m_Start - 1};
     }
     /** Copy the content of a Vector into this Vector
      *\param[in] x the reference Vector */
@@ -452,15 +452,15 @@ void Vector<T>::insert(size_t index, const T &value)
     ++m_Count;
 }
 
-extern template class Vector<void *>;
-extern template class Vector<uint64_t>;
-extern template class Vector<uint32_t>;
-extern template class Vector<uint16_t>;
-extern template class Vector<uint8_t>;
-extern template class Vector<int64_t>;
-extern template class Vector<int32_t>;
-extern template class Vector<int16_t>;
-extern template class Vector<int8_t>;
+extern template class Vector<void *>;  // IWYU pragma: keep
+extern template class Vector<uint64_t>;  // IWYU pragma: keep
+extern template class Vector<uint32_t>;  // IWYU pragma: keep
+extern template class Vector<uint16_t>;  // IWYU pragma: keep
+extern template class Vector<uint8_t>;  // IWYU pragma: keep
+extern template class Vector<int64_t>;  // IWYU pragma: keep
+extern template class Vector<int32_t>;  // IWYU pragma: keep
+extern template class Vector<int16_t>;  // IWYU pragma: keep
+extern template class Vector<int8_t>;  // IWYU pragma: keep
 
 /** @} */
 

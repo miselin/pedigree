@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/utilities/RingBuffer.h"
-#include "pedigree/kernel/process/Thread.h"
 
 template class RingBuffer<char>;
 template class RingBuffer<void *>;

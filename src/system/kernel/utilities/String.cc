@@ -18,11 +18,11 @@
  */
 
 #include "pedigree/kernel/utilities/String.h"
+#include <stdarg.h>
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/assert.h"
-
-#include "pedigree/kernel/Log.h"
 
 String::String()
     : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),

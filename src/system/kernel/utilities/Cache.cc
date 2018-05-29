@@ -25,6 +25,10 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/template.h"
 
 #ifndef STANDALONE_CACHE
 #include "pedigree/kernel/process/Scheduler.h"
@@ -33,6 +37,8 @@
 #endif
 
 #include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
+
+class Process;
 
 // Don't allocate cache space in reverse, but DO re-use cache pages.
 // This gives us wins because we don't need to reallocate page tables for

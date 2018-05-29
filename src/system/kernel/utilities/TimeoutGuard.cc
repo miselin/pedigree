@@ -20,7 +20,6 @@
 #include "pedigree/kernel/utilities/TimeoutGuard.h"
 #include "pedigree/kernel/compiler.h"
 #ifdef THREADS
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #endif
 #include "pedigree/kernel/LockGuard.h"
@@ -28,6 +27,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/new"
 
 static void guardEventFired(uint8_t *pBuffer) NORETURN;
 

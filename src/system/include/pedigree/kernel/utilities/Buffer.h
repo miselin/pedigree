@@ -23,10 +23,13 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
 
-class Thread;
 class Event;
+class Semaphore;
+class Thread;
 
 /**
  * Provides a buffer of a specific size and utility functions for integration
@@ -221,11 +224,11 @@ class EXPORTED_PUBLIC Buffer
 };
 
 // Specializations are in a .cc file.
-extern template class Buffer<uint8_t, false>;
-extern template class Buffer<uint8_t, true>;
-extern template class Buffer<char, false>;
-extern template class Buffer<char, true>;
-extern template class Buffer<size_t, false>;
-extern template class Buffer<size_t, true>;
+extern template class Buffer<uint8_t, false>;  // IWYU pragma: keep
+extern template class Buffer<uint8_t, true>;  // IWYU pragma: keep
+extern template class Buffer<char, false>;  // IWYU pragma: keep
+extern template class Buffer<char, true>;  // IWYU pragma: keep
+extern template class Buffer<size_t, false>;  // IWYU pragma: keep
+extern template class Buffer<size_t, true>;  // IWYU pragma: keep
 
 #endif  // KERNEL_UTILITIES_BUFFER_H

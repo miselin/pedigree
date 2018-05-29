@@ -21,7 +21,7 @@
 #define KERNEL_UTILITIES_RESULT_H
 
 #include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/cpp.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /**
  * Result encapsulates a typed result and an optional error in one object.

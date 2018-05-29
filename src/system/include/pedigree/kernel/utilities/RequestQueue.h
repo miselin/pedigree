@@ -20,9 +20,11 @@
 #ifndef REQUEST_QUEUE_H
 #define REQUEST_QUEUE_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/String.h"
 #ifdef THREADS
 #include "pedigree/kernel/machine/TimerHandler.h"

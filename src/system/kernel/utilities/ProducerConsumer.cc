@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/utilities/ProducerConsumer.h"
-#include "pedigree/kernel/Log.h"
 
 #if PRODUCERCONSUMER_ASYNCHRONOUS
 #include "pedigree/kernel/LockGuard.h"

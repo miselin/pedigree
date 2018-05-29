@@ -21,7 +21,7 @@
 #define SHAREDPOINTER_H
 
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/cpp.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /**
  * Provides a reference-counted pointer that can be freely shared, and is

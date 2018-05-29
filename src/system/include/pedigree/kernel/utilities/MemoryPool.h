@@ -20,6 +20,7 @@
 #ifndef _UTILITY_MEMORY_POOL
 #define _UTILITY_MEMORY_POOL
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #ifdef THREADS
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -27,8 +28,8 @@
 #endif
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class MemoryPool;
 

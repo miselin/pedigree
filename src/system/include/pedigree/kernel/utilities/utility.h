@@ -20,14 +20,12 @@
 #ifndef KERNEL_UTILITY_H
 #define KERNEL_UTILITY_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 // Export memcpy et al
-#include "pedigree/kernel/utilities/lib.h"
-
-#ifdef __cplusplus
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#endif
+#include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
+#include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export
 
 #ifdef HOSTED
 // Override headers we are replacing.
@@ -95,6 +93,9 @@
 #define MAX_PARAMS 32
 #define MAX_PARAM_LENGTH 64
 
+/** Page-align the given pointer. */
+EXPORTED_PUBLIC void *page_align(void *p) PURE;
+
 #ifdef __cplusplus
 /** Add a offset (in bytes) to the pointer and return the result
  *\brief Adjust a pointer
@@ -104,15 +105,6 @@ template <typename T>
 inline T *adjust_pointer(T *pointer, ssize_t offset)
 {
     return reinterpret_cast<T *>(reinterpret_cast<intptr_t>(pointer) + offset);
-}
-
-/** Page-align the given pointer. */
-template <typename T>
-inline T *page_align(T *p)
-{
-    return reinterpret_cast<T *>(
-        reinterpret_cast<uintptr_t>(p) &
-        ~(PhysicalMemoryManager::getPageSize() - 1));
 }
 
 template <typename T>

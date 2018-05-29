@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/utilities/ZombieQueue.h"
-
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/utilities/new"
 
 ZombieQueue ZombieQueue::m_Instance;
 
