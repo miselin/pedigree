@@ -18,13 +18,15 @@
  */
 
 #include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Event::Event(
     uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel)

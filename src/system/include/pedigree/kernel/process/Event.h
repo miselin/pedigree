@@ -20,13 +20,13 @@
 #ifndef EVENT_H
 #define EVENT_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
 
 #ifdef THREADS
-#include "pedigree/kernel/Spinlock.h"
-
 class Thread;
 #endif
 

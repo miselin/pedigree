@@ -21,6 +21,7 @@
 
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #if defined(X86)

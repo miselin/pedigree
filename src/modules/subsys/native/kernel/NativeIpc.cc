@@ -20,6 +20,7 @@
 #include "pedigree/kernel/process/Ipc.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/native/ipc/Ipc.h"
 
 #include "pedigree/kernel/utilities/Pair.h"

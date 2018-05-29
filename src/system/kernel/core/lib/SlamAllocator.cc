@@ -20,23 +20,21 @@
 #ifndef SLAM_USE_DEBUG_ALLOCATOR
 
 #include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifndef PEDIGREE_BENCHMARK
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/MemoryTracing.h"
-
 #include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
 #include "pedigree/kernel/debugger/Backtrace.h"
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #endif
-
-#include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/utilities/assert.h"
 
 #ifdef THREADS
 #include "pedigree/kernel/process/Process.h"

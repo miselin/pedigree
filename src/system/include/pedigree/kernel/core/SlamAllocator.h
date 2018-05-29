@@ -26,16 +26,11 @@
     \see http://www.pedigree-project.org/r/projects/pedigree/wiki/SlabDraft
 **/
 
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-
-#ifndef PEDIGREE_BENCHMARK
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/utilities/MemoryAllocator.h"
-
 #include "pedigree/kernel/Spinlock.h"
-#else  // PEDIGREE_BENCHMARK
 
+#ifdef PEDIGREE_BENCHMARK
 namespace SlamSupport
 {
 uintptr_t getHeapBase();
@@ -47,6 +42,7 @@ void unmapAll();
 #endif
 
 class SlamAllocator;
+class SlamCache;
 
 /// Size of each slab in 4096-byte pages
 #define SLAB_SIZE 1

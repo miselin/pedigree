@@ -22,29 +22,20 @@
 
 #ifdef THREADS
 
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
-
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
-#include "pedigree/kernel/process/Uninterruptible.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-
-#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/new"
 
-#include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
-// Hacky but I'd rather not c&p the typedef
-#define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
-#include "pedigree/kernel/processor/ProcessorInformation.h"
-#undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
-
-class Processor;
+class ExtensibleBitmap;
 class Process;
 
 /** Thread TLS area size */

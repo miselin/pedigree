@@ -20,7 +20,9 @@
 #ifndef SIGNAL_EVENT_H
 #define SIGNAL_EVENT_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/processor/types.h"
 
 class EXPORTED_PUBLIC SignalEvent : public Event
 {

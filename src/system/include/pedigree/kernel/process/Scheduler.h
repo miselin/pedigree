@@ -26,10 +26,10 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/new"
 
 class Thread;
 class Process;
-class Processor;
 class PerProcessorScheduler;
 
 /** \brief This class manages how processes and threads are scheduled across

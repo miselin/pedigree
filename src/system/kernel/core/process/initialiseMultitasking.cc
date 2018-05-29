@@ -20,14 +20,14 @@
 #if defined(THREADS)
 
 #include "pedigree/kernel/process/initialiseMultitasking.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
-#include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/new"
 
 void initialiseMultitasking()
 {

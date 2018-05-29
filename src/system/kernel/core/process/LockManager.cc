@@ -19,7 +19,9 @@
 
 #include "pedigree/kernel/process/LockManager.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/new"
+
+class Semaphore;
 
 LockManager::LockManager() : m_Stack(32)
 {

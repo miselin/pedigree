@@ -20,7 +20,6 @@
 #ifndef KERNEL_INSTRUMENT_H
 #define KERNEL_INSTRUMENT_H
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 // Global flags are held within the first byte written to the instrumentation

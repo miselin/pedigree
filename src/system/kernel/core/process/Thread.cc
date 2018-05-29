@@ -20,21 +20,24 @@
 #ifdef THREADS
 
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/StackFrame.h"
-
-#include "pedigree/kernel/machine/InputManager.h"
-
-#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Thread::Thread(
     Process *pParent, ThreadStartFunc pStartFunction, void *pParam,

@@ -23,6 +23,9 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
+
+class Thread;
 
 class RoundRobin : public SchedulingAlgorithm
 {

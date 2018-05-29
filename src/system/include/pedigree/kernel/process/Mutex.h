@@ -49,6 +49,7 @@ class Mutex
 
 #ifdef THREADS
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 
 /**

@@ -21,6 +21,11 @@
 #define ROUND_ROBIN_CORE_ALLOCATOR_H
 
 #include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Tree.h"
+
+class PerProcessorScheduler;
+class Thread;
 
 class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm
 {

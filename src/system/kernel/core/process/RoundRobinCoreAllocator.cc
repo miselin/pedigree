@@ -18,6 +18,12 @@
  */
 
 #include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class PerProcessorScheduler;
+class Thread;
 
 RoundRobinCoreAllocator::RoundRobinCoreAllocator() : m_ProcMap(), m_pNext(0)
 {

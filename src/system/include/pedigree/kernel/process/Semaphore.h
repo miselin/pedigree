@@ -22,11 +22,12 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/new"
 
 /**
  * A counting semaphore.

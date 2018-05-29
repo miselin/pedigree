@@ -22,19 +22,16 @@
 
 #ifdef THREADS
 
-#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 
 class SchedulingAlgorithm;
-class Processor;
-class Thread;
 class Spinlock;
 
 class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler

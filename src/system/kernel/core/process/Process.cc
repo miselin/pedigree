@@ -19,24 +19,30 @@
 
 #if defined(THREADS)
 
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/linker/Elf.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/ZombieQueue.h"
-
-#include "pedigree/kernel/process/SignalEvent.h"
-
-#include "pedigree/kernel/Subsystem.h"
-
 #include "modules/system/users/Group.h"
 #include "modules/system/users/User.h"
-#include "modules/system/vfs/File.h"
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/ZombieQueue.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Process *Process::m_pInitProcess = 0;
 

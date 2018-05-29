@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 
 #include "pedigree/kernel/utilities/assert.h"
 

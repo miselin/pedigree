@@ -22,6 +22,7 @@
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"

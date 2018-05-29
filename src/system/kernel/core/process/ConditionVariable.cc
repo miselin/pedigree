@@ -18,12 +18,17 @@
  */
 
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 ConditionVariable::ConditionVariable() : m_Lock(false), m_Waiters()
 {

@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/new"
 
 /** Maximum memory pressure handler priority (one list per priority level). */
 #define MAX_MEMPRESSURE_PRIORITY 16

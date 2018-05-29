@@ -27,6 +27,7 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Framebuffer.h"

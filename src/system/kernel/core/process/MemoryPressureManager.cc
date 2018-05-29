@@ -19,6 +19,8 @@
 
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 MemoryPressureManager MemoryPressureManager::m_Instance;
 

@@ -21,9 +21,11 @@
 #define KERNEL_PROCESS_CONDITIONVARIABLE_H
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/new"
 
 class Mutex;
 class Thread;

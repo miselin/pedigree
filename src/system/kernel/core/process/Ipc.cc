@@ -18,15 +18,15 @@
  */
 
 #include "pedigree/kernel/process/Ipc.h"
-
-#include "pedigree/kernel/utilities/RadixTree.h"
-
-#include "pedigree/kernel/process/Scheduler.h"
-
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
 #include "pedigree/kernel/utilities/MemoryPool.h"
+#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/Result.h"
 
 using namespace Ipc;
 

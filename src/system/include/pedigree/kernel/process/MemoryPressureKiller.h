@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** Handles killing processes if memory pressure is encountered. */
 class MemoryPressureProcessKiller : public MemoryPressureHandler

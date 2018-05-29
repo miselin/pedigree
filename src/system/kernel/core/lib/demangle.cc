@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/utilities/demangle.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"
 

@@ -21,20 +21,15 @@
 
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/debugger/Debugger.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
-#include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
-#include "pedigree/kernel/process/SchedulingAlgorithm.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/initialiseMultitasking.h"
-#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Scheduler Scheduler::m_Instance;
 

@@ -21,7 +21,6 @@
 #define SCHEDULING_ALGORITHM_H
 
 class Thread;
-class Processor;
 
 #define MAX_PRIORITIES 8
 #define DEFAULT_PRIORITY 1

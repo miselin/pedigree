@@ -23,9 +23,13 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 InfoBlockManager InfoBlockManager::m_Instance;
 

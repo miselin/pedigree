@@ -20,23 +20,24 @@
 #ifdef THREADS
 
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/Thread.h"
-
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/SchedulerTimer.h"
-
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/panic.h"
-
-#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifdef TRACK_LOCKS
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"

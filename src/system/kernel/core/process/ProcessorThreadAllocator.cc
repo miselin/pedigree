@@ -18,12 +18,11 @@
  */
 
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
-
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
+#include "pedigree/kernel/utilities/new"
 
 ProcessorThreadAllocator ProcessorThreadAllocator::m_Instance;
 

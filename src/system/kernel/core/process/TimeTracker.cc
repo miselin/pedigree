@@ -21,6 +21,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 
 TimeTracker::TimeTracker(Process *pProcess, bool fromUserspace)
     : m_pProcess(pProcess), m_bFromUserspace(fromUserspace)

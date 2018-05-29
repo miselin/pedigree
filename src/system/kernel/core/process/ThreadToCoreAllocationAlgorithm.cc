@@ -19,6 +19,8 @@
 
 #include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
 
+class Thread;
+
 ThreadToCoreAllocationAlgorithm::ThreadToCoreAllocationAlgorithm() = default;
 ThreadToCoreAllocationAlgorithm::~ThreadToCoreAllocationAlgorithm() = default;
 
