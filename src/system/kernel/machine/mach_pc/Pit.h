@@ -20,10 +20,14 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_PIT_H
 #define KERNEL_MACHINE_X86_COMMON_PIT_H
 
-#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
+
+class TimerHandler;
 
 /** @addtogroup kernelmachinex86common
  * @{ */

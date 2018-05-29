@@ -23,6 +23,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 
+class String;
+
 /**
  * A bus is a device which provides a view onto other devices.
  */

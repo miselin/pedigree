@@ -22,14 +22,11 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/processor/state.h"
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
-
-#include "pedigree/kernel/core/BootIO.h"
-
 #include "pedigree/kernel/network/IpAddress.h"
 #include "pedigree/kernel/network/MacAddress.h"
+#include "pedigree/kernel/processor/types.h"
+
+class String;
 
 /** Station information - basically information about this station, per NIC */
 class EXPORTED_PUBLIC StationInfo

@@ -23,6 +23,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 
+class String;
+
 /**
  * A controller is a hub that controls multiple devices.
  */

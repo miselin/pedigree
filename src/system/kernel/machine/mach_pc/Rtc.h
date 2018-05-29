@@ -21,10 +21,17 @@
 #define KERNEL_MACHINE_X86_COMMON_RTC_H
 
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
+
+class TimerHandler;
 
 #define MAX_TIMER_HANDLERS 32
 

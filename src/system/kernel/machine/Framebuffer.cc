@@ -18,13 +18,11 @@
  */
 
 #include "pedigree/kernel/machine/Framebuffer.h"
-#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Framebuffer::Framebuffer() : m_pParent(0), m_FramebufferBase(0), m_bActive(true)
 {

@@ -20,10 +20,19 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_PIC_H
 #define KERNEL_MACHINE_X86_COMMON_PIC_H
 
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
+
+class Device;
+class IrqHandler;
 
 /** @addtogroup kernelmachinex86common
  * @{ */

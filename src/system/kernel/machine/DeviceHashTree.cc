@@ -20,8 +20,9 @@
 #include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
-
+#include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/sha1/sha1.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 DeviceHashTree DeviceHashTree::m_Instance;
 

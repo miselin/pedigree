@@ -20,8 +20,11 @@
 #ifndef _MACHINE_DEVICE_HASH_TREE_H
 #define _MACHINE_DEVICE_HASH_TREE_H
 
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
+
 class Device;
 
 /**

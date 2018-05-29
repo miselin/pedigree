@@ -20,12 +20,9 @@
 #ifndef _MACHINE_FRAMEBUFFER_H
 #define _MACHINE_FRAMEBUFFER_H
 
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
-
-class Display;
 
 /** This class provides a generic interface for interfacing with a framebuffer.
  *  Each display driver specialises this class to define the "base address" of

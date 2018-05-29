@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"

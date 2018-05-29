@@ -23,6 +23,7 @@
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/types.h"
 
 #define VGA_BASE 0x3C0
 #define VGA_AC_INDEX 0x0

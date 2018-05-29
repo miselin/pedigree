@@ -24,6 +24,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/time/Time.h"
 

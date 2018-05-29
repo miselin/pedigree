@@ -20,16 +20,15 @@
 #ifndef MACHINE_X86_KEYBOARD_H
 #define MACHINE_X86_KEYBOARD_H
 
-#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/types.h"
 
-#define BUFLEN 256
-
 class Ps2Controller;
+
+#define BUFLEN 256
 
 /**
  * Keyboard device implementation

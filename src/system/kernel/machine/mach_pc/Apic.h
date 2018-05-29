@@ -22,8 +22,13 @@
 
 #if defined(APIC)
 
-#include "LocalApic.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/types.h"
+
+class Device;
+class IrqHandler;
 
 /** @addtogroup kernelmachinex86common
  * @{ */

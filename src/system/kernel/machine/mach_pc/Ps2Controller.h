@@ -20,10 +20,16 @@
 #ifndef MACHINE_X86_PS2CONTROLLER_H
 #define MACHINE_X86_PS2CONTROLLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Controller.h"
-#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class IoBase;
 
 class Ps2Controller : public Controller, private IrqHandler
 {

@@ -21,7 +21,7 @@
 
 #include "LocalApic.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"

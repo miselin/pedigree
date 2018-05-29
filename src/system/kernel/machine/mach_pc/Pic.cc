@@ -21,7 +21,11 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // TODO: Needs locking
 

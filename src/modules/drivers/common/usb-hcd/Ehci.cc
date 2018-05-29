@@ -21,12 +21,14 @@
 #ifdef X86_COMMON
 #include "pedigree/kernel/machine/Pci.h"
 #endif
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "Ehci.h"
 #include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"

@@ -23,9 +23,6 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
-
 X86Vga::X86Vga(uint32_t nRegisterBase, uint32_t nFramebufferBase)
     : m_RegisterPort("VGA controller"), m_Framebuffer("VGA framebuffer"),
       m_pFramebuffer(reinterpret_cast<uint8_t *>(nFramebufferBase)),

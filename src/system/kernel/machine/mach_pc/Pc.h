@@ -21,18 +21,27 @@
 #define KERNEL_MACHINE_X86_COMMON_PC_H
 
 #include "Keyboard.h"
-#include "Pic.h"
-#include "Pit.h"
+#include "LocalApic.h"
 #include "Ps2Controller.h"
-#include "Rtc.h"
 #include "Serial.h"
 #include "Vga.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Bus.h"
+#include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/types.h"
+
 #if defined(SMBIOS)
 #include "SMBios.h"
 #endif
-#include "LocalApic.h"
+
+class IrqManager;
+class Keyboard;
+class SchedulerTimer;
+class Serial;
+class Timer;
+class Vga;
 
 /**
  * Concretion of the abstract Machine class for x86 and x64 machines

@@ -21,7 +21,6 @@
 #define MACHINE_DEVICE_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -29,11 +28,13 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #endif
-#include "pedigree/kernel/Log.h"
 #ifdef OPENFIRMWARE
 #include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
 #endif
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class IoBase;
 
 /**
  * Represents a node in the device tree. This could either be a bus (non-leaf

@@ -22,6 +22,9 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/types.h"
+
+class String;
 
 /**
  * A disk is a random access fixed size block device.

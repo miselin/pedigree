@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/utilities/String.h"
 
 Controller::Controller() = default;
 

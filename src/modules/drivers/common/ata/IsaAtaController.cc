@@ -20,6 +20,7 @@
 #include "IsaAtaController.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 

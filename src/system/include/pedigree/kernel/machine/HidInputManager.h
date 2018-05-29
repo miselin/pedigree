@@ -21,8 +21,9 @@
 #define MACHINE_HID_INPUT_MANAGER_H
 
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/machine/Timer.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
 

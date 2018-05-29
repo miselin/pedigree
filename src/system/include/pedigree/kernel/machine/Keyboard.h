@@ -20,8 +20,6 @@
 #ifndef MACHINE_KEYBOARD_H
 #define MACHINE_KEYBOARD_H
 
-#include "pedigree/kernel/processor/types.h"
-
 /**
  * Keyboard device abstraction.
  */

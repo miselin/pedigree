@@ -21,10 +21,13 @@
 #define MACHINE_INPUT_MANAGER_H
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
+
+class Thread;
 
 /**
  * Global manager for all input from HID devices.

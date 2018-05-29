@@ -18,6 +18,7 @@
  */
 
 #include "Pc.h"
+#include "pedigree/kernel/machine/Machine.h"
 
 Machine &Machine::instance()
 {

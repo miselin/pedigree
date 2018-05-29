@@ -21,10 +21,12 @@
 #define MACHINE_DISPLAY_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 
-#include "pedigree/kernel/machine/Framebuffer.h"
+class String;
 
 /**
  * A display is either a dumb framebuffer or something more accelerated.

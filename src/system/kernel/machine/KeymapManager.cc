@@ -21,8 +21,8 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/Keyboard.h"
-
 #include "pedigree/kernel/machine/keymaps/KeymapEnUs.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // #define DEBUG_KEYMAP
 

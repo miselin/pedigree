@@ -20,10 +20,10 @@
 #ifndef KERNEL_MACHINE_TIMER_H
 #define KERNEL_MACHINE_TIMER_H
 
-#include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/assert.h"
+
+class TimerHandler;
 
 /** @addtogroup kernelmachine
  * @{ */

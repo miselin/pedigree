@@ -18,10 +18,7 @@
  */
 
 #include "pedigree/kernel/machine/Network.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/processor/MemoryMappedIo.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/String.h"
 
 StationInfo::StationInfo()
     : ipv4(), ipv6(0), nIpv6Addresses(0), subnetMask(), broadcast(0xFFFFFFFF),

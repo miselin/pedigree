@@ -20,8 +20,13 @@
 #include "Ps2Controller.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Trace.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 Ps2Controller::Ps2Controller(Controller *pDev)
     : Controller(pDev), m_pBase(0), m_bHasSecondPort(false),

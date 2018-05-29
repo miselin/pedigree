@@ -26,6 +26,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

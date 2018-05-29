@@ -24,6 +24,7 @@
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/assert.h"
 

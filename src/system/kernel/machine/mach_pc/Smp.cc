@@ -20,7 +20,6 @@
 #if defined(SMP)
 
 #include "Smp.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #if !defined(SMP_NOTICE)

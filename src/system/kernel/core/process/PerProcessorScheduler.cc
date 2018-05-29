@@ -29,6 +29,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"

@@ -22,6 +22,7 @@
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"

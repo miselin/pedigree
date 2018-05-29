@@ -18,11 +18,12 @@
  */
 
 #include "modules/Module.h"
-
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/processor/IoBase.h"
 
 enum Ib700TimeEntries
 {

@@ -18,12 +18,15 @@
  */
 
 #include "pedigree/kernel/machine/x86_common/Bios.h"
+#include <stdarg.h>
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/debugger/commands/../../core/BootIO.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-
-#include "pedigree/kernel/debugger/commands/../../core/BootIO.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include "x86emu/x86emu.h"
 
 extern BootIO bootIO;

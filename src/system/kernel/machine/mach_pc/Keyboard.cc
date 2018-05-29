@@ -19,28 +19,24 @@
 
 #include "Keyboard.h"
 #include "Ps2Controller.h"
-#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Trace.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/new"
 
 #ifdef DEBUGGER
-#include "pedigree/kernel/debugger/Debugger.h"
-
 #ifdef TRACK_PAGE_ALLOCATIONS
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
-#endif
 
-#ifdef DEBUGGER
+#include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #endif
 
-#include "pedigree/kernel/core/SlamAllocator.h"
+class Process;
 
 #ifdef MEMORY_TRACING
 extern void toggleTracingAllocations();

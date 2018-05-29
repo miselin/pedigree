@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"

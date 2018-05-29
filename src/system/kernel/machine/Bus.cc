@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/machine/Bus.h"
+#include "pedigree/kernel/utilities/String.h"
 
 Bus::Bus(const char *pName) : m_pName(pName)
 {

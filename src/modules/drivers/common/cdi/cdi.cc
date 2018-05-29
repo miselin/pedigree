@@ -12,6 +12,8 @@
 
 #include "modules/Module.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/Log.h"
 
 #include <cdi.h>
 #include <cdi-osdep.h>

@@ -23,7 +23,6 @@
 #if defined(APIC)
 
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
-#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */

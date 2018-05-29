@@ -15,6 +15,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/time/Time.h"
 
 #include "pedigree/kernel/utilities/TimeoutGuard.h"

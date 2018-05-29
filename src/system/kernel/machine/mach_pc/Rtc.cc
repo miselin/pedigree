@@ -18,17 +18,24 @@
  */
 
 #include "Rtc.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
-
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include "pedigree/kernel/core/SlamAllocator.h"
+class Event;
 
 // RTC frequency to set at startup - tradeoff between precision of timers
 // against constant RTC noise.

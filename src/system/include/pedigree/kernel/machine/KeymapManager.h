@@ -20,7 +20,8 @@
 #ifndef MACHINE_KEYMAP_MANAGER_H
 #define MACHINE_KEYMAP_MANAGER_H
 
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
 

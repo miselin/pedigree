@@ -22,13 +22,18 @@
 
 #if defined(APIC)
 
-#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/new"
+
+class TimerHandler;
 
 #define IPI_HALT_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC

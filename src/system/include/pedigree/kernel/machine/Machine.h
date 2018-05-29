@@ -23,25 +23,12 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
-/// \note Avoids pulling in a bunch of extra include files (specifically, an
-/// ambiguous
-///       reference to <machine/types.h> when working with the POSIX subsystem).
-///       POSIX subsystem ftl.
-#if !defined(MACHINE_FORWARD_DECL_ONLY)
-#include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/machine/Keyboard.h"
-#include "pedigree/kernel/machine/SchedulerTimer.h"
-#include "pedigree/kernel/machine/Serial.h"
-#include "pedigree/kernel/machine/Timer.h"
-#include "pedigree/kernel/machine/Vga.h"
-#else
-class Serial;
-class Vga;
 class IrqManager;
-class SchedulerTimer;
-class Timer;
 class Keyboard;
-#endif
+class SchedulerTimer;
+class Serial;
+class Timer;
+class Vga;
 
 /**
  * This is an abstraction on a machine, or board.

@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/String.h"
 
 Disk::Disk()
 {

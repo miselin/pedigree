@@ -20,6 +20,7 @@
 #include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #ifdef X86_COMMON

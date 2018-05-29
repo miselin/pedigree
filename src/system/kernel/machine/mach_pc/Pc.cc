@@ -18,8 +18,6 @@
  */
 
 #include "Pc.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
 #if defined(ACPI)
 #include "Acpi.h"
 #endif
@@ -29,11 +27,25 @@
 #if defined(APIC)
 #include "Apic.h"
 #endif
+#include "Pic.h"
+#include "Pit.h"
+#include "Rtc.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
+
+class IrqManager;
+class Keyboard;
+class SchedulerTimer;
+class Serial;
+class Timer;
+class Vga;
 
 Pc Pc::m_Instance;
 

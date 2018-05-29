@@ -19,11 +19,12 @@
 
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 HidInputManager HidInputManager::m_Instance;
 

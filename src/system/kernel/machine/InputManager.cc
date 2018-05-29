@@ -21,10 +21,13 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/eventNumbers.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // Incoming relative mouse movements are divided by this
 #define MOUSE_REDUCE_FACTOR 1
