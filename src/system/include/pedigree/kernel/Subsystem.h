@@ -20,19 +20,15 @@
 #ifndef SUBSYSTEM_H
 #define SUBSYSTEM_H
 
-// Forward definition of used classes
-class Thread;
-
-#include "pedigree/kernel/processor/state.h"
-class Process;
-
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/Vector.h"
 
 class File;
+class Process;
+class Thread;
+template <class T> class Vector;
 
 /** The abstract base class for a generic application subsystem. This provides
  * a well-defined interface to the kernel that allows global behaviour to have

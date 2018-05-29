@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 class EXPORTED_PUBLIC Spinlock
 {

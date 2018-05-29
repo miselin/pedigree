@@ -18,6 +18,7 @@
 #include "pedigree/kernel/time/Time.h"
 
 #include "pedigree/kernel/utilities/TimeoutGuard.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/LockGuard.h"

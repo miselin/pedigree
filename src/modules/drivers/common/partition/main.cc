@@ -26,8 +26,9 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 
-#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/ServiceFeatures.h"
 
 #include "Partition.h"
 #include "PartitionService.h"

@@ -25,7 +25,9 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 extern BootstrapStruct_t *g_pBootstrapInfo;

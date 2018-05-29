@@ -20,7 +20,9 @@
 #include "CdiDisk.h"
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 #include "modules/system/vfs/VFS.h"

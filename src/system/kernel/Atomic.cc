@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/Atomic.h"
-#include "pedigree/kernel/processor/types.h"
 
 // vtable anchor for Atomic<bool>
 Atomic<bool, true>::~Atomic()

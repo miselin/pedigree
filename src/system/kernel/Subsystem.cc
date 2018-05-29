@@ -19,8 +19,6 @@
 
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/Processor.h"
 
 Subsystem::~Subsystem() = default;
 

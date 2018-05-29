@@ -20,11 +20,12 @@
 #ifndef SERVICE_MANAGER_H
 #define SERVICE_MANAGER_H
 
-#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/String.h"
 
-#include "pedigree/kernel/Service.h"
-#include "pedigree/kernel/ServiceFeatures.h"
+class Service;
+class ServiceFeatures;
 
 /// \todo Integrate with the Event system somehow
 

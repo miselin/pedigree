@@ -23,6 +23,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Archive::Archive(uint8_t *pPhys, size_t sSize)
     :

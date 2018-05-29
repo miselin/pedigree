@@ -20,6 +20,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 
 class SerialLogger : public Log::LogCallback
 {

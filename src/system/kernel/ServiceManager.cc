@@ -18,6 +18,9 @@
  */
 
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/utilities/new"
+
+class Service;
 
 ServiceManager ServiceManager::m_Instance;
 

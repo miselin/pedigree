@@ -20,12 +20,14 @@
 #ifndef KERNEL_LOG_H
 #define KERNEL_LOG_H
 
+#include "pedigree/kernel/compiler.h"
 #ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
 #endif
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
+class Log;
 class String;
 class StringView;
 

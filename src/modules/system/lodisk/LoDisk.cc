@@ -21,7 +21,9 @@
 #include "modules/system/../Module.h"
 #include "pedigree/kernel/utilities/assert.h"
 
+#include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/ServiceFeatures.h"
 
 FileDisk::FileDisk(String file, AccessType mode)
     : m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),
