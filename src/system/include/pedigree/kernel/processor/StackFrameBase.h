@@ -20,7 +20,7 @@
 #ifndef KERNEL_PROCESSOR_STACKFRAMEBASE_H
 #define KERNEL_PROCESSOR_STACKFRAMEBASE_H
 
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/demangle.h"

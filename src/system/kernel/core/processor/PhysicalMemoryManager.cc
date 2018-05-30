@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/utilities/new"
 
 PhysicalMemoryManager::PhysicalMemoryManager() : m_MemoryRegions()
 {

@@ -20,31 +20,31 @@
 #ifndef KERNEL_PROCESSOR_STACKFRAME_H
 #define KERNEL_PROCESSOR_STACKFRAME_H
 
-#include "pedigree/kernel/processor/StackFrameBase.h"
+#include "pedigree/kernel/processor/StackFrameBase.h"  // IWYU pragma: export
 
 #if defined(X86)
-#include "pedigree/kernel/processor/x86/StackFrame.h"
+#include "pedigree/kernel/processor/x86/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-#include "pedigree/kernel/processor/x64/StackFrame.h"
+#include "pedigree/kernel/processor/x64/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-#include "pedigree/kernel/processor/mips32/StackFrame.h"
+#include "pedigree/kernel/processor/mips32/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-#include "pedigree/kernel/processor/mips64/StackFrame.h"
+#include "pedigree/kernel/processor/mips64/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM926E)
-#include "pedigree/kernel/processor/arm_926e/StackFrame.h"
+#include "pedigree/kernel/processor/arm_926e/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
 #elif defined(PPC32)
-#include "pedigree/kernel/processor/ppc32/StackFrame.h"
+#include "pedigree/kernel/processor/ppc32/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(ARMV7)
-#include "pedigree/kernel/processor/armv7/StackFrame.h"
+#include "pedigree/kernel/processor/armv7/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif defined(HOSTED)
-#include "pedigree/kernel/processor/hosted/StackFrame.h"
+#include "pedigree/kernel/processor/hosted/StackFrame.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 

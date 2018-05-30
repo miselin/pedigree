@@ -19,16 +19,20 @@
 
 #include "pedigree/kernel/processor/Processor.h"
 #include "PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/Vector.h"
+
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
 #else
 #include "../x64/VirtualAddressSpace.h"
 #endif
 
-#ifdef MULTIPROCESSOR
 #include <machine/mach_pc/Pc.h>
-#endif
+#include <machine/mach_pc/LocalApic.h>
 
 void Processor::initialisationDone()
 {

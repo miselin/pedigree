@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
 
 static const char *X64InterruptStateRegisterName[18] = {
     "rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "r8",  "r9",

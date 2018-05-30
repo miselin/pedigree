@@ -24,6 +24,7 @@
 #include "SyscallManager.h"
 #include "gdt.h"
 #include "machine/mach_pc/Pc.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"

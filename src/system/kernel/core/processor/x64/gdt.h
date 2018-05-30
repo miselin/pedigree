@@ -23,6 +23,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
+struct X64TaskStateSegment;
+
 /** @addtogroup kernelprocessorx64
  * @{ */
 
@@ -74,7 +76,7 @@ class X64GdtManager
 
     /** Readies a TSS for use.
      *\param[in] pTss the TSS to ready. */
-    void initialiseTss(struct X64TaskStateSegment *pTss) INITIALISATION_ONLY;
+    void initialiseTss(X64TaskStateSegment *pTss) INITIALISATION_ONLY;
     void
     initialiseDoubleFaultTss(X64TaskStateSegment *pTss) INITIALISATION_ONLY;
 

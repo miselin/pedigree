@@ -23,6 +23,7 @@
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
 

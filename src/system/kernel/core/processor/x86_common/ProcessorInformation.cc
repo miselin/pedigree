@@ -18,18 +18,19 @@
  */
 
 #include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
-
+#include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/new"
+
 #if defined(X86)
 #include "pedigree/kernel/processor/x86/tss.h"
 #else
 #include "pedigree/kernel/processor/x64/tss.h"
 #endif
-#include "pedigree/kernel/process/InfoBlock.h"
 
 /** Get the current processor's VirtualAddressSpace
  *\return reference to the current processor's VirtualAddressSpace */

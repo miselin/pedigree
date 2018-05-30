@@ -18,6 +18,8 @@
  */
 
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 MemoryMappedIo::MemoryMappedIo(
     const char *pName, uintptr_t offset, uintptr_t padding)

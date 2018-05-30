@@ -18,31 +18,29 @@
  */
 
 #include "PhysicalMemoryManager.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/Cache.h"
-#include "pedigree/kernel/utilities/MemoryTracing.h"
-#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
 #elif defined(X64)
 #include "../x64/VirtualAddressSpace.h"
-#include "../x64/utils.h"
 #endif
 
 #if defined(TRACK_PAGE_ALLOCATIONS)
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
-
-#include "pedigree/kernel/core/SlamAllocator.h"
-#include "pedigree/kernel/process/MemoryPressureManager.h"
 
 #if defined(X86) && defined(DEBUGGER)
 #define USE_BITMAP

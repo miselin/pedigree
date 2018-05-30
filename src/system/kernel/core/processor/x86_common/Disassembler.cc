@@ -18,6 +18,9 @@
  */
 
 #include "Disassembler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/debugger/libudis86/udis86.h"
 
 X86Disassembler::X86Disassembler() : m_Location(0), m_Mode(32), m_Obj()
 {

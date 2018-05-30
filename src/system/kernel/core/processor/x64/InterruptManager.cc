@@ -19,12 +19,17 @@
 
 #include "InterruptManager.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+
 #if defined(DEBUGGER)
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
-#include "pedigree/kernel/processor/Processor.h"
 
 #ifdef THREADS
 #include "pedigree/kernel/Subsystem.h"

@@ -68,23 +68,23 @@ class DisassemblerBase
 /** @} */
 
 #ifdef X86_COMMON
-#include "system/kernel/core/processor/x86_common/Disassembler.h"
+#include "system/kernel/core/processor/x86_common/Disassembler.h"  // IWYU pragma: export
 #endif
 #ifdef MIPS_COMMON
-#include "system/kernel/core/processor/mips_common/Disassembler.h"
+#include "system/kernel/core/processor/mips_common/Disassembler.h"  // IWYU pragma: export
 #endif
 #ifdef ARM926E
-#include "system/kernel/core/processor/arm_common/Disassembler.h"
+#include "system/kernel/core/processor/arm_common/Disassembler.h"  // IWYU pragma: export
 #endif
 #ifdef PPC_COMMON
-#include "system/kernel/core/processor/ppc_common/Disassembler.h"
+#include "system/kernel/core/processor/ppc_common/Disassembler.h"  // IWYU pragma: export
 #endif
 #ifdef ARMV7
-#include "system/kernel/core/processor/arm_common/Disassembler.h"
+#include "system/kernel/core/processor/arm_common/Disassembler.h"  // IWYU pragma: export
 #endif
 #ifdef HOSTED
 /// \todo x86-specific
-#include "system/kernel/core/processor/x86_common/Disassembler.h"
+#include "system/kernel/core/processor/x86_common/Disassembler.h"  // IWYU pragma: export
 #endif
 
 #endif

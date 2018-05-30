@@ -18,6 +18,8 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 size_t Processor::m_Initialised = 0;
 #if !defined(MULTIPROCESSOR)

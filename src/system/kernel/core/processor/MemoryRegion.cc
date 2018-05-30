@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 MemoryRegion::MemoryRegion(const char *pName)
     : m_VirtualAddress(0), m_PhysicalAddress(0), m_Size(0), m_pName(pName),

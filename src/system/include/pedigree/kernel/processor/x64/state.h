@@ -20,6 +20,8 @@
 #ifndef KERNEL_PROCESSOR_X64_STATE_H
 #define KERNEL_PROCESSOR_X64_STATE_H
 
+// IWYU pragma: private, include "pedigree/kernel/processor/state.h"
+
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"

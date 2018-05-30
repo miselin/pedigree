@@ -23,7 +23,10 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+
+class InterruptHandler;
 
 /** @addtogroup kernelprocessorx64
  * @{ */

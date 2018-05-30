@@ -21,7 +21,8 @@
 #define KERNEL_PROCESSOR_SYSCALLHANDLER_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

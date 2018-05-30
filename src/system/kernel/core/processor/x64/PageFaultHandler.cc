@@ -18,16 +18,23 @@
  */
 
 #include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 PageFaultHandler PageFaultHandler::m_Instance;
 

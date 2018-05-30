@@ -17,15 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MIPS_DISASSEMBLER_H
-#define MIPS_DISASSEMBLER_H
+#ifndef X86_COMMON_DISASSEMBLER_H
+#define X86_COMMON_DISASSEMBLER_H
 
 #include "pedigree/kernel/debugger/libudis86/udis86.h"
 #include "pedigree/kernel/processor/Disassembler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /**
- * A disassembler for R3000-R6000 MIPS32/64 processors.
- * \note Doesn't have 64bit instructions yet.
+ * A disassembler for x86/x64 processors.
  */
 class X86Disassembler : public DisassemblerBase
 {

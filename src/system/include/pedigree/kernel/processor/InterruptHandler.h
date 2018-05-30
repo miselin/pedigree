@@ -20,7 +20,8 @@
 #ifndef KERNEL_PROCESSOR_INTERRUPTHANDLER_H
 #define KERNEL_PROCESSOR_INTERRUPTHANDLER_H
 
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

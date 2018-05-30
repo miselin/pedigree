@@ -26,7 +26,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #if defined(MULTIPROCESSOR)
-#include "pedigree/kernel/utilities/Vector.h"
+template <class T> class Vector;
 #endif
 
 class VirtualAddressSpace;
@@ -397,22 +397,22 @@ class EXPORTED_PUBLIC Processor
 /** @} */
 
 #if defined(X86_COMMON)
-#include "pedigree/kernel/processor/x86_common/Processor.h"
+#include "pedigree/kernel/processor/x86_common/Processor.h"  // IWYU pragma: export
 #elif defined(MIPS_COMMON)
-#include "pedigree/kernel/processor/mips_common/Processor.h"
+#include "pedigree/kernel/processor/mips_common/Processor.h"  // IWYU pragma: export
 #elif defined(ARM_COMMON)
-#include "pedigree/kernel/processor/arm_common/Processor.h"
+#include "pedigree/kernel/processor/arm_common/Processor.h"  // IWYU pragma: export
 #elif defined(PPC_COMMON)
-#include "pedigree/kernel/processor/ppc_common/Processor.h"
+#include "pedigree/kernel/processor/ppc_common/Processor.h"  // IWYU pragma: export
 #elif defined(HOSTED)
-#include "pedigree/kernel/processor/hosted/Processor.h"
+#include "pedigree/kernel/processor/hosted/Processor.h"  // IWYU pragma: export
 #endif
 
 #ifdef X86
-#include "pedigree/kernel/processor/x86/Processor.h"
+#include "pedigree/kernel/processor/x86/Processor.h"  // IWYU pragma: export
 #endif
 #ifdef X64
-#include "pedigree/kernel/processor/x64/Processor.h"
+#include "pedigree/kernel/processor/x64/Processor.h"  // IWYU pragma: export
 #endif
 
 /**

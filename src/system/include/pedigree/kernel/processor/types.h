@@ -21,25 +21,25 @@
 #define KERNEL_PROCESSOR_TYPES_H
 
 #if defined(X86)
-#include "pedigree/kernel/processor/x86/types.h"
+#include "pedigree/kernel/processor/x86/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
 #elif defined(X64)
-#include "pedigree/kernel/processor/x64/types.h"
+#include "pedigree/kernel/processor/x64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif defined(MIPS32)
-#include "pedigree/kernel/processor/mips32/types.h"
+#include "pedigree/kernel/processor/mips32/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
 #elif defined(MIPS64)
-#include "pedigree/kernel/processor/mips64/types.h"
+#include "pedigree/kernel/processor/mips64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
 #elif defined(ARM_COMMON)
-#include "pedigree/kernel/processor/arm_common/types.h"
+#include "pedigree/kernel/processor/arm_common/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) ARM##x
 #elif defined(PPC32)
-#include "pedigree/kernel/processor/ppc32/types.h"
+#include "pedigree/kernel/processor/ppc32/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif defined(HOSTED)
-#include "pedigree/kernel/processor/hosted/types.h"
+#include "pedigree/kernel/processor/hosted/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x
 #endif
 

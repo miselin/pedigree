@@ -24,21 +24,21 @@
 
 // Bring in rest of state definitions to complete forward-declared state.
 #if defined(X86)
-#include "pedigree/kernel/processor/x86/state.h"
+#include "pedigree/kernel/processor/x86/state.h"  // IWYU pragma: export
 #elif defined(X64)
-#include "pedigree/kernel/processor/x64/state.h"
+#include "pedigree/kernel/processor/x64/state.h"  // IWYU pragma: export
 #elif defined(MIPS32)
-#include "pedigree/kernel/processor/mips32/state.h"
+#include "pedigree/kernel/processor/mips32/state.h"  // IWYU pragma: export
 #elif defined(MIPS64)
-#include "pedigree/kernel/processor/mips64/state.h"
+#include "pedigree/kernel/processor/mips64/state.h"  // IWYU pragma: export
 #elif defined(ARM926E)
-#include "pedigree/kernel/processor/arm_926e/state.h"
+#include "pedigree/kernel/processor/arm_926e/state.h"  // IWYU pragma: export
 #elif defined(PPC32)
-#include "pedigree/kernel/processor/ppc32/state.h"
+#include "pedigree/kernel/processor/ppc32/state.h"  // IWYU pragma: export
 #elif defined(ARMV7)
-#include "pedigree/kernel/processor/armv7/state.h"
+#include "pedigree/kernel/processor/armv7/state.h"  // IWYU pragma: export
 #elif defined(HOSTED)
-#include "pedigree/kernel/processor/hosted/state.h"
+#include "pedigree/kernel/processor/hosted/state.h"  // IWYU pragma: export
 #endif
 
 #endif

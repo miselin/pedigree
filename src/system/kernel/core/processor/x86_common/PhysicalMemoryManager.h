@@ -20,12 +20,17 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_X86_COMMON_PHYSICALMEMORYMANAGER_H
 
-#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/RangeList.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class BootstrapStruct_t;
+class MemoryRegion;
 
 /** @addtogroup kernelprocessorx86common
  * @{ */

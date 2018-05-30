@@ -22,6 +22,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/state.h"
 
 KernelCoreSyscallManager KernelCoreSyscallManager::m_Instance;
 

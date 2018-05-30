@@ -21,8 +21,11 @@
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
 
 /** @addtogroup kernelprocessor
  * @{ */

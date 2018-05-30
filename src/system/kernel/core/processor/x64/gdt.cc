@@ -18,9 +18,12 @@
  */
 
 #include "gdt.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/x64/tss.h"
 #include "pedigree/kernel/stddef.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 // These will all be safe for use when entering a double fault handler

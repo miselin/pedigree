@@ -19,12 +19,16 @@
 
 #include "SyscallManager.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/TimeTracker.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/time/Stopwatch.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/state.h"
 
 X64SyscallManager X64SyscallManager::m_Instance;
 

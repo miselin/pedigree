@@ -26,7 +26,6 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/new"
 #endif
 
 /** @addtogroup kernellinker
@@ -206,9 +205,6 @@ class EXPORTED_PUBLIC Elf
   protected:
     // Forward declaration of ELF symbol type for lookupSymbol template.
     struct ElfSymbol_t;
-#ifdef BITS_64
-    struct Elf32Symbol_t;
-#endif
 
   public:
     /** Default constructor - loads no data. */

@@ -21,8 +21,13 @@
 
 #include "Multiprocessor.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#include <machine/mach_pc/Pc.h>
+#include "pedigree/kernel/utilities/utility.h"
 
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
@@ -30,12 +35,10 @@
 #include "../x64/VirtualAddressSpace.h"
 #endif
 
-#if defined(ACPI)
+#include <machine/mach_pc/Pc.h>
 #include <machine/mach_pc/Acpi.h>
-#endif
-#if defined(SMP)
 #include <machine/mach_pc/Smp.h>
-#endif
+#include <machine/mach_pc/LocalApic.h>
 
 #if !defined(APIC)
 #error APIC not defined

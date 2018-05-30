@@ -20,9 +20,10 @@
 #ifndef KERNEL_PROCESSOR_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_INTERRUPTMANAGER_H
 
-#include "pedigree/kernel/processor/InterruptHandler.h"
-#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+
+class InterruptHandler;
 
 /** @addtogroup kernelprocessor
  * @{ */

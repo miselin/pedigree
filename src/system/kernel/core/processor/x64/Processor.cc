@@ -27,7 +27,7 @@
 #include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "pedigree/kernel/utilities/pocketknife.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // Multiprocessor headers
 #if defined(MULTIPROCESSOR)

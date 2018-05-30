@@ -20,7 +20,10 @@
 #ifndef KERNEL_CORE_PROCESSOR_NMFAULTHANDLER_H_
 #define KERNEL_CORE_PROCESSOR_NMFAULTHANDLER_H_
 
-#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

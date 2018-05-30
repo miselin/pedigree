@@ -19,11 +19,14 @@
 
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "utils.h"
 

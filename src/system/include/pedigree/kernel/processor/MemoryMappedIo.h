@@ -22,9 +22,7 @@
 
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
 
 /** @addtogroup kernelprocessor
  * @{ */

@@ -22,10 +22,11 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RangeList.h"
 #include "pedigree/kernel/utilities/Vector.h"
+
+class IoPort;
 
 /** @addtogroup kernelprocessor
  * @{ */
