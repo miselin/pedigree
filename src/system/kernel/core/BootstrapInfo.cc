@@ -17,11 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/String.h"
-
-#include "pedigree/kernel/BootstrapInfo.h"
 
 #ifndef PPC_COMMON
 

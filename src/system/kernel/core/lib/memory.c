@@ -20,10 +20,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-#include "pedigree/kernel/panic.h"
 
 #undef memcpy
 

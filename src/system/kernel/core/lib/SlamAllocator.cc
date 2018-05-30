@@ -27,13 +27,20 @@
 
 #ifndef PEDIGREE_BENCHMARK
 #include "pedigree/kernel/LockGuard.h"
+#ifdef MEMORY_TRACING
 #include "pedigree/kernel/utilities/MemoryTracing.h"
+#endif
+#if CRIPPLINGLY_VIGILANT
 #include "pedigree/kernel/machine/Machine.h"
+#endif
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#if VIGILANT_OVERRUN_CHECK
 #include "pedigree/kernel/debugger/Backtrace.h"
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
+#endif
 #endif
 
 #ifdef THREADS

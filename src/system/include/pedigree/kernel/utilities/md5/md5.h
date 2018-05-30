@@ -69,10 +69,6 @@
 #define MD5_H
 
 //----------------------------------------------------------------------
-// Pedigree includes
-#include "pedigree/kernel/processor/types.h"
-
-//----------------------------------------------------------------------
 // typedefs
 typedef void *POINTER;
 

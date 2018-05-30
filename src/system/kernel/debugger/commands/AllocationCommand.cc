@@ -23,8 +23,10 @@
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/demangle.h"
 #include "pedigree/kernel/utilities/utility.h"
 

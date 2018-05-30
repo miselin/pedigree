@@ -18,8 +18,8 @@
  */
 
 #include "pedigree/kernel/debugger/commands/HelpCommand.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/utility.h"
+
+class DebuggerIO;
 
 HelpCommand::HelpCommand() : DebuggerCommand()
 {

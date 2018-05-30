@@ -18,10 +18,10 @@
  */
 
 #include "pedigree/kernel/debugger/commands/BreakpointCommand.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/processor/types.h"
+
+class DebuggerIO;
 
 BreakpointCommand::BreakpointCommand() : DebuggerCommand()
 {

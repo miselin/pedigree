@@ -24,7 +24,11 @@
  * @{ */
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/Scrollable.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /**
  * Debugger command that allows viewing of the kernel log.

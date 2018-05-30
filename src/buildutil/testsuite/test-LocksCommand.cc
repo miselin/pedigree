@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
+#include "pedigree/kernel/Spinlock.h"
 
 static Spinlock *LOCK_A = 0;
 static Spinlock *LOCK_B = 0;

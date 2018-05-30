@@ -18,16 +18,17 @@
  */
 
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 
 #ifdef TRACK_LOCKS
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
 #include "pedigree/kernel/Log.h"
-
 #include "pedigree/kernel/panic.h"
+
+class Thread;
 
 static Atomic<size_t> x(0);
 

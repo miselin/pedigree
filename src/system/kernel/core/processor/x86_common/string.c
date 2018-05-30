@@ -17,9 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #ifdef TARGET_IS_X86

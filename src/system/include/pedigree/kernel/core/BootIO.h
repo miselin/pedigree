@@ -21,10 +21,13 @@
 #define BOOTIO_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 extern class BootIO bootIO;
+
+class Serial;
 
 /**
  * A class which provides *extremely* simple output to both the Vga class and

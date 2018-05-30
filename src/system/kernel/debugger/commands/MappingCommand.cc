@@ -20,8 +20,11 @@
 #include "pedigree/kernel/debugger/commands/MappingCommand.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/processor/types.h"
+
+class DebuggerIO;
 
 MappingCommand::MappingCommand() : DebuggerCommand()
 {

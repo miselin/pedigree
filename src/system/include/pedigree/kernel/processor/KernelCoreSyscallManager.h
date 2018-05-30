@@ -20,7 +20,9 @@
 #ifndef KERNEL_CORE_SYSCALL_MANAGER_H
 #define KERNEL_CORE_SYSCALL_MANAGER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
 class EXPORTED_PUBLIC KernelCoreSyscallManager : public SyscallHandler

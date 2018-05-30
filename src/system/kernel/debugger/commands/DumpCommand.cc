@@ -18,9 +18,11 @@
  */
 
 #include "pedigree/kernel/debugger/commands/DumpCommand.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class DebuggerIO;
 
 DumpCommand::DumpCommand() : DebuggerCommand()
 {

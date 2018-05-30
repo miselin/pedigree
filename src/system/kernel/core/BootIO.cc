@@ -23,6 +23,7 @@
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 BootIO::BootIO() : m_CursorX(0), m_CursorY(0)
 {

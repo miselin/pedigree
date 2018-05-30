@@ -21,9 +21,13 @@
 #define SLAMCOMMAND_H
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/Scrollable.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

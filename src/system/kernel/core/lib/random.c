@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/processor/types.h"
 
 static uint64_t g_Seed = 1;
 

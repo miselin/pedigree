@@ -21,6 +21,10 @@
 #define BreakpointCommand_H
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+
+class DebuggerIO;
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

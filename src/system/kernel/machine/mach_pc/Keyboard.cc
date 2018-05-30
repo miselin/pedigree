@@ -25,6 +25,7 @@
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
 
 #ifdef DEBUGGER

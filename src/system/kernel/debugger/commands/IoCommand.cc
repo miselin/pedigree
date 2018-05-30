@@ -18,9 +18,13 @@
  */
 
 #include "pedigree/kernel/debugger/commands/IoCommand.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class DebuggerIO;
 
 IoCommand::IoCommand() : DebuggerCommand()
 {

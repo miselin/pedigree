@@ -20,8 +20,10 @@
 #ifndef MAPPINGCOMMAND_H
 #define MAPPINGCOMMAND_H
 
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+
+class DebuggerIO;
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

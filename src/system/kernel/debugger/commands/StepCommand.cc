@@ -18,10 +18,9 @@
  */
 
 #include "pedigree/kernel/debugger/commands/StepCommand.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/utility.h"
+
+class DebuggerIO;
 
 StepCommand::StepCommand() : DebuggerCommand()
 {

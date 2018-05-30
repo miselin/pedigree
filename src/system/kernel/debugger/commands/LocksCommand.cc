@@ -18,12 +18,13 @@
  */
 
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/demangle.h"
-#include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/Log.h"
 
-#ifndef TESTSUITE
+#if LOCKS_COMMAND_DO_BACKTRACES && !defined(TESTSUITE)
 #include "pedigree/kernel/debugger/Backtrace.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #endif

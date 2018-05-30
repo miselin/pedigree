@@ -24,6 +24,10 @@
  * @{ */
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+
+class DebuggerIO;
 
 /**
  * Debugger command that list allocated I/O ports and memory-regions

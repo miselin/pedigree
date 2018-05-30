@@ -20,7 +20,6 @@
 #include "pedigree/kernel/debugger/commands/LogViewer.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
-#include "pedigree/kernel/utilities/utility.h"
 
 LogViewer::LogViewer() : DebuggerCommand(), Scrollable()
 {

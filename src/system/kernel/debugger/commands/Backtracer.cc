@@ -19,11 +19,7 @@
 
 #include "pedigree/kernel/debugger/commands/Backtracer.h"
 #include "pedigree/kernel/debugger/Backtrace.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#include "pedigree/kernel/utilities/utility.h"
-
-#include "pedigree/kernel/debugger/DwarfUnwinder.h"
 
 Backtracer::Backtracer()
 {
@@ -46,13 +42,7 @@ bool Backtracer::execute(
 {
     Backtrace bt;
     bt.performBacktrace(state);
-
     bt.prettyPrint(output);
-
-    //   DwarfUnwinder du(elf.debugFrameTable(), elf.debugFrameTableLength());
-    //   ProcessorState initial(state);
-    //   ProcessorState next;
-    //   du.unwind(initial, next);
     return true;
 }
 

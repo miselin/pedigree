@@ -120,6 +120,7 @@
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/new"
 
 #ifdef DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"

@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/debugger/commands/MemoryInspector.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
 

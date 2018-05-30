@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 

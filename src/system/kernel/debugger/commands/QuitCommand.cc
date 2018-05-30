@@ -18,9 +18,8 @@
  */
 
 #include "pedigree/kernel/debugger/commands/QuitCommand.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/debugger/DebuggerIO.h"
-#include "pedigree/kernel/utilities/utility.h"
+
+class DebuggerIO;
 
 QuitCommand::QuitCommand() : DebuggerCommand()
 {

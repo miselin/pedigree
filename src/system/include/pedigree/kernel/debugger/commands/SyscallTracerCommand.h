@@ -17,10 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
+#include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/debugger/Scrollable.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 class SyscallTracerCommand : public DebuggerCommand, public Scrollable
 {

@@ -27,7 +27,6 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
-class Log;
 class String;
 class StringView;
 

@@ -18,14 +18,11 @@
  */
 
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/demangle.h"
 #include "pedigree/kernel/utilities/utility.h"
 

@@ -20,15 +20,14 @@
 #if defined(THREADS)
 
 #include "pedigree/kernel/debugger/commands/ThreadsCommand.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/initialiseMultitasking.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/demangle.h"
-#include "pedigree/kernel/utilities/utility.h"
 
 ThreadsCommand::ThreadsCommand()
     : DebuggerCommand(), Scrollable(), m_SelectedLine(0), m_nLines(0)
