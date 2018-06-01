@@ -18,31 +18,28 @@
  */
 
 #include "modules/Module.h"
-#include "modules/system/config/Config.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Display.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Vga.h"
-#include "pedigree/kernel/processor/MemoryMappedIo.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/StaticString.h"
-
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Framebuffer.h"
-#include "pedigree/kernel/ServiceManager.h"
-
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 #include "svga_reg.h"
 #include "vm_device_version.h"
 
 #define DEBUG_VMWARE_GFX 0
-
-class VmwareFramebuffer;
 
 static struct mode
 {

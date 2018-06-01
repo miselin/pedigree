@@ -18,11 +18,14 @@
  */
 
 #include "CdiNet.h"
-
-#include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Network.h"
 #include "modules/system/network-stack/NetworkStack.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/network/IpAddress.h"
+#include "pedigree/kernel/network/MacAddress.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // Prototypes in the extern "C" block to ensure that they are not mangled
 extern "C" {

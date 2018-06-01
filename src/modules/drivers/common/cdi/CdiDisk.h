@@ -20,19 +20,13 @@
 #ifndef CDI_CPP_DISK_H
 #define CDI_CPP_DISK_H
 
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/processor/IoBase.h"
-#include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/utilities/Cache.h"
-
+#include <stdbool.h>
+#include "cdi.h"
 #include "cdi/storage.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** CDI Disk Device */
 class CdiDisk : public Disk

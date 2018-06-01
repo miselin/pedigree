@@ -8,7 +8,9 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
+#include "cdi/lists.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 typedef struct {
         struct list_node* anchor;
@@ -27,9 +29,6 @@ list_t* list_insert(list_t* list, int index, void* value);
 void* list_remove(list_t* list, int index);
 unsigned long list_size(list_t* list);
 };
-
-
-#include "cdi/lists.h"
 
 
 struct cdi_list_implementation {

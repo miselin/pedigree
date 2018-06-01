@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdarg.h>
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/Log.h"
 
-#include "include/stdio.h"
-
-int printf(const char* fmt, ...)
+extern "C" int printf(const char* fmt, ...)
 {
     static char print_temp[1024];
     va_list argptr;
@@ -36,7 +36,7 @@ int printf(const char* fmt, ...)
     return ret;
 }
 
-int snprintf(char *s, size_t n, const char *fmt, ...)
+extern "C" int snprintf(char *s, size_t n, const char *fmt, ...)
 {
     va_list argptr;
     va_start(argptr, fmt);
@@ -45,7 +45,7 @@ int snprintf(char *s, size_t n, const char *fmt, ...)
     return ret;
 }
 
-int puts(const char *s)
+extern "C" int puts(const char *s)
 {
     NOTICE(s);
     return StringLength(s);

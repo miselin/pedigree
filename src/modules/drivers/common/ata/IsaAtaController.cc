@@ -18,11 +18,19 @@
  */
 
 #include "IsaAtaController.h"
+#include "AtaDisk.h"
+#include "modules/drivers/common/scsi/ScsiController.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
+
+class Controller;
+class IrqHandler;
 
 IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     : AtaController(pDev, nController)

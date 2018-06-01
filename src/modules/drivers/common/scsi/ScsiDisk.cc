@@ -20,15 +20,17 @@
 #include "ScsiDisk.h"
 #include "ScsiCommands.h"
 #include "ScsiController.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
-#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #define READAHEAD_ENABLED 0
 

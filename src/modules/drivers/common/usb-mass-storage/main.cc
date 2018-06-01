@@ -17,10 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "UsbMassStorageDevice.h"
 #include "modules/Module.h"
 #include "modules/system/usb/UsbPnP.h"
+#include "pedigree/kernel/utilities/new"
 
-#include "UsbMassStorageDevice.h"
+class UsbDevice;
 
 static UsbDevice *massStorageConnected(UsbDevice *pDevice)
 {

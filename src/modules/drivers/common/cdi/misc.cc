@@ -8,34 +8,38 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
+#include <stdbool.h>
+#include <stddef.h>
+#include "cdi-osdep.h"
+#include "cdi/io.h"
+#include "cdi/mem.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/time/Time.h"
-
-#include "pedigree/kernel/utilities/TimeoutGuard.h"
-#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+struct cdi_device;
 
 class CdiIrqHandler : public IrqHandler {
         virtual bool irq(irq_id_t number, InterruptState &state);
 };
 
 static CdiIrqHandler cdi_irq_handler;
-
-#include "cdi.h"
-#include "cdi/misc.h"
-#include "cdi/cmos.h"
-#include "cdi/io.h"
-#include "cdi/mem.h"
 
 /** Anzahl der verfuegbaren IRQs */
 #define IRQ_COUNT           0x10
@@ -80,7 +84,7 @@ extern "C" {
  * @param handler Handlerfunktion
  * @param device Geraet, das dem Handler als Parameter uebergeben werden soll
  */
-EXPORTED_PUBLIC void cdi_register_irq(uint8_t irq, void (*handler)(struct cdi_device*),
+extern "C" EXPORTED_PUBLIC void cdi_register_irq(uint8_t irq, void (*handler)(struct cdi_device*),
     struct cdi_device* device)
 {
     if (irq >= IRQ_COUNT) {
@@ -112,7 +116,7 @@ EXPORTED_PUBLIC void cdi_register_irq(uint8_t irq, void (*handler)(struct cdi_de
  *
  * @return 0 bei Erfolg, -1 im Fehlerfall
  */
-EXPORTED_PUBLIC int cdi_reset_wait_irq(uint8_t irq)
+extern "C" EXPORTED_PUBLIC int cdi_reset_wait_irq(uint8_t irq)
 {
     if (irq > IRQ_COUNT) {
         return -1;
@@ -146,7 +150,7 @@ EXPORTED_PUBLIC int cdi_reset_wait_irq(uint8_t irq)
  * angegeben wurde, -2 wenn eine nicht registrierte IRQ-Nummer angegeben wurde,
  * und -3 im Falle eines Timeouts.
  */
-EXPORTED_PUBLIC int cdi_wait_irq(uint8_t irq, uint32_t timeout)
+extern "C" EXPORTED_PUBLIC int cdi_wait_irq(uint8_t irq, uint32_t timeout)
 {
     if (irq > IRQ_COUNT) {
         return -1;
@@ -200,7 +204,7 @@ EXPORTED_PUBLIC int cdi_wait_irq(uint8_t irq, uint32_t timeout)
  * @return A cdi_mem_area on success, NULL on failure
  * \endenglish
  */
-EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_alloc(size_t size, cdi_mem_flags_t flags)
+extern "C" EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_alloc(size_t size, cdi_mem_flags_t flags)
 {
     /// \todo Incorrectly assumes many flags won't be set
 
@@ -245,7 +249,7 @@ EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_alloc(size_t size, cdi_mem_flags_t 
  * @return A cdi_mem_area on success, NULL on failure
  * \endenglish
  */
-EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_map(uintptr_t paddr, size_t size)
+extern "C" EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_map(uintptr_t paddr, size_t size)
 {
     MemoryRegion* region = new MemoryRegion("cdi");
     size_t pageSize = PhysicalMemoryManager::getPageSize();
@@ -281,7 +285,7 @@ EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_map(uintptr_t paddr, size_t size)
  * cdi_mem_map
  * \endenglish
  */
-EXPORTED_PUBLIC void cdi_mem_free(struct cdi_mem_area* p)
+extern "C" EXPORTED_PUBLIC void cdi_mem_free(struct cdi_mem_area* p)
 {
     if(p)
     {
@@ -318,7 +322,7 @@ EXPORTED_PUBLIC void cdi_mem_free(struct cdi_mem_area* p)
  * the newly allocated memory (unless CDI_MEM_NOINIT is set).
  * \endenglish
  */
-EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_require_flags(struct cdi_mem_area* p,
+extern "C" EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_require_flags(struct cdi_mem_area* p,
     cdi_mem_flags_t flags)
 {
     // Pretend the memory area matches the given flags
@@ -350,7 +354,7 @@ EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_require_flags(struct cdi_mem_area* 
  * @return 0 on success, -1 otherwise
  * \endenglish
  */
-EXPORTED_PUBLIC int cdi_mem_copy(struct cdi_mem_area* dest, struct cdi_mem_area* src)
+extern "C" EXPORTED_PUBLIC int cdi_mem_copy(struct cdi_mem_area* dest, struct cdi_mem_area* src)
 {
     if(dest && src && dest->size == src->size)
     {
@@ -367,7 +371,7 @@ EXPORTED_PUBLIC int cdi_mem_copy(struct cdi_mem_area* dest, struct cdi_mem_area*
  *
  * @return 0 wenn die Ports erfolgreich reserviert wurden, -1 sonst.
  */
-EXPORTED_PUBLIC int cdi_ioports_alloc(uint16_t start, uint16_t count)
+extern "C" EXPORTED_PUBLIC int cdi_ioports_alloc(uint16_t start, uint16_t count)
 {
     // Not required in Pedigree drivers (ring0)
     return 0;
@@ -378,7 +382,7 @@ EXPORTED_PUBLIC int cdi_ioports_alloc(uint16_t start, uint16_t count)
  *
  * @return 0 wenn die Ports erfolgreich freigegeben wurden, -1 sonst.
  */
-EXPORTED_PUBLIC int cdi_ioports_free(uint16_t start, uint16_t count)
+extern "C" EXPORTED_PUBLIC int cdi_ioports_free(uint16_t start, uint16_t count)
 {
     // Not required in Pedigree drivers (ring0)
     return 0;
@@ -387,24 +391,24 @@ EXPORTED_PUBLIC int cdi_ioports_free(uint16_t start, uint16_t count)
 /**
  * Unterbricht die Ausfuehrung fuer mehrere Millisekunden
  */
-EXPORTED_PUBLIC void cdi_sleep_ms(uint32_t ms)
+extern "C" EXPORTED_PUBLIC void cdi_sleep_ms(uint32_t ms)
 {
     Semaphore sem(0);
     sem.acquire(1, 0, ms * 1000);
 }
 
-EXPORTED_PUBLIC uint64_t cdi_elapsed_ms()
+extern "C" EXPORTED_PUBLIC uint64_t cdi_elapsed_ms()
 {
     return Time::getTimeNanoseconds();
 }
 
-EXPORTED_PUBLIC uint8_t cdi_cmos_read(uint8_t index)
+extern "C" EXPORTED_PUBLIC uint8_t cdi_cmos_read(uint8_t index)
 {
     cdi_outb(0x70, index);
     return cdi_inb(0x71);
 }
 
-EXPORTED_PUBLIC void cdi_cmos_write(uint8_t index, uint8_t value)
+extern "C" EXPORTED_PUBLIC void cdi_cmos_write(uint8_t index, uint8_t value)
 {
     cdi_outb(0x70, index);
     cdi_outb(0x71, value);

@@ -22,13 +22,15 @@
 
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Display.h"
-#include "pedigree/kernel/processor/MemoryMappedIo.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/new"
 
-#include "pedigree/kernel/machine/Framebuffer.h"
+class Framebuffer;
+class MemoryMappedIo;
 
 class VbeDisplay : public Display
 {

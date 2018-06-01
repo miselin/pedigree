@@ -20,7 +20,12 @@
 #include "apple.h"
 #include "Partition.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Device;
 
 bool appleProbeDisk(Disk *pDisk)
 {

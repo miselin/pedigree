@@ -20,12 +20,21 @@
 #include "Ne2k.h"
 #include "Ne2kConstants.h"
 #include "modules/system/network-stack/NetworkStack.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Network.h"
-#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/network/IpAddress.h"
+#include "pedigree/kernel/network/MacAddress.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/MemoryPool.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // #define NE2K_NO_THREADS
 

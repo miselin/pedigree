@@ -17,16 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "AtaController.h"
 #include "IsaAtaController.h"
 #include "PciAtaController.h"
 #include "modules/Module.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 static int nController = 0;
 

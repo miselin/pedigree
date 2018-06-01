@@ -17,18 +17,34 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/system/usb/Usb.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#ifdef X86_COMMON
-#include "pedigree/kernel/machine/Pci.h"
-#endif
 #include "Ohci.h"
+#include "modules/system/usb/Usb.h"
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #define INDEX_FROM_TD(ptr) \
     (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(TD)))

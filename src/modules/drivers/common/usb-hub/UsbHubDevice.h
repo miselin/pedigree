@@ -20,9 +20,13 @@
 #ifndef USBHUBDEVICE_H
 #define USBHUBDEVICE_H
 
+#include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbHub.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class UsbHubDevice : public UsbDevice, public UsbHub
 {

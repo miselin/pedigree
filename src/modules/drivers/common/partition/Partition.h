@@ -21,7 +21,9 @@
 #define PARTITION_H
 
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /**
  * A partition is a chunk of disk.

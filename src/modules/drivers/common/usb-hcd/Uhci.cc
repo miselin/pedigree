@@ -21,14 +21,23 @@
 
 #include "Uhci.h"
 #include "modules/system/usb/Usb.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #define INDEX_FROM_TD_VIRT(ptr)                  \
     (((reinterpret_cast<uintptr_t>((ptr)) -      \

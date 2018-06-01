@@ -20,18 +20,12 @@
 #ifndef CDI_CPP_NET_H
 #define CDI_CPP_NET_H
 
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Network.h"
-#include "pedigree/kernel/processor/IoBase.h"
-#include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/Semaphore.h"
-
+#include <stdbool.h>
+#include "cdi.h"
 #include "cdi/net.h"
+#include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 /** CDI NIC Device */
 class CdiNet : public Network

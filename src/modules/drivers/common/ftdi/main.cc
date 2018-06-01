@@ -17,10 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "FtdiSerialDevice.h"
 #include "modules/Module.h"
 #include "modules/system/usb/UsbPnP.h"
+#include "pedigree/kernel/utilities/new"
 
-#include "FtdiSerialDevice.h"
+class UsbDevice;
 
 static UsbDevice *ftdiConnected(UsbDevice *pDevice)
 {

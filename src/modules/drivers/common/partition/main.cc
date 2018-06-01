@@ -17,21 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "PartitionService.h"
 #include "apple.h"
 #include "modules/Module.h"
 #include "msdos.h"
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
-
-#include "pedigree/kernel/Service.h"
-#include "pedigree/kernel/ServiceManager.h"
-#include "pedigree/kernel/ServiceFeatures.h"
-
-#include "Partition.h"
-#include "PartitionService.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static Service *pService = 0;
 static ServiceFeatures *pFeatures = 0;

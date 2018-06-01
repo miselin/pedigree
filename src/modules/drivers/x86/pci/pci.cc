@@ -17,15 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/Pci.h"
 #include "modules/Module.h"
 #include "pci_list.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #define CONFIG_ADDRESS 0

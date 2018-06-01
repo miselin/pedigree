@@ -20,11 +20,14 @@
 #ifndef SCSIDISK_H
 #define SCSIDISK_H
 
-#include "ScsiCommands.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/CacheConstants.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class ScsiCommand;
 
 class EXPORTED_PUBLIC ScsiDisk : public Disk
 {

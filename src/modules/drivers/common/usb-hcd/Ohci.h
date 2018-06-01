@@ -20,15 +20,25 @@
 #ifndef OHCI_H
 #define OHCI_H
 
+#include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
-#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
-#include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/new"
+
+class Device;
+class IoBase;
 
 /** Device driver for the Ohci class */
 class Ohci : public UsbHub,

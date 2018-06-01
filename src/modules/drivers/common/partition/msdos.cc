@@ -21,12 +21,15 @@
 #include "Partition.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/Processor.h"
-
-#ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Device;
+
 static Spinlock g_Lock;
-#endif
 
 // Partition number for a DOS extended partition (another partition table)
 const uint8_t g_ExtendedPartitionNumber = 5;

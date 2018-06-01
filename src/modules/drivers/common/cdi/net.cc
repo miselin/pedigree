@@ -8,12 +8,15 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */
 
-#include <stdint.h>
 #include <cdi/lists.h>
 #include <cdi/net.h>
 #include <cdi/pci.h>
-#include "pedigree/kernel/Log.h"
+#include <stdbool.h>
+#include <stddef.h>
+#include "cdi-osdep.h"
+#include "cdi.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
 
 static unsigned long netcard_highest_id = 0;
 static cdi_list_t netcard_list;

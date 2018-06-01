@@ -21,9 +21,9 @@
 #include "modules/Module.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Network.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/new"
+
+class Network;
 
 static bool bFound = false;
 

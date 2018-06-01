@@ -23,7 +23,12 @@
 #include "modules/drivers/common/scsi/ScsiController.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDevice.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Device;
 
 class UsbMassStorageDevice : public ScsiController, public UsbDevice
 {

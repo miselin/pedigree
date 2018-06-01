@@ -17,10 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "modules/system/usb/UsbPnP.h"
-
 #include "UsbHumanInterfaceDevice.h"
+#include "modules/Module.h"
+#include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbPnP.h"
+#include "pedigree/kernel/utilities/new"
 
 static UsbDevice *hidConnected(UsbDevice *pDevice)
 {

@@ -18,11 +18,12 @@
  */
 
 #include "FtdiSerialDevice.h"
-#include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDevice.h"
-#include "modules/system/usb/UsbHub.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 #define FTDI_BAUD_RATE 9600
 

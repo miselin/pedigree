@@ -20,17 +20,18 @@
 #ifndef ATA_CONTROLLER_H
 #define ATA_CONTROLLER_H
 
+#include "modules/drivers/common/scsi/ScsiController.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/Controller.h"
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
-#include "pedigree/kernel/processor/IoBase.h"
-#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
-#include "modules/drivers/common/scsi/ScsiController.h"
+class Controller;
+class IoBase;
 
 /** Base class for an ATA controller. */
 class AtaController : public ScsiController, public IrqHandler

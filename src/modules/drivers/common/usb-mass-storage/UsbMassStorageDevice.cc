@@ -18,13 +18,11 @@
  */
 
 #include "UsbMassStorageDevice.h"
+#include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbDevice.h"
-#include "modules/system/usb/UsbHub.h"
-#include "pedigree/kernel/ServiceManager.h"
-#include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
-#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 UsbMassStorageDevice::UsbMassStorageDevice(UsbDevice *dev)
     : ScsiController(), UsbDevice(dev), m_nUnits(0), m_pInEndpoint(0),

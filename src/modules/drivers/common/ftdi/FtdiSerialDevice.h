@@ -23,6 +23,7 @@
 #include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class FtdiSerialDevice : public UsbDevice, public Serial
 {

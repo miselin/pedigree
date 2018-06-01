@@ -8,17 +8,15 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */
 
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/compiler.h"
-
-extern "C" {
-
-#include <stdint.h>
-#include <stdlib.h>
-
-#include "cdi.h"
+#include "cdi-osdep.h"
 #include "cdi/lists.h"
 #include "cdi/pci.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+extern "C" {
 
 static void add_child_device(cdi_list_t list, Device *pDev)
 {

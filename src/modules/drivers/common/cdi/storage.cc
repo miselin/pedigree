@@ -8,14 +8,10 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/Log.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-
+#include "cdi.h"
 #include "cdi/storage.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /**
  * External prototype for this function so that we don't pollute the CDI header

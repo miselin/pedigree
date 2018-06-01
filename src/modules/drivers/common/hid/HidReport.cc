@@ -21,7 +21,7 @@
 #include "modules/drivers/common/hid/HidUsages.h"
 #include "modules/drivers/common/hid/HidUtils.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 // Handy macro for mixing tag and type in a single value
 #define MIX_TYPE_N_TAG(type, tag) (type | (tag << 2))

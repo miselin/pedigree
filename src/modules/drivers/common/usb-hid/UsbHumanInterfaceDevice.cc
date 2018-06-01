@@ -17,15 +17,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "UsbHumanInterfaceDevice.h"
 #include "modules/drivers/common/hid/HidReport.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDevice.h"
-#include "modules/system/usb/UsbHub.h"
-#include "pedigree/kernel/machine/HidInputManager.h"
-#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
-
-#include "UsbHumanInterfaceDevice.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 UsbHumanInterfaceDevice::UsbHumanInterfaceDevice(UsbDevice *pDev)
     : UsbDevice(pDev), m_pInEndpoint(0)

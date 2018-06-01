@@ -23,12 +23,13 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/process/Semaphore.h"
-
-extern class Ps2Mouse *g_Ps2Mouse WEAK;
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class Ps2Controller;
+
+extern class Ps2Mouse *g_Ps2Mouse WEAK;
 
 class Ps2Mouse : public Device
 {

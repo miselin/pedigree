@@ -8,18 +8,15 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */  
 
-#include "pedigree/kernel/processor/types.h"
+#include "cdi-osdep.h"
+#include "cdi/dma.h"
+#include "modules/drivers/common/dma/IsaDma.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/Log.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-
-#include "cdi/dma.h"
-
-#include "modules/drivers/common/dma/IsaDma.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifndef X86_COMMON
 #warning ISA DMA not supported on non-x86 architectures. TODO: FIXME

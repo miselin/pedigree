@@ -26,8 +26,8 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */  
 
-#include "cdi.h"
-
+#include <stddef.h>
+#include "pedigree/kernel/utilities/new"
 
 typedef struct {
         struct list_node* anchor;

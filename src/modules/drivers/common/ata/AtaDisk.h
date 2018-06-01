@@ -21,19 +21,16 @@
 #define ATA_ATA_DISK_H
 
 #include "BusMasterIde.h"
-#include "pedigree/kernel/machine/Controller.h"
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Disk.h"
+#include "ata-common.h"
+#include "modules/drivers/common/scsi/ScsiDisk.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/String.h"
 
-#include "modules/drivers/common/scsi/ScsiDisk.h"
-
-#include "ata-common.h"
+class IoBase;
 
 /**
  * An ATA device.

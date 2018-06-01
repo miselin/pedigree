@@ -18,6 +18,7 @@
  */
 
 #include "modules/drivers/common/scsi/ScsiCommands.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 ScsiCommand::ScsiCommand() = default;
 ScsiCommand::~ScsiCommand() = default;

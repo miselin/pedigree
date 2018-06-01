@@ -8,21 +8,22 @@
  * http://sam.zoy.org/projects/COPYING.WTFPL for more details.
  */
 
-//#include <stdlib.h>
-
-#include "modules/Module.h"
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/utilities/StaticString.h"
-#include "pedigree/kernel/Log.h"
-
-#include <cdi.h>
 #include <cdi-osdep.h>
+#include <cdi.h>
 #include <cdi/lists.h>
 #include <cdi/pci.h>
-
-#ifdef X86_COMMON
+#include <stdbool.h>
+#include <stddef.h>
+#include "modules/Module.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
-#endif
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 static cdi_list_t drivers = NULL;
 static cdi_list_t devices = NULL;

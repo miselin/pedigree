@@ -18,14 +18,14 @@
  */
 
 #include "CdiDisk.h"
-
+#include <stddef.h>
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
-#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/utilities/assert.h"
-
-#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/utilities/new"
 
 // Prototypes in the extern "C" block to ensure that they are not mangled
 extern "C" {

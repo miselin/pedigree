@@ -21,11 +21,10 @@
 #define BUSMASTERIDE_H
 
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/processor/IoBase.h"
-#include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
+
+class IoBase;
 
 /**
  * If set to 1, the BusMasterIde object will log fairly verbosely (outcome of

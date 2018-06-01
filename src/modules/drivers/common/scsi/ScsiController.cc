@@ -19,6 +19,7 @@
 
 #include "ScsiController.h"
 #include "ScsiDisk.h"
+#include "pedigree/kernel/utilities/new"
 
 ScsiController::ScsiController(Controller *pDev)
     : Controller(pDev), RequestQueue("ScsiController")

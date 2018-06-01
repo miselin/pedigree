@@ -21,16 +21,15 @@
 #define PCI_ATA_CONTROLLER_H
 
 #include "AtaController.h"
-#include "AtaDisk.h"
-#include "BusMasterIde.h"
-#include "pedigree/kernel/machine/Controller.h"
-#include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
-#include "pedigree/kernel/processor/IoBase.h"
-#include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class BusMasterIde;
+class Controller;
+class IoBase;
 
 #define ATA_CMD_READ 0
 #define ATA_CMD_WRITE 1

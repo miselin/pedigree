@@ -18,17 +18,20 @@
  */
 
 #include "VbeDisplay.h"
+#include "modules/system/config/Config.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/machine/x86_common/Bios.h"
+#include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
-#include "modules/system/config/Config.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-#include "pedigree/kernel/graphics/Graphics.h"
 
 /// \todo Put this in the config manager.
 static Display::ScreenMode g_ScreenMode;

@@ -18,17 +18,14 @@
  */
 
 #include "Ps2Mouse.h"
-
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/InputManager.h"
-#include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/new"
 #include "system/kernel/machine/mach_pc/Ps2Controller.h"
+
+class Process;
 
 Ps2Mouse::Ps2Mouse(Device *pDev)
     : m_pController(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(),

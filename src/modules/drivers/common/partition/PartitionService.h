@@ -21,9 +21,9 @@
 #define PARTITION_SERVICE_H
 
 #include "pedigree/kernel/processor/types.h"
-
+#include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceManager.h"
-//#include <ServiceFeatures.h>
+#include "pedigree/kernel/ServiceFeatures.h"
 
 class PartitionService : public Service
 {
