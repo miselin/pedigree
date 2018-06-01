@@ -20,12 +20,13 @@
 #ifndef FAT_DIRECTORY_H
 #define FAT_DIRECTORY_H
 
-#include "FatFilesystem.h"
-#include "modules/system/vfs/Directory.h"
-#include "pedigree/kernel/utilities/Vector.h"
-
-#include "FatFile.h"
 #include "fat.h"
+#include "modules/system/vfs/Directory.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class File;
 
 /** A File is a file, a directory or a symlink. */
 class FatDirectory : public Directory

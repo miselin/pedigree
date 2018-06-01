@@ -21,8 +21,17 @@
 #include "Ext2File.h"
 #include "Ext2Filesystem.h"
 #include "Ext2Symlink.h"
+#include "ext2.h"
+#include "modules/system/vfs/File.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/stddef.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Pointers.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Filesystem;
 
 Ext2Directory::Ext2Directory(
     const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,

@@ -19,11 +19,12 @@
 
 #include "Console.h"
 #include "modules/Module.h"
-#include "modules/system/vfs/VFS.h"
-
-#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+
+class RequestQueue;
 
 ConsoleManager ConsoleManager::m_Instance;
 

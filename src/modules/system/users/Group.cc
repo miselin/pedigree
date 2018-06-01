@@ -18,7 +18,8 @@
  */
 
 #include "Group.h"
-#include "User.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Group::Group(size_t gid, String name) : m_Gid(gid), m_Name(name), m_Users()
 {

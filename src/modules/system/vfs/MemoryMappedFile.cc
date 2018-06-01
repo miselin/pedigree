@@ -18,14 +18,22 @@
  */
 
 #include "MemoryMappedFile.h"
-
+#include "File.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/process/Uninterruptible.h"
-
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 MemoryMapManager MemoryMapManager::m_Instance;
 

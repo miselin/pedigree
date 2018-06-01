@@ -20,14 +20,14 @@
 #ifndef ISO9660FILESYSTEM_H
 #define ISO9660FILESYSTEM_H
 
-#include "modules/system/vfs/Filesystem.h"
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/Vector.h"
-
 #include "iso9660.h"
+#include "modules/system/vfs/Filesystem.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class Disk;
+class File;
 
 /** This class provides an implementation of the ISO9660 filesystem. */
 class Iso9660Filesystem : public Filesystem

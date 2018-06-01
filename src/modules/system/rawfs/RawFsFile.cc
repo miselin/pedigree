@@ -19,6 +19,9 @@
 
 #include "RawFsFile.h"
 #include "RawFs.h"
+#include "pedigree/kernel/machine/Disk.h"
+
+class Filesystem;
 
 RawFsFile::RawFsFile(String name, RawFs *pFs, File *pParent, Disk *pDisk)
     : File(

@@ -21,7 +21,7 @@
 #define FAT_H
 
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/time/Time.h"
 
 // FAT Attributes
 #define ATTR_READONLY 0x01

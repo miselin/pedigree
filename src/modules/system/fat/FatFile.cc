@@ -20,10 +20,6 @@
 #include "FatFile.h"
 #include "FatFilesystem.h"
 
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/utilities/MemoryPool.h"
-
 FatFile::FatFile(
     String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
     Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,

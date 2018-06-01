@@ -21,14 +21,21 @@
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
-#include "modules/system/linker/DynamicLinker.h"
-#include "modules/system/users/UserManager.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/BootIO.h"
-#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
+
+class File;
 
 static void error(const char *s)
 {

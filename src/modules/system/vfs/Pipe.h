@@ -21,15 +21,15 @@
 #define PIPE_H
 
 #include "File.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
 
 #define PIPE_BUF_MAX 2048
-
-class ZombiePipe;
 
 /** A first-in-first-out buffer node. */
 class EXPORTED_PUBLIC Pipe : public File

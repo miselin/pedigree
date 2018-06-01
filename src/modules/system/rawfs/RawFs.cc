@@ -20,9 +20,15 @@
 #include "RawFs.h"
 #include "RawFsDir.h"
 #include "RawFsFile.h"
-
 #include "modules/Module.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/new"
+
+class Disk;
+class File;
 
 static RawFs *g_pRawFs = 0;
 

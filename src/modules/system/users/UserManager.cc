@@ -18,10 +18,16 @@
  */
 
 #include "UserManager.h"
+#include "Group.h"
+#include "User.h"
 #include "modules/Module.h"
 #include "modules/system/config/Config.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 UserManager UserManager::m_Instance;

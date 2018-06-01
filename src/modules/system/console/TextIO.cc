@@ -17,16 +17,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "TextIO.h"
+#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include "TextIO.h"
-
+class Filesystem;
 class Process;
 
 /// \todo these come from somewhere - expose them properly

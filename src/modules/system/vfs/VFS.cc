@@ -18,16 +18,24 @@
  */
 
 #include "VFS.h"
-#include "modules/system/users/UserManager.h"
+#include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/StringView.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #ifndef VFS_STANDALONE
 #include "modules/Module.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
+
+class Disk;
 
 /// \todo Figure out a way to clean up files after deletion. Directory::remove()
 ///       is not the right place to do this. There needs to be a way to add a

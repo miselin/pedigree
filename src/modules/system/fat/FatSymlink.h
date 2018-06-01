@@ -25,7 +25,7 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
 
-#include "FatFile.h"
+class File;
 
 /**
  * FAT Symlink.

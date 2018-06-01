@@ -21,13 +21,9 @@
 // native syscalls proper.
 
 #include <stdint.h>
-#include <string.h>
 #include <sys/select.h>
-#include <syslog.h>
 #include <time.h>
-#include <unistd.h>
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/InfoBlock.h"
 
 /// \todo this is hardcoded for x64

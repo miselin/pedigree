@@ -21,16 +21,17 @@
 #define DIRECTORY_H
 
 #include "File.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/LazyEvaluate.h"
 #include "pedigree/kernel/utilities/Pointers.h"
-#include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+class StringView;
 
 /**
  * A Directory node.

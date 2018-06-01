@@ -17,26 +17,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "pedigree/kernel/Log.h"
-
-#include "modules/system/config/Config.h"
-#include "pedigree/kernel/BootstrapInfo.h"
-#include "pedigree/kernel/machine/Display.h"
-#include "pedigree/kernel/machine/InputManager.h"
-#include "pedigree/kernel/machine/Framebuffer.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/assert.h"
-
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/graphics/Graphics.h"
-#include "pedigree/kernel/graphics/GraphicsService.h"
-#include "pedigree/kernel/ServiceManager.h"
-
-#include "pedigree/kernel/core/BootIO.h"
-
 #include "font.h"
 #include "image.h"
+#include "modules/Module.h"
+#include "modules/system/config/Config.h"
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/core/BootIO.h"
+#include "pedigree/kernel/graphics/Graphics.h"
+#include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
+#include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static Framebuffer *g_pFramebuffer = 0;
 

@@ -18,9 +18,14 @@
  */
 
 #include "Console.h"
-#include "modules/system/vfs/VFS.h"
-
 #include "ConsoleDefines.h"
+#include "modules/system/vfs/File.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Filesystem;
 
 ConsolePhysicalFile::ConsolePhysicalFile(
     size_t nth, File *pTerminal, String consoleName, Filesystem *pFs)

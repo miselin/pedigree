@@ -18,10 +18,11 @@
  */
 
 #include "Console.h"
-#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/String.h"
 
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/Processor.h"
+class Filesystem;
 
 ConsoleMasterFile::ConsoleMasterFile(
     size_t consoleNumber, String consoleName, Filesystem *pFs)

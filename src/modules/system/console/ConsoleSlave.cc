@@ -18,10 +18,12 @@
  */
 
 #include "Console.h"
-#include "modules/system/vfs/VFS.h"
+#include "ConsoleDefines.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/String.h"
 
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/Processor.h"
+class Filesystem;
 
 extern const char defaultControl[MAX_CONTROL_CHAR];
 

@@ -20,13 +20,12 @@
 #ifndef RAWFS_H
 #define RAWFS_H
 
-#include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/Filesystem.h"
-#include "modules/system/vfs/VFS.h"
-#include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class Disk;
+class File;
 
 /** Provides access to Disks without mounting their contained filesystem
     (raw device access). */

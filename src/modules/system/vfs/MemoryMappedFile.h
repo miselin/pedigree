@@ -20,16 +20,20 @@
 #ifndef MEMORY_MAPPED_FILE_H
 #define MEMORY_MAPPED_FILE_H
 
-#include "File.h"
-
-#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
-#include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/new"
+
+class File;
+class Process;
+class VirtualAddressSpace;
 
 /** \addtogroup vfs
     @{ */
@@ -94,8 +98,6 @@
     Provides a mechanism for mapping Files into the address space.
 
     \todo Handle writing of files, not just reading. */
-
-class MemoryMapManager;
 
 /**
  * Generic base for a memory mapped file or object.

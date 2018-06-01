@@ -18,16 +18,14 @@
  */
 
 #include "modules/system/linker/DynamicLinker.h"
-#include "modules/Module.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 extern "C" void resolveSymbol(void);
 

@@ -18,8 +18,8 @@
  */
 
 #include "modules/system/vfs/File.h"
-
 #include "modules/subsys/posix/PollEvent.h"
+#include "pedigree/kernel/Log.h"
 
 static void pollEventHandler(uint8_t *pBuffer);
 

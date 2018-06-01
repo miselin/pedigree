@@ -18,6 +18,7 @@
  */
 
 #include "Iso9660File.h"
+#include "pedigree/kernel/processor/types.h"
 
 uintptr_t Iso9660File::readBlock(uint64_t location)
 {

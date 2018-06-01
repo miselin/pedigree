@@ -19,7 +19,9 @@
 
 #include "modules/system/usb/UsbPnP.h"
 #include "modules/system/usb/UsbDevice.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 UsbPnP UsbPnP::m_Instance;
 

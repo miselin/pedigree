@@ -20,15 +20,17 @@
 #ifndef TEXTIO_H
 #define TEXTIO_H
 
+#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/String.h"
 
-#include "modules/system/vfs/File.h"
-
+class Filesystem;
+class Thread;
 class Vga;
 
 #define MAX_TEXTIO_PARAMS 16

@@ -21,8 +21,10 @@
 #define RAWFS_FILE_H
 
 #include "modules/system/vfs/File.h"
-#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+
+class Disk;
 
 class RawFsFile : public File
 {

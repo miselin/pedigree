@@ -19,8 +19,13 @@
 
 #include "Ext2Node.h"
 #include "Ext2Filesystem.h"
+#include "ext2.h"
+#include "modules/system/vfs/File.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Ext2Node::Ext2Node(uintptr_t inode_num, Inode *pInode, Ext2Filesystem *pFs)
     : m_pInode(pInode), m_InodeNumber(inode_num), m_pExt2Fs(pFs), m_Blocks(),

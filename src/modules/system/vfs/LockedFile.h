@@ -20,12 +20,10 @@
 #ifndef LOCKED_FILE_H
 #define LOCKED_FILE_H
 
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/types.h"
 
-#include "File.h"
+class File;
 
 /** LockedFile is a wrapper around a standard File with the ability to lock
  * access to it. Locked access is in the form of a Mutex that allows only

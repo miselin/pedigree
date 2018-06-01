@@ -21,14 +21,18 @@
 #define USBDEVICE_H
 
 #include "modules/system/usb/Usb.h"
-#include "modules/system/usb/UsbDescriptors.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-class UsbHub;
 class UsbDeviceContainer;
+class UsbHub;
+struct UsbDeviceDescriptor;
+struct UsbEndpointDescriptor;
+struct UsbInterfaceDescriptor;
 
 class EXPORTED_PUBLIC UsbDevice
 {

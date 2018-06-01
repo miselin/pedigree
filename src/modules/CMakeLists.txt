@@ -86,8 +86,7 @@ function(pedigree_module name opts libs)
     target_compile_options(${name} PRIVATE
         ${opts}
         $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
-        $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS}>
-        $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
+        $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
     target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
 
     # Generic set of include directories for modules to find their own headers

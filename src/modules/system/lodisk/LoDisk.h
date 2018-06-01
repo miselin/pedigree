@@ -21,9 +21,9 @@
 #define LODISK_H
 
 #include "modules/system/vfs/File.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"

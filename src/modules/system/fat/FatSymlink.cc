@@ -19,6 +19,7 @@
 
 #include "FatSymlink.h"
 #include "FatFilesystem.h"
+#include "modules/system/vfs/File.h"
 
 FatSymlink::FatSymlink(
     String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,

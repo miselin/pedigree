@@ -19,6 +19,7 @@
 
 #include "Symlink.h"
 #include "Filesystem.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Symlink::Symlink() : File(), m_pCachedSymlink(0)
 {

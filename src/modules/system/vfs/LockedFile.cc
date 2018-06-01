@@ -18,9 +18,12 @@
  */
 
 #include "LockedFile.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+
+class File;
 
 LockedFile::LockedFile(File *pFile)
     : m_File(pFile), m_bLocked(false), m_LockerPid(0)

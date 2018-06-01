@@ -18,10 +18,16 @@
  */
 
 #include "Pipe.h"
-#include "Filesystem.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/ZombieQueue.h"
+#include "pedigree/kernel/utilities/new"
+
+class Filesystem;
 
 class ZombiePipe : public ZombieObject
 {

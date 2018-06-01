@@ -20,28 +20,28 @@
 #ifndef CONSOLE_H
 #define CONSOLE_H
 
+#include "ConsoleDefines.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
-#include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#include "ConsoleDefines.h"
+class Disk;
+class Event;
+class Process;
+class RequestQueue;
 
 #define DEFAULT_FLAGS                                            \
     (ConsoleManager::OPostProcess | ConsoleManager::IMapCRToNL | \
      ConsoleManager::OMapNLToCRNL | ConsoleManager::LEcho |      \
      ConsoleManager::LEchoErase | ConsoleManager::LEchoKill |    \
      ConsoleManager::LCookedMode | ConsoleManager::LGenerateEvent)
-
-class ConsoleManager;
-class ConsoleMasterFile;
-class ConsoleSlaveFile;
-
-class Process;
 
 class ConsoleFile : public File
 {

@@ -19,8 +19,10 @@
 
 #include "Ext2File.h"
 #include "Ext2Filesystem.h"
-#include "Ext2Symlink.h"
-#include "pedigree/kernel/syscallError.h"
+#include "ext2.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Filesystem;
 
 Ext2File::Ext2File(
     const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,

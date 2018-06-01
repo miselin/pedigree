@@ -23,6 +23,8 @@
 #include "modules/system/vfs/Directory.h"
 #include "pedigree/kernel/utilities/String.h"
 
+class File;
+
 class RawFsDir : public Directory
 {
   private:

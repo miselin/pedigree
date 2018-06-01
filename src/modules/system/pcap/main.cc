@@ -19,13 +19,13 @@
 
 #include "modules/Module.h"
 #include "modules/system/network-stack/Filter.h"
-#include "modules/system/pcap/pcap.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 
 struct PcapHeader

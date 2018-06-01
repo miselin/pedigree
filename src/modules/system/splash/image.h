@@ -19,6 +19,8 @@
 
 /*  GIMP header image file format (INDEXED): /home/james/pedigree_crop.h  */
 
+#include "pedigree/kernel/processor/types.h"
+
 static unsigned int width = 139;
 static unsigned int height = 246;
 

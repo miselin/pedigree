@@ -20,21 +20,21 @@
 #ifndef FILE_H
 #define FILE_H
 
-#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
 #include "pedigree/kernel/utilities/HashTable.h"
-#include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-
-class Thread;
 class Event;
+class Filesystem;
+class Thread;
 
 // RWX for owner.
 #define FILE_UR 0001

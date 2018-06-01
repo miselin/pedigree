@@ -19,6 +19,11 @@
 
 #include "RawFsDir.h"
 #include "RawFs.h"
+#include "pedigree/kernel/processor/types.h"
+#include "modules/system/vfs/File.h"
+#include "pedigree/kernel/Log.h"
+
+class Filesystem;
 
 RawFsDir::RawFsDir(String name, RawFs *pFs, File *pParent)
     : Directory(

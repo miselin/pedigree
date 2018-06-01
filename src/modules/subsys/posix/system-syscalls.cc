@@ -57,6 +57,9 @@
 
 #include "modules/system/console/Console.h"
 #include "modules/system/users/UserManager.h"
+#include "modules/system/users/User.h"
+#include "modules/system/users/Group.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
 
 #include <grp.h>
 #include <limits.h>

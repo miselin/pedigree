@@ -20,18 +20,14 @@
 #include "modules/Module.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/utilities/utility.h"
-#include "sqlite3/sqlite3.h"
-
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
-#include "pedigree/kernel/linker/KernelElf.h"
-
-#include "Config.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
+#include "sqlite3/sqlite3.h"
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 

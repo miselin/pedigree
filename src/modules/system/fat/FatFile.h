@@ -24,7 +24,6 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
-#include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 
 /** A File is a file, a directory or a symlink. */

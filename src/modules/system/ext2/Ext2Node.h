@@ -20,9 +20,10 @@
 #ifndef EXT2_NODE_H
 #define EXT2_NODE_H
 
-#include "Ext2Filesystem.h"
-#include "ext2.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
+
+struct Inode;
 
 /** A node in an ext2 filesystem. */
 class Ext2Node

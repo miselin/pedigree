@@ -17,22 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "modules/system/vfs/VFS.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/syscallError.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/StaticString.h"
-#include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/utility.h"
-
 #include "FatDirectory.h"
 #include "FatFile.h"
 #include "FatFilesystem.h"
 #include "FatSymlink.h"
 #include "fat.h"
+#include "modules/Module.h"
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/UnlikelyLock.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Filesystem;
 
 // helper functions
 

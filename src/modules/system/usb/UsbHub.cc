@@ -21,10 +21,10 @@
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbPnP.h"
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
-#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/new"
 
 UsbHub::UsbHub()
 {

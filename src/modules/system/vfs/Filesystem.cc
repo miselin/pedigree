@@ -18,16 +18,19 @@
  */
 
 #include "Filesystem.h"
-#include "VFS.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/syscallError.h"
-#include "pedigree/kernel/utilities/utility.h"
-
 #include "Directory.h"
 #include "File.h"
 #include "Symlink.h"
+#include "VFS.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/LazyEvaluate.h"
+#include "pedigree/kernel/utilities/StringView.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0), m_nAliases(0)
 {

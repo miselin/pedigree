@@ -21,10 +21,16 @@
 #include "FatFile.h"
 #include "FatFilesystem.h"
 #include "FatSymlink.h"
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/syscallError.h"
-
 #include "fat.h"
+#include "modules/system/vfs/File.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Filesystem;
 
 FatDirectory::FatDirectory(
     String name, uintptr_t inode_num, FatFilesystem *pFs, File *pParent,

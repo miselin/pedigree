@@ -20,8 +20,13 @@
 #ifndef USBPNP_H
 #define USBPNP_H
 
-#include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/new"
+
+class Device;
+class UsbDevice;
 
 enum UsbPnPConstants
 {

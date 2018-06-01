@@ -20,10 +20,20 @@
 #include "modules/Module.h"
 #include "modules/system/lodisk/LoDisk.h"
 #include "modules/system/ramfs/RamFs.h"
+#include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/core/BootIO.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class File;
 
 static bool bRootMounted = false;
 

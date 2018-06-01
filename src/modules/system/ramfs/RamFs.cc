@@ -19,10 +19,11 @@
 
 #include "RamFs.h"
 #include "modules/Module.h"
-#include "modules/system/vfs/VFS.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/new"
 
 RamFile::RamFile(
     const String &name, uintptr_t inode, Filesystem *pParentFS, File *pParent)

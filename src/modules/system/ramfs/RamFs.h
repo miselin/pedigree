@@ -25,14 +25,15 @@
  *\date   Sun May 17 10:00:00 2009
  *\brief  An in-RAM filesystem. */
 
-class Disk;
-
 #include "modules/system/vfs/Directory.h"
-#include "modules/system/vfs/VFS.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-
 #include "pedigree/kernel/utilities/Cache.h"
+#include "pedigree/kernel/utilities/String.h"
+
+class Disk;
 
 class EXPORTED_PUBLIC RamFile : public File
 {

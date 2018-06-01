@@ -18,12 +18,14 @@
  */
 
 #include "LoDisk.h"
-#include "modules/system/../Module.h"
-#include "pedigree/kernel/utilities/assert.h"
-
+#include "modules/Module.h"
+#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
-#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/utilities/assert.h"
 
 FileDisk::FileDisk(String file, AccessType mode)
     : m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),

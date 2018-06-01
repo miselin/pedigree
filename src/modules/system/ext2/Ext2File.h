@@ -20,11 +20,12 @@
 #ifndef EXT2_FILE_H
 #define EXT2_FILE_H
 
-#include "Ext2Filesystem.h"
 #include "Ext2Node.h"
-#include "ext2.h"
 #include "modules/system/vfs/File.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
+
+struct Inode;
 
 /** A File is a file, a directory or a symlink. */
 class Ext2File : public File, public Ext2Node

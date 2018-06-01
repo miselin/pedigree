@@ -19,10 +19,11 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
-#include "Group.h"
-#include "User.h"
+class Group;
+class User;
 
 /** The user manager - this allows lookups of users and groups, and also
     parses the initial file "root:/config/users". */

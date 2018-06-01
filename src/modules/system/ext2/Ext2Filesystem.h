@@ -21,13 +21,16 @@
 #define EXT2FILESYSTEM_H
 
 #include "modules/system/vfs/Filesystem.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
-#include "ext2.h"
+class Disk;
+class File;
+struct GroupDesc;
+struct Inode;
+struct Superblock;
+template <class T> class Vector;
 
 /** This class provides an implementation of the second extended filesystem. */
 class Ext2Filesystem : public Filesystem

@@ -21,10 +21,10 @@
 #define SYMLINK_H
 
 #include "File.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 
 /** A symbolic link node. */

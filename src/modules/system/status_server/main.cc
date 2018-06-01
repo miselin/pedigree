@@ -29,6 +29,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/machine/Disk.h"
 
 #include "modules/system/lwip/include/lwip/api.h"
 #include "modules/system/lwip/include/lwip/ip_addr.h"

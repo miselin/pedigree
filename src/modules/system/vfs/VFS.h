@@ -25,8 +25,14 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/LruCache.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+class Disk;
+class File;
+class StringView;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
 #define VFS_WITH_LRU_CACHES 0

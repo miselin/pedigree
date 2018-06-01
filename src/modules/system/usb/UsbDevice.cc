@@ -22,10 +22,10 @@
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDescriptors.h"
 #include "modules/system/usb/UsbHub.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/new"
 
 UsbDevice::UsbDevice(UsbHub *pHub, uint8_t nPort, UsbSpeed speed)
     : m_nAddress(0), m_nPort(nPort), m_Speed(speed), m_UsbState(Connected),
