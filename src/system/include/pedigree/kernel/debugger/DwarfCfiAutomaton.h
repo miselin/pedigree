@@ -91,9 +91,9 @@ class DwarfCfiAutomaton
      * code to execute.
      */
     void initialise(
-        const DwarfState &startingState, uintptr_t nCodeLocation, size_t nCodeLen,
-        int32_t nCodeAlignmentFactor, int32_t nDataAlignmentFactor,
-        uintptr_t nStartingPc);
+        const DwarfState &startingState, uintptr_t nCodeLocation,
+        size_t nCodeLen, int32_t nCodeAlignmentFactor,
+        int32_t nDataAlignmentFactor, uintptr_t nStartingPc);
 
     /**
      * Executes code at the location given until the instruction pointer passes

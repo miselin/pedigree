@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Pc.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "Pc.h"
 
 Machine &Machine::instance()
 {

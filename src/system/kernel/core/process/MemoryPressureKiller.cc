@@ -17,12 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/types.h"
 
 static size_t mb(size_t pages)
 {

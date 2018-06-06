@@ -28,7 +28,8 @@
 class File;
 class Process;
 class Thread;
-template <class T> class Vector;
+template <class T>
+class Vector;
 
 /** The abstract base class for a generic application subsystem. This provides
  * a well-defined interface to the kernel that allows global behaviour to have

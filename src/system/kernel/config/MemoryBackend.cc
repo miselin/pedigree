@@ -36,7 +36,8 @@ size_t MemoryBackend::createTable(const String &table)
     return 0;
 }
 
-void MemoryBackend::insert(const String &table, const String &key, const ConfigValue &value)
+void MemoryBackend::insert(
+    const String &table, const String &key, const ConfigValue &value)
 {
     RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
     if (!result.hasValue())

@@ -25,8 +25,8 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/StringView.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/template.h"  // IWYU pragma: keep
 
 // If non-zero, a constexpr constructor will be available in String. It is an
@@ -74,7 +74,8 @@ class EXPORTED_PUBLIC String
         else
             return m_Data;
     }
-    /** Allow implicit typecasts to StringView for passing String to functions taking a StringView. */
+    /** Allow implicit typecasts to StringView for passing String to functions
+     * taking a StringView. */
     operator StringView() const
     {
         return view();

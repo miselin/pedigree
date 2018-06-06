@@ -23,8 +23,8 @@
 /** @addtogroup kerneldebugger
  * @{ */
 
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/processor/types.h"
 
 class Keyboard;
 class Vga;

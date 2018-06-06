@@ -19,9 +19,9 @@
 
 #include "modules/system/console/Console.h"
 #include "modules/system/ramfs/RamFs.h"
-#include "modules/system/users/UserManager.h"
-#include "modules/system/users/User.h"
 #include "modules/system/users/Group.h"
+#include "modules/system/users/User.h"
+#include "modules/system/users/UserManager.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/LockedFile.h"
@@ -30,10 +30,10 @@
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -108,7 +108,6 @@ static PosixProcess *getPosixProcess()
 
 File *findFileWithAbiFallbacks(const String &name, File *cwd)
 {
-
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =

@@ -40,15 +40,13 @@ class EXPORTED_PUBLIC RangeList
     {
     }
     /** Construct with reverse order, without an initial allocation. */
-    inline RangeList(bool preferUsed)
-        : m_List(), m_bPreferUsed(preferUsed)
+    inline RangeList(bool preferUsed) : m_List(), m_bPreferUsed(preferUsed)
     {
     }
     /** Construct with a preexisting range
      *\param[in] Address beginning of the range
      *\param[in] Length length of the range */
-    RangeList(
-        T Address, T Length, bool XXX, bool preferUsed = false)
+    RangeList(T Address, T Length, bool XXX, bool preferUsed = false)
         : m_List(), m_bPreferUsed(preferUsed)
     {
         Range *range = new Range(Address, Length);
@@ -73,7 +71,7 @@ class EXPORTED_PUBLIC RangeList
         /** Length of the range  */
         T length;
 
-        bool operator== (const Range &other) const
+        bool operator==(const Range &other) const
         {
             return (address == other.address) && (length == other.length);
         }
@@ -123,7 +121,8 @@ class EXPORTED_PUBLIC RangeList
     typedef typename decltype(m_List)::Iterator Iterator;
     typedef typename decltype(m_List)::ConstIterator ConstIterator;
     typedef typename decltype(m_List)::ReverseIterator ReverseIterator;
-    typedef typename decltype(m_List)::ConstReverseIterator ConstReverseIterator;
+    typedef
+        typename decltype(m_List)::ConstReverseIterator ConstReverseIterator;
 };
 
 /** @} */
@@ -135,7 +134,8 @@ RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other)
     // Need to clean up all our existing ranges.
     clear();
 
-    for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
+    for (ConstIterator it = other.m_List.begin(); it != other.m_List.end();
+         ++it)
     {
         Range *pRange = new Range((*it)->address, (*it)->length);
         m_List.pushBack(pRange);
@@ -143,12 +143,14 @@ RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other)
 }
 
 template <typename T, bool Reversed>
-RangeList<T, Reversed> &RangeList<T, Reversed>::operator=(const RangeList &other)
+RangeList<T, Reversed> &RangeList<T, Reversed>::
+operator=(const RangeList &other)
 {
     // Need to clean up all our existing ranges.
     clear();
 
-    for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it)
+    for (ConstIterator it = other.m_List.begin(); it != other.m_List.end();
+         ++it)
     {
         Range *pRange = new Range((*it)->address, (*it)->length);
         m_List.pushBack(pRange);
@@ -342,7 +344,8 @@ bool RangeList<T, Reversed>::allocateSpecific(T address, T length)
 }
 
 template <typename T, bool Reversed>
-typename RangeList<T, Reversed>::Range RangeList<T, Reversed>::getRange(size_t index) const
+typename RangeList<T, Reversed>::Range
+RangeList<T, Reversed>::getRange(size_t index) const
 {
     if (index >= m_List.size())
         return Range(0, 0);

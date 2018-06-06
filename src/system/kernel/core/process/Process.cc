@@ -19,6 +19,7 @@
 
 #if defined(THREADS)
 
+#include "pedigree/kernel/process/Process.h"
 #include "modules/system/users/Group.h"
 #include "modules/system/users/User.h"
 #include "pedigree/kernel/Atomic.h"
@@ -27,7 +28,6 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"

@@ -22,8 +22,8 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 /** An IPv4/IPv6 address */
 class EXPORTED_PUBLIC IpAddress

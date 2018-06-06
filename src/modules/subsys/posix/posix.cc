@@ -61,7 +61,8 @@ static bool init()
     VFS::instance().addAlias(g_pDevFs, g_pDevFs->getVolumeLabel());
     VFS::instance().addAlias(g_pProcFs, g_pProcFs->getVolumeLabel());
 
-    Filesystem *scratchfs = VFS::instance().lookupFilesystem(StringView("scratch"));
+    Filesystem *scratchfs =
+        VFS::instance().lookupFilesystem(StringView("scratch"));
 
     // Set up default reparse points. normalisePath in file-syscalls.cc is not
     // sufficient in many cases, as it requires matching the _entire_ path to

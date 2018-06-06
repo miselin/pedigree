@@ -38,7 +38,8 @@ ConfigurationManager &ConfigurationManager::instance()
     return m_Instance;
 }
 
-size_t ConfigurationManager::createTable(const String &configStore, const String &table)
+size_t ConfigurationManager::createTable(
+    const String &configStore, const String &table)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -49,7 +50,8 @@ size_t ConfigurationManager::createTable(const String &configStore, const String
 }
 
 void ConfigurationManager::insert(
-    const String &configStore, const String &table, const String &key, const ConfigValue &value)
+    const String &configStore, const String &table, const String &key,
+    const ConfigValue &value)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -59,8 +61,8 @@ void ConfigurationManager::insert(
     return result.value()->insert(table, key, value);
 }
 
-ConfigValue &
-ConfigurationManager::select(const String &configStore, const String &table, const String &key)
+ConfigValue &ConfigurationManager::select(
+    const String &configStore, const String &table, const String &key)
 {
     static ConfigValue v;
 
@@ -73,7 +75,8 @@ ConfigurationManager::select(const String &configStore, const String &table, con
 }
 
 void ConfigurationManager::watch(
-    const String &configStore, const String &table, const String &key, ConfigurationWatcher watcher)
+    const String &configStore, const String &table, const String &key,
+    ConfigurationWatcher watcher)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -84,7 +87,8 @@ void ConfigurationManager::watch(
 }
 
 void ConfigurationManager::unwatch(
-    const String &configStore, const String &table, const String &key, ConfigurationWatcher watcher)
+    const String &configStore, const String &table, const String &key,
+    ConfigurationWatcher watcher)
 {
     // Lookup the backend
     RadixTree<ConfigurationBackend *>::LookupType result =
@@ -102,7 +106,8 @@ bool ConfigurationManager::installBackend(
         return false;
 
     // Get the real config store to use
-    const String &realConfigStore = configStore.length() ? configStore : pBackend->getConfigStore();
+    const String &realConfigStore =
+        configStore.length() ? configStore : pBackend->getConfigStore();
 
     // Install into the list
     if (!backendExists(realConfigStore))

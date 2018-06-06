@@ -29,8 +29,8 @@
 
 #ifndef VFS_STANDALONE
 #include "modules/Module.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
@@ -44,7 +44,9 @@ class Disk;
 
 VFS VFS::m_Instance;
 
-static void splitPathOnColon(size_t colonPosition, const StringView &path, StringView &left, StringView &right)
+static void splitPathOnColon(
+    size_t colonPosition, const StringView &path, StringView &left,
+    StringView &right)
 {
     size_t afterColon = path.nextCharacter(colonPosition);
     right = path.substring(afterColon, path.length());
@@ -134,8 +136,7 @@ void VFS::addAlias(Filesystem *pFs, const String &alias)
 
 void VFS::addAlias(const String &oldAlias, const String &newAlias)
 {
-    AliasTable::LookupResult result =
-        m_Aliases.lookup(oldAlias);
+    AliasTable::LookupResult result = m_Aliases.lookup(oldAlias);
     if (result.hasValue())
     {
         Filesystem *pFs = result.value();
@@ -186,8 +187,7 @@ void VFS::removeAllAliases(Filesystem *pFs)
     if (!pFs)
         return;
 
-    for (AliasTable::Iterator it = m_Aliases.begin();
-         it != m_Aliases.end();)
+    for (AliasTable::Iterator it = m_Aliases.begin(); it != m_Aliases.end();)
     {
         if (pFs == (*it))
         {
@@ -233,8 +233,7 @@ Filesystem *VFS::lookupFilesystem(const String &alias)
 
 Filesystem *VFS::lookupFilesystem(const StringView &alias)
 {
-    AliasTable::LookupResult result =
-        m_Aliases.lookup(alias);
+    AliasTable::LookupResult result = m_Aliases.lookup(alias);
     return result.hasValue() ? result.value() : nullptr;
 }
 

@@ -75,7 +75,7 @@ TEST(PedigreeBloomFilter, ContainsIntList)
 
     BloomFilter<int64_t> filter(m, k);
 
-    for(size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i)
     {
         filter.add(static_cast<int64_t>(i));
     }

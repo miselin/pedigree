@@ -22,16 +22,16 @@
 
 #ifdef THREADS
 
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 

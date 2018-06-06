@@ -22,18 +22,18 @@
 #include "modules/system/vfs/Pipe.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
+#include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
-#include "pedigree/kernel/machine/Framebuffer.h"
-#include "pedigree/kernel/machine/Display.h"
 
 #include "modules/system/console/Console.h"
 #include "pedigree/kernel/utilities/assert.h"
 
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
-#include "pedigree/kernel/ServiceManager.h"
 
 #include "pedigree/kernel/utilities/utility.h"
 

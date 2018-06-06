@@ -81,11 +81,13 @@ class RawFs : public Filesystem
     {
         return false;
     }
-    virtual bool createDirectory(File *parent, const String &filename, uint32_t mask)
+    virtual bool
+    createDirectory(File *parent, const String &filename, uint32_t mask)
     {
         return false;
     }
-    virtual bool createSymlink(File *parent, const String &filename, const String &value)
+    virtual bool
+    createSymlink(File *parent, const String &filename, const String &value)
     {
         return false;
     }

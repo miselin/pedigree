@@ -20,9 +20,9 @@
 #define IMPLEMENTING_LOG_FORMAT_FUNCTIONS
 
 #include "pedigree/kernel/utilities/utility.h"
-#include <stdarg.h>
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include <stdarg.h>
 
 void *page_align(void *p)
 {

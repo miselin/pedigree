@@ -20,12 +20,12 @@
 #include "pedigree/kernel/Log.h"
 #include <PosixSubsystem.h>
 
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
@@ -496,7 +496,10 @@ void PosixSubsystem::exit(int code)
 
     // Tell some interesting info
     NOTICE("at exit for pid " << Dec << pProcess->getId() << "...");
-    NOTICE(" -> file lookup LRU cache had " << m_FindFileCache.hits() << " hits and " << m_FindFileCache.misses() << " misses");
+    NOTICE(
+        " -> file lookup LRU cache had "
+        << m_FindFileCache.hits() << " hits and " << m_FindFileCache.misses()
+        << " misses");
 
     pProcess->kill();
 

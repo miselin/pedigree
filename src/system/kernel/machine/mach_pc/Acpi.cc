@@ -22,10 +22,10 @@
 #include "Acpi.h"
 #include "../../core/processor/x86_common/PhysicalMemoryManager.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/RangeList.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 Acpi Acpi::m_Instance;
 

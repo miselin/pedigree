@@ -409,15 +409,15 @@ void List<T, nodePoolSize>::assign(const List &x)
         pushBack(*Cur);
 }
 
-extern template class List<void *>;  // IWYU pragma: keep
+extern template class List<void *>;    // IWYU pragma: keep
 extern template class List<uint64_t>;  // IWYU pragma: keep
 extern template class List<uint32_t>;  // IWYU pragma: keep
 extern template class List<uint16_t>;  // IWYU pragma: keep
-extern template class List<uint8_t>;  // IWYU pragma: keep
-extern template class List<int64_t>;  // IWYU pragma: keep
-extern template class List<int32_t>;  // IWYU pragma: keep
-extern template class List<int16_t>;  // IWYU pragma: keep
-extern template class List<int8_t>;  // IWYU pragma: keep
+extern template class List<uint8_t>;   // IWYU pragma: keep
+extern template class List<int64_t>;   // IWYU pragma: keep
+extern template class List<int32_t>;   // IWYU pragma: keep
+extern template class List<int16_t>;   // IWYU pragma: keep
+extern template class List<int8_t>;    // IWYU pragma: keep
 
 /** @} */
 

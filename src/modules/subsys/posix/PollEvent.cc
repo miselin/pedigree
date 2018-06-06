@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/system/vfs/File.h"
 #include "modules/subsys/posix/PollEvent.h"
+#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/Log.h"
 
 static void pollEventHandler(uint8_t *pBuffer);

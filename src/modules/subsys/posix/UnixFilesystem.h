@@ -83,9 +83,12 @@ class UnixFilesystem : public Filesystem
     }
 
   protected:
-    virtual bool createFile(File *parent, const String &filename, uint32_t mask);
-    virtual bool createDirectory(File *parent, const String &filename, uint32_t mask);
-    virtual bool createSymlink(File *parent, const String &filename, const String &value)
+    virtual bool
+    createFile(File *parent, const String &filename, uint32_t mask);
+    virtual bool
+    createDirectory(File *parent, const String &filename, uint32_t mask);
+    virtual bool
+    createSymlink(File *parent, const String &filename, const String &value)
     {
         return false;
     }

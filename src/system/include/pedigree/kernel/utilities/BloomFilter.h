@@ -32,7 +32,7 @@ class BloomFilter
         : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
     {
     }
-    virtual ~BloomFilter() {};
+    virtual ~BloomFilter(){};
 
     void add(const T &data)
     {
@@ -87,12 +87,12 @@ class BloomFilter
     size_t m_nHashCount;
 };
 
-extern template class BloomFilter<void *>;  // IWYU pragma: keep
-extern template class BloomFilter<int8_t>;  // IWYU pragma: keep
-extern template class BloomFilter<int16_t>;  // IWYU pragma: keep
-extern template class BloomFilter<int32_t>;  // IWYU pragma: keep
-extern template class BloomFilter<int64_t>;  // IWYU pragma: keep
-extern template class BloomFilter<uint8_t>;  // IWYU pragma: keep
+extern template class BloomFilter<void *>;    // IWYU pragma: keep
+extern template class BloomFilter<int8_t>;    // IWYU pragma: keep
+extern template class BloomFilter<int16_t>;   // IWYU pragma: keep
+extern template class BloomFilter<int32_t>;   // IWYU pragma: keep
+extern template class BloomFilter<int64_t>;   // IWYU pragma: keep
+extern template class BloomFilter<uint8_t>;   // IWYU pragma: keep
 extern template class BloomFilter<uint16_t>;  // IWYU pragma: keep
 extern template class BloomFilter<uint32_t>;  // IWYU pragma: keep
 extern template class BloomFilter<uint64_t>;  // IWYU pragma: keep

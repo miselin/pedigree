@@ -231,7 +231,8 @@ uintptr_t Iso9660Filesystem::readBlock(File *pFile, uint64_t location)
     return buff;
 }
 
-bool Iso9660Filesystem::createFile(File *parent, const String &filename, uint32_t mask)
+bool Iso9660Filesystem::createFile(
+    File *parent, const String &filename, uint32_t mask)
 {
     return false;
 }

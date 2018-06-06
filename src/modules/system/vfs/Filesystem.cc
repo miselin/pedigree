@@ -65,7 +65,8 @@ File *Filesystem::find(const String &path, File *pStartNode)
     return find(path.view(), pStartNode);
 }
 
-bool Filesystem::createFile(const StringView &path, uint32_t mask, File *pStartNode)
+bool Filesystem::createFile(
+    const StringView &path, uint32_t mask, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -101,7 +102,8 @@ bool Filesystem::createFile(const StringView &path, uint32_t mask, File *pStartN
     return pFs->createFile(pParent, filename, mask);
 }
 
-bool Filesystem::createDirectory(const StringView &path, uint32_t mask, File *pStartNode)
+bool Filesystem::createDirectory(
+    const StringView &path, uint32_t mask, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -137,7 +139,8 @@ bool Filesystem::createDirectory(const StringView &path, uint32_t mask, File *pS
     return pFs->createDirectory(pParent, filename, mask);
 }
 
-bool Filesystem::createSymlink(const StringView &path, const String &value, File *pStartNode)
+bool Filesystem::createSymlink(
+    const StringView &path, const String &value, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -175,7 +178,8 @@ bool Filesystem::createSymlink(const StringView &path, const String &value, File
     return true;
 }
 
-bool Filesystem::createLink(const StringView &path, File *target, File *pStartNode)
+bool Filesystem::createLink(
+    const StringView &path, File *target, File *pStartNode)
 {
     if (!pStartNode)
         pStartNode = getTrueRoot();
@@ -338,10 +342,11 @@ File *Filesystem::findNode(File *pNode, StringView path)
     }
 
     StringView currentComponent = path.substring(0, i - nExtra);
-    StringView restOfPath = path.substring(path.nextCharacter(i), path.length());
+    StringView restOfPath =
+        path.substring(path.nextCharacter(i), path.length());
 
-    // At this point 'currentComponent' contains the token to search for. 'restOfPath'
-    // contains the path for the next recursion (or nil).
+    // At this point 'currentComponent' contains the token to search for.
+    // 'restOfPath' contains the path for the next recursion (or nil).
 
     // If 'path' is zero-lengthed, ignore and recurse.
     if (currentComponent.length() == 0)
@@ -419,7 +424,8 @@ File *Filesystem::findNode(File *pNode, StringView path)
     }
 }
 
-File *Filesystem::findParent(StringView path, File *pStartNode, String &filename)
+File *
+Filesystem::findParent(StringView path, File *pStartNode, String &filename)
 {
     // If the final character of the string is '/', this log falls apart. So,
     // check for that and chomp it. But, we also need to not do that for e.g.
@@ -451,7 +457,8 @@ File *Filesystem::findParent(StringView path, File *pStartNode, String &filename
     else
     {
         // Else split the filename off from the rest of the path and follow it.
-        filename = path.substring(path.nextCharacter(lastSlash), path.length()).toString();
+        filename = path.substring(path.nextCharacter(lastSlash), path.length())
+                       .toString();
         path = path.substring(0, lastSlash);
         parentNode = findNode(pStartNode, path);
     }

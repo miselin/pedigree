@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "FatFilesystem.h"
 #include "FatDirectory.h"
 #include "FatFile.h"
-#include "FatFilesystem.h"
 #include "FatSymlink.h"
 #include "fat.h"
 #include "modules/Module.h"
@@ -1450,7 +1450,8 @@ File *FatFilesystem::createFile(
     return pFile;
 }
 
-bool FatFilesystem::createFile(File *parent, const String &filename, uint32_t mask)
+bool FatFilesystem::createFile(
+    File *parent, const String &filename, uint32_t mask)
 {
     File *f = createFile(parent, filename, mask, false);
     return (f != 0);
@@ -1498,7 +1499,8 @@ bool FatFilesystem::createDirectory(
     return true;
 }
 
-bool FatFilesystem::createSymlink(File *parent, const String &filename, const String &value)
+bool FatFilesystem::createSymlink(
+    File *parent, const String &filename, const String &value)
 {
     // Validate input
     if (!parent->isDirectory())

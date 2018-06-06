@@ -24,9 +24,9 @@
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Version.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/machine/Device.h"
 
 #include "file-syscalls.h"
 

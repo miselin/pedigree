@@ -23,15 +23,15 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BloomFilter.h"
+#include "pedigree/kernel/utilities/CacheConstants.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/machine/TimerHandler.h"
-#include "pedigree/kernel/utilities/CacheConstants.h"
 #include "pedigree/kernel/utilities/new"
 
 class Thread;

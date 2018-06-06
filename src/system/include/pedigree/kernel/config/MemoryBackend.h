@@ -38,15 +38,17 @@ class MemoryBackend : public ConfigurationBackend
     virtual size_t createTable(const String &table);
     /** Inserts the value 'value' into the table 'table', with its key as 'key'
      */
-    virtual void insert(const String &table, const String &key, const ConfigValue &value);
+    virtual void
+    insert(const String &table, const String &key, const ConfigValue &value);
     /** Returns the value in table, with key matching 'key', or zero. */
     virtual ConfigValue &select(const String &table, const String &key);
 
     /** Watch a specific table entry. */
-    virtual void watch(const String &table, const String &key, ConfigurationWatcher watcher);
-    /** Remove a watcher from a table entry. */
     virtual void
-    unwatch(const String &table, const String &key, ConfigurationWatcher watcher);
+    watch(const String &table, const String &key, ConfigurationWatcher watcher);
+    /** Remove a watcher from a table entry. */
+    virtual void unwatch(
+        const String &table, const String &key, ConfigurationWatcher watcher);
 
     const String &getTypeName();
 

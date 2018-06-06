@@ -97,7 +97,8 @@ void RamFile::unpinBlock(uint64_t location)
     m_FileBlocks.release(location);
 }
 
-RamDir::RamDir(const String &name, size_t inode, class Filesystem *pFs, File *pParent)
+RamDir::RamDir(
+    const String &name, size_t inode, class Filesystem *pFs, File *pParent)
     : Directory(name, 0, 0, 0, inode, pFs, 0, pParent)
 {
     // Full permissions.
@@ -162,7 +163,8 @@ bool RamFs::createDirectory(File *parent, const String &filename, uint32_t mask)
     return pParent->addEntry(filename, pDir);
 }
 
-bool RamFs::createSymlink(File *parent, const String &filename, const String &value)
+bool RamFs::createSymlink(
+    File *parent, const String &filename, const String &value)
 {
     return false;
 }

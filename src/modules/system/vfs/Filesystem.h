@@ -75,14 +75,17 @@ class EXPORTED_PUBLIC Filesystem
 
     /** Creates a file on the filesystem - fails if the file's parent directory
      * does not exist. */
-    bool createFile(const StringView &path, uint32_t mask, File *pStartNode = 0);
+    bool
+    createFile(const StringView &path, uint32_t mask, File *pStartNode = 0);
 
     /** Creates a directory on the filesystem. Fails if the dir's parent
      * directory does not exist. */
-    bool createDirectory(const StringView &path, uint32_t mask, File *pStartNode = 0);
+    bool createDirectory(
+        const StringView &path, uint32_t mask, File *pStartNode = 0);
 
     /** Creates a symlink on the filesystem, with the given value. */
-    bool createSymlink(const StringView &path, const String &value, File *pStartNode = 0);
+    bool createSymlink(
+        const StringView &path, const String &value, File *pStartNode = 0);
 
     /** Creates a hard link on the filesystem to the given target. */
     bool createLink(const StringView &path, File *target, File *pStartNode = 0);
@@ -116,12 +119,14 @@ class EXPORTED_PUBLIC Filesystem
 
   protected:
     /** createFile calls this after it has parsed the string path. */
-    virtual bool createFile(File *parent, const String &filename, uint32_t mask) = 0;
+    virtual bool
+    createFile(File *parent, const String &filename, uint32_t mask) = 0;
     /** createDirectory calls this after it has parsed the string path. */
     virtual bool
     createDirectory(File *parent, const String &filename, uint32_t mask) = 0;
     /** createSymlink calls this after it has parsed the string path. */
-    virtual bool createSymlink(File *parent, const String &filename, const String &value) = 0;
+    virtual bool createSymlink(
+        File *parent, const String &filename, const String &value) = 0;
     /** createLink calls this after it has parsed the string path. */
     virtual bool createLink(File *parent, const String &filename, File *target);
     /** is this entire filesystem read-only?  */

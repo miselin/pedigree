@@ -20,14 +20,14 @@
 #ifndef _PROCESS_IPC_H
 #define _PROCESS_IPC_H
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
-#include "pedigree/kernel/Log.h"
 
 class MemoryRegion;
 

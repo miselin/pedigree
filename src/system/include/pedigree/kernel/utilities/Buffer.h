@@ -225,10 +225,10 @@ class EXPORTED_PUBLIC Buffer
 
 // Specializations are in a .cc file.
 extern template class Buffer<uint8_t, false>;  // IWYU pragma: keep
-extern template class Buffer<uint8_t, true>;  // IWYU pragma: keep
-extern template class Buffer<char, false>;  // IWYU pragma: keep
-extern template class Buffer<char, true>;  // IWYU pragma: keep
-extern template class Buffer<size_t, false>;  // IWYU pragma: keep
-extern template class Buffer<size_t, true>;  // IWYU pragma: keep
+extern template class Buffer<uint8_t, true>;   // IWYU pragma: keep
+extern template class Buffer<char, false>;     // IWYU pragma: keep
+extern template class Buffer<char, true>;      // IWYU pragma: keep
+extern template class Buffer<size_t, false>;   // IWYU pragma: keep
+extern template class Buffer<size_t, true>;    // IWYU pragma: keep
 
 #endif  // KERNEL_UTILITIES_BUFFER_H

@@ -22,6 +22,7 @@
 
 #include <poll.h>
 
+class File;
 class Semaphore;
 
 /** Event class for passing to File::monitor. */

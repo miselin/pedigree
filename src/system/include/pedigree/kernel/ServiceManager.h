@@ -54,7 +54,8 @@ class EXPORTED_PUBLIC ServiceManager
     ServiceFeatures *enumerateOperations(const String &serviceName);
 
     /** Adds a service to the manager */
-    void addService(const String &serviceName, Service *s, ServiceFeatures *feats);
+    void
+    addService(const String &serviceName, Service *s, ServiceFeatures *feats);
 
     /** Removes a service from the manager */
     void removeService(const String &serviceName);

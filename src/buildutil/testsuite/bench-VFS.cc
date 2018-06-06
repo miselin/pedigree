@@ -19,14 +19,14 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include <benchmark/benchmark.h>
 
-#include "modules/system/vfs/VFS.h"
 #include "modules/system/ramfs/RamFs.h"
+#include "modules/system/vfs/VFS.h"
 
 #define DEEP_PATH "ramfs»/foo/foo/foo/foo"
 #define SHALLOW_PATH "ramfs»/"
@@ -807,7 +807,7 @@ static const char *paths[] = {
 
 static const char *randomPath()
 {
-    return paths[rand() % (sizeof(paths)/sizeof(paths[0]))];
+    return paths[rand() % (sizeof(paths) / sizeof(paths[0]))];
 }
 
 static void prepareVFS(VFS &vfs)

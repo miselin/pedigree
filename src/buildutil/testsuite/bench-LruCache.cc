@@ -27,7 +27,7 @@ static void BM_LruCacheNoChurn(benchmark::State &state)
 {
     LruCache<int, int> cache;
 
-    for(int i = 0; i < 32; ++i)
+    for (int i = 0; i < 32; ++i)
     {
         cache.store(i, i);
     }
@@ -48,7 +48,7 @@ static void BM_LruCacheChurning(benchmark::State &state)
 {
     LruCache<int, int> cache;
 
-    for(int i = 0; i < 32; ++i)
+    for (int i = 0; i < 32; ++i)
     {
         cache.store(i, i);
     }
@@ -71,7 +71,7 @@ static void BM_LruCacheRotating(benchmark::State &state)
     LruCache<int, int> cache;
 
     // intentionally exceeding capacity in this test
-    for(int i = 0; i < 64; ++i)
+    for (int i = 0; i < 64; ++i)
     {
         cache.store(i, i);
     }

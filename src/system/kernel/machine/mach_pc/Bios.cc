@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/machine/x86_common/Bios.h"
-#include <stdarg.h>
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/commands/../../core/BootIO.h"
 #include "pedigree/kernel/panic.h"
@@ -28,6 +27,7 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "x86emu/x86emu.h"
+#include <stdarg.h>
 
 extern BootIO bootIO;
 

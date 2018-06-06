@@ -21,9 +21,9 @@
 #define UNLIKELY_LOCK_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** \file UnlikelyLock.h
     \author James Molloy

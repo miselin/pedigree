@@ -26,9 +26,9 @@
     \see http://www.pedigree-project.org/r/projects/pedigree/wiki/SlabDraft
 **/
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/Spinlock.h"
 
 #ifdef PEDIGREE_BENCHMARK
 namespace SlamSupport

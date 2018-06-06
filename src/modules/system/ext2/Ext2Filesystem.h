@@ -30,7 +30,8 @@ class File;
 struct GroupDesc;
 struct Inode;
 struct Superblock;
-template <class T> class Vector;
+template <class T>
+class Vector;
 
 /** This class provides an implementation of the second extended filesystem. */
 class Ext2Filesystem : public Filesystem
@@ -54,16 +55,19 @@ class Ext2Filesystem : public Filesystem
     virtual String getVolumeLabel();
 
   protected:
-    virtual bool createFile(File *parent, const String &filename, uint32_t mask);
-    virtual bool createDirectory(File *parent, const String &filename, uint32_t mask);
-    virtual bool createSymlink(File *parent, const String &filename, const String &value);
+    virtual bool
+    createFile(File *parent, const String &filename, uint32_t mask);
+    virtual bool
+    createDirectory(File *parent, const String &filename, uint32_t mask);
+    virtual bool
+    createSymlink(File *parent, const String &filename, const String &value);
     virtual bool createLink(File *parent, const String &filename, File *target);
     virtual bool remove(File *parent, File *file);
 
   private:
     virtual bool createNode(
-        File *parent, const String &filename, uint32_t mask, const String &value, size_t type,
-        uint32_t inodeOverride = 0);
+        File *parent, const String &filename, uint32_t mask,
+        const String &value, size_t type, uint32_t inodeOverride = 0);
 
     /** Inaccessible copy constructor and operator= */
     Ext2Filesystem(const Ext2Filesystem &);

@@ -35,10 +35,10 @@
 #include "../x64/VirtualAddressSpace.h"
 #endif
 
-#include <machine/mach_pc/Pc.h>
 #include <machine/mach_pc/Acpi.h>
-#include <machine/mach_pc/Smp.h>
 #include <machine/mach_pc/LocalApic.h>
+#include <machine/mach_pc/Pc.h>
+#include <machine/mach_pc/Smp.h>
 
 #if !defined(APIC)
 #error APIC not defined

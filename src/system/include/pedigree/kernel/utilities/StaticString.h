@@ -454,9 +454,9 @@ class EXPORTED_PUBLIC StaticString
 };
 
 // Specializations for the typedefs below (in StaticString.cc)
-extern template class EXPORTED_PUBLIC StaticString<32>;  // IWYU pragma: keep
-extern template class EXPORTED_PUBLIC StaticString<64>;  // IWYU pragma: keep
-extern template class EXPORTED_PUBLIC StaticString<128>;  // IWYU pragma: keep
+extern template class EXPORTED_PUBLIC StaticString<32>;    // IWYU pragma: keep
+extern template class EXPORTED_PUBLIC StaticString<64>;    // IWYU pragma: keep
+extern template class EXPORTED_PUBLIC StaticString<128>;   // IWYU pragma: keep
 extern template class EXPORTED_PUBLIC StaticString<1024>;  // IWYU pragma: keep
 
 typedef StaticString<32> TinyStaticString;

@@ -31,42 +31,43 @@ class String;
 
 class EXPORTED_PUBLIC StringView
 {
-        friend class String;
-    public:
-        StringView();
-        explicit StringView(const char *s);
-        StringView(const char *s, size_t length);
-        StringView(const StringView &other);
-        virtual ~StringView();
+    friend class String;
 
-        StringView &operator= (const StringView &s);
+  public:
+    StringView();
+    explicit StringView(const char *s);
+    StringView(const char *s, size_t length);
+    StringView(const StringView &other);
+    virtual ~StringView();
 
-        bool operator== (const char *s) const;
-        bool operator== (const String &s) const;
-        bool operator== (const StringView &s) const;
+    StringView &operator=(const StringView &s);
 
-        size_t length() const;
+    bool operator==(const char *s) const;
+    bool operator==(const String &s) const;
+    bool operator==(const StringView &s) const;
 
-        StringView substring(size_t start, size_t end) const;
+    size_t length() const;
 
-        String toString() const;
+    StringView substring(size_t start, size_t end) const;
 
-        char operator[] (size_t index) const;
+    String toString() const;
 
-        size_t nextCharacter(size_t i) const;
-        size_t prevCharacter(size_t i) const;
+    char operator[](size_t index) const;
 
-        uint32_t hash() const;
+    size_t nextCharacter(size_t i) const;
+    size_t prevCharacter(size_t i) const;
 
-        const char *str() const;
+    uint32_t hash() const;
 
-    private:
-        // String::view() can set m_Hash to avoid recalculating.
-        StringView(const char *s, size_t length, uint32_t hash);
+    const char *str() const;
 
-        const char *m_String;
-        size_t m_Length;
-        uint32_t m_Hash;
+  private:
+    // String::view() can set m_Hash to avoid recalculating.
+    StringView(const char *s, size_t length, uint32_t hash);
+
+    const char *m_String;
+    size_t m_Length;
+    uint32_t m_Hash;
 };
 
 /** @} */

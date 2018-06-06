@@ -23,8 +23,8 @@
 
 #include <gtest/gtest.h>
 
-#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/template.h"
 
 TEST(PedigreeStringView, ExplicitConstruction)

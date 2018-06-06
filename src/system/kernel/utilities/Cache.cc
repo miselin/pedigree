@@ -22,12 +22,12 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #ifndef STANDALONE_CACHE
 #include "pedigree/kernel/process/Scheduler.h"

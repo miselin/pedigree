@@ -24,8 +24,8 @@
 #include "pedigree/kernel/processor/types.h"
 
 // Export memcpy et al
-#include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
 #include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export
+#include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
 
 #ifdef HOSTED
 // Override headers we are replacing.

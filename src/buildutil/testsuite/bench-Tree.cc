@@ -23,8 +23,8 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include <map>
 #include <iostream>
+#include <map>
 
 #include <benchmark/benchmark.h>
 
@@ -150,7 +150,8 @@ static void BM_TreeLookupWithFilter(benchmark::State &state)
         }
         else
         {
-            std::cerr << "Bloom filter did not contain key " << key << " [range=" << state.range(0) << "]" << std::endl;
+            std::cerr << "Bloom filter did not contain key " << key
+                      << " [range=" << state.range(0) << "]" << std::endl;
             abort();
         }
     }

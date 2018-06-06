@@ -19,9 +19,9 @@
 
 #include "RawFsDir.h"
 #include "RawFs.h"
-#include "pedigree/kernel/processor/types.h"
 #include "modules/system/vfs/File.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/types.h"
 
 class Filesystem;
 

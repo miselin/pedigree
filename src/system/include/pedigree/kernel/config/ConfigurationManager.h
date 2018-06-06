@@ -78,11 +78,13 @@ class ConfigurationManager
     size_t createTable(const String &configStore, const String &table);
     /** Inserts the value 'value' into the table 'table', with its key as 'key'
      */
-    void
-    insert(const String &configStore, const String &table, const String &key, const ConfigValue &value);
+    void insert(
+        const String &configStore, const String &table, const String &key,
+        const ConfigValue &value);
     /** Returns the value in table, with key matching 'key', or a Value with
      * "type" field as Invalid. */
-    ConfigValue &select(const String &configStore, const String &table, const String &key);
+    ConfigValue &
+    select(const String &configStore, const String &table, const String &key);
 
     /** Watch a specific table entry. */
     void watch(

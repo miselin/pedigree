@@ -561,7 +561,7 @@ size_t nextCharacter(const char *s, size_t i)
     }
 
     // UTF-8 version of getting the next character
-    const uint8_t *u8buf = (const uint8_t *)s;
+    const uint8_t *u8buf = (const uint8_t *) s;
     if ((u8buf[i] & 0xC0) == 0xC0)
     {
         if ((u8buf[i] & 0xF8) == 0xF0)

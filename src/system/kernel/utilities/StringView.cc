@@ -18,37 +18,41 @@
  */
 
 #include "pedigree/kernel/utilities/StringView.h"
-#include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 StringView::StringView() : m_String(nullptr), m_Length(0)
 {
     m_Hash = 0;
 }
 
-StringView::StringView(const char *s) : m_String(s), m_Length(StringLength(s)), m_Hash(0)
+StringView::StringView(const char *s)
+    : m_String(s), m_Length(StringLength(s)), m_Hash(0)
 {
     m_Hash = jenkinsHash(m_String, m_Length);
 }
 
-StringView::StringView(const char *s, size_t length) : m_String(s), m_Length(length), m_Hash(0)
+StringView::StringView(const char *s, size_t length)
+    : m_String(s), m_Length(length), m_Hash(0)
 {
     m_Hash = jenkinsHash(m_String, m_Length);
 }
 
-StringView::StringView(const char *s, size_t length, uint32_t hash) : m_String(s), m_Length(length), m_Hash(hash)
+StringView::StringView(const char *s, size_t length, uint32_t hash)
+    : m_String(s), m_Length(length), m_Hash(hash)
 {
 }
 
-StringView::StringView(const StringView &other) : m_String(other.m_String), m_Length(other.m_Length), m_Hash(other.m_Hash)
+StringView::StringView(const StringView &other)
+    : m_String(other.m_String), m_Length(other.m_Length), m_Hash(other.m_Hash)
 {
 }
 
 StringView::~StringView() = default;
 
-StringView &StringView::operator= (const StringView &s)
+StringView &StringView::operator=(const StringView &s)
 {
     m_String = s.m_String;
     m_Length = s.m_Length;
@@ -56,7 +60,7 @@ StringView &StringView::operator= (const StringView &s)
     return *this;
 }
 
-bool StringView::operator== (const char *s) const
+bool StringView::operator==(const char *s) const
 {
     if (!m_Length)
     {
@@ -80,7 +84,7 @@ bool StringView::operator== (const char *s) const
     return !StringCompareN(s, m_String, m_Length);
 }
 
-bool StringView::operator== (const String &s) const
+bool StringView::operator==(const String &s) const
 {
     if (m_Length != s.length())
     {
@@ -94,7 +98,7 @@ bool StringView::operator== (const String &s) const
     return *this == static_cast<const char *>(s);
 }
 
-bool StringView::operator== (const StringView &s) const
+bool StringView::operator==(const StringView &s) const
 {
     if (m_Length != s.m_Length)
     {
@@ -142,7 +146,7 @@ String StringView::toString() const
     return String(m_String, m_Length);
 }
 
-char StringView::operator[] (size_t index) const
+char StringView::operator[](size_t index) const
 {
     if (index >= m_Length)
     {

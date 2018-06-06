@@ -75,7 +75,8 @@ class EXPORTED_PUBLIC Device
       public:
         /** Constructor, takes arguments and assigns them blindly to member
          * variables, then creates the IoPort or MemoryMappedIO instance.  */
-        Address(const String &n, uintptr_t a, size_t s, bool io, size_t pad = 1);
+        Address(
+            const String &n, uintptr_t a, size_t s, bool io, size_t pad = 1);
         ~Address();
         /** Actually maps this address into memory if not already done. */
         void

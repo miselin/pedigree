@@ -43,24 +43,24 @@ class EXPORTED_PUBLIC Vector
     {
         T_ value;
 
-        ReverseIteratorContainer<T_> &operator ++()
+        ReverseIteratorContainer<T_> &operator++()
         {
             --value;
             return *this;
         }
-        ReverseIteratorContainer<T_> &operator --()
+        ReverseIteratorContainer<T_> &operator--()
         {
             ++value;
             return *this;
         }
 
-        ReverseIteratorContainer<T_> operator ++(int)
+        ReverseIteratorContainer<T_> operator++(int)
         {
             T_ origValue = value;
             --value;
             return ReverseIteratorContainer<T_>{.value = origValue};
         }
-        ReverseIteratorContainer<T_> operator --(int)
+        ReverseIteratorContainer<T_> operator--(int)
         {
             T_ origValue = value;
             ++value;
@@ -72,12 +72,12 @@ class EXPORTED_PUBLIC Vector
             return value;
         }
 
-        typename pedigree_std::remove_pointer<T_>::type operator *() const
+        typename pedigree_std::remove_pointer<T_>::type operator*() const
         {
             return *value;
         }
 
-        bool operator ==(const ReverseIteratorContainer<T_> &other)
+        bool operator==(const ReverseIteratorContainer<T_> &other)
         {
             return value == other.value;
         }
@@ -452,15 +452,15 @@ void Vector<T>::insert(size_t index, const T &value)
     ++m_Count;
 }
 
-extern template class Vector<void *>;  // IWYU pragma: keep
+extern template class Vector<void *>;    // IWYU pragma: keep
 extern template class Vector<uint64_t>;  // IWYU pragma: keep
 extern template class Vector<uint32_t>;  // IWYU pragma: keep
 extern template class Vector<uint16_t>;  // IWYU pragma: keep
-extern template class Vector<uint8_t>;  // IWYU pragma: keep
-extern template class Vector<int64_t>;  // IWYU pragma: keep
-extern template class Vector<int32_t>;  // IWYU pragma: keep
-extern template class Vector<int16_t>;  // IWYU pragma: keep
-extern template class Vector<int8_t>;  // IWYU pragma: keep
+extern template class Vector<uint8_t>;   // IWYU pragma: keep
+extern template class Vector<int64_t>;   // IWYU pragma: keep
+extern template class Vector<int32_t>;   // IWYU pragma: keep
+extern template class Vector<int16_t>;   // IWYU pragma: keep
+extern template class Vector<int8_t>;    // IWYU pragma: keep
 
 /** @} */
 

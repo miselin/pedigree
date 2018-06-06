@@ -61,12 +61,13 @@ enum Error
  * \todo check InitialBuckets for is a power of two
  */
 template <
-    class K, class V, class SiblingK = K, size_t InitialBuckets = 4, bool QuadraticProbe = true,
-    size_t GrowthFactor = 2>
+    class K, class V, class SiblingK = K, size_t InitialBuckets = 4,
+    bool QuadraticProbe = true, size_t GrowthFactor = 2>
 class HashTable
 {
   private:
-    typedef HashTable<K, V, SiblingK, InitialBuckets, QuadraticProbe, GrowthFactor>
+    typedef HashTable<
+        K, V, SiblingK, InitialBuckets, QuadraticProbe, GrowthFactor>
         SelfType;
 
     static_assert(
@@ -210,7 +211,8 @@ class HashTable
     }
 
     template <typename SK = SiblingK>
-    typename pedigree_std::enable_if<!pedigree_std::is_same<K, SK>::value, LookupResult>::type
+    typename pedigree_std::enable_if<
+        !pedigree_std::is_same<K, SK>::value, LookupResult>::type
     lookup(const SK &k) const
     {
         HashTableError::Error err;
@@ -639,7 +641,8 @@ class HashTable
     }
 
     template <class LookupK>
-    const struct bucket *doLookup(const LookupK &k, HashTableError::Error &err) const
+    const struct bucket *
+    doLookup(const LookupK &k, HashTableError::Error &err) const
     {
         if ((!m_Buckets) || (!m_nItems))
         {

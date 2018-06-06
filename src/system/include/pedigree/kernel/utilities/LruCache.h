@@ -39,71 +39,71 @@ class LruCache
 {
     static_assert(Slots >= 4, "At least four slots are needed for LruCache.");
 
-    private:
-        struct Slot
-        {
-            K key;
-            T object;
-            bool set = false;
-        };
+  private:
+    struct Slot
+    {
+        K key;
+        T object;
+        bool set = false;
+    };
 
-    public:
-        LruCache() = default;
-        virtual ~LruCache() = default;
+  public:
+    LruCache() = default;
+    virtual ~LruCache() = default;
 
-        /** Potentially get an item with the given key. */
-        bool get(const K &key, T &object)
+    /** Potentially get an item with the given key. */
+    bool get(const K &key, T &object)
+    {
+        for (size_t i = 0; i < Slots; ++i)
         {
-            for (size_t i = 0; i < Slots; ++i)
+            if (!m_Slots[i].set)
             {
-                if (!m_Slots[i].set)
-                {
-                    continue;
-                }
-                else if (m_Slots[i].key != key)
-                {
-                    continue;
-                }
-
-                object = m_Slots[i].object;
-                ++m_Hits;
-                return true;
+                continue;
+            }
+            else if (m_Slots[i].key != key)
+            {
+                continue;
             }
 
-            ++m_Misses;
-            return false;
+            object = m_Slots[i].object;
+            ++m_Hits;
+            return true;
         }
 
-        /** Store an item as the most recently used item. */
-        void store(const K &key, const T &object)
+        ++m_Misses;
+        return false;
+    }
+
+    /** Store an item as the most recently used item. */
+    void store(const K &key, const T &object)
+    {
+        // Already the most recently used item.
+        if (m_Slots[0].set && m_Slots[0].key == key)
         {
-            // Already the most recently used item.
-            if (m_Slots[0].set && m_Slots[0].key == key)
-            {
-                return;
-            }
-
-            pedigree_std::copy(&m_Slots[1], &m_Slots[0], Slots - 1);
-            m_Slots[0].key = key;
-            m_Slots[0].object = object;
-            m_Slots[0].set = true;
+            return;
         }
 
-        size_t hits() const
-        {
-            return m_Hits;
-        }
+        pedigree_std::copy(&m_Slots[1], &m_Slots[0], Slots - 1);
+        m_Slots[0].key = key;
+        m_Slots[0].object = object;
+        m_Slots[0].set = true;
+    }
 
-        size_t misses() const
-        {
-            return m_Misses;
-        }
+    size_t hits() const
+    {
+        return m_Hits;
+    }
 
-    private:
-        Slot m_Slots[Slots];
+    size_t misses() const
+    {
+        return m_Misses;
+    }
 
-        size_t m_Hits = 0;
-        size_t m_Misses = 0;
+  private:
+    Slot m_Slots[Slots];
+
+    size_t m_Hits = 0;
+    size_t m_Misses = 0;
 };
 
 /** @} */

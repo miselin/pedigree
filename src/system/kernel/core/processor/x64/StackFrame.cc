@@ -18,10 +18,10 @@
  */
 
 #include "pedigree/kernel/processor/StackFrame.h"
-#include <stdarg.h>
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
+#include <stdarg.h>
 
 #if defined(DEBUGGER)
 

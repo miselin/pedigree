@@ -26,7 +26,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #if defined(MULTIPROCESSOR)
-template <class T> class Vector;
+template <class T>
+class Vector;
 #endif
 
 class VirtualAddressSpace;

@@ -22,9 +22,9 @@
  * Wirzenius wrote this portably, Torvalds fucked it up :-)
  */
 
-#include <stdarg.h>
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include <stdarg.h>
 
 #ifdef __clang__
 #pragma GCC diagnostic ignored "-Wgnu-statement-expression"

@@ -348,7 +348,7 @@ class EXPORTED_PUBLIC RingBuffer
     List<MonitorTarget *> m_MonitorTargets;
 };
 
-extern template class RingBuffer<char>;  // IWYU pragma: keep
+extern template class RingBuffer<char>;    // IWYU pragma: keep
 extern template class RingBuffer<void *>;  // IWYU pragma: keep
 
 #endif

@@ -20,8 +20,8 @@
 #ifndef CONFIG_BACKEND_H
 #define CONFIG_BACKEND_H
 
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/config/ConfigurationManager.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
 /** A configuration backend for the Pedigree configuration system.
@@ -39,16 +39,19 @@ class ConfigurationBackend
     virtual size_t createTable(const String &table) = 0;
     /** Inserts the value 'value' into the table 'table', with its key as 'key'
      */
-    virtual void insert(const String &table, const String &key, const ConfigValue &value) = 0;
+    virtual void insert(
+        const String &table, const String &key, const ConfigValue &value) = 0;
     /** Returns the value in table, with key matching 'key', or zero. */
     virtual ConfigValue &select(const String &table, const String &key) = 0;
 
     /** Watch a specific table entry. */
-    virtual void
-    watch(const String &table, const String &key, ConfigurationWatcher watcher) = 0;
+    virtual void watch(
+        const String &table, const String &key,
+        ConfigurationWatcher watcher) = 0;
     /** Remove a watcher from a table entry. */
-    virtual void
-    unwatch(const String &table, const String &key, ConfigurationWatcher watcher) = 0;
+    virtual void unwatch(
+        const String &table, const String &key,
+        ConfigurationWatcher watcher) = 0;
 
     virtual const String &getConfigStore();
 
