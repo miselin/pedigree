@@ -40,6 +40,7 @@ static void BM_StringLength(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] buf;
@@ -57,6 +58,7 @@ static void BM_StringLengthConstant(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * strlen(CONSTANT_MESSAGE));
+    state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
 static void BM_StringCopy(benchmark::State &state)
@@ -73,6 +75,7 @@ static void BM_StringCopy(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] dest;
@@ -93,6 +96,7 @@ static void BM_StringCopyN(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] dest;
@@ -115,6 +119,7 @@ static void BM_StringCompare(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] buf2;
@@ -137,6 +142,7 @@ static void BM_StringCompareN(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] buf2;
@@ -160,6 +166,7 @@ static void BM_StringCompareCaseSensitive(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] buf2;
@@ -192,6 +199,7 @@ static void BM_StringCompareCaseInsensitive(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 
     delete[] buf2;
@@ -212,6 +220,7 @@ static void BM_StringFind(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 }
 
@@ -229,6 +238,7 @@ static void BM_StringReverseFind(benchmark::State &state)
 
     state.SetBytesProcessed(
         int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
 }
 
