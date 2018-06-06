@@ -256,6 +256,18 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
             e.append(interruptState.m_Errorcode, 16, 8, '0');
         }
 
+        if (nIntNumber == 13)
+        {
+            // GPF
+            if (interruptState.m_Errorcode)
+            {
+                e.append(" errorcode 0x");
+                e.append(interruptState.m_Errorcode, 16, 8, '0');
+            }
+            e.append(" RIP 0x");
+            e.append(interruptState.getInstructionPointer(), 16, 16, '0');
+        }
+
         if (nIntNumber == 8)
         {
             // On amd64, we actually have a functional InterruptState.
