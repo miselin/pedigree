@@ -56,6 +56,24 @@ class EXPORTED_PUBLIC FileDescriptor
     /// Destructor - decreases file reference count
     virtual ~FileDescriptor();
 
+    /// Set flags, distributing any associated changes as needed.
+    void setFlags(int newFlags);
+
+    /// Helper to add a single flag to the descriptor flags.
+    void addFlag(int newFlag);
+
+    /// Get current descriptor flags.
+    int getFlags() const;
+
+    /// Set status flags, distributing any associated changes as needed.
+    void setStatusFlags(int newFlags);
+
+    /// Helper to add a single flag to the status flags.
+    void addStatusFlag(int newFlag);
+
+    /// Get current status flags.
+    int getStatusFlags() const;
+
     /// Our open file pointer
     File *file;
 
@@ -65,12 +83,6 @@ class EXPORTED_PUBLIC FileDescriptor
     /// Descriptor number
     size_t fd;
 
-    /// File descriptor flags (fcntl)
-    int fdflags;
-
-    /// File status flags (fcntl)
-    int flflags;
-
     /// Locked file, non-zero if there is an advisory lock on the file
     LockedFile *lockedFile;
 
@@ -79,6 +91,13 @@ class EXPORTED_PUBLIC FileDescriptor
 
     /// IO event for reporting changes to files
     IoEvent *ioevent;
+
+  public:  /// \todo swap this to private and fix everything that breaks
+    /// File descriptor flags (fcntl)
+    int fdflags;
+
+    /// File status flags (fcntl)
+    int flflags;
 };
 
 #endif

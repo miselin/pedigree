@@ -40,8 +40,8 @@
 
 #include "modules/subsys/posix/PollEvent.h"
 #include "pedigree/kernel/Subsystem.h"
-#include <FileDescriptor.h>
-#include <PosixSubsystem.h>
+#include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 
 extern void pollEventHandler(uint8_t *pBuffer);
 

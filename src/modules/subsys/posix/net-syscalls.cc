@@ -33,9 +33,9 @@
 #include "modules/system/lwip/include/lwip/tcp.h"
 
 #include "pedigree/kernel/Subsystem.h"
-#include <FileDescriptor.h>
-#include <PosixSubsystem.h>
-#include <UnixFilesystem.h>
+#include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/UnixFilesystem.h"
 
 #include "file-syscalls.h"
 #include "net-syscalls.h"
@@ -50,6 +50,9 @@
 
 #include <netinet/in.h>
 #include <sys/un.h>
+
+// Set to 1 to also log the contents of send() and recv() buffers ala strace
+#define LOG_SEND_RECV_BUFFERS 0
 
 Tree<struct netconn *, LwipSocketSyscalls *>
     LwipSocketSyscalls::m_SyscallObjects;
@@ -277,12 +280,14 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
         "send(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                 << ")");
 
+#if LOG_SEND_RECV_BUFFERS
     if (buff && bufflen)
     {
         String debug;
         debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
         N_NOTICE(" -> sending: '" << debug << "'");
     }
+#endif
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -312,12 +317,14 @@ ssize_t posix_sendto(
         "sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                   << ", " << address << ", " << addrlen << ")");
 
+#if LOG_SEND_RECV_BUFFERS
     if (buff && bufflen)
     {
         String debug;
         debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
         N_NOTICE(" -> sending: '" << debug << "'");
     }
+#endif
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -354,12 +361,14 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
 
+#if LOG_SEND_RECV_BUFFERS
     if (buff && n > 0)
     {
         String debug;
         debug.assign(reinterpret_cast<const char *>(buff), n, true);
         N_NOTICE(" -> received: '" << debug << "'");
     }
+#endif
 
     N_NOTICE(" -> " << n);
     return n;
@@ -397,12 +406,14 @@ ssize_t posix_recvfrom(
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
 
+#if LOG_SEND_RECV_BUFFERS
     if (buff && n > 0)
     {
         String debug;
         debug.assign(reinterpret_cast<const char *>(buff), n, true);
         N_NOTICE(" -> received: '" << debug << "'");
     }
+#endif
 
     N_NOTICE(" -> " << n);
     return n;
@@ -679,7 +690,8 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr *msg, int flags)
 }
 
 NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
-    : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Fd(nullptr)
+    : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Blocking(true),
+    m_Fd(nullptr)
 {
 }
 
@@ -709,6 +721,7 @@ ssize_t NetworkSyscalls::sendto(
 
     return sendto_msg(&msg);
 }
+
 ssize_t NetworkSyscalls::recvfrom(
     void *buffer, size_t bufferlen, int flags, struct sockaddr *address,
     socklen_t *addrlen)
@@ -726,7 +739,17 @@ ssize_t NetworkSyscalls::recvfrom(
     msg.msg_controllen = 0;
     msg.msg_flags = flags;
 
-    return recvfrom_msg(&msg);
+    ssize_t result = recvfrom_msg(&msg);
+    if (result >= 0)
+    {
+        // Copy result address length if needed.
+        if (addrlen)
+        {
+            *addrlen = msg.msg_namelen;
+        }
+    }
+
+    return result;
 }
 
 int NetworkSyscalls::shutdown(int how)
@@ -769,7 +792,12 @@ void NetworkSyscalls::associate(FileDescriptor *fd)
 
 bool NetworkSyscalls::isBlocking() const
 {
-    return !((m_Fd->flflags & O_NONBLOCK) == O_NONBLOCK);
+    return m_Blocking;
+}
+
+void NetworkSyscalls::setBlocking(bool blocking)
+{
+    m_Blocking = blocking;
 }
 
 LwipSocketSyscalls::LwipSocketSyscalls(int domain, int type, int protocol)

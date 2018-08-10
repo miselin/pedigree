@@ -33,8 +33,8 @@ RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
 
 /// Default constructor
 FileDescriptor::FileDescriptor()
-    : file(0), offset(0), fd(0xFFFFFFFF), fdflags(0), flflags(0), lockedFile(0),
-      networkImpl(nullptr), ioevent(nullptr)
+    : file(0), offset(0), fd(0xFFFFFFFF), lockedFile(0), networkImpl(nullptr),
+    ioevent(nullptr), fdflags(0), flflags(0)
 {
 }
 
@@ -42,8 +42,8 @@ FileDescriptor::FileDescriptor()
 FileDescriptor::FileDescriptor(
     File *newFile, uint64_t newOffset, size_t newFd, int fdFlags, int flFlags,
     LockedFile *lf)
-    : file(newFile), offset(newOffset), fd(newFd), fdflags(fdFlags),
-      flflags(flFlags), lockedFile(lf), networkImpl(nullptr), ioevent(nullptr)
+    : file(newFile), offset(newOffset), fd(newFd), lockedFile(lf),
+    networkImpl(nullptr), ioevent(nullptr), fdflags(fdFlags), flflags(flFlags)
 {
     /// \todo need a copy constructor for networkImpl
     if (file)
@@ -57,9 +57,9 @@ FileDescriptor::FileDescriptor(
 
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor &desc)
-    : file(desc.file), offset(desc.offset), fd(desc.fd), fdflags(desc.fdflags),
-      flflags(desc.flflags), lockedFile(0), networkImpl(desc.networkImpl),
-      ioevent(nullptr)
+    : file(desc.file), offset(desc.offset), fd(desc.fd), lockedFile(0),
+      networkImpl(desc.networkImpl), ioevent(nullptr), fdflags(desc.fdflags),
+      flflags(desc.flflags)
 {
     if (file)
     {
@@ -79,8 +79,8 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : file(0), offset(0), fd(0), fdflags(0), flflags(0), lockedFile(0),
-      ioevent(nullptr)
+    : file(0), offset(0), fd(0), lockedFile(0), ioevent(nullptr), fdflags(0),
+    flflags(0)
 {
     if (!desc)
         return;
@@ -165,4 +165,53 @@ FileDescriptor::~FileDescriptor()
 
     /// \note sockets are cleaned up by their reference count hitting zero
     /// (SharedPointer)
+
+    if (networkImpl)
+    {
+        if (networkImpl->getFileDescriptor() == this)
+        {
+            // disassociate from this descriptor
+            networkImpl->associate(nullptr);
+        }
+    }
+}
+
+void FileDescriptor::setFlags(int newFlags)
+{
+    fdflags = newFlags;
+}
+
+void FileDescriptor::addFlag(int newFlag)
+{
+    setFlags(fdflags | newFlag);
+}
+
+int FileDescriptor::getFlags() const
+{
+    return fdflags;
+}
+
+void FileDescriptor::setStatusFlags(int newFlags)
+{
+    flflags = newFlags;
+
+    if (networkImpl)
+    {
+        /// \todo this blocks *all* operations on the socket. However, we
+        /// should only be blocking operations associated with *this descriptor*
+        /// on the socket!
+        /// maybe pass in a FileDescriptor to recvfrom et al?
+        bool nonblock = (flflags & O_NONBLOCK) == O_NONBLOCK;
+        networkImpl->setBlocking(!nonblock);
+    }
+}
+
+void FileDescriptor::addStatusFlag(int newFlag)
+{
+    setFlags(flflags | newFlag);
+}
+
+int FileDescriptor::getStatusFlags() const
+{
+    return flflags;
 }

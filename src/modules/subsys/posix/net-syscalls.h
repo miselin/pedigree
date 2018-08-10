@@ -116,10 +116,14 @@ class NetworkSyscalls
 
     bool isBlocking() const;
 
+    void setBlocking(bool blocking);
+
   protected:
     int m_Domain;
     int m_Type;
     int m_Protocol;
+
+    bool m_Blocking;
 
     FileDescriptor *m_Fd;
 };
@@ -220,6 +224,9 @@ class UnixSocketSyscalls : public NetworkSyscalls
     bool pairWith(UnixSocketSyscalls *other);
 
   private:
+    // Not safe to copy or assign - we assume we own m_Socket
+    NOT_COPYABLE_OR_ASSIGNABLE(UnixSocketSyscalls);
+
     UnixSocket *getRemote() const;
 
     UnixSocket::SocketType getSocketType() const;
