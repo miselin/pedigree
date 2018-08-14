@@ -25,6 +25,11 @@
 #include <pedigree/kernel/processor/types.h>
 #ifdef UTILITY_LINUX
 #include <assert.h>
+#include <sys/time.h>
+
+typedef uint16_t sa_family_t;
+
+#define LWIP_TIMEVAL_PRIVATE 0
 #else
 #include <pedigree/kernel/utilities/assert.h>
 #include <pedigree/kernel/utilities/utility.h>
