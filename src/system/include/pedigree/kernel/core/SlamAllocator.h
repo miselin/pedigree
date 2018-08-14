@@ -127,7 +127,9 @@ class SlamCache;
 
 /// Use a lock to protect SlamAllocator. This comes with a performance cost,
 /// but guarantees only one thread is ever in the allocator at one time.
-#ifndef THREADS
+#ifdef SLAM_USE_DEBUG_ALLOCATOR
+#define SLAM_LOCKED 1  // need the lock for the debug allocator
+#elif !defined(THREADS)
 #define SLAM_LOCKED 0  // never use if no threading
 #else
 #define SLAM_LOCKED 0
