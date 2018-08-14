@@ -33,8 +33,8 @@ EXPORTED_PUBLIC int strcmp(const char *p1, const char *p2);
 EXPORTED_PUBLIC int strncmp(const char *p1, const char *p2, size_t n);
 char *strcat(char *dest, const char *src);
 char *strncat(char *dest, const char *src, size_t n);
-const char *strchr(const char *str, int target);
-const char *strrchr(const char *str, int target);
+char *strchr(const char *str, int target);
+char *strrchr(const char *str, int target);
 int vsprintf(char *buf, const char *fmt, va_list arg);
 unsigned long strtoul(const char *nptr, char const **endptr, int base);
 
@@ -216,29 +216,31 @@ StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
 
 char *StringConcat(char *dest, const char *src)
 {
-    size_t di = StringLength(dest);
-    size_t si = 0;
-    while (src[si])
-        dest[di++] = src[si++];
+    char *origDest = dest;
+    while (*dest) ++dest;
+    while (src && *src)
+    {
+        *dest++ = *src++;
+    }
 
-    dest[di] = '\0';
+    *dest++ = 0;
 
-    return dest;
+    return origDest;
 }
 
 char *StringConcatN(char *dest, const char *src, size_t n)
 {
-    size_t di = StringLength(dest);
-    size_t si = 0;
-    while (src && src[si] && n)
+    char *origDest = dest;
+    while (*dest) ++dest;
+    while (src && *src && n)
     {
-        dest[di++] = src[si++];
-        n--;
+        *dest++ = *src++;
+        --n;
     }
 
-    dest[di] = '\0';
+    *dest++ = 0;
 
-    return dest;
+    return origDest;
 }
 
 int isspace(int c)
@@ -330,7 +332,11 @@ StringToUnsignedLong(const char *nptr, char const **endptr, int base)
     return (acc);
 }
 
-const char *StringFind(const char *str, int target)
+// Intentionally casting const char * to char * in these functions, don't warn
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
+
+char *StringFind(const char *str, int target)
 {
     const char *s;
     char ch;
@@ -342,7 +348,7 @@ const char *StringFind(const char *str, int target)
     if (!ch)          \
         return NULL;  \
     if (ch == target) \
-        return s;
+        return (char *) s;
 
         UNROLL(0);
         UNROLL(1);
@@ -357,7 +363,7 @@ const char *StringFind(const char *str, int target)
     }
 }
 
-const char *StringReverseFind(const char *str, int target)
+char *StringReverseFind(const char *str, int target)
 {
     // StringLength must traverse the entire string once to find the length,
     // so rather than finding the length and then traversing in reverse, we just
@@ -371,7 +377,7 @@ const char *StringReverseFind(const char *str, int target)
     s = str + n;       \
     ch = *s;           \
     if (!ch)           \
-        return result; \
+        return (char *) result; \
     if (ch == target)  \
         result = s;
 
@@ -387,6 +393,8 @@ const char *StringReverseFind(const char *str, int target)
         str += 8;
     }
 }
+
+#pragma GCC diagnostic pop
 
 int StringContains(const char *str, const char *search)
 {
@@ -628,12 +636,12 @@ char *strncat(char *dest, const char *src, size_t n)
     return StringConcatN(dest, src, n);
 }
 
-const char *strchr(const char *str, int target)
+char *strchr(const char *str, int target)
 {
     return StringFind(str, target);
 }
 
-const char *strrchr(const char *str, int target)
+char *strrchr(const char *str, int target)
 {
     return StringReverseFind(str, target);
 }

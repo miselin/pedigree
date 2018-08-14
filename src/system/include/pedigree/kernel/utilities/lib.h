@@ -57,8 +57,8 @@ EXPORTED_PUBLIC int StringCompareNOffset(
     const char *p1, const char *p2, size_t n, size_t *offset) PURE;
 EXPORTED_PUBLIC char *StringConcat(char *dest, const char *src);
 EXPORTED_PUBLIC char *StringConcatN(char *dest, const char *src, size_t n);
-EXPORTED_PUBLIC const char *StringFind(const char *str, int target) PURE;
-EXPORTED_PUBLIC const char *StringReverseFind(const char *str, int target) PURE;
+EXPORTED_PUBLIC char *StringFind(const char *str, int target) PURE;
+EXPORTED_PUBLIC char *StringReverseFind(const char *str, int target) PURE;
 EXPORTED_PUBLIC int StringContains(const char *str, const char *search) PURE;
 EXPORTED_PUBLIC int StringContainsN(
     const char *str, size_t len, const char *search, size_t slen) PURE;
