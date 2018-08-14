@@ -94,6 +94,29 @@ TEST(PedigreeCord, Indexing)
     EXPECT_EQ(s[5], '\0');
 }
 
+TEST(PedigreeCord, Iteration)
+{
+    const char *a = "a ";
+    const char *b = "b ";
+    const char *c = "c";
+
+    Cord s;
+    s.append(a);
+    s.append(b);
+    s.append(c);
+
+    auto it = s.begin();
+
+    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(it, s.begin());
+    EXPECT_EQ(*it++, 'a');
+    EXPECT_EQ(*it++, ' ');
+    EXPECT_EQ(*it++, 'b');
+    EXPECT_EQ(*it++, ' ');
+    EXPECT_EQ(*it++, 'c');
+    EXPECT_EQ(it, s.end());
+}
+
 TEST(PedigreeCord, StaticAppend)
 {
     const char *a = "a ";
@@ -128,4 +151,27 @@ TEST(PedigreeCord, StaticIndexing)
     EXPECT_EQ(s[3], ' ');
     EXPECT_EQ(s[4], 'c');
     EXPECT_EQ(s[5], '\0');
+}
+
+TEST(PedigreeCord, StaticIteration)
+{
+    const char *a = "a ";
+    const char *b = "b ";
+    const char *c = "c";
+
+    StaticCord<8> s;
+    s.append(a);
+    s.append(b);
+    s.append(c);
+
+    auto it = s.begin();
+
+    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(it, s.begin());
+    EXPECT_EQ(*it++, 'a');
+    EXPECT_EQ(*it++, ' ');
+    EXPECT_EQ(*it++, 'b');
+    EXPECT_EQ(*it++, ' ');
+    EXPECT_EQ(*it++, 'c');
+    EXPECT_EQ(it, s.end());
 }

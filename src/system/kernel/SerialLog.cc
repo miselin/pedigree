@@ -66,10 +66,9 @@ void SerialLogger::callback(const LogCord &cord)
     }
 
     m_Lock.acquire();
-    /// \todo add iterators to Cord, this is inefficient
-    for (size_t i = 0; i < cord.length(); ++i)
+    for (auto it : cord)
     {
-        m_pSerial->write(cord[i]);
+        m_pSerial->write(it);
     }
 #ifndef SERIAL_IS_FILE
     // Handle carriage return if we're writing to a real terminal

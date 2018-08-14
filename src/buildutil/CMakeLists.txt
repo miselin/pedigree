@@ -224,6 +224,7 @@ export(
 if (BENCHMARK_LIBRARY)
     add_executable(benchmarker
         testsuite/bench-BloomFilter.cc
+        testsuite/bench-Cord.cc
         testsuite/bench-ExtensibleBitmap.cc
         testsuite/bench-SymbolTableConcepts.cc
         testsuite/bench-stringlib.cc

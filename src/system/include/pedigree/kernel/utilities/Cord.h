@@ -32,7 +32,32 @@ class String;
 
 class EXPORTED_PUBLIC Cord
 {
+    friend class CordIterator;
   public:
+    class CordIterator
+    {
+        friend class Cord;
+        public:
+            CordIterator(const Cord &owner);
+            virtual ~CordIterator();
+
+            CordIterator &operator++();
+            CordIterator &operator--();
+
+            char operator*() const;
+
+            bool operator==(const CordIterator &other) const;
+            bool operator!=(const CordIterator &other) const;
+
+        protected:
+            CordIterator(const Cord &owner, bool end);
+
+        private:
+            const Cord &cord;
+            size_t segment;
+            size_t index;
+    };
+
     Cord();
     Cord(const Cord &other);
     virtual ~Cord();
@@ -60,6 +85,9 @@ class EXPORTED_PUBLIC Cord
 
     void append(const char *s, size_t len=0);
     void prepend(const char *s, size_t len=0);
+
+    CordIterator begin() const;
+    CordIterator end() const;
 
   private:
     struct CordSegment
