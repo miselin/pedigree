@@ -30,7 +30,8 @@ class EXPORTED_PUBLIC Spinlock
     friend class LocksCommand;
 
   public:
-    Spinlock(bool bLocked = false, bool bAvoidTracking = false);
+    Spinlock();
+    Spinlock(bool bLocked, bool bAvoidTracking = false);
 
     /**
      * Enter the critical section.
@@ -60,20 +61,24 @@ class EXPORTED_PUBLIC Spinlock
     /** Track the release of this lock. */
     void trackRelease() const;
 
-    volatile bool m_bInterrupts;
-    Atomic<bool> m_Atom;
+    volatile bool m_bInterrupts = false;
+    Atomic<bool> m_Atom = true;  // unlocked by default
     /// \todo handle more than 64 CPUs.
-    Atomic<uint64_t> m_CpuState;
+    Atomic<uint64_t> m_CpuState = 0;
 
-    uintptr_t m_Ra;
-    bool m_bAvoidTracking;
-    uint32_t m_Magic;
+    uint64_t m_Sentinel = 0;
 
-    void *m_pOwner;
-    bool m_bOwned;
-    size_t m_Level;
+    uint32_t m_Magic = 0xdeadbaba;
+    uint32_t m_MagicAlign = 0;
 
-    size_t m_OwnedProcessor;
+    void *m_pOwner = nullptr;
+    size_t m_Level = 0;
+    size_t m_OwnedProcessor = ~0;
+
+    uintptr_t m_Ra = 0;
+
+    bool m_bAvoidTracking = false;
+    bool m_bOwned = false;
 };
 
 #endif

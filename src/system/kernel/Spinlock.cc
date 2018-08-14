@@ -32,11 +32,12 @@ class Thread;
 
 static Atomic<size_t> x(0);
 
-Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
-    : m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
-      m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba), m_pOwner(0),
-      m_bOwned(false), m_Level(0), m_OwnedProcessor(~0)
+Spinlock::Spinlock() = default;
+
+Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) : Spinlock()
 {
+    m_Atom = !bLocked;
+    m_bAvoidTracking = bAvoidTracking;
 }
 
 bool Spinlock::acquire(bool recurse, bool safe)
