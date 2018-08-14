@@ -32,23 +32,28 @@
 
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
+/** Maximum number of repeated log messages to de-dupe. */
+#define LOG_MAX_DEDUPE_MESSAGES     20
+
 Log Log::m_Instance;
 EXPORTED_PUBLIC BootProgressUpdateFn g_BootProgressUpdate = 0;
 EXPORTED_PUBLIC size_t g_BootProgressTotal = 0;
 EXPORTED_PUBLIC size_t g_BootProgressCurrent = 0;
 
-static NormalStaticString getTimestamp()
-{
-    Time::Timestamp t = Time::getTime();
+TinyStaticString Log::m_DebugSeverityString("(DD) ");
+TinyStaticString Log::m_NoticeSeverityString("(NN) ");
+TinyStaticString Log::m_WarningSeverityString("(WW) ");
+TinyStaticString Log::m_ErrorSeverityString("(EE) ");
+TinyStaticString Log::m_FatalSeverityString("(FF) ");
 
-    NormalStaticString r;
-    r += "[";
-    r.append(t);
-    r += ".";
-    r.append(Processor::id());
-    r += "] ";
-    return r;
-}
+#ifndef SERIAL_IS_FILE
+TinyStaticString Log::m_LineEnding("\r\n");
+#else
+TinyStaticString Log::m_LineEnding("\n");
+#endif
+
+NormalStaticString Log::m_DedupeHead("(last message+severity repeated ");
+TinyStaticString Log::m_DedupeTail(" times)");
 
 Log::Log()
     :
@@ -62,7 +67,12 @@ Log::Log()
 #else
       m_EchoToSerial(true),
 #endif
-      m_nOutputCallbacks(0)
+      m_nOutputCallbacks(0),
+      m_LastEntryHash(0),
+      m_LastEntrySeverity(Fatal),
+      m_HashMatchedCount(0),
+      m_Timestamps(true),
+      m_LastTime(0)
 {
     for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
     {
@@ -153,36 +163,18 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
         else
         {
             HugeStaticString str;
-            switch (m_StaticLog[entry].severity)
+            str = severityToString(m_StaticLog[entry].severity);
+            if (m_Timestamps)
             {
-                case Debug:
-                    str = "(DD) ";
-                    break;
-                case Notice:
-                    str = "(NN) ";
-                    break;
-                case Warning:
-                    str = "(WW) ";
-                    break;
-                case Error:
-                    str = "(EE) ";
-                    break;
-                case Fatal:
-                    str = "(FF) ";
-                    break;
+                str += getTimestamp();
             }
-            str += getTimestamp();
             str += m_StaticLog[entry].str;
-#ifndef SERIAL_IS_FILE
-            str += "\r\n";  // Handle carriage return
-#else
-            str += "\n";
-#endif
+            str += m_LineEnding;
 
             /// \note This could send a massive batch of log entries on the
             ///       callback. If the callback isn't designed to handle big
             ///       buffers this may fail.
-            pCallback->callback(str);
+            pCallback->callback(str, str.length());
         }
 
         entry = (entry + 1) % LOG_ENTRIES;
@@ -195,9 +187,9 @@ void Log::removeCallback(LogCallback *pCallback)
 #endif
     for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
     {
-        if (m_OutputCallbacks[i] == nullptr)
+        if (m_OutputCallbacks[i] == pCallback)
         {
-            m_OutputCallbacks[i] = pCallback;
+            m_OutputCallbacks[i] = nullptr;
             --m_nOutputCallbacks;
             break;
         }
@@ -236,6 +228,7 @@ const Log::LogEntry &Log::getLatestEntry() const
 
 Log::LogEntry::LogEntry() : timestamp(), severity(), str(), numberType(Dec)
 {
+    str.disableHashing();
 }
 
 Log::LogEntry &Log::LogEntry::operator<<(const char *s)
@@ -384,40 +377,66 @@ void Log::flushEntry(bool lock)
 
     if (m_nOutputCallbacks)
     {
+        bool wasRepeated = false;
+        uint64_t repeatedTimes = 0;
+
+        // Have we seen this message before?
+        m_Buffer.str.allowHashing(true);  // calculate hash now
+        uint64_t currentHash = m_Buffer.str.hash();
+        m_Buffer.str.disableHashing();
+        if (currentHash == m_LastEntryHash)
+        {
+            if (m_LastEntrySeverity == m_Buffer.severity)
+            {
+                ++m_HashMatchedCount;
+
+                if (m_HashMatchedCount < LOG_MAX_DEDUPE_MESSAGES)
+                {
+
+#ifdef THREADS
+                    // this thread is spammy, let something else run for a bit
+                    Scheduler::instance().yield();
+#endif
+                    return;
+                }
+            }
+        }
+
+        if (m_HashMatchedCount)
+        {
+            wasRepeated = true;
+            repeatedTimes = m_HashMatchedCount;
+            m_HashMatchedCount = 0;
+        }
+
+        m_LastEntryHash = currentHash;
+        m_LastEntrySeverity = m_Buffer.severity;
+
         // We have output callbacks installed. Build the string we'll pass
         // to each callback *now* and then send it.
         HugeStaticString str;
-        switch (m_Buffer.severity)
+        str.disableHashing();  // no need for hashing here
+        if (wasRepeated)
         {
-            case Debug:
-                str = "(DD) ";
-                break;
-            case Notice:
-                str = "(NN) ";
-                break;
-            case Warning:
-                str = "(WW) ";
-                break;
-            case Error:
-                str = "(EE) ";
-                break;
-            case Fatal:
-                str = "(FF) ";
-                break;
+            str += m_DedupeHead;
+            str.append(repeatedTimes);
+            str += m_DedupeTail;
+            str += m_LineEnding;
         }
-        str += getTimestamp();
+
+        str += severityToString(m_Buffer.severity);
+        if (m_Timestamps)
+        {
+            str += getTimestamp();
+        }
         str += m_Buffer.str;
-#ifndef SERIAL_IS_FILE
-        str += "\r\n";  // Handle carriage return
-#else
-        str += "\n";
-#endif
+        str += m_LineEnding;
 
         for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
         {
             if (m_OutputCallbacks[i] != nullptr)
             {
-                m_OutputCallbacks[i]->callback(static_cast<const char *>(str));
+                m_OutputCallbacks[i]->callback(static_cast<const char *>(str), str.length());
             }
         }
     }
@@ -437,6 +456,52 @@ void Log::flushEntry(bool lock)
     }
 }
 
-Log::LogCallback::~LogCallback()
+void Log::enableTimestamps()
 {
+    m_Timestamps = true;
 }
+
+void Log::disableTimestamps()
+{
+    m_Timestamps = false;
+}
+
+const NormalStaticString &Log::getTimestamp()
+{
+    Time::Timestamp t = Time::getTime();
+    if (t == m_LastTime)
+    {
+        return m_CachedTimestamp;
+    }
+
+    m_LastTime = t;
+
+    NormalStaticString r;
+    r += "[";
+    r.append(t);
+    r += ".";
+    r.append(Processor::id());
+    r += "] ";
+
+    m_CachedTimestamp = r;
+    return m_CachedTimestamp;
+}
+
+const TinyStaticString &Log::severityToString(SeverityLevel level) const
+{
+    switch (level)
+    {
+        case Debug:
+            return m_DebugSeverityString;
+        case Notice:
+            return m_NoticeSeverityString;
+        case Warning:
+            return m_WarningSeverityString;
+        case Error:
+            return m_ErrorSeverityString;
+        default:
+            return m_FatalSeverityString;
+    }
+}
+
+Log::LogCallback::~LogCallback() = default;

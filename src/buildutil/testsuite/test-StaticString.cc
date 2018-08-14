@@ -54,6 +54,13 @@ TEST(PedigreeStaticString, ConstructionFromString)
     EXPECT_EQ(s.length(), 5);
 }
 
+TEST(PedigreeStaticString, ConstructionFromStringWithLength)
+{
+    StaticString<64> s("hello", 3);
+    EXPECT_STREQ(s, "hel");
+    EXPECT_EQ(s.length(), 3);
+}
+
 TEST(PedigreeStaticString, ConstructionFromTooLongString)
 {
     StaticString<3> s("hello");
@@ -237,6 +244,14 @@ TEST(PedigreeStaticString, AppendChar)
     EXPECT_STREQ(s, "hello!");
 }
 
+TEST(PedigreeStaticString, AppendCharTwice)
+{
+    StaticString<64> s("hello");
+    s.append('!');
+    s.append('!');
+    EXPECT_STREQ(s, "hello!!");
+}
+
 TEST(PedigreeStaticString, AppendCharTooLong)
 {
     StaticString<6> s("hello");
@@ -323,4 +338,30 @@ TEST(PedigreeStaticString, TooMuchAppending)
         s.append(' ');
     }
     EXPECT_EQ(s.length(), 63);
+}
+
+TEST(PedigreeStaticString, AssignThenAppend)
+{
+    StaticString<64> s;
+    s = "hello";
+    s.append(" world");
+    EXPECT_STREQ(s, "hello world");
+    EXPECT_EQ(s.length(), 11);
+}
+
+TEST(PedigreeStaticString, AssignThenAppendStaticString)
+{
+    StaticString<64> s;
+    StaticString<64> s2(" world");
+    s = "hello";
+    s += s2;
+    EXPECT_STREQ(s, "hello world");
+    EXPECT_EQ(s.length(), 11);
+}
+
+TEST(PedigreeStaticString, HashWorks)
+{
+    StaticString<64> s("hello world");
+    s.allowHashing(true);
+    EXPECT_NE(s.hash(), 0);
 }

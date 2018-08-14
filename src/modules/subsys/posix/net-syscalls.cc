@@ -695,7 +695,9 @@ NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
 {
 }
 
-NetworkSyscalls::~NetworkSyscalls() = default;
+NetworkSyscalls::~NetworkSyscalls()
+{
+}
 
 bool NetworkSyscalls::create()
 {

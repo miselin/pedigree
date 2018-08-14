@@ -27,6 +27,7 @@
 #include <string.h>
 #include <sys/fcntl.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -72,7 +73,10 @@ namespace Time
 {
 Timestamp getTime(bool sync)
 {
-    return time(NULL);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+
+    return ts.tv_sec;
 }
 
 bool delay(Timestamp nanoseconds)
@@ -154,6 +158,8 @@ void unmapAll()
 }  // namespace SlamSupport
 
 /** Spinlock implementation. */
+
+Spinlock::Spinlock() = default;
 
 Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
     : m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),

@@ -205,6 +205,7 @@ add_executable(testsuite
     testsuite/test-ConditionVariable.cc
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
+    testsuite/test-Log.cc
 )
 target_link_libraries(testsuite PRIVATE
     kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)
@@ -238,10 +239,11 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-Tree.cc
         testsuite/bench-VFS.cc
         testsuite/bench-LruCache.cc
+        testsuite/bench-Log.cc
     )
     target_link_libraries(benchmarker PRIVATE
         kernel ramfs vfs utility Threads::Threads ${BENCHMARK_LIBRARY})
-    target_compile_options(benchmarker PRIVATE -Os)
+    target_compile_options(benchmarker PRIVATE "-Os" "-march=native" "-mtune=native")
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 
     export(

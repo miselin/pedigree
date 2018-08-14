@@ -242,6 +242,30 @@ static void BM_StringReverseFind(benchmark::State &state)
     state.SetComplexityN(state.range(0));
 }
 
+static void BM_StringConcat(benchmark::State &state)
+{
+    char *buf1 = new char[(state.range(0) * 2) + 1];
+    char *buf2 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0) * 2);
+    memset(buf2, 'a', state.range(0));
+
+    buf1[state.range(0) * 2] = 0;
+    buf2[state.range(0)] = 0;
+
+    while (state.KeepRunning())
+    {
+        buf1[state.range(0)] = 0;
+        StringConcat(buf1, buf2);
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
+
+    delete [] buf1;
+    delete [] buf2;
+}
+
 BENCHMARK(BM_StringLength)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringLengthConstant);
 BENCHMARK(BM_StringCopy)->Range(8, 8 << 16)->Complexity();
@@ -252,3 +276,4 @@ BENCHMARK(BM_StringCompareCaseInsensitive)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringCompareN)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringFind)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringReverseFind)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringConcat)->Range(8, 8 << 16);

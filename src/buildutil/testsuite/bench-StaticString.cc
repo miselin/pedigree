@@ -42,6 +42,7 @@ static void BM_CxxStaticStringCopy(benchmark::State &state)
     while (state.KeepRunning())
     {
         HugeStaticString s(assign);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -64,10 +65,26 @@ static void BM_CxxStaticStringAppendString(benchmark::State &state)
     while (state.KeepRunning())
     {
         state.PauseTiming();
-        HugeStaticString s("append right here -->");
+        HugeStaticString s("append right here -->", 21);
         state.ResumeTiming();
 
         s.append("hello");
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_CxxStaticStringAppendStaticString(benchmark::State &state)
+{
+    NormalStaticString append("hello");
+    while (state.KeepRunning())
+    {
+        state.PauseTiming();
+        HugeStaticString s("append right here -->", 21);
+        state.ResumeTiming();
+
+        s.append(append);
+        benchmark::DoNotOptimize(s);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));
@@ -167,6 +184,7 @@ BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State &state)
 BENCHMARK(BM_CxxStaticStringCreation);
 BENCHMARK(BM_CxxStaticStringCopy);
 BENCHMARK(BM_CxxStaticStringAppendString);
+BENCHMARK(BM_CxxStaticStringAppendStaticString);
 BENCHMARK(BM_CxxStaticStringAppendInteger);
 BENCHMARK(BM_CxxStaticStringAppendHexInteger);
 BENCHMARK(BM_CxxStaticStringAppendPaddedInteger);

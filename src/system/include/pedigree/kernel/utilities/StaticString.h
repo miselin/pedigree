@@ -22,7 +22,20 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+/**
+ * Set to 1 to enable a variety of asserts that validate sane behavior, at a
+ * rather significant performance cost.
+ */
+#define STATICSTRING_ASSERTS 0
+
+#if STATICSTRING_ASSERTS
+#define STATICSTRING_ASSERT(...) assert(__VA_ARGS__)
+#else
+#define STATICSTRING_ASSERT(...)
+#endif
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -37,9 +50,11 @@ class EXPORTED_PUBLIC StaticString
     /**
      * Default constructor.
      */
-    StaticString() : m_Length(0)
+    StaticString() : m_Length(0), m_Hash(0), m_AllowHashes(false)
     {
         m_pData[0] = '\0';
+
+        updateHash();
     }
 
     /**
@@ -47,15 +62,19 @@ class EXPORTED_PUBLIC StaticString
      * This creates a new copy of pSrc - pSrc can be safely
      * deallocated afterwards.
      */
-    explicit StaticString(const char *pSrc) : m_Length(StringLength(pSrc))
+    explicit StaticString(const char *pSrc) : m_Length(StringLength(pSrc)), m_Hash(0), m_AllowHashes(false)
     {
-        StringCopyN(m_pData, pSrc, N);
+        assign(pSrc);
+    }
 
-        if (m_Length >= N)
-        {
-            m_Length = N - 1;
-            m_pData[N - 1] = '\0';
-        }
+    /**
+     * Creates a StaticString from a const char * of a specific length.
+     * This creates a new copy of pSrc - pSrc can be safely
+     * deallocated afterwards.
+     */
+    StaticString(const char *pSrc, size_t len) : m_Length(0), m_Hash(0), m_AllowHashes(false)
+    {
+        assign(pSrc, len);
     }
 
     /**
@@ -63,16 +82,7 @@ class EXPORTED_PUBLIC StaticString
      * Copies the memory associated with src.
      */
     template <unsigned int N2>
-    explicit StaticString(const StaticString<N2> &src) : m_Length(src.length())
-    {
-        StringCopyN(m_pData, src, N);
-
-        if (m_Length >= N)
-        {
-            m_Length = N - 1;
-            m_pData[N - 1] = '\0';
-        }
-    }
+    explicit StaticString(const StaticString<N2> &src) : StaticString(static_cast<const char *>(src), src.length()) {}
 
     operator const char *() const
     {
@@ -82,6 +92,12 @@ class EXPORTED_PUBLIC StaticString
     template <unsigned int N2>
     StaticString &operator+=(const StaticString<N2> &str)
     {
+        if (length() == 0)
+        {
+            assign(str);
+            return *this;
+        }
+
         append(str);
         return *this;
     }
@@ -97,17 +113,40 @@ class EXPORTED_PUBLIC StaticString
     {
         m_Length = 0;
         m_pData[0] = '\0';
+
+        updateHash();
+    }
+
+    void assign(const char *str, size_t len=0)
+    {
+        if (!len)
+        {
+            len = min(N - 1, StringLength(str));
+        }
+        else
+        {
+            len = min(len, N - 1);
+        }
+
+        /// \note not using memmove - don't assign() a StaticString to itself
+        ForwardMemoryCopy(m_pData, str, len);
+
+        m_Length = len;
+        m_pData[len] = 0;
+
+        check();
+        updateHash();
+    }
+
+    template <unsigned int N2>
+    void assign(const StaticString<N2> &other)
+    {
+        assign(other, other.length());
     }
 
     StaticString &operator=(const char *str)
     {
-        m_Length = StringLength(str);
-        StringCopyN(m_pData, str, N);
-        if (m_Length >= N)
-        {
-            m_pData[N - 1] = '\0';
-            m_Length = N - 1;
-        }
+        assign(str);
         return *this;
     }
 
@@ -125,6 +164,10 @@ class EXPORTED_PUBLIC StaticString
     bool operator==(const StaticString<N2> &other) const
     {
         if (other.length() != length())
+        {
+            return false;
+        }
+        else if ((m_AllowHashes && other.m_AllowHashes) && (m_Hash != other.hash()))
         {
             return false;
         }
@@ -151,7 +194,10 @@ class EXPORTED_PUBLIC StaticString
     void stripLast()
     {
         if (m_Length)
+        {
             m_pData[--m_Length] = '\0';
+            updateHash();
+        }
     }
 
     bool contains(const char *other) const
@@ -191,22 +237,20 @@ class EXPORTED_PUBLIC StaticString
             return;
         m_Length = len;
         m_pData[len] = '\0';
+
+        updateHash();
     }
 
     StaticString left(int n) const
     {
-        StaticString<N> str;
-        StringCopyN(str.m_pData, m_pData, n);
-        str.m_pData[n] = '\0';
-        return str;
+        return StaticString<N>(m_pData, n);
     }
 
     StaticString right(int n) const
     {
-        StaticString<N> str;
-        StringCopyN(str.m_pData, &m_pData[length() - n], n);
-        str.m_pData[n] = '\0';
-        return str;
+        /// \todo this is technically off-by-one, but I don't feel comfortable
+        /// changing the behavior -Matt
+        return StaticString<N>(m_pData + n + 1, length() - n - 1);
     }
 
     StaticString &stripFirst(size_t n = 1)
@@ -222,6 +266,9 @@ class EXPORTED_PUBLIC StaticString
             m_pData[i - n] = m_pData[i];
         m_pData[i - n] = '\0';
         m_Length -= n;
+
+        updateHash();
+
         return *this;
     }
 
@@ -313,6 +360,12 @@ class EXPORTED_PUBLIC StaticString
     template <unsigned int size, typename T>
     void appendInteger(T nInt, size_t nRadix, size_t nLen, char c)
     {
+        if (!canAppend())
+        {
+            // cannot append any longer
+            return;
+        }
+
         char pStr[size * 8 + 1];
         size_t index = 0;
         do
@@ -339,43 +392,79 @@ class EXPORTED_PUBLIC StaticString
 
     void append(const char *str, size_t nLen = 0, char c = ' ')
     {
-        /// \todo this is unsafe - StringLength is unconstrained.
-        size_t length2 = StringLength(str);
-        if (nLen && (length2 > nLen))
+        if (!canAppend())
         {
-            length2 = nLen;
+            // cannot append any longer
+            return;
         }
 
-        // Pad, if needed
-        if (nLen > length2)
+        if (nLen == 0 && length() == 0)
         {
-            size_t i;
-            for (i = 0; i < nLen - length2; i++)
+            assign(str);
+            return;
+        }
+
+        // Only need to add padding if nLen > 0, as if it's zero we are not
+        // trying to fill a particular width with the appended string.
+        if (nLen)
+        {
+            /// \todo this is unsafe - StringLength is unconstrained.
+            size_t length2 = min(nLen, StringLength(str));
+
+            if (nLen > length2)
             {
-                m_pData[i + length()] = c;
+                // need padding
+                size_t i;
+                for (i = 0; i < nLen - length2; i++)
+                {
+                    m_pData[i + length()] = c;
+                }
+                m_pData[i + length()] = '\0';
+                m_Length += nLen - length2;
+
+                nLen - length2;
             }
-            m_pData[i + length()] = '\0';
-            m_Length += nLen - length2;
         }
 
-        // Add the string
-        size_t maxChars = N - length() - 1;
-        if (maxChars > length2)
+        // Append.
+        size_t i = m_Length;
+        size_t appended = 0;
+        // NOTE: we split here so we aren't checking if(nLen) every iteration
+        if (nLen)
         {
-            maxChars = length2;
-        }
-        StringConcatN(m_pData, str, maxChars);
-        m_Length += length2;
+            while ((i <= N) && (appended++ < nLen) && *str)
+            {
+                m_pData[i++] = *str++;
+            }
 
-        if (m_Length >= N)
-        {
-            m_pData[N - 1] = '\0';
-            m_Length = N - 1;
+            m_Length = i;
+            m_pData[i] = 0;
         }
+        else
+        {
+            size_t otherLen = StringLength(str);
+            size_t copyLen = min(N - length(), otherLen);
+
+            // not allowing memmove here - append by definition won't overlap
+            ForwardMemoryCopy(m_pData + length(), str, copyLen);
+
+            m_Length += copyLen;
+            m_pData[m_Length] = 0;
+        }
+
+        check();
+
+        updateHash();
     }
 
     void appendBytes(const char *bytes, size_t numBytes)
     {
+        if (!canAppend())
+        {
+            // cannot append any longer
+            return;
+        }
+
         for (size_t i = 0; i < numBytes; ++i)
         {
             char c = bytes[i];
@@ -396,6 +485,18 @@ class EXPORTED_PUBLIC StaticString
     template <unsigned int N2>
     void append(const StaticString<N2> &str, size_t nLen = 0, char c = ' ')
     {
+        if (!canAppend())
+        {
+            // cannot append any longer
+            return;
+        }
+
+        if (nLen == 0 && length() == 0)
+        {
+            assign(str);
+            return;
+        }
+
         // Pad, if needed
         if (nLen > str.length())
         {
@@ -409,18 +510,24 @@ class EXPORTED_PUBLIC StaticString
         }
 
         // Add the string
-        StringConcatN(m_pData, str, N - length());
+        // note: not allowing memmove here - append by definition won't overlap
+        ForwardMemoryCopy(m_pData + length(), str, N - length());
         m_Length += str.length();
+        m_pData[m_Length] = 0;
 
-        if (m_Length >= N)
-        {
-            m_pData[N - 1] = '\0';
-            m_Length = N - 1;
-        }
+        check();
+
+        updateHash();
     }
 
     void pad(size_t nLen, char c = ' ')
     {
+        if (!canAppend())
+        {
+            // cannot append any longer
+            return;
+        }
+
         // Pad, if needed
         if (nLen > length())
         {
@@ -432,11 +539,40 @@ class EXPORTED_PUBLIC StaticString
             m_pData[i + length()] = '\0';
             m_Length += nLen - length();
         }
+
+        updateHash();
     }
 
     size_t length() const
     {
         return m_Length;
+    }
+
+    uint64_t hash() const
+    {
+        return m_Hash;
+    }
+
+    /**
+     * Allow computing hashes for this StaticString object.
+     * Can immediately compute the hash of the string, which can be used to
+     * disable hashing when performing numerous operations on a StaticString
+     * and then enable at the end when modifications cease. This reduces the
+     * number of pointless hashes.
+     */
+    void allowHashing(bool computeNow=false)
+    {
+        m_AllowHashes = true;
+        if (computeNow)
+        {
+            updateHash();
+        }
+    }
+
+    /** Stop computing hashes for this StaticString object. */
+    void disableHashing()
+    {
+        m_AllowHashes = false;
     }
 
   private:
@@ -445,12 +581,40 @@ class EXPORTED_PUBLIC StaticString
         return StringContainsN(a, alen, b, blen) == 1;
     }
 
+    void updateHash()
+    {
+        if (m_AllowHashes)
+        {
+            // sanity check
+            STATICSTRING_ASSERT(StringLength(m_pData) == m_Length);
+
+            m_Hash = jenkinsHash(m_pData, m_Length);
+        }
+    }
+
+    void check()
+    {
+        if (m_Length >= N)
+        {
+            m_pData[N - 1] = '\0';
+            m_Length = N - 1;
+        }
+    }
+
+    bool canAppend() const
+    {
+        return m_Length < (N - 1);
+    }
+
     /**
      * Our actual static data.
      */
     char m_pData[N];
 
     size_t m_Length;
+    uint64_t m_Hash;
+
+    bool m_AllowHashes;
 };
 
 // Specializations for the typedefs below (in StaticString.cc)

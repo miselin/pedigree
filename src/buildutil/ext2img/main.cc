@@ -100,7 +100,7 @@ class StreamingStderrLogger : public Log::LogCallback
   public:
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
-    void callback(const char *str)
+    void callback(const char *str, size_t len)
     {
         fprintf(stderr, "%s", str);
     }

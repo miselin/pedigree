@@ -26,6 +26,7 @@
 #endif
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/time/Time.h"
 
 class String;
 class StringView;
@@ -58,7 +59,7 @@ class StringView;
 #ifndef NO_LOGGING
 
 /** Add a debug item to the log */
-#ifdef DEBUG_LOGGING
+#if DEBUG_LOGGING
 #define DEBUG_LOG(text) LOG_AT_LEVEL(Log::Debug, text, 1)
 #define DEBUG_LOG_NOLOCK(text) LOG_AT_LEVEL(Log::Debug, text, 0)
 #else
@@ -168,7 +169,7 @@ class Log
     class EXPORTED_PUBLIC LogCallback
     {
       public:
-        virtual void callback(const char *) = 0;
+        virtual void callback(const char *, size_t) = 0;
         virtual ~LogCallback();
     };
 
@@ -290,6 +291,9 @@ class Log
 
     const LogEntry &getLatestEntry() const;
 
+    void enableTimestamps();
+    void disableTimestamps();
+
   private:
     /** Default constructor - does nothing. */
     Log();
@@ -301,6 +305,10 @@ class Log
     /** Assignment operator
      *\note NOT implemented */
     Log &operator=(const Log &);
+
+    const NormalStaticString &getTimestamp();
+
+    const TinyStaticString &severityToString(SeverityLevel level) const;
 
     /** Static buffer of log messages. */
     StaticLogEntry m_StaticLog[LOG_ENTRIES];
@@ -324,6 +332,38 @@ class Log
 
     /** The Log instance (singleton class) */
     EXPORTED_PUBLIC static Log m_Instance;
+
+    /** Last seen message hash (for cleaning up dupes). */
+    uint64_t m_LastEntryHash;
+
+    /** Last seen message severity (for cleaning up dupes). */
+    SeverityLevel m_LastEntrySeverity;
+
+    /** Number of entries that matched the last entry hash. */
+    size_t m_HashMatchedCount;
+
+    /** Are timestamps enabled? */
+    bool m_Timestamps;
+
+    /** Last timestamp seen in getTimestamp(). */
+    Time::Timestamp m_LastTime;
+
+    /** Cached timestamp string. */
+    NormalStaticString m_CachedTimestamp;
+
+    /** Log severity tag strings. */
+    static TinyStaticString m_DebugSeverityString;
+    static TinyStaticString m_NoticeSeverityString;
+    static TinyStaticString m_WarningSeverityString;
+    static TinyStaticString m_ErrorSeverityString;
+    static TinyStaticString m_FatalSeverityString;
+
+    /** Log line ending string. */
+    static TinyStaticString m_LineEnding;
+
+    /** Dedupe information strings. */
+    static NormalStaticString m_DedupeHead;
+    static TinyStaticString m_DedupeTail;
 };
 
 /** @} */

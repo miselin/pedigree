@@ -140,13 +140,18 @@ static void printChar(char c)
     }
 }
 
-static void printString(const char *str)
+static void printString(const char *str, size_t len=0)
 {
     LockGuard<Mutex> guard(g_PrintLock);
 
+    if (len == 0)
+    {
+        len = StringLength(str);
+    }
+
     if (!g_NoGraphics)
     {
-        for (size_t i = 0; i < StringLength(str); i++)
+        for (size_t i = 0; i < len; i++)
             printChar(str[i]);
     }
     else
@@ -204,13 +209,13 @@ class StreamingScreenLogger : public Log::LogCallback
 
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
-    void callback(const char *str)
+    void callback(const char *str, size_t len)
     {
 #ifdef DEBUGGER
         if (g_LogMode)
         {
             LockGuard<Mutex> guard(g_PrintLock);
-            printString(str);
+            printString(str, len);
         }
 #endif
     }

@@ -28,7 +28,7 @@ class SerialLogger : public Log::LogCallback
     SerialLogger();
     virtual ~SerialLogger();
 
-    void callback(const char *str);
+    void callback(const char *str, size_t len);
 
   private:
     Serial *m_pSerial;
@@ -49,7 +49,7 @@ SerialLogger::SerialLogger()
 }
 SerialLogger::~SerialLogger() = default;
 
-void SerialLogger::callback(const char *str)
+void SerialLogger::callback(const char *str, size_t len)
 {
     if (!m_bInitialised)
     {
