@@ -236,14 +236,15 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
         initialise();
     }
 
-    RecursingLockGuard<Spinlock> guard(m_Lock);
-
     if (!nBytes)
     {
         return 0;
     }
 
-    size_t numPages = nBytes / getPageSize();
+    uintptr_t mapStart = 0, mapEnd = 0, result = 0;
+    size_t nTotalBytes = 0, numPages = 0;
+
+    numPages = nBytes / getPageSize();
     if (nBytes % getPageSize())
     {
         ++numPages;
@@ -252,15 +253,19 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     {
         ++numPages;
     }
-    size_t nTotalBytes = numPages * getPageSize();
+    nTotalBytes = numPages * getPageSize();
 
-    m_Base += getPageSize();  // gap between allocations
-    uintptr_t mapStart = m_Base;
-    m_Base += getPageSize();  // page for the allocation header (readonly once
-                              // it's written to)
-    uintptr_t result = m_Base;
-    m_Base += numPages * getPageSize();
-    uintptr_t mapEnd = m_Base;
+    {
+        RecursingLockGuard<Spinlock> guard(m_Lock);
+
+        m_Base += getPageSize();  // gap between allocations
+        mapStart = m_Base;
+        m_Base += getPageSize();  // page for the allocation header (readonly once
+                                  // it's written to)
+        result = m_Base;
+        m_Base += numPages * getPageSize();
+        mapEnd = m_Base;
+    }
 
     for (uintptr_t addr = mapStart; addr < mapEnd; addr += getPageSize())
     {
@@ -309,8 +314,6 @@ size_t SlamAllocator::allocSize(uintptr_t mem)
 
 void SlamAllocator::free(uintptr_t mem)
 {
-    RecursingLockGuard<Spinlock> guard(m_Lock);
-
     assert(m_bInitialised);
 
     if (!mem)
@@ -360,8 +363,6 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     const
 #endif
 {
-    RecursingLockGuard<Spinlock> guard(m_Lock);
-
     if (!m_bInitialised)
     {
         return false;
