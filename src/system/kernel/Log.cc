@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
