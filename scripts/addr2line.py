@@ -103,6 +103,7 @@ def main():
                         continue
 
             os.system('addr2line -p -C -f -i -e %s 0x%x' % (filename, address + addend))
+            break
 
 
     return 0
