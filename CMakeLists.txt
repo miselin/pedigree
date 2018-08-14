@@ -128,6 +128,8 @@ if(CMAKE_CROSSCOMPILING)
 endif()
 
 if(CMAKE_CROSSCOMPILING)
+    set(POSITION_INDEPENDENT_CODE FALSE)
+
     set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to an exports file from a native build to be able to find build and test utilities.")
     include(${IMPORT_EXECUTABLES})
 
@@ -183,6 +185,8 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_DEBUG_LOGGING)
         add_definitions(-DDEBUG_LOGGING=1)
+    else ()
+        add_definitions(-DDEBUG_LOGGING=0)
     endif ()
 
     if (PEDIGREE_SUPERDEBUG)
