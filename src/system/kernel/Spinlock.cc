@@ -64,9 +64,11 @@ bool Spinlock::acquire(bool recurse, bool safe)
     {
         uintptr_t myra =
             reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+        WARNING(" --> fail: thread=" << pThread);
+        WARNING(" --> fail: sentinels: before=" << Hex << m_Sentinel << " after=" << m_MagicAlign << " " << m_pOwner);
         FATAL_NOLOCK(
             "Wrong magic in acquire ["
-            << Hex << m_Magic << "] [this=" << reinterpret_cast<uintptr_t>(this)
+            << Hex << m_Magic << " should be 0xdeadbaba] [this=" << reinterpret_cast<uintptr_t>(this)
             << "] return=" << myra);
     }
 
