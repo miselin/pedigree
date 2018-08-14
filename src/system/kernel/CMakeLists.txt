@@ -1,17 +1,18 @@
 
 set(PEDIGREE_VERBOSE_KERNEL FALSE CACHE BOOL "Enable verbose logging throughout the kernel.")
+set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocator which never re-uses allocations (it is highly recommended to only use this on 64-bit targets).")
 
 # TODO: x64-specific
 set(GENERIC_KERNEL_FLAGS
     "-fno-builtin" "-nostdlib" "-ffreestanding" "-fno-common" "-m64"
     "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fno-omit-frame-pointer"
-    "-ggdb" "-g3" "-gdwarf-2")
+    "-ggdb" "-g3" "-gdwarf-2" "--sysroot=${CMAKE_SYSROOT}")
 set(GENERIC_KERNEL_CFLAGS "")
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
     "-fno-use-cxa-atexit")
 set(GENERIC_KERNEL_LINKFLAGS
-    "-nostdlib" "-nostartfiles" "-m64" "-Wl,--discard-all")
+    "-nostdlib" "-nostartfiles" "-m64" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
 set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
     set(GENERIC_KERNEL_LINKFLAGS
@@ -32,6 +33,10 @@ add_definitions(
 
 if (PEDIGREE_VERBOSE_KERNEL)
     add_definitions(-DVERBOSE_KERNEL)
+endif ()
+
+if (PEDIGREE_DEBUG_ALLOCATOR)
+    add_definitions(-DSLAM_USE_DEBUG_ALLOCATOR)
 endif ()
 
 add_compile_options(
@@ -373,4 +378,3 @@ add_custom_command(TARGET kernel POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
     DEPENDS kernel)
 add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
-
