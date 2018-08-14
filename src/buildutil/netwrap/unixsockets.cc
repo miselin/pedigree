@@ -23,6 +23,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <thread>
+
 #include "modules/system/vfs/VFS.h"
 
 #include "modules/subsys/posix/PosixSubsystem.h"
@@ -39,7 +41,7 @@ class StreamingStderrLogger : public Log::LogCallback
   public:
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
-    void callback(const char *str)
+    void callback(const char *str, size_t len)
     {
         fprintf(stderr, "%s", str);
     }
@@ -86,7 +88,7 @@ int main(int argc, char **argv)
     printf("  --> unnamed -> named [via connect]\n");
 
     struct sockaddr_un sun_misc;
-    socklen_t socklen_misc;
+    socklen_t socklen_misc = 0;
 
     struct sockaddr_un sun1;
     socklen_t socklen;
@@ -116,8 +118,11 @@ int main(int argc, char **argv)
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
 
+    printf(" socklen_misc=%zd sizeof=%zd\n", socklen_misc, sizeof(sa_family_t));
+
     // make sure recvfrom() gives an unnamed socket
     assert(sun_misc.sun_family == AF_UNIX);
+    /// \todo this breaks with lwip vs Linux
     assert(socklen_misc == sizeof(sa_family_t));
 
     printf("  --> unnamed -> named [via sendto]\n");
@@ -290,8 +295,11 @@ int main(int argc, char **argv)
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
 
+    // final test is to have two threads connect to each other
+
     fprintf(stderr, "All OK\n");
 
+    Log::instance().removeCallback(&logger);
     return 0;
 }
 

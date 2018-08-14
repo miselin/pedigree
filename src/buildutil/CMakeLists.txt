@@ -254,6 +254,66 @@ endif ()
 
 # TODO: build netwrap
 
+add_library(lwip
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/lwip.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/sys_arch.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/api_lib.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/api_msg.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/err.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/netbuf.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/netdb.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/netifapi.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/sockets.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/api/tcpip.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/autoip.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/dhcp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/etharp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/icmp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/igmp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/ip4.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/ip4_addr.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv4/ip4_frag.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/dhcp6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/ethip6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/icmp6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/inet6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/ip6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/ip6_addr.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/ip6_frag.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/mld6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ipv6/nd6.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/def.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/dns.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/inet_chksum.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/init.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/ip.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/mem.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/memp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/netif.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/pbuf.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/raw.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/stats.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/sys.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/tcp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/tcp_in.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/tcp_out.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/timeouts.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/core/udp.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/netif/ethernet.c
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/netif/ethernetif.c)
+target_include_directories(lwip PUBLIC
+    ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/include)
+
+add_executable(unixsockets
+    netwrap/unixsockets.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/FileDescriptor.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/UnixFilesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/net-syscalls.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/poll-syscalls.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/util.cc)
+target_link_libraries(unixsockets PRIVATE
+    lwip vfs utility kernel Threads::Threads)
+
 SETUP_TARGET_FOR_COVERAGE(
     NAME testsuite_coverage
     EXECUTABLE $<TARGET_FILE:testsuite>
