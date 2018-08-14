@@ -299,6 +299,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/BloomFilter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Buffer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cache.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cord.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ExtensibleBitmap.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/HashTable.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/LazyEvaluate.cc
@@ -315,6 +316,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Result.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/RingBuffer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/SharedPointer.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/StaticCord.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/StaticString.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/String.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/StringView.cc

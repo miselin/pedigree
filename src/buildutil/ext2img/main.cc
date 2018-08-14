@@ -40,6 +40,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Cord.h"
 
 #include "DiskImage.h"
 
@@ -98,11 +99,12 @@ extern bool appleProbeDisk(Disk *pDisk);
 class StreamingStderrLogger : public Log::LogCallback
 {
   public:
-    /// printString is used directly as well as in this callback object,
-    /// therefore we simply redirect to it.
-    void callback(const char *str, size_t len)
+    void callback(const LogCord &cord)
     {
-        fprintf(stderr, "%s", str);
+        for (size_t i = 0; i < cord.length(); ++i)
+        {
+            fprintf(stderr, "%c", cord[i]);
+        }
     }
 };
 

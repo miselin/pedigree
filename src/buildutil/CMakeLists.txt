@@ -69,6 +69,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cord.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ExtensibleBitmap.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/HashTable.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/LazyEvaluate.cc
@@ -82,6 +83,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Result.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RingBuffer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/SharedPointer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StaticCord.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StaticString.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/StringView.cc
@@ -206,6 +208,7 @@ add_executable(testsuite
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
+    testsuite/test-Cord.cc
 )
 target_link_libraries(testsuite PRIVATE
     kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)

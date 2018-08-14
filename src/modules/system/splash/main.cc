@@ -35,6 +35,7 @@
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -209,13 +210,13 @@ class StreamingScreenLogger : public Log::LogCallback
 
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
-    void callback(const char *str, size_t len)
+    void callback(const LogCord &cord)
     {
 #ifdef DEBUGGER
         if (g_LogMode)
         {
             LockGuard<Mutex> guard(g_PrintLock);
-            printString(str, len);
+            printString(cord.toString(), cord.length());
         }
 #endif
     }

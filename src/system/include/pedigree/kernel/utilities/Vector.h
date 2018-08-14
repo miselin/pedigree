@@ -130,8 +130,12 @@ class EXPORTED_PUBLIC Vector
      */
     void insert(size_t index, const T &value);
 
-    /** Clear the Vector */
-    void clear();
+    /**
+     * Clear the Vector.
+     * Pass freeMem = true to also free the memory consumed by the Vector.
+     * Pass freeMem = false to retain the memory for future Vector usage.
+     */
+    void clear(bool freeMem=false);
     /** Erase the element at the given index. */
     void erase(size_t index);
     /** Erase one Element */
@@ -330,12 +334,16 @@ void Vector<T>::setAt(size_t idx, const T &value)
 }
 
 template <class T>
-void Vector<T>::clear()
+void Vector<T>::clear(bool freeMem)
 {
     m_Count = 0;
-    m_Size = 0;
-    delete[] m_Data;
-    m_Data = 0;
+    m_Start = 0;
+    if (freeMem)
+    {
+        m_Size = 0;
+        delete[] m_Data;
+        m_Data = 0;
+    }
 }
 
 template <class T>
@@ -388,7 +396,9 @@ template <class T>
 void Vector<T>::reserve(size_t size, bool copy, bool free)
 {
     if (size <= m_Size)
+    {
         return;
+    }
     else if (size < (m_Size * m_ReserveFactor))
     {
         // Grow exponentially.
@@ -399,7 +409,7 @@ void Vector<T>::reserve(size_t size, bool copy, bool free)
     m_Data = new T[size];
     if (tmp != 0)
     {
-        if (copy == true)
+        if ((copy == true) && m_Size)
         {
             pedigree_std::copy(m_Data, tmp + m_Start, m_Size - m_Start);
             m_Start = 0;

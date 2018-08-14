@@ -24,16 +24,17 @@
 #include <benchmark/benchmark.h>
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Cord.h"
 
 class DiscardLogger : public Log::LogCallback
 {
   public:
     DiscardLogger() : m_Length(0) {}
 
-    void callback(const char *str, size_t len)
+    void callback(const LogCord &cord)
     {
         // discard but keep length
-        m_Length += len;
+        m_Length += cord.length();
     }
 
     size_t length() const

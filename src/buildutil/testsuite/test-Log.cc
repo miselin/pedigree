@@ -22,13 +22,16 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Cord.h"
 
 class StringLogger : public Log::LogCallback
 {
   public:
-    void callback(const char *str, size_t len)
+    void callback(const LogCord &cord)
     {
-        m_Messages += std::string(str, len);
+        String str = cord.toString();
+        m_Messages += std::string(str, str.length());
     }
 
     const std::string &messages() const

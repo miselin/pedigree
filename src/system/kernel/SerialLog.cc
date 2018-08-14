@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/utilities/Cord.h"
 
 class SerialLogger : public Log::LogCallback
 {
@@ -28,7 +29,7 @@ class SerialLogger : public Log::LogCallback
     SerialLogger();
     virtual ~SerialLogger();
 
-    void callback(const char *str, size_t len);
+    virtual void callback(const LogCord &cord);
 
   private:
     Serial *m_pSerial;
@@ -49,7 +50,7 @@ SerialLogger::SerialLogger()
 }
 SerialLogger::~SerialLogger() = default;
 
-void SerialLogger::callback(const char *str, size_t len)
+void SerialLogger::callback(const LogCord &cord)
 {
     if (!m_bInitialised)
     {
@@ -65,7 +66,11 @@ void SerialLogger::callback(const char *str, size_t len)
     }
 
     m_Lock.acquire();
-    m_pSerial->write(str);
+    /// \todo add iterators to Cord, this is inefficient
+    for (size_t i = 0; i < cord.length(); ++i)
+    {
+        m_pSerial->write(cord[i]);
+    }
 #ifndef SERIAL_IS_FILE
     // Handle carriage return if we're writing to a real terminal
     // Technically this will create a \n\r, but it will do the same

@@ -26,6 +26,7 @@
 #endif
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/StaticCord.h"
 #include "pedigree/kernel/time/Time.h"
 
 class String;
@@ -35,6 +36,8 @@ class StringView;
  * @{ */
 
 #define SHOW_FILE_IN_LOGS 0
+
+typedef StaticCord<8> LogCord;
 
 #if SHOW_FILE_IN_LOGS
 #define FILE_LOG(entry, level)                                             \
@@ -169,7 +172,7 @@ class Log
     class EXPORTED_PUBLIC LogCallback
     {
       public:
-        virtual void callback(const char *, size_t) = 0;
+        virtual void callback(const LogCord &cord) = 0;
         virtual ~LogCallback();
     };
 

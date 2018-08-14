@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/StaticCord.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -55,6 +56,19 @@ TinyStaticString Log::m_LineEnding("\n");
 
 NormalStaticString Log::m_DedupeHead("(last message+severity repeated ");
 TinyStaticString Log::m_DedupeTail(" times)");
+
+// Lookup tables to not do int->str conversions every repeated log message
+static const char *g_RepeatedStrings[] = {
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+};
+
+static size_t g_RepeatedLengths[] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+};
+
+static const size_t g_NumRepeatedStrings = 20;
 
 Log::Log()
     :
@@ -157,25 +171,33 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
 
     // Call the callback for the existing, flushed, log entries
     size_t entry = m_StaticEntryStart;
+    LogCord msg;
     while (1)
     {
+        msg.clear();
+
         if (entry == m_StaticEntryEnd)
-            break;
-        else
         {
-            HugeStaticString str;
-            str = severityToString(m_StaticLog[entry].severity);
+            break;
+        }
+        else if (m_StaticLog[entry].str.length())
+        {
+            msg.append("(backlog) ", 10);
+
+            const TinyStaticString &severity = severityToString(m_StaticLog[entry].severity);
+            msg.append(severity, severity.length());
             if (m_Timestamps)
             {
-                str += getTimestamp();
+                const NormalStaticString &ts = getTimestamp();
+                msg.append(ts, ts.length());
             }
-            str += m_StaticLog[entry].str;
-            str += m_LineEnding;
+            msg.append(m_StaticLog[entry].str, m_StaticLog[entry].str.length());
+            msg.append(m_LineEnding, m_LineEnding.length());
 
             /// \note This could send a massive batch of log entries on the
             ///       callback. If the callback isn't designed to handle big
             ///       buffers this may fail.
-            pCallback->callback(str, str.length());
+            pCallback->callback(msg);
         }
 
         entry = (entry + 1) % LOG_ENTRIES;
@@ -354,6 +376,9 @@ void Log::flushEntry(bool lock)
 {
     static bool handlingFatal = false;
 
+    LogCord msg;
+    msg.clear();
+
 #ifdef THREADS
     if (lock)
         m_Lock.acquire();
@@ -415,29 +440,38 @@ void Log::flushEntry(bool lock)
 
         // We have output callbacks installed. Build the string we'll pass
         // to each callback *now* and then send it.
-        HugeStaticString str;
-        str.disableHashing();  // no need for hashing here
         if (wasRepeated)
         {
-            str += m_DedupeHead;
-            str.append(repeatedTimes);
-            str += m_DedupeTail;
-            str += m_LineEnding;
+            msg.append(m_DedupeHead, m_DedupeHead.length());
+            if (repeatedTimes < g_NumRepeatedStrings)
+            {
+                msg.append(g_RepeatedStrings[repeatedTimes], g_RepeatedLengths[repeatedTimes]);
+            }
+            else
+            {
+                TinyStaticString repeated;
+                repeated.append(repeatedTimes);
+                msg.append(repeated, repeated.length());
+            }
+            msg.append(m_DedupeTail, m_DedupeTail.length());
+            msg.append(m_LineEnding, m_LineEnding.length());
         }
 
-        str += severityToString(m_Buffer.severity);
+        const TinyStaticString &severity = severityToString(m_Buffer.severity);
+        msg.append(severity, severity.length());
         if (m_Timestamps)
         {
-            str += getTimestamp();
+            const NormalStaticString &ts = getTimestamp();
+            msg.append(ts, ts.length());
         }
-        str += m_Buffer.str;
-        str += m_LineEnding;
+        msg.append(m_Buffer.str, m_Buffer.str.length());
+        msg.append(m_LineEnding, m_LineEnding.length());
 
         for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
         {
             if (m_OutputCallbacks[i] != nullptr)
             {
-                m_OutputCallbacks[i]->callback(static_cast<const char *>(str), str.length());
+                m_OutputCallbacks[i]->callback(msg);
             }
         }
     }
