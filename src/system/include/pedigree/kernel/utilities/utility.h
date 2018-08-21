@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export
 #include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
 
-#ifdef HOSTED
+#if defined(HOSTED) && !defined(UTILITY_LINUX)
 // Override headers we are replacing.
 #define _STRING_H 1
 #endif
