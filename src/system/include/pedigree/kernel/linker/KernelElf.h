@@ -48,12 +48,18 @@ class Module
 {
   public:
     Module()
-        : elf(), name(0), entry(0), exit(0), depends(0), depends_opt(0),
-          buffer(0), buflen(0)
+        : elf(nullptr), name(0), entry(0), exit(0), depends(0), depends_opt(0),
+          buffer(0), buflen(0), status(Unknown)
     {
     }
-    Elf elf;
-    const char *name;
+
+    ~Module()
+    {
+        delete elf;
+    }
+
+    Elf *elf;
+    String name;
     bool (*entry)();
     void (*exit)();
     const char **depends;
@@ -62,6 +68,51 @@ class Module
     size_t buflen;
     uintptr_t loadBase;
     size_t loadSize;
+
+    enum ModuleStatus
+    {
+        Unknown,
+        Preloaded,
+        Executing,
+        Active,
+        Failed,
+        Unloaded
+    } status;
+
+    bool isPending() const
+    {
+        return status == Preloaded;
+    }
+
+    bool isLoaded() const
+    {
+        return status == Preloaded || status == Active;
+    }
+
+    bool isUnloaded() const
+    {
+        return status == Unloaded || status == Failed;
+    }
+
+    bool isFailed() const
+    {
+        return status == Failed;
+    }
+
+    bool isActive() const
+    {
+        return status == Active;
+    }
+
+    bool isExecuting() const
+    {
+        return status == Executing;
+    }
+
+    bool wasAttempted() const
+    {
+        return status == Executing || isActive() || isFailed() || isUnloaded();
+    }
 
   protected:
     Module(const Module &);
@@ -94,6 +145,9 @@ class EXPORTED_PUBLIC KernelElf : public Elf
 #ifdef STATIC_DRIVERS
     Module *loadModule(struct ModuleInfo *info, bool silent = false);
 #endif
+
+    /** Executes all modules. */
+    void executeModules(bool silent = false, bool progress = true);
 
     /** Unloads the specified module. */
     void
@@ -153,6 +207,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf
         return adjust_pointer(ptr, module->loadBase);
     }
 
+    /** Lock for access to the module data structures. */
+    void lockModules();
+
+    /** Unlock access to module data structures. */
+    void unlockModules();
+
 #if defined(X86_COMMON)
     MemoryRegion m_AdditionalSectionContents;
     MemoryRegion *m_AdditionalSectionHeaders;
@@ -163,13 +223,6 @@ class EXPORTED_PUBLIC KernelElf : public Elf
 
     /** List of modules */
     Vector<Module *> m_Modules;
-    /** List of successfully loaded modules. */
-    Vector<Module *> m_LoadedModules;
-    /** List of unsuccessfully loaded modules. */
-    Vector<SharedPointer<String>> m_FailedModules;
-    /** List of pending modules - modules whose dependencies have not yet been
-        satisfied. */
-    Vector<Module *> m_PendingModules;
     /** Memory allocator for modules - where they can be loaded. */
     MemoryAllocator m_ModuleAllocator;
 

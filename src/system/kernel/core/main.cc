@@ -217,6 +217,8 @@ static int loadModules(void *inf)
 
         tags++;
     }
+
+    KernelElf::instance().executeModules();
 #else
     BootstrapStruct_t bsInf = *static_cast<BootstrapStruct_t *>(inf);
 
@@ -237,6 +239,9 @@ static int loadModules(void *inf)
         if (!Processor::getInterrupts())
             WARNING("A loaded module disabled interrupts.");
     }
+
+    // Start any modules we can run already.
+    KernelElf::instance().executeModules();
 
     // Wait for all modules to finish loading before we continue.
     KernelElf::instance().waitForModulesToLoad();

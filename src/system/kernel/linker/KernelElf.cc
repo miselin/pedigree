@@ -406,8 +406,7 @@ KernelElf::KernelElf()
       m_AdditionalSectionContents("Kernel ELF Section Data"),
       m_AdditionalSectionHeaders(0),
 #endif
-      m_Modules(), m_LoadedModules(), m_FailedModules(), m_PendingModules(),
-      m_ModuleAllocator(), m_pSectionHeaders(0), m_pSymbolTable(0)
+      m_Modules(), m_ModuleAllocator(), m_pSectionHeaders(0), m_pSymbolTable(0)
 #ifdef THREADS
       ,
       m_ModuleProgress(0), m_ModuleAdjustmentLock(false)
@@ -448,17 +447,18 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
 
     Module *module = new Module;
 
+    module->elf = new Elf();
     module->buffer = pModule;
     module->buflen = len;
 
-    if (!module->elf.create(pModule, len))
+    if (!module->elf->create(pModule, len))
     {
         FATAL("Module load failed (1)");
         delete module;
         return 0;
     }
 
-    if (!module->elf.loadModule(
+    if (!module->elf->loadModule(
             pModule, len, module->loadBase, module->loadSize, &m_SymbolTable))
     {
         FATAL("Module load failed (2)");
@@ -467,9 +467,9 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     }
 
     //  Load the module debug table (if any)
-    if (module->elf.debugFrameTableLength())
+    if (module->elf->debugFrameTableLength())
     {
-        size_t sz = m_nDebugTableSize + module->elf.debugFrameTableLength();
+        size_t sz = m_nDebugTableSize + module->elf->debugFrameTableLength();
         if (sz % sizeof(uint32_t))
             sz += sizeof(uint32_t);
         uint32_t *pDebug = new uint32_t[sz / sizeof(uint32_t)];
@@ -482,9 +482,9 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
             MemoryCopy(pDebug, m_pDebugTable, m_nDebugTableSize);
             MemoryCopy(
                 pDebug + m_nDebugTableSize,
-                reinterpret_cast<const void *>(module->elf.debugFrameTable()),
-                module->elf.debugFrameTableLength());
-            m_nDebugTableSize += module->elf.debugFrameTableLength();
+                reinterpret_cast<const void *>(module->elf->debugFrameTable()),
+                module->elf->debugFrameTableLength());
+            m_nDebugTableSize += module->elf->debugFrameTableLength();
             m_pDebugTable = pDebug;
             NOTICE("Added debug module debug frame information.");
         }
@@ -492,18 +492,18 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
 
     // Look up the module's name and entry/exit functions, and dependency list.
     const char **pName = reinterpret_cast<const char **>(
-        module->elf.lookupSymbol("g_pModuleName"));
+        module->elf->lookupSymbol("g_pModuleName"));
     if (!pName)
     {
         ERROR("KERNELELF: Hit an invalid module, ignoring");
         return 0;
     }
     module->name = rebase(module, *pName);
-    module->elf.setName(module->name);
+    module->elf->setName(module->name);
     auto entryPoint = *reinterpret_cast<bool (**)()>(
-        module->elf.lookupSymbol("g_pModuleEntry"));
+        module->elf->lookupSymbol("g_pModuleEntry"));
     auto exitPoint = *reinterpret_cast<void (**)()>(
-        module->elf.lookupSymbol("g_pModuleExit"));
+        module->elf->lookupSymbol("g_pModuleExit"));
     // Readjust entry/exit functions for the loaded module if needed
     if (entryPoint)
     {
@@ -516,14 +516,14 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     module->entry = entryPoint;
     module->exit = exitPoint;
     module->depends =
-        reinterpret_cast<const char **>(module->elf.lookupSymbol("g_pDepends"));
+        reinterpret_cast<const char **>(module->elf->lookupSymbol("g_pDepends"));
     module->depends_opt = reinterpret_cast<const char **>(
-        module->elf.lookupSymbol("g_pOptionalDepends"));
-    DEBUG(
+        module->elf->lookupSymbol("g_pOptionalDepends"));
+    DEBUG_LOG(
         "KERNELELF: Preloaded module "
         << module->name << " at " << Hex << module->loadBase << " to "
         << (module->loadBase + module->loadSize));
-    DEBUG(
+    DEBUG_LOG(
         "KERNELELF: Module " << module->name << " consumes " << Dec
                              << (module->loadSize / 1024) << Hex
                              << "K of memory");
@@ -532,7 +532,7 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     size_t i = 0;
     while (module->depends_opt && rebase(module, module->depends_opt[i]))
     {
-        DEBUG(
+        DEBUG_LOG(
             "KERNELELF: Module " << module->name << " optdepends on "
                                  << rebase(module, module->depends_opt[i]));
         ++i;
@@ -541,7 +541,7 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     i = 0;
     while (module->depends && rebase(module, module->depends[i]))
     {
-        DEBUG(
+        DEBUG_LOG(
             "KERNELELF: Module " << module->name << " depends on "
                                  << rebase(module, module->depends[i]));
         ++i;
@@ -559,34 +559,45 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     if (g_BootProgressUpdate && !silent)
         g_BootProgressUpdate("moduleload");
 
+    module->status = Module::Preloaded;
+
     m_Modules.pushBack(module);
 
-#ifdef THREADS
-    m_ModuleAdjustmentLock.acquire();
-#endif
-    bool dependenciesSatisfied = moduleDependenciesSatisfied(module);
-#ifdef THREADS
-    m_ModuleAdjustmentLock.release();
-#endif
-
-    // Can we load this module yet?
-    if (dependenciesSatisfied)
-    {
-        executeModule(module);
-
-        g_BootProgressCurrent++;
-        if (g_BootProgressUpdate && !silent)
-            g_BootProgressUpdate("moduleexec");
-    }
-    else
-    {
-#ifdef THREADS
-        LockGuard<Spinlock> locked(m_ModuleAdjustmentLock);
-#endif
-        m_PendingModules.pushBack(module);
-    }
-
     return module;
+}
+
+void KernelElf::executeModules(bool silent, bool progress)
+{
+    NOTICE("KERNELELF: executing " << m_Modules.count() << " modules...");
+
+    // keep trying until all modules were invoked
+    bool executedModule = true;
+    while (executedModule)
+    {
+        executedModule = false;
+
+        for (auto module : m_Modules)
+        {
+            if (module->wasAttempted())
+            {
+                continue;
+            }
+
+            bool dependenciesSatisfied = moduleDependenciesSatisfied(module);
+
+            // Can we load this module yet?
+            if (dependenciesSatisfied)
+            {
+                executeModule(module);
+
+                g_BootProgressCurrent++;
+                if (g_BootProgressUpdate && !silent)
+                    g_BootProgressUpdate("moduleexec");
+
+                executedModule = true;
+            }
+        }
+    }
 }
 
 #ifdef STATIC_DRIVERS
@@ -601,7 +612,7 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
     module->entry = info->entry;
     module->exit = info->exit;
     module->depends = info->dependencies;
-    DEBUG("KERNELELF: Preloaded module " << module->name);
+    DEBUG_LOG("KERNELELF: Preloaded module " << module->name);
 
     g_BootProgressCurrent++;
     if (g_BootProgressUpdate && !silent)
@@ -653,28 +664,15 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
 
 void KernelElf::unloadModule(const char *name, bool silent, bool progress)
 {
-#ifdef THREADS
-    m_ModuleAdjustmentLock.acquire();
-#endif
-    for (Vector<Module *>::Iterator it = m_LoadedModules.begin();
-         it != m_LoadedModules.end(); it++)
+    String findName(name);
+    for (auto it : m_Modules)
     {
-        if (!StringCompare((*it)->name, name))
+        if (it->name == findName)
         {
-            Module *module = *it;
-            m_LoadedModules.erase(it);
-
-#ifdef THREADS
-            // No longer need the lock - the rest of unloadModule is OK.
-            m_ModuleAdjustmentLock.release();
-#endif
-            unloadModule(module, silent, progress);
+            unloadModule(it, silent, progress);
             return;
         }
     }
-#ifdef THREADS
-    m_ModuleAdjustmentLock.release();
-#endif
     ERROR("KERNELELF: Module " << name << " not found");
 }
 
@@ -689,14 +687,17 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
             g_BootProgressUpdate("moduleunload");
     }
 
+    NOTICE("A");
     if (module->exit)
         module->exit();
+    NOTICE("B");
 
 // Check for a destructors list and execute.
 // Note: static drivers have their ctors/dtors all shared.
 #ifndef STATIC_DRIVERS
-    uintptr_t startDtors = module->elf.lookupSymbol("start_dtors");
-    uintptr_t endDtors = module->elf.lookupSymbol("end_dtors");
+    NOTICE("C");
+    uintptr_t startDtors = module->elf->lookupSymbol("start_dtors");
+    uintptr_t endDtors = module->elf->lookupSymbol("end_dtors");
 
     if (startDtors && endDtors)
     {
@@ -720,8 +721,10 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
             iterator++;
         }
     }
+    NOTICE("D");
 
-    m_SymbolTable.eraseByElf(&module->elf);
+    m_SymbolTable.eraseByElf(module->elf);
+    NOTICE("E");
 #endif
 
     if (progress)
@@ -760,7 +763,16 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
     m_ModuleAllocator.free(module->loadBase, module->loadSize);
 #endif
 
-    delete module;
+    delete module->elf;
+    module->elf = nullptr;
+
+    // Failed also means unloaded - it just reports a particular status.
+    // A module unloaded intentionally (i.e. by the user) that was successfully
+    // active and running goes into Unloaded mode on unload.
+    if (!module->isFailed())
+    {
+        module->status = Module::Unloaded;
+    }
 }
 
 void KernelElf::unloadModules()
@@ -768,48 +780,64 @@ void KernelElf::unloadModules()
     if (g_BootProgressUpdate)
         g_BootProgressUpdate("unload");
 
-    if (m_LoadedModules.count())
+    for (auto it : m_Modules)
     {
-        for (Vector<Module *>::Iterator it = m_LoadedModules.end() - 1;
-             it != m_LoadedModules.begin() - 1; --it)
+        if (!it->isUnloaded())
         {
-            unloadModule(*it);
+            unloadModule(it);
+            delete it;
         }
     }
 
-    m_LoadedModules.clear();
-    m_FailedModules.clear();
     m_Modules.clear();
 }
 
 bool KernelElf::moduleIsLoaded(char *name)
 {
-    for (Vector<Module *>::Iterator it = m_LoadedModules.begin();
-         it != m_LoadedModules.end(); it++)
+    // this should hash the name and make comparisons super fast
+    String compName(name);
+
+    for (auto module : m_Modules)
     {
-        Module *module = *it;
-        if (!StringCompare(module->name, name))
-            return true;
+        if (module->isLoaded())
+        {
+            if (module->name == compName)
+            {
+                return true;
+            }
+        }
     }
+
     return false;
 }
 
 char *KernelElf::getDependingModule(char *name)
 {
-    for (Vector<Module *>::Iterator it = m_LoadedModules.begin();
-         it != m_LoadedModules.end(); it++)
+    for (auto module : m_Modules)
     {
-        Module *module = *it;
-        if (module->depends == 0)
+        if (!module->isLoaded())
+        {
+            // can't depend on unloaded modules - might be unmapped
             continue;
-        int i = 0;
+        }
+        else if (module->depends == 0)
+        {
+            continue;
+        }
+
+        size_t i = 0;
         while (module->depends[i])
         {
-            if (!StringCompare(rebase(module, module->depends[i]), name))
-                return const_cast<char *>(module->name);
-            i++;
+            const char *rebased = rebase(module, module->depends[i]);
+            if (!StringCompare(rebased, name))
+            {
+                return const_cast<char *>(static_cast<const char *>(module->name));
+            }
+
+            ++i;
         }
     }
+
     return 0;
 }
 
@@ -822,37 +850,34 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
     {
         while (module->depends_opt[i])
         {
-            bool found = false;
-            for (size_t j = 0; j < m_LoadedModules.count(); ++j)
+            String depname(rebase(module, module->depends_opt[i]));
+
+            bool exists = false;
+            bool attempted = false;
+            for (auto mod : m_Modules)
             {
-                if (!StringCompare(
-                        m_LoadedModules[j]->name,
-                        rebase(module, module->depends_opt[i])))
+                if (mod->name == depname)
                 {
-                    found = true;
+                    exists = true;
+                    attempted = mod->wasAttempted();
                     break;
                 }
             }
 
-            if (!found)
+            if (exists)
             {
-                for (size_t j = 0; j < m_FailedModules.count(); ++j)
+                if (!attempted)
                 {
-                    if (!StringCompare(
-                            static_cast<const char *>(*m_FailedModules[j]),
-                            rebase(module, module->depends_opt[i])))
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-
-                // Optional dependency has not yet had any attempt to load.
-                if (!found)
-                {
+                    // optional dependency hasn't yet been tried
                     return false;
                 }
             }
+#ifdef DUMP_DEPENDENCIES
+            else
+            {
+                WARNING("KernelElf: optional dependency '" << depname << "' (wanted by '" << module->name << "') doesn't even exist, skipping.");
+            }
+#endif
 
             ++i;
         }
@@ -861,26 +886,27 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
     // Second pass: mandatory dependencies.
     i = 0;
     if (!module->depends)
+    {
         return true;
+    }
 
     while (module->depends[i])
     {
-        bool found = false;
-        for (size_t j = 0; j < m_LoadedModules.count(); j++)
+        String depname(rebase(module, module->depends[i]));
+
+        for (auto mod : m_Modules)
         {
-            if (!StringCompare(
-                    m_LoadedModules[j]->name,
-                    rebase(module, module->depends[i])))
+            if (mod->name == depname)
             {
-                found = true;
-                break;
+                if (!mod->isActive())
+                {
+                    // module dependency is not yet active
+                    return false;
+                }
             }
         }
-        if (!found)
-        {
-            return false;
-        }
-        i++;
+
+        ++i;
     }
     return true;
 }
@@ -888,10 +914,11 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
 static int executeModuleThread(void *mod)
 {
     Module *module = reinterpret_cast<Module *>(mod);
+    module->status = Module::Executing;
 
     if (module->buffer)
     {
-        if (!module->elf.finaliseModule(module->buffer, module->buflen))
+        if (!module->elf->finaliseModule(module->buffer, module->buflen))
         {
             FATAL(
                 "KERNELELF: Module relocation failed for module "
@@ -900,8 +927,8 @@ static int executeModuleThread(void *mod)
         }
 
         // Check for a constructors list and execute.
-        uintptr_t startCtors = module->elf.lookupSymbol("start_ctors");
-        uintptr_t endCtors = module->elf.lookupSymbol("end_ctors");
+        uintptr_t startCtors = module->elf->lookupSymbol("start_ctors");
+        uintptr_t endCtors = module->elf->lookupSymbol("end_ctors");
 
         if (startCtors && endCtors)
         {
@@ -960,69 +987,17 @@ bool KernelElf::executeModule(Module *module)
 
 void KernelElf::updateModuleStatus(Module *module, bool status)
 {
-    {
-#ifdef THREADS
-        LockGuard<Spinlock> guard(m_ModuleAdjustmentLock);
-#endif
-        // Module has completed (successfully or not) - now it's OK for
-        // dependent modules to be run.
-        m_LoadedModules.pushBack(module);
-    }
-
     String moduleName(module->name);
     if (status)
     {
         NOTICE("KERNELELF: Module " << moduleName << " finished executing");
+        module->status = Module::Active;
     }
     else
     {
         NOTICE("KERNELELF: Module " << moduleName << " failed, unloading.");
-        {
-            LockGuard<Spinlock> failedGuard(m_ModuleAdjustmentLock);
-            m_FailedModules.pushBack(
-                SharedPointer<String>::allocate(moduleName));
-        }
+        module->status = Module::Failed;
         unloadModule(moduleName, true, false);
-    }
-
-    // Now check if we've allowed any currently pending modules to load.
-    bool somethingLoaded = true;
-    while (somethingLoaded)
-    {
-        somethingLoaded = false;
-#ifdef THREADS
-        m_ModuleAdjustmentLock.acquire();
-#endif
-        for (Vector<Module *>::Iterator it = m_PendingModules.begin();
-             it != m_PendingModules.end(); it++)
-        {
-            if (moduleDependenciesSatisfied(*it))
-            {
-                Module *nextModule = *it;
-                m_PendingModules.erase(it);
-
-#ifdef THREADS
-                m_ModuleAdjustmentLock.release();
-#endif
-                executeModule(nextModule);
-
-                g_BootProgressCurrent++;
-                /// \todo carry silent parameter through
-                if (g_BootProgressUpdate)
-                    g_BootProgressUpdate("moduleexec");
-
-#ifdef THREADS
-                m_ModuleAdjustmentLock.acquire();
-#endif
-
-                somethingLoaded = true;
-                break;
-            }
-        }
-
-#ifdef THREADS
-        m_ModuleAdjustmentLock.release();
-#endif
     }
 
 #ifdef THREADS
@@ -1038,6 +1013,24 @@ void KernelElf::waitForModulesToLoad()
         m_ModuleProgress.acquire();
     }
 #endif
+
+    NOTICE("SUCCESSFUL MODULES:");
+    for (auto it : m_Modules)
+    {
+        if (it->isActive())
+        {
+            NOTICE(" - " << it->name);
+        }
+    }
+
+    NOTICE("UNSUCCESSFUL MODULES:");
+    for (auto it : m_Modules)
+    {
+        if (it->isFailed())
+        {
+            NOTICE(" - " << it->name);
+        }
+    }
 }
 
 uintptr_t KernelElf::globalLookupSymbol(const char *pName)
@@ -1057,12 +1050,24 @@ const char *KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t *startAddr)
     }
 
     // OK, that didn't work. Try every module.
-    for (Vector<Module *>::Iterator it = m_LoadedModules.begin();
-         it != m_LoadedModules.end(); it++)
+    lockModules();
+    for (auto it : m_Modules)
     {
-        if ((ret = (*it)->elf.lookupSymbol(addr, startAddr)))
+        if (!(it->isActive() || it->isExecuting()))
+        {
+            continue;
+        }
+
+        unlockModules();
+
+        if ((ret = it->elf->lookupSymbol(addr, startAddr)))
+        {
             return ret;
+        }
+
+        lockModules();
     }
+    unlockModules();
     WARNING_NOLOCK(
         "KERNELELF: GlobalLookupSymbol(" << Hex << addr << ") failed.");
     return 0;
@@ -1070,10 +1075,27 @@ const char *KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t *startAddr)
 
 bool KernelElf::hasPendingModules() const
 {
-    for (Vector<Module *>::ConstIterator it = m_PendingModules.begin();
-         it != m_PendingModules.end(); ++it)
+    bool hasPending = false;
+    for (auto it : m_Modules)
     {
-        NOTICE("Pending module: " << (*it)->name);
+        if (it->isPending())
+        {
+            NOTICE("Pending module: " << *it->name);
+        }
     }
-    return m_PendingModules.count() != 0;
+    return hasPending;
+}
+
+void KernelElf::lockModules()
+{
+#ifdef THREADS
+    m_ModuleAdjustmentLock.acquire();
+#endif
+}
+
+void KernelElf::unlockModules()
+{
+#ifdef THREADS
+    m_ModuleAdjustmentLock.release();
+#endif
 }
