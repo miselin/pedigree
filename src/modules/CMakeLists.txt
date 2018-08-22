@@ -79,6 +79,8 @@ if (PEDIGREE_POSIX_NOEFAULT)
 endif ()
 
 function(pedigree_module name opts libs)
+    set(PEDIGREE_MODULE_${name} TRUE CACHE BOOL "Build the ${name} kernel module.")
+
     # TODO: this doesn't correctly discover missing symbols if dependencies are
     # not listed in full - need to work on that.
     add_executable(${name} ${ARGN})
@@ -97,11 +99,13 @@ function(pedigree_module name opts libs)
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/${name}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/${PEDIGREE_DRIVERDIR}/${name})
 
-    list(APPEND PEDIGREE_KERNEL_MODULES $<TARGET_FILE:${name}>)
-    list(APPEND PEDIGREE_KERNEL_MODULE_TARGETS ${name})
+    if (PEDIGREE_MODULE_${name})
+        list(APPEND PEDIGREE_KERNEL_MODULES $<TARGET_FILE:${name}>)
+        list(APPEND PEDIGREE_KERNEL_MODULE_TARGETS ${name})
 
-    set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
-    set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
+        set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
+        set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
+    endif ()
 
     # split debug info into a .debug file so it's accessible but not present in the module binary itself
     add_custom_command(TARGET ${name} POST_BUILD
