@@ -419,6 +419,8 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem
     Vector<ConsoleFile *> m_Consoles;
     static ConsoleManager m_Instance;
     Spinlock m_Lock;
+
+    void newConsole(char c, size_t i, bool lock);
 };
 
 #endif

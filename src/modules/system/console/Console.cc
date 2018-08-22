@@ -30,6 +30,11 @@ ConsoleManager ConsoleManager::m_Instance;
 
 void ConsoleManager::newConsole(char c, size_t i)
 {
+    newConsole(c, i);
+}
+
+void ConsoleManager::newConsole(char c, size_t i, bool lock)
+{
     char a = 'a' + (i % 10);
     if (i <= 9)
         a = '0' + i;
@@ -46,7 +51,7 @@ void ConsoleManager::newConsole(char c, size_t i)
     pSlave->setOther(pMaster);
 
     {
-        LockGuard<Spinlock> guard(m_Lock);
+        LockGuard<Spinlock> guard(m_Lock, lock);
         m_Consoles.pushBack(pMaster);
         m_Consoles.pushBack(pSlave);
     }
@@ -54,16 +59,18 @@ void ConsoleManager::newConsole(char c, size_t i)
 
 ConsoleManager::ConsoleManager() : m_Consoles(), m_Lock()
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     // Create all consoles, so we can look them up easily.
     for (size_t i = 0; i < 16; ++i)
     {
         for (char c = 'p'; c <= 'z'; ++c)
         {
-            newConsole(c, i);
+            newConsole(c, i, false);
         }
         for (char c = 'a'; c <= 'e'; ++c)
         {
-            newConsole(c, i);
+            newConsole(c, i, false);
         }
     }
 }
