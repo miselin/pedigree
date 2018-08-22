@@ -270,6 +270,8 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     for (uintptr_t addr = mapStart; addr < mapEnd; addr += getPageSize())
     {
         allocateAndMapAt(reinterpret_cast<void *>(addr));
+
+        ++m_HeapPageCount;
     }
 
     *((size_t *) (result - sizeof(size_t))) = numPages;
@@ -344,6 +346,8 @@ void SlamAllocator::free(uintptr_t mem)
     for (uintptr_t addr = unmapStart; addr < unmapEnd; addr += getPageSize())
     {
         unmap(reinterpret_cast<void *>(addr));
+
+        --m_HeapPageCount;
     }
 
 #ifdef THREADS
@@ -355,6 +359,10 @@ void SlamAllocator::free(uintptr_t mem)
             pThread->getParent()->trackHeap(-nBytes);
         }
     }
+#endif
+
+#ifdef MEMORY_TRACING
+    traceAllocation(reinterpret_cast<void *>(mem), MemoryTracing::Free, 0);
 #endif
 }
 
