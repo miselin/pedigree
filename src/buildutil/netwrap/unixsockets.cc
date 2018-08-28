@@ -122,7 +122,7 @@ int main(int argc, char **argv)
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
 
-    printf(" socklen_misc=%zd sizeof=%zd\n", socklen_misc, sizeof(sa_family_t));
+    printf(" socklen_misc=%d sizeof=%zd\n", socklen_misc, sizeof(sa_family_t));
 
     // make sure recvfrom() gives an unnamed socket
     assert(sun_misc.sun_family == AF_UNIX);
