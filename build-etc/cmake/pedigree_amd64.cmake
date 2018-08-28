@@ -1,14 +1,25 @@
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_VERSION 1)
 
-set(CMAKE_C_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-gcc)
-set(CMAKE_CXX_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-g++)
+# CMAKE_TRY_COMPILE_TARGET_TYPE is new in 3.6 and newer, so we need this little
+# song and dance to make sure older versions of cmake still work with this
+# toolchain file.
+if (${CMAKE_VERSION} VERSION_LESS 3.6.0)
+    include(CMakeForceCompiler)
+    cmake_force_c_compiler(${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-gcc GNU)
+    cmake_force_cxx_compiler(${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-g++ GNU)
+
+    set(CMAKE_OBJCOPY ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-objcopy)
+    set(CMAKE_STRIP ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-strip)
+else ()
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    set(CMAKE_C_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-gcc)
+    set(CMAKE_CXX_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-g++)
+endif ()
 
 set(CMAKE_SYSROOT "${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
 
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-
-set(CMAKE_FIND_ROOT_PATH ${CMAKE_SOURCE_DIR}/compilers/dir ${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree)
+set(CMAKE_FIND_ROOT_PATH ${CMAKE_SOURCE_DIR}/compilers/dir ${CMAKE_SOURCE_DIR}/compilers/dir/bin ${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree)
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

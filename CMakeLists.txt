@@ -6,6 +6,12 @@ SET(CMAKE_BUILD_TYPE_INIT Debug)
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
 
+if (NOT CMAKE_CXX_COMPILER_VERSION)
+    # TODO: keep this up to date with checkBuildSystemNoInteractive.pl
+    set(CMAKE_C_COMPILER_VERSION 6.3.0)
+    set(CMAKE_CXX_COMPILER_VERSION 6.3.0)
+endif ()
+
 include(CTest)
 enable_testing()
 
@@ -53,7 +59,9 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
     # All nasm on x86-based systems
     enable_language(ASM_NASM)
 
-    set(CMAKE_ASM_NASM_FLAGS ${CMAKE_ASM_NASM_FLAGS} "-felf64")
+    # Fix up nasm command line to not include a default like -f elf (so we can
+    # control the bitness of the nasm output)
+    set(CMAKE_ASM_NASM_COMPILE_OBJECT "<CMAKE_ASM_NASM_COMPILER> -felf64 -o <OBJECT> <SOURCE>")
 endif ()
 
 cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
