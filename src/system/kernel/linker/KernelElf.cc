@@ -687,15 +687,12 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
             g_BootProgressUpdate("moduleunload");
     }
 
-    NOTICE("A");
     if (module->exit)
         module->exit();
-    NOTICE("B");
 
 // Check for a destructors list and execute.
 // Note: static drivers have their ctors/dtors all shared.
 #ifndef STATIC_DRIVERS
-    NOTICE("C");
     uintptr_t startDtors = module->elf->lookupSymbol("start_dtors");
     uintptr_t endDtors = module->elf->lookupSymbol("end_dtors");
 
@@ -721,10 +718,8 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
             iterator++;
         }
     }
-    NOTICE("D");
 
     m_SymbolTable.eraseByElf(module->elf);
-    NOTICE("E");
 #endif
 
     if (progress)

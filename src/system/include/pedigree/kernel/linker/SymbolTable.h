@@ -151,13 +151,14 @@ class SymbolTable
     void insertShared(const String &name, SharedPointer<Symbol> &symbol);
 
     typedef HashTable<String, SharedPointer<Symbol>> symbolTree_t;
+    typedef Tree<Elf *, SharedPointer<symbolTree_t>> parentedSymbolTree_t;
 
     /** Get or insert a Symbol tree. */
-    SharedPointer<symbolTree_t> getOrInsertTree(Elf *);
+    SharedPointer<symbolTree_t> getOrInsertTree(Elf *, Binding table = Local);
 
-    Tree<Elf *, SharedPointer<symbolTree_t>> m_LocalSymbols;
-    symbolTree_t m_GlobalSymbols;
-    symbolTree_t m_WeakSymbols;
+    parentedSymbolTree_t m_LocalSymbols;
+    parentedSymbolTree_t m_GlobalSymbols;
+    parentedSymbolTree_t m_WeakSymbols;
 
     Elf *m_pOriginatingElf;
 
