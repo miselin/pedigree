@@ -266,6 +266,8 @@ void Spinlock::exit()
         // isn't available)
         panic("Spinlock has deadlocked");
     }
+
+    m_Ra = 0;
 }
 
 void Spinlock::release()
@@ -288,6 +290,7 @@ void Spinlock::unwind()
     m_bOwned = false;
     m_pOwner = 0;
     m_OwnedProcessor = ~0;
+    m_Ra = 0;
 }
 
 bool Spinlock::acquired()
