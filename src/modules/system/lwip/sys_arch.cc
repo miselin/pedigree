@@ -30,13 +30,15 @@
 #include <pedigree/kernel/utilities/RingBuffer.h>
 #include <pedigree/kernel/utilities/pocketknife.h>
 
-// errno for lwIP usage, this is not ideal as it'll be exposed to ALL modules.
-int errno;
 
 #ifdef UTILITY_LINUX
 #include <time.h>
+#include <errno.h>
 
 static Spinlock g_Protection(false);
+#else
+// errno for lwIP usage, this is not ideal as it'll be exposed to ALL modules.
+int errno;
 #endif
 
 struct pedigree_mbox
