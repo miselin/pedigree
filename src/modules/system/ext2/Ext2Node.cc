@@ -133,15 +133,21 @@ void Ext2Node::wipe()
 
 void Ext2Node::extend(size_t newSize)
 {
-    ensureLargeEnough(newSize);
+    ensureLargeEnough(newSize, 0, 0);
 }
 
-bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
+void Ext2Node::extend(size_t newSize, uint64_t location, uint64_t size)
+{
+    ensureLargeEnough(newSize, location, size);
+}
+
+bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks, bool nozeroblocks)
 {
     // The majority of times this is called, we won't need to allocate blocks.
     // So, we check for that early. Then, we can move on to actually allocating
     // blocks if that is necessary.
-    size_t currentMaxSize = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
+    size_t blockSize = m_pExt2Fs->m_BlockSize;
+    size_t currentMaxSize = m_Blocks.count() * blockSize;
     if (LIKELY(size <= currentMaxSize))
     {
         if (size > m_nSize && !onlyBlocks)
@@ -165,8 +171,8 @@ bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
     }
 
     size_t delta = size - currentMaxSize;
-    size_t deltaBlocks = delta / m_pExt2Fs->m_BlockSize;
-    if (delta % m_pExt2Fs->m_BlockSize)
+    size_t deltaBlocks = delta / blockSize;
+    if (delta % blockSize)
     {
         ++deltaBlocks;
     }
@@ -203,10 +209,31 @@ bool Ext2Node::ensureLargeEnough(size_t size, bool onlyBlocks)
             return false;
         }
 
-        // Load the block and zero it.
+        // Load the block
         uint8_t *pBuffer =
             reinterpret_cast<uint8_t *>(m_pExt2Fs->readBlock(block));
-        ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
+
+        // do we need to zero it?
+        bool zero = !nozeroblocks;
+        if (location || opsize)
+        {
+            uint64_t offset = block * blockSize;
+            if (offset >= location)
+            {
+                // block is within the range we've been given
+                size_t end = (block + 1) * blockSize;
+
+                if (end <= (location + opsize))
+                {
+                    zero = false;
+                }
+            }
+        }
+
+        if (zero)
+        {
+            ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
+        }
     }
 
     return true;

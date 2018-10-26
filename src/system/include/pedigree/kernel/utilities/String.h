@@ -38,6 +38,12 @@
 // helpful for removing copies that are not necessary.
 #define STRING_DISABLE_COPY_CONSTRUCTION 0
 
+// Disable just-in-time hashing on all string objects, which causes String
+// creation (including from substrings and copies) to be much slower, but can
+// avoid many re-hashes on const String objects that would otherwise be unable
+// to store the hash.
+#define STRING_DISABLE_JIT_HASHING 0
+
 /** String class for ASCII strings
  *\todo provide documentation */
 class EXPORTED_PUBLIC String
@@ -97,10 +103,14 @@ class EXPORTED_PUBLIC String
         return m_Size;
     }
 
-    uint32_t hash() const
-    {
-        return m_Hash;
-    }
+    /**
+     * Variant of hash() that might compute the hash if needed, but won't
+     * update the stored hash.
+     */
+    uint32_t hash() const;
+
+    /** Variant of hash() that computes the hash if needed. */
+    uint32_t hash();
 
     /** Given a character index, return the index of the next character,
        interpreting the string as UTF-8 encoded. */
@@ -184,6 +194,8 @@ class EXPORTED_PUBLIC String
     char *extract() const;
     /** Recompute internal hash. */
     void computeHash();
+    /** Recompute internal hash but don't store it. */
+    uint32_t computeHash() const;
     /** Move another string into this one. */
     void move(String &&other);
     /** Size of static string storage (over this threshold, the heap is used) */

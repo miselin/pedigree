@@ -43,9 +43,10 @@ class Ext2File : public File, public Ext2Node
     /** Destructor */
     virtual ~Ext2File();
 
-    virtual void preallocate(size_t expectedSize);
+    virtual void preallocate(size_t expectedSize, bool zero=true);
 
     virtual void extend(size_t newSize);
+    virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
     virtual void truncate();
 

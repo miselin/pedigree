@@ -51,8 +51,8 @@ class Ext2Filesystem : public Filesystem
     //
     virtual bool initialise(Disk *pDisk);
     static Filesystem *probe(Disk *pDisk);
-    virtual File *getRoot();
-    virtual String getVolumeLabel();
+    virtual File *getRoot() const;
+    virtual String getVolumeLabel() const;
 
   protected:
     virtual bool
@@ -139,6 +139,9 @@ class Ext2Filesystem : public Filesystem
 
     /** The root filesystem node. */
     File *m_pRoot;
+
+    /** Cached volume label. */
+    String m_VolumeLabel;
 };
 
 #endif

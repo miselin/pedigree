@@ -124,6 +124,23 @@ static void BM_Memory_WordSet(benchmark::State &state)
     delete[] buf;
 }
 
+static void BM_Memory_WordSetZero(benchmark::State &state)
+{
+    const int factor = 2;
+    char *buf = new char[state.range(0)];
+
+    while (state.KeepRunning())
+    {
+        WordSet(buf, 0, state.range(0) / factor);
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) *
+        int64_t((state.range(0) / factor) * factor));
+
+    delete[] buf;
+}
+
 static void BM_Memory_DoubleWordSet(benchmark::State &state)
 {
     const int factor = 4;
@@ -141,6 +158,23 @@ static void BM_Memory_DoubleWordSet(benchmark::State &state)
     delete[] buf;
 }
 
+static void BM_Memory_DoubleWordSetZero(benchmark::State &state)
+{
+    const int factor = 4;
+    char *buf = new char[state.range(0)];
+
+    while (state.KeepRunning())
+    {
+        DoubleWordSet(buf, 0, state.range(0) / factor);
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) *
+        int64_t((state.range(0) / factor) * factor));
+
+    delete[] buf;
+}
+
 static void BM_Memory_QuadWordSet(benchmark::State &state)
 {
     const int factor = 8;
@@ -149,6 +183,23 @@ static void BM_Memory_QuadWordSet(benchmark::State &state)
     while (state.KeepRunning())
     {
         QuadWordSet(buf, 0xAB, state.range(0) / factor);
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) *
+        int64_t((state.range(0) / factor) * factor));
+
+    delete[] buf;
+}
+
+static void BM_Memory_QuadWordSetZero(benchmark::State &state)
+{
+    const int factor = 8;
+    char *buf = new char[state.range(0)];
+
+    while (state.KeepRunning())
+    {
+        QuadWordSet(buf, 0, state.range(0) / factor);
     }
 
     state.SetBytesProcessed(
@@ -194,6 +245,9 @@ BENCHMARK(BM_Memory_ByteSet)->Range(8, 8 << 24);
 // Smaller ranges for somewhat lesser benchmarks.
 BENCHMARK(BM_Memory_ByteSetZero)->Range(8, 8 << 16);
 BENCHMARK(BM_Memory_WordSet)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_WordSetZero)->Range(8, 8 << 16);
 BENCHMARK(BM_Memory_DoubleWordSet)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_DoubleWordSetZero)->Range(8, 8 << 16);
 BENCHMARK(BM_Memory_QuadWordSet)->Range(8, 8 << 16);
+BENCHMARK(BM_Memory_QuadWordSetZero)->Range(8, 8 << 16);
 BENCHMARK(BM_Memory_MemoryCompare)->Range(8, 8 << 16);

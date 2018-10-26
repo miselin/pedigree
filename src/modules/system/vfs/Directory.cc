@@ -25,7 +25,7 @@
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
-template class HashTable<String, Directory::DirectoryEntry *>;
+template class HashTable<String, Directory::DirectoryEntry *, HashedStringView>;
 
 Directory::Directory() : File(), m_Cache(nullptr), m_bCachePopulated(false)
 {
@@ -54,7 +54,7 @@ Directory::~Directory()
 
 File *Directory::getChild(size_t n)
 {
-    if (!m_bCachePopulated)
+    if (UNLIKELY(!m_bCachePopulated))
     {
         cacheDirectoryContents();
         m_bCachePopulated = true;
@@ -73,7 +73,7 @@ File *Directory::getChild(size_t n)
 
 size_t Directory::getNumChildren()
 {
-    if (!m_bCachePopulated)
+    if (UNLIKELY(!m_bCachePopulated))
     {
         cacheDirectoryContents();
         m_bCachePopulated = true;
@@ -86,25 +86,20 @@ void Directory::cacheDirectoryContents()
 {
 }
 
-File *Directory::lookup(const StringView &s) const
+File *Directory::lookup(const HashedStringView &s) const
 {
-    if (!m_bCachePopulated)
+    if (LIKELY(m_bCachePopulated))
     {
-        return 0;
+        DirectoryEntryCache::LookupResult result = m_Cache.lookup(s);
+        if (result.hasValue())
+        {
+            return result.value()->get();
+        }
     }
-
-    DirectoryEntryCache::LookupResult result = m_Cache.lookup(s);
-    if (result.hasValue())
-    {
-        return result.value()->get();
-    }
-    else
-    {
-        return nullptr;
-    }
+    return nullptr;
 }
 
-void Directory::remove(const StringView &s)
+void Directory::remove(const HashedStringView &s)
 {
     DirectoryEntryCache::LookupResult result = m_Cache.lookup(s);
     if (result.hasValue())
@@ -163,7 +158,7 @@ void Directory::setReparsePoint(Directory *pTarget)
 
 bool Directory::addEphemeralFile(File *pFile)
 {
-    if (!m_bCachePopulated)
+    if (UNLIKELY(!m_bCachePopulated))
     {
         cacheDirectoryContents();
         m_bCachePopulated = true;

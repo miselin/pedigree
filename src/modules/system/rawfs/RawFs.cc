@@ -45,7 +45,7 @@ RawFs::~RawFs()
         delete m_pRoot;
 }
 
-File *RawFs::getRoot()
+File *RawFs::getRoot() const
 {
     return m_pRoot;
 }

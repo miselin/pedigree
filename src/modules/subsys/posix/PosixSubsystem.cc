@@ -991,6 +991,8 @@ bool PosixSubsystem::loadElf(
     File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress,
     uintptr_t &finalAddress, bool &relocated)
 {
+    PS_NOTICE("PosixSubsystem::loadElf(" << pFile->getName() << ")");
+
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
 
@@ -1354,22 +1356,49 @@ static File *traverseForInvoke(File *pFile)
 }
 
 bool PosixSubsystem::invoke(
-    const char *name, Vector<String> &argv, Vector<String> &env,
-    SyscallState *state)
+        const char *name, Vector<String> &argv, Vector<String> &env,
+        SyscallState *state)
 {
+    // Save the original name before we trash the old stack.
+    String originalName(name);
+
+    // Try and find the target file we want to invoke.
+    File *originalFile = findFileWithAbiFallbacks(originalName);
+    if (!originalFile)
+    {
+        PS_NOTICE(
+            "PosixSubsystem::invoke: could not find file '" << originalName << "'");
+        SYSCALL_ERROR(DoesNotExist);
+        return false;
+    }
+
+    return invoke(originalFile, originalName, argv, env, state);
+}
+
+bool PosixSubsystem::invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env)
+{
+    return invoke(originalFile, originalName, argv, env, 0);
+}
+
+bool PosixSubsystem::invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env, SyscallState &state)
+{
+    return invoke(originalFile, originalName, argv, env, &state);
+}
+
+bool PosixSubsystem::invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env, SyscallState *state)
+{
+    PS_NOTICE("PosixSubsystem::invoke(" << originalName << ")");
+
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
         reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-
-#ifdef POSIX_VERBOSE_SUBSYSTEM
-    PS_NOTICE("PosixSubsystem::invoke(" << name << ")");
-#else
-    // smaller message that always shows up to make tracking progress in logs
-    // easier, but without all the extra bits that come with more verbose
-    // notices (like pids, thread ids, etc).
-    NOTICE("invoke: " << name << " [pid=" << pProcess->getId() << "]");
-#endif
 
     // Grab the thread we're going to return into - need to tweak it.
     Thread *pThread = pProcess->getThread(0);
@@ -1378,19 +1407,7 @@ bool PosixSubsystem::invoke(
     if (pProcess->getNumThreads() > 1)
     {
         /// \todo actually we are supposed to kill them all here
-        return false;
-    }
-
-    // Save the original name before we trash the old stack.
-    String originalName(name);
-
-    // Try and find the target file we want to invoke.
-    File *originalFile = findFileWithAbiFallbacks(String(name));
-    if (!originalFile)
-    {
-        PS_NOTICE(
-            "PosixSubsystem::invoke: could not find file '" << name << "'");
-        SYSCALL_ERROR(DoesNotExist);
+        PS_NOTICE("invoke attempted with multiple threads in this process");
         return false;
     }
 
@@ -1410,14 +1427,14 @@ bool PosixSubsystem::invoke(
     {
         PS_NOTICE(
             "PosixSubsystem::invoke: '"
-            << name << "' is not an ELF binary, looking for shebang...");
+            << originalFile->getName() << "' is not an ELF binary, looking for shebang...");
 
         File *shebangFile = 0;
         if (!parseShebang(originalFile, shebangFile, argv))
         {
             PS_NOTICE(
                 "PosixSubsystem::invoke: failed to parse shebang line in '"
-                << name << "'");
+                << originalFile->getName() << "'");
             return false;
         }
 
@@ -1671,7 +1688,7 @@ bool PosixSubsystem::invoke(
     STACK_PUSH_STRING(loaderStack, "x86_64", 7);
     void *platform = loaderStack;
 
-    STACK_PUSH_STRING(loaderStack, name, originalName.length() + 1);
+    STACK_PUSH_STRING(loaderStack, originalName, originalName.length() + 1);
     void *execfn = loaderStack;
 
     // Align to 16 bytes to prepare for the auxv entries

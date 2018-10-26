@@ -23,18 +23,25 @@
 #include <string.h>
 #include <time.h>
 
+#include <memory>
+
 #include <benchmark/benchmark.h>
+#include <valgrind/callgrind.h>
 
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
 
-#define DEEP_PATH "ramfs»/foo/foo/foo/foo"
-#define SHALLOW_PATH "ramfs»/"
-#define MIDDLE_PATH "ramfs»/foo/foo"
+static String g_DeepPath("ramfs»/foo/foo/foo/foo");
+static String g_ShallowPath("ramfs»/");
+static String g_MiddlePath("ramfs»/foo/foo");
+static String g_DeepPathNoFs("/foo/foo/foo/foo");
+static String g_ShallowPathNoFs("/");
+static String g_MiddlePathNoFs("/foo/foo");
+static String g_Alias("ramfs");
 
 // A huge pile of paths to add to the filesystem for testing.
 // Also used for randomly hitting the filesystem with lookups.
-static const char *paths[] = {
+static String paths[] = {
     "ramfs»/foo",
     "ramfs»/bar",
     "ramfs»/baz",
@@ -810,75 +817,166 @@ static const char *randomPath()
     return paths[rand() % (sizeof(paths) / sizeof(paths[0]))];
 }
 
-static void prepareVFS(VFS &vfs)
+static std::unique_ptr<RamFs> prepareVFS(VFS &vfs)
 {
     srand(time(0));
 
-    RamFs *ramfs = new RamFs();
+    std::unique_ptr<RamFs> ramfs = std::make_unique<RamFs>();
     ramfs->initialise(nullptr);
 
-    vfs.addAlias(ramfs, String("ramfs"));
+    vfs.addAlias(ramfs.get(), g_Alias);
 
     // Add a bunch of directories for lookups
     for (auto p : paths)
     {
         vfs.createDirectory(p, 0777);
     }
+
+    return ramfs;
 }
 
 static void BM_VFSShallowDirectoryTraverse(benchmark::State &state)
 {
     VFS vfs;
-    prepareVFS(vfs);
+    auto ramfs = prepareVFS(vfs);
 
+    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(vfs.find(SHALLOW_PATH));
+        benchmark::DoNotOptimize(vfs.find(g_ShallowPath));
     }
+    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
 }
 
 static void BM_VFSMediumDirectoryTraverse(benchmark::State &state)
 {
     VFS vfs;
-    prepareVFS(vfs);
+    auto ramfs = prepareVFS(vfs);
 
+    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(vfs.find(MIDDLE_PATH));
+        benchmark::DoNotOptimize(vfs.find(g_MiddlePath));
     }
+    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
 }
 
 static void BM_VFSDeepDirectoryTraverse(benchmark::State &state)
 {
     VFS vfs;
-    prepareVFS(vfs);
+    auto ramfs = prepareVFS(vfs);
 
+    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(vfs.find(DEEP_PATH));
+        benchmark::DoNotOptimize(vfs.find(g_DeepPath));
     }
+    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
 }
 
 static void BM_VFSRandomDirectoryTraverse(benchmark::State &state)
 {
     VFS vfs;
-    prepareVFS(vfs);
+    auto ramfs = prepareVFS(vfs);
 
+    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(randomPath()));
     }
+    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
+}
+
+static void BM_VFSShallowDirectoryTraverseNoFs(benchmark::State &state)
+{
+    VFS vfs;
+    auto ramfs = prepareVFS(vfs);
+
+    CALLGRIND_START_INSTRUMENTATION;
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(vfs.find(g_ShallowPathNoFs, ramfs->getRoot()));
+    }
+    CALLGRIND_STOP_INSTRUMENTATION;
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
+}
+
+static void BM_VFSMediumDirectoryTraverseNoFs(benchmark::State &state)
+{
+    VFS vfs;
+    auto ramfs = prepareVFS(vfs);
+
+    CALLGRIND_START_INSTRUMENTATION;
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(vfs.find(g_MiddlePathNoFs, ramfs->getRoot()));
+    }
+    CALLGRIND_STOP_INSTRUMENTATION;
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
+}
+
+static void BM_VFSDeepDirectoryTraverseNoFs(benchmark::State &state)
+{
+    VFS vfs;
+    auto ramfs = prepareVFS(vfs);
+
+    CALLGRIND_START_INSTRUMENTATION;
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(vfs.find(g_DeepPathNoFs, ramfs->getRoot()));
+    }
+    CALLGRIND_STOP_INSTRUMENTATION;
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
+}
+
+static void BM_VFSRandomDirectoryTraverseNoFs(benchmark::State &state)
+{
+    VFS vfs;
+    auto ramfs = prepareVFS(vfs);
+
+    CALLGRIND_START_INSTRUMENTATION;
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(vfs.find(randomPath() + 7, ramfs->getRoot()));
+    }
+    CALLGRIND_STOP_INSTRUMENTATION;
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+
+    vfs.removeAllAliases(ramfs.get(), false);
 }
 
 BENCHMARK(BM_VFSDeepDirectoryTraverse);
 BENCHMARK(BM_VFSMediumDirectoryTraverse);
 BENCHMARK(BM_VFSShallowDirectoryTraverse);
 BENCHMARK(BM_VFSRandomDirectoryTraverse);
+
+BENCHMARK(BM_VFSDeepDirectoryTraverseNoFs);
+BENCHMARK(BM_VFSMediumDirectoryTraverseNoFs);
+BENCHMARK(BM_VFSShallowDirectoryTraverseNoFs);
+BENCHMARK(BM_VFSRandomDirectoryTraverseNoFs);

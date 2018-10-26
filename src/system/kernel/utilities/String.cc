@@ -126,7 +126,10 @@ String &String::operator+=(const String &x)
     // Copy!
     MemoryCopy(&dst[m_Length], src, x.length() + 1);
     m_Length += x.length();
+    m_Hash = 0;  // hash is no longer valid
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
     return *this;
 }
 
@@ -156,7 +159,10 @@ String &String::operator+=(const char *s)
     }
 
     m_Length += slen;
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
     return *this;
 }
 
@@ -166,7 +172,7 @@ bool String::operator==(const String &s) const
     {
         return false;
     }
-    else if (m_Hash != s.m_Hash)
+    else if (m_Hash && (m_Hash != s.hash()))
     {
         // precomputed hash didn't match, don't bother
         return false;
@@ -176,7 +182,7 @@ bool String::operator==(const String &s) const
     const char *other_buf = s.extract();
 
     // Neither of these can be null because of the above conditions.
-    return !StringCompareN(buf, other_buf, m_Length + 1);
+    return !StringMatchN(buf, other_buf, m_Length + 1);
 }
 
 bool String::operator==(const StringView &s) const
@@ -205,8 +211,28 @@ bool String::operator==(const char *s) const
     }
     else
     {
-        return StringCompareN(buf, s, m_Length + 1) == 0;
+        return StringMatchN(buf, s, m_Length + 1) == 0;
     }
+}
+
+uint32_t String::hash() const
+{
+    if (!m_Hash)
+    {
+        return computeHash();
+    }
+
+    return m_Hash;
+}
+
+uint32_t String::hash()
+{
+    if (!m_Hash)
+    {
+        computeHash();
+    }
+
+    return m_Hash;
 }
 
 size_t String::nextCharacter(size_t c) const
@@ -328,7 +354,10 @@ void String::assign(const char *s, size_t len, bool unsafe)
     }
 #endif
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 void String::reserve(size_t size)
@@ -422,7 +451,10 @@ void String::split(size_t offset, String &back)
 
     buf[m_Length] = 0;
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 void String::strip()
@@ -460,7 +492,10 @@ void String::lstrip()
         m_Data = 0;
     }
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 void String::rstrip()
@@ -492,7 +527,10 @@ void String::rstrip()
         m_Data = 0;
     }
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 Vector<String> String::tokenise(char token)
@@ -613,7 +651,10 @@ void String::lchomp()
         m_Data = 0;
     }
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 void String::chomp()
@@ -635,7 +676,10 @@ void String::chomp()
         m_Data = 0;
     }
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 void String::Format(const char *fmt, ...)
@@ -657,7 +701,10 @@ void String::Format(const char *fmt, ...)
         m_Data = 0;
     }
 
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
     computeHash();
+#endif
 }
 
 bool String::endswith(const char c) const
@@ -803,11 +850,23 @@ void String::computeHash()
 {
     if (m_Length)
     {
-        m_Hash = jenkinsHash(extract(), m_Length);
+        m_Hash = spookyHash(extract(), m_Length);
     }
     else
     {
         m_Hash = 0;
+    }
+}
+
+uint32_t String::computeHash() const
+{
+    if (m_Length)
+    {
+        return spookyHash(extract(), m_Length);
+    }
+    else
+    {
+        return 0;
     }
 }
 
@@ -820,5 +879,6 @@ String String::copy() const
 
 StringView String::view() const
 {
-    return StringView(extract(), m_Length, m_Hash);
+    // hash already calculated, enable hashing
+    return StringView(extract(), m_Length, m_Hash, true);
 }

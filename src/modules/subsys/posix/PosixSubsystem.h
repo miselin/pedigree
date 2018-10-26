@@ -494,6 +494,16 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         const char *name, Vector<String> &argv, Vector<String> &env,
         SyscallState &state);
 
+    /** Invokes the given file (thread mechanism). */
+    virtual bool invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env);
+
+    /** Invokes the given file (SyscallState mechanism). */
+    virtual bool invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env, SyscallState &state);
+
     virtual File *findFile(const String &path, File *workingDir);
 
     /** Retrieves the currently-active ABI for the subsystem. */
@@ -516,10 +526,14 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress,
         uintptr_t &finalAddress, bool &relocated);
 
-    /** Invokes the given command - actual implementation. */
     bool invoke(
         const char *name, Vector<String> &argv, Vector<String> &env,
-        SyscallState *pState);
+        SyscallState *state);
+
+    /** Invokes the given command - actual implementation. */
+    bool invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env, SyscallState *state);
 
     /** Parse a file for a possible shebang line. */
     bool parseShebang(File *pFile, File *&outFile, Vector<String> &argv);

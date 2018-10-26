@@ -200,11 +200,11 @@ class ProcFs : public Filesystem
 
     virtual bool initialise(Disk *pDisk);
 
-    virtual File *getRoot()
+    virtual File *getRoot() const
     {
         return m_pRoot;
     }
-    virtual String getVolumeLabel()
+    virtual String getVolumeLabel() const
     {
         return String("proc");
     }

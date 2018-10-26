@@ -149,6 +149,52 @@ static void BM_StringCompareN(benchmark::State &state)
     delete[] buf1;
 }
 
+static void BM_StringMatch(benchmark::State &state)
+{
+    char *buf1 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    buf1[state.range(0) - 1] = '\0';
+    char *buf2 = new char[state.range(0)];
+    memset(buf2, 'a', state.range(0));
+    buf2[state.range(0) - 1] = '\0';
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(StringMatch(buf1, buf2));
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+
+    delete[] buf2;
+    delete[] buf1;
+}
+
+static void BM_StringMatchN(benchmark::State &state)
+{
+    char *buf1 = new char[state.range(0)];
+    memset(buf1, 'a', state.range(0));
+    buf1[state.range(0) - 1] = '\0';
+    char *buf2 = new char[state.range(0)];
+    memset(buf2, 'a', state.range(0));
+    buf2[state.range(0) - 1] = '\0';
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(StringMatchN(buf1, buf2, state.range(0)));
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+
+    delete[] buf2;
+    delete[] buf1;
+}
+
 static void BM_StringCompareCaseSensitive(benchmark::State &state)
 {
     char *buf1 = new char[state.range(0)];
@@ -266,14 +312,68 @@ static void BM_StringConcat(benchmark::State &state)
     delete [] buf2;
 }
 
+static void BM_StringNextCharacterASCII(benchmark::State &state)
+{
+    const char *s = "hello";
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(nextCharacter(s, 1));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_StringNextCharacter2byte(benchmark::State &state)
+{
+    const char *s = "h»b";
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(nextCharacter(s, 1));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_StringNextCharacter3byte(benchmark::State &state)
+{
+    const char *s = "h€b";
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(nextCharacter(s, 1));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_StringNextCharacter4byte(benchmark::State &state)
+{
+    const char *s = "h𐍈b";
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(nextCharacter(s, 1));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
 BENCHMARK(BM_StringLength)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringLengthConstant);
 BENCHMARK(BM_StringCopy)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringCopyN)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringCompare)->Range(8, 8 << 16)->Complexity();
-BENCHMARK(BM_StringCompareCaseSensitive)->Range(8, 8 << 16)->Complexity();
-BENCHMARK(BM_StringCompareCaseInsensitive)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringCompareN)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringMatch)->Range(8, 8 << 16)->Complexity();
+BENCHMARK(BM_StringMatchN)->Range(8, 8 << 16)->Complexity();
+//BENCHMARK(BM_StringCompareCaseSensitive)->Range(8, 8 << 16)->Complexity();
+//BENCHMARK(BM_StringCompareCaseInsensitive)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringFind)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringReverseFind)->Range(8, 8 << 16)->Complexity();
 BENCHMARK(BM_StringConcat)->Range(8, 8 << 16);
+BENCHMARK(BM_StringNextCharacterASCII);
+BENCHMARK(BM_StringNextCharacter2byte);
+BENCHMARK(BM_StringNextCharacter3byte);
+BENCHMARK(BM_StringNextCharacter4byte);

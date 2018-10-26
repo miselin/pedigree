@@ -152,6 +152,16 @@ class EXPORTED_PUBLIC Subsystem
         const char *name, Vector<String> &argv, Vector<String> &env,
         SyscallState &state) = 0;
 
+    /** Invokes the given file (thread mechanism). */
+    virtual bool invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env) = 0;
+
+    /** Invokes the given file (SyscallState mechanism). */
+    virtual bool invoke(
+        File *originalFile, const String &originalName, Vector<String> &argv,
+        Vector<String> &env, SyscallState &state) = 0;
+
     /** Finds a file, performing any subsystem-specific logic as needed. */
     virtual File *findFile(const String &path, File *workingDir) = 0;
 

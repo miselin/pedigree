@@ -51,8 +51,8 @@ class FatFilesystem : public Filesystem
 
     virtual bool initialise(Disk *pDisk);
     static Filesystem *probe(Disk *pDisk);
-    virtual File *getRoot();
-    virtual String getVolumeLabel();
+    virtual File *getRoot() const;
+    virtual String getVolumeLabel() const;
     virtual uint64_t read(
         File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
@@ -76,8 +76,12 @@ class FatFilesystem : public Filesystem
     FatFilesystem(const FatFilesystem &);
     void operator=(const FatFilesystem &);
 
+    void loadRootDir();
+
+    void cacheVolumeLabel();
+
     /** Reads a cluster from the disk. */
-    bool readCluster(uint32_t block, uintptr_t buffer);
+    bool readCluster(uint32_t block, uintptr_t buffer) const;
 
     /** Writes a cluster to the disk. */
     bool writeCluster(uint32_t block, uintptr_t buffer);
@@ -86,10 +90,10 @@ class FatFilesystem : public Filesystem
     bool writeSectorBlock(uint32_t sec, size_t size, uintptr_t buffer);
 
     /** Writes a block starting from a specific sector to the disk. */
-    bool readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer);
+    bool readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) const;
 
     /** Obtains the first sector given a cluster number */
-    uint32_t getSectorNumber(uint32_t cluster);
+    uint32_t getSectorNumber(uint32_t cluster) const;
 
     /** Grabs a cluster entry - bLock determines if this should enforce locking
      * internally or allow the caller to ensure the FAT is locked. */
@@ -101,10 +105,10 @@ class FatFilesystem : public Filesystem
     setClusterEntry(uint32_t cluster, uint32_t value, bool bLock = true);
 
     /** Converts a string to 8.3 format */
-    String convertFilenameTo(String filename);
+    String convertFilenameTo(String filename) const;
 
     /** Converts a string from 8.3 format */
-    String convertFilenameFrom(String filename);
+    String convertFilenameFrom(String filename) const;
 
     /** Finds a free cluster - bLock determines if we should enforce locking,
      * defaults to false because findFreeCluster is generally called within a
@@ -119,7 +123,7 @@ class FatFilesystem : public Filesystem
 
     /** Reads part of a directory into a buffer, returns the allocated buffer
      * (which needs to be freed */
-    void *readDirectoryPortion(uint32_t clus);
+    void *readDirectoryPortion(uint32_t clus) const;
 
     /** Writes part of a directory from a buffer */
     void writeDirectoryPortion(uint32_t clus, void *p);
@@ -130,19 +134,19 @@ class FatFilesystem : public Filesystem
         bool bDirectory = false, uint32_t dirClus = 0);
 
     /** Reads a directory entry from disk */
-    Dir *getDirectoryEntry(uint32_t clus, uint32_t offset);
+    Dir *getDirectoryEntry(uint32_t clus, uint32_t offset) const;
 
     /** Writes a directry entry to disk */
     void writeDirectoryEntry(Dir *dir, uint32_t clus, uint32_t offset);
 
     /** Is a given cluster *VALUE* EOF? */
-    inline bool isEof(uint32_t cluster)
+    bool isEof(uint32_t cluster) const
     {
         return (cluster >= eofValue());
     }
 
     /** EOF values */
-    inline uint32_t eofValue()
+    uint32_t eofValue() const
     {
         if (m_Type == FAT12)
             return 0x0FF8;
@@ -154,7 +158,7 @@ class FatFilesystem : public Filesystem
     }
 
     /** Gets a UNIX timestamp from a FAT date/time */
-    inline Time::Timestamp getUnixTimestamp(uint16_t time, uint16_t date)
+    Time::Timestamp getUnixTimestamp(uint16_t time, uint16_t date) const
     {
         // struct version of the passed parameters
         Timestamp *sTime = reinterpret_cast<Timestamp *>(&time);
@@ -206,7 +210,7 @@ class FatFilesystem : public Filesystem
     }
 
     /** Gets a FAT date from a UNIX timestamp */
-    inline uint16_t getFatDate(Time::Timestamp timestamp)
+    uint16_t getFatDate(Time::Timestamp timestamp) const
     {
         /** \todo Write */
         return 0;
@@ -257,6 +261,9 @@ class FatFilesystem : public Filesystem
      * time someone wants a free cluster (on non-FAT32 volumes).
      */
     uint32_t m_FreeClusterHint;
+
+    /** Cached volume label for the filesystem. */
+    String m_VolumeLabel;
 };
 
 #endif

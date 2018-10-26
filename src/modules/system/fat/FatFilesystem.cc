@@ -239,8 +239,13 @@ Filesystem *FatFilesystem::probe(Disk *pDisk)
     }
 }
 
-File *FatFilesystem::getRoot()
+void FatFilesystem::loadRootDir()
 {
+    if (m_pRoot)
+    {
+        return;
+    }
+
     // needs to return a file referring to the root directory
     uint32_t cluster = 0;
     if (m_Type == FAT32)
@@ -249,13 +254,15 @@ File *FatFilesystem::getRoot()
     FatFileInfo info;
     info.creationTime = info.modifiedTime = info.accessedTime = 0;
 
-    if (!m_pRoot)
-        m_pRoot = new FatDirectory(String(""), cluster, this, 0, info);
+    m_pRoot = new FatDirectory(String(""), cluster, this, 0, info);
+}
 
+File *FatFilesystem::getRoot() const
+{
     return m_pRoot;
 }
 
-String FatFilesystem::getVolumeLabel()
+void FatFilesystem::cacheVolumeLabel()
 {
     // The root directory (typically) contains the volume label, with a specific
     // flag In my experience, it's always the first entry, and it's always
@@ -292,7 +299,8 @@ String FatFilesystem::getVolumeLabel()
                 volid = convertFilenameFrom(
                     String(reinterpret_cast<const char *>(ent->DIR_Name)));
                 delete[] buffer;
-                return volid;
+                m_VolumeLabel = volid;
+                return;
             }
         }
 
@@ -321,7 +329,12 @@ String FatFilesystem::getVolumeLabel()
     NormalStaticString str;
     str += "no-volume-label@";
     str.append(reinterpret_cast<uintptr_t>(this), 16);
-    return String(static_cast<const char *>(str));
+    m_VolumeLabel.assign(str, str.length(), true);
+}
+
+String FatFilesystem::getVolumeLabel() const
+{
+    return m_VolumeLabel;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -716,7 +729,7 @@ void FatFilesystem::setCluster(File *pFile, uint32_t clus)
     delete p;
 }
 
-void *FatFilesystem::readDirectoryPortion(uint32_t clus)
+void *FatFilesystem::readDirectoryPortion(uint32_t clus) const
 {
     uint32_t dirClus = clus;
     uint8_t *dirBuffer = 0;
@@ -767,7 +780,7 @@ void FatFilesystem::writeDirectoryPortion(uint32_t clus, void *p)
         writeCluster(clus, reinterpret_cast<uintptr_t>(p));
 }
 
-Dir *FatFilesystem::getDirectoryEntry(uint32_t clus, uint32_t offset)
+Dir *FatFilesystem::getDirectoryEntry(uint32_t clus, uint32_t offset) const
 {
     uint8_t *dirBuffer =
         reinterpret_cast<uint8_t *>(readDirectoryPortion(clus));
@@ -812,14 +825,14 @@ void FatFilesystem::cacheDirectoryContents(File *pFile)
 {
 }
 
-bool FatFilesystem::readCluster(uint32_t block, uintptr_t buffer)
+bool FatFilesystem::readCluster(uint32_t block, uintptr_t buffer) const
 {
     block = getSectorNumber(block);
     readSectorBlock(block, m_BlockSize, buffer);
     return true;
 }
 
-bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer)
+bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) const
 {
     if (!buffer)
     {
@@ -883,7 +896,7 @@ bool FatFilesystem::writeSectorBlock(
     return true;
 }
 
-uint32_t FatFilesystem::getSectorNumber(uint32_t cluster)
+uint32_t FatFilesystem::getSectorNumber(uint32_t cluster) const
 {
     return ((cluster - 2) * m_Superblock.BPB_SecPerClus) + m_DataAreaStart;
 }
@@ -1130,7 +1143,7 @@ FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock)
     return setEnt;
 }
 
-String FatFilesystem::convertFilenameTo(String fn)
+String FatFilesystem::convertFilenameTo(String fn) const
 {
     // Special dot & dotdot handling. Because periods are eaten by the
     // algorithm, we need to ensure that the dot and dotdot entries are returned
@@ -1226,7 +1239,7 @@ String FatFilesystem::convertFilenameTo(String fn)
     return String(static_cast<const char *>(filename));
 }
 
-String FatFilesystem::convertFilenameFrom(String filename)
+String FatFilesystem::convertFilenameFrom(String filename) const
 {
     static NormalStaticString ret;
     ret.clear();

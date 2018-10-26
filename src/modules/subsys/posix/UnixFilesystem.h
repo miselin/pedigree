@@ -51,14 +51,14 @@ class UnixFilesystem : public Filesystem
         return false;
     }
 
-    virtual File *getRoot()
+    virtual File *getRoot() const
     {
         return m_pRoot;
     }
 
-    virtual String getVolumeLabel()
+    virtual String getVolumeLabel() const
     {
-        return String("unix");
+        return m_VolumeLabel;
     }
 
     virtual void truncate(File *pFile)
@@ -96,6 +96,8 @@ class UnixFilesystem : public Filesystem
 
   private:
     File *m_pRoot;
+
+    static String m_VolumeLabel;
 
     virtual bool isBytewise() const
     {

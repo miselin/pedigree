@@ -50,12 +50,19 @@ File *Filesystem::getTrueRoot()
     return getRoot();
 }
 
+File *Filesystem::find(const StringView &path)
+{
+    return findNode(getTrueRoot(), path);
+}
+
+File *Filesystem::find(const String &path)
+{
+    return findNode(getTrueRoot(), path.view());
+}
+
 File *Filesystem::find(const StringView &path, File *pStartNode)
 {
-    if (!pStartNode)
-    {
-        pStartNode = getTrueRoot();
-    }
+    assert(pStartNode != nullptr);
     File *a = findNode(pStartNode, path);
     return a;
 }
@@ -308,13 +315,13 @@ bool Filesystem::remove(const StringView &path, File *pStartNode)
 
 File *Filesystem::findNode(File *pNode, StringView path)
 {
-    if (path.length() == 0)
+    if (UNLIKELY(path.length() == 0))
     {
         return pNode;
     }
 
     // If the pathname has a leading slash, cd to root and remove it.
-    if (path[0] == '/')
+    else if (path[0] == '/')
     {
         pNode = getTrueRoot();
         path = path.substring(1, path.length());
@@ -324,7 +331,9 @@ File *Filesystem::findNode(File *pNode, StringView path)
     size_t i = 0;
     size_t nExtra = 0;
     while ((i < path.length()) && path[i] != '/')
+    {
         i = path.nextCharacter(i);
+    }
     while (i < path.length())
     {
         size_t n = path.nextCharacter(i);
@@ -332,13 +341,15 @@ File *Filesystem::findNode(File *pNode, StringView path)
         {
             break;
         }
-        if (path[n] == '/')
+        else if (path[n] == '/')
         {
             i = n;
             ++nExtra;
         }
         else
+        {
             break;
+        }
     }
 
     StringView currentComponent = path.substring(0, i - nExtra);
@@ -350,12 +361,16 @@ File *Filesystem::findNode(File *pNode, StringView path)
 
     // If 'path' is zero-lengthed, ignore and recurse.
     if (currentComponent.length() == 0)
+    {
         return findNode(pNode, restOfPath);
+    }
 
     // Firstly, if the current node is a symlink, follow it.
     /// \todo do we need to do permissions checks at each intermediate step?
     while (pNode->isSymlink())
+    {
         pNode = Symlink::fromFile(pNode)->followLink();
+    }
 
     // Next, if the current node isn't a directory, die.
     if (!pNode->isDirectory())

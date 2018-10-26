@@ -46,8 +46,8 @@ class RawFs : public Filesystem
     {
         return 0;
     }
-    virtual File *getRoot();
-    virtual String getVolumeLabel()
+    virtual File *getRoot() const;
+    virtual String getVolumeLabel() const
     {
         return String("RawFs");
     }

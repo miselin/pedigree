@@ -166,7 +166,7 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 
         if (buffer)
         {
-            MemoryCopy(
+            ForwardMemoryCopy(
                 reinterpret_cast<void *>(buffer),
                 reinterpret_cast<void *>(buff + offs), sz);
             buffer += sz;
@@ -189,10 +189,19 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         return writeBytewise(location, size, buffer, bCanBlock);
     }
 
-    // Extend the file before writing it if needed.
-    extend(location + size);
-
     const size_t blockSize = getBlockSize();
+
+    bool isEntireBlock = false;
+    if ((location % blockSize) == 0)
+    {
+        if ((size % blockSize) == 0)
+        {
+            isEntireBlock = true;
+        }
+    }
+
+    // Extend the file before writing it if needed.
+    extend(location + size, location, size);
 
     size_t n = 0;
     while (size)
@@ -209,7 +218,7 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
             return n;
         }
 
-        MemoryCopy(
+        ForwardMemoryCopy(
             reinterpret_cast<void *>(buff + offs),
             reinterpret_cast<void *>(buffer), sz);
 
@@ -552,7 +561,7 @@ void File::disableDirect()
     m_bDirect = false;
 }
 
-void File::preallocate(size_t expectedSize)
+void File::preallocate(size_t expectedSize, bool zero)
 {
 }
 
@@ -607,6 +616,11 @@ void File::extend(size_t newSize)
 {
     if (m_Size < newSize)
         m_Size = newSize;
+}
+
+void File::extend(size_t newSize, uint64_t location, uint64_t size)
+{
+    extend(newSize);
 }
 
 void File::pinBlock(uint64_t location)
@@ -836,7 +850,7 @@ uintptr_t File::readIntoCache(uintptr_t block)
         {
             uintptr_t blockAddr = readBlock(offset + i);
             /// \todo handle readBlock failing here
-            MemoryCopy(
+            ForwardMemoryCopy(
                 reinterpret_cast<void *>(vaddr),
                 reinterpret_cast<void *>(blockAddr), blockSize);
         }

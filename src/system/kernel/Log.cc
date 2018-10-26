@@ -37,6 +37,9 @@ extern BootstrapStruct_t *g_pBootstrapInfo;
 /** Maximum number of repeated log messages to de-dupe. */
 #define LOG_MAX_DEDUPE_MESSAGES     20
 
+/** Show log timestamps in nanoseconds. */
+#define LOG_TIMESTAMPS_IN_NANOS     0
+
 Log Log::m_Instance;
 EXPORTED_PUBLIC BootProgressUpdateFn g_BootProgressUpdate = 0;
 EXPORTED_PUBLIC size_t g_BootProgressTotal = 0;
@@ -421,7 +424,7 @@ void Log::flushEntry(bool lock)
 
 #ifdef THREADS
                     // this thread is spammy, let something else run for a bit
-                    Scheduler::instance().yield();
+                    //Scheduler::instance().yield();
 #endif
                     return;
                 }
@@ -503,7 +506,14 @@ void Log::disableTimestamps()
 
 const NormalStaticString &Log::getTimestamp()
 {
-    Time::Timestamp t = Time::getTime();
+    Time::Timestamp tn = Time::getTimeNanoseconds();
+    Time::Timestamp ts = Time::getTime();
+    Time::Timestamp t;
+#if LOG_TIMESTAMPS_IN_NANOS
+    t = tn;
+#else
+    t = ts;
+#endif
     if (t == m_LastTime)
     {
         return m_CachedTimestamp;

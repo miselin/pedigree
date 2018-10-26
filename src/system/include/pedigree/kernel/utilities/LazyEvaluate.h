@@ -86,7 +86,11 @@ class LazyEvaluate
 
     T *get()
     {
-        if (m_Ok && !active())
+        if (active())
+        {
+            return m_Field;
+        }
+        else if (m_Ok)
         {
             m_Field = create(m_Metadata);
         }

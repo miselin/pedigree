@@ -2,6 +2,7 @@
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
 SET(CMAKE_BUILD_TYPE_INIT Debug)
+set (CMAKE_CXX_STANDARD 14)
 
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
@@ -28,6 +29,7 @@ set(CMAKE_SKIP_RPATH TRUE)
 # Flags that affect the entire build.
 set(PEDIGREE_DEBUGGER TRUE CACHE BOOL "Enable the kernel debugger.")
 set(PEDIGREE_ADDITIONAL_CHECKS TRUE CACHE BOOL "Enable additional checks on some operations across the kernel.")
+set(PEDIGREE_EXCESSIVE_ADDITIONAL_CHECKS FALSE CACHE BOOL "Enable even more additional checks on some operations across the kernel, many of which have a massive impact on performance.")
 set(PEDIGREE_CRIPPLE_HDD TRUE CACHE BOOL "Disable writing to hard disks at runtime.")
 set(PEDIGREE_ASSERTS TRUE CACHE BOOL "Enable runtime assertions.")
 set(PEDIGREE_DEBUG_LOGGING TRUE CACHE BOOL "Whether to enable debug-level logging, which can dump massive amounts of data to the kernel log. Probable performance hit too, use at your own risk.")
@@ -55,14 +57,12 @@ set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
 set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, which includes a hard disk image and relevant customizations.")
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
 
-if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
-    # All nasm on x86-based systems
-    enable_language(ASM_NASM)
+# All nasm on x86-based systems
+enable_language(ASM_NASM)
 
-    # Fix up nasm command line to not include a default like -f elf (so we can
-    # control the bitness of the nasm output)
-    set(CMAKE_ASM_NASM_COMPILE_OBJECT "<CMAKE_ASM_NASM_COMPILER> -felf64 -o <OBJECT> <SOURCE>")
-endif ()
+# Fix up nasm command line to not include a default like -f elf (so we can
+# control the bitness of the nasm output)
+set(CMAKE_ASM_NASM_COMPILE_OBJECT "<CMAKE_ASM_NASM_COMPILER> -felf64 -o <OBJECT> <SOURCE>")
 
 cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 
@@ -185,6 +185,10 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_ADDITIONAL_CHECKS)
         add_definitions(-DADDITIONAL_CHECKS=1)
+    endif ()
+
+    if (PEDIGREE_EXCESSIVE_ADDITIONAL_CHECKS)
+        add_definitions(-DEXCESSIVE_ADDITIONAL_CHECKS=1)
     endif ()
 
     if (PEDIGREE_ASSERTS)

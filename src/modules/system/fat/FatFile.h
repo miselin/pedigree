@@ -64,7 +64,8 @@ class FatFile : public File
     uintptr_t readBlock(uint64_t location);
     void writeBlock(uint64_t location, uintptr_t addr);
 
-    void extend(size_t newSize);
+    virtual void extend(size_t newSize);
+    virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
     using File::sync;
     virtual void sync(size_t offset, bool async);

@@ -24,6 +24,7 @@
 #include <benchmark/benchmark.h>
 
 #include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
+#include "pedigree/kernel/utilities/spooky/SpookyV2.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 static void BM_Utility_Checksum(benchmark::State &state)
@@ -155,6 +156,56 @@ static void BM_Utility_HashMurmur(benchmark::State &state)
     delete[] buf;
 }
 
+static void BM_Utility_HashSpooky32(benchmark::State &state)
+{
+    auto *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(spookyHash(buf, state.range(0)));
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+
+    delete[] buf;
+}
+
+static void BM_Utility_HashSpooky64(benchmark::State &state)
+{
+    auto *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(spookyHash64(buf, state.range(0)));
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+
+    delete[] buf;
+}
+
+static void BM_Utility_HashSpooky128(benchmark::State &state)
+{
+    auto *buf = new char[state.range(0)];
+    memset(buf, 'a', state.range(0));
+
+    uint64_t a, b;
+    while (state.KeepRunning())
+    {
+        spookyHash128(buf, state.range(0), &a, &b);
+        benchmark::DoNotOptimize(a);
+    }
+
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(state.range(0)));
+
+    delete[] buf;
+}
+
 // Test checksum over a large range of sizes.
 BENCHMARK(BM_Utility_Checksum)->Range(8, 8 << 24);
 BENCHMARK(BM_Utility_Checksum16)->Range(8, 8 << 24);
@@ -166,3 +217,7 @@ BENCHMARK(BM_Utility_ChecksumPage);
 BENCHMARK(BM_Utility_HashElf)->Range(8, 8 << 24);
 BENCHMARK(BM_Utility_HashJenkins)->Range(8, 8 << 24);
 BENCHMARK(BM_Utility_HashMurmur)->Range(8, 8 << 24);
+
+BENCHMARK(BM_Utility_HashSpooky32)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_HashSpooky64)->Range(8, 8 << 24);
+BENCHMARK(BM_Utility_HashSpooky128)->Range(8, 8 << 24);

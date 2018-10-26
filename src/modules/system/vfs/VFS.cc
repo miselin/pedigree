@@ -182,7 +182,7 @@ void VFS::removeAlias(const String &alias)
     m_Aliases.remove(alias);
 }
 
-void VFS::removeAllAliases(Filesystem *pFs)
+void VFS::removeAllAliases(Filesystem *pFs, bool canDelete)
 {
     if (!pFs)
         return;
@@ -212,7 +212,10 @@ void VFS::removeAllAliases(Filesystem *pFs)
         m_Mounts.remove(pFs);
     }
 
-    delete pFs;
+    if (canDelete)
+    {
+        delete pFs;
+    }
 }
 
 Filesystem *VFS::lookupFilesystem(const String &alias)
@@ -231,7 +234,7 @@ Filesystem *VFS::lookupFilesystem(const String &alias)
     return fs;
 }
 
-Filesystem *VFS::lookupFilesystem(const StringView &alias)
+Filesystem *VFS::lookupFilesystem(const HashedStringView &alias)
 {
     AliasTable::LookupResult result = m_Aliases.lookup(alias);
     return result.hasValue() ? result.value() : nullptr;
@@ -239,65 +242,57 @@ Filesystem *VFS::lookupFilesystem(const StringView &alias)
 
 File *VFS::find(const String &path, File *pStartNode)
 {
+    // NOTICE("find: " << path);
+
+    File *pResult = 0;
+
     StringView pathView = path.view();
 
     // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    for (i = 0; i < pathView.length(); i++)
-    {
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (pathView[i] == '\xc2' && pathView[i + 1] == '\xbb')
-        {
-            bColon = true;
-            break;
-        }
-    }
-
-    if (!bColon)
+    ssize_t colon = findColon(path);
+    if (colon < 0)
     {
         // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode)
+        if (pStartNode)
         {
-            return 0;
-        }
-        else
-        {
-            return pStartNode->getFilesystem()->find(pathView, pStartNode);
+            pResult = pStartNode->getFilesystem()->find(pathView, pStartNode);
         }
     }
     else
     {
         // Can only cache lookups with the colon as they are not ambiguous
-        File *result;
 #if VFS_WITH_LRU_CACHES
-        if (m_FindCache.get(path, result))
+        if (m_FindCache.get(path, pResult))
         {
-            m_FindCache.store(path, result);
-            return result;
+            m_FindCache.store(path, pResult);
         }
+        else
+        {
 #endif
 
         StringView left, right;
-        splitPathOnColon(i, pathView, left, right);
+        splitPathOnColon(colon, pathView, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
-        if (!pFs)
+        if (pFs)
         {
-            return 0;
+            pResult = pFs->find(right);
+#if VFS_WITH_LRU_CACHES
+            if (pResult)
+            {
+                m_FindCache.store(path, pResult);
+            }
+#endif
         }
 
-        result = pFs->find(right, 0);
 #if VFS_WITH_LRU_CACHES
-        if (result)
-        {
-            m_FindCache.store(path, result);
         }
 #endif
-
-        return result;
     }
+
+    // NOTICE("find: " << path << " -> " << pResult);
+    return pResult;
 }
 
 void VFS::addProbeCallback(Filesystem::ProbeCallback callback)
@@ -317,19 +312,8 @@ void VFS::addMountCallback(MountCallback callback)
 bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
 {
     // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    for (i = 0; i < path.length(); i++)
-    {
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
-        {
-            bColon = true;
-            break;
-        }
-    }
-
-    if (!bColon)
+    ssize_t colon = findColon(path);
+    if (colon < 0)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
@@ -341,7 +325,7 @@ bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
     else
     {
         StringView left, right;
-        splitPathOnColon(i, path, left, right);
+        splitPathOnColon(colon, path, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
@@ -354,19 +338,8 @@ bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
 bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
 {
     // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    for (i = 0; i < path.length(); i++)
-    {
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
-        {
-            bColon = true;
-            break;
-        }
-    }
-
-    if (!bColon)
+    ssize_t colon = findColon(path);
+    if (colon < 0)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
@@ -382,7 +355,7 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
     else
     {
         StringView left, right;
-        splitPathOnColon(i, path, left, right);
+        splitPathOnColon(colon, path, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
@@ -398,19 +371,8 @@ bool VFS::createSymlink(
     const String &path, const String &value, File *pStartNode)
 {
     // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    for (i = 0; i < path.length(); i++)
-    {
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
-        {
-            bColon = true;
-            break;
-        }
-    }
-
-    if (!bColon)
+    ssize_t colon = findColon(path);
+    if (colon < 0)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
@@ -422,7 +384,7 @@ bool VFS::createSymlink(
     else
     {
         StringView left, right;
-        splitPathOnColon(i, path, left, right);
+        splitPathOnColon(colon, path, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
@@ -435,19 +397,8 @@ bool VFS::createSymlink(
 bool VFS::createLink(const String &path, File *target, File *pStartNode)
 {
     // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    for (i = 0; i < path.length(); i++)
-    {
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
-        {
-            bColon = true;
-            break;
-        }
-    }
-
-    if (!bColon)
+    ssize_t colon = findColon(path);
+    if (colon < 0)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
@@ -459,7 +410,7 @@ bool VFS::createLink(const String &path, File *target, File *pStartNode)
     else
     {
         StringView left, right;
-        splitPathOnColon(i, path, left, right);
+        splitPathOnColon(colon, path, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
@@ -472,19 +423,8 @@ bool VFS::createLink(const String &path, File *target, File *pStartNode)
 bool VFS::remove(const String &path, File *pStartNode)
 {
     // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    for (i = 0; i < path.length(); i++)
-    {
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (path[i] == '\xc2' && path[i + 1] == '\xbb')
-        {
-            bColon = true;
-            break;
-        }
-    }
-
-    if (!bColon)
+    ssize_t colon = findColon(path);
+    if (colon < 0)
     {
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
@@ -495,7 +435,7 @@ bool VFS::remove(const String &path, File *pStartNode)
     else
     {
         StringView left, right;
-        splitPathOnColon(i, path, left, right);
+        splitPathOnColon(colon, path, left, right);
 
         // Attempt to find a filesystem alias.
         Filesystem *pFs = lookupFilesystem(left);
@@ -590,6 +530,36 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 
     return true;
 #endif
+}
+
+ssize_t VFS::findColon(const String &path)
+{
+    // Search for a colon.
+    bool bColon = false;
+    size_t i;
+    ssize_t result = 0;
+    size_t len = path.length();
+    for (i = 0; i < len; i++, result++)
+    {
+        char c = path[i];
+
+        // Look for the UTF-8 '»'; 0xC2 0xBB.
+        if (c == '\xc2')
+        {
+            if (path[i + 1] == '\xbb')
+            {
+                bColon = true;
+                break;
+            }
+        }
+        else if (c == '/')
+        {
+            // The separator must come before any slashes in the path.
+            break;
+        }
+    }
+
+    return bColon ? result : -1;
 }
 
 #ifndef VFS_STANDALONE

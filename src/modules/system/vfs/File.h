@@ -225,7 +225,7 @@ class EXPORTED_PUBLIC File
     void disableDirect();
 
     /** Optionally preallocates blocks to fit the given size. */
-    virtual void preallocate(size_t expectedSize);
+    virtual void preallocate(size_t expectedSize, bool zero=true);
 
     /** Obtain the actual File object to use when opening this file.
      *
@@ -262,6 +262,14 @@ class EXPORTED_PUBLIC File
 
     /** Internal function to extend a file to be at least the given size. */
     virtual void extend(size_t newSize);
+
+    /**
+     * Does the same thing as extend() but with an optional hint indicating
+     * that the upcoming write will fill an entire block. This hint can be
+     * used to do things like avoid zeroing the block that would otherwise
+     * be written over anyway.
+     */
+    virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
     /** Internal function to notify all registered MonitorTargets. */
     void dataChanged();

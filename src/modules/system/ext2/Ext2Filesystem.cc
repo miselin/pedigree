@@ -207,6 +207,27 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
 
     /// \todo Set g_pSparseBlock as read-only.
 
+    // load root directory
+    Inode *inode = getInode(EXT2_ROOT_INO);
+    m_pRoot = new Ext2Directory(String(""), EXT2_ROOT_INO, inode, this, 0);
+
+    // cache volume label
+    bool hasVolumeLabel = LITTLE_TO_HOST32(m_pSuperblock->s_rev_level) >= 1;
+    if ((!hasVolumeLabel) || (m_pSuperblock->s_volume_name[0] == '\0'))
+    {
+        NormalStaticString str;
+        str += "no-volume-label@";
+        str.append(reinterpret_cast<uintptr_t>(this), 16);
+        m_VolumeLabel.assign(str, str.length(), true);
+    }
+    else
+    {
+        char buffer[17];
+        StringCopyN(buffer, m_pSuperblock->s_volume_name, 16);
+        buffer[16] = '\0';
+        m_VolumeLabel.assign(buffer);
+    }
+
     return true;
 }
 
@@ -223,33 +244,14 @@ Filesystem *Ext2Filesystem::probe(Disk *pDisk)
         return pFs;
 }
 
-File *Ext2Filesystem::getRoot()
+File *Ext2Filesystem::getRoot() const
 {
-    if (!m_pRoot)
-    {
-        Inode *inode = getInode(EXT2_ROOT_INO);
-        m_pRoot = new Ext2Directory(String(""), EXT2_ROOT_INO, inode, this, 0);
-    }
     return m_pRoot;
 }
 
-String Ext2Filesystem::getVolumeLabel()
+String Ext2Filesystem::getVolumeLabel() const
 {
-    bool hasVolumeLabel = LITTLE_TO_HOST32(m_pSuperblock->s_rev_level) >= 1;
-    if ((!hasVolumeLabel) || (m_pSuperblock->s_volume_name[0] == '\0'))
-    {
-        NormalStaticString str;
-        str += "no-volume-label@";
-        str.append(reinterpret_cast<uintptr_t>(this), 16);
-        return String(static_cast<const char *>(str));
-    }
-    else
-    {
-        char buffer[17];
-        StringCopyN(buffer, m_pSuperblock->s_volume_name, 16);
-        buffer[16] = '\0';
-        return String(buffer);
-    }
+    return m_VolumeLabel;
 }
 
 bool Ext2Filesystem::createNode(
@@ -426,12 +428,12 @@ bool Ext2Filesystem::createNode(
         !(pFile->isDirectory() || pFile->isSymlink()))
     {
         pNewNode->ensureLargeEnough(
-            m_pSuperblock->s_prealloc_blocks * m_BlockSize, true);
+            m_pSuperblock->s_prealloc_blocks * m_BlockSize, 0, 0, true);
     }
     else if (m_pSuperblock->s_prealloc_dir_blocks && pFile->isDirectory())
     {
         pNewNode->ensureLargeEnough(
-            m_pSuperblock->s_prealloc_dir_blocks * m_BlockSize, true);
+            m_pSuperblock->s_prealloc_dir_blocks * m_BlockSize, 0, 0, true);
     }
 
     return true;

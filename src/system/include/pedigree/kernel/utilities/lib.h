@@ -68,6 +68,16 @@ EXPORTED_PUBLIC int StringFormat(char *buf, const char *fmt, ...)
 EXPORTED_PUBLIC unsigned long
 StringToUnsignedLong(const char *nptr, char const **endptr, int base);
 
+// These work similarly to StringCompare, but only return 0 for match and -1
+// for a failed match (rather than returning the sign of the non-matching
+// comparison like StringCompare does) - use this if you only ever care that a
+// match is present, and don't care about the sign of the non-matching result.
+EXPORTED_PUBLIC int StringMatch(const char *p1, const char *p2) PURE;
+EXPORTED_PUBLIC int
+StringMatchN(const char *p1, const char *p2, size_t n) PURE;
+EXPORTED_PUBLIC int StringMatchNOffset(
+    const char *p1, const char *p2, size_t n, size_t *offset) PURE;
+
 // Performs NOTICE/ERROR/etc() on the formatted output, which allows the
 // Pedigree log to be used from C code.
 #if !defined(__cplusplus) || defined(IMPLEMENTING_LOG_FORMAT_FUNCTIONS)
@@ -151,6 +161,11 @@ uint32_t elfHash(const char *buffer, size_t length);
 
 /// Jenkins hash.
 uint32_t jenkinsHash(const char *buffer, size_t length);
+
+/// Spooky hash.
+uint32_t spookyHash(const char *buffer, size_t length);
+uint64_t spookyHash64(const char *buffer, size_t length);
+void spookyHash128(const char *buffer, size_t length, uint64_t *h1, uint64_t *h2);
 
 /// Report whether or not two pointers regions overlap.
 EXPORTED_PUBLIC int overlaps(const void *s1, const void *s2, size_t n) PURE;

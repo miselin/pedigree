@@ -173,7 +173,9 @@ bool writeFile(const std::string &source, const std::string &dest)
     }
 
     // Do file block allocation now instead of during write()s below.
-    pFile->preallocate(st.st_size);
+    // Also, don't zero the blocks as we're going to write over every single
+    // one - saves us some time.
+    pFile->preallocate(st.st_size, false);
 
     size_t blockSize = pFile->getBlockSize() * blocksPerRead;
 

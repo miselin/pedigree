@@ -350,6 +350,14 @@ void operator delete[](void *p) noexcept
 {
     delete_shared(p);
 }
+void operator delete(void *p, size_t sz) noexcept
+{
+    delete_shared(p);
+}
+void operator delete[](void *p, size_t sz) noexcept
+{
+    delete_shared(p);
+}
 void operator delete(void *p, void *q) noexcept
 {
     // no-op

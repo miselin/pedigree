@@ -433,6 +433,7 @@ static bool init()
             reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
     {
         ERROR("Config: allocateRegion failed.");
+        return false;
     }
 
     g_pFile = reinterpret_cast<uint8_t *>(region.virtualAddress());

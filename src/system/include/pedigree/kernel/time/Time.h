@@ -36,6 +36,10 @@ const Timestamp Second = Millisecond * 1000U;
 const Timestamp Minute = Second * 60U;
 const Timestamp Hour = Minute * 60U;
 const Timestamp Day = Hour * 24U;
+
+static_assert(Microsecond == 1000);
+static_assert(Millisecond == 1000000);
+static_assert(Second == 1000000000);
 }  // namespace Multiplier
 
 /** Magic identifier for infinite time durations. */

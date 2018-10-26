@@ -64,14 +64,16 @@ class EXPORTED_PUBLIC Filesystem
        contain the current working directory. \return The file if one was found,
        or 0 otherwise or if there was an error.
     */
-    virtual File *find(const StringView &path, File *pStartNode = 0);
-    virtual File *find(const String &path, File *pStartNode = 0);
+    virtual File *find(const StringView &path);
+    virtual File *find(const String &path);
+    virtual File *find(const StringView &path, File *pStartNode);
+    virtual File *find(const String &path, File *pStartNode);
 
     /** Returns the root filesystem node. */
-    virtual File *getRoot() = 0;
+    virtual File *getRoot() const = 0;
 
     /** Returns a string identifying the volume label. */
-    virtual String getVolumeLabel() = 0;
+    virtual String getVolumeLabel() const = 0;
 
     /** Creates a file on the filesystem - fails if the file's parent directory
      * does not exist. */

@@ -22,6 +22,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/utilities/spooky/SpookyV2.h"
 #include <stdarg.h>
 
 void *page_align(void *p)
@@ -182,6 +183,27 @@ uint32_t jenkinsHash(const char *buffer, size_t length)
     h ^= h >> 11;
     h += h << 15;
     return h;
+}
+
+uint32_t spookyHash(const char *buffer, size_t length)
+{
+    SpookyHash h;
+    h.Init(0, 0);
+    return h.Hash32(buffer, length, 0);
+}
+
+uint64_t spookyHash64(const char *buffer, size_t length)
+{
+    SpookyHash h;
+    h.Init(0, 0);
+    return h.Hash64(buffer, length, 0);
+}
+
+void spookyHash128(const char *buffer, size_t length, uint64_t *h1, uint64_t *h2)
+{
+    SpookyHash h;
+    h.Init(0, 0);
+    h.Hash128(buffer, length, h1, h2);
 }
 
 #define LOG_FORMAT_COMMON            \

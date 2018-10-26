@@ -37,6 +37,8 @@
 
 class File;
 
+static Mutex g_Started(false);
+
 static void error(const char *s)
 {
     extern BootIO bootIO;
@@ -58,15 +60,28 @@ static int init_stage2(void *param)
 
     bool tryingLinux = false;
 
+    File *file = 0;
+
     String init_path("root»/applications/init");
-    if (!VFS::instance().find(init_path))
+    NOTICE("Searching for init program at " << init_path);
+    file = VFS::instance().find(init_path);
+    if (!file)
     {
         WARNING(
             "Did not find " << init_path
                             << ", trying for a Linux userspace...");
         init_path = "root»/sbin/init";
         tryingLinux = true;
+
+        NOTICE("Searching for Linux init at " << init_path);
+        file = VFS::instance().find(init_path);
+        if (!file)
+        {
+            error("failed to find init program (tried root»/applications/init and root»/sbin/init)");
+        }
     }
+
+    NOTICE("Found an init program at " << init_path);
 
     Vector<String> argv, env;
     argv.pushBack(init_path);
@@ -79,12 +94,14 @@ static int init_stage2(void *param)
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
-    if (!pProcess->getSubsystem()->invoke(init_path, argv, env))
+    if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env))
     {
         error("failed to load init program");
     }
 
     Process::setInit(pProcess);
+
+    g_Started.release();
 
     return 0;
 }
@@ -92,6 +109,8 @@ static int init_stage2(void *param)
 static bool init()
 {
 #ifdef THREADS
+    g_Started.acquire();
+
     // Create a new process for the init process.
     PosixProcess *pProcess = new PosixProcess(
         Processor::information().getCurrentThread()->getParent());
@@ -125,6 +144,9 @@ static bool init()
 
     Thread *pThread = new Thread(pProcess, init_stage2, 0);
     pThread->detach();
+
+    // wait for the other process to start before we move on with startup
+    g_Started.acquire();
 #endif
 
     return true;

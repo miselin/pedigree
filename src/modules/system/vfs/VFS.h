@@ -33,6 +33,7 @@
 class Disk;
 class File;
 class StringView;
+class HashedStringView;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
 #define VFS_WITH_LRU_CACHES 0
@@ -60,7 +61,7 @@ class EXPORTED_PUBLIC VFS
     typedef void (*MountCallback)();
 
     /** Type of the alias lookup table. */
-    typedef HashTable<String, Filesystem *, StringView> AliasTable;
+    typedef HashTable<String, Filesystem *, HashedStringView> AliasTable;
 
     /** Constructor */
     VFS();
@@ -106,13 +107,13 @@ class EXPORTED_PUBLIC VFS
 
     /** Removes all aliases from a filesystem - the filesystem is destroyed.
      *\param pFs The filesystem to destroy. */
-    void removeAllAliases(Filesystem *pFs);
+    void removeAllAliases(Filesystem *pFs, bool canDelete=true);
 
     /** Looks up the Filesystem from a given alias.
      *\param pAlias The alias to search for.
      *\return The filesystem aliased by pAlias or 0 if none found. */
     Filesystem *lookupFilesystem(const String &alias);
-    Filesystem *lookupFilesystem(const StringView &alias);
+    Filesystem *lookupFilesystem(const HashedStringView &alias);
 
     /** Attempts to obtain a File for a specific path. */
     File *find(const String &path, File *pStartNode = 0);
@@ -154,6 +155,8 @@ class EXPORTED_PUBLIC VFS
     }
 
   private:
+    ssize_t findColon(const String &path);
+
     /** The static instance object. */
     static VFS m_Instance;
 

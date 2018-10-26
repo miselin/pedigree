@@ -24,6 +24,10 @@
 
 #undef memcpy
 
+#define WITH_SSE 0
+#define SSE_THRESHOLD 1024
+#define STOSB_THRESHOLD 64
+
 #ifdef HOSTED_X64
 #define X64
 #endif
@@ -38,6 +42,9 @@
 #else
 #define EXPORT EXPORTED_PUBLIC
 #endif
+
+extern void memzero_xmm_aligned(void *, size_t);
+extern void memzero_xmm(void *, size_t);
 
 EXPORT int memcmp(const void *p1, const void *p2, size_t len) PURE;
 EXPORT void *memset(void *buf, int c, size_t n);
@@ -69,38 +76,42 @@ EXPORT int memcmp(const void *p1, const void *p2, size_t len)
 EXPORT void *memset(void *buf, int c, size_t n)
 {
 #ifdef TARGET_IS_X86
-    int a, b;
-    __asm__ __volatile__("rep stosb"
-                         : "=&D"(a), "=&c"(b)
-                         : "0"(buf), "a"(c), "1"(n)
-                         : "memory");
-    return buf;
-#else
+    if (n >= STOSB_THRESHOLD)
+    {
+        int a, b;
+        __asm__ __volatile__("rep stosb"
+                             : "=&D"(a), "=&c"(b)
+                             : "0"(buf), "a"(c), "1"(n)
+                             : "memory");
+        return buf;
+    }
+#endif
     unsigned char *tmp = (unsigned char *) buf;
-    for (size_t i = 0; i < n; ++i)
+    while (n--)
     {
         *tmp++ = c;
     }
     return buf;
-#endif
 }
 
 EXPORT void *memcpy(void *restrict s1, const void *restrict s2, size_t n)
 {
 #ifdef TARGET_IS_X86
-    int a, b, c;
-    __asm__ __volatile__("rep movsb"
-                         : "=&c"(a), "=&D"(b), "=&S"(c)
-                         : "1"(s1), "2"(s2), "0"(n)
-                         : "memory");
-    return s1;
-#else
+    if (n >= STOSB_THRESHOLD)
+    {
+        int a, b, c;
+        __asm__ __volatile__("rep movsb"
+                             : "=&c"(a), "=&D"(b), "=&S"(c)
+                             : "1"(s1), "2"(s2), "0"(n)
+                             : "memory");
+        return s1;
+    }
+#endif
     const unsigned char *restrict sp = (const unsigned char *restrict) s2;
     unsigned char *restrict dp = (unsigned char *restrict) s1;
-    for (; n != 0; n--)
+    while (n--)
         *dp++ = *sp++;
     return s1;
-#endif
 }
 
 #ifdef TARGET_IS_X86
@@ -133,17 +144,24 @@ EXPORT void *memmove(void *s1, const void *s2, size_t n)
     else
     {
 #ifdef TARGET_IS_X86
-        memmove_x86(s1, s2, n);
-#else
+        if (n >= STOSB_THRESHOLD)
+        {
+            memmove_x86(s1, s2, n);
+        }
+        else
+        {
+#endif
         // Writing bytes from s2 into s1 cannot be done forwards, use memmove.
         const unsigned char *sp = (const unsigned char *) s2 + (n - 1);
         unsigned char *dp = (unsigned char *) s1 + (n - 1);
         for (; n != 0; n--)
             *dp-- = *sp--;
+#ifdef TARGET_IS_X86
+        }
 #endif
     }
 
-#ifdef ADDITIONAL_CHECKS
+#ifdef EXCESSIVE_ADDITIONAL_CHECKS
     // We can't memcmp if the regions overlap at all.
     if (LIKELY(!overlaps(s1, s2, orig_n)))
     {
@@ -171,56 +189,62 @@ int overlaps(const void *s1, const void *s2, size_t n)
 void *WordSet(void *buf, int c, size_t n)
 {
 #ifdef TARGET_IS_X86
-    int a, b;
-    __asm__ __volatile__("rep stosw"
-                         : "=&D"(a), "=&c"(b)
-                         : "0"(buf), "a"(c), "1"(n)
-                         : "memory");
-    return buf;
-#else
+    if (n >= STOSB_THRESHOLD)
+    {
+        int a, b;
+        __asm__ __volatile__("rep stosw"
+                             : "=&D"(a), "=&c"(b)
+                             : "0"(buf), "a"(c), "1"(n)
+                             : "memory");
+        return buf;
+    }
+#endif
     unsigned short *tmp = (unsigned short *) buf;
     while (n--)
     {
         *tmp++ = c;
     }
     return buf;
-#endif
 }
 
 void *DoubleWordSet(void *buf, unsigned int c, size_t n)
 {
 #ifdef TARGET_IS_X86
-    int a, b;
-    __asm__ __volatile__("rep stosl"
-                         : "=&D"(a), "=&c"(b)
-                         : "0"(buf), "a"(c), "1"(n)
-                         : "memory");
-    return buf;
-#else
+    if (n >= STOSB_THRESHOLD)
+    {
+        int a, b;
+        __asm__ __volatile__("rep stosl"
+                             : "=&D"(a), "=&c"(b)
+                             : "0"(buf), "a"(c), "1"(n)
+                             : "memory");
+        return buf;
+    }
+#endif
     unsigned int *tmp = (unsigned int *) buf;
     while (n--)
     {
         *tmp++ = c;
     }
     return buf;
-#endif
 }
 
 void *QuadWordSet(void *buf, unsigned long long c, size_t n)
 {
 #ifdef TARGET_IS_X86
-    int a, b;
-    __asm__ __volatile__("rep stosq"
-                         : "=&D"(a), "=&c"(b)
-                         : "0"(buf), "a"(c), "1"(n)
-                         : "memory");
-    return buf;
-#else
+    if (n >= STOSB_THRESHOLD)
+    {
+        int a, b;
+        __asm__ __volatile__("rep stosq"
+                             : "=&D"(a), "=&c"(b)
+                             : "0"(buf), "a"(c), "1"(n)
+                             : "memory");
+        return buf;
+    }
+#endif
     unsigned long long *p = (unsigned long long *) buf;
     while (n--)
         *p++ = c;
     return buf;
-#endif
 }
 
 // We still need memcpy etc as linked symbols for GCC optimisations, but we

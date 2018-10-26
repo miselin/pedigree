@@ -129,6 +129,51 @@ TEST(PedigreeStringLibrary, CompareSomeOtherLonger)
     EXPECT_EQ(StringCompareN("abc", "abcdef", 0), 0);
 }
 
+TEST(PedigreeStringLibrary, MatchEmpty)
+{
+    EXPECT_EQ(StringMatch("", ""), 0);
+}
+
+TEST(PedigreeStringLibrary, MatchOneEmpty)
+{
+    EXPECT_EQ(StringMatch("abc", ""), 1);
+}
+
+TEST(PedigreeStringLibrary, MatchOtherEmpty)
+{
+    // 'a' > '\0'
+    EXPECT_EQ(StringMatch("", "abc"), 1);
+}
+
+TEST(PedigreeStringLibrary, MatchSame)
+{
+    // Have to avoid constant strings pointing to the same place
+    const char str_a[] = {'a', 'b', 'c', 0};
+    const char str_b[] = {'a', 'b', 'c', 0};
+    EXPECT_EQ(StringMatch(str_a, str_b), 0);
+}
+
+TEST(PedigreeStringLibrary, MatchLess)
+{
+    EXPECT_EQ(StringMatch("abc", "bcd"), 1);
+}
+
+TEST(PedigreeStringLibrary, MatchSome)
+{
+    EXPECT_EQ(StringMatchN("abcdef", "abc", 3), 0);
+    EXPECT_EQ(StringMatchN("abcdef", "abc", 4), 1);
+    EXPECT_EQ(StringMatchN("abcdef", "abc", 1), 0);
+    EXPECT_EQ(StringMatchN("abcdef", "abc", 0), 0);
+}
+
+TEST(PedigreeStringLibrary, MatchSomeOtherLonger)
+{
+    EXPECT_EQ(StringMatchN("abc", "abcdef", 3), 0);
+    EXPECT_EQ(StringMatchN("abc", "abcdef", 4), 1);
+    EXPECT_EQ(StringMatchN("abc", "abcdef", 1), 0);
+    EXPECT_EQ(StringMatchN("abc", "abcdef", 0), 0);
+}
+
 TEST(PedigreeStringLibrary, CompareCaseEmpty)
 {
     size_t off = 0;

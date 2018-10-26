@@ -93,10 +93,12 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Vector.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/sha1/sha1.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/smhasher/MurmurHash3.cpp
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/spooky/spooky.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/demangle.cc
     # Optimized overrides here.
     # TODO(miselin): handle non-x86 host OS.
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/x86_common/string.c
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/x64/fastmemory.s
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/string.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/memory.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/vsprintf.c
@@ -112,6 +114,10 @@ set(UTILITY_SRCS
 
     ${CMAKE_CURRENT_SOURCE_DIR}/shim.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/pocketknife.cc)
+
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/x64/fastmemory.s
+    PROPERTIES LANGUAGE ASM_NASM)
 
 add_library(utility ${UTILITY_SRCS})
 add_library(utility_coverage ${UTILITY_SRCS})

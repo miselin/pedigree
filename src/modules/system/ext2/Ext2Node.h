@@ -62,6 +62,7 @@ class Ext2Node
     void wipe();
 
     void extend(size_t newSize);
+    void extend(size_t newSize, uint64_t location, uint64_t size);
 
     uintptr_t readBlock(uint64_t location);
     void writeBlock(uint64_t location);
@@ -79,7 +80,7 @@ class Ext2Node
      * Set onlyBlocks to true to not change the actual data size, which can be
      * useful for preallocation.
      */
-    bool ensureLargeEnough(size_t size, bool onlyBlocks = false);
+    bool ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks = false, bool nozeroblocks = false);
 
     bool addBlock(uint32_t blockValue);
 

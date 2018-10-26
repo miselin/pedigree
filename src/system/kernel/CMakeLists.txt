@@ -75,7 +75,9 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/PhysicalMemoryManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Processor.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/ProcessorInformation.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/string.c)
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/string.c
+        # /core/lib/x64
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s)
 
     set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Processor.s
@@ -86,6 +88,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/InterruptManager.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/boot-standalone.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s
         PROPERTIES LANGUAGE ASM_NASM)
 else ()
     set(PROCESSOR_SRCS "")
@@ -149,7 +152,9 @@ set(HASH_SRCS
     # /utilities/md5/
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/md5/md5.cc
     # /utilities/smhasher/
-    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/smhasher/MurmurHash3.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/smhasher/MurmurHash3.cpp
+    # /utilities/spooky/
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/spooky/spooky.cc)
 
 set(KERNEL_SRCS
     # /

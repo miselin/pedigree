@@ -169,7 +169,8 @@ class HashTable
             return false;
         }
 
-        size_t hash = k.hash() & m_nMask;
+        const uint32_t khash = k.hash();
+        size_t hash = khash & m_nMask;
 
         const bucket *b = &m_Buckets[hash];
         if (!b->set)
@@ -179,7 +180,7 @@ class HashTable
 
         if (b->key != k)
         {
-            b = findNextSet(hash, k);
+            b = findNextSet(hash, k, khash);
             if (!b)
             {
                 return false;
@@ -267,7 +268,8 @@ class HashTable
         // Ensure we have space for the new item
         reserve(m_nItems + 1);
 
-        size_t hash = k.hash() & m_nMask;
+        const uint32_t khash = k.hash();
+        size_t hash = khash & m_nMask;
 
         // Do we need to chain?
         bucket *b = &m_Buckets[hash];
@@ -289,6 +291,7 @@ class HashTable
 
         b->set = true;
         b->key = k;
+        b->key.hash();  // precompute hash
         b->value = v;
         bool wasEmpty = m_nItems == 0;
         ++m_nItems;
@@ -324,7 +327,8 @@ class HashTable
             return;
         }
 
-        size_t hash = k.hash() & m_nMask;
+        const uint32_t khash = k.hash();
+        size_t hash = khash & m_nMask;
 
         bucket *b = &m_Buckets[hash];
         if (!b->set)
@@ -342,7 +346,7 @@ class HashTable
         }
         else
         {
-            b = findNextSet(hash, k);
+            b = findNextSet(hash, k, khash);
             if (b)
             {
                 b->set = false;
@@ -404,8 +408,7 @@ class HashTable
             // No items in the array, just recreate it here
             delete[] m_Buckets;
             m_Buckets = new bucket[m_nBuckets];
-            setDefaults();
-            resetParents();
+            setDefaults(true);
         }
     }
 
@@ -524,8 +527,7 @@ class HashTable
             m_Buckets = new bucket[InitialBuckets];
             m_nBuckets = InitialBuckets;
             m_nMask = InitialBuckets - 1;
-            setDefaults();
-            resetParents();
+            setDefaults(true);
         }
     }
 
@@ -538,8 +540,7 @@ class HashTable
 
         bucket *oldBuckets = m_Buckets;
         m_Buckets = new bucket[m_nBuckets];
-        setDefaults();
-        resetParents();
+        setDefaults(true);
 
         if (m_nItems)
         {
@@ -591,10 +592,14 @@ class HashTable
         return nullptr;
     }
 
-    bucket *findNextSet(size_t currentHash, const K &k)
+    bucket *findNextSet(size_t currentHash, const K &k, uint32_t khash=0)
     {
         size_t index = 0;
         size_t step = 1;
+        if (khash == 0)
+        {
+            khash = k.hash();
+        }
         for (size_t i = 0; i < m_nBuckets; ++i)
         {
             size_t nextHash =
@@ -603,7 +608,7 @@ class HashTable
 
             // Hash comparison is likely to be faster than raw object
             // comparison so we save the latter for when we have a candidate.
-            if (b->set && (b->key.hash() == k.hash()))
+            if (b->set && (b->key.hash() == khash))
             {
                 if (b->key == k)
                 {
@@ -616,10 +621,14 @@ class HashTable
     }
 
     template <class FindK = K>
-    const bucket *findNextSet(size_t currentHash, const FindK &k) const
+    const bucket *findNextSet(size_t currentHash, const FindK &k, uint32_t khash=0) const
     {
         size_t index = 0;
         size_t step = 1;
+        if (khash == 0)
+        {
+            khash = k.hash();
+        }
         for (size_t i = 0; i < m_nBuckets; ++i)
         {
             size_t nextHash =
@@ -628,7 +637,7 @@ class HashTable
 
             // Hash comparison is likely to be faster than raw object
             // comparison so we save the latter for when we have a candidate.
-            if (b->set && (b->key.hash() == k.hash()))
+            if (b->set && (b->key.hash() == khash))
             {
                 if (b->key == k)
                 {
@@ -650,7 +659,8 @@ class HashTable
             return nullptr;
         }
 
-        size_t hash = k.hash() & m_nMask;
+        const uint32_t khash = k.hash();
+        size_t hash = khash & m_nMask;
 
         const bucket *b = &m_Buckets[hash];
         if (!b->set)
@@ -661,7 +671,7 @@ class HashTable
 
         if (b->key != k)
         {
-            b = findNextSet(hash, k);
+            b = findNextSet(hash, k, khash);
             if (!b)
             {
                 err = HashTableError::NotFound;
@@ -673,10 +683,15 @@ class HashTable
     }
 
     /** Set default value on all un-set buckets. */
-    void setDefaults()
+    void setDefaults(bool reparentToo=false)
     {
         for (size_t i = 0; i < m_nBuckets; ++i)
         {
+            if (reparentToo)
+            {
+                m_Buckets[i].parent = this;
+            }
+
             if (m_Buckets[i].set)
             {
                 continue;

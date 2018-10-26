@@ -25,6 +25,8 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 
+String UnixFilesystem::m_VolumeLabel("unix");
+
 UnixSocket::UnixSocket(
     String name, Filesystem *pFs, File *pParent, UnixSocket *other,
     SocketType type)
@@ -468,7 +470,7 @@ bool UnixDirectory::removeEntry(File *pFile)
     String filename = pFile->getName();
 
     LockGuard<Mutex> guard(m_Lock);
-    remove(filename);
+    remove(filename.view());
     return true;
 }
 

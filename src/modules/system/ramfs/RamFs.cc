@@ -25,6 +25,8 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
 
+String RamFs::m_VolumeLabel("ramfs");
+
 RamFile::RamFile(
     const String &name, uintptr_t inode, Filesystem *pParentFS, File *pParent)
     : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_FileBlocks(),

@@ -588,7 +588,7 @@ class EXPORTED_PUBLIC StaticString
             // sanity check
             STATICSTRING_ASSERT(StringLength(m_pData) == m_Length);
 
-            m_Hash = jenkinsHash(m_pData, m_Length);
+            m_Hash = spookyHash(m_pData, m_Length);
         }
     }
 

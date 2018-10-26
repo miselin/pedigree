@@ -101,13 +101,13 @@ class EXPORTED_PUBLIC RamFs : public Filesystem
         return m_bProcessOwners;
     }
 
-    virtual File *getRoot()
+    virtual File *getRoot() const
     {
         return m_pRoot;
     }
-    virtual String getVolumeLabel()
+    virtual String getVolumeLabel() const
     {
-        return String("ramfs");
+        return m_VolumeLabel;
     }
 
   protected:
@@ -121,6 +121,8 @@ class EXPORTED_PUBLIC RamFs : public Filesystem
 
     RamFs(const RamFs &);
     void operator=(const RamFs &);
+
+    static String m_VolumeLabel;
 
     /** Root filesystem node. */
     File *m_pRoot;

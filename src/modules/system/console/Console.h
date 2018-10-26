@@ -386,11 +386,11 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem
     {
         return false;
     }
-    virtual File *getRoot()
+    virtual File *getRoot() const
     {
         return 0;
     }
-    virtual String getVolumeLabel()
+    virtual String getVolumeLabel() const
     {
         return String("consolemanager");
     }

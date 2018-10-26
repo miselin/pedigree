@@ -66,7 +66,7 @@ int min(size_t a, size_t b)
     return a > b ? b : a;
 }
 
-size_t _StringLength(const char *src)
+WEAK size_t _StringLength(const char *src)
 {
     if (!src)
     {
@@ -212,6 +212,72 @@ StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
         *offset = orig_n - n;
     }
     return c;
+}
+
+WEAK int StringMatch(const char *p1, const char *p2)
+{
+    if (p1 == p2)
+        return 0;
+
+    while (*p1 && *p2)
+    {
+        if (*p1 != *p2)
+        {
+            return 1;
+        }
+        ++p1;
+        ++p2;
+    }
+
+    return (*p1 == *p2) ? 0 : 1;
+}
+
+WEAK int StringMatchN(const char *p1, const char *p2, size_t n)
+{
+    if (!n)
+    {
+        return 0;
+    }
+    else if (p1 == p2)
+    {
+        return 0;
+    }
+
+    size_t i;
+    for (i = 0; i < n; ++i)
+    {
+        if (p1[i] != p2[i])
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+WEAK int
+StringMatchNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
+{
+    if (!n)
+    {
+        return 0;
+    }
+    else if (p1 == p2)
+    {
+        return 0;
+    }
+
+    size_t i;
+    for (i = 0; i < n; ++i)
+    {
+        if (p1[i] != p2[i])
+        {
+            *offset = i;
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 char *StringConcat(char *dest, const char *src)
@@ -563,14 +629,18 @@ int StringCompareCase(
 
 size_t nextCharacter(const char *s, size_t i)
 {
-    if (!s)
+    if (UNLIKELY(!s))
     {
         return i;
     }
 
     // UTF-8 version of getting the next character
     const uint8_t *u8buf = (const uint8_t *) s;
-    if ((u8buf[i] & 0xC0) == 0xC0)
+    if (LIKELY(u8buf[i] <= 0x7F))
+    {
+        return i + 1;
+    }
+    else if ((u8buf[i] & 0xC0) == 0xC0)
     {
         if ((u8buf[i] & 0xF8) == 0xF0)
         {

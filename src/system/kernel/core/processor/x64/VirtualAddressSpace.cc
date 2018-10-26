@@ -1073,7 +1073,9 @@ void X64VirtualAddressSpace::maybeFreeTables(void *virtualAddress)
         *pageDirectoryEntry = 0;
     }
     else if (!bCanFreePageTable)
+    {
         return;
+    }
 
     // Now that we've cleaned up the page table, we can scan the parent tables.
 
@@ -1096,7 +1098,9 @@ void X64VirtualAddressSpace::maybeFreeTables(void *virtualAddress)
         *pageDirectoryPointerEntry = 0;
     }
     else
+    {
         return;
+    }
 
     bool bCanFreeDirectoryPointerTable = true;
     for (size_t i = 0; i < 0x200; ++i)

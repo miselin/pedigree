@@ -32,6 +32,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 class StringView;
+class HashedStringView;
 
 /**
  * A Directory node.
@@ -92,10 +93,10 @@ class EXPORTED_PUBLIC Directory : public File
     }
 
     /** Look up the given filename in the directory. */
-    File *lookup(const StringView &s) const;
+    File *lookup(const HashedStringView &s) const;
 
     /** Remove the given filename in the directory. */
-    void remove(const StringView &s);
+    void remove(const HashedStringView &s);
 
     /**
      * \brief Get the reparse point attached to this directory.
@@ -161,7 +162,7 @@ class EXPORTED_PUBLIC Directory : public File
         DirectoryEntry;
 
   private:
-    typedef HashTable<String, DirectoryEntry *, StringView> DirectoryEntryCache;
+    typedef HashTable<String, DirectoryEntry *, HashedStringView> DirectoryEntryCache;
 
     /** Directory contents cache. */
     DirectoryEntryCache m_Cache;
@@ -201,6 +202,6 @@ class EXPORTED_PUBLIC Directory : public File
     virtual File *convertToFile(const DirectoryEntryMetadata &meta);
 };
 
-extern template class HashTable<String, Directory::DirectoryEntry *>;
+extern template class HashTable<String, Directory::DirectoryEntry *, HashedStringView>;
 
 #endif

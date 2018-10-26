@@ -45,15 +45,21 @@ Ext2File::~Ext2File()
 {
 }
 
-void Ext2File::preallocate(size_t expectedSize)
+void Ext2File::preallocate(size_t expectedSize, bool zero)
 {
     // No need to change the actual file size, just allocate the blocks.
-    Ext2Node::ensureLargeEnough(expectedSize, true);
+    Ext2Node::ensureLargeEnough(expectedSize, 0, 0, true, !zero);
 }
 
 void Ext2File::extend(size_t newSize)
 {
-    Ext2Node::extend(newSize);
+    Ext2Node::extend(newSize, 0, 0);
+    m_Size = m_nSize;
+}
+
+void Ext2File::extend(size_t newSize, uint64_t location, uint64_t size)
+{
+    Ext2Node::extend(newSize, location, size);
     m_Size = m_nSize;
 }
 

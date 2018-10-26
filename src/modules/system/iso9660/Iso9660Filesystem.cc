@@ -166,6 +166,15 @@ bool Iso9660Filesystem::initialise(Disk *pDisk)
         m_VolumeLabel = String(volLabel);
     }
 
+    if (m_VolumeLabel.length() == 0)
+    {
+        // no volume label found, do a default
+        NormalStaticString str;
+        str += "no-volume-label@";
+        str.append(reinterpret_cast<uintptr_t>(this), 16);
+        m_VolumeLabel.assign(str, str.length(), true);
+    }
+
     delete[] volLabel;
 
     m_RootDir =
@@ -191,22 +200,14 @@ Filesystem *Iso9660Filesystem::probe(Disk *pDisk)
     }
 }
 
-File *Iso9660Filesystem::getRoot()
+File *Iso9660Filesystem::getRoot() const
 {
     return m_pRoot;
 }
 
-String Iso9660Filesystem::getVolumeLabel()
+String Iso9660Filesystem::getVolumeLabel() const
 {
-    // Is there a volume label already?
-    if (m_PrimaryVolDesc.VolIdent[0] != ' ')
-        return m_VolumeLabel;
-
-    // none found, do a default
-    NormalStaticString str;
-    str += "no-volume-label@";
-    str.append(reinterpret_cast<uintptr_t>(this), 16);
-    return String(static_cast<const char *>(str));
+    return m_VolumeLabel;
 }
 
 uintptr_t Iso9660Filesystem::readBlock(File *pFile, uint64_t location)
