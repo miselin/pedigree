@@ -80,7 +80,7 @@ static bool init()
         {"root»/tmp", scratchfs ? scratchfs->getRoot() : 0},
     };
 
-    for (auto p : reparses)
+    for (auto &p : reparses)
     {
         if (!p.target)
         {
