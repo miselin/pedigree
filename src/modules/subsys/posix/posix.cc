@@ -71,7 +71,7 @@ static bool init()
     // doesn't exist on disk, we won't add a reparse point for it here.
     struct reparse
     {
-        const char *path;
+        String path;
         File *target;
     } reparses[] = {
         // {"root»/dev", g_pDevFs->getRoot()},
