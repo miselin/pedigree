@@ -37,9 +37,10 @@ const Timestamp Minute = Second * 60U;
 const Timestamp Hour = Minute * 60U;
 const Timestamp Day = Hour * 24U;
 
-static_assert(Microsecond == 1000);
-static_assert(Millisecond == 1000000);
-static_assert(Second == 1000000000);
+// slightly sanity check the above multiplications
+static_assert(Microsecond == 1000, "Microsecond conversion multiplier to nanoseconds is incorrect.");
+static_assert(Millisecond == 1000000, "Millisecond conversion multiplier to nanoseconds is incorrect.");
+static_assert(Second == 1000000000, "Seconds conversion multiplier to nanoseconds is incorrect.");
 }  // namespace Multiplier
 
 /** Magic identifier for infinite time durations. */
