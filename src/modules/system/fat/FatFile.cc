@@ -89,3 +89,9 @@ void FatFile::extend(size_t newSize)
         m_Size = newSize;
     }
 }
+
+void FatFile::extend(size_t newSize, uint64_t location, uint64_t size)
+{
+    // not using the hints at all
+    extend(newSize);
+}
