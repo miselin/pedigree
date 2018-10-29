@@ -70,8 +70,26 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
 
 static void netifStatusUpdate(struct netif *netif)
 {
-    // something updated
-    NOTICE("netifStatusUpdate");
+    if (netif_is_up(netif))
+    {
+        NOTICE("netif " << String(netif->name, 2) << Dec << netif->num << ": is now up");
+    }
+    else
+    {
+        NOTICE("netif " << String(netif->name, 2) << Dec << netif->num << ": is now down");
+    }
+}
+
+static void netifLinkUpdate(struct netif *netif)
+{
+    if (netif_is_link_up(netif))
+    {
+        NOTICE("netif " << String(netif->name, 2) << Dec << netif->num << ": link is now up");
+    }
+    else
+    {
+        NOTICE("netif " << String(netif->name, 2) << Dec << netif->num << ": link is now down");
+    }
 }
 
 static err_t netifInit(struct netif *netif)
@@ -83,12 +101,13 @@ static err_t netifInit(struct netif *netif)
     netif->hwaddr_len = 6;
     MemoryCopy(netif->hwaddr, info.mac.getMac(), 6);
     netif->mtu = 1400;
-    netif->flags = NETIF_FLAG_UP | NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
+    netif->flags = NETIF_FLAG_LINK_UP | NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET;
     netif->linkoutput = linkOutput;
     netif->output = etharp_output;
     netif->output_ip6 = ethip6_output;
 
     netif_set_status_callback(netif, netifStatusUpdate);
+    netif_set_link_callback(netif, netifLinkUpdate);
 
     return ERR_OK;
 }
@@ -235,10 +254,9 @@ void NetworkStack::registerDevice(Network *pDevice)
     iface->name[1] = 'n';
     iface->num = interfaceNumber;
 
-    m_Interfaces.insert(pDevice, iface);
+    iface = netif_add(iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, tcpip_input);
 
-    netif_add(
-        iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, tcpip_input);
+    m_Interfaces.insert(pDevice, iface);
 }
 
 Network *NetworkStack::getDevice(size_t n)

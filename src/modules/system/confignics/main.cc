@@ -62,10 +62,6 @@ static int configureInterfaces()
         netif_create_ip6_linklocal_address(iface, 1);
         netif_set_link_up(iface);
         netif_set_up(iface);
-
-        // Kick off DHCP for this interface.
-        /// \todo check for errors
-        dhcp_start(iface);
     }
 
     return 0;
