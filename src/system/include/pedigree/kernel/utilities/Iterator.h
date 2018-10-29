@@ -301,6 +301,16 @@ class TreeIterator
         return 0;
     }
 
+    const T &value(const T &failed=T()) const
+    {
+        if (m_Node)
+        {
+            if (m_Node->value)
+                return m_Node->value->element;
+        }
+        return failed;
+    }
+
   protected:
     /** Pointer to the instance of the data structure or 0 */
     Struct *m_Node;

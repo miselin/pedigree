@@ -26,6 +26,7 @@
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -106,7 +107,7 @@ class SymbolTable
      *
      *  \return The value of the found symbol. */
     uintptr_t EXPORTED_PUBLIC lookup(
-        const String &name, Elf *pElf, Policy policy = LocalFirst,
+        const HashedStringView &name, Elf *pElf, Policy policy = LocalFirst,
         Binding *pBinding = 0);
 
   private:
@@ -150,11 +151,11 @@ class SymbolTable
     /** Insert the given shared symbol. */
     void insertShared(const String &name, SharedPointer<Symbol> &symbol);
 
-    typedef HashTable<String, SharedPointer<Symbol>> symbolTree_t;
+    typedef HashTable<String, SharedPointer<Symbol>, HashedStringView> symbolTree_t;
     typedef Tree<Elf *, SharedPointer<symbolTree_t>> parentedSymbolTree_t;
 
     /** Get or insert a Symbol tree. */
-    SharedPointer<symbolTree_t> getOrInsertTree(Elf *, Binding table = Local);
+    symbolTree_t *getOrInsertTree(Elf *, Binding table = Local);
 
     parentedSymbolTree_t m_LocalSymbols;
     parentedSymbolTree_t m_GlobalSymbols;

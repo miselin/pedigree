@@ -46,7 +46,7 @@ class SharedPointer
      * When moving out of a SharedPointer, the previous instance becomes
      * invalid and must be re-initialized.
      */
-    SharedPointer(SharedPointer &&other);
+    SharedPointer(SharedPointer<T> &&other);
 
     /**
      * Destruction, which automatically frees the pointer if no owners remain.
@@ -88,6 +88,11 @@ class SharedPointer
      * given SharedPointer.
      */
     SharedPointer<T> &operator=(const SharedPointer<T> &p);
+
+    /**
+     * Move the other SharedPointer instance into this one.
+     */
+    SharedPointer<T> &operator=(SharedPointer<T> &&p);
 
     /**
      * Whether or not this pointer is valid.
@@ -150,7 +155,7 @@ SharedPointer<T>::SharedPointer(T *ptr) : m_Control(0)
 }
 
 template <class T>
-SharedPointer<T>::SharedPointer(SharedPointer &&other)
+SharedPointer<T>::SharedPointer(SharedPointer<T> &&other)
 {
     m_Control = pedigree_std::move(other.m_Control);
 
@@ -228,6 +233,16 @@ SharedPointer<T> &SharedPointer<T>::operator=(const SharedPointer<T> &p)
     release();
 
     m_Control = p.m_Control;
+
+    return *this;
+}
+
+template <class T>
+SharedPointer<T> &SharedPointer<T>::operator=(SharedPointer<T> &&p)
+{
+    release();
+    m_Control = pedigree_std::move(p.m_Control);
+    p.m_Control = nullptr;
 
     return *this;
 }

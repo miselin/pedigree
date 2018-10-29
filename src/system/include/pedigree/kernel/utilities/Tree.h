@@ -38,10 +38,10 @@ class EXPORTED_PUBLIC Tree
     {
         K key;
         E element;
-        struct Node *leftChild;
-        struct Node *rightChild;
-        struct Node *parent;
-        size_t height;
+        struct Node *leftChild = nullptr;
+        struct Node *rightChild = nullptr;
+        struct Node *parent = nullptr;
+        size_t height = 0;
     };
 
   public:
@@ -170,85 +170,26 @@ class EXPORTED_PUBLIC Tree
     /** Add an element to the Tree.
      *\param[in] key the key
      *\param[in] value the element */
-    void insert(K key, E value)
+    void insert(const K &key, const E &value)
     {
-        if (contains(key))
-        {
-            return;  // Key already in tree.
-        }
+        Node *insertionNode = createInsertionNode(key);
+        insertionNode->element = value;
+        ++nItems;
+    }
 
-        Node *n = new Node;
-        n->key = key;
-        n->element = value;
-        n->height = 0;
-        n->parent = 0;
-        n->leftChild = 0;
-        n->rightChild = 0;
-
-        bool inserted = false;
-
-        if (root == 0)
-        {
-            root = n;  // We are the root node.
-
-            if (m_Begin)
-            {
-                delete m_Begin;
-            }
-            m_Begin = new IteratorNode(root, 0, nItems);
-        }
-        else
-        {
-            // Traverse the tree.
-            Node *currentNode = root;
-
-            while (!inserted)
-            {
-                if (key > currentNode->key)
-                {
-                    if (currentNode->rightChild ==
-                        0)  // We have found our insert point.
-                    {
-                        currentNode->rightChild = n;
-                        n->parent = currentNode;
-                        inserted = true;
-                    }
-                    else
-                        currentNode = currentNode->rightChild;
-                }
-                else
-                {
-                    if (currentNode->leftChild ==
-                        0)  // We have found our insert point.
-                    {
-                        currentNode->leftChild = n;
-                        n->parent = currentNode;
-                        inserted = true;
-                    }
-                    else
-                        currentNode = currentNode->leftChild;
-                }
-            }
-
-            // The value has been inserted, but has that messed up the balance
-            // of the tree?
-            while (currentNode)
-            {
-                int b = balanceFactor(currentNode);
-                if ((b < -1) || (b > 1))
-                {
-                    rebalanceNode(currentNode);
-                }
-                currentNode = currentNode->parent;
-            }
-        }
-
-        nItems++;
+    /** Move an element into the Tree.
+     *\param[in] key the key
+     *\param[in] value the element */
+    void insert(const K &key, E &&value)
+    {
+        Node *insertionNode = createInsertionNode(key);
+        insertionNode->element = pedigree_std::move(value);
+        ++nItems;
     }
 
     /** Attempts to find an element with the given key.
      *\return the element found, or NULL if not found. */
-    E lookup(K key) const
+    E lookup(const K &key) const
     {
         Node *n = root;
         while (n != 0)
@@ -263,9 +204,26 @@ class EXPORTED_PUBLIC Tree
         return 0;
     }
 
+    /** Attempts to find an element with the given key.
+     *\return a reference to the element found. */
+    const E &lookupRef(const K &key, const E &failed=E()) const
+    {
+        Node *n = root;
+        while (n != 0)
+        {
+            if (n->key == key)
+                return n->element;
+            else if (n->key > key)
+                n = n->leftChild;
+            else
+                n = n->rightChild;
+        }
+        return failed;
+    }
+
     /** Reports whether a given key exists in the tree.
      *\return true if the key exists, false otherwise. */
-    bool contains(K key) const
+    bool contains(const K &key) const
     {
         Node *n = root;
         while (n != 0)
@@ -281,7 +239,7 @@ class EXPORTED_PUBLIC Tree
     }
 
     /** Attempts to remove an element with the given key. */
-    void remove(K key)
+    void remove(const K &key)
     {
         Node *n = root;
         while (n != 0)
@@ -552,6 +510,87 @@ class EXPORTED_PUBLIC Tree
         traverseNode_Remove(left);
         traverseNode_Remove(right);
         delete n;
+    }
+
+    Node *createInsertionNode(const K &key)
+    {
+        Node *insertionNode = nullptr;
+
+        if (root == 0)
+        {
+            insertionNode = new Node;
+            insertionNode->key = key;
+
+            root = insertionNode;  // We are the root node.
+
+            if (m_Begin)
+            {
+                delete m_Begin;
+            }
+            m_Begin = new IteratorNode(root, 0, nItems);
+        }
+        else
+        {
+            // Traverse the tree.
+            Node *currentNode = root;
+
+            bool inserted = false;
+            while (!inserted)
+            {
+                if (key > currentNode->key)
+                {
+                    if (currentNode->rightChild ==
+                        0)  // We have found our insert point.
+                    {
+                        insertionNode = new Node;
+                        insertionNode->key = key;
+                        insertionNode->parent = currentNode;
+                        currentNode->rightChild = insertionNode;
+                        inserted = true;
+                    }
+                    else
+                    {
+                        currentNode = currentNode->rightChild;
+                    }
+                }
+                else if (key == currentNode->key)
+                {
+                    // overwrite existing value
+                    insertionNode = currentNode;
+                    inserted = true;
+                }
+                else
+                {
+                    if (currentNode->leftChild ==
+                        0)  // We have found our insert point.
+                    {
+                        insertionNode = new Node;
+                        insertionNode->key = key;
+                        insertionNode->parent = currentNode;
+                        currentNode->leftChild = insertionNode;
+                        inserted = true;
+                    }
+                    else
+                    {
+                        currentNode = currentNode->leftChild;
+                    }
+                }
+            }
+
+            // The value has been inserted, but has that messed up the balance
+            // of the tree?
+            while (currentNode)
+            {
+                int b = balanceFactor(currentNode);
+                if ((b < -1) || (b > 1))
+                {
+                    rebalanceNode(currentNode);
+                }
+                currentNode = currentNode->parent;
+            }
+        }
+
+        return insertionNode;
     }
 
     Node *root;

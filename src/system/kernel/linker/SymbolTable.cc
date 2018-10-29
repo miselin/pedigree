@@ -73,7 +73,7 @@ void SymbolTable::insertMultiple(
 void SymbolTable::preallocate(
     size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
 {
-    SharedPointer<symbolTree_t> tree = getOrInsertTree(localElf);
+    auto tree = getOrInsertTree(localElf);
     tree->reserve(numLocal);
 
     tree = getOrInsertTree(localElf, Global);
@@ -86,7 +86,7 @@ void SymbolTable::preallocate(
 void SymbolTable::preallocateAdditional(
     size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
 {
-    SharedPointer<symbolTree_t> tree = getOrInsertTree(localElf, Global);
+    auto tree = getOrInsertTree(localElf, Global);
     tree->reserve(tree->count() + numGlobal);
 
     tree = getOrInsertTree(localElf, Weak);
@@ -109,7 +109,7 @@ SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
 void SymbolTable::insertShared(
     const String &name, SharedPointer<SymbolTable::Symbol> &symbol)
 {
-    SharedPointer<symbolTree_t> tree = getOrInsertTree(symbol->getParent(), symbol->getBinding());
+    auto tree = getOrInsertTree(symbol->getParent(), symbol->getBinding());
     tree->insert(name, symbol);
 }
 
@@ -124,17 +124,19 @@ void SymbolTable::eraseByElf(Elf *pParent)
 }
 
 uintptr_t SymbolTable::lookup(
-    const String &name, Elf *pElf, Policy policy, Binding *pBinding)
+    const HashedStringView &name, Elf *pElf, Policy policy, Binding *pBinding)
 {
     RAII_LOCK;
+
+    // safe empty SharedPointer we can use for lookupRef()'s failed result
+    static SharedPointer<symbolTree_t> failedLookup;
 
     uintptr_t lookupResult = 0;
 
     // Local to the ELF file itself.
     if (policy != NotOriginatingElf)
     {
-        SharedPointer<Symbol> sym;
-        SharedPointer<symbolTree_t> symbolTree = m_LocalSymbols.lookup(pElf);
+        const SharedPointer<symbolTree_t> &symbolTree = m_LocalSymbols.lookupRef(pElf, failedLookup);
         if (symbolTree)
         {
             symbolTree_t::LookupResult result = symbolTree->lookup(name);
@@ -152,7 +154,7 @@ uintptr_t SymbolTable::lookup(
              it != m_GlobalSymbols.end();
              ++it)
         {
-            symbolTree_t::LookupResult result = it.value()->lookup(name);
+            symbolTree_t::LookupResult result = it.value(failedLookup)->lookup(name);
             if (result.hasValue())
             {
                 lookupResult = result.value()->getValue();
@@ -168,7 +170,7 @@ uintptr_t SymbolTable::lookup(
              it != m_WeakSymbols.end();
              ++it)
         {
-            symbolTree_t::LookupResult result = it.value()->lookup(name);
+            symbolTree_t::LookupResult result = it.value(failedLookup)->lookup(name);
             if (result.hasValue())
             {
                 lookupResult = result.value()->getValue();
@@ -183,8 +185,11 @@ uintptr_t SymbolTable::lookup(
     return lookupResult;
 }
 
-SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p, Binding table)
+SymbolTable::symbolTree_t *SymbolTable::getOrInsertTree(Elf *p, Binding table)
 {
+    // safe empty SharedPointer we can use for lookupRef()'s failed result
+    static SharedPointer<symbolTree_t> v;
+
     Tree<Elf *, SharedPointer<symbolTree_t>> *tree = nullptr;
     switch (table)
     {
@@ -199,13 +204,14 @@ SharedPointer<SymbolTable::symbolTree_t> SymbolTable::getOrInsertTree(Elf *p, Bi
             break;
     }
 
-    auto symbolTree = tree->lookup(p);
+    auto symbolTree = tree->lookupRef(p, v);
     if (symbolTree)
     {
-        return symbolTree;
+        return symbolTree.get();
     }
 
     auto newTree = SharedPointer<symbolTree_t>::allocate();
-    tree->insert(p, newTree);
-    return newTree;
+    auto result = newTree.get();
+    tree->insert(p, pedigree_std::move(newTree));
+    return result;
 }

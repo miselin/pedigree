@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 
 TEST(PedigreeTree, Construction)
 {
@@ -119,12 +120,12 @@ TEST(PedigreeTree, RightRemoval)
     EXPECT_EQ(x.lookup(3), 0);
 }
 
-TEST(PedigreeTree, DoubleInsertionValueUnchanged)
+TEST(PedigreeTree, DoubleInsertionValueChanged)
 {
     Tree<int, int> x;
     x.insert(1, 1);
     x.insert(1, 2);
-    EXPECT_EQ(x.lookup(1), 1);
+    EXPECT_EQ(x.lookup(1), 2);
 }
 
 TEST(PedigreeTree, SortedInsertion)
@@ -182,4 +183,17 @@ TEST(PedigreeTree, Iteration)
     EXPECT_EQ(it.value(), 5);
     ++it;
     EXPECT_EQ(it, x.end());
+}
+
+TEST(PedigreeTree, InsertMove)
+{
+    Tree<int, SharedPointer<int>> x;
+    auto y = SharedPointer<int>::allocate();
+    auto ptr = y.get();
+
+    x.insert(1, pedigree_std::move(y));
+
+    EXPECT_EQ(x.lookup(1).get(), ptr);
+    EXPECT_EQ(x.lookupRef(1).get(), ptr);
+    EXPECT_EQ(y.get(), nullptr);
 }

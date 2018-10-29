@@ -268,33 +268,6 @@ static void BM_SymbolsInsert_JenkinsHash(benchmark::State &state)
         int64_t(state.iterations()) * int64_t(symbols.size()));
 }
 
-static void BM_SymbolsLookup_RadixTree(benchmark::State &state)
-{
-    std::vector<String> symbols;
-    const int64_t value = 1;
-
-    LoadSymbols(symbols);
-
-    RadixTree<int64_t> tree;
-    for (auto &word : symbols)
-    {
-        tree.insert(word, value);
-    }
-
-    auto it = symbols.begin();
-    while (state.KeepRunning())
-    {
-        auto &word = *it;
-        benchmark::DoNotOptimize(tree.lookup(word));
-        if (++it == symbols.end())
-        {
-            it = symbols.begin();
-        }
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
 static void BM_SymbolsLookup_KernelLocal(benchmark::State &state)
 {
     SymbolTable table(nullptr);
@@ -349,7 +322,7 @@ static void BM_SymbolsLookup_KernelGlobal(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_SymbolsLookup_ElfHash(benchmark::State &state)
+static void BM_SymbolsHash_ElfHash(benchmark::State &state)
 {
     std::vector<String> symbols;
     std::vector<ElfHashedSymbol> keys;
@@ -378,7 +351,7 @@ static void BM_SymbolsLookup_ElfHash(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_SymbolsLookup_JenkinsHash(benchmark::State &state)
+static void BM_SymbolsHash_JenkinsHash(benchmark::State &state)
 {
     std::vector<String> symbols;
     std::vector<JenkinsHashedSymbol> keys;
@@ -412,11 +385,10 @@ BENCHMARK(BM_SymbolsInsert_Kernel);
 BENCHMARK(BM_SymbolsInsert_KernelGlobal);
 BENCHMARK(BM_SymbolsInsert_ElfHash);
 BENCHMARK(BM_SymbolsInsert_JenkinsHash);
-BENCHMARK(BM_SymbolsLookup_RadixTree);
 BENCHMARK(BM_SymbolsLookup_KernelLocal);
 BENCHMARK(BM_SymbolsLookup_KernelGlobal);
-BENCHMARK(BM_SymbolsLookup_ElfHash);
-BENCHMARK(BM_SymbolsLookup_JenkinsHash);
+BENCHMARK(BM_SymbolsHash_ElfHash);
+BENCHMARK(BM_SymbolsHash_JenkinsHash);
 
 // Implementations after all usages of HashTable and RadixTree so we get
 // single emitted versions, rather than inline versions.
