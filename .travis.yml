@@ -3,14 +3,14 @@ language: cpp
 compiler: g++
 matrix:
   include:
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=x64
+  # - os: linux
+  # - env: OS=ubuntu EASY_BUILD=x64
   #- os: linux
   #  env: OS=ubuntu EASY_BUILD=arm
   # - os: linux
   #   env: OS=ubuntu EASY_BUILD=hosted
-  - os: linux
-    env: OS=ubuntu EASY_BUILD=tests
+  # - os: linux
+  #   env: OS=ubuntu EASY_BUILD=tests
   # - os: osx
   #   env: OS=osx EASY_BUILD=x64
   - os: linux
