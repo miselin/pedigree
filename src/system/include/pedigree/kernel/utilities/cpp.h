@@ -338,6 +338,20 @@ typename remove_reference<T>::type &&move(T &&a)
     return static_cast<typename remove_reference<T>::type &&>(a);
 }
 
+/** Return the minimum of the two items. */
+template <class T>
+const T &min(const T& a, const T &b)
+{
+    return a <= b ? a : b;
+}
+
+/** Return the maximum of the two items. */
+template <class T>
+const T &max(const T& a, const T &b)
+{
+    return a >= b ? a : b;
+}
+
 }  // namespace pedigree_std
 
 using pedigree_std::is_integral;

@@ -48,13 +48,17 @@ static const int RandomNumber()
     return rand() % RANDOM_MAX;
 }
 
-static void BM_TreeInsert(benchmark::State &state)
+static void BM_TreeInsertMany(benchmark::State &state)
 {
     const int64_t value = 1;
 
+    Tree<int64_t, int64_t> tree;
     while (state.KeepRunning())
     {
-        Tree<int64_t, int64_t> tree;
+        state.PauseTiming();
+        tree.clear();
+        state.ResumeTiming();
+
         for (int64_t i = 0; i < state.range(0); ++i)
         {
             tree.insert(i, value);
@@ -66,13 +70,33 @@ static void BM_TreeInsert(benchmark::State &state)
     state.SetComplexityN(state.range(0));
 }
 
+static void BM_TreeInsertContinuous(benchmark::State &state)
+{
+    const int64_t value = 1;
+
+    Tree<int64_t, int64_t> tree;
+    int64_t i = 0;
+    while (state.KeepRunning())
+    {
+        tree.insert(i, value);
+        ++i;
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.iterations());
+}
+
 static void BM_TreeInsertReverse(benchmark::State &state)
 {
     const int64_t value = 1;
 
+    Tree<int64_t, int64_t> tree;
     while (state.KeepRunning())
     {
-        Tree<int64_t, int64_t> tree;
+        state.PauseTiming();
+        tree.clear();
+        state.ResumeTiming();
+
         for (int64_t i = state.range(0); i >= 0; --i)
         {
             tree.insert(i, value);
@@ -101,7 +125,7 @@ static void BM_TreeLookupSingle(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_TreeLookup(benchmark::State &state)
+static void BM_TreeLookupMany(benchmark::State &state)
 {
     Tree<int64_t, int64_t> tree;
 
@@ -211,11 +235,12 @@ static void BM_TreeLookupDoesNotExist(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-BENCHMARK(BM_TreeInsert)->Range(4, 1 << 18)->Complexity();
-BENCHMARK(BM_TreeLookup)->Range(4, 1 << 18)->Complexity();
-BENCHMARK(BM_TreeInsertReverse)->Range(4, 1 << 18)->Complexity();
-BENCHMARK(BM_TreeLookupSingle)->Range(4, 1 << 18)->Complexity();
-BENCHMARK(BM_TreeLookupDoesNotExist)->Range(4, 1 << 18);
+BENCHMARK(BM_TreeInsertContinuous)->Complexity();
+BENCHMARK(BM_TreeInsertMany)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeLookupMany)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeInsertReverse)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeLookupSingle)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeLookupDoesNotExist)->Range(4, 1 << 15);
 
-BENCHMARK(BM_TreeLookupWithFilter)->Range(4, 1 << 18)->Complexity();
-BENCHMARK(BM_TreeFailedLookupWithFilter)->Range(4, 1 << 18)->Complexity();
+BENCHMARK(BM_TreeLookupWithFilter)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeFailedLookupWithFilter)->Range(4, 1 << 15)->Complexity();

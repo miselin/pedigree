@@ -42,6 +42,20 @@ TEST(PedigreeTree, CopyConstruction)
     EXPECT_EQ(x.lookup(1), y.lookup(1));
 }
 
+TEST(PedigreeTree, Insertion)
+{
+    Tree<int, int> x;
+    for (int i = 1; i < 9; ++i)
+    {
+        x.insert(i, i);
+    }
+
+    for (int i = 1; i < 9; ++i)
+    {
+        EXPECT_EQ(x.lookup(i), i);
+    }
+}
+
 TEST(PedigreeTree, Clear)
 {
     Tree<int, int> x;
