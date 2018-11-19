@@ -78,4 +78,5 @@ deploy:
   on:
     condition: $EASY_BUILD = docs
     # branch: develop
+    all_branches: true
 
