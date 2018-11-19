@@ -1,0 +1,22 @@
+#!/bin/bash
+
+SERIAL_PORTS="-serial file:build/serial.txt -serial file:build/memlog.txt"
+
+if [ ! -z "$NO_SERIAL_PORTS" ]; then
+    SERIAL_PORTS=""
+fi
+
+AIO="native,cache.direct=on"
+
+if [ ! "$(uname -s)" == "Linux" ]; then
+    AIO="threads"
+fi
+
+QEMU=${QEMU:-qemu-system-x86_64}
+HDD=./debian-gnome.img
+
+${QEMU} \
+    -drive file=$HDD,if=ide,media=disk,cache=writeback,aio=$AIO,index=0,format=raw \
+    -drive file=./build/pedigree.iso,if=ide,media=cdrom,cache=writeback,aio=$AIO,index=2,format=raw \
+    -boot d -vga std $SERIAL_PORTS -rtc base=utc -monitor stdio $*
+
