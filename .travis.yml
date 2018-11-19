@@ -61,6 +61,11 @@ addons:
       - g++-6
       - libstdc++-6-dev
       - lcov
+      - doxygen
+      - doxygen-doc
+      - doxygen-latex
+      - doxygen-gui
+      - graphviz
 cache:
   directories:
   - $HOME/.ccache
