@@ -70,3 +70,12 @@ cache:
   directories:
   - $HOME/.ccache
   - $HOME/pedigree-compiler
+deploy:
+  provider: pages
+  skip_cleanup: true
+  local_dir: $TRAVIS_BUILD_DIR/docs/html
+  github_token: $GH_REPO_TOKEN
+  on:
+    condition: $EASY_BUILD = docs
+    # branch: develop
+
