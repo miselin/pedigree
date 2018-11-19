@@ -13,6 +13,8 @@ matrix:
     env: OS=ubuntu EASY_BUILD=tests
   # - os: osx
   #   env: OS=osx EASY_BUILD=x64
+  - os: linux
+    env: OS=ubuntu EASY_BUILD=docs
   exclude:
     - os: linux
     - compiler: g++
