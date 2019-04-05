@@ -1,31 +1,31 @@
-From 8c5d286f43c79be3820aca780eb7fb9d7ca34635 Mon Sep 17 00:00:00 2001
+From ed2d4df8d4fb5dd99887ead08906e722ceafab4d Mon Sep 17 00:00:00 2001
 From: Matthew Iselin <matthew@theiselins.net>
 Date: Tue, 7 Mar 2017 11:32:09 -0800
 Subject: [PATCH] Add arm-pedigree and x86_64-pedigree targets to GCC.
 
 ---
  config.sub                                    |  3 ++
- configure.ac                                  |  4 +--
+ configure.ac                                  |  4 +-
  gcc/Makefile.in                               |  1 +
- gcc/config.gcc                                | 23 ++++++++++++--
- gcc/config/pedigree.h                         | 44 +++++++++++++++++++++++++++
- gcc/config/t-pedigree                         |  6 ++++
- libgcc/config.host                            | 10 ++++--
- libstdc++-v3/config/os/gnu-linux/os_defines.h |  7 -----
- libstdc++-v3/configure.host                   |  4 +++
- libstdc++-v3/crossconfig.m4                   |  4 +++
- libtool.m4                                    |  4 ++-
+ gcc/config.gcc                                | 23 +++++++++-
+ gcc/config/pedigree.h                         | 44 +++++++++++++++++++
+ gcc/config/t-pedigree                         |  6 +++
+ libgcc/config.host                            | 10 ++++-
+ libstdc++-v3/config/os/gnu-linux/os_defines.h |  7 ---
+ libstdc++-v3/configure.host                   |  4 ++
+ libstdc++-v3/crossconfig.m4                   |  4 ++
+ libtool.m4                                    |  4 +-
  11 files changed, 96 insertions(+), 14 deletions(-)
  create mode 100644 gcc/config/pedigree.h
  create mode 100644 gcc/config/t-pedigree
 
 diff --git a/config.sub b/config.sub
-index 41146e11c6c..5de531dfb37 100755
+index f2632cd8a2b..6468ec9a6e8 100755
 --- a/config.sub
 +++ b/config.sub
-@@ -1531,6 +1531,9 @@ case $os in
+@@ -1563,6 +1563,9 @@ case $os in
  		;;
- 	-nacl*)
+ 	-ios)
  		;;
 +	-pedigree*)
 +		os=-pedigree
@@ -34,19 +34,19 @@ index 41146e11c6c..5de531dfb37 100755
  		;;
  	*)
 diff --git a/configure.ac b/configure.ac
-index 74bf58aad93..2af081be2cc 100644
+index c3433336523..46e9f466144 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -1817,7 +1817,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+@@ -1700,7 +1700,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
    build_lto_plugin=yes
  ],[if test x"$default_enable_lto" = x"yes" ; then
      case $target in
--      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp*) ;;
-+      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
+-      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp*) ;;
++      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
        # On other non-ELF platforms, LTO has yet to be validated.
        *) enable_lto=no ;;
      esac
-@@ -1828,7 +1828,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+@@ -1711,7 +1711,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
    # warn during gcc/ subconfigure; unless you're bootstrapping with
    # -flto it won't be needed until after installation anyway.
      case $target in
@@ -56,10 +56,10 @@ index 74bf58aad93..2af081be2cc 100644
  	AC_MSG_ERROR([LTO support is not enabled for this target.])
          fi
 diff --git a/gcc/Makefile.in b/gcc/Makefile.in
-index 13d0d1ba001..d3acffd727e 100644
+index 20bee0494b1..363f5b91903 100644
 --- a/gcc/Makefile.in
 +++ b/gcc/Makefile.in
-@@ -230,6 +230,7 @@ CPPFLAGS = @CPPFLAGS@
+@@ -232,6 +232,7 @@ CPPFLAGS = @CPPFLAGS@
  AWK = @AWK@
  CC = @CC@
  CXX = @CXX@
@@ -68,11 +68,11 @@ index 13d0d1ba001..d3acffd727e 100644
  BISONFLAGS =
  FLEX = @FLEX@
 diff --git a/gcc/config.gcc b/gcc/config.gcc
-index 1d5b23f228d..fe4e2fa951a 100644
+index 7af8e028104..ab7ed9c5988 100644
 --- a/gcc/config.gcc
 +++ b/gcc/config.gcc
-@@ -904,6 +904,13 @@ case ${target} in
-     *) echo 'Unknown thread configuration for VxWorks'; exit 1 ;;
+@@ -930,6 +930,13 @@ case ${target} in
+       ;;
    esac
    ;;
 +*-*-pedigree*)
@@ -85,18 +85,18 @@ index 1d5b23f228d..fe4e2fa951a 100644
  *-*-elf|arc*-*-elf*)
    # Assume that newlib is being used and so __cxa_atexit is provided.
    default_use_cxa_atexit=yes
-@@ -1108,7 +1115,7 @@ arm*-*-phoenix*)
- 	tm_file="${tm_file} arm/aout.h arm/arm.h"
+@@ -1172,7 +1179,7 @@ arm*-*-phoenix*)
  	tmake_file="${tmake_file} arm/t-arm arm/t-bpabi arm/t-phoenix"
+ 	target_cpu_cname="arm7tdmi"
  	;;
--arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems*)
-+arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-pedigree*)
+-arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia*)
++arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia* | arm*-*-pedigree*)
  	case ${target} in
  	arm*eb-*-eabi*)
  	  tm_defines="${tm_defines} TARGET_BIG_ENDIAN_DEFAULT=1"
-@@ -1117,10 +1124,17 @@ arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems*)
- 	tm_file="dbxelf.h elfos.h arm/unknown-elf.h arm/elf.h arm/bpabi.h"
+@@ -1182,10 +1189,17 @@ arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia*)
  	tmake_file="${tmake_file} arm/t-arm arm/t-arm-elf"
+ 	target_cpu_cname="arm7tdmi"
  	case ${target} in
 -	arm*-*-eabi*)
 +	arm*-*-eabi* | arm*-*-pedigree*)
@@ -111,23 +111,23 @@ index 1d5b23f228d..fe4e2fa951a 100644
 +	    ;;
 +	  esac
  	  ;;
- 	arm*-*-rtems*)
- 	  tm_file="${tm_file} rtems.h arm/rtems.h newlib-stdint.h"
-@@ -1603,6 +1617,11 @@ x86_64-*-linux* | x86_64-*-kfreebsd*-gnu | x86_64-*-knetbsd*-gnu)
+ 	arm*-*-fuchsia*)
+ 	  tm_file="${tm_file} fuchsia.h arm/fuchsia-elf.h glibc-stdint.h"
+@@ -1641,6 +1655,11 @@ x86_64-*-linux* | x86_64-*-kfreebsd*-gnu)
  	done
  	TM_MULTILIB_CONFIG=`echo $TM_MULTILIB_CONFIG | sed 's/^,//'`
  	;;
 +x86_64-*-pedigree*)
-+    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h i386/i386elf.h i386/x86-64.h pedigree.h newlib-stdint.h"
-+    tmake_file="i386/t-i386elf i386/t-crtstuff t-pedigree"
-+    use_fixproto=yes
-+    ;;
++	tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h i386/i386elf.h i386/x86-64.h pedigree.h newlib-stdint.h"
++	tmake_file="i386/t-i386elf i386/t-crtstuff t-pedigree"
++	use_fixproto=yes
++	;;
  i[34567]86-pc-msdosdjgpp*)
  	xm_file=i386/xm-djgpp.h
  	tm_file="dbxcoff.h ${tm_file} i386/unix.h i386/bsd.h i386/gas.h i386/djgpp.h i386/djgpp-stdint.h"
 diff --git a/gcc/config/pedigree.h b/gcc/config/pedigree.h
 new file mode 100644
-index 00000000000..2db4e8c9f1b
+index 00000000000..0f7d451114d
 --- /dev/null
 +++ b/gcc/config/pedigree.h
 @@ -0,0 +1,44 @@
@@ -188,7 +188,7 @@ index 00000000000..29165bda66b
 +
 +TARGET_LIBGCC2_CFLAGS = -fPIC
 diff --git a/libgcc/config.host b/libgcc/config.host
-index 124f2ceaefd..eaaf2dda8a6 100644
+index 11b4acaff55..dc4f515b2ca 100644
 --- a/libgcc/config.host
 +++ b/libgcc/config.host
 @@ -260,6 +260,9 @@ case ${host} in
@@ -201,7 +201,7 @@ index 124f2ceaefd..eaaf2dda8a6 100644
  *-*-rtems*)
    tmake_file="$tmake_file t-rtems"
    extra_parts="crtbegin.o crtend.o"
-@@ -409,11 +412,11 @@ arm*-*-phoenix*)
+@@ -444,11 +447,11 @@ arm*-*-phoenix*)
  	extra_parts="crtbegin.o crtend.o crti.o crtn.o"
  	unwind_header=config/arm/unwind-arm.h
  	;;
@@ -215,7 +215,7 @@ index 124f2ceaefd..eaaf2dda8a6 100644
  	  tmake_file="${tmake_file} arm/t-bpabi t-crtfm"
  	  extra_parts="crtbegin.o crtend.o crti.o crtn.o"
  	  ;;
-@@ -595,6 +598,9 @@ x86_64-*-dragonfly*)
+@@ -623,6 +626,9 @@ x86_64-*-dragonfly*)
  	tmake_file="${tmake_file} i386/t-dragonfly i386/t-crtstuff"
  	md_unwind_header=i386/dragonfly-unwind.h
  	;;
@@ -226,7 +226,7 @@ index 124f2ceaefd..eaaf2dda8a6 100644
  	tmake_file="${tmake_file} i386/t-freebsd i386/t-crtstuff"
  	md_unwind_header=i386/freebsd-unwind.h
 diff --git a/libstdc++-v3/config/os/gnu-linux/os_defines.h b/libstdc++-v3/config/os/gnu-linux/os_defines.h
-index 59b0a622da6..e95026a0671 100644
+index 4cd81c0f7ec..4f7ba660174 100644
 --- a/libstdc++-v3/config/os/gnu-linux/os_defines.h
 +++ b/libstdc++-v3/config/os/gnu-linux/os_defines.h
 @@ -38,13 +38,6 @@
@@ -244,10 +244,10 @@ index 59b0a622da6..e95026a0671 100644
  // version dynamically in case it has changed since libstdc++ was configured.
  #define _GLIBCXX_NO_OBSOLETE_ISINF_ISNAN_DYNAMIC __GLIBC_PREREQ(2,23)
 diff --git a/libstdc++-v3/configure.host b/libstdc++-v3/configure.host
-index 304a7f5aff6..447f74912ee 100644
+index 155a3cdea1b..16663e844bc 100644
 --- a/libstdc++-v3/configure.host
 +++ b/libstdc++-v3/configure.host
-@@ -296,6 +296,10 @@ case "${host_os}" in
+@@ -295,6 +295,10 @@ case "${host_os}" in
    openbsd*)
      os_include_dir="os/bsd/openbsd"
      ;;
@@ -259,12 +259,12 @@ index 304a7f5aff6..447f74912ee 100644
      os_include_dir="os/qnx/qnx6.1"
      c_model=c
 diff --git a/libstdc++-v3/crossconfig.m4 b/libstdc++-v3/crossconfig.m4
-index ece12567794..8d1512a4369 100644
+index cb6e3afff3d..8828c4a5754 100644
 --- a/libstdc++-v3/crossconfig.m4
 +++ b/libstdc++-v3/crossconfig.m4
-@@ -182,6 +182,10 @@ case "${host}" in
-       AC_DEFINE(HAVE_ISNANL)
+@@ -219,6 +219,10 @@ case "${host}" in
      fi
+     AC_CHECK_FUNCS(aligned_alloc posix_memalign memalign _aligned_malloc)
      ;;
 +  *-pedigree*)
 +    AC_CHECK_HEADERS([sys/types.h locale.h float.h])
@@ -289,5 +289,5 @@ index 24d13f34409..c35bfa03ceb 100644
  
    # Report which library types will actually be built
 -- 
-2.12.0.rc1.440.g5b76565f74-goog
+2.21.0.392.gf8f6787159e-goog
 

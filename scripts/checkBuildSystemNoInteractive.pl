@@ -7,7 +7,7 @@ die ("No target given!") unless scalar @ARGV > 0;
 
 my $target = $ARGV[0];
 
-my $gcc_version = "6.3.0";
+my $gcc_version = "8.3.0";
 my $binutils_version = "2.32";
 my $nasm_version = "2.12.02";
 
