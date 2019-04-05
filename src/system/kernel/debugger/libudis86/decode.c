@@ -505,6 +505,7 @@ static int disasm_operands(register struct ud* u)
 	case OP_M :
 		if (MODRM_MOD(inp_peek(u)) == 3)
 			u->error= 1;
+        FALLSTHROUGH;
 	/* E, G/P/V/I/CL/1/S */
 	case OP_E :
 		if (mop2t == OP_G) {

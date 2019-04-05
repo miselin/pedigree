@@ -125,7 +125,7 @@ class Ehci : public UsbHub,
         uint32_t res1 : 5;
         uint32_t pQTD : 27;
 
-        qTD overlay;
+        qTD overlay ALIGN(32);
 
         struct MetaData
         {

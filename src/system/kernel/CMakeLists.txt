@@ -380,8 +380,8 @@ add_custom_command(TARGET kernel POST_BUILD
     COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:kernel>
     COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/kernel.debug" $<TARGET_FILE:kernel>)
 
-add_custom_command(TARGET kernel POST_BUILD
-    # OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
     COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
     DEPENDS kernel)
 add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
