@@ -263,6 +263,7 @@ int VStringFormat(char *buf, const char *fmt, va_list args)
 
             case 'x':
                 flags |= SMALL;
+                FALLSTHROUGH;
             case 'X':
                 str = number(
                     str, va_arg(args, unsigned long), 16, field_width,
@@ -272,6 +273,7 @@ int VStringFormat(char *buf, const char *fmt, va_list args)
             case 'd':
             case 'i':
                 flags |= SIGN;
+                FALLSTHROUGH;
             case 'u':
                 str = number(
                     str, va_arg(args, unsigned long), 10, field_width,
