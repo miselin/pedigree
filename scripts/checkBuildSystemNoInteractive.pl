@@ -38,10 +38,10 @@ for(my $i = 2; $i < @ARGV; $i++)
     }
 }
 
-my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.bz2",
+my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.xz",
                   'name' => 'GCC',
-                  'filename' => "gcc-$gcc_version.tar.bz2",
-                  'extract' => "tar -xjf gcc-$gcc_version.tar.bz2",
+                  'filename' => "gcc-$gcc_version.tar.xz",
+                  'extract' => "tar -xf gcc-$gcc_version.tar.xz",
                   'arch' => 'all',
                   'creates' => "gcc-$gcc_version"},
                  {'url' => "ftp://ftp.gnu.org/gnu/binutils/binutils-$binutils_version.tar.bz2",
