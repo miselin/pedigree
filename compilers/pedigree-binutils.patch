@@ -1,26 +1,26 @@
-From 6a84cb21f3b851e2c473f55d950b1e25f5d55ffd Mon Sep 17 00:00:00 2001
+From 54aac1667f743cb5fa60fce458199442632ae2db Mon Sep 17 00:00:00 2001
 From: Matthew Iselin <matthew@theiselins.net>
 Date: Tue, 7 Mar 2017 11:23:43 -0800
 Subject: [PATCH] Add arm-pedigree and x86_64-pedigree to Binutils.
 
 ---
- bfd/config.bfd                   | 11 +++++++++++
+ bfd/config.bfd                   | 11 ++++++++++
  config.sub                       |  2 ++
  configure.ac                     |  4 ++--
  gas/configure.tgt                |  2 ++
- ld/Makefile.in                   | 10 ++++++++++
+ ld/Makefile.in                   | 10 +++++++++
  ld/configure.tgt                 |  2 ++
- ld/emulparams/pedigree_arm.sh    | 35 +++++++++++++++++++++++++++++++++++
- ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++++
+ ld/emulparams/pedigree_arm.sh    | 35 ++++++++++++++++++++++++++++++++
+ ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++
  8 files changed, 89 insertions(+), 2 deletions(-)
  create mode 100644 ld/emulparams/pedigree_arm.sh
  create mode 100644 ld/emulparams/pedigree_x86_64.sh
 
 diff --git a/bfd/config.bfd b/bfd/config.bfd
-index 1b28016b91..49589ae3fe 100644
+index 0e1ddb659c..7b57257f45 100644
 --- a/bfd/config.bfd
 +++ b/bfd/config.bfd
-@@ -413,6 +413,10 @@ case "${targ}" in
+@@ -370,6 +370,10 @@ case "${targ}" in
      targ_underscore=no
      targ_cflags="-DARM_WINCE -DARM_COFF_BUGFIX"
      ;;
@@ -31,7 +31,7 @@ index 1b28016b91..49589ae3fe 100644
    arm-*-pe*)
      targ_defvec=arm_pe_le_vec
      targ_selvecs="arm_pe_le_vec arm_pe_be_vec arm_pei_le_vec arm_pei_be_vec"
-@@ -878,6 +882,13 @@ case "${targ}" in
+@@ -766,6 +770,13 @@ case "${targ}" in
      targ_defvec=i386_elf32_vec
      targ_selfvecs="iamcu_elf32_vec i386chaos_vec"
      ;;
@@ -43,35 +43,35 @@ index 1b28016b91..49589ae3fe 100644
 +    ;;
 +#endif
  
-   i860-*-mach3* | i860-*-osf1* | i860-*-coff*)
-     targ_defvec=i860_coff_vec
+   ia16-*-elf)
+     targ_defvec=i386_elf32_vec
 diff --git a/config.sub b/config.sub
-index 70a4180eaf..ac3ca74de8 100755
+index 75bb6a3135..f30019f392 100755
 --- a/config.sub
 +++ b/config.sub
-@@ -1541,6 +1541,8 @@ case $os in
+@@ -1509,6 +1509,8 @@ case $os in
  		;;
- 	-ios)
+ 	none)
  		;;
 +	-pedigree*)
 +		;;
- 	-none)
+ 	*-eabi)
  		;;
  	*)
 diff --git a/configure.ac b/configure.ac
-index 3ec86c19df..ce2177286a 100644
+index 46501c2882..f9d9df6f8f 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -1817,7 +1817,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+@@ -1692,7 +1692,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
    build_lto_plugin=yes
  ],[if test x"$default_enable_lto" = x"yes" ; then
      case $target in
--      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp*) ;;
-+      *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
+-      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp*) ;;
++      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
        # On other non-ELF platforms, LTO has yet to be validated.
        *) enable_lto=no ;;
      esac
-@@ -1828,7 +1828,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
+@@ -1703,7 +1703,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
    # warn during gcc/ subconfigure; unless you're bootstrapping with
    # -flto it won't be needed until after installation anyway.
      case $target in
@@ -81,30 +81,30 @@ index 3ec86c19df..ce2177286a 100644
  	AC_MSG_ERROR([LTO support is not enabled for this target.])
          fi
 diff --git a/gas/configure.tgt b/gas/configure.tgt
-index 711d537e95..dcf750b535 100644
+index 616d211308..4533f5a0ea 100644
 --- a/gas/configure.tgt
 +++ b/gas/configure.tgt
-@@ -163,6 +163,7 @@ case ${generic_target} in
+@@ -158,6 +158,7 @@ case ${generic_target} in
+ 					fmt=coff em=wince-pe ;;
    arm-*-pe)				fmt=coff em=pe ;;
-   arm-*-riscix*)			fmt=aout em=riscix ;;
    arm-*-fuchsia*)			fmt=elf ;;
 +  arm-*-pedigree*)		fmt=elf ;;
  
    avr-*-*)				fmt=elf bfd_gas=yes ;;
  
-@@ -288,6 +289,7 @@ case ${generic_target} in
+@@ -260,6 +261,7 @@ case ${generic_target} in
    i386-*-chaos)				fmt=elf ;;
    i386-*-rdos*)				fmt=elf ;;
    i386-*-darwin*)			fmt=macho ;;
 +  i386-*-pedigree*)		fmt=elf ;;
  
-   i860-*-*)				fmt=elf endian=little ;;
+   ia16-*-elf*)				fmt=elf ;;
  
 diff --git a/ld/Makefile.in b/ld/Makefile.in
-index 042b690ed6..96e89611f3 100644
+index fc687fc516..b58534958f 100644
 --- a/ld/Makefile.in
 +++ b/ld/Makefile.in
-@@ -754,6 +754,8 @@ ALL_EMULATION_SOURCES = \
+@@ -829,6 +829,8 @@ ALL_EMULATION_SOURCES = \
  	enios2linux.c \
  	epc532macha.c \
  	epdp11.c \
@@ -122,7 +122,7 @@ index 042b690ed6..96e89611f3 100644
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epjelf.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epjlelf.Po@am__quote@
  @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eppclynx.Po@am__quote@
-@@ -3289,6 +3293,12 @@ epc532macha.c: $(srcdir)/emulparams/pc532macha.sh \
+@@ -3166,6 +3170,12 @@ epc532macha.c: $(srcdir)/emulparams/pc532macha.sh \
  epdp11.c: $(srcdir)/emulparams/pdp11.sh \
    $(srcdir)/emultempl/generic.em $(srcdir)/scripttempl/aout.sc ${GEN_DEPENDS}
  
@@ -136,18 +136,18 @@ index 042b690ed6..96e89611f3 100644
    $(ELF_GEN_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
  
 diff --git a/ld/configure.tgt b/ld/configure.tgt
-index b85c6bb35a..de67ac7304 100644
+index beba17ef51..4d8782cb52 100644
 --- a/ld/configure.tgt
 +++ b/ld/configure.tgt
-@@ -105,6 +105,7 @@ arm-*-netbsd*)		targ_emul=armnbsd;
- 			targ_extra_emuls="armelf armelf_nbsd armelfb_nbsd"  ;;
+@@ -112,6 +112,7 @@ armeb-*-netbsdelf*)	targ_emul=armelfb_nbsd;
+ arm-*-netbsdelf*)	targ_emul=armelf_nbsd;
+ 			targ_extra_emuls="armelfb_nbsd armelf" ;;
  arm-*-nto*)		targ_emul=armnto ;;
- arm-*-openbsd*)		targ_emul=armnbsd ;;
 +arm-*-pedigree*)	targ_emul=pedigree_arm ;;
  arm-*-phoenix*)		targ_emul=armelf ;;
- arm-*-rtems*)		targ_emul=armelf ;;
  armeb-*-elf | armeb-*-eabi*)
-@@ -247,6 +248,7 @@ i[3-7]86-*-rdos*)	targ_emul=elf_i386
+ 			targ_emul=armelfb ;;
+@@ -244,6 +245,7 @@ i[3-7]86-*-rdos*)	targ_emul=elf_i386
  			targ_extra_emuls=elf_iamcu ;;
  x86_64-*-rdos*)		targ_emul=elf64rdos ;;
  x86_64-*-cloudabi*)	targ_emul=elf_x86_64_cloudabi ;;
@@ -230,5 +230,5 @@ index 0000000000..2a7005c34b
 +fi
 \ No newline at end of file
 -- 
-2.12.0.rc1.440.g5b76565f74-goog
+2.21.0.392.gf8f6787159e-goog
 
