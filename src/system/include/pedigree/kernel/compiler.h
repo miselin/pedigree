@@ -71,7 +71,7 @@
 /** This function can be overridden by a library. */
 #define WEAK __attribute__((weak))
 /** A switch fallthrough is indeed intentional. */
-#define FALLSTHROUGH __attribute__((fallthrough))
+#define FALLSTHROUGH __attribute__((fallthrough));
 
 /**
  * This function or variable is to be exposed to other objects.
