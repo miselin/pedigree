@@ -71,7 +71,11 @@
 /** This function can be overridden by a library. */
 #define WEAK __attribute__((weak))
 /** A switch fallthrough is indeed intentional. */
+#if defined(__GNUC__) && __GNUC__ >= 7
 #define FALLSTHROUGH __attribute__((fallthrough));
+#else
+#define FALLSTHROUGH
+#endif
 
 /**
  * This function or variable is to be exposed to other objects.
