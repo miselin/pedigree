@@ -220,12 +220,13 @@ static int loadModules(void *inf)
 
     KernelElf::instance().executeModules();
 #else
-    BootstrapStruct_t bsInf = *static_cast<BootstrapStruct_t *>(inf);
+    BootstrapStruct_t *bsInf = static_cast<BootstrapStruct_t *>(inf);
 
     /// \note We have to do this before we call Processor::initialisationDone()
     /// otherwise the
     ///       BootstrapStruct_t might already be unmapped
-    Archive initrd(bsInf.getInitrdAddress(), bsInf.getInitrdSize());
+    Archive initrd(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
+    bsInf = nullptr;
 
     size_t nFiles = initrd.getNumFiles();
     g_BootProgressTotal =
@@ -242,6 +243,7 @@ static int loadModules(void *inf)
 
     // Start any modules we can run already.
     KernelElf::instance().executeModules();
+#endif
 
     // Wait for all modules to finish loading before we continue.
     KernelElf::instance().waitForModulesToLoad();
@@ -251,7 +253,8 @@ static int loadModules(void *inf)
     // after this point
     Processor::initialisationDone();
 
-#endif
+    // Now that we've cleaned up and are done loading modules, we can run the init module.
+    KernelElf::instance().invokeInitModule();
 
     if (KernelElf::instance().hasPendingModules())
     {

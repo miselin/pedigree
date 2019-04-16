@@ -185,6 +185,17 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     /** Waits for all modules to complete (whether successfully or not). */
     void waitForModulesToLoad();
 
+    /**
+     * \brief Invokes the module named 'init'.
+     * When a module named init is discovered, rather than executing it in the
+     * usual module order, it is kept aside until this function is called.
+     *
+     * This ensures the init module (which is generally used to invoke the
+     * userspace and become user-interactive) is always run last, and is not
+     * impacted by modules that load after it.
+     */
+    void invokeInitModule();
+
   private:
     /** Default constructor does nothing */
     KernelElf() INITIALISATION_ONLY;
@@ -246,6 +257,9 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     Semaphore m_ModuleProgress;
     Spinlock m_ModuleAdjustmentLock;
 #endif
+
+    /** Pending init module. */
+    Module *m_InitModule;
 };
 
 /** @} */

@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 
 #if defined(X86)
 #include "../x86/VirtualAddressSpace.h"
@@ -36,6 +37,9 @@
 
 void Processor::initialisationDone()
 {
+    // Don't allow the bootstrap info to be used anymore - we're killing it here
+    g_pBootstrapInfo = nullptr;
+
 /// \todo there HAS to be a better way than this
 #if defined(X86)
     // Unmap the identity mapping of the first MBs
