@@ -170,8 +170,10 @@ pedigree_module(filesystems "" ""
 pedigree_module(gfx-deps "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/gfx-deps/main.cc)
 
+if (PEDIGREE_WITH_INIT)
 pedigree_module(init "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/init/main.cc)
+endif ()
 
 pedigree_module(iso9660 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/iso9660/Iso9660Directory.cc

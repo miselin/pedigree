@@ -46,6 +46,9 @@ set(PEDIGREE_ACPI TRUE CACHE BOOL "Enable ACPI support for machine targets that 
 set(PEDIGREE_GRAPHICS FALSE CACHE BOOL "Enable graphics, including the graphical splash screen.")
 set(PEDIGREE_TRACK_HIDDEN_SYMBOLS FALSE CACHE BOOL "Enable tracking of hidden symbols, which increases kernel memory usage but dramatically improves debugger backtraces.")
 
+# init configuration
+set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
+
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")
 set(PEDIGREE_TRAVIS FALSE CACHE BOOL "Enable to report this build is happening on travis-ci.")

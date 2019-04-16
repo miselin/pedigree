@@ -406,11 +406,11 @@ KernelElf::KernelElf()
       m_AdditionalSectionContents("Kernel ELF Section Data"),
       m_AdditionalSectionHeaders(0),
 #endif
-      m_Modules(), m_ModuleAllocator(), m_pSectionHeaders(0), m_pSymbolTable(0)
+      m_Modules(), m_ModuleAllocator(), m_pSectionHeaders(0), m_pSymbolTable(0),
 #ifdef THREADS
-      ,
-      m_ModuleProgress(0), m_ModuleAdjustmentLock(false)
+      m_ModuleProgress(0), m_ModuleAdjustmentLock(false),
 #endif
+      m_InitModule(nullptr)
 {
 }
 
@@ -555,13 +555,20 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
         reinterpret_cast<void *>(module->loadBase + module->loadSize));
 #endif
 
-    g_BootProgressCurrent++;
-    if (g_BootProgressUpdate && !silent)
-        g_BootProgressUpdate("moduleload");
+    if (!StringCompare(module->name, "init"))
+    {
+        m_InitModule = module;
+    }
+    else
+    {
+        g_BootProgressCurrent++;
+        if (g_BootProgressUpdate && !silent)
+            g_BootProgressUpdate("moduleload");
 
-    module->status = Module::Preloaded;
+        module->status = Module::Preloaded;
 
-    m_Modules.pushBack(module);
+        m_Modules.pushBack(module);
+    }
 
     return module;
 }
@@ -1026,6 +1033,25 @@ void KernelElf::waitForModulesToLoad()
             NOTICE(" - " << it->name);
         }
     }
+}
+
+void KernelElf::invokeInitModule()
+{
+    if (m_InitModule == nullptr)
+    {
+        WARNING("KernelElf: no init module was ever preloaded, cannot invoke init");
+        return;
+    }
+
+    Module *mod = m_InitModule;
+    m_InitModule = nullptr;
+
+    if (!moduleDependenciesSatisfied(mod))
+    {
+        FATAL("init module could not be invoked - its dependencies were not satisfied");
+    }
+
+    executeModuleThread(reinterpret_cast<void *>(mod));
 }
 
 uintptr_t KernelElf::globalLookupSymbol(const char *pName)
