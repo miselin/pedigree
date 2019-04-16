@@ -52,7 +52,7 @@ Pc Pc::m_Instance;
 void Pc::initialise()
 {
     // Initialise Vga
-    if (m_Vga.initialise() == false)
+    if (m_Vga->initialise() == false)
         panic("Pc: Vga initialisation failed");
 
     // Initialise the Real-time Clock / CMOS (without IRQs).
@@ -93,7 +93,7 @@ void Pc::initialise()
     // Initialise the local APIC, if we have gotten valid data from
     // the ACPI/SMP structures
     if (bLocalApicValid == true && localApicAddress &&
-        m_LocalApic.initialise(localApicAddress))
+        m_LocalApic->initialise(localApicAddress))
     {
         NOTICE("Local APIC initialised");
     }
@@ -128,10 +128,10 @@ void Pc::initialise()
 #endif
 
     // Initialise serial ports.
-    m_pSerial[0].setBase(0x3F8);
-    m_pSerial[1].setBase(0x2F8);
-    m_pSerial[2].setBase(0x3E8);
-    m_pSerial[3].setBase(0x2E8);
+    m_pSerial[0]->setBase(0x3F8);
+    m_pSerial[1]->setBase(0x2F8);
+    m_pSerial[2]->setBase(0x3E8);
+    m_pSerial[3]->setBase(0x2E8);
 
     // Initialse the Real-time Clock / CMOS IRQs.
     if (rtc.initialise2() == false)
@@ -143,12 +143,12 @@ void Pc::initialise()
         panic("Pc: Pit initialisation failed");
 
     // Set up PS/2
-    m_Ps2Controller.initialise();
-    m_Keyboard.initialise();
+    m_Ps2Controller->initialise();
+    m_Keyboard->initialise();
 
 // Find and parse the SMBIOS tables
 #if defined(SMBIOS)
-    m_SMBios.initialise();
+    m_SMBios->initialise();
 #endif
 
     m_bInitialised = true;
@@ -165,56 +165,79 @@ void Pc::initialiseProcessor()
     // TODO: we might need to initialise per-processor ACPI shit, no idea atm
 
     // Initialise the local APIC
-    if (m_LocalApic.initialiseProcessor() == false)
+    if (m_LocalApic->initialiseProcessor() == false)
         panic("Pc::initialiseProcessor(): Failed to initialise the local APIC");
 }
 #endif
 
 void Pc::initialise3()
 {
-    m_Keyboard.startReaderThread();
+    m_Keyboard->startReaderThread();
 }
 
 void Pc::initialiseDeviceTree()
 {
+    for (size_t i = 0; i < 4; ++i)
+    {
+        m_pSerial[i] = new X86Serial();
+    }
+
+    m_Vga = new X86Vga(0x3C0, 0xB8000);
+
+    m_IsaBus = new Bus("ISA");
+    m_AtaMaster = new Controller();
+    m_AtaSlave = new Controller();
+    m_Watchdog = new Device();
+
+    m_Ps2Controller = new Ps2Controller();
+    m_pKeyboard = m_Keyboard = new X86Keyboard(m_Ps2Controller);
+
+#ifdef SMBIOS
+    m_SMBios = new SMBios();
+#endif
+
+#ifdef APIC
+    m_LocalApic = new LocalApic();
+#endif
+
     // Firstly add the ISA bus.
-    m_IsaBus.setSpecificType(String("isa"));
+    m_IsaBus->setSpecificType(String("isa"));
 
     // ATA controllers.
-    m_AtaMaster.setSpecificType(String("ata"));
-    m_AtaMaster.addresses().pushBack(
+    m_AtaMaster->setSpecificType(String("ata"));
+    m_AtaMaster->addresses().pushBack(
         new Device::Address(String("command"), 0x1F0, 8, true));
-    m_AtaMaster.addresses().pushBack(
+    m_AtaMaster->addresses().pushBack(
         new Device::Address(String("control"), 0x3F0, 8, true));
-    m_AtaMaster.setInterruptNumber(14);
-    m_IsaBus.addChild(&m_AtaMaster);
-    m_AtaMaster.setParent(&m_IsaBus);
+    m_AtaMaster->setInterruptNumber(14);
+    m_IsaBus->addChild(m_AtaMaster);
+    m_AtaMaster->setParent(m_IsaBus);
 
-    m_AtaSlave.setSpecificType(String("ata"));
-    m_AtaSlave.addresses().pushBack(
+    m_AtaSlave->setSpecificType(String("ata"));
+    m_AtaSlave->addresses().pushBack(
         new Device::Address(String("command"), 0x170, 8, true));
-    m_AtaSlave.addresses().pushBack(
+    m_AtaSlave->addresses().pushBack(
         new Device::Address(String("control"), 0x370, 8, true));
-    m_AtaSlave.setInterruptNumber(15);
-    m_IsaBus.addChild(&m_AtaSlave);
-    m_AtaSlave.setParent(&m_IsaBus);
+    m_AtaSlave->setInterruptNumber(15);
+    m_IsaBus->addChild(m_AtaSlave);
+    m_AtaSlave->setParent(m_IsaBus);
 
     // PS/2
-    m_Ps2Controller.setSpecificType(String("ps2"));
-    m_Ps2Controller.addresses().pushBack(
+    m_Ps2Controller->setSpecificType(String("ps2"));
+    m_Ps2Controller->addresses().pushBack(
         new Device::Address(String("ps2-base"), 0x60, 5, true));
-    m_Ps2Controller.setInterruptNumber(
+    m_Ps2Controller->setInterruptNumber(
         1);  // 12 for mouse, handled by the driver
-    m_IsaBus.addChild(&m_Ps2Controller);
-    m_Ps2Controller.setParent(&m_IsaBus);
+    m_IsaBus->addChild(m_Ps2Controller);
+    m_Ps2Controller->setParent(m_IsaBus);
 
     // IB700 Watchdog Timer
-    m_Watchdog.addresses().pushBack(
+    m_Watchdog->addresses().pushBack(
         new Device::Address(String("ib700-base"), 0x441, 4, true));
-    m_IsaBus.addChild(&m_Watchdog);
-    m_Watchdog.setParent(&m_IsaBus);
+    m_IsaBus->addChild(m_Watchdog);
+    m_Watchdog->setParent(m_IsaBus);
 
-    Device::addToRoot(&m_IsaBus);
+    Device::addToRoot(m_IsaBus);
 
     // Initialise the PCI interface
     PciBus::instance().initialise();
@@ -222,7 +245,7 @@ void Pc::initialiseDeviceTree()
 
 Serial *Pc::getSerial(size_t n)
 {
-    return &m_pSerial[n];
+    return m_pSerial[n];
 }
 
 size_t Pc::getNumSerial()
@@ -232,7 +255,7 @@ size_t Pc::getNumSerial()
 
 Vga *Pc::getVga(size_t n)
 {
-    return &m_Vga;
+    return m_Vga;
 }
 
 size_t Pc::getNumVga()
@@ -248,7 +271,7 @@ IrqManager *Pc::getIrqManager()
 SchedulerTimer *Pc::getSchedulerTimer()
 {
 #ifdef MULTIPROCESSOR
-    return &m_LocalApic;
+    return m_LocalApic;
 #else
     return &Pit::instance();
 #endif
@@ -266,32 +289,39 @@ Keyboard *Pc::getKeyboard()
 
 void Pc::setKeyboard(Keyboard *kb)
 {
+    if (m_pKeyboard)
+    {
+        delete m_pKeyboard;
+    }
+
     m_pKeyboard = kb;
 }
 
 #ifdef MULTIPROCESSOR
 void Pc::stopAllOtherProcessors()
 {
-    m_LocalApic.interProcessorInterruptAllExcludingThis(
+    m_LocalApic->interProcessorInterruptAllExcludingThis(
         IPI_HALT_VECTOR, 0 /* Fixed delivery mode */);
 }
 #endif
 
 Pc::Pc()
-    : m_Vga(0x3C0, 0xB8000), m_pKeyboard(0)
+    : m_pSerial(), m_Vga(nullptr), m_pKeyboard(nullptr),
 #if defined(SMBIOS)
-      ,
-      m_SMBios()
+      m_SMBios(nullptr),
 #endif
 #if defined(APIC)
-      ,
-      m_LocalApic()
+      m_LocalApic(nullptr),
 #endif
-      ,
-      m_Keyboard(&m_Ps2Controller), m_IsaBus("ISA"), m_Ps2Controller()
+      m_Keyboard(nullptr), m_IsaBus(nullptr), m_AtaMaster(nullptr),
+      m_AtaSlave(nullptr), m_Ps2Controller(nullptr), m_Watchdog(nullptr)
 {
-    m_pKeyboard = &m_Keyboard;
+    for (size_t i = 0; i < 4; ++i)
+    {
+        m_pSerial[i] = nullptr;
+    }
 }
+
 Pc::~Pc()
 {
 }

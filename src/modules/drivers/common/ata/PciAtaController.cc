@@ -109,9 +109,6 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
 
     m_Children.clear();
 
-    // Set up the RequestQueue
-    initialise();
-
     // Read the BusMaster interface base address register and tell it where we
     // would like to talk to it (BAR4).
     if (bar4)

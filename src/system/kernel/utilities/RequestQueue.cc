@@ -58,7 +58,7 @@ void RequestQueue::initialise()
 #ifdef THREADS
     if (m_pThread)
     {
-        WARNING("RequestQueue initialised multiple times - don't do this.");
+        PEDANTRY("RequestQueue initialised multiple times - don't do this.");
         return;
     }
 

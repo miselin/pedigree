@@ -336,7 +336,7 @@ static void delete_shared(void *p) noexcept
         else
         {
             // less critical - still annoying
-            ERROR(
+            PEDANTRY(
                 "delete_shared failed as pointer was not in the kernel heap: "
                 << p);
         }
