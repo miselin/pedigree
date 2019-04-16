@@ -101,6 +101,12 @@ typedef StaticCord<8> LogCord;
             ;                              \
     } while (0)
 
+#ifdef PEDANTIC_PEDIGREE
+#define PEDANTRY FATAL
+#else
+#define PEDANTRY WARNING
+#endif
+
 #else  // NO_LOGGING
 
 #define DEBUG_LOG(text)
@@ -113,6 +119,7 @@ typedef StaticCord<8> LogCord;
 #define ERROR_NOLOCK(text)
 #define FATAL(text)
 #define FATAL_NOLOCK(text)
+#define PEDANTRY(text)
 
 #endif
 

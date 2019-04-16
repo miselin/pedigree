@@ -45,6 +45,7 @@ set(PEDIGREE_MULTIPROCESSOR TRUE CACHE BOOL "Enable multiprocessor support for p
 set(PEDIGREE_ACPI TRUE CACHE BOOL "Enable ACPI support for machine targets that support it.")
 set(PEDIGREE_GRAPHICS FALSE CACHE BOOL "Enable graphics, including the graphical splash screen.")
 set(PEDIGREE_TRACK_HIDDEN_SYMBOLS FALSE CACHE BOOL "Enable tracking of hidden symbols, which increases kernel memory usage but dramatically improves debugger backtraces.")
+set(PEDIGREE_PEDANTIC FALSE CACHE BOOL "Enable pedantic mode for some warnings in Pedigree which indicate bad practices, but are otherwise handled correctly by the code emitting the warning.")
 
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
@@ -254,6 +255,10 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_LIVECD)
         add_definitions(-DLIVECD=1)
+    endif ()
+
+    if (PEDIGREE_PEDANTIC)
+        add_definitions(-DPEDANTIC_PEDIGREE=1)
     endif ()
 
     add_subdirectory(src/system/kernel)
