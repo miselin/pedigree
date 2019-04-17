@@ -29,6 +29,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"  // IWYU pragma: keep
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
