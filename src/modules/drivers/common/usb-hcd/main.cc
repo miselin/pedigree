@@ -85,7 +85,7 @@ static void probeOhci(Device *pDev)
     bFound = true;
 }
 
-#ifdef X86_COMMON
+#if X86_COMMON
 static void probeUhci(Device *pDev)
 {
     NOTICE("USB: UHCI found");
@@ -112,7 +112,7 @@ static bool entry()
         HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_EHCI, probeEhci);
     Device::searchByClassSubclassAndProgInterface(
         HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_OHCI, probeOhci);
-#ifdef X86_COMMON
+#if X86_COMMON
     Device::searchByClassSubclassAndProgInterface(
         HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_UHCI, probeUhci);
 #endif
@@ -124,10 +124,10 @@ static void exit()
 {
 }
 
-#ifdef X86_COMMON
+#if X86_COMMON
 MODULE_INFO("usb-hcd", &entry, &exit, "pci", "usb");
 #else
-#ifdef ARM_COMMON
+#if ARM_COMMON
 MODULE_INFO("usb-hcd", &entry, &exit, "usb-glue", "usb");
 #else
 MODULE_INFO("usb-hcd", &entry, &exit, "usb");

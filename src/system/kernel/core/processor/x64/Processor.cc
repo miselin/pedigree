@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/processor/Processor.h"
 #include "../x86_common/PhysicalMemoryManager.h"
+#include "../x86_common/Multiprocessor.h"
 #include "InterruptManager.h"
 #include "SyscallManager.h"
 #include "VirtualAddressSpace.h"
@@ -28,11 +29,6 @@
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-// Multiprocessor headers
-#if defined(MULTIPROCESSOR)
-#include "../x86_common/Multiprocessor.h"
-#endif
 
 #define PAT_UC 0x00
 #define PAT_WC 0x01
@@ -79,7 +75,7 @@ static int doInitialise64(const BootstrapStruct_t &info)
     return 0;
 }
 
-void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
+void ProcessorBase::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 {
     const X64VirtualAddressSpace &x64AddressSpace =
         static_cast<const X64VirtualAddressSpace &>(AddressSpace);
@@ -100,7 +96,7 @@ void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
     }
 }
 
-void Processor::deinitialise()
+void ProcessorBase::deinitialise()
 {
     shutdownMultitasking();
 
@@ -112,7 +108,7 @@ void Processor::deinitialise()
     X64InterruptManager::instance().~X64InterruptManager();
 }
 
-void Processor::initialise1(const BootstrapStruct_t &Info)
+void ProcessorBase::initialise1(const BootstrapStruct_t &Info)
 {
     // Initialise this processor's interrupt handling
     X64InterruptManager::initialiseProcessor();
@@ -179,13 +175,14 @@ void Processor::initialise1(const BootstrapStruct_t &Info)
     m_Initialised = 1;
 }
 
-void Processor::initialise2(const BootstrapStruct_t &Info)
+void ProcessorBase::initialise2(const BootstrapStruct_t &Info)
 {
-#if defined(MULTIPROCESSOR)
-    size_t nProcessors = Multiprocessor::initialise1();
-#else
     size_t nProcessors = 1;
-#endif
+
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        nProcessors = Multiprocessor::initialise1();
+    }
 
     // Initialise the GDT
     X64GdtManager::instance().initialise(nProcessors);
@@ -197,17 +194,18 @@ void Processor::initialise2(const BootstrapStruct_t &Info)
 
     m_Initialised = 2;
 
-#if defined(MULTIPROCESSOR)
-    if (nProcessors != 1)
-        Multiprocessor::initialise2();
-#endif
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        if (nProcessors != 1)
+            Multiprocessor::initialise2();
+    }
 }
 
-void Processor::identify(HugeStaticString &str)
+void ProcessorBase::identify(HugeStaticString &str)
 {
     uint32_t eax, ebx, ecx, edx;
     char ident[13];
-    cpuid(0, 0, eax, ebx, ecx, edx);
+    X86CommonProcessor::cpuid(0, 0, eax, ebx, ecx, edx);
     MemoryCopy(ident, &ebx, 4);
     MemoryCopy(&ident[4], &edx, 4);
     MemoryCopy(&ident[8], &ecx, 4);
@@ -215,7 +213,7 @@ void Processor::identify(HugeStaticString &str)
     str = ident;
 }
 
-void Processor::setTlsBase(uintptr_t newBase)
+void ProcessorBase::setTlsBase(uintptr_t newBase)
 {
     // Set FS.base MSR.
     asm volatile(

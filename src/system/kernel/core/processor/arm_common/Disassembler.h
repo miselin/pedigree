@@ -66,6 +66,4 @@ class Arm926EDisassembler : public DisassemblerBase
     void disassembleOpcode(uint32_t nInstruction, LargeStaticString &text);
 };
 
-typedef Arm926EDisassembler Disassembler;
-
 #endif

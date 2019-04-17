@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef THREADS
+#if THREADS
 
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/LockGuard.h"
@@ -793,13 +793,13 @@ uintptr_t Thread::getTlsBase()
         // actually mapped into the address space.
         m_pTlsBase = reinterpret_cast<void *>(base);
         uint32_t *tlsBase = reinterpret_cast<uint32_t *>(m_pTlsBase);
-#ifdef BITS_64
+#if BITS_64
         *tlsBase = static_cast<uint32_t>(m_Id);
 #else
         *tlsBase = m_Id;
 #endif
 
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
         NOTICE(
             "Thread [" << Dec << m_pParent->getId() << ":" << m_Id << Hex
                        << "]: allocated TLS area at " << m_pTlsBase << ".");

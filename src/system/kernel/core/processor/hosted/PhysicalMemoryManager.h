@@ -67,7 +67,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     /** Unmap & free the .init section */
     void initialisationDone();
 
-#if defined(ACPI)
+#if ACPI
     inline const RangeList<uint64_t> &getAcpiRanges() const
     {
         return m_AcpiRanges;

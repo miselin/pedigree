@@ -48,7 +48,7 @@ class MIPS32InterruptManager : public ::InterruptManager,
     virtual bool registerExternalInterruptHandler(
         size_t interruptNumber, InterruptHandler *handler);
 
-#ifdef DEBUGGER
+#if DEBUGGER
     virtual bool registerInterruptHandlerDebugger(
         size_t interruptNumber, InterruptHandler *handler);
     virtual size_t getBreakpointInterruptNumber() PURE;
@@ -82,7 +82,7 @@ class MIPS32InterruptManager : public ::InterruptManager,
 
     InterruptHandler *m_Handler[64];
     InterruptHandler *m_ExternalHandler[8];
-#ifdef DEBUGGER
+#if DEBUGGER
     /** The debugger interrupt handlers */
     InterruptHandler *m_DbgHandler[64];
 #endif

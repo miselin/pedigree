@@ -39,7 +39,7 @@ void __cyg_profile_func_enter(void *func_address, void *call_site)
 #ifdef INSTRUMENTATION
 // NOTE: you cannot call anything in this function, as doing so would
 // re-enter. That means hand-crafted serial writes are necessary.
-#ifdef X64
+#if X64
     if (UNLIKELY(g_WrittenFirst == 0))
     {
         if (__sync_bool_compare_and_swap(&g_WrittenFirst, 0, 1))

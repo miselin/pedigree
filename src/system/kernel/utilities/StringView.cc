@@ -155,7 +155,7 @@ String StringView::toString() const
 
 char StringView::operator[](size_t index) const
 {
-#ifdef ADDITIONAL_CHECKS
+#if ADDITIONAL_CHECKS
     if (UNLIKELY(index >= m_Length))
     {
         ERROR("operator[] - index " << index << " exceeds length " << m_Length);

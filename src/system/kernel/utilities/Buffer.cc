@@ -21,7 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/process/Thread.h"
 #endif
 
@@ -47,7 +47,7 @@ Buffer<T, allowShortOperation>::~Buffer()
     m_Lock.acquire();
     for (auto pTarget : m_MonitorTargets)
     {
-#ifdef THREADS
+#if THREADS
         if (pTarget->pSemaphore)
         {
             pTarget->pSemaphore->release();
@@ -482,7 +482,7 @@ void Buffer<T, allowShortOperation>::wipe()
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::monitor(Thread *pThread, Event *pEvent)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
     MonitorTarget *pTarget = new MonitorTarget(pThread, pEvent);
     m_MonitorTargets.pushBack(pTarget);
@@ -492,7 +492,7 @@ void Buffer<T, allowShortOperation>::monitor(Thread *pThread, Event *pEvent)
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::monitor(Semaphore *pSemaphore)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
     MonitorTarget *pTarget = new MonitorTarget(pSemaphore);
     m_MonitorTargets.pushBack(pTarget);
@@ -502,7 +502,7 @@ void Buffer<T, allowShortOperation>::monitor(Semaphore *pSemaphore)
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread *pThread)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
     for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end(); ++it)
     {
@@ -523,7 +523,7 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread *pThread)
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore *pSemaphore)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
     for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();)
     {
@@ -545,7 +545,7 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore *pSemaphore)
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::cullMonitorTargets(Event *pEvent)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
     for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();)
     {
@@ -567,7 +567,7 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Event *pEvent)
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::notifyMonitors()
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
     for (typename List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
          it != m_MonitorTargets.end(); it++)

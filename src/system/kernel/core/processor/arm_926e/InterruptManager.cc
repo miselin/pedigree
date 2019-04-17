@@ -23,7 +23,7 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/utility.h"
-#ifdef DEBUGGER
+#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
 
@@ -91,7 +91,7 @@ bool ARM926EInterruptManager::registerInterruptHandler(
     return true;
 }
 
-#ifdef DEBUGGER
+#if DEBUGGER
 
 bool ARM926EInterruptManager::registerInterruptHandlerDebugger(
     size_t interruptNumber, InterruptHandler *handler)
@@ -153,7 +153,7 @@ void ARM926EInterruptManager::interrupt(InterruptState &interruptState)
     // TODO: Needs locking
     size_t intNumber = interruptState.getInterruptNumber();
 
-#ifdef DEBUGGER
+#if DEBUGGER
     // Call the kernel debugger's handler, if any
     if (m_Instance.m_DbgHandler[intNumber] != 0)
         m_Instance.m_DbgHandler[intNumber]->interrupt(
@@ -182,7 +182,7 @@ void ARM926EInterruptManager::interrupt(InterruptState &interruptState)
         e.append(": \"");
         e.append(g_ExceptionNames[intNumber]);
         e.append("\"");
-#ifdef DEBUGGER
+#if DEBUGGER
         Debugger::instance().start(interruptState, e);
 #else
         panic(e);
@@ -207,7 +207,7 @@ ARM926EInterruptManager::ARM926EInterruptManager()
     for (size_t i = 0; i < 256; i++)
     {
         m_Handler[i] = 0;
-#ifdef DEBUGGER
+#if DEBUGGER
         m_DbgHandler[i] = 0;
 #endif
     }

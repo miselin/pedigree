@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
 
 #include "../x86_common/Multiprocessor.h"
 #include "InterruptManager.h"

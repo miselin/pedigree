@@ -320,7 +320,7 @@ bool Ps2Controller::irq(irq_id_t number, InterruptState &state)
         ERROR("PS/2: unexpected IRQ #" << number);
     }
 
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     if (ok && !numWritten)
     {
         ERROR(

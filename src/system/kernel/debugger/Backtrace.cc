@@ -53,9 +53,9 @@ void Backtrace::performBacktrace(InterruptState &state)
     // Don't lock on the log - we may have hit a backtrace because the Log lock
     // deadlocked
     WARNING_NOLOCK("Dwarf backtracing not available.");
-#if defined(X86_COMMON) || defined(HOSTED)
+#if X86_COMMON || HOSTED
     performBpBacktrace(state.getBasePointer(), state.getInstructionPointer());
-#elif defined(ARM_COMMON)
+#elif ARM_COMMON
     performArmBacktrace(state.getBasePointer(), state.getInstructionPointer());
 #else
     ERROR_NOLOCK("Backtrace: No backtracing method available!");
@@ -136,7 +136,7 @@ void Backtrace::performBpBacktrace(uintptr_t base, uintptr_t instruction)
     m_nStackFrames = i;
 }
 
-#ifdef ARM_COMMON
+#if ARM_COMMON
 void Backtrace::performArmBacktrace(uintptr_t base, uintptr_t instruction)
 {
     if (base == 0)

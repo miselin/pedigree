@@ -23,15 +23,15 @@
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 
-#ifdef DEBUGGER
+#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 
-#ifdef TRACK_PAGE_ALLOCATIONS
+#if TRACK_PAGE_ALLOCATIONS
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
 #endif
 
-#ifdef DEBUGGER
+#if DEBUGGER
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #endif
 

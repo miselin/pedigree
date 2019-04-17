@@ -23,7 +23,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include <stdarg.h>
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 
 uintptr_t X64StackFrame::getParameter(size_t n)
 {
@@ -40,7 +40,7 @@ uintptr_t X64StackFrame::getParameter(size_t n)
     if (n == 5)
         return m_State.r9;
 
-#if defined(OMIT_FRAMEPOINTER)
+#if OMIT_FRAMEPOINTER
     uint64_t *pPtr = reinterpret_cast<uint64_t *>(
         m_State.rbp + (n - 6 - 1) * sizeof(uint64_t));
 #else

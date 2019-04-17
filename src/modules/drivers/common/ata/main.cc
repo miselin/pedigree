@@ -237,8 +237,8 @@ static void exit()
 {
 }
 
-#ifdef PPC_COMMON
+#if PPC_COMMON
 MODULE_INFO("ata", &entry, &exit, "scsi", "ata-specific", 0);
-#elif defined(X86_COMMON)
+#elif X86_COMMON
 MODULE_INFO("ata", &entry, &exit, "scsi", "pci", 0);
 #endif

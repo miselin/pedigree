@@ -35,7 +35,7 @@ class SyscallHandler;
 /** The syscall manager on x64 processors */
 class X64SyscallManager : public ::SyscallManager
 {
-    friend class Processor;
+    friend class ProcessorBase;
 
   public:
     /** Get the X64SyscallManager class instance

@@ -106,7 +106,7 @@ Debugger::~Debugger()
 
 void Debugger::initialise()
 {
-#ifndef ARM_COMMON  /// \todo Figure out a way of getting similar functionality
+#if !ARM_COMMON  /// \todo Figure out a way of getting similar functionality
                     /// on ARM
     if (!InterruptManager::instance().registerInterruptHandlerDebugger(
             InterruptManager::instance().getBreakpointInterruptNumber(), this))
@@ -120,7 +120,7 @@ void Debugger::initialise()
 /// \todo OZMFGBARBIE, this needs major cleanup. Look at the state of it!! :O
 void Debugger::start(InterruptState &state, LargeStaticString &description)
 {
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     Machine::instance().stopAllOtherProcessors();
 #endif
 
@@ -163,7 +163,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
 // We take a copy of the interrupt state here so that we can replace it with
 // another thread's interrupt state should we decide to switch threads. The
 // current thread, in case we decide to switch.
-#if defined(THREADS)
+#if THREADS
     Thread *pThread = Processor::information().getCurrentThread();
 #endif
 
@@ -172,7 +172,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
 
     DebuggerIO *pInterfaces[2] = {0};
 
-#ifndef DONT_LOG_TO_SERIAL
+#if !DONT_LOG_TO_SERIAL
     static SerialIO serialIO(Machine::instance().getSerial(0));
     serialIO.initialise();
 #endif
@@ -186,7 +186,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
     {
         static LocalIO localIO(
             Machine::instance().getVga(0), Machine::instance().getKeyboard());
-#ifdef DONT_LOG_TO_SERIAL
+#if DONT_LOG_TO_SERIAL
         pInterfaces[0] = &localIO;
         nInterfaces = 1;
 #else
@@ -195,7 +195,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
         nInterfaces = 2;
 #endif
     }
-#ifndef DONT_LOG_TO_SERIAL
+#if !DONT_LOG_TO_SERIAL
     else
     {
         pInterfaces[0] = &serialIO;
@@ -233,13 +233,13 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
     static MappingCommand mapping;
     static TraceCommand trace;
 
-#if defined(THREADS)
+#if THREADS
     static ThreadsCommand threads;
 
     threads.setPointers(&pThread, &state);
 #endif
 
-#if defined(THREADS)
+#if THREADS
     size_t nCommands = 21;
 #else
     size_t nCommands = 20;
@@ -258,7 +258,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
         &panic,
         &cpuInfo,
         &devices,
-#if defined(THREADS)
+#if THREADS
         &threads,
 #endif
         &io,
@@ -445,7 +445,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
     } while (bKeepGoing);
     if (Machine::instance().getNumVga())
         pInterfaces[0]->destroy();  // Causes rememberMode to be called twice.
-#ifndef DONT_LOG_TO_SERIAL
+#if !DONT_LOG_TO_SERIAL
     serialIO.destroy();
 #endif
 

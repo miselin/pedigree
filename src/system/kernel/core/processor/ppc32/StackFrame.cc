@@ -20,7 +20,7 @@
 #include "pedigree/kernel/processor/StackFrame.h"
 #include "pedigree/kernel/Log.h"
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 
 uintptr_t PPC32StackFrame::getParameter(size_t n)
 {

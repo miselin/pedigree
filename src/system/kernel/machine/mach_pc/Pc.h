@@ -58,7 +58,7 @@ class Pc : public Machine
     virtual void initialise3();
     virtual void deinitialise();
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     void initialiseProcessor() INITIALISATION_ONLY;
 #endif
 
@@ -74,7 +74,7 @@ class Pc : public Machine
     virtual Keyboard *getKeyboard();
     virtual void setKeyboard(Keyboard *kb);
 
-#if defined(APIC)
+#if APIC
     /** Get the Local APIC class instance
      *\return reference to the Local APIC class instance */
     inline LocalApic &getLocalApic()
@@ -83,7 +83,7 @@ class Pc : public Machine
     }
 #endif
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     virtual void stopAllOtherProcessors();
 #endif
 
@@ -107,7 +107,7 @@ class Pc : public Machine
     SMBios *m_SMBios;
 #endif
 
-#if defined(APIC)
+#if APIC
     LocalApic *m_LocalApic;
 #endif
 

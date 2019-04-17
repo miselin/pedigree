@@ -73,7 +73,7 @@ class LockedFile
     size_t m_LockerPid;
 
 /** Our lock */
-#ifdef THREADS
+#if THREADS
     Mutex m_Lock;
 #endif
 };

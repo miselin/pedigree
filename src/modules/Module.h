@@ -95,10 +95,9 @@
 typedef bool (*ModuleEntry)();
 typedef void (*ModuleExit)();
 
-#ifdef STATIC_DRIVERS
-
 #define MODULE_TAG 0xdeadbaba
 
+#ifdef __cplusplus
 struct ModuleInfo
 {
     ModuleInfo(
@@ -118,6 +117,9 @@ struct ModuleInfo
     ModuleExit exit;
     const char **dependencies;
 } PACKED;
+#endif
+
+#if STATIC_DRIVERS
 
 #define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \

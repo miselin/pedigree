@@ -142,7 +142,7 @@ void panic(const char *msg)
     if (bSuccess && !provider.bTextModes)
         provider.pDisplay->setScreenMode(0);
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     Machine::instance().stopAllOtherProcessors();
 #endif
 
@@ -159,7 +159,7 @@ void panic(const char *msg)
     {
         static LocalIO localIO(
             Machine::instance().getVga(0), Machine::instance().getKeyboard());
-#ifdef DONT_LOG_TO_SERIAL
+#if DONT_LOG_TO_SERIAL
         pInterfaces[0] = &localIO;
         nInterfaces = 1;
 #else
@@ -168,7 +168,7 @@ void panic(const char *msg)
         nInterfaces = 2;
 #endif
     }
-#ifndef DONT_LOG_TO_SERIAL
+#if !DONT_LOG_TO_SERIAL
     else
     {
         pInterfaces[0] = &serialIO;

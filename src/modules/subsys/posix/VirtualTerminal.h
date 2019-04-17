@@ -93,7 +93,7 @@ class VirtualTerminalManager
         File *file;
         struct vt_mode mode;
 
-#ifdef THREADS
+#if THREADS
         Process *owner;
 #endif
     };

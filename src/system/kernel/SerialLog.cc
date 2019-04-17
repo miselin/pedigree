@@ -70,7 +70,7 @@ void SerialLogger::callback(const LogCord &cord)
     {
         m_pSerial->write(it);
     }
-#ifndef SERIAL_IS_FILE
+#if !SERIAL_IS_FILE
     // Handle carriage return if we're writing to a real terminal
     // Technically this will create a \n\r, but it will do the same
     // thing. This may also be redundant, but better to be safe than

@@ -67,24 +67,31 @@ class DisassemblerBase
 
 /** @} */
 
-#ifdef X86_COMMON
+// forward-declare the architecture-specific types to avoid circular includes
+// breaking the typedefs below
+class X86Disassembler;
+class MipsDisassembler;
+class Arm926EDisassembler;
+class PPCDisassembler;
+
 #include "system/kernel/core/processor/x86_common/Disassembler.h"  // IWYU pragma: export
-#endif
-#ifdef MIPS_COMMON
 #include "system/kernel/core/processor/mips_common/Disassembler.h"  // IWYU pragma: export
-#endif
-#ifdef ARM926E
 #include "system/kernel/core/processor/arm_common/Disassembler.h"  // IWYU pragma: export
-#endif
-#ifdef PPC_COMMON
 #include "system/kernel/core/processor/ppc_common/Disassembler.h"  // IWYU pragma: export
-#endif
-#ifdef ARMV7
-#include "system/kernel/core/processor/arm_common/Disassembler.h"  // IWYU pragma: export
-#endif
-#ifdef HOSTED
-/// \todo x86-specific
-#include "system/kernel/core/processor/x86_common/Disassembler.h"  // IWYU pragma: export
+
+#if X86_COMMON
+typedef X86Disassembler Disassembler;
+#elif MIPS_COMMON
+typedef MipsDisassembler Disassembler;
+#elif ARM926E
+typedef Arm926EDisassembler Disassembler;
+#elif PPC_COMMON
+typedef PPCDisassembler Disassembler;
+#elif ARMV7
+typedef Arm926EDisassembler Disassembler;
+#elif HOSTED
+// \todo x86-specific
+typedef X86Disassembler Disassembler;
 #endif
 
 #endif

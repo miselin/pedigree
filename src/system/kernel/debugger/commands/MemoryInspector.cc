@@ -141,7 +141,7 @@ const char *MemoryInspector::getLine2(
     // Get the line we want.
     uintptr_t nLine = index * m_nCharsPerLine;
 // Is it paged in?
-#if !defined(MIPS_COMMON) && !defined(ARM_COMMON)
+#if !MIPS_COMMON && !ARM_COMMON
     if (!Processor::information().getVirtualAddressSpace().isMapped(
             reinterpret_cast<void *>(nLine)))
     {
@@ -172,7 +172,7 @@ const char *MemoryInspector::getLine2(
         }
 
         return str;
-#if !defined(MIPS_COMMON) && !defined(ARM_COMMON)
+#if !MIPS_COMMON && !ARM_COMMON
     }
 #else
     return 0;
@@ -183,9 +183,9 @@ size_t MemoryInspector::getLineCount()
 {
 // We have as many lines as the entirety of the address space / 8.
 // TODO: Please verify that this is correct, JamesM :-)
-#if defined(BITS_32)
+#if BITS_32
     return 0x20000000;
-#elif defined(BITS_64)
+#elif BITS_64
     return 0x2000000000000000;
 #endif
 }

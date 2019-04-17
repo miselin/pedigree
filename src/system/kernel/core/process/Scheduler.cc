@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(THREADS)
+#if THREADS
 
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/Log.h"
@@ -57,7 +57,7 @@ bool Scheduler::initialise(Process *pKernelProcess)
 
     List<PerProcessorScheduler *> procList;
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     size_t i = 0;
     for (Vector<ProcessorInformation *>::Iterator it =
              Processor::m_ProcessorInformation.begin();

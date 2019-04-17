@@ -22,7 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #endif
@@ -91,7 +91,7 @@ class EXPORTED_PUBLIC MemoryPool
     bool trim();
 
   private:
-#ifdef THREADS
+#if THREADS
     ConditionVariable m_Condition;
     Mutex m_Lock;
 #endif

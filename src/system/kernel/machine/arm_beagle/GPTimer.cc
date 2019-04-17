@@ -174,7 +174,7 @@ bool GPTimer::unregisterHandler(TimerHandler *handler)
 
 void GPTimer::addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 {
-#ifdef THREADS
+#if THREADS
     size_t time = (alarmSecs * 1000) + (alarmUsecs / 1000) + m_TickCount;
     Alarm *pAlarm =
         new Alarm(pEvent, time, Processor::information().getCurrentThread());
@@ -184,7 +184,7 @@ void GPTimer::addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 
 void GPTimer::removeAlarm(class Event *pEvent)
 {
-#ifdef THREADS
+#if THREADS
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
          it++)
     {
@@ -199,7 +199,7 @@ void GPTimer::removeAlarm(class Event *pEvent)
 
 size_t GPTimer::removeAlarm(class Event *pEvent, bool bRetZero)
 {
-#ifdef THREADS
+#if THREADS
     size_t currTime = getTickCount();
 
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();

@@ -551,7 +551,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 
 int posix_close(int fd)
 {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     F_NOTICE("close(" << fd << ")");
 #endif
     Process *pProcess =
@@ -572,7 +572,7 @@ int posix_close(int fd)
         return -1;
     }
 
-#ifndef VERBOSE_KERNEL
+#if !VERBOSE_KERNEL
     F_NOTICE("close(" << fd << ")");
 #endif
 

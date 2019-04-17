@@ -52,7 +52,7 @@ void Processor::initialise1(const BootstrapStruct_t &Info)
 void Processor::initialise2(const BootstrapStruct_t &Info)
 {
 // Initialise multitasking
-#ifdef THREADS
+#if THREADS
     initialiseMultitasking();
 #endif
 

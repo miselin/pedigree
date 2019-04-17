@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MIPS32_TLBMANAGER_H
+#if !MIPS32_TLBMANAGER_H
 #define MIPS32_TLBMANAGER_H
 
 #include "pedigree/kernel/processor/InterruptHandler.h"

@@ -106,7 +106,7 @@ bool Ehci::initialiseController()
 
     DoubleWordSet(m_pFrameList, 1, 0x400);
 
-#ifdef X86_COMMON
+#if X86_COMMON
     uint32_t nPciCmdSts = PciBus::instance().readConfigSpace(this, 1);
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("USB: EHCI: PCI command register: " << (nPciCmdSts & 0xffff));
@@ -177,7 +177,7 @@ bool Ehci::initialiseController()
     DEBUG_LOG("      EECP is " << eecp);
 #endif
 
-#ifdef X86_COMMON
+#if X86_COMMON
     // Pre-OS to OS handoff
     while (eecp)
     {
@@ -259,7 +259,7 @@ bool Ehci::initialiseController()
 #endif
 
 // Install the IRQ handler
-#ifdef X86_COMMON
+#if X86_COMMON
     Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
 #else
     InterruptManager::instance().registerInterruptHandler(
@@ -474,7 +474,7 @@ void Ehci::doDequeue()
     }
 }
 
-#ifdef X86_COMMON
+#if X86_COMMON
 bool Ehci::irq(irq_id_t number, InterruptState &state)
 #else
 void Ehci::interrupt(size_t number, InterruptState &state)
@@ -486,7 +486,7 @@ void Ehci::interrupt(size_t number, InterruptState &state)
     {
         NOTICE_NOLOCK("EHCI: IRQ fired, but not for us [" << pciStatus << "]");
         return
-#ifdef X86_COMMON
+#if X86_COMMON
         false
 #endif
         ;
@@ -500,7 +500,7 @@ void Ehci::interrupt(size_t number, InterruptState &state)
     {
         WARNING_NOLOCK("EHCI: unwanted IRQ?");
         return
-#ifdef X86_COMMON
+#if X86_COMMON
             false  // Shared IRQ: this IRQ is for another device
 #endif
             ;
@@ -711,7 +711,7 @@ void Ehci::interrupt(size_t number, InterruptState &state)
         pThread->detach();
     }
 
-#ifdef X86_COMMON
+#if X86_COMMON
     return true;
 #endif
 }

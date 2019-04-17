@@ -33,7 +33,7 @@
  * constructors have been invoked. This differs to the kernel log, which
  * requires constructors to be run to be useful.
  */
-#ifdef TRACING
+#if TRACING
 #define TRACE(msg) pedigree_trace::trace(("trace: " msg))
 #else
 #define TRACE(...)

@@ -20,7 +20,7 @@
 #ifndef PERPROCESSORSCHEDULER_H
 #define PERPROCESSORSCHEDULER_H
 
-#ifdef THREADS
+#if THREADS
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/TimerHandler.h"

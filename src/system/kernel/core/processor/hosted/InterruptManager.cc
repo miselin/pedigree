@@ -21,11 +21,11 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#if defined(DEBUGGER)
+#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
 
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
 #endif
@@ -71,7 +71,7 @@ bool HostedInterruptManager::registerInterruptHandler(
     return true;
 }
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 
 bool HostedInterruptManager::registerInterruptHandlerDebugger(
     size_t nInterruptNumber, InterruptHandler *pHandler)
@@ -107,7 +107,7 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
 {
     size_t nIntNumber = interruptState.getInterruptNumber();
 
-#if defined(DEBUGGER)
+#if DEBUGGER
     {
         InterruptHandler *pHandler;
 
@@ -150,7 +150,7 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
 
 // Were we running in the kernel, or user space?
 // User space processes have a subsystem, kernel ones do not.
-#ifdef THREADS
+#if THREADS
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     Subsystem *pSubsystem = pProcess->getSubsystem();
@@ -181,7 +181,7 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
         e.clear();
         e.append("Signal #0x");
         e.append(nIntNumber, 16);
-#if defined(DEBUGGER)
+#if DEBUGGER
         Debugger::instance().start(interruptState, e);
 #else
         panic(e);
@@ -243,7 +243,7 @@ HostedInterruptManager::HostedInterruptManager() : m_Lock()
     for (size_t i = 0; i < MAX_SIGNAL; i++)
     {
         m_pHandler[i] = 0;
-#ifdef DEBUGGER
+#if DEBUGGER
         m_pDbgHandler[i] = 0;
 #endif
     }

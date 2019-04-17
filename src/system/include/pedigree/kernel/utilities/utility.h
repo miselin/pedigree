@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export
 #include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
 
-#if defined(HOSTED) && !defined(UTILITY_LINUX)
+#if HOSTED && !UTILITY_LINUX
 // Override headers we are replacing.
 #define _STRING_H 1
 #endif
@@ -43,7 +43,7 @@
      ((x & 0x0000FF00) << 8) | ((x & 0x000000FF) << 24))
 #define BS64(x) (x)
 
-#ifdef TARGET_IS_LITTLE_ENDIAN
+#if TARGET_IS_LITTLE_ENDIAN
 
 #define LITTLE_TO_HOST8(x) (x)
 #define LITTLE_TO_HOST16(x) (x)

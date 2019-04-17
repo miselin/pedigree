@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(THREADS)
+#if THREADS
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Thread.h"

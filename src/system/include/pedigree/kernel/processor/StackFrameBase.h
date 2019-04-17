@@ -32,7 +32,7 @@
 class StackFrameBase
 {
   public:
-#if defined(DEBUGGER)
+#if DEBUGGER
     /** Returns a pretty printed string containing the function name and each
      * parameter with its value (hopefully). */
     void prettyPrint(HugeStaticString &buf);
@@ -57,7 +57,7 @@ class StackFrameBase
     static void construct(
         ProcessorState &state, uintptr_t returnAddress, unsigned int nParams,
         ...);
-#if defined(DEBUGGER)
+#if DEBUGGER
   protected:
     /** The symbol */
     symbol_t m_Symbol;

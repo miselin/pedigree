@@ -116,7 +116,7 @@ void Processor::jumpUser(
     jumpKernel(pLock, address, stack, p1, p2, p3, p4);
 }
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
+#if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 void Processor::switchState(
     bool bInterrupts, SchedulerState &a, SchedulerState &b,
     volatile uintptr_t *pLock)

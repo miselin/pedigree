@@ -15,18 +15,18 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-; uintptr_t Processor::getBasePointer()
-global _ZN9Processor14getBasePointerEv:function hidden
-; uintptr_t Processor::getStackPointer()
-global _ZN9Processor15getStackPointerEv:function hidden
-; uintptr_t Processor::getInstructionPointer()
-global _ZN9Processor21getInstructionPointerEv:function hidden
-; uintptr_t Processor::getDebugStatus()
-global _ZN9Processor14getDebugStatusEv:function hidden
-; void Processor::switchToUserMode()
-global _ZN9Processor16switchToUserModeEmm:function hidden
-; void Processor::contextSwitch(InterruptState*)
-global _ZN9Processor13contextSwitchEP17X64InterruptState:function hidden
+; uintptr_t ProcessorBase::getBasePointer()
+global _ZN13ProcessorBase14getBasePointerEv:function hidden
+; uintptr_t ProcessorBase::getStackPointer()
+global _ZN13ProcessorBase15getStackPointerEv:function hidden
+; uintptr_t ProcessorBase::getInstructionPointer()
+global _ZN13ProcessorBase21getInstructionPointerEv:function hidden
+; uintptr_t ProcessorBase::getDebugStatus()
+global _ZN13ProcessorBase14getDebugStatusEv:function hidden
+; void ProcessorBase::switchToUserMode()
+global _ZN13ProcessorBase16switchToUserModeEmm:function hidden
+; void ProcessorBase::contextSwitch(InterruptState*)
+global _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################
@@ -34,23 +34,23 @@ global _ZN9Processor13contextSwitchEP17X64InterruptState:function hidden
 [bits 64]
 [section .text]
 
-_ZN9Processor14getBasePointerEv:
+_ZN13ProcessorBase14getBasePointerEv:
   mov rax, rbp
   ret
 
-_ZN9Processor15getStackPointerEv:
+_ZN13ProcessorBase15getStackPointerEv:
   mov rax, rsp
   ret
 
-_ZN9Processor21getInstructionPointerEv:
+_ZN13ProcessorBase21getInstructionPointerEv:
   mov rax, [rsp]
   ret
 
-_ZN9Processor14getDebugStatusEv:
+_ZN13ProcessorBase14getDebugStatusEv:
   mov rax, dr6
   ret
 
-_ZN9Processor13contextSwitchEP17X64InterruptState:
+_ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
   ; Change the stack pointer to point to the top of the passed InterruptState object.
   mov rsp, rdi
 
@@ -75,7 +75,7 @@ _ZN9Processor13contextSwitchEP17X64InterruptState:
   add rsp, 0x10
   iretq
 
-_ZN9Processor16switchToUserModeEmm:
+_ZN13ProcessorBase16switchToUserModeEmm:
   mov ax, 0x23       ; Load the new data segment descriptor with an RPL of 3.
   mov ds, ax         ; Propagate the change to all segment registers.
   mov es, ax

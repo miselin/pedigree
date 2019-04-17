@@ -23,7 +23,7 @@
 
 #include <pedigree/kernel/compiler.h>
 #include <pedigree/kernel/processor/types.h>
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <assert.h>
 #include <sys/time.h>
 
@@ -60,7 +60,7 @@ typedef int sys_prot_t;
 
 #define LWIP_CHKSUM_ALGORITHM 2
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <stdio.h>
 
 #define LWIP_PLATFORM_DIAG(msg) printf msg ; fflush(stdout);

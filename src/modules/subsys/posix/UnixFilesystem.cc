@@ -33,7 +33,7 @@ UnixSocket::UnixSocket(
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
       m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other),
       m_Stream(MAX_UNIX_STREAM_QUEUE), m_PendingSockets(), m_Mutex(false)
-#ifdef THREADS
+#if THREADS
       ,
       m_AckWaiter(0)
 #endif
@@ -261,7 +261,7 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
         return true;
     }
 
-#ifdef THREADS
+#if THREADS
     N_NOTICE("bind is waiting for an ack");
     m_AckWaiter.acquire();
 
@@ -293,7 +293,7 @@ void UnixSocket::unbind()
     m_State = Closed;
     m_pOther->m_State = Closed;
 
-#ifdef THREADS
+#if THREADS
     m_AckWaiter.release();
     m_pOther->m_AckWaiter.release();
 #endif
@@ -332,7 +332,7 @@ void UnixSocket::acknowledgeBind()
 
     setCreds();
 
-#ifdef THREADS
+#if THREADS
     m_AckWaiter.release();
     m_pOther->m_AckWaiter.release();
 #endif
@@ -439,7 +439,7 @@ bool UnixSocket::markListening()
 
 void UnixSocket::setCreds()
 {
-#ifdef THREADS
+#if THREADS
     Process *pCurrentProcess =
         Processor::information().getCurrentThread()->getParent();
     m_Creds.uid = pCurrentProcess->getUserId();

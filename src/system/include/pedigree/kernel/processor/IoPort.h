@@ -27,8 +27,6 @@
 /** @addtogroup kernelprocessor
  * @{ */
 
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-
 /** IoPort provides access to a range of hardware I/O port
  *\brief I/O port range */
 class EXPORTED_PUBLIC IoPort : public IoBase
@@ -46,13 +44,13 @@ class EXPORTED_PUBLIC IoPort : public IoBase
     virtual uint8_t read8(size_t offset = 0);
     virtual uint16_t read16(size_t offset = 0);
     virtual uint32_t read32(size_t offset = 0);
-#if defined(BITS_64)
+#if BITS_64
     virtual uint64_t read64(size_t offset = 0);
 #endif
     virtual void write8(uint8_t value, size_t offset = 0);
     virtual void write16(uint16_t value, size_t offset = 0);
     virtual void write32(uint32_t value, size_t offset = 0);
-#if defined(BITS_64)
+#if BITS_64
     virtual void write64(uint64_t value, size_t offset = 0);
 #endif
     virtual operator bool() const;
@@ -85,8 +83,6 @@ class EXPORTED_PUBLIC IoPort : public IoBase
     /** User-visible name of this I/O port range */
     const char *m_Name;
 };
-
-#endif
 
 /** @} */
 

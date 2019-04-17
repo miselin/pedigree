@@ -23,7 +23,7 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/utility.h"
-#ifdef DEBUGGER
+#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
 #include "pedigree/kernel/Log.h"
@@ -104,7 +104,7 @@ bool ARMV7InterruptManager::registerInterruptHandler(
     return true;
 }
 
-#ifdef DEBUGGER
+#if DEBUGGER
 
 bool ARMV7InterruptManager::registerInterruptHandlerDebugger(
     size_t interruptNumber, InterruptHandler *handler)
@@ -168,7 +168,7 @@ uintptr_t ARMV7InterruptManager::syscall(
 void kdata_abort(InterruptState &state) NORETURN;
 void kdata_abort(InterruptState &state)
 {
-#ifdef DEBUGGER
+#if DEBUGGER
     // Grab the aborted address.
     uintptr_t dfar = 0;
     uintptr_t dfsr = 0;
@@ -243,7 +243,7 @@ void kdata_abort(InterruptState &state)
 void kprefetch_abort(InterruptState &state) NORETURN;
 void kprefetch_abort(InterruptState &state)
 {
-#ifdef DEBUGGER
+#if DEBUGGER
     static LargeStaticString sError;
     sError.clear();
     sError.append("Prefetch Abort at 0x");
@@ -272,7 +272,7 @@ void kswi_handler(InterruptState &state)
                 state.getRegisterName(i) << "=" << Hex << state.getRegister(i));
         }
     }
-#ifdef DEBUGGER
+#if DEBUGGER
     else if (swi == 0xdeb16)
     {
         static LargeStaticString sError;
@@ -429,7 +429,7 @@ void ARMV7InterruptManager::interrupt(InterruptState &interruptState)
     // Grab the interrupt number
     size_t intNumber = mpuIntcRegisters[INTCPS_SIR_IRQ] & 0x7F;
 
-#ifdef DEBUGGER
+#if DEBUGGER
     // Call the kernel debugger's handler, if any
     if (m_Instance.m_DbgHandler[intNumber] != 0)
         m_Instance.m_DbgHandler[intNumber]->interrupt(
@@ -451,7 +451,7 @@ ARMV7InterruptManager::ARMV7InterruptManager()
     for (size_t i = 0; i < 256; i++)
     {
         m_Handler[i] = 0;
-#ifdef DEBUGGER
+#if DEBUGGER
         m_DbgHandler[i] = 0;
 #endif
     }

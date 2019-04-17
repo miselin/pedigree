@@ -41,7 +41,7 @@ void SerialIO::initialise()
     // Save cursor and attributes.
     //   m_pSerial->write("\033[s");
 
-#ifndef SERIAL_IS_FILE
+#if !SERIAL_IS_FILE
     // Read cursor location.
     readCursor();
     m_nOldCursorX = m_nCursorX;
@@ -517,7 +517,7 @@ void SerialIO::readDimensions()
 {
     // Read old cursor position
     readCursor();
-#ifdef SERIAL_IS_FILE
+#if SERIAL_IS_FILE
     m_nOldCursorX = m_nCursorX;
     m_nOldCursorY = m_nCursorY;
 #endif

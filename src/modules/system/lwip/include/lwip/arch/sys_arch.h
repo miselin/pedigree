@@ -22,7 +22,7 @@
 #define LWIP_ARCH_SYS_ARCH_H
 
 // All pointer types which redirect to C++ types in implementation.
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <semaphore.h>
 typedef sem_t sys_sem_t;
 #else

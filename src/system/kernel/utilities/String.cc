@@ -274,7 +274,7 @@ void String::assign(const String &x)
     // no need to recompute in this case
     m_Hash = x.m_Hash;
 
-#ifdef ADDITIONAL_CHECKS
+#if ADDITIONAL_CHECKS
     if (*this != x)
     {
         ERROR("mismatch: '" << *this << "' != '" << x << "'");
@@ -347,7 +347,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
     m_HeapData = true;
     m_ConstData = nullptr;
 
-#ifdef ADDITIONAL_CHECKS
+#if ADDITIONAL_CHECKS
     if (!len)
     {
         assert(*this == s);

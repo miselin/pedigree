@@ -35,7 +35,7 @@ RamFile::RamFile(
     // Full permissions.
     setPermissions(0777);
 
-#ifdef THREADS
+#if THREADS
     m_nOwnerPid =
         Processor::information().getCurrentThread()->getParent()->getId();
 #else
@@ -66,7 +66,7 @@ bool RamFile::canWrite()
         return true;
     }
 
-#ifdef THREADS
+#if THREADS
     size_t pid =
         Processor::information().getCurrentThread()->getParent()->getId();
     return pid == m_nOwnerPid;

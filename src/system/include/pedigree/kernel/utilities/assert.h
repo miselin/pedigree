@@ -20,7 +20,7 @@
 #ifndef KERNEL_ASSERT_H
 #define KERNEL_ASSERT_H
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 // Redirect to system assert.h
 #include <assert.h>
 #else
@@ -33,7 +33,7 @@
 /** If the passed argument resolves to a Boolean false value, execution will be
  * halted and a message displayed.
  */
-#if defined(DEBUGGER) || defined(ASSERTS)
+#if DEBUGGER || ASSERTS
 #define assert(x)                                          \
     do                                                     \
     {                                                      \
@@ -44,7 +44,7 @@
                 __PRETTY_FUNCTION__);                      \
     } while (0)
 
-#ifndef USE_DEBUG_ALLOCATOR
+#if !USE_DEBUG_ALLOCATOR
 #define assert_heap_ptr_valid(x)                                               \
     _assert(                                                                   \
         _assert_ptr_valid(reinterpret_cast<uintptr_t>(x)), __FILE__, __LINE__, \

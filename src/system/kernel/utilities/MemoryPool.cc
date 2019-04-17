@@ -20,19 +20,18 @@
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 static void map(uintptr_t location)
 {
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &currva =
-        Processor::information().getVirtualAddressSpace();
-    Processor::switchAddressSpace(va);
-#endif
+
+    pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
     void *page = page_align(reinterpret_cast<void *>(location));
     if (!va.isMapped(page))
@@ -44,19 +43,14 @@ static void map(uintptr_t location)
             VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
     }
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    Processor::switchAddressSpace(currva);
-#endif
+    vaswitch.restore();
 }
 
 static bool unmap(uintptr_t location)
 {
     VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &currva =
-        Processor::information().getVirtualAddressSpace();
-    Processor::switchAddressSpace(va);
-#endif
+
+    pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
     void *page = page_align(reinterpret_cast<void *>(location));
     bool result = false;
@@ -70,9 +64,7 @@ static bool unmap(uintptr_t location)
         PhysicalMemoryManager::instance().freePage(phys);
     }
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    Processor::switchAddressSpace(currva);
-#endif
+    vaswitch.restore();
 
     return result;
 }
@@ -98,7 +90,7 @@ bool MemoryPoolPressureHandler::compact()
 
 MemoryPool::MemoryPool()
     :
-#ifdef THREADS
+#if THREADS
       m_Condition(), m_Lock(),
 #endif
       m_BufferSize(1024), m_BufferCount(0), m_Pool("memory-pool"),
@@ -108,7 +100,7 @@ MemoryPool::MemoryPool()
 
 MemoryPool::MemoryPool(const char *poolName)
     :
-#ifdef THREADS
+#if THREADS
       m_Condition(), m_Lock(),
 #endif
       m_BufferSize(1024), m_BufferCount(0), m_Pool(poolName),
@@ -120,14 +112,14 @@ MemoryPool::~MemoryPool()
 {
     // Free all the buffers
     m_bInitialised = false;
-#ifdef THREADS
+#if THREADS
     m_Condition.broadcast();
 #endif
 }
 
 bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
@@ -191,7 +183,7 @@ uintptr_t MemoryPool::allocateNow()
 
 uintptr_t MemoryPool::allocateDoer(bool canBlock)
 {
-#ifdef THREADS
+#if THREADS
     m_Lock.acquire();
 #endif
 
@@ -201,7 +193,7 @@ uintptr_t MemoryPool::allocateDoer(bool canBlock)
     uintptr_t poolBase = reinterpret_cast<uintptr_t>(m_Pool.virtualAddress());
 
     size_t n = 0;
-#ifdef THREADS
+#if THREADS
     while (true)
     {
         if (!m_BufferCount)
@@ -227,7 +219,7 @@ uintptr_t MemoryPool::allocateDoer(bool canBlock)
     }
 #endif
 
-#ifdef THREADS
+#if THREADS
         // Have a buffer available.
         n = m_AllocBitmap.getFirstClear();
         assert(n < nBuffers);
@@ -241,7 +233,7 @@ uintptr_t MemoryPool::allocateDoer(bool canBlock)
 
     --m_BufferCount;
 
-#ifdef THREADS
+#if THREADS
     m_Lock.release();
 #endif
 
@@ -250,7 +242,7 @@ uintptr_t MemoryPool::allocateDoer(bool canBlock)
 
 void MemoryPool::free(uintptr_t buffer)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
 #endif
 

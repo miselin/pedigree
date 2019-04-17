@@ -20,7 +20,7 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_ACPI_H
 #define KERNEL_MACHINE_X86_COMMON_ACPI_H
 
-#if defined(ACPI)
+#if ACPI
 
 #include "../../core/processor/x86_common/Multiprocessor.h"
 #include "pedigree/kernel/compiler.h"
@@ -46,7 +46,7 @@ class Acpi
      *\note the first MB of RAM must be identity mapped */
     void initialise() INITIALISATION_ONLY;
 
-#if defined(APIC)
+#if APIC
     inline bool validApicInfo() const
     {
         return m_bValidApicInfo;
@@ -61,7 +61,7 @@ class Acpi
         return m_IoApics;
     }
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     inline bool validProcessorInfo() const
     {
         return m_bValidProcessorInfo;
@@ -184,7 +184,7 @@ class Acpi
     } PACKED;
 
     void parseFixedACPIDescriptionTable() INITIALISATION_ONLY;
-#if defined(APIC)
+#if APIC
     void parseMultipleApicDescriptionTable() INITIALISATION_ONLY;
 #endif
     bool find() INITIALISATION_ONLY;
@@ -199,7 +199,7 @@ class Acpi
     SystemDescriptionTableHeader *m_pRsdt;
     FixedACPIDescriptionTable *m_pFacp;
 
-#if defined(APIC)
+#if APIC
     SystemDescriptionTableHeader *m_pApic;
 
     bool m_bValidApicInfo;
@@ -207,7 +207,7 @@ class Acpi
     uint64_t m_LocalApicAddress;
     Vector<Multiprocessor::IoApicInformation *> m_IoApics;
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     bool m_bValidProcessorInfo;
     Vector<Multiprocessor::ProcessorInformation *> m_Processors;
 #endif

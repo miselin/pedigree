@@ -144,7 +144,7 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
     /** Networking memory pool */
     MemoryPool m_MemPool;
 
-#if defined(THREADS) || defined(UTILITY_LINUX)
+#if THREADS || UTILITY_LINUX
     Mutex m_Lock;
 #endif
 

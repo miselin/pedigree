@@ -15,10 +15,10 @@ endif ()
 
 # TODO: should detect a few of these things
 add_definitions(
-    -DHOSTED -DUTILITY_LINUX -DTARGET_IS_LITTLE_ENDIAN -DDONT_LOG_TO_SERIAL
-    -DPEDIGREE_BENCHMARK -DSTANDALONE_MUTEXES -DSTANDALONE_CACHE
-    -DSTANDALONE_MEMPOOL -DDEVICE_IGNORE_ADDRESSES -DBITS_64 -DLITTLE_ENDIAN
-    -DVFS_NOMMU -DVFS_STANDALONE -DEXT2_STANDALONE -DADDITIONAL_CHECKS)
+    -DUTILITY_LINUX=1 -DTARGET_IS_LITTLE_ENDIAN=1
+    -DPEDIGREE_BENCHMARK=1 -DSTANDALONE_MUTEXES=1 -DSTANDALONE_CACHE=1
+    -DSTANDALONE_MEMPOOL=1 -DDEVICE_IGNORE_ADDRESSES=1 -DBITS_64=1 -DLITTLE_ENDIAN=1
+    -DVFS_NOMMU=1 -DVFS_STANDALONE=1 -DEXT2_STANDALONE=1)
 
 set(BUILDUTIL_FLAGS -ggdb -gdwarf-2)
 set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
@@ -41,10 +41,6 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${BUILDUTIL_CFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${BUILDUTIL_CXXFLAGS}>")
 
-if (OPENSSL_FOUND)
-    add_definitions(-DHAVE_OPENSSL)
-endif ()
-
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/system/include
@@ -55,7 +51,9 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc)
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Event.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Semaphore.cc)
 add_library(kernel ${KERNEL_SRCS})
 add_library(kernel_coverage ${KERNEL_SRCS})
 target_compile_options(kernel PRIVATE ${NONCOVERAGE_FLAGS})
@@ -162,6 +160,9 @@ add_library(config
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/Config.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/sqlite3/sqlite3.c)
 
+add_library(posix
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/IoEvent.cc)
+
 add_executable(keymap
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c)
 target_compile_definitions(keymap PRIVATE -DNOT_PEDIGREE)
@@ -217,7 +218,7 @@ add_executable(testsuite
     testsuite/test-Cord.cc
 )
 target_link_libraries(testsuite PRIVATE
-    kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)
+    debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
 target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
@@ -252,7 +253,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-Log.cc
     )
     target_link_libraries(benchmarker PRIVATE
-        kernel ramfs vfs utility Threads::Threads ${BENCHMARK_LIBRARY})
+        ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
     target_compile_options(benchmarker PRIVATE "-Os" "-march=native" "-mtune=native")
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 
@@ -322,7 +323,7 @@ add_executable(unixsockets
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/poll-syscalls.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/util.cc)
 target_link_libraries(unixsockets PRIVATE
-    lwip vfs utility kernel Threads::Threads)
+    lwip posix vfs utility kernel Threads::Threads)
 
 SETUP_TARGET_FOR_COVERAGE(
     NAME testsuite_coverage

@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(ACPI)
+#if ACPI
 
 #include "Acpi.h"
 #include "../../core/processor/x86_common/PhysicalMemoryManager.h"
@@ -133,7 +133,7 @@ void Acpi::initialise()
             m_pFacp =
                 reinterpret_cast<FixedACPIDescriptionTable *>(pSystemDescTable);
 // Is Multiple APIC Description Table?
-#if defined(APIC)
+#if APIC
         else if (pSystemDescTable->signature == 0x43495041)
             m_pApic = pSystemDescTable;
 #endif
@@ -153,7 +153,7 @@ void Acpi::initialise()
     // Parse the FACP
     parseFixedACPIDescriptionTable();
 
-#if defined(APIC)
+#if APIC
     // If we have an Multiple APIC Description Table parse it
     if (m_pApic != 0)
         parseMultipleApicDescriptionTable();
@@ -165,11 +165,11 @@ void Acpi::initialise()
 Acpi::Acpi()
     : m_bValid(0), m_pRsdtPointer(0), m_AcpiMemoryRegion("ACPI"), m_pRsdt(0),
       m_pFacp(0)
-#if defined(APIC)
+#if APIC
       ,
       m_pApic(0), m_bValidApicInfo(false), m_bHasPICs(false),
       m_LocalApicAddress(0), m_IoApics()
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
       ,
       m_bValidProcessorInfo(false), m_Processors()
 #endif
@@ -254,7 +254,7 @@ void Acpi::parseFixedACPIDescriptionTable()
     NOTICE(" Flags " << Hex << m_pFacp->flags);
 }
 
-#if defined(APIC)
+#if APIC
 void Acpi::parseMultipleApicDescriptionTable()
 {
     NOTICE("ACPI: Multiple APIC Description Table (APIC)");
@@ -282,7 +282,7 @@ void Acpi::parseMultipleApicDescriptionTable()
                 " Processor #" << Dec << pLocalApic->processorId
                                << (bUsable ? " usable" : " unusable"));
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
             // Is the processor usable?
             if (bUsable)
             {
@@ -371,7 +371,7 @@ void Acpi::parseMultipleApicDescriptionTable()
     }
 
     m_bValidApicInfo = true;
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     m_bValidProcessorInfo = true;
 #endif
 }

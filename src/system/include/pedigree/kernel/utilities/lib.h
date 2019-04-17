@@ -28,7 +28,7 @@
 
 // Condense X86-ish systems into one define for utilities.
 /// \note this will break testsuite/hosted builds on non-x86 hosts.
-#if defined(X86_COMMON) || defined(HOSTED_X86_COMMON) || defined(UTILITY_LINUX)
+#if X86_COMMON || HOSTED_X86_COMMON || UTILITY_LINUX
 #define TARGET_IS_X86
 #endif
 
@@ -131,7 +131,7 @@ EXPORTED_PUBLIC int max(size_t a, size_t b) PURE;
 EXPORTED_PUBLIC int min(size_t a, size_t b) PURE;
 
 // Memory allocation for C code
-#ifndef UTILITY_LINUX
+#if !UTILITY_LINUX
 EXPORTED_PUBLIC void *malloc(size_t);
 EXPORTED_PUBLIC void *calloc(size_t, size_t);
 EXPORTED_PUBLIC void *realloc(void *, size_t);

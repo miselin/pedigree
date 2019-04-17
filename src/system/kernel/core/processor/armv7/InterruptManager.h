@@ -44,7 +44,7 @@ class ARMV7InterruptManager : public ::InterruptManager, public ::SyscallManager
     virtual bool
     registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
 
-#ifdef DEBUGGER
+#if DEBUGGER
     virtual bool registerInterruptHandlerDebugger(
         size_t interruptNumber, InterruptHandler *handler);
     virtual size_t getBreakpointInterruptNumber() PURE;
@@ -82,7 +82,7 @@ class ARMV7InterruptManager : public ::InterruptManager, public ::SyscallManager
     virtual ~ARMV7InterruptManager();
 
     InterruptHandler *m_Handler[256];
-#ifdef DEBUGGER
+#if DEBUGGER
     /** The debugger interrupt handlers */
     InterruptHandler *m_DbgHandler[256];
 #endif

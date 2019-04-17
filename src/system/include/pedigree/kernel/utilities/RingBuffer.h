@@ -28,10 +28,7 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
-
-#ifdef THREADS
 #include "pedigree/kernel/process/Thread.h"
-#endif
 
 class Event;
 
@@ -310,7 +307,6 @@ class EXPORTED_PUBLIC RingBuffer
     /// Trigger event for threads waiting on us.
     void notifyMonitors()
     {
-#ifdef THREADS
         m_Lock.acquire();
         for (typename List<MonitorTarget *>::Iterator it =
                  m_MonitorTargets.begin();
@@ -318,12 +314,14 @@ class EXPORTED_PUBLIC RingBuffer
         {
             MonitorTarget *pMT = *it;
 
-            pMT->pThread->sendEvent(pMT->pEvent);
+            EMIT_IF(THREADS)
+            {
+                pMT->pThread->sendEvent(pMT->pEvent);
+            }
             delete pMT;
         }
         m_MonitorTargets.clear();
         m_Lock.release();
-#endif
     }
 
     size_t m_RingSize;

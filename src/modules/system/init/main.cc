@@ -51,7 +51,7 @@ static void error(const char *s)
 
 static int init_stage2(void *param)
 {
-#if defined(HOSTED) && defined(HAS_ADDRESS_SANITIZER)
+#if HOSTED && HAS_ADDRESS_SANITIZER
     extern void system_reset();
     NOTICE("Note: ASAN build, so triggering a restart now.");
     system_reset();
@@ -108,7 +108,7 @@ static int init_stage2(void *param)
 
 static bool init()
 {
-#ifdef THREADS
+#if THREADS
     g_Started.acquire();
 
     // Create a new process for the init process.
@@ -156,7 +156,7 @@ static void destroy()
 {
 }
 
-#if defined(X86_COMMON)
+#if X86_COMMON
 #define __MOD_DEPS "vfs", "posix", "linker", "users"
 #define __MOD_DEPS_OPT "gfx-deps", "mountroot", "confignics"
 #else

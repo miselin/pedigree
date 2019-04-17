@@ -39,10 +39,6 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#ifdef CRIPPLE_HDD
-#pragma GCC diagnostic ignored "-Wunreachable-code"
-#endif
-
 extern "C" void vbeModeChangedCallback(char *pId, char *pModeId);
 
 #define REALMODE_PTR(x) ((x[1] << 4) + x[0])
@@ -124,10 +120,11 @@ extern "C" void vbeModeChangedCallback(char *pId, char *pModeId)
 
 static bool entry()
 {
-#ifdef NOGFX
-    NOTICE("Not starting VBE module, NOGFX is defined.");
-    return false;
-#endif
+    EMIT_IF(NOGFX)
+    {
+        NOTICE("Not starting VBE module, NOGFX is defined.");
+        return false;
+    }
 
     List<Display::ScreenMode *> modeList;
 

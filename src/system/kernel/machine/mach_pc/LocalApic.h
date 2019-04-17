@@ -20,7 +20,7 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
 #define KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
 
-#if defined(APIC)
+#if APIC
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"

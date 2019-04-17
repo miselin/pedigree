@@ -669,7 +669,7 @@ size_t prevCharacter(const char *s, size_t i)
     return i - 1;
 }
 
-#ifndef UTILITY_LINUX
+#if !UTILITY_LINUX
 // Provide forwarding functions to handle GCC optimising things.
 size_t strlen(const char *s)
 {

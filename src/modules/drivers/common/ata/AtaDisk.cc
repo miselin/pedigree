@@ -31,7 +31,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#ifdef CRIPPLE_HDD
+#if CRIPPLE_HDD
 #pragma GCC diagnostic ignored "-Wunreachable-code"
 #endif
 
@@ -727,9 +727,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
 
     // Grab our parent's IoPorts for command and control accesses.
     IoBase *commandRegs = m_CommandRegs;
-#ifndef PPC_COMMON
     IoBase *controlRegs = m_ControlRegs;
-#endif
 
     // How many sectors do we need to read?
     /// \todo logical sector size here
@@ -800,10 +798,8 @@ uint64_t AtaDisk::doRead(uint64_t location)
 
         if (getInterruptNumber() != 0xFF)
         {
-// Enable IRQs so we can avoid spinning if possible.
-#ifndef PPC_COMMON
+            // Enable IRQs so we can avoid spinning if possible.
             controlRegs->write8(0, 2);
-#endif
 
             bool oldInterrupts = Processor::getInterrupts();
             if (!oldInterrupts)
@@ -946,7 +942,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         panic("AtaDisk: write request not on a sector boundary!");
 
 // Safety check
-#ifdef CRIPPLE_HDD
+#if CRIPPLE_HDD
     return 0;
 #endif
 
@@ -977,15 +973,13 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     // Make sure we don't leave the refcnt increased by writing.
     CachePageGuard guard(getCache(), location);
 
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE("doWrite(" << location << ")");
 #endif
 
     // Grab our parent's IoPorts for command and control accesses.
     IoBase *commandRegs = m_CommandRegs;
-#ifndef PPC_COMMON
     IoBase *controlRegs = m_ControlRegs;
-#endif
 
     // How many sectors do we need to read?
     /// \todo logical sector size here
@@ -1039,10 +1033,8 @@ uint64_t AtaDisk::doWrite(uint64_t location)
             setupLBA28(location, nSectorsToWrite);
         }
 
-// Enable IRQs so we can avoid spinning if possible.
-#ifndef PPC_COMMON
+        // Enable IRQs so we can avoid spinning if possible.
         controlRegs->write8(0, 2);
-#endif
 
         if (m_IrqReceived)
             WARNING("ATA: IRQ mutex already existed");
@@ -1147,7 +1139,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         }
     }
 
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE("ATA: successfully wrote " << nBytes << " bytes to disk.");
 #endif
     return nBytes;

@@ -20,4 +20,32 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_PROCESSOR_H
 #define KERNEL_PROCESSOR_X86_COMMON_PROCESSOR_H
 
+#include "pedigree/kernel/processor/Processor.h"
+
+/** Common x86 processor functionality. Cast needed to get these. */
+class X86CommonProcessor : public ProcessorBase
+{
+public:
+    /** Read a Machine/Model-specific register
+     *\param[in] index the register index
+     *\return the value of the register */
+    static uint64_t readMachineSpecificRegister(uint32_t index);
+    /** Write a Machine/Model-specific register
+     *\param[in] index the register index
+     *\param[in] value the new value of the register */
+    static void writeMachineSpecificRegister(uint32_t index, uint64_t value);
+    /** Executes the CPUID machine instruction
+     *\param[in] inEax eax before the CPUID instruction
+     *\param[in] inEcx ecx before the CPUID instruction
+     *\param[out] eax eax afterwards
+     *\param[out] ebx ebx afterwards
+     *\param[out] ecx ecx afterwards
+     *\param[out] edx edx afterwards */
+    static void cpuid(
+        uint32_t inEax, uint32_t inEcx, uint32_t &eax, uint32_t &ebx,
+        uint32_t &ecx, uint32_t &edx);
+
+    static physical_uintptr_t readCr3();
+};
+
 #endif

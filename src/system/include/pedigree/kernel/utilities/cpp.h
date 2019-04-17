@@ -24,7 +24,7 @@
 
 #ifdef __cplusplus
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <string.h>
 #endif
 
@@ -182,6 +182,23 @@ struct integral_constant
     }
 };
 
+template <bool b, class TTrue, class TFalse>
+struct conditional
+{
+};
+
+template <class TTrue, class TFalse>
+struct conditional<true, TTrue, TFalse>
+{
+    typedef TTrue type;
+};
+
+template <class TTrue, class TFalse>
+struct conditional<false, TTrue, TFalse>
+{
+    typedef TFalse type;
+};
+
 template <class T, T v>
 constexpr T integral_constant<T, v>::value;
 
@@ -225,7 +242,7 @@ template <class T>
 typename enable_if<is_trivially_copyable<T>::value>::type *
 copy(T *dest, const T *src, size_t count)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     return memmove(dest, src, count * sizeof(T));
 #else
     return MemoryCopy(dest, src, count * sizeof(T));

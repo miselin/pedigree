@@ -66,7 +66,7 @@ Ext2Filesystem::Ext2Filesystem()
     : m_pSuperblock(0), m_pGroupDescriptors(0), m_pInodeTables(0),
       m_pInodeBitmaps(0), m_pBlockBitmaps(0), m_BlockSize(0), m_InodeSize(0),
       m_nGroupDescriptors(0),
-#ifdef THREADS
+#if THREADS
       m_WriteLock(false),
 #endif
       m_pRoot(0)

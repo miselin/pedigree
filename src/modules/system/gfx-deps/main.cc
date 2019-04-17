@@ -22,14 +22,14 @@
 
 #include "modules/Module.h"
 
-#if defined(X86_COMMON)
+#if X86_COMMON
 #define __MOD_DEPS 0
 #define __MOD_DEPS_OPT "vbe", "vmware-gfx"
-#elif defined(PPC_COMMON)
+#elif PPC_COMMON
 #define __MOD_DEPS 0
-#elif defined(ARM_COMMON)
+#elif ARM_COMMON
 #define __MOD_DEPS 0
-#elif defined(HOSTED)
+#elif HOSTED
 /// \todo probably want some sort of SDL thing here.
 #define __MOD_DEPS 0
 #endif

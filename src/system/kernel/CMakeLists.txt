@@ -31,14 +31,6 @@ configure_file(
 add_definitions(
     -DIN_PEDIGREE_KERNEL -DDEBUGGER_QWERTY -DKERNEL_STANDALONE)
 
-if (PEDIGREE_VERBOSE_KERNEL)
-    add_definitions(-DVERBOSE_KERNEL)
-endif ()
-
-if (PEDIGREE_DEBUG_ALLOCATOR)
-    add_definitions(-DSLAM_USE_DEBUG_ALLOCATOR)
-endif ()
-
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>")
@@ -126,10 +118,6 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/sys.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/decode.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c)
-
-    if (PEDIGREE_MULTIPROCESSOR)
-        add_definitions(-DAPIC -DSMP)
-    endif ()
 else()
     set(MACHINE_SRCS "")
     set(X86EMU_SRCS "")

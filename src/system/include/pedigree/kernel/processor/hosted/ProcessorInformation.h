@@ -45,7 +45,7 @@ class HostedProcessorInformation
 
     uintptr_t getKernelStack() const;
     void setKernelStack(uintptr_t stack);
-#ifdef THREADS
+#if THREADS
     Thread *getCurrentThread() const;
     void setCurrentThread(Thread *pThread);
     PerProcessorScheduler &getScheduler();
@@ -73,7 +73,7 @@ class HostedProcessorInformation
     ProcessorId m_ProcessorId;
     /** The current VirtualAddressSpace */
     VirtualAddressSpace *m_VirtualAddressSpace;
-#ifdef THREADS
+#if THREADS
     /** The current thread */
     Thread *m_pCurrentThread;
     /** The processor's scheduler. */

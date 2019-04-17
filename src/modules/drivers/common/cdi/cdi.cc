@@ -38,7 +38,7 @@ static Device *handleDevice(Device *p)
     dev->bus_data.bus_type = CDI_PCI;
 
     // Enable bus mastering and standard I/O as needed.
-#ifdef X86_COMMON
+#if X86_COMMON
     uint32_t nPciCmdSts = PciBus::instance().readConfigSpace(p, 1);
     PciBus::instance().writeConfigSpace(p, 1, nPciCmdSts | 0x7);
 #endif

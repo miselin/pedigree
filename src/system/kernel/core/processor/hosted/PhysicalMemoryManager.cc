@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#if defined(TRACK_PAGE_ALLOCATIONS)
+#if TRACK_PAGE_ALLOCATIONS
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
 
@@ -117,7 +117,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
 
     m_Lock.release();
 
-#if defined(TRACK_PAGE_ALLOCATIONS)
+#if TRACK_PAGE_ALLOCATIONS
     if (Processor::m_Initialised == 2)
     {
         if (!g_AllocationCommand.isMallocing())
@@ -328,7 +328,7 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     m_PhysicalRanges.allocateSpecific(0, HOSTED_PHYSICAL_MEMORY_SIZE);
 
 // Print the ranges
-#if defined(VERBOSE_MEMORY_MANAGER)
+#if VERBOSE_MEMORY_MANAGER
     NOTICE("physical memory ranges:");
     for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
     {

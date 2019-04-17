@@ -28,8 +28,8 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
 
-#ifdef DEBUGGER
-#ifdef TRACK_PAGE_ALLOCATIONS
+#if DEBUGGER
+#if TRACK_PAGE_ALLOCATIONS
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #endif
 
@@ -39,7 +39,7 @@
 
 class Process;
 
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
 extern void toggleTracingAllocations();
 #endif
 
@@ -207,7 +207,7 @@ void X86Keyboard::readerThread()
         }
 
         // Check for keys with special functions
-#ifdef DEBUGGER
+#if DEBUGGER
 #if CRIPPLINGLY_VIGILANT
         if (scancode == 0x43)  // F9
             SlamAllocator::instance().setVigilance(true);
@@ -216,11 +216,11 @@ void X86Keyboard::readerThread()
 #endif
         if (scancode == 0x57)  // F11
         {
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
             WARNING("F11: Toggling allocation tracing.");
             toggleTracingAllocations();
 #else
-#ifdef TRACK_PAGE_ALLOCATIONS
+#if TRACK_PAGE_ALLOCATIONS
             NOTICE("F11: Triggering allocation checkpoint.");
             g_AllocationCommand.checkpoint();
 #endif

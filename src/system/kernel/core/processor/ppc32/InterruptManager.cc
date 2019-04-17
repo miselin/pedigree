@@ -90,7 +90,7 @@ bool PPC32InterruptManager::registerInterruptHandler(
     return true;
 }
 
-#ifdef DEBUGGER
+#if DEBUGGER
 bool PPC32InterruptManager::registerInterruptHandlerDebugger(
     size_t interruptNumber, InterruptHandler *pHandler)
 {
@@ -200,7 +200,7 @@ void PPC32InterruptManager::interrupt(InterruptState &interruptState)
     // TODO: Needs locking
     size_t intNumber = interruptState.getInterruptNumber();
 
-#ifdef DEBUGGER
+#if DEBUGGER
     // Call the kernel debugger's handler, if any
     if (m_Instance.m_pDbgHandler[intNumber] != 0)
     {
@@ -232,7 +232,7 @@ void PPC32InterruptManager::interrupt(InterruptState &interruptState)
         e.append(": \"");
         e.append(g_pExceptions[intNumber]);
         e.append("\"");
-#ifdef DEBUGGER
+#if DEBUGGER
         Debugger::instance().start(interruptState, e);
 #else
         FATAL(

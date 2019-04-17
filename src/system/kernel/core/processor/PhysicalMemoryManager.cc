@@ -34,7 +34,6 @@ size_t PhysicalMemoryManager::freePageCount() const
     return ~0UL;
 }
 
-#ifndef UTILITY_LINUX
 void PhysicalMemoryManager::allocateMemoryRegionList(
     Vector<MemoryRegionInfo *> &MemoryRegions)
 {
@@ -47,6 +46,7 @@ void PhysicalMemoryManager::allocateMemoryRegionList(
         MemoryRegions.pushBack(pMemoryRegionInfo);
     }
 }
+
 void PhysicalMemoryManager::freeMemoryRegionList(
     Vector<MemoryRegionInfo *> &MemoryRegions)
 {
@@ -56,4 +56,3 @@ void PhysicalMemoryManager::freeMemoryRegionList(
         delete pMemoryRegionInfo;
     }
 }
-#endif

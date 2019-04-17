@@ -45,7 +45,7 @@ class PPC32InterruptManager : public ::InterruptManager, public ::SyscallManager
     virtual bool
     registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
 
-#ifdef DEBUGGER
+#if DEBUGGER
     virtual bool registerInterruptHandlerDebugger(
         size_t interruptNumber, InterruptHandler *handler);
     virtual size_t getBreakpointInterruptNumber() PURE;
@@ -81,7 +81,7 @@ class PPC32InterruptManager : public ::InterruptManager, public ::SyscallManager
     virtual ~PPC32InterruptManager();
 
     InterruptHandler *m_pHandler[64];
-#ifdef DEBUGGER
+#if DEBUGGER
     /** The debugger interrupt handlers */
     InterruptHandler *m_pDbgHandler[64];
 #endif

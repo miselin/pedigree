@@ -98,8 +98,8 @@ class EXPORTED_PUBLIC TimeoutGuard
     /** Did the operation time out? */
     bool m_bTimedOut;
 
-/** Saved state. */
-#ifdef THREADS
+    /** Saved state. \todo can we do this without ifdefs? */
+#if THREADS
     SchedulerState m_State;
 #else
     void *m_State;

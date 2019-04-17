@@ -71,7 +71,7 @@
 #define LWIP_WND_SCALE 1
 #define TCP_RCV_SCALE 4
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #define SA_FAMILY_T_DEFINED 1
 #endif
 

@@ -20,21 +20,21 @@
 #ifndef KERNEL_PROCESSOR_STATE_FORWARD_H
 #define KERNEL_PROCESSOR_STATE_FORWARD_H
 
-#if defined(X86)
+#if X86
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
-#elif defined(X64)
+#elif X64
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
-#elif defined(MIPS32)
+#elif MIPS32
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
-#elif defined(MIPS64)
+#elif MIPS64
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
-#elif defined(ARM926E)
+#elif ARM926E
 #define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
-#elif defined(PPC32)
+#elif PPC32
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
-#elif defined(ARMV7)
+#elif ARMV7
 #define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
-#elif defined(HOSTED)
+#elif HOSTED
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif
 

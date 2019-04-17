@@ -26,11 +26,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
 
-#if defined(X86)
-#include "pedigree/kernel/processor/x86/tss.h"
-#else
 #include "pedigree/kernel/processor/x64/tss.h"
-#endif
 
 /** Get the current processor's VirtualAddressSpace
  *\return reference to the current processor's VirtualAddressSpace */
@@ -87,23 +83,15 @@ void X86CommonProcessorInformation::setTlsSelector(uint16_t tls)
 
 uintptr_t X86CommonProcessorInformation::getKernelStack() const
 {
-#if defined(X86)
-    return m_Tss->esp0;
-#else
     return m_Tss->rsp0;
-#endif
 }
 void X86CommonProcessorInformation::setKernelStack(uintptr_t stack)
 {
-#if defined(X86)
-    m_Tss->esp0 = stack;
-#else
     m_Tss->rsp0 = stack;
     // Can't use Procesor::writeMachineSpecificRegister as Processor is
     // undeclared here!
     uint32_t eax = stack, edx = stack >> 32;
     asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102));
-#endif
 }
 
 Thread *X86CommonProcessorInformation::getCurrentThread() const

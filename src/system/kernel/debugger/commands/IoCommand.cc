@@ -43,19 +43,19 @@ bool IoCommand::execute(
     const HugeStaticString &input, HugeStaticString &output,
     InterruptState &state, DebuggerIO *pScreen)
 {
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-    Vector<IoPortManager::IoPortInfo *> IoPorts;
-
-    // Copy the list of used I/O ports
-    IoPortManager &ioPortManager = IoPortManager::instance();
-    ioPortManager.allocateIoPortList(IoPorts);
-
-    output += "I/O ports:\n";
-
+    EMIT_IF(!KERNEL_PROCESSOR_NO_PORT_IO)
     {
+        Vector<IoPortManager::IoPortInfo *> IoPorts;
+
+        // Copy the list of used I/O ports
+        IoPortManager &ioPortManager = IoPortManager::instance();
+        ioPortManager.allocateIoPortList(IoPorts);
+
+        output += "I/O ports:\n";
+
         Vector<IoPortManager::IoPortInfo *>::ConstIterator i = IoPorts.begin();
         Vector<IoPortManager::IoPortInfo *>::ConstIterator end = IoPorts.end();
-        for (; i != end; i++)
+        for (; i != end; ++i)
         {
             output += ' ';
             output += (*i)->name;
@@ -65,11 +65,10 @@ bool IoCommand::execute(
             output.append((*i)->ioPort + (*i)->sIoPort - 1, 16);
             output += "\n";
         }
-    }
 
-    // Free the list of I/O ports
-    ioPortManager.freeIoPortList(IoPorts);
-#endif
+        // Free the list of I/O ports
+        ioPortManager.freeIoPortList(IoPorts);
+    }
 
     Vector<PhysicalMemoryManager::MemoryRegionInfo *> MemoryRegions;
 

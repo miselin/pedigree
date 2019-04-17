@@ -21,7 +21,7 @@
 
 #include "newlib.h"
 
-#ifdef X86_COMMON
+#if X86_COMMON
 
 void *memset(void *s, int c, size_t n)
 {

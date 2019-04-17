@@ -20,25 +20,25 @@
 #ifndef KERNEL_PROCESSOR_TYPES_H
 #define KERNEL_PROCESSOR_TYPES_H
 
-#if defined(X86)
+#if X86
 #include "pedigree/kernel/processor/x86/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X86##x
-#elif defined(X64)
+#elif X64
 #include "pedigree/kernel/processor/x64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
-#elif defined(MIPS32)
+#elif MIPS32
 #include "pedigree/kernel/processor/mips32/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
-#elif defined(MIPS64)
+#elif MIPS64
 #include "pedigree/kernel/processor/mips64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
-#elif defined(ARM_COMMON)
+#elif ARM_COMMON
 #include "pedigree/kernel/processor/arm_common/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) ARM##x
-#elif defined(PPC32)
+#elif PPC32
 #include "pedigree/kernel/processor/ppc32/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
-#elif defined(HOSTED)
+#elif HOSTED
 #include "pedigree/kernel/processor/hosted/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x
 #endif
@@ -94,12 +94,8 @@ typedef PROCESSOR_SPECIFIC_NAME(ssize_t) ssize_t;
 typedef PROCESSOR_SPECIFIC_NAME(size_t) size_t;
 #endif
 
-// NOTE: This should be defined in the file included at the top of this file
-//       if this processor architecture does not support I/O ports
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
 /** Define an I/O port type */
 typedef PROCESSOR_SPECIFIC_NAME(io_port_t) io_port_t;
-#endif
 
 #if !defined(PAGE_SIZE)
 #error PAGE_SIZE not defined

@@ -73,7 +73,7 @@ bool LocksCommand::execute(
     const HugeStaticString &input, HugeStaticString &output,
     InterruptState &state, DebuggerIO *pScreen)
 {
-#ifndef TRACK_LOCKS
+#if !TRACK_LOCKS
     output += "Sorry, this kernel was not built with TRACK_LOCKS enabled.";
     return true;
 #endif

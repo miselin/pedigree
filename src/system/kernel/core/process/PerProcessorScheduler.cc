@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef THREADS
-
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
@@ -38,10 +36,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-#ifdef TRACK_LOCKS
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
-#endif
 
 PerProcessorScheduler::PerProcessorScheduler()
     : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false),
@@ -249,11 +244,12 @@ void PerProcessorScheduler::schedule(
 
     pNextThread->getLock().release();
 
-// We'll release the current thread's lock when we reschedule, so for now
-// we just lie to the lock checker.
-#ifdef TRACK_LOCKS
-    g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-#endif
+    // We'll release the current thread's lock when we reschedule, so for now
+    // we just lie to the lock checker.
+    EMIT_IF(TRACK_LOCKS)
+    {
+        g_LocksCommand.lockReleased(&pCurrentThread->getLock());
+    }
 
     if (pLock)
     {
@@ -268,43 +264,47 @@ void PerProcessorScheduler::schedule(
         pLock->exit();
     }
 
-#ifdef TRACK_LOCKS
-    if (!g_LocksCommand.checkSchedule())
+    EMIT_IF(TRACK_LOCKS)
     {
-        FATAL("Lock checker disallowed this reschedule.");
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
-#endif
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    pCurrentThread->getLock().unwind();
-    Processor::switchState(
-        bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
-        &pCurrentThread->getLock().m_Atom.m_Atom);
-    Processor::setInterrupts(bWasInterrupts);
-    checkEventState(0);
-#else
-    // NOTICE_NOLOCK("calling saveState [schedule]");
-    if (Processor::saveState(pCurrentThread->state()))
+    EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        // Just context-restored, return.
-
-        // Return to previous interrupt state.
+        pCurrentThread->getLock().unwind();
+        Processor::switchState(
+            bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
+            &pCurrentThread->getLock().m_Atom.m_Atom);
         Processor::setInterrupts(bWasInterrupts);
-
-        // Check the event state - we don't have a user mode stack available
-        // to us, so pass zero and don't execute user-mode event handlers.
         checkEventState(0);
-
-        return;
     }
+    else
+    {
+        // NOTICE_NOLOCK("calling saveState [schedule]");
+        if (Processor::saveState(pCurrentThread->state()))
+        {
+            // Just context-restored, return.
 
-    // Restore context, releasing the old thread's lock when we've switched
-    // stacks.
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(
-        pNextThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom);
-// Not reached.
-#endif
+            // Return to previous interrupt state.
+            Processor::setInterrupts(bWasInterrupts);
+
+            // Check the event state - we don't have a user mode stack available
+            // to us, so pass zero and don't execute user-mode event handlers.
+            checkEventState(0);
+
+            return;
+        }
+
+        // Restore context, releasing the old thread's lock when we've switched
+        // stacks.
+        pCurrentThread->getLock().unwind();
+        Processor::restoreState(
+            pNextThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom);
+        // Not reached.
+    }
 }
 
 void PerProcessorScheduler::checkEventState(uintptr_t userStack)
@@ -428,14 +428,15 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
 
     pEvent->serialize(reinterpret_cast<uint8_t *>(addr));
 
-#ifndef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    if (Processor::saveState(oldState))
+    EMIT_IF(!SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        // Just context-restored.
-        Processor::setInterrupts(bWasInterrupts);
-        return;
+        if (Processor::saveState(oldState))
+        {
+            // Just context-restored.
+            Processor::setInterrupts(bWasInterrupts);
+            return;
+        }
     }
-#endif
 
     if (pEvent->isDeletable())
         delete pEvent;
@@ -453,15 +454,18 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
     {
         pThread->getParent()->trackTime(false);
         pThread->getParent()->recordTime(true);
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-        Processor::saveAndJumpUser(
-            bWasInterrupts, oldState, 0, Event::getTrampoline(), userStack,
-            handlerAddress, addr);
-#else
-        Processor::jumpUser(
-            0, Event::getTrampoline(), userStack, handlerAddress, addr);
-// Not reached.
-#endif
+        EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
+        {
+            Processor::saveAndJumpUser(
+                bWasInterrupts, oldState, 0, Event::getTrampoline(), userStack,
+                handlerAddress, addr);
+        }
+        else
+        {
+            Processor::jumpUser(
+                0, Event::getTrampoline(), userStack, handlerAddress, addr);
+            // Not reached.
+        }
     }
 }
 
@@ -538,70 +542,74 @@ void PerProcessorScheduler::addThread(
     bool bWas = pThread->getLock().acquired();
     pThread->getLock().unwind();
     pThread->getLock().m_Atom.m_Atom = 1;
-#ifdef TRACK_LOCKS
-    // Satisfy the lock checker; we're releasing these out of order, so make
-    // sure the checker sees them unlocked in order.
-    g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-    if (bWas)
+    EMIT_IF(TRACK_LOCKS)
     {
-        // Lock was in fact locked before.
-        g_LocksCommand.lockReleased(&pThread->getLock());
+        // Satisfy the lock checker; we're releasing these out of order, so make
+        // sure the checker sees them unlocked in order.
+        g_LocksCommand.lockReleased(&pCurrentThread->getLock());
+        if (bWas)
+        {
+            // Lock was in fact locked before.
+            g_LocksCommand.lockReleased(&pThread->getLock());
+        }
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
-    if (!g_LocksCommand.checkSchedule())
-    {
-        FATAL("Lock checker disallowed this reschedule.");
-    }
-#endif
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    pCurrentThread->getLock().unwind();
-    if (bUsermode)
+    EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        Processor::saveAndJumpUser(
-            bWasInterrupts, pCurrentThread->state(),
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
+        pCurrentThread->getLock().unwind();
+        if (bUsermode)
+        {
+            Processor::saveAndJumpUser(
+                bWasInterrupts, pCurrentThread->state(),
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
+        else
+        {
+            Processor::saveAndJumpKernel(
+                bWasInterrupts, pCurrentThread->state(),
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
     }
     else
     {
-        Processor::saveAndJumpKernel(
-            bWasInterrupts, pCurrentThread->state(),
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
-    }
-#else   // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    if (Processor::saveState(pCurrentThread->state()))
-    {
-        // Just context-restored.
-        if (bWasInterrupts)
-            Processor::setInterrupts(true);
-        return;
-    }
+        if (Processor::saveState(pCurrentThread->state()))
+        {
+            // Just context-restored.
+            if (bWasInterrupts)
+                Processor::setInterrupts(true);
+            return;
+        }
 
-    pCurrentThread->getLock().unwind();
-    if (bUsermode)
-    {
-        pCurrentThread->getParent()->recordTime(true);
-        Processor::jumpUser(
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
+        pCurrentThread->getLock().unwind();
+        if (bUsermode)
+        {
+            pCurrentThread->getParent()->recordTime(true);
+            Processor::jumpUser(
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
+        else
+        {
+            pCurrentThread->getParent()->recordTime(false);
+            Processor::jumpKernel(
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
     }
-    else
-    {
-        pCurrentThread->getParent()->recordTime(false);
-        Processor::jumpKernel(
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
-    }
-#endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 }
 
 void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
@@ -662,18 +670,19 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
     bool bWas = pThread->getLock().acquired();
     pThread->getLock().unwind();
     pThread->getLock().m_Atom.m_Atom = 1;
-#ifdef TRACK_LOCKS
-    g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-    if (bWas)
+    EMIT_IF(TRACK_LOCKS)
     {
-        // We unlocked the lock, so track that unlock.
-        g_LocksCommand.lockReleased(&pThread->getLock());
+        g_LocksCommand.lockReleased(&pCurrentThread->getLock());
+        if (bWas)
+        {
+            // We unlocked the lock, so track that unlock.
+            g_LocksCommand.lockReleased(&pThread->getLock());
+        }
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
-    if (!g_LocksCommand.checkSchedule())
-    {
-        FATAL("Lock checker disallowed this reschedule.");
-    }
-#endif
 
     // Copy the SyscallState into this thread's kernel stack.
     uintptr_t kStack = reinterpret_cast<uintptr_t>(pThread->getKernelStack());
@@ -688,24 +697,27 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
     pCurrentThread->getParent()->trackTime(false);
     pThread->getParent()->recordTime(false);
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    pCurrentThread->getLock().unwind();
-    NOTICE("restoring (new) syscall state");
-    Processor::switchState(
-        bWasInterrupts, pCurrentThread->state(), newState,
-        &pCurrentThread->getLock().m_Atom.m_Atom);
-#else
-    if (Processor::saveState(pCurrentThread->state()))
+    EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        // Just context-restored.
-        if (bWasInterrupts)
-            Processor::setInterrupts(true);
-        return;
+        pCurrentThread->getLock().unwind();
+        NOTICE("restoring (new) syscall state");
+        Processor::switchState(
+            bWasInterrupts, pCurrentThread->state(), newState,
+            &pCurrentThread->getLock().m_Atom.m_Atom);
     }
+    else
+    {
+        if (Processor::saveState(pCurrentThread->state()))
+        {
+            // Just context-restored.
+            if (bWasInterrupts)
+                Processor::setInterrupts(true);
+            return;
+        }
 
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(newState, &pCurrentThread->getLock().m_Atom.m_Atom);
-#endif
+        pCurrentThread->getLock().unwind();
+        Processor::restoreState(newState, &pCurrentThread->getLock().m_Atom.m_Atom);
+    }
 }
 
 void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
@@ -720,23 +732,24 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
     // Removing the current thread. Grab its lock.
     pThread->getLock().acquire();
 
-// If we're tracking locks, don't pollute the results. Yes, we've kept
-// this lock held, but it no longer matters.
-#ifdef TRACK_LOCKS
-    g_LocksCommand.lockReleased(&pThread->getLock());
-    if (!g_LocksCommand.checkSchedule())
+    // If we're tracking locks, don't pollute the results. Yes, we've kept
+    // this lock held, but it no longer matters.
+    EMIT_IF(TRACK_LOCKS)
     {
-        FATAL("Lock checker disallowed this reschedule.");
-    }
-    if (pLock)
-    {
-        g_LocksCommand.lockReleased(pLock);
+        g_LocksCommand.lockReleased(&pThread->getLock());
         if (!g_LocksCommand.checkSchedule())
         {
             FATAL("Lock checker disallowed this reschedule.");
         }
+        if (pLock)
+        {
+            g_LocksCommand.lockReleased(pLock);
+            if (!g_LocksCommand.checkSchedule())
+            {
+                FATAL("Lock checker disallowed this reschedule.");
+            }
+        }
     }
-#endif
 
     // Get another thread ready to schedule.
     // This will also get the lock for the returned thread.
@@ -836,5 +849,3 @@ void PerProcessorScheduler::setIdle(Thread *pThread)
 {
     m_pIdleThread = pThread;
 }
-
-#endif

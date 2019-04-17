@@ -30,8 +30,7 @@
 #include <pedigree/kernel/utilities/RingBuffer.h>
 #include <pedigree/kernel/utilities/pocketknife.h>
 
-
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <time.h>
 #include <errno.h>
 
@@ -56,7 +55,7 @@ void sys_init()
 
 u32_t sys_now()
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     struct timespec spec;
     clock_gettime(CLOCK_REALTIME, &spec);
 
@@ -94,7 +93,7 @@ sys_thread_t sys_thread_new(
 
 err_t sys_sem_new(sys_sem_t *sem, u8_t count)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     if (sem_init(sem, 0, count) != 0)
     {
         return ERR_ARG;
@@ -112,7 +111,7 @@ err_t sys_sem_new(sys_sem_t *sem, u8_t count)
 
 void sys_sem_free(sys_sem_t *sem)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     sem_destroy(sem);
 #else
     Semaphore *s = reinterpret_cast<Semaphore *>(*sem);
@@ -123,7 +122,7 @@ void sys_sem_free(sys_sem_t *sem)
 
 int sys_sem_valid(sys_sem_t *sem)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     return 1;
 #else
     if (*sem)
@@ -139,14 +138,14 @@ int sys_sem_valid(sys_sem_t *sem)
 
 void sys_sem_set_invalid(sys_sem_t *sem)
 {
-#ifndef UTILITY_LINUX
+#if !UTILITY_LINUX
     *sem = nullptr;
 #endif
 }
 
 void sys_sem_signal(sys_sem_t *sem)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     sem_post(sem);
 #else
     Semaphore *s = reinterpret_cast<Semaphore *>(*sem);
@@ -156,7 +155,7 @@ void sys_sem_signal(sys_sem_t *sem)
 
 u32_t sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     if (!timeout)
     {
         if (sem_wait(sem) == 0)
@@ -330,7 +329,7 @@ void sys_mutex_set_invalid(sys_mutex_t *mutex)
 
 sys_prot_t sys_arch_protect()
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     while (!g_Protection.acquire(true))
         ;
 
@@ -344,7 +343,7 @@ sys_prot_t sys_arch_protect()
 
 void sys_arch_unprotect(sys_prot_t pval)
 {
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
     g_Protection.release();
 #else
     Processor::setInterrupts(pval);

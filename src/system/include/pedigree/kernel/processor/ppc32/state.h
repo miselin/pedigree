@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef KERNEL_PROCESSOR_MIPS32_STATE_H
-#define KERNEL_PROCESSOR_MIPS32_STATE_H
+#ifndef KERNEL_PROCESSOR_PPC32_STATE_H
+#define KERNEL_PROCESSOR_PPC32_STATE_H
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"

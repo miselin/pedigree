@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(THREADS)
+#if THREADS
 
 #include "pedigree/kernel/debugger/commands/ThreadsCommand.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"

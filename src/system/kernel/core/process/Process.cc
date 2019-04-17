@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(THREADS)
+#if THREADS
 
 #include "pedigree/kernel/process/Process.h"
 #include "modules/system/users/Group.h"
@@ -240,7 +240,7 @@ void Process::kill()
 {
     m_Lock.acquire();
 
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     if (m_pParent)
         NOTICE("Kill: " << m_Id << " (parent: " << m_pParent->getId() << ")");
     else
@@ -284,7 +284,7 @@ void Process::kill()
     }
 
     // We'll get reaped elsewhere
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     NOTICE(
         "Process::kill() - not adding to ZombieQueue, process has a parent.");
 #endif
@@ -405,4 +405,4 @@ void Process::setInit(Process *pProcess)
     m_pInitProcess = pProcess;
 }
 
-#endif  // defined(THREADS)
+#endif  // THREADS

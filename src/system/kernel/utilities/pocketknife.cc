@@ -21,6 +21,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/utilities/pocketknife.h"
 
 class Process;
 
@@ -28,7 +29,7 @@ namespace pocketknife
 {
 void runConcurrently(int (*func)(void *), void *param)
 {
-#ifdef THREADS
+#if THREADS
     Process *parent = Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(parent, func, param);
     pThread->detach();
@@ -39,7 +40,7 @@ void runConcurrently(int (*func)(void *), void *param)
 
 void *runConcurrentlyAttached(int (*func)(void *), void *param)
 {
-#ifdef THREADS
+#if THREADS
     Process *parent = Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(parent, func, param);
     return pThread;
@@ -51,11 +52,46 @@ void *runConcurrentlyAttached(int (*func)(void *), void *param)
 
 int attachTo(void *handle)
 {
-#ifdef THREADS
+#if THREADS
     Thread *pThread = reinterpret_cast<Thread *>(handle);
     return pThread->join();
 #else
     return reinterpret_cast<int>(handle);
 #endif
+}
+
+VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr)
+{
+    EMIT_IF(KERNEL_NEEDS_ADDRESS_SPACE_SWITCH)
+    {
+        VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
+        VirtualAddressSpace &currva =
+            Processor::information().getVirtualAddressSpace();
+        if (Processor::m_Initialised == 2)
+            Processor::switchAddressSpace(va);
+
+        this->va = &currva;
+    }
+}
+
+VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch()
+{
+    restore();
+}
+
+void VirtualAddressSpaceSwitch::restore()
+{
+    if (!va)
+    {
+        return;
+    }
+
+    EMIT_IF(KERNEL_NEEDS_ADDRESS_SPACE_SWITCH)
+    {
+        if (Processor::m_Initialised == 2)
+            Processor::switchAddressSpace(*reinterpret_cast<VirtualAddressSpace *>(va));
+
+        va = nullptr;
+    }
 }
 }  // namespace pocketknife

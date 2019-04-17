@@ -20,7 +20,7 @@
 #ifndef KERNEL_MEMORYTRACING_H
 #define KERNEL_MEMORYTRACING_H
 
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
 #include "pedigree/kernel/utilities/StaticString.h"
 
 namespace MemoryTracing

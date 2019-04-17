@@ -69,11 +69,8 @@ class Archive
     ArchiveFile *getNext(ArchiveFile *pFile);
     ArchiveFile *get(size_t n);
 
-#ifdef HOSTED
     uint8_t *m_pBase;
-#else
     MemoryRegion m_Region;
-#endif
 };
 
 #endif

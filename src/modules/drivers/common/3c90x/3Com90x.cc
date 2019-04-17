@@ -593,7 +593,7 @@ Nic3C90x::Nic3C90x(Network *pDev)
     m_pBase->write32(m_pUPD, regUpListPtr_l);
 
 // register the packet queue handler
-#ifdef THREADS
+#if THREADS
     Thread *pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), &trampoline,
         reinterpret_cast<void *>(this));

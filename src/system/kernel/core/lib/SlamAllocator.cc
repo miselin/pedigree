@@ -17,38 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef SLAM_USE_DEBUG_ALLOCATOR
+#if !SLAM_USE_DEBUG_ALLOCATOR
 
 #include "pedigree/kernel/core/SlamAllocator.h"
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/utility.h"
-
-#ifndef PEDIGREE_BENCHMARK
+#include "pedigree/kernel/debugger/Backtrace.h"
+#include "pedigree/kernel/debugger/commands/SlamCommand.h"
 #include "pedigree/kernel/LockGuard.h"
-#ifdef MEMORY_TRACING
-#include "pedigree/kernel/utilities/MemoryTracing.h"
-#endif
-#if CRIPPLINGLY_VIGILANT
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
-#endif
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#if VIGILANT_OVERRUN_CHECK
-#include "pedigree/kernel/debugger/Backtrace.h"
-#include "pedigree/kernel/debugger/commands/SlamCommand.h"
-#endif
-#endif
+#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
+#include "pedigree/kernel/utilities/utility.h"
 
-#ifdef THREADS
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/Thread.h"
-#endif
-
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 #define ATOMIC_MEMORY_ORDER __ATOMIC_RELEASE
 #define ATOMIC_CAS_WEAK true
 #else
@@ -56,9 +45,7 @@
 #define ATOMIC_CAS_WEAK true
 #endif
 
-#ifndef PEDIGREE_BENCHMARK
 SlamAllocator SlamAllocator::m_Instance;
-#endif
 
 template <typename T>
 inline T *untagged(T *p) PURE;
@@ -75,13 +62,16 @@ inline T *untagged(T *p)
     /// \todo this now requires 64-bit pointers everywhere.
     // All heap pointers begin with 32 bits of ones. So we shove a tag there.
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-#if defined(PEDIGREE_BENCHMARK) || defined(HOSTED)
-    // Top four bits available to us (addresses from 0 -> 0x00007FFFFFFFFFFF).
-    ptr &= ~0xFFFF000000000000ULL;
-#else
-    // Top four bits make this a canonical address
-    ptr |= 0xFFFF000000000000ULL;
-#endif
+    EMIT_IF(PEDIGREE_BENCHMARK || HOSTED)
+    {
+        // Top four bits available to us (addresses from 0 -> 0x00007FFFFFFFFFFF).
+        ptr &= ~0xFFFF000000000000ULL;
+    }
+    else
+    {
+        // Top four bits make this a canonical address
+        ptr |= 0xFFFF000000000000ULL;
+    }
     return reinterpret_cast<T *>(ptr);
 }
 
@@ -104,7 +94,7 @@ inline T *touch_tag(T *p)
 
 inline void spin_pause()
 {
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
     asm("pause");
 #else
     Processor::pause();
@@ -113,7 +103,7 @@ inline void spin_pause()
 
 inline uintptr_t getHeapBase()
 {
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
     return SlamSupport::getHeapBase();
 #else
     return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapStart();
@@ -122,7 +112,7 @@ inline uintptr_t getHeapBase()
 
 inline uintptr_t getHeapEnd()
 {
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
     return SlamSupport::getHeapEnd();
 #else
     return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapEnd();
@@ -131,7 +121,7 @@ inline uintptr_t getHeapEnd()
 
 inline size_t getPageSize()
 {
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
     return 0x1000;
 #else
     return PhysicalMemoryManager::getPageSize();
@@ -140,7 +130,7 @@ inline size_t getPageSize()
 
 inline void allocateAndMapAt(void *addr, bool cowOk = false)
 {
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
     SlamSupport::getPageAt(addr);
 #else
     size_t standardFlags =
@@ -195,7 +185,7 @@ inline void allocateAndMapAt(void *addr, bool cowOk = false)
 
 inline void unmap(void *addr)
 {
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
     SlamSupport::unmapPage(addr);
 // munmap(addr, getPageSize());
 #else
@@ -214,7 +204,7 @@ inline void unmap(void *addr)
 
 SlamCache::SlamCache()
     : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0), m_FirstSlab(),
-#ifdef THREADS
+#if THREADS
       m_RecoveryLock(false),
 #endif
       m_EmptyNode()
@@ -236,7 +226,7 @@ void SlamCache::initialise(SlamAllocator *parent, size_t objectSize)
     else
         m_SlabSize = SLAB_MINIMUM_SIZE;
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     /// \todo number of CPUs here
     size_t maxCpu = 255;
 #else
@@ -297,23 +287,25 @@ void SlamCache::push(
 
 uintptr_t SlamCache::allocate()
 {
-#if EVERY_ALLOCATION_IS_A_SLAB
-    return getSlab();
-#endif
-
-#if SLABS_FOR_HUGE_ALLOCS
-    if (m_ObjectSize >= getPageSize())
+    EMIT_IF(EVERY_ALLOCATION_IS_A_SLAB)
     {
-        // just return a big-enough slab - allocation is page-sized or bigger
         return getSlab();
     }
-#endif
 
-#ifdef MULTIPROCESSOR
-    size_t thisCpu = Processor::id();
-#else
+    EMIT_IF(SLABS_FOR_HUGE_ALLOCS)
+    {
+        if (m_ObjectSize >= getPageSize())
+        {
+            // just return a big-enough slab - allocation is page-sized or bigger
+            return getSlab();
+        }
+    }
+
     size_t thisCpu = 0;
-#endif
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        thisCpu = Processor::id();
+    }
 
     Node *N = pop(&m_PartialLists[thisCpu]);
 
@@ -322,113 +314,119 @@ uintptr_t SlamCache::allocate()
     {
         Node *pNode = initialiseSlab(getSlab());
         uintptr_t slab = reinterpret_cast<uintptr_t>(pNode);
-#if CRIPPLINGLY_VIGILANT
-        if (m_pParentAllocator->getVigilance())
-            trackSlab(slab);
-#endif
+        EMIT_IF(CRIPPLINGLY_VIGILANT)
+        {
+            if (m_pParentAllocator->getVigilance())
+                trackSlab(slab);
+        }
         return slab;
     }
 
     // Check that the block was indeed free.
     assert(N->next != reinterpret_cast<Node *>(VIGILANT_MAGIC));
-#if USING_MAGIC
-    assert(N->magic == TEMP_MAGIC || N->magic == MAGIC_VALUE);
-    N->magic = TEMP_MAGIC;
-#endif
+    EMIT_IF(USING_MAGIC)
+    {
+        assert(N->magic == TEMP_MAGIC || N->magic == MAGIC_VALUE);
+        N->magic = TEMP_MAGIC;
+    }
 
     return reinterpret_cast<uintptr_t>(N);
 }
 
 void SlamCache::free(uintptr_t object)
 {
-#if EVERY_ALLOCATION_IS_A_SLAB
-    // Free the slab in the address space, but don't return it to the allocator.
-    size_t numPages = m_SlabSize / getPageSize();
-    if (m_SlabSize % getPageSize())
+    EMIT_IF(EVERY_ALLOCATION_IS_A_SLAB)
     {
-        ++numPages;
-    }
-    object = object & ~(getPageSize() - 1);
-    for (size_t i = 0; i < numPages; ++i)
-    {
-        unmap(reinterpret_cast<void *>(object + (i * getPageSize())));
-    }
+        // Free the slab in the address space, but don't return it to the allocator.
+        size_t numPages = m_SlabSize / getPageSize();
+        if (m_SlabSize % getPageSize())
+        {
+            ++numPages;
+        }
+        object = object & ~(getPageSize() - 1);
+        for (size_t i = 0; i < numPages; ++i)
+        {
+            unmap(reinterpret_cast<void *>(object + (i * getPageSize())));
+        }
 
-    return;
-#endif
-
-#if SLABS_FOR_HUGE_ALLOCS
-    if (m_ObjectSize >= getPageSize())
-    {
-        // just free the object directly, it's an entire slab
-        freeSlab(object);
         return;
     }
-#endif
 
-#ifdef MULTIPROCESSOR
-    size_t thisCpu = Processor::id();
-#else
+    EMIT_IF(SLABS_FOR_HUGE_ALLOCS)
+    {
+        if (m_ObjectSize >= getPageSize())
+        {
+            // just free the object directly, it's an entire slab
+            freeSlab(object);
+            return;
+        }
+    }
+
     size_t thisCpu = 0;
-#endif
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        thisCpu = Processor::id();
+    }
 
     Node *N = reinterpret_cast<Node *>(object);
-#if OVERRUN_CHECK
-    // Grab the footer and check it.
-    SlamAllocator::AllocFooter *pFoot =
-        reinterpret_cast<SlamAllocator::AllocFooter *>(
-            object + m_ObjectSize - sizeof(SlamAllocator::AllocFooter));
-    assert(pFoot->magic == VIGILANT_MAGIC);
+    EMIT_IF(OVERRUN_CHECK)
+    {
+        // Grab the footer and check it.
+        SlamAllocator::AllocFooter *pFoot =
+            reinterpret_cast<SlamAllocator::AllocFooter *>(
+                object + m_ObjectSize - sizeof(SlamAllocator::AllocFooter));
+        assert(pFoot->magic == VIGILANT_MAGIC);
+    }
 
-#if BOCHS_MAGIC_WATCHPOINTS
-    asm volatile("xchg %%dx,%%dx" ::"a"(&pFoot->catcher));
-#endif
-#endif
-
-#if USING_MAGIC
-    // Possible double free?
-    assert(N->magic != MAGIC_VALUE);
-    N->magic = MAGIC_VALUE;
-#endif
+    EMIT_IF(USING_MAGIC)
+    {
+        // Possible double free?
+        assert(N->magic != MAGIC_VALUE);
+        N->magic = MAGIC_VALUE;
+    }
 
     push(&m_PartialLists[thisCpu], N);
 }
 
 bool SlamCache::isPointerValid(uintptr_t object) const
 {
-#if SLABS_FOR_HUGE_ALLOCS
-    if (m_ObjectSize >= getPageSize())
+    EMIT_IF(SLABS_FOR_HUGE_ALLOCS)
     {
-        /// \todo need to figure out how to do this
-        return true;
+        if (m_ObjectSize >= getPageSize())
+        {
+            /// \todo need to figure out how to do this
+            return true;
+        }
     }
-#endif
 
     Node *N = reinterpret_cast<Node *>(object);
-#if OVERRUN_CHECK
-    // Grab the footer and check it.
-    SlamAllocator::AllocFooter *pFoot =
-        reinterpret_cast<SlamAllocator::AllocFooter *>(
-            object + m_ObjectSize - sizeof(SlamAllocator::AllocFooter));
-    if (pFoot->magic != VIGILANT_MAGIC)
+    EMIT_IF(OVERRUN_CHECK)
     {
-        return false;
+        // Grab the footer and check it.
+        SlamAllocator::AllocFooter *pFoot =
+            reinterpret_cast<SlamAllocator::AllocFooter *>(
+                object + m_ObjectSize - sizeof(SlamAllocator::AllocFooter));
+        if (pFoot->magic != VIGILANT_MAGIC)
+        {
+            return false;
+        }
     }
-#endif
 
-#if USING_MAGIC
-    // Possible double free?
-    if (N->magic == MAGIC_VALUE)
+    EMIT_IF(USING_MAGIC)
     {
-#if VERBOSE_ISPOINTERVALID
-        WARNING(
-            "SlamCache::isPointerValid: memory "
-            << Hex << object << " has invalid magic (" << N->magic
-            << " != " << MAGIC_VALUE << ").");
-#endif
-        return false;
+        // Possible double free?
+        if (N->magic == MAGIC_VALUE)
+        {
+            EMIT_IF(VERBOSE_ISPOINTERVALID)
+            {
+                WARNING(
+                    "SlamCache::isPointerValid: memory "
+                    << Hex << object << " has invalid magic (" << N->magic
+                    << " != " << MAGIC_VALUE << ").");
+            }
+            return false;
+        }
     }
-#endif
 
     return true;
 }
@@ -445,27 +443,27 @@ void SlamCache::freeSlab(uintptr_t slab)
 
 size_t SlamCache::recovery(size_t maxSlabs)
 {
-#if EVERY_ALLOCATION_IS_A_SLAB
-    return 0;
-#endif
-
-#if SLABS_FOR_HUGE_ALLOCS
-    if (m_ObjectSize >= getPageSize())
+    EMIT_IF(EVERY_ALLOCATION_IS_A_SLAB)
     {
-        // Caches with slabs page-sized or bigger don't hold onto freed regions
         return 0;
     }
-#endif
 
-#ifdef MULTIPROCESSOR
-    size_t thisCpu = Processor::id();
-#else
+    EMIT_IF(SLABS_FOR_HUGE_ALLOCS)
+    {
+        if (m_ObjectSize >= getPageSize())
+        {
+            // Caches with slabs page-sized or bigger don't hold onto freed regions
+            return 0;
+        }
+    }
+
     size_t thisCpu = 0;
-#endif
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        thisCpu = Processor::id();
+    }
 
-#ifdef THREADS
-    LockGuard<Spinlock> guard(m_RecoveryLock);
-#endif
+    ConstexprLockGuard<Spinlock, THREADS> guard(m_RecoveryLock);
 
     if (untagged(m_PartialLists[thisCpu]) == &m_EmptyNode)
         return 0;
@@ -503,14 +501,15 @@ size_t SlamCache::recovery(size_t maxSlabs)
                     bSlabNotFree = true;
                     break;
                 }
-#if USING_MAGIC
-                else if (pNode->magic != MAGIC_VALUE)
+                EMIT_IF(USING_MAGIC)
                 {
-                    // Not free.
-                    bSlabNotFree = true;
-                    break;
+                    if (pNode->magic != MAGIC_VALUE)
+                    {
+                        // Not free.
+                        bSlabNotFree = true;
+                        break;
+                    }
                 }
-#endif
             }
 
             if (bSlabNotFree)
@@ -595,9 +594,10 @@ size_t SlamCache::recovery(size_t maxSlabs)
                 break;
             }
 
-#if USING_MAGIC
-            assert(N->magic == MAGIC_VALUE);
-#endif
+            EMIT_IF(USING_MAGIC)
+            {
+                assert(N->magic == MAGIC_VALUE);
+            }
 
             // Can just outright free - no need to do any further checks.
             uintptr_t slab = reinterpret_cast<uintptr_t>(N);
@@ -612,26 +612,28 @@ size_t SlamCache::recovery(size_t maxSlabs)
 
 SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
 {
-#if SLABS_FOR_HUGE_ALLOCS
-    if (m_ObjectSize >= getPageSize())
+    EMIT_IF(SLABS_FOR_HUGE_ALLOCS)
     {
-        return nullptr;
+        if (m_ObjectSize >= getPageSize())
+        {
+            return nullptr;
+        }
     }
-#endif
 
-#ifdef MULTIPROCESSOR
-    size_t thisCpu = Processor::id();
-#else
     size_t thisCpu = 0;
-#endif
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        thisCpu = Processor::id();
+    }
 
     size_t nObjects = m_SlabSize / m_ObjectSize;
 
     Node *N = reinterpret_cast<Node *>(slab);
     N->next = tagged(&m_EmptyNode);
-#if USING_MAGIC
-    N->magic = TEMP_MAGIC;
-#endif
+    EMIT_IF(USING_MAGIC)
+    {
+        N->magic = TEMP_MAGIC;
+    }
 
     // Early exit if there's no other free objects in this slab.
     if (nObjects <= 1)
@@ -645,9 +647,10 @@ SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
         Node *pNode = reinterpret_cast<Node *>(slab + (i * m_ObjectSize));
         pNode->next = reinterpret_cast<Node *>(slab + ((i + 1) * m_ObjectSize));
         pNode->next = tagged(pNode->next);
-#if USING_MAGIC
-        pNode->magic = MAGIC_VALUE;
-#endif
+        EMIT_IF(USING_MAGIC)
+        {
+            pNode->magic = MAGIC_VALUE;
+        }
 
         if (!pFirst)
             pFirst = tagged(pNode);
@@ -662,8 +665,8 @@ SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
     return N;
 }
 
-#if CRIPPLINGLY_VIGILANT
-Spinlock rarp;
+static Spinlock rarp;
+
 void SlamCache::check()
 {
     if (m_ObjectSize >= getPageSize())
@@ -671,8 +674,11 @@ void SlamCache::check()
         return;
     }
 
-    if (!Machine::instance().isInitialised() || Processor::m_Initialised != 2)
-        return;
+    EMIT_IF(!HOSTED)
+    {
+        if (!Machine::instance().isInitialised() || Processor::m_Initialised != 2)
+            return;
+    }
     if (m_ObjectSize == 0)
         return;
     rarp.acquire();
@@ -734,8 +740,11 @@ void SlamCache::check()
 
 void SlamCache::trackSlab(uintptr_t slab)
 {
-    if (!Machine::instance().isInitialised() || Processor::m_Initialised != 2)
-        return;
+    EMIT_IF(!HOSTED)
+    {
+        if (!Machine::instance().isInitialised() || Processor::m_Initialised != 2)
+            return;
+    }
     if (m_ObjectSize == 0)
         return;
 
@@ -783,19 +792,9 @@ void SlamCache::trackSlab(uintptr_t slab)
         }
     }
 }
-#endif
 
 SlamAllocator::SlamAllocator()
-    : m_bInitialised(false)
-#if CRIPPLINGLY_VIGILANT
-      ,
-      m_bVigilant(false)
-#endif
-#ifdef THREADS
-      ,
-      m_SlabRegionLock(false)
-#endif
-      ,
+    : m_bInitialised(false), m_bVigilant(false), m_SlabRegionLock(false),
       m_HeapPageCount(0), m_SlabRegionBitmap(), m_SlabRegionBitmapEntries(0),
       m_Base(0)
 {
@@ -811,9 +810,7 @@ SlamAllocator::~SlamAllocator()
 
 void SlamAllocator::initialise()
 {
-#ifdef THREADS
-    LockGuard<Spinlock> guard(m_SlabRegionLock);
-#endif
+    ConstexprLockGuard<Spinlock, THREADS> guard(m_SlabRegionLock);
 
     if (m_bInitialised)
     {
@@ -838,13 +835,7 @@ void SlamAllocator::initialise()
 
     m_Base = bitmapBase + bitmapBytes;
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    VirtualAddressSpace &currva =
-        Processor::information().getVirtualAddressSpace();
-    if (Processor::m_Initialised == 2)
-        Processor::switchAddressSpace(va);
-#endif
+    pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
     // Allocate bitmap.
     size_t numPages = 0;
@@ -855,35 +846,36 @@ void SlamAllocator::initialise()
         allocateAndMapAt(reinterpret_cast<void *>(addr), numPages++ >= 32);
     }
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    if (Processor::m_Initialised == 2)
-        Processor::switchAddressSpace(currva);
-#endif
+    vaswitch.restore();
 
-#ifndef PEDIGREE_BENCHMARK
-    NOTICE(
-        "Kernel heap range prepared from " << Hex << m_Base << " to " << heapEnd
-                                           << ", size: " << (heapEnd - m_Base));
-    DEBUG_LOG(
-        "  -> kernel heap bitmap is " << Dec << (bitmapBytes / 1024) << Hex
-                                      << "K");
-#endif
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        NOTICE(
+            "Kernel heap range prepared from " << Hex << m_Base << " to " << heapEnd
+                                               << ", size: " << (heapEnd - m_Base));
+        DEBUG_LOG(
+            "  -> kernel heap bitmap is " << Dec << (bitmapBytes / 1024) << Hex
+                                          << "K");
+    }
 
     for (size_t i = 0; i < 32; i++)
     {
         m_Caches[i].initialise(this, 1ULL << i);
     }
 
+    NOTICE("all caches init-ed");
+
     m_bInitialised = true;
 }
 
-#ifdef PEDIGREE_BENCHMARK
 void SlamAllocator::clearAll()
 {
-    wipe();
-    initialise();
+    EMIT_IF(PEDIGREE_BENCHMARK)
+    {
+        wipe();
+        initialise();
+    }
 }
-#endif
 
 void SlamAllocator::wipe()
 {
@@ -897,9 +889,7 @@ void SlamAllocator::wipe()
         return;
     }
 
-#ifdef THREADS
-    m_SlabRegionLock.acquire();
-#endif
+    ConstexprLockGuard<Spinlock, THREADS> guard(m_SlabRegionLock);
 
     m_bInitialised = false;
 
@@ -933,10 +923,6 @@ void SlamAllocator::wipe()
     {
         unmap(reinterpret_cast<void *>(addr));
     }
-
-#ifdef THREADS
-    m_SlabRegionLock.release();
-#endif
 }
 
 uintptr_t SlamAllocator::getSlab(size_t fullSize)
@@ -947,9 +933,10 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
         panic("Attempted to get a slab smaller than the native page size.");
     }
 
-#ifdef THREADS
-    m_SlabRegionLock.acquire();
-#endif
+    EMIT_IF(THREADS)
+    {
+        m_SlabRegionLock.acquire();
+    }
 
     // Try to find space for this allocation.
     size_t entry = 0;
@@ -1076,18 +1063,13 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
         }
     }
 
-#ifdef THREADS
-    // Now that we've marked the slab bits as used, we can map the pages.
-    m_SlabRegionLock.release();
-#endif
+    EMIT_IF(THREADS)
+    {
+        // Now that we've marked the slab bits as used, we can map the pages.
+        m_SlabRegionLock.release();
+    }
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    VirtualAddressSpace &currva =
-        Processor::information().getVirtualAddressSpace();
-    if (Processor::m_Initialised == 2)
-        Processor::switchAddressSpace(va);
-#endif
+    pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
     // Map. This could break as we're allocating physical memory; though we are
     // free of the lock so that helps.
@@ -1097,10 +1079,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
         allocateAndMapAt(p);
     }
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    if (Processor::m_Initialised == 2)
-        Processor::switchAddressSpace(currva);
-#endif
+    vaswitch.restore();
 
     m_HeapPageCount += fullSize / getPageSize();
 
@@ -1115,19 +1094,10 @@ void SlamAllocator::freeSlab(uintptr_t address, size_t length)
         panic("Attempted to free a slab smaller than the native page size.");
     }
 
-#ifdef THREADS
-    LockGuard<Spinlock> guard(m_SlabRegionLock);
-#endif
+    ConstexprLockGuard<Spinlock, THREADS> guard(m_SlabRegionLock);
 
     // Perform unmapping first (so we can just modify 'address').
-
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    VirtualAddressSpace &currva =
-        Processor::information().getVirtualAddressSpace();
-    if (Processor::m_Initialised == 2)
-        Processor::switchAddressSpace(va);
-#endif
+    pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
     for (uintptr_t base = address; base < (address + length);
          base += getPageSize())
@@ -1136,10 +1106,7 @@ void SlamAllocator::freeSlab(uintptr_t address, size_t length)
         unmap(p);
     }
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    if (Processor::m_Initialised == 2)
-        Processor::switchAddressSpace(currva);
-#endif
+    vaswitch.restore();
 
     // Adjust bitmap.
     address -= m_Base;
@@ -1187,26 +1154,28 @@ size_t SlamAllocator::recovery(size_t maxSlabs)
 
 uintptr_t SlamAllocator::allocate(size_t nBytes)
 {
-#if DEBUGGING_SLAB_ALLOCATOR
-    NOTICE_NOLOCK("SlabAllocator::allocate(" << Dec << nBytes << Hex << ")");
-#endif
+    EMIT_IF(DEBUGGING_SLAB_ALLOCATOR)
+    {
+        NOTICE_NOLOCK("SlabAllocator::allocate(" << Dec << nBytes << Hex << ")");
+    }
 
-#if SLAM_LOCKED
-    LockGuard<Spinlock> guard(m_Lock);
-#endif
+    ConstexprLockGuard<Spinlock, SLAM_LOCKED> guard(m_Lock);
 
     if (UNLIKELY(!m_bInitialised))
         initialise();
 
-#if CRIPPLINGLY_VIGILANT
-    if (m_bVigilant)
-        for (int i = 0; i < 32; i++)
-            m_Caches[i].check();
-#endif
+    EMIT_IF(CRIPPLINGLY_VIGILANT)
+    {
+        if (m_bVigilant)
+        {
+            for (int i = 0; i < 32; i++)
+            {
+                m_Caches[i].check();
+            }
+        }
+    }
 
-#if defined(MEMORY_TRACING) || WARN_PAGE_SIZE_OR_LARGER
     size_t origSize = nBytes;
-#endif
 
     // Return value.
     uintptr_t ret = 0;
@@ -1231,36 +1200,39 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     nBytes = 1U << lg2;  // Round up nBytes now.
     ret = m_Caches[lg2].allocate();
 
-#if WARN_PAGE_SIZE_OR_LARGER
-    // Does the allocation fit inside a slab?
-    // NOTE: use something else to allocate 4K or more.
-    if (nBytes >= getPageSize())
+    EMIT_IF(WARN_PAGE_SIZE_OR_LARGER)
     {
+        // Does the allocation fit inside a slab?
+        // NOTE: use something else to allocate 4K or more.
+        if (nBytes >= getPageSize())
+        {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wframe-address"
-        // return address of operator new()
-        void *ret0 = __builtin_return_address(0);
-        void *ret1 = __builtin_return_address(1);
-        ERROR(
-            "alloc of " << origSize << " rounded to " << nBytes
-                        << " exceeds page size [at " << ret0 << " " << ret1
-                        << "]!");
+            // return address of operator new()
+            void *ret0 = __builtin_return_address(0);
+            void *ret1 = __builtin_return_address(1);
+            ERROR(
+                "alloc of " << origSize << " rounded to " << nBytes
+                            << " exceeds page size [at " << ret0 << " " << ret1
+                            << "]!");
 #pragma GCC diagnostic pop
+        }
     }
-#endif
 
-//   l.release();
-#if DEBUGGING_SLAB_ALLOCATOR
-    if (UNLIKELY(!ret))
+    EMIT_IF(DEBUGGING_SLAB_ALLOCATOR)
     {
-        ERROR_NOLOCK(
-            "SlabAllocator::allocate: Allocation failed (" << Dec << nBytes
-                                                           << Hex << " bytes)");
-        return ret;
+        if (UNLIKELY(!ret))
+        {
+            ERROR_NOLOCK(
+                "SlabAllocator::allocate: Allocation failed (" << Dec << nBytes
+                                                               << Hex << " bytes)");
+            return ret;
+        }
     }
-#else
-    assert(ret != 0);
-#endif
+    else
+    {
+        assert(ret != 0);
+    }
 
     // Shove some data on the front that we'll use later
     AllocHeader *head = reinterpret_cast<AllocHeader *>(ret);
@@ -1270,44 +1242,45 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
 
     // Set up the header
     head->cache = &m_Caches[lg2];
-#if OVERRUN_CHECK
-    head->magic = VIGILANT_MAGIC;
-    foot->magic = VIGILANT_MAGIC;
-
-#if BOCHS_MAGIC_WATCHPOINTS
-    /// \todo head->catcher should be used for underrun checking
-    // asm volatile("xchg %%cx,%%cx" :: "a" (&head->catcher));
-    asm volatile("xchg %%cx,%%cx" ::"a"(&foot->catcher));
-#endif
-#if VIGILANT_OVERRUN_CHECK
-    if (Processor::m_Initialised == 2)
+    EMIT_IF(OVERRUN_CHECK)
     {
-        Backtrace bt;
-        bt.performBpBacktrace(0, 0);
-        MemoryCopy(
-            &head->backtrace, bt.m_pReturnAddresses,
-            NUM_SLAM_BT_FRAMES * sizeof(uintptr_t));
-        head->requested = nBytes;
-        g_SlamCommand.addAllocation(head->backtrace, head->requested);
-    }
-#endif
-#endif
+        head->magic = VIGILANT_MAGIC;
+        foot->magic = VIGILANT_MAGIC;
 
-#ifdef THREADS
-    if (Processor::m_Initialised == 2)
-    {
-        Thread *pThread = Processor::information().getCurrentThread();
-        if (pThread)
+        EMIT_IF(VIGILANT_OVERRUN_CHECK)
         {
-            pThread->getParent()->trackHeap(nBytes);
+            // safe cast in this case as there's an inheritance here
+            auto vigilantHead = reinterpret_cast<AllocHeader_VigilantOverrunCheck *>(head);
+            if (Processor::m_Initialised == 2)
+            {
+                Backtrace bt;
+                bt.performBpBacktrace(0, 0);
+                MemoryCopy(
+                    &vigilantHead->backtrace, bt.m_pReturnAddresses,
+                    SLAM_BT_FRAMES * sizeof(uintptr_t));
+                vigilantHead->requested = nBytes;
+                g_SlamCommand.addAllocation(vigilantHead->backtrace, vigilantHead->requested);
+            }
         }
     }
-#endif
 
-#ifdef MEMORY_TRACING
-    traceAllocation(
-        reinterpret_cast<void *>(ret), MemoryTracing::Allocation, origSize);
-#endif
+    EMIT_IF(THREADS)
+    {
+        if (Processor::m_Initialised == 2)
+        {
+            Thread *pThread = Processor::information().getCurrentThread();
+            if (pThread)
+            {
+                pThread->getParent()->trackHeap(nBytes);
+            }
+        }
+    }
+
+    EMIT_IF(MEMORY_TRACING)
+    {
+        traceAllocation(
+            reinterpret_cast<void *>(ret), MemoryTracing::Allocation, origSize);
+    }
 
     return ret;
 }
@@ -1330,6 +1303,19 @@ size_t SlamAllocator::allocSize(uintptr_t mem)
     // but we return memory framed by headers and footers. So, the "true" size
     // of memory pointed to by 'mem' is not the true object size.
     return result - (sizeof(AllocHeader) + sizeof(AllocFooter));
+}
+
+SlamAllocator &SlamAllocator::instance()
+{
+    EMIT_IF(PEDIGREE_BENCHMARK)
+    {
+        static SlamAllocator instance;
+        return instance;
+    }
+    else
+    {
+        return m_Instance;
+    }
 }
 
 void SlamAllocator::free(uintptr_t mem)
@@ -1355,7 +1341,7 @@ void SlamAllocator::free(uintptr_t mem)
 #endif
 
 // Ensure this pointer is even on the heap...
-#ifndef PEDIGREE_BENCHMARK
+#if !PEDIGREE_BENCHMARK
     if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
             reinterpret_cast<void *>(mem)))
         FATAL_NOLOCK(
@@ -1373,10 +1359,6 @@ void SlamAllocator::free(uintptr_t mem)
     assert(head->magic == VIGILANT_MAGIC);
     // Footer gets checked in SlamCache::free, as we don't know the object size.
 
-#if BOCHS_MAGIC_WATCHPOINTS
-/// \todo head->catcher should be used for underrun checking
-// asm volatile("xchg %%dx,%%dx" :: "a" (&head->catcher));
-#endif
 #if VIGILANT_OVERRUN_CHECK
     if (Processor::m_Initialised == 2)
         g_SlamCommand.removeAllocation(head->backtrace, head->requested);
@@ -1394,7 +1376,7 @@ void SlamAllocator::free(uintptr_t mem)
     ByteSet(reinterpret_cast<void *>(mem), 0xAB, size);
 #endif
 
-#ifdef THREADS
+#if THREADS
     if (Processor::m_Initialised == 2)
     {
         Thread *pThread = Processor::information().getCurrentThread();
@@ -1408,7 +1390,7 @@ void SlamAllocator::free(uintptr_t mem)
     // Free now.
     pCache->free(mem - sizeof(AllocHeader));
 
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
     traceAllocation(reinterpret_cast<void *>(mem), MemoryTracing::Free, 0);
 #endif
 }
@@ -1439,7 +1421,7 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     }
 
 // On the heap?
-#ifndef PEDIGREE_BENCHMARK
+#if !PEDIGREE_BENCHMARK
     if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
             reinterpret_cast<void *>(mem)))
     {
@@ -1512,7 +1494,7 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
 
 bool SlamAllocator::isWithinHeap(uintptr_t mem) const
 {
-#ifndef PEDIGREE_BENCHMARK
+#if !PEDIGREE_BENCHMARK
     if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
             reinterpret_cast<void *>(mem)))
     {
@@ -1533,4 +1515,4 @@ bool _assert_ptr_valid(uintptr_t ptr)
     return SlamAllocator::instance().isPointerValid(ptr);
 }
 
-#endif  // !defined(SLAM_USE_DEBUG_ALLOCATOR)
+#endif  // !SLAM_USE_DEBUG_ALLOCATOR

@@ -51,7 +51,7 @@ Pipe::Pipe()
     : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
       m_ReaderSem(0)
 {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
 #endif
 }
@@ -66,7 +66,7 @@ Pipe::Pipe(
       m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
       m_ReaderSem(0)
 {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     NOTICE(
         "Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe "
                      << Hex << this);
@@ -209,7 +209,7 @@ void Pipe::decreaseRefCount(bool bIsWriter)
                                  .getCurrentThread()
                                  ->getParent()
                                  ->getId();
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
                 NOTICE(
                     "Adding pipe [" << pid << "] " << this
                                     << " to ZombieQueue");

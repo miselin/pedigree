@@ -30,7 +30,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
-#ifdef PEDIGREE_BENCHMARK
+#if PEDIGREE_BENCHMARK
 namespace SlamSupport
 {
 uintptr_t getHeapBase();
@@ -80,7 +80,7 @@ class SlamCache;
 
 /// Adds magic numbers to the start of free blocks, to check for
 /// buffer overruns.
-#ifdef USE_DEBUG_ALLOCATOR
+#if USE_DEBUG_ALLOCATOR
 #define OVERRUN_CHECK 0
 #else
 #define OVERRUN_CHECK 1
@@ -125,18 +125,19 @@ class SlamCache;
 /// freed allocations are completely unmapped.
 #define EVERY_ALLOCATION_IS_A_SLAB 0
 
-/// Use a lock to protect SlamAllocator. This comes with a performance cost,
-/// but guarantees only one thread is ever in the allocator at one time.
-#ifdef SLAM_USE_DEBUG_ALLOCATOR
-#define SLAM_LOCKED 1  // need the lock for the debug allocator
-#elif !defined(THREADS)
-#define SLAM_LOCKED 0  // never use if no threading
-#else
-#define SLAM_LOCKED 0
+#ifndef SLAM_USE_DEBUG_ALLOCATOR
+/// Define this to enable the debug allocator (which is basically placement new).
+#define SLAM_USE_DEBUG_ALLOCATOR 0
 #endif
 
-// Define this to enable the debug allocator (which is basically placement new).
-// #define SLAM_USE_DEBUG_ALLOCATOR
+/// Use a lock to protect SlamAllocator. This comes with a performance cost,
+/// but guarantees only one thread is ever in the allocator at one time.
+#define SLAM_LOCKED SLAM_USE_DEBUG_ALLOCATOR ? 1 : 0  // need the lock for the debug allocator only
+
+#ifndef SLAM_BT_FRAMES
+/// Number of frames to include in allocation header backtraces.
+#define SLAM_BT_FRAMES 3
+#endif
 
 /** A cache allocates objects of a constant size. */
 class SlamCache
@@ -182,21 +183,15 @@ class SlamCache
         return m_SlabSize;
     }
 
-#if CRIPPLINGLY_VIGILANT
     void trackSlab(uintptr_t slab);
     void check();
-#endif
 
   private:
     SlamCache(const SlamCache &);
     const SlamCache &operator=(const SlamCache &);
 
-#ifdef MULTIPROCESSOR
-///\todo MAX_CPUS
-#define NUM_LISTS 255
-#else
-#define NUM_LISTS 1
-#endif
+    static constexpr const int NUM_LISTS = MULTIPROCESSOR ? 255 : 1;
+
     typedef volatile Node *alignedNode;
     alignedNode m_PartialLists[NUM_LISTS];
 
@@ -218,7 +213,6 @@ class SlamCache
 
     uintptr_t m_FirstSlab;
 
-#ifdef THREADS
     /**
      * Recovery cannot be done trivially.
      * Spinlock disables interrupts as part of its operation, so we can
@@ -226,7 +220,6 @@ class SlamCache
      * per-CPU thing.
      */
     Spinlock m_RecoveryLock;
-#endif
 
     /** Pointer back to the associated SlamAllocator. */
     SlamAllocator *m_pParentAllocator;
@@ -242,10 +235,8 @@ class SlamAllocator
 
     void initialise();
 
-#ifdef PEDIGREE_BENCHMARK
     // quickly clear all allocations from the allocator
     void clearAll();
-#endif
 
     uintptr_t allocate(size_t nBytes);
     void free(uintptr_t mem);
@@ -261,15 +252,7 @@ class SlamAllocator
 
     size_t allocSize(uintptr_t mem);
 
-    static SlamAllocator &instance()
-    {
-#ifdef PEDIGREE_BENCHMARK
-        static SlamAllocator instance;
-        return instance;
-#else
-        return m_Instance;
-#endif
-    }
+    static EXPORTED_PUBLIC SlamAllocator &instance();
 
     size_t heapPageCount() const
     {
@@ -279,16 +262,14 @@ class SlamAllocator
     uintptr_t getSlab(size_t fullSize);
     void freeSlab(uintptr_t address, size_t length);
 
-#ifdef USE_DEBUG_ALLOCATOR
-    inline size_t headerSize() const
+    size_t headerSize() const
     {
         return sizeof(AllocHeader);
     }
-    inline size_t footerSize() const
+    size_t footerSize() const
     {
         return sizeof(AllocFooter);
     }
-#endif
 
     void setVigilance(bool b)
     {
@@ -303,10 +284,7 @@ class SlamAllocator
     SlamAllocator(const SlamAllocator &);
     const SlamAllocator &operator=(const SlamAllocator &);
 
-#ifndef PEDIGREE_BENCHMARK
-    /// \todo why does a module access this!?
-    EXPORTED_PUBLIC static SlamAllocator m_Instance;
-#endif
+    static SlamAllocator m_Instance;
 
     /** Wipe out all memory used by the allocator. */
     void wipe();
@@ -314,33 +292,32 @@ class SlamAllocator
     SlamCache m_Caches[32];
 
   public:
+    struct AllocHeader_VigilantOverrunCheck_Empty
+    {};
+    struct AllocHeader_VigilantOverrunCheck
+    {
+        uintptr_t backtrace[SLAM_BT_FRAMES];
+        size_t requested;
+    };
+
+    struct OverrunCheck_Magic_Empty
+    {};
+    struct OverrunCheck_Magic : pedigree_std::conditional<VIGILANT_OVERRUN_CHECK, AllocHeader_VigilantOverrunCheck, AllocHeader_VigilantOverrunCheck_Empty>::type
+    {
+        size_t magic;
+    };
+
     /// Prepended to all allocated data. Basically just information to make
     /// freeing slightly less performance-intensive...
-    struct AllocHeader
+    struct AllocHeader : pedigree_std::conditional<OVERRUN_CHECK, OverrunCheck_Magic, OverrunCheck_Magic_Empty>::type
     {
         // Already-present and embedded Node fields.
         SlamCache::Node node;
-#if OVERRUN_CHECK
-#if BOCHS_MAGIC_WATCHPOINTS
-        uint32_t catcher;
-#endif
-        size_t magic;
-#if VIGILANT_OVERRUN_CHECK
-        uintptr_t backtrace[NUM_SLAM_BT_FRAMES];
-        size_t requested;
-#endif
-#endif
         SlamCache *cache;
     } __attribute__((aligned(16)));
 
-    struct AllocFooter
+    struct AllocFooter : pedigree_std::conditional<OVERRUN_CHECK, OverrunCheck_Magic, OverrunCheck_Magic_Empty>::type
     {
-#if OVERRUN_CHECK
-#if BOCHS_MAGIC_WATCHPOINTS
-        uint32_t catcher;
-#endif
-        size_t magic;
-#endif
     } __attribute__((aligned(16)));
 
   private:
@@ -348,9 +325,7 @@ class SlamAllocator
 
     bool m_bVigilant;
 
-#ifdef THREADS
     Spinlock m_SlabRegionLock;
-#endif
 
     size_t m_HeapPageCount;
 
@@ -359,9 +334,7 @@ class SlamAllocator
 
     uintptr_t m_Base;
 
-#if SLAM_LOCKED
     Spinlock m_Lock;
-#endif
 };
 
 #endif

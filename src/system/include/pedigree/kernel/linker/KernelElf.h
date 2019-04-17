@@ -28,15 +28,9 @@
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-#ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#endif
-
-#ifdef STATIC_DRIVERS
 #include "modules/Module.h"
-#endif
 
 class BootstrapStruct_t;
 class String;
@@ -142,9 +136,8 @@ class EXPORTED_PUBLIC KernelElf : public Elf
      *\param silent If true will not update the boot progress(default is false).
      *\return A pointer to a Elf class describing the loaded module. */
     Module *loadModule(uint8_t *pModule, size_t len, bool silent = false);
-#ifdef STATIC_DRIVERS
+    /** Load a static driver. */
     Module *loadModule(struct ModuleInfo *info, bool silent = false);
-#endif
 
     /** Executes all modules. */
     void executeModules(bool silent = false, bool progress = true);
@@ -224,10 +217,9 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     /** Unlock access to module data structures. */
     void unlockModules();
 
-#if defined(X86_COMMON)
+    /** Additional section headers we have loaded for this ELF binary. */
     MemoryRegion m_AdditionalSectionContents;
     MemoryRegion *m_AdditionalSectionHeaders;
-#endif
 
     /** Instance of the KernelElf class */
     static KernelElf m_Instance;
@@ -237,8 +229,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     /** Memory allocator for modules - where they can be loaded. */
     MemoryAllocator m_ModuleAllocator;
 
-/** Override Elf base class members. */
-#if defined(X86_COMMON)
+    /**
+     * Override Elf base class members.
+     * x86 builds stuff a 64-bit binary into a 32-bit container so we need to
+     * use a different type.
+     */
+#if X86_COMMON
     Elf32SectionHeader_t *m_pSectionHeaders;
     Elf32Symbol_t *m_pSymbolTable;
 
@@ -252,11 +248,9 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     typedef ElfSymbol_t KernelElfSymbol_t;
 #endif
 
-/** Tracks the module loading process. */
-#ifdef THREADS
+    /** Tracks the module loading process. */
     Semaphore m_ModuleProgress;
     Spinlock m_ModuleAdjustmentLock;
-#endif
 
     /** Pending init module. */
     Module *m_InitModule;

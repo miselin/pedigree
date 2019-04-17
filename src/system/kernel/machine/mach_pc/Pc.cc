@@ -18,13 +18,13 @@
  */
 
 #include "Pc.h"
-#if defined(ACPI)
+#if ACPI
 #include "Acpi.h"
 #endif
-#if defined(SMP)
+#if SMP
 #include "Smp.h"
 #endif
-#if defined(APIC)
+#if APIC
 #include "Apic.h"
 #endif
 #include "Pic.h"
@@ -61,19 +61,19 @@ void Pc::initialise()
         panic("Pc: Rtc initialisation phase 1 failed");
 
 // Initialise ACPI
-#if defined(ACPI)
+#if ACPI
     Acpi &acpi = Acpi::instance();
     acpi.initialise();
 #endif
 
 // Initialise SMP
-#if defined(SMP)
+#if SMP
     Smp &smp = Smp::instance();
     smp.initialise();
 #endif
 
 // Check for a local APIC
-#if defined(APIC)
+#if APIC
 
     // Physical address of the local APIC
     uint64_t localApicAddress = 0;
@@ -81,11 +81,11 @@ void Pc::initialise()
     // Get the Local APIC address & I/O APIC list from either the ACPI or the
     // SMP tables
     bool bLocalApicValid = false;
-#if defined(ACPI)
+#if ACPI
     if ((bLocalApicValid = acpi.validApicInfo()) == true)
         localApicAddress = acpi.getLocalApicAddress();
 #endif
-#if defined(SMP)
+#if SMP
     if (bLocalApicValid == false && (bLocalApicValid = smp.valid()) == true)
         localApicAddress = smp.getLocalApicAddress();
 #endif
@@ -101,7 +101,7 @@ void Pc::initialise()
 #endif
 
 // Check for an I/O APIC
-#if defined(APIC)
+#if APIC
 
     // TODO: Check for I/O Apic
     // TODO: Initialise the I/O Apic
@@ -123,7 +123,7 @@ void Pc::initialise()
         if (pic.initialise() == false)
             panic("Pc: Pic initialisation failed");
 
-#if defined(APIC)
+#if APIC
     }
 #endif
 
@@ -159,7 +159,7 @@ void Pc::deinitialise()
     m_bInitialised = false;
 }
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
 void Pc::initialiseProcessor()
 {
     // TODO: we might need to initialise per-processor ACPI shit, no idea atm
@@ -196,7 +196,7 @@ void Pc::initialiseDeviceTree()
     m_SMBios = new SMBios();
 #endif
 
-#ifdef APIC
+#if APIC
     m_LocalApic = new LocalApic();
 #endif
 
@@ -270,7 +270,7 @@ IrqManager *Pc::getIrqManager()
 
 SchedulerTimer *Pc::getSchedulerTimer()
 {
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     return m_LocalApic;
 #else
     return &Pit::instance();
@@ -297,7 +297,7 @@ void Pc::setKeyboard(Keyboard *kb)
     m_pKeyboard = kb;
 }
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 void Pc::stopAllOtherProcessors()
 {
     m_LocalApic->interProcessorInterruptAllExcludingThis(
@@ -310,7 +310,7 @@ Pc::Pc()
 #if defined(SMBIOS)
       m_SMBios(nullptr),
 #endif
-#if defined(APIC)
+#if APIC
       m_LocalApic(nullptr),
 #endif
       m_Keyboard(nullptr), m_IsaBus(nullptr), m_AtaMaster(nullptr),

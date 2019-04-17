@@ -39,7 +39,7 @@ class IoBase;
 
 /** Device driver for the Ehci class */
 class Ehci : public UsbHub,
-#ifdef X86_COMMON
+#if X86_COMMON
              public IrqHandler,
 #else
              public InterruptHandler,
@@ -163,7 +163,7 @@ class Ehci : public UsbHub,
         void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
 
 /// IRQ handler
-#ifdef X86_COMMON
+#if X86_COMMON
     virtual bool irq(irq_id_t number, InterruptState &state);
 #else
     virtual void interrupt(size_t number, InterruptState &state);

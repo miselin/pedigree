@@ -66,7 +66,7 @@ InputManager InputManager::m_Instance;
 
 InputManager::InputManager()
     : m_InputQueue(), m_QueueLock(), m_Callbacks()
-#ifdef THREADS
+#if THREADS
       ,
       m_InputQueueSize(0), m_pThread(0)
 #endif
@@ -84,7 +84,7 @@ void InputManager::initialise()
     m_bActive = true;
 
 // Start the worker thread.
-#ifdef THREADS
+#if THREADS
     m_pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), &trampoline,
         reinterpret_cast<void *>(this));
@@ -97,7 +97,7 @@ void InputManager::shutdown()
 {
     m_bActive = false;
 
-#ifdef THREADS
+#if THREADS
     m_InputQueueSize.release();
     m_pThread->join();
 #endif
@@ -206,7 +206,7 @@ void InputManager::putNotification(InputNotification *note)
         }
     }
 
-#ifdef THREADS
+#if THREADS
     m_InputQueue.pushBack(note);
     m_InputQueueSize.release();
 #else
@@ -233,7 +233,7 @@ void InputManager::installCallback(
     LockGuard<Spinlock> guard(m_QueueLock);
     CallbackItem *item = new CallbackItem;
     item->func = callback;
-#ifdef THREADS
+#if THREADS
     item->pThread = pThread;
 #endif
     item->nParam = param;
@@ -252,7 +252,7 @@ void InputManager::removeCallback(
         if (*it)
         {
             if (
-#ifdef THREADS
+#if THREADS
                 (pThread == (*it)->pThread) &&
 #endif
                 (callback == (*it)->func) && (meta == (*it)->meta))
@@ -269,7 +269,7 @@ void InputManager::removeCallback(
 
 bool InputManager::removeCallbackByThread(Thread *pThread)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Spinlock> guard(m_QueueLock);
     for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
          it != m_Callbacks.end();)
@@ -300,7 +300,7 @@ int InputManager::trampoline(void *ptr)
 
 void InputManager::mainThread()
 {
-#ifdef THREADS
+#if THREADS
     while (isActive())
     {
         m_InputQueueSize.acquire();

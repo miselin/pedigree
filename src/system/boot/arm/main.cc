@@ -76,7 +76,7 @@ inline void writeChar(char c)
 #endif
     *p = c;
     asm volatile("" ::: "memory");
-#ifndef SERIAL_IS_FILE
+#if !SERIAL_IS_FILE
     *p = 0;
     asm volatile("" ::: "memory");
 #endif

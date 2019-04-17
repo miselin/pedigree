@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 
 #include "pedigree/kernel/processor/StackFrameBase.h"
 
@@ -39,7 +39,7 @@ void StackFrameBase::prettyPrint(HugeStaticString &buf)
     buf += static_cast<const char *>(m_Symbol.name);
     buf += '(';
 
-#ifndef MIPS_COMMON
+#if !MIPS_COMMON
     if (bIsMember)
     {
         buf += "this=0x";
@@ -62,7 +62,7 @@ void StackFrameBase::prettyPrint(HugeStaticString &buf)
 void StackFrameBase::format(
     uintptr_t n, const LargeStaticString &type, HugeStaticString &dest)
 {
-#if defined(MIPS_COMMON)
+#if MIPS_COMMON
     dest += type;
 #else
     // Is the type a char * or const char *?
@@ -75,10 +75,10 @@ void StackFrameBase::format(
         dest.append("(");
         dest.append(type);
         dest.append(") 0x");
-#ifdef BITS_32
+#if BITS_32
         dest.append(n, 16, 8, '0');
 #endif
-#ifdef BITS_64
+#if BITS_64
         dest.append(n, 16, 16, '0');
 #endif
     }

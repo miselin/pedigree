@@ -105,7 +105,7 @@ bool MIPS32InterruptManager::registerExternalInterruptHandler(
     return true;
 }
 
-#ifdef DEBUGGER
+#if DEBUGGER
 
 bool MIPS32InterruptManager::registerInterruptHandlerDebugger(
     size_t interruptNumber, InterruptHandler *handler)
@@ -236,7 +236,7 @@ void MIPS32InterruptManager::interrupt(InterruptState &interruptState)
     // TODO: Needs locking
     size_t intNumber = interruptState.getInterruptNumber();
 
-#ifdef DEBUGGER
+#if DEBUGGER
     // Call the kernel debugger's handler, if any
     if (m_Instance.m_DbgHandler[intNumber] != 0)
         m_Instance.m_DbgHandler[intNumber]->interrupt(
@@ -292,7 +292,7 @@ MIPS32InterruptManager::MIPS32InterruptManager()
         m_Handler[i] = 0;
         if (i < 8)
             m_ExternalHandler[i] = 0;
-#ifdef DEBUGGER
+#if DEBUGGER
         m_DbgHandler[i] = 0;
 #endif
     }

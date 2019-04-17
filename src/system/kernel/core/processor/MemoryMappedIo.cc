@@ -38,7 +38,7 @@ size_t MemoryMappedIo::size() const
 
 uint8_t MemoryMappedIo::read8(size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if (offset >= size())
         Processor::halt();
 #endif
@@ -49,7 +49,7 @@ uint8_t MemoryMappedIo::read8(size_t offset)
 
 uint16_t MemoryMappedIo::read16(size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if ((offset + 1) >= size())
         Processor::halt();
 #endif
@@ -60,7 +60,7 @@ uint16_t MemoryMappedIo::read16(size_t offset)
 
 uint32_t MemoryMappedIo::read32(size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if ((offset + 3) >= size())
         Processor::halt();
 #endif
@@ -71,7 +71,7 @@ uint32_t MemoryMappedIo::read32(size_t offset)
 
 uint64_t MemoryMappedIo::read64(size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if ((offset + 7) >= size())
         Processor::halt();
 #endif
@@ -82,7 +82,7 @@ uint64_t MemoryMappedIo::read64(size_t offset)
 
 void MemoryMappedIo::write8(uint8_t value, size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if (offset >= size())
         Processor::halt();
 #endif
@@ -93,7 +93,7 @@ void MemoryMappedIo::write8(uint8_t value, size_t offset)
 
 void MemoryMappedIo::write16(uint16_t value, size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if ((offset + 1) >= size())
         Processor::halt();
 #endif
@@ -104,7 +104,7 @@ void MemoryMappedIo::write16(uint16_t value, size_t offset)
 
 void MemoryMappedIo::write32(uint32_t value, size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if ((offset + 3) >= size())
         Processor::halt();
 #endif
@@ -115,7 +115,7 @@ void MemoryMappedIo::write32(uint32_t value, size_t offset)
 
 void MemoryMappedIo::write64(uint64_t value, size_t offset)
 {
-#if defined(ADDITIONAL_CHECKS)
+#if ADDITIONAL_CHECKS
     if ((offset + 7) >= size())
         Processor::halt();
 #endif

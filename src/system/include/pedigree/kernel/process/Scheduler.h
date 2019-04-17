@@ -50,7 +50,7 @@ class EXPORTED_PUBLIC Scheduler
         return m_Instance;
     }
 
-#ifdef THREADS
+#if THREADS
     /** Initialises the scheduler. */
     bool initialise(Process *pKernelProcess);
 
@@ -79,7 +79,7 @@ class EXPORTED_PUBLIC Scheduler
     /** Returns the number of processes currently in operation. */
     size_t getNumProcesses();
 
-#ifdef THREADS
+#if THREADS
     /** Returns the n'th process currently in operation. */
     Process *getProcess(size_t n);
 
@@ -103,7 +103,7 @@ class EXPORTED_PUBLIC Scheduler
     /** The Scheduler instance. */
     static Scheduler m_Instance;
 
-#ifdef THREADS
+#if THREADS
     /** All the processes currently in operation, for enumeration purposes. */
     List<Process *, 0> m_Processes;
 

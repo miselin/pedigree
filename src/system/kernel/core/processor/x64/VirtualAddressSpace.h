@@ -90,7 +90,7 @@
 class X64VirtualAddressSpace : public VirtualAddressSpace
 {
     /** Processor::switchAddressSpace() needs access to m_PhysicalPML4 */
-    friend class Processor;
+    friend class ProcessorBase;
     /** Multiprocessor::initialise() needs access to m_PhysicalPML4 */
     friend class Multiprocessor;
     /** VirtualAddressSpace::getKernelAddressSpace() needs access to
