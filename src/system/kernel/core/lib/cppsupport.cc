@@ -22,11 +22,16 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 /// If the debug allocator is enabled, this switches it into underflow detection
 /// mode.
-#define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS
+#define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS 1
+
+// We need to use __builtin_frame_* with non-zero arguments in some cases here.
+#pragma GCC diagnostic ignored "-Wframe-address"
 
 // Required for G++ to link static init/destructors.
 #ifndef HOSTED

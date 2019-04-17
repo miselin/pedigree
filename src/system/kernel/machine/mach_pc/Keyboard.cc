@@ -217,12 +217,14 @@ void X86Keyboard::readerThread()
         if (scancode == 0x57)  // F11
         {
 #ifdef MEMORY_TRACING
-            WARNING("Toggling allocation tracing.");
+            WARNING("F11: Toggling allocation tracing.");
             toggleTracingAllocations();
 #else
 #ifdef TRACK_PAGE_ALLOCATIONS
+            NOTICE("F11: Triggering allocation checkpoint.");
             g_AllocationCommand.checkpoint();
 #endif
+            NOTICE("F11: Cleaning SLAM.");
             g_SlamCommand.clean();
 #endif
 
