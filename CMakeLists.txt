@@ -2,15 +2,15 @@
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
 SET(CMAKE_BUILD_TYPE_INIT Debug)
-set (CMAKE_CXX_STANDARD 14)
+set (CMAKE_CXX_STANDARD 17)
 
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # TODO: keep this up to date with checkBuildSystemNoInteractive.pl
-    set(CMAKE_C_COMPILER_VERSION 6.3.0)
-    set(CMAKE_CXX_COMPILER_VERSION 6.3.0)
+    set(CMAKE_C_COMPILER_VERSION 8.3.0)
+    set(CMAKE_CXX_COMPILER_VERSION 8.3.0)
 endif ()
 
 include(CTest)
