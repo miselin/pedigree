@@ -71,32 +71,42 @@ void runKernelDestructors()
     }
 }
 
-#ifndef MEMORY_TRACING
-static bool traceAllocations = false;
-#endif
+/// Memory tracing defaults to being enabled if enabled in CMake
+static bool traceAllocations = MEMORY_TRACING;
 
-#ifdef MEMORY_TRACING
-static bool traceAllocations = true;
 void startTracingAllocations()
 {
-    traceAllocations = true;
+    if constexpr (MEMORY_TRACING)
+    {
+        traceAllocations = true;
+    }
 }
 
 void stopTracingAllocations()
 {
-    traceAllocations = false;
+    if constexpr (MEMORY_TRACING)
+    {
+        traceAllocations = false;
+    }
 }
 
 void toggleTracingAllocations()
 {
-    traceAllocations = !traceAllocations;
+    if constexpr (MEMORY_TRACING)
+    {
+        traceAllocations = !traceAllocations;
+    }
 }
-
-static volatile int g_TraceLock = 0;
 
 void traceAllocation(
     void *ptr, MemoryTracing::AllocationTrace type, size_t size)
 {
+    // Don't trace if the feature is completely disabled.
+    if constexpr (!MEMORY_TRACING)
+    {
+        return;
+    }
+
     // Don't trace if we're not allowed to.
     if (!traceAllocations)
         return;
@@ -171,41 +181,8 @@ void traceAllocation(
  */
 void traceMetadata(NormalStaticString str, void *p1, void *p2)
 {
-// this can be provided by scripts/addr2line.py these days
-#if 0
-    LockGuard<Spinlock> guard(traceLock);
-
-    // Yes, this means we'll lose early init mallocs. Oh well...
-    if(!Machine::instance().isInitialised())
-        return;
-
-    Serial *pSerial = Machine::instance().getSerial(1);
-    if(!pSerial)
-        return;
-
-    char buf[128];
-    ByteSet(buf, 0, 128);
-
-    size_t off = 0;
-
-    const MemoryTracing::AllocationTrace type = MemoryTracing::Metadata;
-
-    MemoryCopy(&buf[off], &type, 1);
-    ++off;
-    MemoryCopy(&buf[off], static_cast<const char *>(str), str.length());
-    off += 64; // Statically sized segment.
-    MemoryCopy(&buf[off], &p1, sizeof(void*));
-    off += sizeof(void*);
-    MemoryCopy(&buf[off], &p2, sizeof(void*));
-    off += sizeof(void*);
-
-    for(size_t i = 0; i < off; ++i)
-    {
-        pSerial->write(buf[i]);
-    }
-#endif
+    // Removed for now - this can be provided by scripts/addr2line.py now
 }
-#endif
 
 #ifdef ARM_COMMON
 #define ATEXIT __aeabi_atexit
@@ -242,18 +219,31 @@ void __cxa_guard_release()
 }
 #endif
 
-#if !(defined(HOSTED) && defined(HOSTED_SYSTEM_MALLOC))
+#ifndef HOSTED_SYSTEM_MALLOC
+#define HOSTED_SYSTEM_MALLOC 0
+#endif
+
 #ifdef HOSTED
+
+#if HOSTED_SYSTEM_MALLOC
+// already using the system malloc so just define our versions as hosted_*
+#define MALLOC hosted_malloc
+#define CALLOC hosted_calloc 
+#define FREE hosted_free
+#define REALLOC hosted_realloc
+#else
 #define MALLOC _malloc
-#define CALLOC _calloc
+#define CALLOC _calloc 
 #define FREE _free
 #define REALLOC _realloc
+#endif  // HOSTED_SYSTEM_MALLOC != 0
+
 #else
 #define MALLOC malloc
 #define CALLOC calloc
 #define FREE free
 #define REALLOC realloc
-#endif
+#endif  // defined(HOSTED)
 
 extern "C" void *MALLOC(size_t sz)
 {
@@ -300,6 +290,7 @@ extern "C" void *REALLOC(void *p, size_t sz)
     return tmp;
 }
 
+#if !HOSTED_SYSTEM_MALLOC
 void *operator new(size_t size) noexcept
 {
     void *ret =
@@ -371,10 +362,10 @@ void operator delete[](void *p, void *q) noexcept
 {
     // no-op
 }
+#endif
 
 #ifdef HOSTED
 extern "C" {
-
 void *__wrap_malloc(size_t sz)
 {
     return _malloc(sz);
@@ -390,6 +381,4 @@ void __wrap_free(void *p)
     return _free(p);
 }
 }
-#endif
-
 #endif

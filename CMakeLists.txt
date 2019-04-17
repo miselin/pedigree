@@ -50,6 +50,9 @@ set(PEDIGREE_PEDANTIC FALSE CACHE BOOL "Enable pedantic mode for some warnings i
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
 
+# Hosted build options
+set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instead of Pedigree's in hosted builds.")
+
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")
 set(PEDIGREE_TRAVIS FALSE CACHE BOOL "Enable to report this build is happening on travis-ci.")
@@ -259,6 +262,10 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_PEDANTIC)
         add_definitions(-DPEDANTIC_PEDIGREE=1)
+    endif ()
+
+    if (PEDIGREE_HOSTED_SYSTEM_MALLOC)
+        add_definitions(-DHOSTED_SYSTEM_MALLOC=1)
     endif ()
 
     add_subdirectory(src/system/kernel)
