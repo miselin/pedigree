@@ -19,14 +19,14 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Spinlock.h"
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #endif
 
 template class LockGuard<Spinlock>;
 template class RecursingLockGuard<Spinlock>;
-#ifdef THREADS
+#if THREADS
 template class LockGuard<Mutex>;
 template class LockGuard<Semaphore>;
 #endif

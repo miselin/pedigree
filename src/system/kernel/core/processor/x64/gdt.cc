@@ -49,7 +49,7 @@ void X64GdtManager::initialise(size_t processorCount)
     setSegmentDescriptor(5, 0, 0, 0xF8, 0x22);  // User code64 - 0x28
     setSegmentDescriptor(6, 0, 0, 0xF2, 0x22);  // User data64 - 0x30
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 
     /// \todo Multiprocessor #DF handler
 

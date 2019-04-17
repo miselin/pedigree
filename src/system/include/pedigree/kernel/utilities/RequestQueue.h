@@ -26,7 +26,7 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/machine/TimerHandler.h"
 #endif
 
@@ -42,7 +42,7 @@ class EXPORTED_PUBLIC RequestQueue
 {
     friend class Thread;
 
-#ifdef THREADS
+#if THREADS
     class RequestQueueOverrunChecker : public TimerHandler
     {
         friend class RequestQueue;
@@ -131,7 +131,7 @@ class EXPORTED_PUBLIC RequestQueue
       public:
         Request()
             : p1(0), p2(0), p3(0), p4(0), p5(0), p6(0), p7(0), p8(0), ret(0),
-#ifdef THREADS
+#if THREADS
               mutex(true), pThread(0),
 #endif
               bReject(false), bCompleted(false), next(0), refcnt(0), owner(0),
@@ -143,7 +143,7 @@ class EXPORTED_PUBLIC RequestQueue
         }
         uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
         uint64_t ret;
-#ifdef THREADS
+#if THREADS
         Mutex mutex;
         Thread *pThread;
 #endif
@@ -192,7 +192,7 @@ class EXPORTED_PUBLIC RequestQueue
     /** True if the worker thread should cleanup and stop. */
     volatile bool m_Stop;
 
-#ifdef THREADS
+#if THREADS
     /** Mutex to be held when the request queue is being changed. */
     Mutex m_RequestQueueMutex;
 

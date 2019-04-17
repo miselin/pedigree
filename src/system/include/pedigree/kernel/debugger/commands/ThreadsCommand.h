@@ -20,7 +20,7 @@
 #ifndef THREADSCOMMAND_H
 #define THREADSCOMMAND_H
 
-#ifdef THREADS
+#if THREADS
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"

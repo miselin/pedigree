@@ -316,13 +316,13 @@ void PosixSubsystem::release()
 
 bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 {
-#ifdef POSIX_NO_EFAULT
+#if POSIX_NO_EFAULT
     return true;
 #endif
 
     Uninterruptible while_checking;
 
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     PS_NOTICE(
         "PosixSubsystem::checkAddress(" << Hex << addr << ", " << Dec << extent
                                         << ", " << Hex << flags << ")");
@@ -331,14 +331,14 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
     // No memory access expected, all good.
     if (!extent)
     {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
         PS_NOTICE("  -> zero extent, address is sane.");
 #endif
         return true;
     }
 
     uintptr_t aa = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     PS_NOTICE(" -> ret: " << aa);
 #endif
 
@@ -346,7 +346,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     if ((addr < va.getUserStart()) || (addr >= va.getKernelStart()))
     {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
         PS_NOTICE("  -> outside of user address area.");
 #endif
         return false;
@@ -355,7 +355,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
     // Short-circuit if this is a memory mapped region.
     if (MemoryMapManager::instance().contains(addr, extent))
     {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
         PS_NOTICE("  -> inside memory map.");
 #endif
         return true;
@@ -367,7 +367,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         void *pAddr = reinterpret_cast<void *>(addr + i);
         if (!va.isMapped(pAddr))
         {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
             PS_NOTICE("  -> page " << Hex << pAddr << " is not mapped.");
 #endif
             return false;
@@ -382,7 +382,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
             if (!(vFlags & (VirtualAddressSpace::Write |
                             VirtualAddressSpace::CopyOnWrite)))
             {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
                 PS_NOTICE("  -> not writeable.");
 #endif
                 return false;
@@ -390,7 +390,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         }
     }
 
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     PS_NOTICE("  -> mapped and available.");
 #endif
     return true;

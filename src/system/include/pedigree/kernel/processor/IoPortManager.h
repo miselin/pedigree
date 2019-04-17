@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/RangeList.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
@@ -31,13 +32,11 @@ class IoPort;
 /** @addtogroup kernelprocessor
  * @{ */
 
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-
 /** Singleton class which manages hardware I/O port (de)allocate
  *\brief Manages hardware I/O port (de)allocations */
 class IoPortManager
 {
-    friend class Processor;
+    friend class ProcessorBase;
 
   public:
     /** Get the instance of the I/O manager */
@@ -114,8 +113,6 @@ class IoPortManager
     /** The IoPortManager instance */
     static IoPortManager m_Instance;
 };
-
-#endif
 
 /** @} */
 

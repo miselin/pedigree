@@ -20,12 +20,12 @@
 #ifndef TLBMANAGER_H
 #define TLBMANAGER_H
 
-#ifdef MIPS32
+#if MIPS32
 #include "pedigree/kernel/processor/mips32/TlbManager.h"
 typedef MIPS32TlbManager TlbManager;
 #endif
 
-#ifdef MIPS64
+#if MIPS64
 #include <processor/mips64/TlbManager.h>
 typedef MIPS64TlbManager TlbManager;
 #endif

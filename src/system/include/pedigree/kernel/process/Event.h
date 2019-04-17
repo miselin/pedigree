@@ -26,9 +26,7 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 
-#ifdef THREADS
 class Thread;
-#endif
 
 /** The maximum size of one event, serialized. */
 #define EVENT_LIMIT 4096
@@ -122,7 +120,6 @@ class EXPORTED_PUBLIC Event
     Event(const Event &other);
     Event &operator=(const Event &other);
 
-#ifdef THREADS
     /** Register a thread with this object (to detect deletion while Thread
      * still knows about it). */
     void registerThread(Thread *thread);
@@ -132,7 +129,6 @@ class EXPORTED_PUBLIC Event
 
     /** Gets the count of threads with this event currently pending delivery. */
     size_t pendingCount();
-#endif
 
     /** Waits until this event is no longer in any thread queues. */
     virtual void waitForDeliveries();
@@ -150,13 +146,11 @@ class EXPORTED_PUBLIC Event
     /** Magic number for verification. */
     size_t m_Magic;
 
-#ifdef THREADS
     /** Associated threads that have us in their queue. */
     List<Thread *> m_Threads;
 
     /** Spinlock for controlling access to the thread list. */
     Spinlock m_Lock;
-#endif
 };
 
 #endif

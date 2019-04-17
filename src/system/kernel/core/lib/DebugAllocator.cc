@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef SLAM_USE_DEBUG_ALLOCATOR
+#if SLAM_USE_DEBUG_ALLOCATOR
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/assert.h"
 
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #endif
@@ -93,7 +93,7 @@ inline void markReadOnly(void *addr)
 
 SlamCache::SlamCache()
     : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0), m_FirstSlab()
-#ifdef THREADS
+#if THREADS
       ,
       m_RecoveryLock(false)
 #endif
@@ -178,7 +178,7 @@ void SlamCache::trackSlab(uintptr_t slab)
 
 SlamAllocator::SlamAllocator()
     : m_bInitialised(false), m_bVigilant(false),
-#ifdef THREADS
+#if THREADS
       m_SlabRegionLock(false),
 #endif
       m_HeapPageCount(0), m_SlabRegionBitmap(), m_SlabRegionBitmapEntries(0),
@@ -279,7 +279,7 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     // now that the size is written we can mark the header section readonly
     markReadOnly(reinterpret_cast<void *>(mapStart));
 
-#ifdef THREADS
+#if THREADS
     if (Processor::m_Initialised == 2)
     {
         Thread *pThread = Processor::information().getCurrentThread();
@@ -290,7 +290,7 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     }
 #endif
 
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
     traceAllocation(
         reinterpret_cast<void *>(result), MemoryTracing::Allocation,
         nTotalBytes);
@@ -314,6 +314,19 @@ size_t SlamAllocator::allocSize(uintptr_t mem)
     return *((size_t *) (mem - sizeof(size_t))) * getPageSize();
 }
 
+SlamAllocator &SlamAllocator::instance()
+{
+    EMIT_IF(PEDIGREE_BENCHMARK)
+    {
+        static SlamAllocator instance;
+        return instance;
+    }
+    else
+    {
+        return m_Instance;
+    }
+}
+
 void SlamAllocator::free(uintptr_t mem)
 {
     assert(m_bInitialised);
@@ -323,7 +336,7 @@ void SlamAllocator::free(uintptr_t mem)
         return;
     }
 
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
     // do this first so we can detect double frees before the asserts/memory
     // accesses below - this just helps a lot with tracing these issues after
     // the fact
@@ -350,7 +363,7 @@ void SlamAllocator::free(uintptr_t mem)
         --m_HeapPageCount;
     }
 
-#ifdef THREADS
+#if THREADS
     if (Processor::m_Initialised == 2)
     {
         Thread *pThread = Processor::information().getCurrentThread();
@@ -361,7 +374,7 @@ void SlamAllocator::free(uintptr_t mem)
     }
 #endif
 
-#ifdef MEMORY_TRACING
+#if MEMORY_TRACING
     traceAllocation(reinterpret_cast<void *>(mem), MemoryTracing::Free, 0);
 #endif
 }
@@ -430,4 +443,4 @@ bool _assert_ptr_valid(uintptr_t ptr)
     return SlamAllocator::instance().isPointerValid(ptr);
 }
 
-#endif  // defined(SLAM_USE_DEBUG_ALLOCATOR)
+#endif  // SLAM_USE_DEBUG_ALLOCATOR

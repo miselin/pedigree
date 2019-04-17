@@ -116,7 +116,7 @@ class EXPORTED_PUBLIC Machine
      */
     virtual void setKeyboard(Keyboard *kb) = 0;
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     /**
      * Stops all other cores. This is used during debugger initialisation.
      */

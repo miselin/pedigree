@@ -25,7 +25,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 
 // Logs to the kernel log with the current PID.
-#ifdef THREADS
+#if THREADS
 #define POSIX_VERBOSE_LOG(f, x)                                                \
     do                                                                         \
     {                                                                          \

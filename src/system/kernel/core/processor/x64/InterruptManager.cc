@@ -27,11 +27,11 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
 
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TimeTracker.h"
@@ -99,7 +99,7 @@ bool X64InterruptManager::registerInterruptHandler(
     return true;
 }
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 
 bool X64InterruptManager::registerInterruptHandlerDebugger(
     size_t nInterruptNumber, InterruptHandler *pHandler)
@@ -136,7 +136,7 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
     TimeTracker tracker(0, !interruptState.kernelMode());
     size_t nIntNumber = interruptState.getInterruptNumber();
 
-#if defined(DEBUGGER)
+#if DEBUGGER
     {
         InterruptHandler *pHandler;
 
@@ -169,7 +169,7 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
 
 // Were we running in the kernel, or user space?
 // User space processes have a subsystem, kernel ones do not.
-#ifdef THREADS
+#if THREADS
     Thread *pThread = Processor::information().getCurrentThread();
     if (pThread)
     {
@@ -230,7 +230,7 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
         e.append(g_ExceptionNames[nIntNumber]);
         e.append("\"");
 
-#ifdef THREADS
+#if THREADS
         e.append(" CPU=");
         e.append(Processor::id());
         if (pThread)
@@ -282,7 +282,7 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
         // Write the failure into the kernel log before launching the debugger.
         ERROR(static_cast<const char *>(e));
 
-#if defined(DEBUGGER)
+#if DEBUGGER
         Debugger::instance().start(interruptState, e);
 #else
         panic(e);
@@ -331,7 +331,7 @@ X64InterruptManager::X64InterruptManager() : m_Lock()
     for (size_t i = 0; i < 256; i++)
     {
         m_pHandler[i] = 0;
-#ifdef DEBUGGER
+#if DEBUGGER
         m_pDbgHandler[i] = 0;
 #endif
     }

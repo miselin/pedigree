@@ -36,15 +36,11 @@ class Thread;
 /** Common x86 processor information structure */
 class EXPORTED_PUBLIC X86CommonProcessorInformation
 {
-    friend class Processor;
+    friend class ProcessorBase;
     friend class Multiprocessor;
 
   public:
-#if defined(X86)
-    typedef struct X86TaskStateSegment TaskStateSegment;
-#else
     typedef struct X64TaskStateSegment TaskStateSegment;
-#endif
 
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */

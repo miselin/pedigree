@@ -44,7 +44,7 @@ class InterruptManager
     virtual bool registerInterruptHandler(
         size_t nInterruptNumber, InterruptHandler *pHandler) = 0;
 
-#if defined(DEBUGGER)
+#if DEBUGGER
     /** Register an interrupt handler (for the kernel debugger)
      *\param[in] nInterruptNumber the interrupt's number
      *\param[in] pHandler the interrupt handler

@@ -20,7 +20,7 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
-#ifdef THREADS
+#if THREADS
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"

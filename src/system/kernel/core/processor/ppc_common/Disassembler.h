@@ -221,6 +221,4 @@ class PPCDisassembler : public DisassemblerBase
     void null(Instruction insn, LargeStaticString &text);
 };
 
-typedef PPCDisassembler Disassembler;
-
 #endif

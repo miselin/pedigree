@@ -38,17 +38,17 @@
  * You cannot mix syscall services in the same compilation unit.
  */
 
-#if defined(HOSTED) && !defined(SYSCALL_TARGET_FOUND)
+#if HOSTED && !defined(SYSCALL_TARGET_FOUND)
 #include "pedigree/kernel/processor/hosted/syscall-stubs.h"
 #define SYSCALL_TARGET_FOUND
 #endif
 
-#if defined(X64) && !defined(SYSCALL_TARGET_FOUND)
+#if X64 && !defined(SYSCALL_TARGET_FOUND)
 #include "pedigree/kernel/processor/x64/syscall-stubs.h"
 #define SYSCALL_TARGET_FOUND
 #endif
 
-#if defined(ARM_COMMON) && !defined(SYSCALL_TARGET_FOUND)
+#if ARM_COMMON && !defined(SYSCALL_TARGET_FOUND)
 #include "pedigree/kernel/processor/armv7/syscall-stubs.h"
 #define SYSCALL_TARGET_FOUND
 #endif

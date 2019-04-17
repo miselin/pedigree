@@ -21,8 +21,6 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
-#ifndef PPC_COMMON
-
 struct MemoryMapEntry_t
 {
     uint32_t size;
@@ -189,5 +187,3 @@ void *BootstrapStruct_t::getModuleBase() const
     else
         return 0;
 }
-
-#endif

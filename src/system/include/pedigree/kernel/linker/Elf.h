@@ -139,7 +139,7 @@
 #define STV_HIDDEN 2
 #define STV_PROTECTED 3
 
-#ifdef BITS_32
+#if BITS_32
 
 #define R_SYM(val) ((val) >> 8)
 #define R_TYPE(val) ((val) &0xff)
@@ -159,8 +159,7 @@ typedef int32_t Elf_Sword;
 typedef uint32_t Elf_Xword;
 typedef int32_t Elf_Sxword;
 
-#endif
-#ifdef BITS_64
+#elif BITS_64
 
 #define R_SYM(val) ((val) >> 32)
 #define R_TYPE(val) ((val) &0xffffffffUL)
@@ -383,7 +382,7 @@ class EXPORTED_PUBLIC Elf
     struct ElfProgramHeader_t
     {
         Elf_Word type;
-#ifdef BITS_64
+#if BITS_64
         Elf_Word flags;
 #endif
         Elf_Off offset;
@@ -391,7 +390,7 @@ class EXPORTED_PUBLIC Elf
         Elf_Addr paddr;
         Elf_Xword filesz;
         Elf_Xword memsz;
-#ifndef BITS_64
+#if !BITS_64
         Elf_Word flags;
 #endif
         Elf_Xword align;
@@ -411,7 +410,7 @@ class EXPORTED_PUBLIC Elf
         Elf_Xword entsize;
     } PACKED;
 
-#ifdef BITS_64
+#if BITS_64
     struct Elf32SectionHeader_t
     {
         Elf32_Word name;
@@ -426,27 +425,27 @@ class EXPORTED_PUBLIC Elf
         Elf32_Xword entsize;
     } PACKED;
 #else
-typedef ElfSectionHeader_t Elf32SectionHeader_t;
+    typedef ElfSectionHeader_t Elf32SectionHeader_t;
 #endif
 
     struct ElfSymbol_t
     {
         Elf_Word name;
-#ifdef BITS_64
+#if BITS_64
         uint8_t info;
         uint8_t other;
         Elf_Half shndx;
 #endif
         Elf_Addr value;
         Elf_Xword size;
-#ifndef BITS_64
+#if !BITS_64
         uint8_t info;
         uint8_t other;
         Elf_Half shndx;
 #endif
     } PACKED;
 
-#ifdef BITS_64
+#if BITS_64
     struct Elf32Symbol_t
     {
         Elf32_Word name;
@@ -573,7 +572,7 @@ typedef ElfSymbol_t Elf32Symbol_t;
 /** External specializations for ELF symbol types. */
 extern template const char *Elf::lookupSymbol<Elf::ElfSymbol_t>(
     uintptr_t addr, uintptr_t *startAddr = 0, ElfSymbol_t *symbolTable = 0);
-#ifdef BITS_64
+#if BITS_64
 extern template const char *Elf::lookupSymbol<Elf::Elf32Symbol_t>(
     uintptr_t addr, uintptr_t *startAddr = 0, Elf32Symbol_t *symbolTable = 0);
 #endif

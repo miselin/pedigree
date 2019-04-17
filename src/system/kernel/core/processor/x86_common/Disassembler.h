@@ -75,6 +75,4 @@ class X86Disassembler : public DisassemblerBase
     ud_t m_Obj;
 };
 
-typedef X86Disassembler Disassembler;
-
 #endif

@@ -116,7 +116,7 @@ void x86emuOp_esc_coprocess_d9(u8 X86EMU_UNUSED(op1))
             }
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     /* execute */
     switch (mod)
     {
@@ -347,7 +347,7 @@ void x86emuOp_esc_coprocess_da(u8 X86EMU_UNUSED(op1))
             DECODE_PRINTF2("\tST(%d),ST\n", stkelem);
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     switch (mod)
     {
         case 3:
@@ -458,7 +458,7 @@ void x86emuOp_esc_coprocess_db(u8 X86EMU_UNUSED(op1))
         case 3: /* register to register */
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     /* execute */
     switch (mod)
     {
@@ -579,7 +579,7 @@ void x86emuOp_esc_coprocess_dc(u8 X86EMU_UNUSED(op1))
             DECODE_PRINTF2("\tST(%d),ST\n", stkelem);
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     /* execute */
     switch (mod)
     {
@@ -696,7 +696,7 @@ void x86emuOp_esc_coprocess_dd(u8 X86EMU_UNUSED(op1))
             DECODE_PRINTF2("\tST(%d),ST\n", stkelem);
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     switch (mod)
     {
         case 3:
@@ -807,7 +807,7 @@ void x86emuOp_esc_coprocess_de(u8 X86EMU_UNUSED(op1))
             DECODE_PRINTF2("\tST(%d),ST\n", stkelem);
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     switch (mod)
     {
         case 3:
@@ -932,7 +932,7 @@ void x86emuOp_esc_coprocess_df(u8 X86EMU_UNUSED(op1))
             DECODE_PRINTF2("\tST(%d)\n", stkelem);
             break;
     }
-#ifdef X86EMU_FPU_PRESENT
+#if X86EMU_FPU_PRESENT
     switch (mod)
     {
         case 3:

@@ -69,7 +69,7 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
         file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
 
-#ifdef THREADS
+#if THREADS
     if (desc.ioevent)
     {
         ioevent = new IoEvent(*desc.ioevent);
@@ -99,7 +99,7 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
         file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
 
-#ifdef THREADS
+#if THREADS
     if (desc->ioevent)
     {
         ioevent = new IoEvent(*desc->ioevent);
@@ -123,7 +123,7 @@ FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
 #endif
         file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
-#ifdef THREADS
+#if THREADS
     if (desc.ioevent)
     {
         ioevent = new IoEvent(*desc.ioevent);
@@ -152,7 +152,7 @@ FileDescriptor::~FileDescriptor()
 #endif
         file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
     }
-#ifdef THREADS
+#if THREADS
     if (ioevent)
     {
         if (networkImpl)

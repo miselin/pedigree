@@ -500,14 +500,14 @@ uint64_t FatFilesystem::write(
     File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
     bool bCanBlock)
 {
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE("FatFilesystem::write(" << pFile->getName() << ")");
 #endif
 
     // test whether the entire Filesystem is read-only.
     if (m_bReadOnly)
     {
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
         NOTICE("FAT: readonly filesystem");
 #endif
         SYSCALL_ERROR(ReadOnlyFilesystem);
@@ -626,7 +626,7 @@ uint64_t FatFilesystem::write(
     uint8_t *tmpBuffer = new uint8_t[m_BlockSize];
     uint8_t *srcBuffer = reinterpret_cast<uint8_t *>(buffer);
 
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE("FAT bytesWritten=" << bytesWritten << " finalSize=" << finalSize);
 #endif
 
@@ -647,7 +647,7 @@ uint64_t FatFilesystem::write(
         bytesWritten += len;
 
 // Write updated cluster to disk.
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
         NOTICE("FAT write - clus=" << clus);
         NOTICE("FAT write - offset=" << getSectorNumber(clus) * 512);
 #endif
@@ -676,7 +676,7 @@ uint64_t FatFilesystem::write(
     // Update the size on disk, if needed.
     if (fileSizeChange != 0)
     {
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
         NOTICE(
             "FAT Updating file size on disk change=" << Dec << fileSizeChange
                                                      << Hex << "!");
@@ -1132,7 +1132,7 @@ FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock)
 // delete [] fatBlocks;
 
 // We're pedantic and as such we check things, but only if debugging
-#if defined(DEBUGGER) && defined(ADDITIONAL_CHECKS)
+#if DEBUGGER && ADDITIONAL_CHECKS
     uint32_t val = getClusterEntry(cluster, false);
     if (val != value)
         FATAL(

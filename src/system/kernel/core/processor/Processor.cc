@@ -21,47 +21,31 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 
-size_t Processor::m_Initialised = 0;
-#if !defined(MULTIPROCESSOR)
-ProcessorInformation Processor::m_ProcessorInformation(0);
-#else
-Vector<ProcessorInformation *> Processor::m_ProcessorInformation;
-ProcessorInformation Processor::m_SafeBspProcessorInformation(0);
-#endif
+size_t ProcessorBase::m_Initialised = 0;
 
-size_t Processor::m_nProcessors = 1;
+Vector<ProcessorInformation *> ProcessorBase::m_ProcessorInformation;
+ProcessorInformation ProcessorBase::m_SafeBspProcessorInformation(0);
 
-size_t Processor::isInitialised()
+size_t ProcessorBase::m_nProcessors = 1;
+
+size_t ProcessorBase::isInitialised()
 {
     return m_Initialised;
 }
 
-#if !defined(MULTIPROCESSOR)
-ProcessorId Processor::id()
-{
-    return 0;
-}
-
-ProcessorInformation &Processor::information()
-{
-    return m_ProcessorInformation;
-}
-
-size_t Processor::getCount()
-{
-    return 1;
-}
-#endif
-
-#ifndef PEDIGREE_BENCHMARK
 EnsureInterrupts::EnsureInterrupts(bool desired)
 {
-    m_bPrevious = Processor::getInterrupts();
-    Processor::setInterrupts(desired);
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        m_bPrevious = ProcessorBase::getInterrupts();
+        ProcessorBase::setInterrupts(desired);
+    }
 }
 
 EnsureInterrupts::~EnsureInterrupts()
 {
-    Processor::setInterrupts(m_bPrevious);
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        ProcessorBase::setInterrupts(m_bPrevious);
+    }
 }
-#endif

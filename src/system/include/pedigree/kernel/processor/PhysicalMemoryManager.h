@@ -52,7 +52,7 @@ class EXPORTED_PUBLIC PhysicalMemoryManager
     static const size_t virtualOnly = 1 << 3;
 
 // x86/x64 specific flags
-#if defined(X86_COMMON)
+#if X86_COMMON
     /** The allocated pages should be below the 1MB mark */
     static const size_t below1MB = 1 << 4;
     /** The allocated pages should be below the 16MB mark */

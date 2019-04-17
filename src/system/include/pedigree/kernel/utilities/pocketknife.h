@@ -48,4 +48,18 @@ EXPORTED_PUBLIC void *runConcurrentlyAttached(int (*func)(void *), void *param);
  * Join the given handle returned from runConcurrentlyAttached.
  */
 EXPORTED_PUBLIC int attachTo(void *handle);
+
+/** RAII class to swap address spaces if needed. */
+class VirtualAddressSpaceSwitch
+{
+public:
+    VirtualAddressSpaceSwitch();
+    virtual ~VirtualAddressSpaceSwitch();
+
+    /// Restore earlier than when this object goes out of scope.
+    void restore();
+
+private:
+    void *va;
+};
 }  // namespace pocketknife

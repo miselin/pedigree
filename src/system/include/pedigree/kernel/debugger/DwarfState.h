@@ -26,13 +26,13 @@
 
 /** @addtogroup kerneldebugger
  * @{ */
-#ifdef PPC_COMMON
+#if PPC_COMMON
 #define DWARF_MAX_REGISTERS 66
 #else
 #define DWARF_MAX_REGISTERS 50
 #endif
 
-#ifdef X86
+// X86
 #define DWARF_REG_EAX 0
 #define DWARF_REG_ECX 1
 #define DWARF_REG_EDX 2
@@ -41,8 +41,7 @@
 #define DWARF_REG_EBP 5
 #define DWARF_REG_ESI 6
 #define DWARF_REG_EDI 7
-#endif
-#ifdef X64
+// X64
 #define DWARF_REG_RAX 0
 #define DWARF_REG_RDX 1
 #define DWARF_REG_RCX 2
@@ -60,8 +59,7 @@
 #define DWARF_REG_R14 14
 #define DWARF_REG_R15 15
 #define DWARF_REG_RFLAGS 49
-#endif
-#ifdef MIPS_COMMON
+// MIPS
 #define DWARF_REG_ZERO 0
 #define DWARF_REG_AT 1
 #define DWARF_REG_V0 2
@@ -94,8 +92,7 @@
 #define DWARF_REG_SP 29
 #define DWARF_REG_FP 30
 #define DWARF_REG_RA 31
-#endif
-#ifdef PPC_COMMON
+// PPC
 #define DWARF_REG_R0 0
 #define DWARF_REG_R1 1
 #define DWARF_REG_R2 2
@@ -131,7 +128,6 @@
 #define DWARF_REG_CR 64
 #define DWARF_REG_LR 65  // DWARF standard says this should be 108. G++ differs.
 // define DWARF_REG_CTR 109
-#endif
 
 // Watch out! Register numbering is seemingly random - x86 and x86_64 ones are
 // here: http://wikis.sun.com/display/SunStudio/Dwarf+Register+Numbering

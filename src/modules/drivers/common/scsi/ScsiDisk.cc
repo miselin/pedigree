@@ -341,7 +341,7 @@ uintptr_t ScsiDisk::read(uint64_t location)
 
 void ScsiDisk::write(uint64_t location)
 {
-#ifndef CRIPPLE_HDD
+#if !CRIPPLE_HDD
     if (!(getBlockSize() && getNativeBlockSize()))
     {
         ERROR("ScsiDisk::write - block size is zero.");
@@ -391,7 +391,7 @@ void ScsiDisk::write(uint64_t location)
 
 void ScsiDisk::flush(uint64_t location)
 {
-#ifndef CRIPPLE_HDD
+#if !CRIPPLE_HDD
     if (!(getBlockSize() && getNativeBlockSize()))
     {
         ERROR("ScsiDisk::flush - block size is zero.");

@@ -115,7 +115,7 @@ static err_t netifInit(struct netif *netif)
 NetworkStack::NetworkStack()
     : RequestQueue("Network Stack"), m_pLoopback(0), m_Children(),
       m_MemPool("network-pool")
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
       ,
       m_Lock(false)
 #endif
@@ -131,13 +131,13 @@ NetworkStack::NetworkStack()
 
     initialise();
 
-#if defined(X86_COMMON) || defined(HOSTED)
+#if X86_COMMON || HOSTED
     // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
     if (!m_MemPool.initialise(4096, 1600))
         if (!m_MemPool.initialise(2048, 1600))
             if (!m_MemPool.initialise(1024, 1600))
                 ERROR("Couldn't get a valid buffer pool for networking use");
-#elif defined(ARM_COMMON)
+#elif ARM_COMMON
     // Probably very little RAM to burn - 4 MB then 2 MB, then 512 KB
     NOTICE("allocating memory pool");
     if (!m_MemPool.initialise(1024, 1600))
@@ -163,7 +163,7 @@ uint64_t NetworkStack::executeRequest(
     // OK, we are now processing the packet.
     // We hold a lock that allows us to handle concurrency (not an issue with
     // a true RequestQueue, but is an issue on other environments).
-#if defined(THREADS) || defined(UTILITY_LINUX)
+#if THREADS || UTILITY_LINUX
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
@@ -225,7 +225,7 @@ void NetworkStack::receive(
 
 void NetworkStack::registerDevice(Network *pDevice)
 {
-#if defined(THREADS) || defined(UTILITY_LINUX)
+#if THREADS || UTILITY_LINUX
     LockGuard<Mutex> guard(m_Lock);
 #endif
 

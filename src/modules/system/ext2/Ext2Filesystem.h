@@ -131,7 +131,7 @@ class Ext2Filesystem : public Filesystem
     /** Number of group descriptors. */
     size_t m_nGroupDescriptors;
 
-#ifdef THREADS
+#if THREADS
     /** Write lock - we're finding some inodes and updating the superblock and
      * block group structures. */
     Mutex m_WriteLock;

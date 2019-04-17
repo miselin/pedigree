@@ -62,7 +62,7 @@ uintptr_t KernelCoreSyscallManager::syscall(SyscallState &state)
     switch (state.getSyscallNumber())
     {
         case yield:
-#ifdef THREADS
+#if THREADS
             Scheduler::instance().yield();
 #endif
             return 0;

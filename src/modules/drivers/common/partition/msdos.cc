@@ -299,7 +299,7 @@ static int gNextPartition = 0;
 static void
 msdosRegPartition(MsdosPartitionInfo *pPartitions, int i, Disk *pDisk)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Spinlock> guard(g_Lock);
 #endif
 

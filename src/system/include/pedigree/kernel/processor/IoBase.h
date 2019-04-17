@@ -48,7 +48,7 @@ class EXPORTED_PUBLIC IoBase
      *\param[in] offset offset from the I/O base port or the I/O base memory
      *address \return the four byte (32bit) that have been read */
     virtual uint32_t read32(size_t offset = 0) = 0;
-#if defined(BITS_64)
+#if BITS_64
     /** Read eight byte (64bit) from the I/O Port or the memory-mapped I/O
      *region. \param[in] offset offset from the I/O base port or the I/O base
      *memory address \return the eight byte (64bit) that have been read */
@@ -82,7 +82,7 @@ class EXPORTED_PUBLIC IoBase
      *\param[in] offset offset from the I/O base port or the I/O base memory
      *address */
     virtual void write32(uint32_t value, size_t offset = 0) = 0;
-#if defined(BITS_64)
+#if BITS_64
     /** Write eight byte (64bit) to the I/O Port or the memory-mapped I/O
      *region. \param[in] value the value that should be written \param[in]
      *offset offset from the I/O base port or the I/O base memory address */

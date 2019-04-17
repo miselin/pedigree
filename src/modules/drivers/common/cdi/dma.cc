@@ -18,7 +18,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#ifndef X86_COMMON
+#if !X86_COMMON
 #warning ISA DMA not supported on non-x86 architectures. TODO: FIXME
 #endif
 
@@ -29,7 +29,7 @@
  */
 int cdi_dma_open(struct cdi_dma_handle* handle, uint8_t channel, uint8_t mode, size_t length, void* buffer)
 {
-#ifdef X86_COMMON
+#if X86_COMMON
     // All good
     handle->channel = channel;
     handle->mode = mode;
@@ -76,7 +76,7 @@ int cdi_dma_open(struct cdi_dma_handle* handle, uint8_t channel, uint8_t mode, s
  */
 int cdi_dma_read(struct cdi_dma_handle* handle)
 {
-#ifdef X86_COMMON
+#if X86_COMMON
     // Copy the memory across
     MemoryCopy(handle->meta.realbuffer, handle->buffer, handle->length);
     return 0;
@@ -92,7 +92,7 @@ int cdi_dma_read(struct cdi_dma_handle* handle)
  */
 int cdi_dma_write(struct cdi_dma_handle* handle)
 {
-#ifdef X86_COMMON
+#if X86_COMMON
     // Copy the memory across
     MemoryCopy(handle->buffer, handle->meta.realbuffer, handle->length);
     return 0;
@@ -108,7 +108,7 @@ int cdi_dma_write(struct cdi_dma_handle* handle)
  */
 int cdi_dma_close(struct cdi_dma_handle* handle)
 {
-#ifdef X86_COMMON
+#if X86_COMMON
     // Grab the region from the handle and free it
     MemoryRegion* region = reinterpret_cast<MemoryRegion*>(handle->meta.region);
     delete region;

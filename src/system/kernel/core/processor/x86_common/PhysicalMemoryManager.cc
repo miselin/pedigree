@@ -33,23 +33,17 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#if defined(X86)
-#include "../x86/VirtualAddressSpace.h"
-#elif defined(X64)
 #include "../x64/VirtualAddressSpace.h"
-#endif
 
-#if defined(TRACK_PAGE_ALLOCATIONS)
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
+
+#if X86 && DEBUGGER
+#define USE_BITMAP 1
+#else
+#define USE_BITMAP 0
 #endif
 
-#if defined(X86) && defined(DEBUGGER)
-#define USE_BITMAP
-#endif
-
-#ifdef USE_BITMAP
-uint32_t g_PageBitmap[16384] = {0};
-#endif
+static uint32_t g_PageBitmap[16384] = {0};
 
 EXPORTED_PUBLIC size_t g_FreePages = 0;
 EXPORTED_PUBLIC size_t g_AllocedPages = 0;
@@ -128,31 +122,34 @@ X86CommonPhysicalMemoryManager::allocatePage(size_t pageConstraints)
         panic("Out of memory.");
     }
 
-#ifdef MEMORY_TRACING
-    traceAllocation(
-        reinterpret_cast<void *>(ptr), MemoryTracing::PageAlloc, 4096);
-#endif
+    EMIT_IF(MEMORY_TRACING)
+    {
+        traceAllocation(
+            reinterpret_cast<void *>(ptr), MemoryTracing::PageAlloc, 4096);
+    }
 
     trackPages(0, 1, 0);
 
-#ifdef USE_BITMAP
-    physical_uintptr_t ptr_bitmap = ptr / 0x1000;
-    size_t idx = ptr_bitmap / 32;
-    size_t bit = ptr_bitmap % 32;
-    g_PageBitmap[idx] |= (1 << bit);
-#endif
+    EMIT_IF(USE_BITMAP)
+    {
+        physical_uintptr_t ptr_bitmap = ptr / 0x1000;
+        size_t idx = ptr_bitmap / 32;
+        size_t bit = ptr_bitmap % 32;
+        g_PageBitmap[idx] |= (1 << bit);
+    }
 
     m_Lock.release();
 
-#if defined(TRACK_PAGE_ALLOCATIONS)
-    if (Processor::m_Initialised == 2)
+    EMIT_IF(TRACK_PAGE_ALLOCATIONS)\
     {
-        if (!g_AllocationCommand.isMallocing())
+        if (Processor::m_Initialised == 2)
         {
-            g_AllocationCommand.allocatePage(ptr);
+            if (!g_AllocationCommand.isMallocing())
+            {
+                g_AllocationCommand.allocatePage(ptr);
+            }
         }
     }
-#endif
 
     return ptr;
 }
@@ -191,25 +188,27 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
         }
     }
 
-#ifdef USE_BITMAP
-    physical_uintptr_t ptr_bitmap = page / 0x1000;
-    size_t idx = ptr_bitmap / 32;
-    size_t bit = ptr_bitmap % 32;
-    if (!(g_PageBitmap[idx] & (1 << bit)))
+    EMIT_IF(USE_BITMAP)
     {
-        m_Lock.release();
-        FATAL_NOLOCK("PhysicalMemoryManager DOUBLE FREE");
-    }
+        physical_uintptr_t ptr_bitmap = page / 0x1000;
+        size_t idx = ptr_bitmap / 32;
+        size_t bit = ptr_bitmap % 32;
+        if (!(g_PageBitmap[idx] & (1 << bit)))
+        {
+            m_Lock.release();
+            FATAL_NOLOCK("PhysicalMemoryManager DOUBLE FREE");
+        }
 
-    g_PageBitmap[idx] &= ~(1 << bit);
-#endif
+        g_PageBitmap[idx] &= ~(1 << bit);
+    }
 
     m_PageStack.free(page, getPageSize());
 
-#ifdef MEMORY_TRACING
-    traceAllocation(
-        reinterpret_cast<void *>(page), MemoryTracing::PageFree, 4096);
-#endif
+    EMIT_IF(USE_BITMAP)
+    {
+        traceAllocation(
+            reinterpret_cast<void *>(page), MemoryTracing::PageFree, 4096);
+    }
 
     trackPages(0, -1, 0);
 }
@@ -525,6 +524,11 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
         m_PageStack.free(addr, length);
     }
 
+    if (!top)
+    {
+        panic("No usable memory regions were discovered.");
+    }
+
     // Stack with <4GB is done.
     m_PageStack.markBelow4GReady();
 
@@ -560,12 +564,10 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
                 m_RangeBelow16MB.free(addr, upperBound - addr);
             }
         }
-#if defined(ACPI)
         else if (type == 3 || type == 4)
         {
             m_AcpiRanges.free(addr, length);
         }
-#endif
 
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }
@@ -583,29 +585,28 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
               "the range-list");
     }
 
-// Print the ranges
-#if defined(VERBOSE_MEMORY_MANAGER)
-    NOTICE("free memory ranges (below 1MB):");
-    for (size_t i = 0; i < m_RangeBelow1MB.size(); i++)
-        NOTICE(
-            " " << Hex << m_RangeBelow1MB.getRange(i).address << " - "
-                << (m_RangeBelow1MB.getRange(i).address +
-                    m_RangeBelow1MB.getRange(i).length));
-    NOTICE("free memory ranges (below 16MB):");
-    for (size_t i = 0; i < m_RangeBelow16MB.size(); i++)
-        NOTICE(
-            " " << Hex << m_RangeBelow16MB.getRange(i).address << " - "
-                << (m_RangeBelow16MB.getRange(i).address +
-                    m_RangeBelow16MB.getRange(i).length));
-#if defined(ACPI)
-    NOTICE("ACPI ranges:");
-    for (size_t i = 0; i < m_AcpiRanges.size(); i++)
-        NOTICE(
-            " " << Hex << m_AcpiRanges.getRange(i).address << " - "
-                << (m_AcpiRanges.getRange(i).address +
-                    m_AcpiRanges.getRange(i).length));
-#endif
-#endif
+    // Print the ranges
+    EMIT_IF(VERBOSE_MEMORY_MANAGER)
+    {
+        NOTICE("free memory ranges (below 1MB):");
+        for (size_t i = 0; i < m_RangeBelow1MB.size(); i++)
+            NOTICE(
+                " " << Hex << m_RangeBelow1MB.getRange(i).address << " - "
+                    << (m_RangeBelow1MB.getRange(i).address +
+                        m_RangeBelow1MB.getRange(i).length));
+        NOTICE("free memory ranges (below 16MB):");
+        for (size_t i = 0; i < m_RangeBelow16MB.size(); i++)
+            NOTICE(
+                " " << Hex << m_RangeBelow16MB.getRange(i).address << " - "
+                    << (m_RangeBelow16MB.getRange(i).address +
+                        m_RangeBelow16MB.getRange(i).length));
+        NOTICE("ACPI ranges:");
+        for (size_t i = 0; i < m_AcpiRanges.size(); i++)
+            NOTICE(
+                " " << Hex << m_AcpiRanges.getRange(i).address << " - "
+                    << (m_AcpiRanges.getRange(i).address +
+                        m_AcpiRanges.getRange(i).length));
+    }
 
     // Initialise the free physical ranges
     m_PhysicalRanges.free(0, 0x100000000ULL);
@@ -632,24 +633,25 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }
 
-// Print the ranges
-#if defined(VERBOSE_MEMORY_MANAGER)
-    NOTICE("physical memory ranges:");
-    for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
+    // Print the ranges
+    EMIT_IF(VERBOSE_MEMORY_MANAGER)
     {
-        NOTICE(
-            " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
-                << (m_PhysicalRanges.getRange(i).address +
-                    m_PhysicalRanges.getRange(i).length));
+        NOTICE("physical memory ranges:");
+        for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
+        {
+            NOTICE(
+                " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
+                    << (m_PhysicalRanges.getRange(i).address +
+                        m_PhysicalRanges.getRange(i).length));
+        }
     }
-#endif
 
     // Initialise the range of virtual space for MemoryRegions
     m_MemoryRegions.free(
         reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_MEMORYREGION_ADDRESS),
         KERNEL_VIRTUAL_MEMORYREGION_SIZE);
 }
-#ifdef X64
+
 void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
 {
     NOTICE("64-bit memory-map:");
@@ -712,8 +714,7 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
     // Stacks >=4GB are done.
     m_PageStack.markAbove4GReady();
 
-// Fill the range-lists (usable memory below 1/16MB & ACPI)
-#if defined(ACPI)
+    // Fill the range-lists (usable memory below 1/16MB & ACPI)
     MemoryMap = Info.getMemoryMap();
     while (MemoryMap)
     {
@@ -729,16 +730,16 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }
 
-#if defined(VERBOSE_MEMORY_MANAGER)
-    // Print the ranges
-    NOTICE("ACPI ranges (x64 added):");
-    for (size_t i = 0; i < m_AcpiRanges.size(); i++)
-        NOTICE(
-            " " << Hex << m_AcpiRanges.getRange(i).address << " - "
-                << (m_AcpiRanges.getRange(i).address +
-                    m_AcpiRanges.getRange(i).length));
-#endif
-#endif
+    EMIT_IF(VERBOSE_MEMORY_MANAGER)
+    {
+        // Print the ranges
+        NOTICE("ACPI ranges (x64 added):");
+        for (size_t i = 0; i < m_AcpiRanges.size(); i++)
+            NOTICE(
+                " " << Hex << m_AcpiRanges.getRange(i).address << " - "
+                    << (m_AcpiRanges.getRange(i).address +
+                        m_AcpiRanges.getRange(i).length));
+    }
 
     // Initialise the free physical ranges
     MemoryMap = Info.getMemoryMap();
@@ -762,19 +763,19 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }
 
-// Print the ranges
-#if defined(VERBOSE_MEMORY_MANAGER)
-    NOTICE("physical memory ranges, 64-bit added:");
-    for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
+    // Print the ranges
+    EMIT_IF(VERBOSE_MEMORY_MANAGER)
     {
-        NOTICE(
-            " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
-                << (m_PhysicalRanges.getRange(i).address +
-                    m_PhysicalRanges.getRange(i).length));
+        NOTICE("physical memory ranges, 64-bit added:");
+        for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
+        {
+            NOTICE(
+                " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
+                    << (m_PhysicalRanges.getRange(i).address +
+                        m_PhysicalRanges.getRange(i).length));
+        }
     }
-#endif
 }
-#endif
 
 void X86CommonPhysicalMemoryManager::initialisationDone()
 {
@@ -817,11 +818,8 @@ void X86CommonPhysicalMemoryManager::initialisationDone()
 
 X86CommonPhysicalMemoryManager::X86CommonPhysicalMemoryManager()
     : m_PageStack(), m_RangeBelow1MB(), m_RangeBelow16MB(), m_PhysicalRanges(),
-#if defined(ACPI)
-      m_AcpiRanges(),
-#endif
-      m_MemoryRegions(), m_Lock(false, true), m_RegionLock(false, true),
-      m_PageMetadata()
+      m_AcpiRanges(), m_MemoryRegions(), m_Lock(false, true),
+      m_RegionLock(false, true), m_PageMetadata()
 {
 }
 X86CommonPhysicalMemoryManager::~X86CommonPhysicalMemoryManager()
@@ -904,7 +902,6 @@ physical_uintptr_t
 X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
 {
     size_t index = 0;
-#if defined(X64)
     if (constraints == X86CommonPhysicalMemoryManager::below4GB)
         index = 0;
     else if (constraints == X86CommonPhysicalMemoryManager::below64GB)
@@ -938,7 +935,6 @@ X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
         index = 1;
     if (index == 1 && (m_StackMax[1] == m_StackSize[1] || !m_StackReady[1]))
         index = 0;
-#endif
 
     physical_uintptr_t result = 0;
     if ((m_StackMax[index] != m_StackSize[index]) && m_StackSize[index])
@@ -995,9 +991,6 @@ void X86CommonPhysicalMemoryManager::PageStack::free(
     size_t index = 0;
     if (physicalAddress >= 0x100000000ULL)
     {
-#if defined(X86)
-        return;
-#elif defined(X64)
         if (physicalAddress >= 0x1000000000ULL)
         {
             index = 2;
@@ -1006,7 +999,6 @@ void X86CommonPhysicalMemoryManager::PageStack::free(
         {
             index = 1;
         }
-#endif
     }
 
     // Don't attempt to map address zero.
@@ -1072,10 +1064,8 @@ X86CommonPhysicalMemoryManager::PageStack::PageStack()
 
     // Set the locations for the page stacks in the virtual address space
     m_Stack[0] = KERNEL_VIRTUAL_PAGESTACK_4GB;
-#if defined(X64)
     m_Stack[1] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB1;
     m_Stack[2] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB2;
-#endif
 
     m_FreePages = 0;
 }
@@ -1106,16 +1096,10 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(
         return false;
     }
 
-#if defined(X86)
     // Get the kernel virtual address-space
-    X86VirtualAddressSpace &AddressSpace =
-        static_cast<X86VirtualAddressSpace &>(
-            VirtualAddressSpace::getKernelAddressSpace());
-#elif defined(X64)
     X64VirtualAddressSpace &AddressSpace =
         static_cast<X64VirtualAddressSpace &>(
             VirtualAddressSpace::getKernelAddressSpace());
-#endif
 
     if (!index)
     {
@@ -1129,7 +1113,6 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(
     }
     else
     {
-#if defined(X64)
         if (AddressSpace.mapPageStructuresAbove4GB(
                 physicalAddress, virtualAddress,
                 VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
@@ -1137,9 +1120,6 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(
         {
             mapped = true;
         }
-#else
-        FATAL("PageStack::free - index > 0 when not built as x86_64");
-#endif
     }
 
     // Another page worth of entries is mapped - update capacity accordingly.

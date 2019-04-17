@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/MemoryTracing.h"
@@ -34,7 +35,7 @@
 #pragma GCC diagnostic ignored "-Wframe-address"
 
 // Required for G++ to link static init/destructors.
-#ifndef HOSTED
+#if !HOSTED
 extern "C" void *__dso_handle;
 #endif
 
@@ -184,7 +185,7 @@ void traceMetadata(NormalStaticString str, void *p1, void *p2)
     // Removed for now - this can be provided by scripts/addr2line.py now
 }
 
-#ifdef ARM_COMMON
+#if ARM_COMMON
 #define ATEXIT __aeabi_atexit
 #else
 #define ATEXIT atexit
@@ -201,6 +202,8 @@ void ATEXIT(void (*f)(void *), void *p, void *d)
 extern "C" EXPORTED_PUBLIC void __cxa_pure_virtual() NORETURN;
 void __cxa_pure_virtual()
 {
+    /// \todo if FATAL etc don't work we need to still make this evident
+    TRACE("Pure virtual function call made");
     FATAL_NOLOCK("Pure virtual function call made");
 }
 
@@ -223,7 +226,7 @@ void __cxa_guard_release()
 #define HOSTED_SYSTEM_MALLOC 0
 #endif
 
-#ifdef HOSTED
+#if HOSTED
 
 #if HOSTED_SYSTEM_MALLOC
 // already using the system malloc so just define our versions as hosted_*
@@ -243,7 +246,7 @@ void __cxa_guard_release()
 #define CALLOC calloc
 #define FREE free
 #define REALLOC realloc
-#endif  // defined(HOSTED)
+#endif  // HOSTED
 
 extern "C" void *MALLOC(size_t sz)
 {
@@ -271,7 +274,7 @@ extern "C" void *REALLOC(void *p, size_t sz)
         return MALLOC(sz);
     if (sz == 0)
     {
-        free(p);
+        FREE(p);
         return 0;
     }
 
@@ -364,7 +367,7 @@ void operator delete[](void *p, void *q) noexcept
 }
 #endif
 
-#ifdef HOSTED
+#if HOSTED
 extern "C" {
 void *__wrap_malloc(size_t sz)
 {

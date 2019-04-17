@@ -20,7 +20,7 @@
 #ifndef __X86EMU_FPU_REGS_H
 #define __X86EMU_FPU_REGS_H
 
-#ifdef X86_FPU_SUPPORT
+#if X86_FPU_SUPPORT
 
 #ifdef PACK
 #pragma PACK

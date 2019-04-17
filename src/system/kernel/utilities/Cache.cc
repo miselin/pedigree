@@ -29,7 +29,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#ifndef STANDALONE_CACHE
+#if !STANDALONE_CACHE
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -50,7 +50,7 @@ static bool g_AllocatorInited = false;
 
 CacheManager CacheManager::m_Instance;
 
-#ifdef THREADS
+#if THREADS
 static int trimTrampoline(void *p)
 {
     CacheManager::instance().trimThread();
@@ -60,7 +60,7 @@ static int trimTrampoline(void *p)
 
 CacheManager::CacheManager()
     : RequestQueue("CacheManager"), m_Caches(),
-#ifdef THREADS
+#if THREADS
       m_pTrimThread(0),
 #endif
       m_bActive(false)
@@ -70,14 +70,14 @@ CacheManager::CacheManager()
 CacheManager::~CacheManager()
 {
     m_bActive = false;
-#ifdef THREADS
+#if THREADS
     m_pTrimThread->join();
 #endif
 }
 
 void CacheManager::initialise()
 {
-#ifndef STANDALONE_CACHE
+#if !STANDALONE_CACHE
     Timer *t = Machine::instance().getTimer();
     if (t)
     {
@@ -88,7 +88,7 @@ void CacheManager::initialise()
     // Call out to the base class initialise() so the RequestQueue goes live.
     RequestQueue::initialise();
 
-#ifdef THREADS
+#if THREADS
     // Create our main trim thread.
     Process *pParent = Processor::information().getCurrentThread()->getParent();
     m_bActive = true;
@@ -166,7 +166,7 @@ uint64_t CacheManager::executeRequest(
     return pCache->executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
 }
 
-#ifdef THREADS
+#if THREADS
 void CacheManager::trimThread()
 {
     while (m_bActive)
@@ -198,7 +198,7 @@ Cache::Cache(size_t pageConstraints)
 {
     if (!g_AllocatorInited)
     {
-#ifdef STANDALONE_CACHE
+#if STANDALONE_CACHE
         uintptr_t start = 0;
         uintptr_t end = 0;
         discover_range(start, end);
@@ -416,7 +416,7 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool *alreadyExisted)
 
 bool Cache::map(uintptr_t virt) const
 {
-#ifdef STANDALONE_CACHE
+#if STANDALONE_CACHE
     // Will be part of the already-OK region in the allocator.
     return true;
 #else
@@ -514,7 +514,7 @@ bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
                 m_CallbackMeta);
         }
 
-#ifndef STANDALONE_CACHE
+#if !STANDALONE_CACHE
         VirtualAddressSpace &va =
             Processor::information().getVirtualAddressSpace();
         void *loc = reinterpret_cast<void *>(pPage->location);
@@ -536,7 +536,7 @@ bool Cache::evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove)
             m_Callback(
                 CacheConstants::Eviction, key, pPage->location, m_CallbackMeta);
 
-#ifndef STANDALONE_CACHE
+#if !STANDALONE_CACHE
         // Clean up resources now that all callbacks and removals are complete.
         va.unmap(loc);
         PhysicalMemoryManager::instance().freePage(phys);
@@ -780,12 +780,12 @@ uint64_t Cache::executeRequest(
     // Pin page while we do our writeback
     pin(p3);
 
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE("Cache: writeback for off=" << p3 << " @" << p3 << "!");
 #endif
     m_Callback(
         static_cast<CacheConstants::CallbackCause>(p2), p3, p4, m_CallbackMeta);
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE_NOLOCK(
         "Cache: writeback for off=" << p3 << " @" << p3 << " complete!");
 #endif
@@ -798,7 +798,7 @@ uint64_t Cache::executeRequest(
 
 size_t Cache::lruEvict(bool force)
 {
-#ifdef STANDALONE_CACHE
+#if STANDALONE_CACHE
     return 0;
 #else
     if (!(m_pLruHead && m_pLruTail))

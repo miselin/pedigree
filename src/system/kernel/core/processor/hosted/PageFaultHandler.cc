@@ -62,7 +62,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         va.getMapping(reinterpret_cast<void *>(page), phys, flags);
         if (flags & VirtualAddressSpace::CopyOnWrite)
         {
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
             NOTICE_NOLOCK(
                 Processor::information()
                     .getCurrentThread()
@@ -173,7 +173,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     ERROR(static_cast<const char *>(sError));
     ERROR(static_cast<const char *>(sCode));
 
-#ifdef DEBUGGER
+#if DEBUGGER
     if (state.kernelMode())
         Debugger::instance().start(state, sError);
 #endif

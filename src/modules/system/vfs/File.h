@@ -379,7 +379,7 @@ class EXPORTED_PUBLIC File
     Cache m_FillCache;
 #endif
 
-#ifdef THREADS
+#if THREADS
     Mutex m_Lock;
 
     struct MonitorTarget

@@ -106,7 +106,7 @@ static void destroy()
     VFS::instance().removeAllAliases(g_pRunFilesystem);
 }
 
-#ifdef ARM_COMMON
+#if ARM_COMMON
 MODULE_INFO("posix", &init, &destroy, "console", "mountroot");
 #else
 MODULE_INFO(

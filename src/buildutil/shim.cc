@@ -363,9 +363,13 @@ ssize_t Mutex::getValue()
 }
 
 /** Cache implementation. */
-#ifdef STANDALONE_CACHE
 void Cache::discover_range(uintptr_t &start, uintptr_t &end)
 {
+    EMIT_IF(!STANDALONE_CACHE)
+    {
+        return;
+    }
+
     static uintptr_t alloc_start = 0;
     const size_t length = 0x80000000U;
 
@@ -386,7 +390,6 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
         end = start + length;
     }
 }
-#endif
 
 MemoryPool::MemoryPool()
     : m_BufferSize(4096), m_BufferCount(0), m_bInitialised(false),

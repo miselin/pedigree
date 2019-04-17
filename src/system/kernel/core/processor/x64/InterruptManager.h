@@ -34,7 +34,7 @@ class InterruptHandler;
 /** The interrupt manager on x64 processors */
 class X64InterruptManager : public ::InterruptManager
 {
-    friend class Processor;
+    friend class ProcessorBase;
 
   public:
     /** Get the X64InterruptManager class instance
@@ -47,7 +47,7 @@ class X64InterruptManager : public ::InterruptManager
     virtual bool registerInterruptHandler(
         size_t nInterruptNumber, InterruptHandler *pHandler);
 
-#ifdef DEBUGGER
+#if DEBUGGER
     virtual bool registerInterruptHandlerDebugger(
         size_t nInterruptNumber, InterruptHandler *pHandler);
     virtual size_t getBreakpointInterruptNumber() PURE;
@@ -113,7 +113,7 @@ class X64InterruptManager : public ::InterruptManager
     GateDescriptor m_IDT[256];
     /** The normal interrupt handlers */
     InterruptHandler *m_pHandler[256];
-#ifdef DEBUGGER
+#if DEBUGGER
     /** The debugger interrupt handlers */
     InterruptHandler *m_pDbgHandler[256];
 #endif

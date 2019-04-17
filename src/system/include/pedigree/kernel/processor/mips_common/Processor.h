@@ -101,17 +101,12 @@
 #define SR_ERL (1 << 2)
 // TODO The rest...
 
-void Processor::breakpoint()
+class MIPSCommonProcessor : public ProcessorBase
 {
-    asm volatile("break");
-}
+};
 
-void Processor::halt()
+class MIPSProcessor : public MIPSCommonProcessor
 {
-    // TODO: gcc will most certainly optimize this away in -O1/2/3 so please
-    //       replace it with some unoptimizable mighty magic
-    for (;;)
-        ;
-}
+};
 
 #endif

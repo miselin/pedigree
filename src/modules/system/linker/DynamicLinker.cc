@@ -103,7 +103,7 @@ bool DynamicLinker::loadProgram(
 
     String fileName;
     pFile->getName(fileName);
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     NOTICE("DynamicLinker::loadProgram(" << fileName << ")");
 #endif
 
@@ -385,14 +385,15 @@ bool DynamicLinker::trap(uintptr_t address)
         {
             SharedObject *pSo = it.value();
 
-// Totally pedantic
-#ifdef ADDITIONAL_CHECKS
-            if (!pSo)
+            // Totally pedantic
+            EMIT_IF(ADDITIONAL_CHECKS)
             {
-                ERROR("A null shared object was in the object list.");
-                continue;
+                if (!pSo)
+                {
+                    ERROR("A null shared object was in the object list.");
+                    continue;
+                }
             }
-#endif
 
             if (address >= pSo->address && address < pSo->address + pSo->size)
             {

@@ -26,47 +26,32 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 
-#if defined(X86)
-#include "../x86/VirtualAddressSpace.h"
-#else
 #include "../x64/VirtualAddressSpace.h"
-#endif
 
 #include <machine/mach_pc/LocalApic.h>
 #include <machine/mach_pc/Pc.h>
 
-void Processor::initialisationDone()
+void ProcessorBase::initialisationDone()
 {
     // Don't allow the bootstrap info to be used anymore - we're killing it here
     g_pBootstrapInfo = nullptr;
 
-/// \todo there HAS to be a better way than this
-#if defined(X86)
-    // Unmap the identity mapping of the first MBs
-    X86VirtualAddressSpace &KernelAddressSpace =
-        static_cast<X86VirtualAddressSpace &>(
-            VirtualAddressSpace::getKernelAddressSpace());
-    *reinterpret_cast<uint32_t *>(KernelAddressSpace.m_PhysicalPageDirectory) =
-        0;
-    invalidate(0);
-#else
     // Unmap the identity mapping of the first MBs
     X64VirtualAddressSpace &KernelAddressSpace =
         static_cast<X64VirtualAddressSpace &>(
             VirtualAddressSpace::getKernelAddressSpace());
     *reinterpret_cast<uint64_t *>(KernelAddressSpace.m_PhysicalPML4) = 0;
     invalidate(0);
-#endif
 
     X86CommonPhysicalMemoryManager::instance().initialisationDone();
 }
 
-size_t Processor::getDebugBreakpointCount()
+size_t ProcessorBase::getDebugBreakpointCount()
 {
     return 4;
 }
 
-uintptr_t Processor::getDebugBreakpoint(
+uintptr_t ProcessorBase::getDebugBreakpoint(
     size_t nBpNumber, DebugFlags::FaultType &nFaultType, size_t &nLength,
     bool &bEnabled)
 {
@@ -113,7 +98,7 @@ uintptr_t Processor::getDebugBreakpoint(
     return nLinearAddress;
 }
 
-void Processor::enableDebugBreakpoint(
+void ProcessorBase::enableDebugBreakpoint(
     size_t nBpNumber, uintptr_t nLinearAddress,
     DebugFlags::FaultType nFaultType, size_t nLength)
 {
@@ -159,7 +144,7 @@ void Processor::enableDebugBreakpoint(
     asm volatile("mov %0, %%db7" ::"r"(nStatus));
 }
 
-void Processor::disableDebugBreakpoint(size_t nBpNumber)
+void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber)
 {
     uintptr_t nStatus;
     asm volatile("mov %%db7, %0" : "=r"(nStatus));
@@ -168,7 +153,7 @@ void Processor::disableDebugBreakpoint(size_t nBpNumber)
     asm volatile("mov %0, %%db7" ::"r"(nStatus));
 }
 
-void Processor::setInterrupts(bool bEnable)
+void ProcessorBase::setInterrupts(bool bEnable)
 {
     if (bEnable)
         asm volatile("sti");
@@ -176,7 +161,7 @@ void Processor::setInterrupts(bool bEnable)
         asm volatile("cli");
 }
 
-bool Processor::getInterrupts()
+bool ProcessorBase::getInterrupts()
 {
     size_t result;
     asm volatile("pushf\n"
@@ -186,7 +171,7 @@ bool Processor::getInterrupts()
     return (result != 0);
 }
 
-void Processor::setSingleStep(bool bEnable, InterruptState &state)
+void ProcessorBase::setSingleStep(bool bEnable, InterruptState &state)
 {
     uintptr_t eflags = state.getFlags();
     if (bEnable)
@@ -196,25 +181,25 @@ void Processor::setSingleStep(bool bEnable, InterruptState &state)
     state.setFlags(eflags);
 }
 
-uint64_t Processor::readMachineSpecificRegister(uint32_t index)
+uint64_t X86CommonProcessor::readMachineSpecificRegister(uint32_t index)
 {
     uint32_t eax, edx;
     asm volatile("rdmsr" : "=a"(eax), "=d"(edx) : "c"(index));
     return static_cast<uint64_t>(eax) | (static_cast<uint64_t>(edx) << 32);
 }
 
-void Processor::writeMachineSpecificRegister(uint32_t index, uint64_t value)
+void X86CommonProcessor::writeMachineSpecificRegister(uint32_t index, uint64_t value)
 {
     uint32_t eax = value, edx = value >> 32;
     asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(index));
 }
 
-void Processor::invalidate(void *pAddress)
+void ProcessorBase::invalidate(void *pAddress)
 {
     asm volatile("invlpg (%0)" ::"a"(pAddress));
 }
 
-void Processor::cpuid(
+void X86CommonProcessor::cpuid(
     uint32_t inEax, uint32_t inEcx, uint32_t &eax, uint32_t &ebx, uint32_t &ecx,
     uint32_t &edx)
 {
@@ -223,24 +208,31 @@ void Processor::cpuid(
                  : "a"(inEax), "c"(inEcx));
 }
 
-#if defined(MULTIPROCESSOR)
-ProcessorId Processor::id()
+ProcessorId ProcessorBase::id()
 {
     if (m_Initialised < 2)
         return 0;
 
-    Pc &pc = Pc::instance();
-    uint8_t apicId = pc.getLocalApic().getId();
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        Pc &pc = Pc::instance();
+        uint8_t apicId = pc.getLocalApic().getId();
 
-    for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
-        if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-            return m_ProcessorInformation[i]->m_ProcessorId;
+        for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
+            if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
+                return m_ProcessorInformation[i]->m_ProcessorId;
+    }
 
     return 0;
 }
 
-ProcessorInformation &Processor::information()
+ProcessorInformation &ProcessorBase::information()
 {
+    EMIT_IF(!MULTIPROCESSOR)
+    {
+        return m_SafeBspProcessorInformation;
+    }
+
     if (m_Initialised < 2)
         return m_SafeBspProcessorInformation;
 
@@ -254,38 +246,67 @@ ProcessorInformation &Processor::information()
     return m_SafeBspProcessorInformation;
 }
 
-size_t Processor::getCount()
+size_t ProcessorBase::getCount()
 {
-    return m_ProcessorInformation.count();
+    EMIT_IF(!MULTIPROCESSOR)
+    {
+        return 1;
+    }
+    else
+    {
+        return m_ProcessorInformation.count();
+    }
 }
-#endif
 
-void Processor::breakpoint()
+void ProcessorBase::breakpoint()
 {
     asm volatile("int $3");
 }
 
-void Processor::halt()
+void ProcessorBase::halt()
 {
     asm volatile("hlt");
 }
 
-void Processor::pause()
+void ProcessorBase::pause()
 {
     asm volatile("pause");
 }
 
-void Processor::reset()
+void ProcessorBase::reset()
 {
     // Load null IDT for now
     size_t zero = 0x0;
     asm volatile("lidt %0; int $3" ::"m"(zero));
 }
 
-void Processor::haltUntilInterrupt()
+void ProcessorBase::haltUntilInterrupt()
 {
     bool bWasInterrupts = getInterrupts();
     __asm__ __volatile__("sti; hlt");
     if (!bWasInterrupts)
         setInterrupts(false);
+}
+
+void ProcessorBase::invalidateICache(uintptr_t nAddr)
+{
+    __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+}
+
+void ProcessorBase::invalidateDCache(uintptr_t nAddr)
+{
+    __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+}
+
+void ProcessorBase::flushDCache(uintptr_t nAddr)
+{
+    __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+}
+
+void ProcessorBase::flushDCacheAndInvalidateICache(uintptr_t startAddr, uintptr_t endAddr)
+{
+    for (size_t i = 0; i < endAddr; ++i)
+    {
+        __asm__ __volatile__ ("clflush (%0)" :: "a" (startAddr + i));
+    }
 }

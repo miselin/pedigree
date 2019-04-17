@@ -19,7 +19,7 @@
 
 #include "pedigree/kernel/utilities/TimeoutGuard.h"
 #include "pedigree/kernel/compiler.h"
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/process/Thread.h"
 #endif
 #include "pedigree/kernel/LockGuard.h"
@@ -34,12 +34,12 @@ static void guardEventFired(uint8_t *pBuffer) NORETURN;
 
 TimeoutGuard::TimeoutGuard(size_t timeoutSecs)
     : m_pEvent(0), m_bTimedOut(false),
-#ifdef THREADS
+#if THREADS
       m_State(),
 #endif
       m_nLevel(0), m_Lock()
 {
-#ifdef THREADS
+#if THREADS
     if (timeoutSecs)
     {
         Thread *pThread = Processor::information().getCurrentThread();
@@ -59,7 +59,7 @@ TimeoutGuard::TimeoutGuard(size_t timeoutSecs)
 
 TimeoutGuard::~TimeoutGuard()
 {
-#ifdef THREADS
+#if THREADS
     // Stop any interrupts - now we know that we can't be preempted by
     // our own event handler.
     LockGuard<Spinlock> guard(m_Lock);
@@ -78,7 +78,7 @@ TimeoutGuard::~TimeoutGuard()
 
 void TimeoutGuard::cancel()
 {
-#ifdef THREADS
+#if THREADS
     // Called by TimeoutGuardEvent.
     m_bTimedOut = true;
 
@@ -90,7 +90,7 @@ void TimeoutGuard::cancel()
 
 static void guardEventFired(uint8_t *pBuffer)
 {
-#ifdef THREADS
+#if THREADS
     NOTICE("GuardEventFired");
     TimeoutGuard::TimeoutGuardEvent e;
     if (!TimeoutGuard::TimeoutGuardEvent::unserialize(pBuffer, e))

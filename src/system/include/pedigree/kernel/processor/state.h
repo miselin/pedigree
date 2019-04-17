@@ -23,22 +23,15 @@
 #include "pedigree/kernel/processor/state_forward.h"
 
 // Bring in rest of state definitions to complete forward-declared state.
-#if defined(X86)
-#include "pedigree/kernel/processor/x86/state.h"  // IWYU pragma: export
-#elif defined(X64)
+// These should all be able to be present at the same time, as they define
+// processor-specific names which are typedef'd to the global names in
+// state_forward.h
 #include "pedigree/kernel/processor/x64/state.h"  // IWYU pragma: export
-#elif defined(MIPS32)
 #include "pedigree/kernel/processor/mips32/state.h"  // IWYU pragma: export
-#elif defined(MIPS64)
 #include "pedigree/kernel/processor/mips64/state.h"  // IWYU pragma: export
-#elif defined(ARM926E)
 #include "pedigree/kernel/processor/arm_926e/state.h"  // IWYU pragma: export
-#elif defined(PPC32)
 #include "pedigree/kernel/processor/ppc32/state.h"  // IWYU pragma: export
-#elif defined(ARMV7)
 #include "pedigree/kernel/processor/armv7/state.h"  // IWYU pragma: export
-#elif defined(HOSTED)
 #include "pedigree/kernel/processor/hosted/state.h"  // IWYU pragma: export
-#endif
 
 #endif

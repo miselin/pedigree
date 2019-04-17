@@ -25,13 +25,11 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
-#if defined(MULTIPROCESSOR)
-template <class T>
-class Vector;
-#endif
+
+template <class T> class Vector;
 
 class VirtualAddressSpace;
-#ifdef MULTIBOOT
+#if MULTIBOOT
 class BootstrapStruct_t;
 #else
 struct BootstrapStruct_t;
@@ -65,26 +63,30 @@ enum FaultType
 #define DEBUG_TASK_SWITCH \
     0x8000  /// The exception was caused by a hardware task switch.
 
-#ifdef MULTIPROCESSOR
 /**
  * apMain is to be called as the main kernel entry point for a newly-started
  * processor (once it has entered long mode and been initialised properly), and
  * becomes the idle thread's code for the processor.
  */
 extern void apMain() NORETURN;
-#endif
 
 /** Interface to the processor's capabilities
+ *
+ * Architecture-specific implementations exist, and subclasses are used to add
+ * processor-specific methods (don't use the preprocessor for that anymore).
+ *
+ * Cast a Processor object to the architecture-specific variant if you need to
+ * access architecturally unique features.
+ *
  *\note static in member function declarations denotes that these functions
- *return/process data on the processor that is executing this code. */
-class EXPORTED_PUBLIC Processor
+ * return/process data on the processor that is executing this code. */
+class EXPORTED_PUBLIC ProcessorBase
 {
     friend class Multiprocessor;
     friend class X86GdtManager;
     friend class X64GdtManager;
-#ifdef THREADS
     friend class Scheduler;
-#endif
+
   public:
     /** Initialises the processor specific interface. After this function call
      *the whole processor-specific interface is initialised. Note though, that
@@ -132,7 +134,7 @@ class EXPORTED_PUBLIC Processor
         \return False if the save saved the state. True if a restoreState
        occurs. */
     static bool saveState(SchedulerState &state)
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
+#if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
         DEPRECATED
 #endif
         ;
@@ -146,7 +148,6 @@ class EXPORTED_PUBLIC Processor
         \param[in]  state Syscall state to restore. */
     static void
     restoreState(SyscallState &state, volatile uintptr_t *pLock = 0) NORETURN;
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
     /** Switch between two states, safely. */
     static void switchState(
         bool bInterrupts, SchedulerState &a, SchedulerState &b,
@@ -183,7 +184,6 @@ class EXPORTED_PUBLIC Processor
         bool bInterrupts, SchedulerState &s, volatile uintptr_t *pLock,
         uintptr_t address, uintptr_t stack, uintptr_t p1 = 0, uintptr_t p2 = 0,
         uintptr_t p3 = 0, uintptr_t p4 = 0);
-#endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
     /** Jumps to an address, in kernel mode, and sets up a calling frame with
         the given parameters.
         \param pLock   Optional lock to release.
@@ -263,41 +263,13 @@ class EXPORTED_PUBLIC Processor
      *\param[in] state the interrupt-state */
     static void setSingleStep(bool bEnable, InterruptState &state);
 
-#if defined(X86_COMMON)
-    /** Read a Machine/Model-specific register
-     *\param[in] index the register index
-     *\return the value of the register */
-    static uint64_t readMachineSpecificRegister(uint32_t index);
-    /** Write a Machine/Model-specific register
-     *\param[in] index the register index
-     *\param[in] value the new value of the register */
-    static void writeMachineSpecificRegister(uint32_t index, uint64_t value);
-    /** Executes the CPUID machine instruction
-     *\param[in] inEax eax before the CPUID instruction
-     *\param[in] inEcx ecx before the CPUID instruction
-     *\param[out] eax eax afterwards
-     *\param[out] ebx ebx afterwards
-     *\param[out] ecx ecx afterwards
-     *\param[out] edx edx afterwards */
-    static void cpuid(
-        uint32_t inEax, uint32_t inEcx, uint32_t &eax, uint32_t &ebx,
-        uint32_t &ecx, uint32_t &edx);
-#endif
-/** Invalidate the TLB entry containing a specific virtual address
- *\param[in] pAddress the specific virtual address
- *\todo Figure out if we want to flush the TLB of every processor or if
- *      this should be handled by the upper layers */
-#ifdef PPC_COMMON
-    inline
-#endif
-        static void
-        invalidate(void *pAddress);
+    /** Invalidate the TLB entry containing a specific virtual address
+     *\param[in] pAddress the specific virtual address
+     *\todo Figure out if we want to flush the TLB of every processor or if
+     *      this should be handled by the upper layers */
+    static void invalidate(void *pAddress);
 
-#if defined(X86_COMMON)
-    static physical_uintptr_t readCr3();
-#endif
-
-#if defined(ARMV7)
+#if ARMV7
     /** Read TTBR0 */
     static physical_uintptr_t readTTBR0();
     /** Read TTBR1 */
@@ -312,7 +284,6 @@ class EXPORTED_PUBLIC Processor
     static void writeTTBCR(uint32_t value);
 #endif
 
-#if defined(MIPS_COMMON) || defined(PPC_COMMON)
     /** Invalidate a line in the instruction cache.
      *\param[in] nAddr The address of a memory location to invalidate from the
      *Icache. */
@@ -332,37 +303,22 @@ class EXPORTED_PUBLIC Processor
      *invalidated. */
     static void
     flushDCacheAndInvalidateICache(uintptr_t startAddr, uintptr_t endAddr);
-#endif
 
     /** Populate 'str' with a string describing the characteristics of this
      * processor. */
     static void identify(HugeStaticString &str);
 
-/** Get the ProcessorId of this processor
- *\return the ProcessorId of this processor */
-#if !defined(MULTIPROCESSOR)
+    /** Get the ProcessorId of this processor
+     *\return the ProcessorId of this processor
+     */
     static ProcessorId id();
-#else
-    static ProcessorId id();
-#endif
-/** Get the ProcessorInformation structure of this processor
- *\return the ProcessorInformation structure of this processor */
-#if !defined(MULTIPROCESSOR)
-    static ProcessorInformation &information();
-#else
-    static ProcessorInformation &information();
-#endif
-/** Get the number of CPUs currently available */
-#if !defined(MULTIPROCESSOR)
-    static size_t getCount();
-#else
-    static size_t getCount();
-#endif
 
-#ifdef PPC_COMMON
-    static void
-    setSegmentRegisters(uint32_t segmentBase, bool supervisorKey, bool userKey);
-#endif
+    /** Get the ProcessorInformation structure of this processor
+     *\return the ProcessorInformation structure of this processor */
+    static ProcessorInformation &information();
+
+    /** Get the number of CPUs currently available */
+    static size_t getCount();
 
     /** Set a new TLS area base address. */
     static void setTlsBase(uintptr_t newBase);
@@ -371,7 +327,7 @@ class EXPORTED_PUBLIC Processor
     static size_t m_Initialised;
 
   private:
-#if defined(HOSTED)
+#if HOSTED
     /** Implementation of breakpoint(), reset(), haltUntilInterrupt() */
     static void _breakpoint();
     static void _reset() NORETURN;
@@ -380,40 +336,38 @@ class EXPORTED_PUBLIC Processor
     static bool m_bInterrupts;
 #endif
 
-/** If we have only one processor, we define the ProcessorInformation class here
- *  otherwise we use an array of ProcessorInformation structures */
-#if !defined(MULTIPROCESSOR)
-    static ProcessorInformation m_ProcessorInformation;
-#else
+    /** If we have only one processor, we define the ProcessorInformation class here
+     *  otherwise we use an array of ProcessorInformation structures */
     static Vector<ProcessorInformation *> m_ProcessorInformation;
 
     /// Used before multiprocessor stuff is turned on as a "safe" info
     /// structure. For stuff like early heap setup and all that.
     static ProcessorInformation m_SafeBspProcessorInformation;
-#endif
 
     static size_t m_nProcessors;
 };
 
 /** @} */
 
-#if defined(X86_COMMON)
 #include "pedigree/kernel/processor/x86_common/Processor.h"  // IWYU pragma: export
-#elif defined(MIPS_COMMON)
 #include "pedigree/kernel/processor/mips_common/Processor.h"  // IWYU pragma: export
-#elif defined(ARM_COMMON)
 #include "pedigree/kernel/processor/arm_common/Processor.h"  // IWYU pragma: export
-#elif defined(PPC_COMMON)
 #include "pedigree/kernel/processor/ppc_common/Processor.h"  // IWYU pragma: export
-#elif defined(HOSTED)
 #include "pedigree/kernel/processor/hosted/Processor.h"  // IWYU pragma: export
-#endif
-
-#ifdef X86
-#include "pedigree/kernel/processor/x86/Processor.h"  // IWYU pragma: export
-#endif
-#ifdef X64
 #include "pedigree/kernel/processor/x64/Processor.h"  // IWYU pragma: export
+
+#if X64
+typedef X64Processor Processor;
+#elif MIPS_COMMON
+typedef MIPSProcessor Processor;
+#elif ARM_COMMON
+typedef ARMProcessor Processor;
+#elif PPC_COMMON
+typedef PPCProcessor Processor;
+#elif HOSTED
+typedef HostedProcessor Processor;
+#else
+#error No Processor type could be defined.
 #endif
 
 /**

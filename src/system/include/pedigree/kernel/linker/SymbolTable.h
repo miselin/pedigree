@@ -163,7 +163,7 @@ class SymbolTable
 
     Elf *m_pOriginatingElf;
 
-#ifdef THREADS
+#if THREADS
     Mutex m_Lock;
 #endif
 };

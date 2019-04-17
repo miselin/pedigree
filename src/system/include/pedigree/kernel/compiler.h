@@ -76,6 +76,8 @@
 #else
 #define FALLSTHROUGH
 #endif
+/** Macros to wrap things in compile-times conditions. */
+#define EMIT_IF(...) if constexpr (__VA_ARGS__)
 
 /**
  * This function or variable is to be exposed to other objects.

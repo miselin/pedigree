@@ -148,7 +148,7 @@ bool OpenPic::initialise()
             HOST_TO_LITTLE32(OPENPIC_SOURCE_MASK | OPENPIC_SOURCE_PRIORITY | i),
             reg);
 // Ensure that IRQs are sent to this processor (the first one).
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 #error Problems here.
 #endif
         m_pPort->write32(HOST_TO_LITTLE32(0x1), reg + 0x10);
@@ -195,7 +195,7 @@ void OpenPic::interrupt(size_t interruptNumber, InterruptState &state)
     {
         NOTICE("PIC: unhandled irq #" << irq << " occurred");
 
-#ifdef DEBUGGER
+#if DEBUGGER
         LargeStaticString str;
         str += "Unhandled IRQ: #";
         str += irq;

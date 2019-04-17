@@ -74,10 +74,6 @@ endif ()
 
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
-if (PEDIGREE_POSIX_NOEFAULT)
-    add_definitions(-DPOSIX_NO_EFAULT)
-endif ()
-
 function(pedigree_module name opts libs)
     set(PEDIGREE_MODULE_${name} TRUE CACHE BOOL "Build the ${name} kernel module.")
 

@@ -15,18 +15,18 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-; bool Processor::saveState(SchedulerState &)
-global _ZN9Processor9saveStateER17X64SchedulerState:function hidden
-; void Processor::restoreState(SchedulerState &, volatile uintptr_t *)
-global _ZN9Processor12restoreStateER17X64SchedulerStatePVm:function hidden
-; void Processor::restoreState(volatile uintptr_t *, SyscallState &)
-global _ZN9Processor12restoreStateER15X64SyscallStatePVm:function hidden
-; void Processor::jumpKernel(volatile uintptr_t *, uintptr_t, uintptr_t,
+; bool ProcessorBase::saveState(SchedulerState &)
+global _ZN13ProcessorBase9saveStateER17X64SchedulerState:function hidden
+; void ProcessorBase::restoreState(SchedulerState &, volatile uintptr_t *)
+global _ZN13ProcessorBase12restoreStateER17X64SchedulerStatePVm:function hidden
+; void ProcessorBase::restoreState(volatile uintptr_t *, SyscallState &)
+global _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:function hidden
+; void ProcessorBase::jumpKernel(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                            uintptr_t, uintptr_t, uintptr_t, uintptr_t)
-global _ZN9Processor10jumpKernelEPVmmmmmmm:function hidden
-; void Processor::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
+global _ZN13ProcessorBase10jumpKernelEPVmmmmmmm:function hidden
+; void ProcessorBase::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                          uintptr_t, uintptr_t, uintptr_t, uintptr_t)
-global _ZN9Processor8jumpUserEPVmmmmmmm:function
+global _ZN13ProcessorBase8jumpUserEPVmmmmmmm:function
 ; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, Spinlock*)
 global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm:function hidden
 
@@ -39,7 +39,7 @@ extern _ZN21PerProcessorScheduler12deleteThreadEP6Thread
 [section .text]
 
 ; [rdi] State pointer.
-_ZN9Processor9saveStateER17X64SchedulerState:
+_ZN13ProcessorBase9saveStateER17X64SchedulerState:
     ;; Save the stack pointer (without the return address)
     mov     rax, rsp
     add     rax, 8
@@ -76,7 +76,7 @@ _ZN9Processor9saveStateER17X64SchedulerState:
 
 ; [rsi] Lock.
 ; [rdi] State pointer.
-_ZN9Processor12restoreStateER17X64SchedulerStatePVm:
+_ZN13ProcessorBase12restoreStateER17X64SchedulerStatePVm:
     ;; Check for FPU use.
     cmp byte [rdi+96], 1
     je       .uses_fpu
@@ -121,7 +121,7 @@ _ZN9Processor12restoreStateER17X64SchedulerStatePVm:
 
 ; [rsi] Lock
 ; [rdi] State pointer.
-_ZN9Processor12restoreStateER15X64SyscallStatePVm:
+_ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
     ;; The state pointer is on this thread's kernel stack, so change to it.
     mov     rsp, rdi
 
@@ -161,7 +161,7 @@ _ZN9Processor12restoreStateER15X64SyscallStatePVm:
 ; [rdx]    stack
 ; [rsi]    address
 ; [rdi]    Lock
-_ZN9Processor10jumpKernelEPVmmmmmmm:
+_ZN13ProcessorBase10jumpKernelEPVmmmmmmm:
     ;; Load the lock pointer, address and stack to scratch registers.
     mov     r10, rdi
     mov     rax, rsi
@@ -205,7 +205,7 @@ _ZN9Processor10jumpKernelEPVmmmmmmm:
 ; [rdx]    stack
 ; [rsi]    address
 ; [rdi]    Lock
-_ZN9Processor8jumpUserEPVmmmmmmm:
+_ZN13ProcessorBase8jumpUserEPVmmmmmmm:
     ;; Drop IRQs while we work here. They will be enabled in the sysret.
     ;; We need to do this because we switch to the user stack, which possibly
     ;; won't be mapped in another process's address space (which then #DF's

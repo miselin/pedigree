@@ -22,6 +22,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/SymbolTable.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -34,12 +35,10 @@
 KernelElf KernelElf::m_Instance;
 
 // Define to dump each module's dependencies in the serial log.
-// #undef DUMP_DEPENDENCIES
+#define DUMP_DEPENDENCIES 0
 
 // Define to 1 to load modules using threads.
 #define THREADED_MODULE_LOADING 0
-
-#define TRACK_HIDDEN_SYMBOLS 1
 
 /**
  * Extend the given pointer by adding its canonical prefix again.
@@ -52,55 +51,59 @@ KernelElf KernelElf::m_Instance;
 template <class T>
 static T *extend(T *p)
 {
-#if defined(X86_COMMON) && !defined(BITS_32)
-    uintptr_t u = reinterpret_cast<uintptr_t>(p);
-    if (u < EXTENSION_ADDEND)
-        u += EXTENSION_ADDEND;
-    return reinterpret_cast<T *>(u);
-#else
+    EMIT_IF(X86_COMMON && !BITS_32)
+    {
+        uintptr_t u = reinterpret_cast<uintptr_t>(p);
+        if (u < EXTENSION_ADDEND)
+            u += EXTENSION_ADDEND;
+        return reinterpret_cast<T *>(u);
+    }
+
     return p;
-#endif
 }
 
 template <class T>
 static uintptr_t extend(T p)
 {
-#if defined(X86_COMMON) && !defined(BITS_32)
-    // Must assign to a possibly-larger type before arithmetic.
-    uintptr_t u = p;
-    if (u < EXTENSION_ADDEND)
-        u += EXTENSION_ADDEND;
-    return u;
-#else
+    EMIT_IF(X86_COMMON && !BITS_32)
+    {
+        // Must assign to a possibly-larger type before arithmetic.
+        uintptr_t u = p;
+        if (u < EXTENSION_ADDEND)
+            u += EXTENSION_ADDEND;
+        return u;
+    }
+
     return p;
-#endif
 }
 
 template <class T>
 static T *retract(T *p)
 {
-#if defined(X86_COMMON) && !defined(BITS_32)
-    uintptr_t u = reinterpret_cast<uintptr_t>(p);
-    if (u >= EXTENSION_ADDEND)
-        u -= EXTENSION_ADDEND;
-    return reinterpret_cast<T *>(u);
-#else
+    EMIT_IF(X86_COMMON && !BITS_32)
+    {
+        uintptr_t u = reinterpret_cast<uintptr_t>(p);
+        if (u >= EXTENSION_ADDEND)
+            u -= EXTENSION_ADDEND;
+        return reinterpret_cast<T *>(u);
+    }
+
     return p;
-#endif
 }
 
 template <class T>
 static uintptr_t retract(T p)
 {
-#if defined(X86_COMMON) && !defined(BITS_32)
-    // Must assign to a possibly-larger type before arithmetic.
-    uintptr_t u = p;
-    if (u >= EXTENSION_ADDEND)
-        u -= EXTENSION_ADDEND;
-    return u;
-#else
+    EMIT_IF(X86_COMMON && !BITS_32)
+    {
+        // Must assign to a possibly-larger type before arithmetic.
+        uintptr_t u = p;
+        if (u >= EXTENSION_ADDEND)
+            u -= EXTENSION_ADDEND;
+        return u;
+    }
+
     return p;
-#endif
 }
 
 bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
@@ -109,96 +112,93 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
     if (pBootstrap.getSectionHeaderCount() == 0)
     {
         WARNING("No ELF object available to extract symbol table from.");
-#ifdef STATIC_DRIVERS
-        // Don't need the ELF object to load modules.
-        return true;
-#else
-        // Need the ELF object to load modules.
-        return false;
-#endif
+
+        // If we are running with static drivers we are OK to call this initialized.
+        return STATIC_DRIVERS == 1;
     }
 
-#ifdef X86_COMMON
-    PhysicalMemoryManager &physicalMemoryManager =
-        PhysicalMemoryManager::instance();
-    size_t pageSz = PhysicalMemoryManager::getPageSize();
-
-    m_AdditionalSectionHeaders = new MemoryRegion("Kernel ELF Section Headers");
-
-    // Map in section headers.
-    size_t sectionHeadersLength = pBootstrap.getSectionHeaderCount() *
-                                  pBootstrap.getSectionHeaderEntrySize();
-    if ((sectionHeadersLength % pageSz) > 0)
+    EMIT_IF(X86_COMMON)
     {
-        sectionHeadersLength += pageSz;
-    }
-    if (physicalMemoryManager.allocateRegion(
-            *m_AdditionalSectionHeaders, sectionHeadersLength / pageSz,
-            PhysicalMemoryManager::continuous,
-            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-            pBootstrap.getSectionHeaders()) == false)
-    {
-        ERROR("KernelElf::initialise failed to allocate for "
-              "m_AdditionalSectionHeaders");
-        return false;
-    }
+        PhysicalMemoryManager &physicalMemoryManager =
+            PhysicalMemoryManager::instance();
+        size_t pageSz = PhysicalMemoryManager::getPageSize();
 
-    // Determine the layout of the contents of non-code sections.
-    physical_uintptr_t start = ~0;
-    physical_uintptr_t end = 0;
-    for (size_t i = 1; i < pBootstrap.getSectionHeaderCount(); i++)
-    {
-        // Force 32-bit section header type as we are a 32-bit ELF object
-        // even on 64-bit targets.
-        uintptr_t shdr_addr = pBootstrap.getSectionHeaders() +
-                              i * pBootstrap.getSectionHeaderEntrySize();
-        Elf32SectionHeader_t *pSh =
-            m_AdditionalSectionHeaders
-                ->convertPhysicalPointer<Elf32SectionHeader_t>(shdr_addr);
+        m_AdditionalSectionHeaders = new MemoryRegion("Kernel ELF Section Headers");
 
-        if ((pSh->flags & SHF_ALLOC) != SHF_ALLOC)
+        // Map in section headers.
+        size_t sectionHeadersLength = pBootstrap.getSectionHeaderCount() *
+                                      pBootstrap.getSectionHeaderEntrySize();
+        if ((sectionHeadersLength % pageSz) > 0)
         {
-            if (pSh->addr <= start)
-            {
-                start = pSh->addr;
-            }
+            sectionHeadersLength += pageSz;
+        }
+        if (physicalMemoryManager.allocateRegion(
+                *m_AdditionalSectionHeaders, sectionHeadersLength / pageSz,
+                PhysicalMemoryManager::continuous,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                pBootstrap.getSectionHeaders()) == false)
+        {
+            ERROR("KernelElf::initialise failed to allocate for "
+                  "m_AdditionalSectionHeaders");
+            return false;
+        }
 
-            if ((pSh->addr + pSh->size) >= end)
+        // Determine the layout of the contents of non-code sections.
+        physical_uintptr_t start = ~0;
+        physical_uintptr_t end = 0;
+        for (size_t i = 1; i < pBootstrap.getSectionHeaderCount(); i++)
+        {
+            // Force 32-bit section header type as we are a 32-bit ELF object
+            // even on 64-bit targets.
+            uintptr_t shdr_addr = pBootstrap.getSectionHeaders() +
+                                  i * pBootstrap.getSectionHeaderEntrySize();
+            Elf32SectionHeader_t *pSh =
+                m_AdditionalSectionHeaders
+                    ->convertPhysicalPointer<Elf32SectionHeader_t>(shdr_addr);
+
+            if ((pSh->flags & SHF_ALLOC) != SHF_ALLOC)
             {
-                end = pSh->addr + pSh->size;
+                if (pSh->addr <= start)
+                {
+                    start = pSh->addr;
+                }
+
+                if ((pSh->addr + pSh->size) >= end)
+                {
+                    end = pSh->addr + pSh->size;
+                }
             }
         }
-    }
 
-    // Is there an overlap between headers and section data?
-    if ((start & ~(pageSz - 1)) ==
-        (pBootstrap.getSectionHeaders() & ~(pageSz - 1)))
-    {
-        // Yes, there is. Point the section headers MemoryRegion to the
-        // Contents.
-        delete m_AdditionalSectionHeaders;
-        m_AdditionalSectionHeaders = &m_AdditionalSectionContents;
-    }
+        // Is there an overlap between headers and section data?
+        if ((start & ~(pageSz - 1)) ==
+            (pBootstrap.getSectionHeaders() & ~(pageSz - 1)))
+        {
+            // Yes, there is. Point the section headers MemoryRegion to the
+            // Contents.
+            delete m_AdditionalSectionHeaders;
+            m_AdditionalSectionHeaders = &m_AdditionalSectionContents;
+        }
 
-    // Map in all non-alloc sections.
-    uintptr_t alignedStart = start & ~(pageSz - 1);
-    uintptr_t allocSize = end - alignedStart;
-    if ((allocSize % pageSz) > 0)
-    {
-        allocSize += pageSz;
+        // Map in all non-alloc sections.
+        uintptr_t alignedStart = start & ~(pageSz - 1);
+        uintptr_t allocSize = end - alignedStart;
+        if ((allocSize % pageSz) > 0)
+        {
+            allocSize += pageSz;
+        }
+        size_t additionalContentsPages = allocSize / pageSz;
+        if (physicalMemoryManager.allocateRegion(
+                m_AdditionalSectionContents, additionalContentsPages,
+                PhysicalMemoryManager::continuous,
+                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
+                start) == false)
+        {
+            ERROR("KernelElf::initialise failed to allocate for "
+                  "m_AdditionalSectionContents");
+            return false;
+        }
     }
-    size_t additionalContentsPages = allocSize / pageSz;
-    if (physicalMemoryManager.allocateRegion(
-            m_AdditionalSectionContents, additionalContentsPages,
-            PhysicalMemoryManager::continuous,
-            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write,
-            start) == false)
-    {
-        ERROR("KernelElf::initialise failed to allocate for "
-              "m_AdditionalSectionContents");
-        return false;
-    }
-#endif
 
     // Get the string table
     uintptr_t stringTableHeader =
@@ -208,14 +208,18 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
     KernelElfSectionHeader_t *stringTableShdr =
         reinterpret_cast<KernelElfSectionHeader_t *>(stringTableHeader);
 
-#ifdef X86_COMMON
-    const char *tmpStringTable =
-        m_AdditionalSectionContents.convertPhysicalPointer<const char>(
-            stringTableShdr->addr);
-#else
-    const char *tmpStringTable =
-        reinterpret_cast<const char *>(stringTableShdr->addr);
-#endif
+    const char *tmpStringTable;
+
+    EMIT_IF(X86_COMMON)
+    {
+        tmpStringTable =
+            m_AdditionalSectionContents.convertPhysicalPointer<const char>(
+                stringTableShdr->addr);
+    }
+    else
+    {
+        tmpStringTable = reinterpret_cast<const char *>(stringTableShdr->addr);
+    }
 
     // Search for the symbol/string table and adjust sections
     for (size_t i = 1; i < pBootstrap.getSectionHeaderCount(); i++)
@@ -223,44 +227,46 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         uintptr_t shdr_addr = pBootstrap.getSectionHeaders() +
                               i * pBootstrap.getSectionHeaderEntrySize();
 
-#ifdef X86_COMMON
-        KernelElfSectionHeader_t *pTruncatedSh =
-            m_AdditionalSectionHeaders
-                ->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
+        ElfSectionHeader_t *pSh = 0;
 
-        // Copy into larger format for analysis
-        ElfSectionHeader_t sh;
-        sh.name = pTruncatedSh->name;
-        sh.type = pTruncatedSh->type;
-        sh.flags = pTruncatedSh->flags;
-        sh.addr = pTruncatedSh->addr;
-        sh.offset = pTruncatedSh->offset;
-        sh.size = pTruncatedSh->size;
-        sh.link = pTruncatedSh->link;
-        sh.info = pTruncatedSh->info;
-        sh.addralign = pTruncatedSh->addralign;
-        sh.entsize = pTruncatedSh->entsize;
-
-        ElfSectionHeader_t *pSh = &sh;
-#else
-        KernelElfSectionHeader_t *pSh = 0;
-        pSh = reinterpret_cast<KernelElfSectionHeader_t *>(shdr_addr);
-#endif
-
-#ifdef X86_COMMON
-        // Adjust the section
-        if ((pSh->flags & SHF_ALLOC) != SHF_ALLOC)
+        EMIT_IF(X86_COMMON)
         {
-            NOTICE(
-                "Converting shdr " << Hex << pSh->addr << " -> "
-                                   << pSh->addr + pSh->size);
-            pSh->addr = reinterpret_cast<uintptr_t>(
-                m_AdditionalSectionContents.convertPhysicalPointer<void>(
-                    pSh->addr));
-            NOTICE(" to " << Hex << pSh->addr);
-            pSh->offset = pSh->addr;
+            KernelElfSectionHeader_t *pTruncatedSh =
+                m_AdditionalSectionHeaders
+                    ->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
+
+            // Copy into larger format for analysis
+            ElfSectionHeader_t sh;
+            sh.name = pTruncatedSh->name;
+            sh.type = pTruncatedSh->type;
+            sh.flags = pTruncatedSh->flags;
+            sh.addr = pTruncatedSh->addr;
+            sh.offset = pTruncatedSh->offset;
+            sh.size = pTruncatedSh->size;
+            sh.link = pTruncatedSh->link;
+            sh.info = pTruncatedSh->info;
+            sh.addralign = pTruncatedSh->addralign;
+            sh.entsize = pTruncatedSh->entsize;
+
+            pSh = &sh;
+
+            // Adjust the section
+            if ((pSh->flags & SHF_ALLOC) != SHF_ALLOC)
+            {
+                NOTICE(
+                    "Converting shdr " << Hex << pSh->addr << " -> "
+                                       << pSh->addr + pSh->size);
+                pSh->addr = reinterpret_cast<uintptr_t>(
+                    m_AdditionalSectionContents.convertPhysicalPointer<void>(
+                        pSh->addr));
+                NOTICE(" to " << Hex << pSh->addr);
+                pSh->offset = pSh->addr;
+            }
         }
-#endif
+        else
+        {
+            pSh = reinterpret_cast<ElfSectionHeader_t *>(shdr_addr);
+        }
 
         // Save the symbol/string table
         const char *pStr = tmpStringTable + pSh->name;
@@ -290,14 +296,9 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
         pBootstrap.getSectionHeaders());
     m_nSectionHeaders = pBootstrap.getSectionHeaderCount();
 
-#ifdef DEBUGGER
-    if (m_pSymbolTable && m_pStringTable)
+    if (DEBUGGER && m_pSymbolTable && m_pStringTable)
     {
-#ifdef X86_COMMON
         KernelElfSymbol_t *pSymbol = m_pSymbolTable;
-#else
-        KernelElfSymbol_t *pSymbol = m_pSymbolTable;
-#endif
 
         const char *pStrtab = reinterpret_cast<const char *>(m_pStringTable);
 
@@ -371,55 +372,51 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
                     binding = SymbolTable::Global;
             }
 
-#ifndef TRACK_HIDDEN_SYMBOLS
-            // Don't insert hidden symbols to the main symbol table.
-            if (pSymbol->other == STV_HIDDEN)
+            EMIT_IF(!TRACK_HIDDEN_SYMBOLS)
             {
-                ++pSymbol;
-                continue;
+                // Don't insert hidden symbols to the main symbol table.
+                if (pSymbol->other == STV_HIDDEN)
+                {
+                    ++pSymbol;
+                    continue;
+                }
             }
-#endif
 
             if (pStr && (*pStr != '\0'))
             {
-#ifdef HOSTED
-                // If name starts with __wrap_, rewrite it in flight as it's
-                // a wrapped symbol on hosted systems.
-                if (!StringCompareN(pStr, "__wrap_", 7))
+                EMIT_IF(HOSTED)
                 {
-                    pStr += 7;
+                    // If name starts with __wrap_, rewrite it in flight as it's
+                    // a wrapped symbol on hosted systems.
+                    if (!StringCompareN(pStr, "__wrap_", 7))
+                    {
+                        pStr += 7;
+                    }
                 }
-#endif
+
                 m_SymbolTable.insert(
                     String(pStr), binding, this, extend(pSymbol->value));
             }
             pSymbol++;
         }
     }
-#endif
 
     return true;
 }
 
 KernelElf::KernelElf()
     :
-#ifdef X86_COMMON
       m_AdditionalSectionContents("Kernel ELF Section Data"),
       m_AdditionalSectionHeaders(0),
-#endif
       m_Modules(), m_ModuleAllocator(), m_pSectionHeaders(0), m_pSymbolTable(0),
-#ifdef THREADS
       m_ModuleProgress(0), m_ModuleAdjustmentLock(false),
-#endif
       m_InitModule(nullptr)
 {
 }
 
 KernelElf::~KernelElf()
 {
-#ifdef X86_COMMON
     delete m_AdditionalSectionHeaders;
-#endif
 
     // All of these non-alloc sections are just pointers into the loaded kernel
     // ELF, which is not heap allocated. In normal Elf objects these are
@@ -529,32 +526,34 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
                              << (module->loadSize / 1024) << Hex
                              << "K of memory");
 
-#ifdef DUMP_DEPENDENCIES
-    size_t i = 0;
-    while (module->depends_opt && rebase(module, module->depends_opt[i]))
+    EMIT_IF(DUMP_DEPENDENCIES)
     {
-        DEBUG_LOG(
-            "KERNELELF: Module " << module->name << " optdepends on "
-                                 << rebase(module, module->depends_opt[i]));
-        ++i;
+        size_t i = 0;
+        while (module->depends_opt && rebase(module, module->depends_opt[i]))
+        {
+            DEBUG_LOG(
+                "KERNELELF: Module " << module->name << " optdepends on "
+                                     << rebase(module, module->depends_opt[i]));
+            ++i;
+        }
+
+        i = 0;
+        while (module->depends && rebase(module, module->depends[i]))
+        {
+            DEBUG_LOG(
+                "KERNELELF: Module " << module->name << " depends on "
+                                     << rebase(module, module->depends[i]));
+            ++i;
+        }
     }
 
-    i = 0;
-    while (module->depends && rebase(module, module->depends[i]))
+    EMIT_IF(MEMORY_TRACING)
     {
-        DEBUG_LOG(
-            "KERNELELF: Module " << module->name << " depends on "
-                                 << rebase(module, module->depends[i]));
-        ++i;
+        traceMetadata(
+            NormalStaticString(module->name),
+            reinterpret_cast<void *>(module->loadBase),
+            reinterpret_cast<void *>(module->loadBase + module->loadSize));
     }
-#endif
-
-#ifdef MEMORY_TRACING
-    traceMetadata(
-        NormalStaticString(module->name),
-        reinterpret_cast<void *>(module->loadBase),
-        reinterpret_cast<void *>(module->loadBase + module->loadSize));
-#endif
 
     if (!StringCompare(module->name, "init"))
     {
@@ -608,9 +607,12 @@ void KernelElf::executeModules(bool silent, bool progress)
     }
 }
 
-#ifdef STATIC_DRIVERS
 Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
 {
+    /// \todo rewrite to the new module dependency logic
+    return nullptr;
+
+    /*
     Module *module = new Module;
 
     module->buffer = 0;
@@ -667,8 +669,8 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
     }
 
     return module;
+    */
 }
-#endif
 
 void KernelElf::unloadModule(const char *name, bool silent, bool progress)
 {
@@ -698,37 +700,38 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
     if (module->exit)
         module->exit();
 
-// Check for a destructors list and execute.
-// Note: static drivers have their ctors/dtors all shared.
-#ifndef STATIC_DRIVERS
-    uintptr_t startDtors = module->elf->lookupSymbol("start_dtors");
-    uintptr_t endDtors = module->elf->lookupSymbol("end_dtors");
-
-    if (startDtors && endDtors)
+    // Check for a destructors list and execute.
+    // Note: static drivers have their ctors/dtors all shared.
+    EMIT_IF(!STATIC_DRIVERS)
     {
-        uintptr_t *iterator = reinterpret_cast<uintptr_t *>(startDtors);
-        while (iterator < reinterpret_cast<uintptr_t *>(endDtors))
+        uintptr_t startDtors = module->elf->lookupSymbol("start_dtors");
+        uintptr_t endDtors = module->elf->lookupSymbol("end_dtors");
+
+        if (startDtors && endDtors)
         {
-            if (static_cast<intptr_t>(*iterator) == -1)
+            uintptr_t *iterator = reinterpret_cast<uintptr_t *>(startDtors);
+            while (iterator < reinterpret_cast<uintptr_t *>(endDtors))
             {
-                ++iterator;
-                continue;
-            }
-            else if ((*iterator) == 0)
-            {
-                // End of table.
-                break;
-            }
+                if (static_cast<intptr_t>(*iterator) == -1)
+                {
+                    ++iterator;
+                    continue;
+                }
+                else if ((*iterator) == 0)
+                {
+                    // End of table.
+                    break;
+                }
 
-            uintptr_t dtor = *iterator;
-            void (*fp)(void) = reinterpret_cast<void (*)(void)>(dtor);
-            fp();
-            iterator++;
+                uintptr_t dtor = *iterator;
+                void (*fp)(void) = reinterpret_cast<void (*)(void)>(dtor);
+                fp();
+                iterator++;
+            }
         }
-    }
 
-    m_SymbolTable.eraseByElf(module->elf);
-#endif
+        m_SymbolTable.eraseByElf(module->elf);
+    }
 
     if (progress)
     {
@@ -739,32 +742,33 @@ void KernelElf::unloadModule(Module *module, bool silent, bool progress)
 
     NOTICE("KERNELELF: Module " << module->name << " unloaded.");
 
-#ifndef STATIC_DRIVERS
-    size_t pageSz = PhysicalMemoryManager::getPageSize();
-    size_t numPages =
-        (module->loadSize / pageSz) + (module->loadSize % pageSz ? 1 : 0);
-
-    // Unmap!
-    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    for (size_t i = 0; i < numPages; i++)
+    EMIT_IF(!STATIC_DRIVERS)
     {
-        void *unmapAddr =
-            reinterpret_cast<void *>(module->loadBase + (i * pageSz));
-        if (va.isMapped(unmapAddr))
+        size_t pageSz = PhysicalMemoryManager::getPageSize();
+        size_t numPages =
+            (module->loadSize / pageSz) + (module->loadSize % pageSz ? 1 : 0);
+
+        // Unmap!
+        VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+        for (size_t i = 0; i < numPages; i++)
         {
-            // Unmap the virtual address
-            physical_uintptr_t phys = 0;
-            size_t flags = 0;
-            va.getMapping(unmapAddr, phys, flags);
-            va.unmap(unmapAddr);
+            void *unmapAddr =
+                reinterpret_cast<void *>(module->loadBase + (i * pageSz));
+            if (va.isMapped(unmapAddr))
+            {
+                // Unmap the virtual address
+                physical_uintptr_t phys = 0;
+                size_t flags = 0;
+                va.getMapping(unmapAddr, phys, flags);
+                va.unmap(unmapAddr);
 
-            // Free the physical page
-            PhysicalMemoryManager::instance().freePage(phys);
+                // Free the physical page
+                PhysicalMemoryManager::instance().freePage(phys);
+            }
         }
-    }
 
-    m_ModuleAllocator.free(module->loadBase, module->loadSize);
-#endif
+        m_ModuleAllocator.free(module->loadBase, module->loadSize);
+    }
 
     delete module->elf;
     module->elf = nullptr;
@@ -875,12 +879,13 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
                     return false;
                 }
             }
-#ifdef DUMP_DEPENDENCIES
             else
             {
-                WARNING("KernelElf: optional dependency '" << depname << "' (wanted by '" << module->name << "') doesn't even exist, skipping.");
+                EMIT_IF(DUMP_DEPENDENCIES)
+                {
+                    WARNING("KernelElf: optional dependency '" << depname << "' (wanted by '" << module->name << "') doesn't even exist, skipping.");
+                }
             }
-#endif
 
             ++i;
         }
@@ -977,13 +982,16 @@ static int executeModuleThread(void *mod)
 
 bool KernelElf::executeModule(Module *module)
 {
-#if defined(THREADS) && THREADED_MODULE_LOADING
-    Process *me = Processor::information().getCurrentThread()->getParent();
-    Thread *pThread = new Thread(me, executeModuleThread, module);
-    pThread->detach();
-#else
-    executeModuleThread(module);
-#endif
+    EMIT_IF(THREADS && THREADED_MODULE_LOADING)
+    {
+        Process *me = Processor::information().getCurrentThread()->getParent();
+        Thread *pThread = new Thread(me, executeModuleThread, module);
+        pThread->detach();
+    }
+    else
+    {
+        executeModuleThread(module);
+    }
 
     return true;
 }
@@ -1003,19 +1011,15 @@ void KernelElf::updateModuleStatus(Module *module, bool status)
         unloadModule(moduleName, true, false);
     }
 
-#ifdef THREADS
     m_ModuleProgress.release();
-#endif
 }
 
 void KernelElf::waitForModulesToLoad()
 {
-#ifdef THREADS
     for (size_t i = 0; i < m_Modules.count(); ++i)
     {
         m_ModuleProgress.acquire();
     }
-#endif
 
     NOTICE("SUCCESSFUL MODULES:");
     for (auto it : m_Modules)
@@ -1110,14 +1114,16 @@ bool KernelElf::hasPendingModules() const
 
 void KernelElf::lockModules()
 {
-#ifdef THREADS
-    m_ModuleAdjustmentLock.acquire();
-#endif
+    EMIT_IF(THREADS)
+    {
+        m_ModuleAdjustmentLock.acquire();
+    }
 }
 
 void KernelElf::unlockModules()
 {
-#ifdef THREADS
-    m_ModuleAdjustmentLock.release();
-#endif
+    EMIT_IF(THREADS)
+    {
+        m_ModuleAdjustmentLock.release();
+    }
 }

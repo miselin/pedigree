@@ -141,11 +141,11 @@ pthread_t pthread_self()
 {
     /// \todo this is not brilliant.
     static struct _pthread_t result;
-#ifdef X86_COMMON
+#if X86_COMMON
     asm volatile("mov %%fs:0, %0" : "=r"(result.__internal.kthread));
 #endif
 
-#ifdef ARMV7
+#if ARMV7
     asm volatile("mrc p15,0,%0,c13,c0,3" : "=r"(result.__internal.kthread));
 #endif
 

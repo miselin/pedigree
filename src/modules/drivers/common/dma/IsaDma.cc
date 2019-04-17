@@ -23,7 +23,7 @@
 IsaDma::IsaDma() = default;
 IsaDma::~IsaDma() = default;
 
-#ifdef X86_COMMON
+#if X86_COMMON
 #include "x86/X86IsaDma.h"
 IsaDma &IsaDma::instance()
 {

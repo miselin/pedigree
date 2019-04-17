@@ -98,10 +98,11 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/core/cppsupport.h"
-
+#include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -122,7 +123,7 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
 
-#ifdef DEBUGGER
+#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
@@ -131,11 +132,11 @@
 #include "pedigree/kernel/machine/openfirmware/Device.h"
 #endif
 
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 #endif
 
-#ifdef HOSTED
+#if HOSTED
 namespace __pedigree_hosted
 {
 };  // namespace __pedigree_hosted
@@ -157,93 +158,98 @@ class SlamRecovery : public MemoryPressureHandler
     virtual bool compact();
 };
 
-#ifdef MULTIPROCESSOR
 /** Kernel entry point for application processors (after processor/machine has
    been initialised on the particular processor */
-void apMain()
+pedigree_std::enable_if<MULTIPROCESSOR>::type
+apMain()
 {
     NOTICE("Processor #" << Processor::id() << " started.");
 
-#ifdef THREADS
-    // Add us as the idle thread for this CPU.
-    Processor::information().getScheduler().setIdle(
-        Processor::information().getCurrentThread());
-#endif
+    EMIT_IF(THREADS)
+    {
+        // Add us as the idle thread for this CPU.
+        Processor::information().getScheduler().setIdle(
+            Processor::information().getCurrentThread());
+    }
 
     Processor::setInterrupts(true);
     for (;;)
     {
         Processor::haltUntilInterrupt();
 
-#ifdef THREADS
-        Scheduler::instance().yield();
-#endif
+        EMIT_IF(THREADS)
+        {
+            Scheduler::instance().yield();
+        }
     }
 }
-#endif
-
-#ifdef STATIC_DRIVERS
-extern uintptr_t start_modinfo;
-extern uintptr_t end_modinfo;
-
-extern uintptr_t start_module_ctors;
-extern uintptr_t end_module_ctors;
-#endif
 
 /** Loads all kernel modules */
 static int loadModules(void *inf)
 {
-#ifdef STATIC_DRIVERS
-    ModuleInfo *tags = reinterpret_cast<ModuleInfo *>(&start_modinfo);
-    ModuleInfo *lasttag = reinterpret_cast<ModuleInfo *>(&end_modinfo);
-
-    // Call static constructors before we start. If we don't... there won't be
-    // any properly initialised ModuleInfo structures :)
-    uintptr_t *iterator = &start_module_ctors;
-    while (iterator < &end_module_ctors)
+    EMIT_IF(STATIC_DRIVERS)
     {
-        void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-        fp();
-        iterator++;
-    }
+        extern uintptr_t start_modinfo;
+        extern uintptr_t end_modinfo;
+        extern uintptr_t start_module_ctors;
+        extern uintptr_t end_module_ctors;
 
-    // Run through all the modules
-    while (tags < lasttag)
-    {
-        if (tags->tag == MODULE_TAG)
+        ModuleInfo *tags = reinterpret_cast<ModuleInfo *>(&start_modinfo);
+        ModuleInfo *lasttag = reinterpret_cast<ModuleInfo *>(&end_modinfo);
+
+        // Call static constructors before we start. If we don't... there won't be
+        // any properly initialised ModuleInfo structures :)
+        uintptr_t *iterator = &start_module_ctors;
+        while (iterator < &end_module_ctors)
         {
-            KernelElf::instance().loadModule(tags);
+            void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+            fp();
+            iterator++;
         }
 
-        tags++;
+        // Run through all the modules
+        while (tags < lasttag)
+        {
+            if (tags->tag == MODULE_TAG)
+            {
+                KernelElf::instance().loadModule(tags);
+            }
+
+            tags++;
+        }
+
+        KernelElf::instance().executeModules();
     }
-
-    KernelElf::instance().executeModules();
-#else
-    BootstrapStruct_t *bsInf = static_cast<BootstrapStruct_t *>(inf);
-
-    /// \note We have to do this before we call Processor::initialisationDone()
-    /// otherwise the
-    ///       BootstrapStruct_t might already be unmapped
-    Archive initrd(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
-    bsInf = nullptr;
-
-    size_t nFiles = initrd.getNumFiles();
-    g_BootProgressTotal =
-        nFiles * 2;  // Each file has to be preloaded and executed.
-    for (size_t i = 0; i < nFiles; i++)
+    else
     {
-        Processor::setInterrupts(true);
-        KernelElf::instance().loadModule(
-            reinterpret_cast<uint8_t *>(initrd.getFile(i)),
-            initrd.getFileSize(i));
-        if (!Processor::getInterrupts())
-            WARNING("A loaded module disabled interrupts.");
-    }
+        BootstrapStruct_t *bsInf = static_cast<BootstrapStruct_t *>(inf);
 
-    // Start any modules we can run already.
-    KernelElf::instance().executeModules();
-#endif
+        NOTICE("initrd @ " << Hex << bsInf->getInitrdAddress() << ", " << Dec << bsInf->getInitrdSize() << " bytes");
+
+        /// \note We have to do this before we call Processor::initialisationDone()
+        /// otherwise the
+        ///       BootstrapStruct_t might already be unmapped
+        Archive initrd(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
+        bsInf = nullptr;
+
+        size_t nFiles = initrd.getNumFiles();
+        NOTICE("there are " << nFiles << " files");
+        g_BootProgressTotal =
+            nFiles * 2;  // Each file has to be preloaded and executed.
+        for (size_t i = 0; i < nFiles; i++)
+        {
+            NOTICE("loading module #" << i << "...");
+            Processor::setInterrupts(true);
+            KernelElf::instance().loadModule(
+                reinterpret_cast<uint8_t *>(initrd.getFile(i)),
+                initrd.getFileSize(i));
+            if (!Processor::getInterrupts())
+                WARNING("A loaded module disabled interrupts.");
+        }
+
+        // Start any modules we can run already.
+        KernelElf::instance().executeModules();
+    }
 
     // Wait for all modules to finish loading before we continue.
     KernelElf::instance().waitForModulesToLoad();
@@ -261,7 +267,7 @@ static int loadModules(void *inf)
         FATAL("At least one module's dependencies were never met.");
     }
 
-#ifdef HOSTED
+#if HOSTED
     fprintf(stderr, "Pedigree has started: all modules have been loaded.\n");
 #endif
 
@@ -279,9 +285,10 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
 
     g_pBootstrapInfo = &bsInf;
 
-#ifdef TRACK_LOCKS
-    g_LocksCommand.setReady();
-#endif
+    EMIT_IF(TRACK_LOCKS)
+    {
+        g_LocksCommand.setReady();
+    }
 
     TRACE("Processor init");
 
@@ -301,10 +308,11 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
 
     machine.initialise();
 
-#if defined(DEBUGGER)
-    TRACE("Debugger init");
-    Debugger::instance().initialise();
-#endif
+    EMIT_IF(DEBUGGER)
+    {
+        TRACE("Debugger init");
+        Debugger::instance().initialise();
+    }
 
     TRACE("Machine init2");
 
@@ -331,10 +339,12 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     if (KernelElf::instance().initialise(bsInf) == false)
         panic("KernelElf::initialise() failed");
 
-#ifndef STATIC_DRIVERS  // initrd needed if drivers aren't statically linked.
-    if (bsInf.isInitrdLoaded() == false)
-        panic("Initrd module not loaded!");
-#endif
+    EMIT_IF(!STATIC_DRIVERS)
+    {
+        // initrd needed if drivers aren't statically linked.
+        if (bsInf.isInitrdLoaded() == false)
+            panic("Initrd module not loaded!");
+    }
 
     TRACE("kernel syscall init");
 
@@ -353,11 +363,14 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     HugeStaticString str, ident;
     str += "Pedigree - revision ";
     str += g_pBuildRevision;
-#ifndef DONT_LOG_TO_SERIAL
-    str += "\r\n=======================\r\n";
-#else
-    str += "\n=======================\n";
-#endif
+    EMIT_IF(DONT_LOG_TO_SERIAL)
+    {
+        str += "\n=======================\n";
+    }
+    else
+    {
+        str += "\r\n=======================\r\n";
+    }
     bootIO.write(str, BootIO::White, BootIO::Black);
 
     str.clear();
@@ -367,45 +380,55 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     str += g_pBuildUser;
     str += " on ";
     str += g_pBuildMachine;
-#ifndef DONT_LOG_TO_SERIAL
-    str += "\r\n";
-#else
-    str += "\n";
-#endif
+    EMIT_IF(DONT_LOG_TO_SERIAL)
+    {
+        str += "\n";
+    }
+    else
+    {
+        str += "\r\n";
+    }
     bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
     str.clear();
     str += "Build flags: ";
     str += g_pBuildFlags;
-#ifndef DONT_LOG_TO_SERIAL
-    str += "\r\n";
-#else
-    str += "\n";
-#endif
+    EMIT_IF(DONT_LOG_TO_SERIAL)
+    {
+        str += "\n";
+    }
+    else
+    {
+        str += "\r\n";
+    }
     bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
     str.clear();
     str += "Processor information: ";
     Processor::identify(ident);
     str += ident;
-#ifndef DONT_LOG_TO_SERIAL
-    str += "\r\n";
-#else
-    str += "\n";
-#endif
+    EMIT_IF(DONT_LOG_TO_SERIAL)
+    {
+        str += "\n";
+    }
+    else
+    {
+        str += "\r\n";
+    }
     bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
     TRACE("creating graphics service");
 
-// Set up the graphics service for drivers to register with
-#ifndef NOGFX
-    GraphicsService *pService = new GraphicsService;
-    ServiceFeatures *pFeatures = new ServiceFeatures;
-    pFeatures->add(ServiceFeatures::touch);
-    pFeatures->add(ServiceFeatures::probe);
-    ServiceManager::instance().addService(
-        String("graphics"), pService, pFeatures);
-#endif
+    // Set up the graphics service for drivers to register with
+    EMIT_IF(!NOGFX)
+    {
+        GraphicsService *pService = new GraphicsService;
+        ServiceFeatures *pFeatures = new ServiceFeatures;
+        pFeatures->add(ServiceFeatures::touch);
+        pFeatures->add(ServiceFeatures::probe);
+        ServiceManager::instance().addService(
+            String("graphics"), pService, pFeatures);
+    }
 
     TRACE("creating memory pressure handlers");
 
@@ -431,35 +454,41 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     TRACE("InputManager init");
     InputManager::instance().initialise();
 
-#ifdef THREADS
-    TRACE("ZombieQueue init");
-    ZombieQueue::instance().initialise();
-#endif
+    EMIT_IF(THREADS)
+    {
+        TRACE("ZombieQueue init");
+        ZombieQueue::instance().initialise();
+    }
 
     /// \todo Seed random number generator.
 
     TRACE("starting module load thread");
 
-#if defined(THREADS)
-    Thread *pThread = new Thread(
-        Processor::information().getCurrentThread()->getParent(), &loadModules,
-        static_cast<void *>(&bsInf), 0);
-    pThread->detach();
-#else
-    loadModules(&bsInf);
-#endif
+    EMIT_IF(THREADS)
+    {
+        Thread *pThread = new Thread(
+            Processor::information().getCurrentThread()->getParent(), &loadModules,
+            static_cast<void *>(&bsInf), 0);
+        pThread->detach();
+    }
+    else
+    {
+        loadModules(&bsInf);
+    }
 
-#ifdef DEBUGGER_RUN_AT_START
-    Processor::breakpoint();
-#endif
+    EMIT_IF(DEBUGGER_RUN_AT_START)
+    {
+        Processor::breakpoint();
+    }
 
     TRACE("becoming idle");
 
-#ifdef THREADS
-    // Add us as the idle thread for this CPU.
-    Processor::information().getScheduler().setIdle(
-        Processor::information().getCurrentThread());
-#endif
+    EMIT_IF(THREADS)
+    {
+        // Add us as the idle thread for this CPU.
+        Processor::information().getScheduler().setIdle(
+            Processor::information().getCurrentThread());
+    }
 
     // This will run when nothing else is available to run
     for (;;)
@@ -480,9 +509,10 @@ void system_reset()
 {
     NOTICE("Resetting...");
 
-#ifdef MULTIPROCESSOR
-    Machine::instance().stopAllOtherProcessors();
-#endif
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        Machine::instance().stopAllOtherProcessors();
+    }
 
     // No need for user input anymore.
     InputManager::instance().shutdown();

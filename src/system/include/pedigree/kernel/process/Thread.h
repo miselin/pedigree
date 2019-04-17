@@ -20,7 +20,7 @@
 #ifndef THREAD_H
 #define THREAD_H
 
-#ifdef THREADS
+#if THREADS
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -370,7 +370,7 @@ class EXPORTED_PUBLIC Thread
 
     /** Gets this thread's CPU ID */
     inline
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
         ProcessorId
 #else
         size_t
@@ -382,7 +382,7 @@ class EXPORTED_PUBLIC Thread
 
     /** Sets this thread's CPU ID */
     inline void setCpuId(
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
         ProcessorId
 #else
         size_t
@@ -523,7 +523,7 @@ class EXPORTED_PUBLIC Thread
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase = nullptr;
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     ProcessorId
 #else
     size_t

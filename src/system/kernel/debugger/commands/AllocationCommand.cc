@@ -255,7 +255,7 @@ void AllocationCommand::allocatePage(physical_uintptr_t page)
     MemoryCopy(
         &pA->ra, bt.m_pReturnAddresses, NUM_BT_FRAMES * sizeof(uintptr_t));
 
-#ifdef THREADS
+#if THREADS
     Process *pP = Processor::information().getCurrentThread()->getParent();
     if (pP)
         pA->pid = pP->getId();

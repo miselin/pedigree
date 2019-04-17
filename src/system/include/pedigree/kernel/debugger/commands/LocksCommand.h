@@ -39,7 +39,7 @@ class Spinlock;
 #ifdef TESTSUITE
 #define LOCKS_COMMAND_NUM_CPU 4
 #else
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 #define LOCKS_COMMAND_NUM_CPU 255
 #else
 #define LOCKS_COMMAND_NUM_CPU 1

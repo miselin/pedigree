@@ -21,7 +21,7 @@
 #define KERNEL_UTILITY_OBJECT_POOL_H
 
 #include "pedigree/kernel/processor/types.h"
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Spinlock.h"
 #endif
@@ -44,7 +44,7 @@ class ObjectPool
   public:
     ObjectPool()
         : m_Pool()
-#ifdef THREADS
+#if THREADS
           ,
           m_Spinlock()
 #endif
@@ -67,7 +67,7 @@ class ObjectPool
             return new T(args...);
         }
 
-#ifdef THREADS
+#if THREADS
         LockGuard<Spinlock> guard(m_Spinlock);
 #endif
 
@@ -97,7 +97,7 @@ class ObjectPool
             return;
         }
 
-#ifdef THREADS
+#if THREADS
         LockGuard<Spinlock> guard(m_Spinlock);
 #endif
 
@@ -116,7 +116,7 @@ class ObjectPool
 
   private:
     Vector<T *> m_Pool;
-#ifdef THREADS
+#if THREADS
     Spinlock m_Spinlock;
 #endif
 };

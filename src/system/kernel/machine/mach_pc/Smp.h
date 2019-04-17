@@ -20,7 +20,7 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_SMP_H
 #define KERNEL_MACHINE_X86_COMMON_SMP_H
 
-#if defined(SMP)
+#if SMP
 
 #include "../../core/processor/x86_common/Multiprocessor.h"
 #include "pedigree/kernel/compiler.h"
@@ -52,7 +52,7 @@ class Smp
         return m_bValid;
     }
 
-#if defined(APIC)
+#if APIC
     /** Get the physical address of all local APICs
      *\return physical address of all local APICs */
     inline uint64_t getLocalApicAddress() const
@@ -66,7 +66,7 @@ class Smp
     {
         return m_IoApics;
     }
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     inline const Vector<Multiprocessor::ProcessorInformation *> &
     getProcessorList() const
     {
@@ -197,7 +197,7 @@ class Smp
     /** Pointer to the configuration table */
     ConfigTableHeader *m_pConfigTable;
 
-#if defined(APIC)
+#if APIC
     /** Is PIC Mode implemented? Otherwise Virtual-Wire Mode is implemented */
     bool m_bPICMode;
     /** Physical address of all local APICs */
@@ -205,7 +205,7 @@ class Smp
     /** List of I/O APICs */
     Vector<Multiprocessor::IoApicInformation *> m_IoApics;
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     /** List of processors */
     Vector<Multiprocessor::ProcessorInformation *> m_Processors;
 #endif

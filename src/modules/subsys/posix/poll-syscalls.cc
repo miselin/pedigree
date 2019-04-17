@@ -98,38 +98,41 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         timeoutType = SpecificTimeout;
     }
 
-#ifndef THREADS
-    timeoutType = ReturnImmediately;
-#endif
-
-#ifdef THREADS
-    // Grab the subsystem for this process
-    Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for this process!");
-        return -1;
-    }
-#else
     Thread *pThread = nullptr;
-#endif
+
+    EMIT_IF(!THREADS)
+    {
+        // can't time out without threads
+        timeoutType = ReturnImmediately;
+    }
+    else
+    {
+        // Grab the subsystem for this process
+        Thread *pThread = Processor::information().getCurrentThread();
+        Process *pProcess = pThread->getParent();
+        PosixSubsystem *pSubsystem =
+            reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        if (!pSubsystem)
+        {
+            ERROR("No subsystem for this process!");
+            return -1;
+        }
+    }
 
     List<PollEvent *> events;
 
     bool bError = false;
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
 
-#ifdef THREADS
-    // Can be interrupted while waiting for sem - EINTR.
-    Semaphore sem(0, true);
     Spinlock reentrancyLock;
-    Semaphore *pSem = &sem;
-#else
     Semaphore *pSem = nullptr;
-#endif
+
+    EMIT_IF(THREADS)
+    {
+        // Can be interrupted while waiting for sem - EINTR.
+        Semaphore sem(0, true);
+        pSem = &sem;
+    }
 
     for (unsigned int i = 0; i < nfds; i++)
     {
@@ -176,35 +179,36 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         me->revents |= event;
                         bWillReturnImmediately = true;
                     }
-#ifdef THREADS
-                    else if (!bWillReturnImmediately)
+                    EMIT_IF(THREADS)
                     {
-                        // Need to set up a PollEvent.
-                        PollEvent *pEvent =
-                            new PollEvent(&sem, me, event, pFd->file);
-                        pFd->file->monitor(pThread, pEvent);
-
-                        reentrancyLock.acquire();
-
-                        events.pushBack(pEvent);
-
-                        // Quickly check again now we've added the monitoring
-                        // event, to avoid a race condition where we could miss
-                        // the event.
-                        //
-                        /// \note This is safe because the event above can only
-                        /// be
-                        ///       dispatched to this thread, and while we hold
-                        ///       the reentrancy spinlock that cannot happen!
-                        if (pFd->file->select(checkWrite, 0))
+                        if (!bWillReturnImmediately)
                         {
-                            me->revents |= event;
-                            bWillReturnImmediately = true;
-                        }
+                            // Need to set up a PollEvent.
+                            PollEvent *pEvent =
+                                new PollEvent(pSem, me, event, pFd->file);
+                            pFd->file->monitor(pThread, pEvent);
 
-                        reentrancyLock.release();
+                            reentrancyLock.acquire();
+
+                            events.pushBack(pEvent);
+
+                            // Quickly check again now we've added the monitoring
+                            // event, to avoid a race condition where we could miss
+                            // the event.
+                            //
+                            /// \note This is safe because the event above can only
+                            /// be
+                            ///       dispatched to this thread, and while we hold
+                            ///       the reentrancy spinlock that cannot happen!
+                            if (pFd->file->select(checkWrite, 0))
+                            {
+                                me->revents |= event;
+                                bWillReturnImmediately = true;
+                            }
+
+                            reentrancyLock.release();
+                        }
                     }
-#endif
                 }
                 else if (pFd->networkImpl)
                 {
@@ -229,21 +233,24 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         // polling and setting up the waiter semaphore we
                         // managed to get a change which would otherwise not
                         // wake the semaphore
-#ifdef THREADS
-                        reentrancyLock.acquire();
-                        pollResult = pFd->networkImpl->poll(
-                            extraCheckingRead, extraCheckingWrite,
-                            extraCheckingError, nullptr);
-                        if (pollResult)
+                        EMIT_IF(THREADS)
                         {
-                            bWillReturnImmediately = pollResult;
+                            reentrancyLock.acquire();
+                            pollResult = pFd->networkImpl->poll(
+                                extraCheckingRead, extraCheckingWrite,
+                                extraCheckingError, nullptr);
+                            if (pollResult)
+                            {
+                                bWillReturnImmediately = pollResult;
+                            }
+                            reentrancyLock.release();
                         }
-                        reentrancyLock.release();
-#else
-                        extraCheckingWrite = false;
-                        extraCheckingRead = false;
-                        extraCheckingError = false;
-#endif
+                        else
+                        {
+                            extraCheckingWrite = false;
+                            extraCheckingRead = false;
+                            extraCheckingError = false;
+                        }
 
                         if (bWillReturnImmediately)
                         {
@@ -270,131 +277,135 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
     }
 
-#ifdef THREADS
-    // Grunt work is done, now time to cleanup.
-    while (!bWillReturnImmediately && !bError)
+    EMIT_IF(THREADS)
     {
-        POLL_NOTICE("    -> no fds ready yet, poll will block");
-
-        // We got here because there is a specific or infinite timeout and
-        // no FD was ready immediately.
-        //
-        // We wait on the semaphore 'sem': Its address has been given to all
-        // the events and will be raised whenever an FD has action.
-        Semaphore::SemaphoreResult result =
-            sem.acquireWithResult(1, timeoutSecs, timeoutUSecs);
-
-        // Did we actually get the semaphore or did we timeout?
-        if (result.hasValue())
+        // Grunt work is done, now time to cleanup.
+        while (!bWillReturnImmediately && !bError)
         {
-            // If we didn't actually get the Semaphore but there's not any
-            // other error state, just go around for another go.
-            if (!result.value())
-            {
-                continue;
-            }
+            POLL_NOTICE("    -> no fds ready yet, poll will block");
 
-            // We were signalled, so one more FD ready.
-            // While the semaphore is nonzero, more FDs are ready.
-            while (sem.tryAcquire())
-                ;
+            // We got here because there is a specific or infinite timeout and
+            // no FD was ready immediately.
+            //
+            // We wait on the semaphore 'sem': Its address has been given to all
+            // the events and will be raised whenever an FD has action.
+            Semaphore::SemaphoreResult result =
+                pSem->acquireWithResult(1, timeoutSecs, timeoutUSecs);
 
-            // Good to go for checking why we were woken (for sockets).
-            // We only break out of the main poll() loop if a file was polled,
-            // or a socket actually emits an expected event. This works better
-            // as for sockets in particular, we'll get woken up for ALL events,
-            // not just the ones we care about polling for.
-            bool ok = false;
-            for (size_t i = 0; i < nfds; ++i)
+            // Did we actually get the semaphore or did we timeout?
+            if (result.hasValue())
             {
-                struct pollfd *me = &fds[i];
-                FileDescriptor *pFd = getDescriptor(me->fd);
-                if (!pFd)
+                // If we didn't actually get the Semaphore but there's not any
+                // other error state, just go around for another go.
+                if (!result.value())
                 {
                     continue;
                 }
 
-                if (pFd->networkImpl && pFd->networkImpl->canPoll())
+                // We were signalled, so one more FD ready.
+                // While the semaphore is nonzero, more FDs are ready.
+                while (pSem->tryAcquire())
+                    ;
+
+                // Good to go for checking why we were woken (for sockets).
+                // We only break out of the main poll() loop if a file was polled,
+                // or a socket actually emits an expected event. This works better
+                // as for sockets in particular, we'll get woken up for ALL events,
+                // not just the ones we care about polling for.
+                bool ok = false;
+                for (size_t i = 0; i < nfds; ++i)
                 {
-                    bool checkingWrite = me->events & POLLOUT;
-                    bool checkingRead = me->events & POLLIN;
-                    bool checkingError = false;
-
-                    pFd->networkImpl->poll(
-                        checkingRead, checkingWrite, checkingError, nullptr);
-
-                    if (checkingWrite && (me->events & POLLOUT))
+                    struct pollfd *me = &fds[i];
+                    FileDescriptor *pFd = getDescriptor(me->fd);
+                    if (!pFd)
                     {
-                        me->revents |= POLLOUT;
-                        ok = true;
+                        continue;
                     }
 
-                    if (checkingRead && (me->events & POLLIN))
+                    if (pFd->networkImpl && pFd->networkImpl->canPoll())
                     {
-                        me->revents |= POLLIN;
+                        bool checkingWrite = me->events & POLLOUT;
+                        bool checkingRead = me->events & POLLIN;
+                        bool checkingError = false;
+
+                        pFd->networkImpl->poll(
+                            checkingRead, checkingWrite, checkingError, nullptr);
+
+                        if (checkingWrite && (me->events & POLLOUT))
+                        {
+                            me->revents |= POLLOUT;
+                            ok = true;
+                        }
+
+                        if (checkingRead && (me->events & POLLIN))
+                        {
+                            me->revents |= POLLIN;
+                            ok = true;
+                        }
+                    }
+                    else if (pFd->file)
+                    {
                         ok = true;
                     }
                 }
-                else if (pFd->file)
-                {
-                    ok = true;
-                }
-            }
 
-            if (ok)
-            {
-                break;
-            }
-        }
-        else
-        {
-            if (result.error() == Semaphore::TimedOut)
-            {
-                // timed out, not an error
-                POLL_NOTICE(" -> poll interrupted by timeout");
+                if (ok)
+                {
+                    break;
+                }
             }
             else
             {
-                // generic interrupt
-                POLL_NOTICE(" -> poll interrupted by external event");
-                SYSCALL_ERROR(Interrupted);
-                bError = true;
-            }
+                if (result.error() == Semaphore::TimedOut)
+                {
+                    // timed out, not an error
+                    POLL_NOTICE(" -> poll interrupted by timeout");
+                }
+                else
+                {
+                    // generic interrupt
+                    POLL_NOTICE(" -> poll interrupted by external event");
+                    SYSCALL_ERROR(Interrupted);
+                    bError = true;
+                }
 
-            break;
+                break;
+            }
         }
     }
-#endif
 
     // Only do cleanup and lock acquire/release if we set events up.
     if (events.count())
     {
         // Block any more events being sent to us so we can safely clean up.
-#ifdef THREADS
-        reentrancyLock.acquire();
-        pThread->inhibitEvent(EventNumbers::PollEvent, true);
-        reentrancyLock.release();
-#endif
+        EMIT_IF(THREADS)
+        {
+            reentrancyLock.acquire();
+            pThread->inhibitEvent(EventNumbers::PollEvent, true);
+            reentrancyLock.release();
+        }
 
         for (auto pEvent : events)
         {
             pEvent->getFile()->cullMonitorTargets(pThread);
         }
 
-        // Ensure there are no events still pending for this thread.
-#ifdef THREADS
-        pThread->cullEvent(EventNumbers::PollEvent);
-#endif
+        EMIT_IF(THREADS)
+        {
+            // Ensure there are no events still pending for this thread.
+            pThread->cullEvent(EventNumbers::PollEvent);
+        }
 
         for (auto pEvent : events)
         {
             delete pEvent;
         }
 
-        // Cleanup is complete, stop inhibiting events now.
-#ifdef THREADS
-        pThread->inhibitEvent(EventNumbers::PollEvent, false);
-#endif
+        EMIT_IF(THREADS)
+        {
+            // Cleanup is complete, stop inhibiting events now.
+            pThread->inhibitEvent(EventNumbers::PollEvent, false);
+        }
     }
 
     // Prepare return value (number of fds with events).

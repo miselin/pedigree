@@ -177,7 +177,7 @@ void ARM926EInterruptState::setBasePointer(uintptr_t basePointer)
 }
 size_t ARM926EInterruptState::getRegisterSize(size_t index) const
 {
-#if defined(BITS_32)
+#if BITS_32
     return 4;
 #else
     return 4;  // TODO: handle other bits sizes (this is mainly here)

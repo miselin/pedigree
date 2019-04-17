@@ -44,7 +44,7 @@
 
 #include "DiskImage.h"
 
-#ifdef HAVE_OPENSSL
+#if HAVE_OPENSSL
 #include <openssl/sha.h>
 #endif
 
@@ -521,7 +521,7 @@ bool probeAndMount(const char *image, size_t part)
     return true;
 }
 
-#ifdef HAVE_OPENSSL
+#if HAVE_OPENSSL
 void checksumFile(File *pFile)
 {
     uint8_t hash[SHA256_DIGEST_LENGTH];
@@ -574,7 +574,7 @@ int imageChecksums(const char *image, size_t part = 0)
         return 1;
     }
 
-#ifdef HAVE_OPENSSL
+#if HAVE_OPENSSL
 
     std::vector<File *> files;
     files.push_back(VFS::instance().find(TO_FS_PATH(std::string("/"))));

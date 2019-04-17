@@ -20,12 +20,25 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/Log.h"
 
-size_t Processor::getDebugBreakpointCount()
+void ProcessorBase::breakpoint()
+{
+    asm volatile("break");
+}
+
+void ProcessorBase::halt()
+{
+    // TODO: gcc will most certainly optimize this away in -O1/2/3 so please
+    //       replace it with some unoptimizable mighty magic
+    for (;;)
+        ;
+}
+
+size_t ProcessorBase::getDebugBreakpointCount()
 {
     return 1;
 }
 
-uintptr_t Processor::getDebugBreakpoint(
+uintptr_t ProcessorBase::getDebugBreakpoint(
     size_t nBpNumber, DebugFlags::FaultType &nFaultType, size_t &nLength,
     bool &bEnabled)
 {
@@ -62,7 +75,7 @@ uintptr_t Processor::getDebugBreakpoint(
     return watchLo & 0xFFFFFFFC;
 }
 
-void Processor::enableDebugBreakpoint(
+void ProcessorBase::enableDebugBreakpoint(
     size_t nBpNumber, uintptr_t nLinearAddress,
     DebugFlags::FaultType nFaultType, size_t nLength)
 {
@@ -83,7 +96,7 @@ void Processor::enableDebugBreakpoint(
     asm volatile("mtc0 %0, $18; nop" : : "r"(nLinearAddress));
 }
 
-void Processor::disableDebugBreakpoint(size_t nBpNumber)
+void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber)
 {
     if (nBpNumber > 0)
     {
@@ -95,7 +108,7 @@ void Processor::disableDebugBreakpoint(size_t nBpNumber)
     asm volatile("mtc0 %0, $18; nop" : : "r"(watchLo));
 }
 
-void Processor::setInterrupts(bool bEnable)
+void ProcessorBase::setInterrupts(bool bEnable)
 {
     uint32_t sr;
     asm volatile("mfc0 %0, $12;nop" : "=r"(sr));
@@ -106,18 +119,18 @@ void Processor::setInterrupts(bool bEnable)
     asm volatile("mtc0 %0, $12;nop" : : "r"(sr));
 }
 
-void Processor::setSingleStep(bool bEnable, InterruptState &state)
+void ProcessorBase::setSingleStep(bool bEnable, InterruptState &state)
 {
     /// \todo Implement - MIPS doesn't have a single step mechanism per se...
     ERROR("Single step unavailable on MIPS.");
 }
 
-void Processor::invalidateICache(uintptr_t nAddr)
+void ProcessorBase::invalidateICache(uintptr_t nAddr)
 {
     asm volatile("cache 0x10, 0(%0)" : : "r"(nAddr));
 }
 
-void Processor::invalidateDCache(uintptr_t nAddr)
+void ProcessorBase::invalidateDCache(uintptr_t nAddr)
 {
     asm volatile("cache 0x11, 0(%0)" : : "r"(nAddr));
 }

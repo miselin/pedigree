@@ -25,7 +25,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/LockGuard.h"
 #define RAII_LOCK() LockGuard<Mutex> guard(m_TreeLock)
 
@@ -359,27 +359,25 @@ Device::Address::Address(
       m_Padding(pad), m_bMapped(false)
 {
 #ifndef DEVICE_IGNORE_ADDRESSES
-#ifndef KERNEL_PROCESSOR_NO_PORT_IO
-    if (m_IsIoSpace)
+    EMIT_IF(!KERNEL_PROCESSOR_NO_PORT_IO)
     {
-        IoPort *pIo = new IoPort(m_Name);
-        pIo->allocate(a, s);
-        m_Io = pIo;
+        if (m_IsIoSpace)
+        {
+            IoPort *pIo = new IoPort(m_Name);
+            pIo->allocate(a, s);
+            m_Io = pIo;
+            return;
+        }
     }
-    else
-    {
-#endif
-        // In this case, IO accesses go through MemoryMappedIo too.
-        size_t pageSize = PhysicalMemoryManager::getPageSize();
-        uint32_t numPages = s / pageSize;
-        if (s % pageSize)
-            numPages++;
 
-        MemoryMappedIo *pIo = new MemoryMappedIo(m_Name, a % pageSize, pad);
-        m_Io = pIo;
-#ifndef KERNEL_PROCESSOR_NO_PORT_IO
-    }
-#endif
+    // In this case, IO accesses go through MemoryMappedIo too.
+    size_t pageSize = PhysicalMemoryManager::getPageSize();
+    uint32_t numPages = s / pageSize;
+    if (s % pageSize)
+        numPages++;
+
+    MemoryMappedIo *pIo = new MemoryMappedIo(m_Name, a % pageSize, pad);
+    m_Io = pIo;
 #endif  // DEVICE_IGNORE_ADDRESSES
 }
 
@@ -389,10 +387,11 @@ void Device::Address::map(
 #ifndef DEVICE_IGNORE_ADDRESSES
     if (!m_Io)
         return;
-#ifndef KERNEL_PROCESSOR_NO_PORT_IO
-    if (m_IsIoSpace)
-        return;
-#endif
+    EMIT_IF(!KERNEL_PROCESSOR_NO_PORT_IO)
+    {
+        if (m_IsIoSpace)
+            return;
+    }
     if (m_bMapped)
         return;
 

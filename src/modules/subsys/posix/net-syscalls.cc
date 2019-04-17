@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS  // don't need them here
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1  // don't need them here
 
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
@@ -280,14 +280,15 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
         "send(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                 << ")");
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && bufflen)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
-        N_NOTICE(" -> sending: '" << debug << "'");
+        if (buff && bufflen)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
+            N_NOTICE(" -> sending: '" << debug << "'");
+        }
     }
-#endif
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -317,14 +318,15 @@ ssize_t posix_sendto(
         "sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                   << ", " << address << ", " << addrlen << ")");
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && bufflen)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
-        N_NOTICE(" -> sending: '" << debug << "'");
+        if (buff && bufflen)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
+            N_NOTICE(" -> sending: '" << debug << "'");
+        }
     }
-#endif
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -361,14 +363,15 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && n > 0)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), n, true);
-        N_NOTICE(" -> received: '" << debug << "'");
+        if (buff && n > 0)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), n, true);
+            N_NOTICE(" -> received: '" << debug << "'");
+        }
     }
-#endif
 
     N_NOTICE(" -> " << n);
     return n;
@@ -406,14 +409,15 @@ ssize_t posix_recvfrom(
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && n > 0)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), n, true);
-        N_NOTICE(" -> received: '" << debug << "'");
+        if (buff && n > 0)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), n, true);
+            N_NOTICE(" -> received: '" << debug << "'");
+        }
     }
-#endif
 
     N_NOTICE(" -> " << n);
     return n;
@@ -1337,9 +1341,7 @@ bool LwipSocketSyscalls::poll(
         return true;
     }
 
-#ifdef THREADS
-    m_Metadata.lock.acquire();
-#endif
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
 
     if (write)
     {
@@ -1366,16 +1368,11 @@ bool LwipSocketSyscalls::poll(
         m_Metadata.semaphores.pushBack(waiter);
     }
 
-#ifdef THREADS
-    m_Metadata.lock.release();
-#endif
-
     return ok;
 }
 
 void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 {
-#ifdef THREADS
     m_Metadata.lock.acquire();
     for (auto it = m_Metadata.semaphores.begin();
          it != m_Metadata.semaphores.end();)
@@ -1390,7 +1387,6 @@ void LwipSocketSyscalls::unPoll(Semaphore *waiter)
         }
     }
     m_Metadata.lock.release();
-#endif
 }
 
 void LwipSocketSyscalls::netconnCallback(
@@ -1402,9 +1398,7 @@ void LwipSocketSyscalls::netconnCallback(
         return;
     }
 
-#ifdef THREADS
-    obj->m_Metadata.lock.acquire();
-#endif
+    ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
 
     switch (evt)
     {
@@ -1437,14 +1431,13 @@ void LwipSocketSyscalls::netconnCallback(
     }
 
         /// \todo need a way to do this with lwip when threads are off
-#ifdef THREADS
-    for (auto &it : obj->m_Metadata.semaphores)
+    EMIT_IF(THREADS)
     {
-        it->release();
+        for (auto &it : obj->m_Metadata.semaphores)
+        {
+            it->release();
+        }
     }
-
-    obj->m_Metadata.lock.release();
-#endif
 }
 
 void LwipSocketSyscalls::lwipToSyscallError(err_t err)

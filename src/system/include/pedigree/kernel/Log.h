@@ -21,9 +21,7 @@
 #define KERNEL_LOG_H
 
 #include "pedigree/kernel/compiler.h"
-#ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
-#endif
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
@@ -36,6 +34,7 @@ class StringView;
  * @{ */
 
 #define SHOW_FILE_IN_LOGS 0
+#define HUGE_STATIC_LOG 0
 
 typedef StaticCord<8> LogCord;
 
@@ -59,7 +58,7 @@ typedef StaticCord<8> LogCord;
         Log::instance().addEntry(__log_macro_logentry, lock); \
     } while (0)
 
-#ifndef NO_LOGGING
+#if LOGGING
 
 /** Add a debug item to the log */
 #if DEBUG_LOGGING
@@ -101,13 +100,13 @@ typedef StaticCord<8> LogCord;
             ;                              \
     } while (0)
 
-#ifdef PEDANTIC_PEDIGREE
+#if PEDANTIC_PEDIGREE
 #define PEDANTRY FATAL
 #else
 #define PEDANTRY WARNING
 #endif
 
-#else  // NO_LOGGING
+#else  // LOGGING
 
 #define DEBUG_LOG(text)
 #define DEBUG_LOG_NOLOCK(text)
@@ -126,7 +125,7 @@ typedef StaticCord<8> LogCord;
 /** The maximum length of an individual static log entry. */
 #define LOG_LENGTH 128
 /** The maximum number of static entries in the log. */
-#ifdef HUGE_STATIC_LOG
+#if HUGE_STATIC_LOG
 // 2MB static log buffer
 #define LOG_ENTRIES ((1 << 21) / sizeof(LogEntry))
 #else
@@ -193,12 +192,10 @@ class Log
         Fatal
     };
 
-/** The lock
- *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL
- *macros */
-#ifdef THREADS
+    /** The lock
+     *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL
+     *macros */
     Spinlock m_Lock;
-#endif
 
     /** Retrieves the static Log instance.
      *\return instance of the log class */

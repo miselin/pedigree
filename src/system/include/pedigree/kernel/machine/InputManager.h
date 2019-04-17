@@ -168,7 +168,7 @@ class EXPORTED_PUBLIC InputManager
         /// The handler function
         callback_t func;
 
-#ifdef THREADS
+#if THREADS
         /// Thread to send an Event to. If null, the Event will be sent to the
         /// current thread, which is only valid for kernel callbacks (as there
         /// will be no address space switch for a call to a kernel function).
@@ -198,7 +198,7 @@ class EXPORTED_PUBLIC InputManager
     /// Callback list
     List<CallbackItem *> m_Callbacks;
 
-#ifdef THREADS
+#if THREADS
     /// Key press queue Semaphore
     Semaphore m_InputQueueSize;
 

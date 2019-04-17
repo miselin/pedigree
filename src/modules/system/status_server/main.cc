@@ -319,7 +319,7 @@ static int clientThread(void *p)
 
         responseContent += "</table>";
 
-#ifdef X86_COMMON
+#if X86_COMMON
         responseContent += "<h3>Memory Usage (KiB)</h3>";
         responseContent += "<table "
                            "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"

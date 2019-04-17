@@ -92,7 +92,7 @@ pedigree_app(display ON OFF OFF-mode "" ${CMAKE_CURRENT_SOURCE_DIR}/applications
 # pedigree_app(fire ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/fire/fire.c)
 pedigree_app(gears ON ON OFF "libui;OSMesa" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gears/gears.cc)
 pedigree_app(gfxcon ON ON OFF "libui;libfb;libtui;cairo;${PANGO_LIBS};freetype" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gfxcon/main.cc)
-pedigree_app(init ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/init/main.c)
+pedigree_app(init ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/init/main.c)
 pedigree_app(ipc-test-client ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-client/main.cc)
 pedigree_app(ipc-test-server ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-server/main.cc)
 pedigree_app(keymap ON OFF ON ""

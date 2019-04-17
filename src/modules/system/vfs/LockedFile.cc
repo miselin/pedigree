@@ -27,7 +27,7 @@ class File;
 
 LockedFile::LockedFile(File *pFile)
     : m_File(pFile), m_bLocked(false), m_LockerPid(0)
-#ifdef THREADS
+#if THREADS
       ,
       m_Lock(false)
 #endif
@@ -35,7 +35,7 @@ LockedFile::LockedFile(File *pFile)
 
 LockedFile::LockedFile(LockedFile &c)
     : m_File(0), m_bLocked(false), m_LockerPid(0)
-#ifdef THREADS
+#if THREADS
       ,
       m_Lock(false)
 #endif
@@ -44,7 +44,7 @@ LockedFile::LockedFile(LockedFile &c)
     m_bLocked = c.m_bLocked;
     m_LockerPid = c.m_LockerPid;
 
-#ifdef THREADS
+#if THREADS
     if (m_bLocked)
     {
         m_Lock.acquire();
@@ -54,7 +54,7 @@ LockedFile::LockedFile(LockedFile &c)
 
 bool LockedFile::lock(bool bBlock)
 {
-#ifdef THREADS
+#if THREADS
     if (!bBlock)
     {
         if (!m_Lock.tryAcquire())
@@ -75,7 +75,7 @@ bool LockedFile::lock(bool bBlock)
 
 void LockedFile::unlock()
 {
-#ifdef THREADS
+#if THREADS
     if (m_bLocked)
     {
         m_bLocked = false;
@@ -86,7 +86,7 @@ void LockedFile::unlock()
 
 File *LockedFile::getFile()
 {
-#ifdef THREADS
+#if THREADS
     // If we're locked, and we aren't the locking process, we can't access the
     // file Otherwise, the file is accessible
     if (m_bLocked == true &&
@@ -100,7 +100,7 @@ File *LockedFile::getFile()
 
 size_t LockedFile::getLocker()
 {
-#ifdef THREADS
+#if THREADS
     if (m_bLocked)
         return m_LockerPid;
     else

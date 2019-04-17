@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef MULTIPROCESSOR
-
 #include "Multiprocessor.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
@@ -29,23 +27,12 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#if defined(X86)
-#include "../x86/VirtualAddressSpace.h"
-#elif defined(X64)
 #include "../x64/VirtualAddressSpace.h"
-#endif
 
 #include <machine/mach_pc/Acpi.h>
 #include <machine/mach_pc/LocalApic.h>
 #include <machine/mach_pc/Pc.h>
 #include <machine/mach_pc/Smp.h>
-
-#if !defined(APIC)
-#error APIC not defined
-#endif
-#if !defined(ACPI) && !defined(SMP)
-#error Neither ACPI nor SMP defined
-#endif
 
 // Don't track these locks - they are never going to be "correct" (they are for
 // synchronisation, not for protecting a specific resource).
@@ -66,19 +53,21 @@ size_t Multiprocessor::initialise1()
     // List of information about each usable processor
     const Vector<ProcessorInformation *> *Processors = 0;
 
-#if defined(ACPI)
-    // Search through the ACPI tables
-    Acpi &acpi = Acpi::instance();
-    if ((bMPInfoFound = acpi.validProcessorInfo()) == true)
-        Processors = &acpi.getProcessorList();
-#endif
+    EMIT_IF(ACPI)
+    {
+        // Search through the ACPI tables
+        Acpi &acpi = Acpi::instance();
+        if ((bMPInfoFound = acpi.validProcessorInfo()) == true)
+            Processors = &acpi.getProcessorList();
+    }
 
-#if defined(SMP)
-    // Search through the SMP tables
-    Smp &smp = Smp::instance();
-    if (bMPInfoFound == false && (bMPInfoFound = smp.valid()) == true)
-        Processors = &smp.getProcessorList();
-#endif
+    EMIT_IF(SMP)
+    {
+        // Search through the SMP tables
+        Smp &smp = Smp::instance();
+        if (bMPInfoFound == false && (bMPInfoFound = smp.valid()) == true)
+            Processors = &smp.getProcessorList();
+    }
 
     // No processor list found
     if (bMPInfoFound == false || !Processors)
@@ -106,30 +95,27 @@ size_t Multiprocessor::initialise1()
     MemoryCopy(reinterpret_cast<void *>(0x7200), &trampolinegdtr64, 0x10);
     MemoryCopy(reinterpret_cast<void *>(0x7210), &trampolinegdt64, 0xF0);
 
-// Parameters for the trampoline code
-#if defined(X86)
-    volatile uint32_t *trampolineStack =
-        reinterpret_cast<volatile uint32_t *>(0x7FF8);
-    volatile uint32_t *trampolineKernelEntry =
-        reinterpret_cast<volatile uint32_t *>(0x7FF4);
+    volatile uintptr_t *trampolineStack;
+    volatile uintptr_t *trampolineKernelEntry;
 
-    // Set the virtual address space
-    *reinterpret_cast<volatile uint32_t *>(0x7FFC) =
-        static_cast<X86VirtualAddressSpace &>(
-            VirtualAddressSpace::getKernelAddressSpace())
-            .m_PhysicalPageDirectory;
-#elif defined(X64)
-    volatile uint64_t *trampolineStack =
-        reinterpret_cast<volatile uint64_t *>(0x7FF0);
-    volatile uint64_t *trampolineKernelEntry =
-        reinterpret_cast<volatile uint64_t *>(0x7FE8);
+    // Parameters for the trampoline code
+    EMIT_IF(X86)
+    {
+        // dead code path
+    }
+    else
+    {
+        trampolineStack =
+            reinterpret_cast<volatile uintptr_t *>(0x7FF0);
+        trampolineKernelEntry =
+            reinterpret_cast<volatile uintptr_t *>(0x7FE8);
 
-    // Set the virtual address space
-    *reinterpret_cast<volatile uint64_t *>(0x7FF8) =
-        static_cast<X64VirtualAddressSpace &>(
-            VirtualAddressSpace::getKernelAddressSpace())
-            .m_PhysicalPML4;
-#endif
+        // Set the virtual address space
+        *reinterpret_cast<volatile uintptr_t *>(0x7FF8) =
+            static_cast<X64VirtualAddressSpace &>(
+                VirtualAddressSpace::getKernelAddressSpace())
+                .m_PhysicalPML4;
+    }
 
     // Set the entry point
     *trampolineKernelEntry =
@@ -207,5 +193,3 @@ void Multiprocessor::initialise2()
 {
     m_ProcessorLock2.release();
 }
-
-#endif

@@ -44,7 +44,7 @@ class HostedInterruptManager : public ::InterruptManager
     virtual bool registerInterruptHandler(
         size_t nInterruptNumber, InterruptHandler *pHandler);
 
-#ifdef DEBUGGER
+#if DEBUGGER
     virtual bool registerInterruptHandlerDebugger(
         size_t nInterruptNumber, InterruptHandler *pHandler);
     virtual size_t getBreakpointInterruptNumber() PURE;
@@ -92,7 +92,7 @@ class HostedInterruptManager : public ::InterruptManager
 
     /** The normal interrupt handlers */
     InterruptHandler *m_pHandler[MAX_SIGNAL];
-#ifdef DEBUGGER
+#if DEBUGGER
     /** The debugger interrupt handlers */
     InterruptHandler *m_pDbgHandler[MAX_SIGNAL];
 #endif

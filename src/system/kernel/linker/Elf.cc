@@ -31,8 +31,6 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#define TRACK_HIDDEN_SYMBOLS 1
-
 static void resolveNeeded()
 {
     FATAL("ELF: resolveNeeded() called but binary should have been fully "
@@ -173,11 +171,12 @@ Elf::Elf(const Elf &elf)
 
 bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
 {
-#ifdef VERBOSE_KERNEL
-    NOTICE(
-        "Elf::createNeededOnly: buffer at "
-        << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len " << length);
-#endif
+    EMIT_IF(VERBOSE_KERNEL)
+    {
+        NOTICE(
+            "Elf::createNeededOnly: buffer at "
+            << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len " << length);
+    }
     if (!pBuffer || !length)
         return false;
 
@@ -195,13 +194,7 @@ bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
     }
 
     // Check the bit-length.
-    if (pHeader->ident[4] !=
-#ifdef BITS_32
-        1 /* ELFCLASS32 */
-#else
-        2 /* ELFCLASS64 */
-#endif
-    )
+    if (pHeader->ident[4] != (BITS_32 == 1 ? 1 /* ELFCLASS32 */ : 2 /* ELFCLASS64 */))
     {
         ERROR("ELF file: wrong bit length!");
     }
@@ -254,10 +247,11 @@ bool Elf::createNeededOnly(uint8_t *pBuffer, size_t length)
                 m_sInterpreter =
                     String(reinterpret_cast<char *>(&pBuffer[pInterp->offset]));
 
-#ifdef VERBOSE_KERNEL
-                NOTICE(
-                    "ELF::createNeededOnly interpreter is " << m_sInterpreter);
-#endif
+                EMIT_IF(VERBOSE_KERNEL)
+                {
+                    NOTICE(
+                        "ELF::createNeededOnly interpreter is " << m_sInterpreter);
+                }
             }
         }
 
@@ -296,13 +290,7 @@ bool Elf::validate(uint8_t *pBuffer, size_t length)
         return false;
     }
 
-    if (pHeader->ident[4] !=
-#ifdef BITS_32
-        1 /* ELFCLASS32 */
-#else
-        2 /* ELFCLASS64 */
-#endif
-    )
+    if (pHeader->ident[4] != (BITS_32 == 1 ? 1 /* ELFCLASS32 */ : 2 /* ELFCLASS64 */))
     {
         return false;
     }
@@ -329,13 +317,7 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
     }
 
     // Check the bit-length.
-    if (pHeader->ident[4] !=
-#ifdef BITS_32
-        1 /* ELFCLASS32 */
-#else
-        2 /* ELFCLASS64 */
-#endif
-    )
+    if (pHeader->ident[4] != (BITS_32 == 1 ? 1 /* ELFCLASS32 */ : 2 /* ELFCLASS64 */))
     {
         ERROR("ELF file: wrong bit length!");
     }
@@ -754,9 +736,7 @@ bool Elf::loadModule(
                     String name(pStr);
                     m_SymbolTable.insert(
                         name, binding, this, pSymbol->value + loadBase);
-#ifndef TRACK_HIDDEN_SYMBOLS
-                    if (pSymbol->other != STV_HIDDEN)
-#endif
+                    if ((pSymbol->other != STV_HIDDEN) || TRACK_HIDDEN_SYMBOLS)
                     {
                         // not hidden - add to the copied symbol table
                         pSymbolTableCopy->insert(
@@ -838,7 +818,6 @@ bool Elf::allocate(
     uint8_t *pBuffer, size_t length, uintptr_t &loadBase, SymbolTable *pSymtab,
     bool bAllocate, size_t *pSize)
 {
-#ifdef THREADS
     NOTICE(
         "Elf::allocate: buffer at "
         << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len " << length);
@@ -943,9 +922,7 @@ bool Elf::allocate(
             }
 
                 // Don't let hidden symbols work for lookups
-#ifndef TRACK_HIDDEN_SYMBOLS
-            if (pSymbol->other != STV_HIDDEN)
-#endif
+            if ((pSymbol->other != STV_HIDDEN) || TRACK_HIDDEN_SYMBOLS)
             {
                 if (ST_TYPEOK(pSymbol->info))
                 {
@@ -991,11 +968,6 @@ bool Elf::allocate(
     }
 
     return true;
-#else
-    ERROR(
-        "Elf::allocate: no thread or process support, cannot allocate memory");
-    return false;
-#endif
 }
 
 bool Elf::load(
@@ -1038,10 +1010,8 @@ bool Elf::load(
                 reinterpret_cast<uint8_t *>(sectionStart + filesz), 0,
                 memsz - filesz);
 
-#if defined(PPC_COMMON) || defined(MIPS_COMMON)
             Processor::flushDCacheAndInvalidateICache(
                 loadAddr, loadAddr + m_pProgramHeaders[i].filesz);
-#endif
         }
     }
 
@@ -1443,9 +1413,7 @@ void Elf::populateSymbolTable(SymbolTable *pSymtab, uintptr_t loadBase)
                 }
 
                     // Don't insert hidden symbols
-#ifndef TRACK_HIDDEN_SYMBOLS
-                if (pSymbol->other != STV_HIDDEN)
-#endif
+                if ((pSymbol->other != STV_HIDDEN) || TRACK_HIDDEN_SYMBOLS)
                 {
                     if (ST_TYPEOK(pSymbol->info))
                     {
@@ -1558,7 +1526,7 @@ void Elf::rebaseDynamic()
 /** Global specializations for ELF symbol types. */
 template const char *Elf::lookupSymbol<Elf::ElfSymbol_t>(
     uintptr_t addr, uintptr_t *startAddr = 0, ElfSymbol_t *symbolTable = 0);
-#ifdef BITS_64
+#if BITS_64
 template const char *Elf::lookupSymbol<Elf::Elf32Symbol_t>(
     uintptr_t addr, uintptr_t *startAddr = 0, Elf32Symbol_t *symbolTable = 0);
 #endif

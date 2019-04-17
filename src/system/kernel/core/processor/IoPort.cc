@@ -20,8 +20,6 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/IoPortManager.h"
 
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-
 IoPort::IoPort(const char *name) : m_IoPort(0), m_Size(0), m_Name(name)
 {
 }
@@ -76,5 +74,3 @@ const char *IoPort::name() const
 {
     return m_Name;
 }
-
-#endif

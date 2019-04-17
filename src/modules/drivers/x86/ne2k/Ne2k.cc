@@ -121,7 +121,7 @@ Ne2k::Ne2k(Network *pDev)
     m_pBase->write8(tmp, NE_CMD);
 
 // register the packet queue handler before we install the IRQ
-#ifdef THREADS
+#if THREADS
     Thread *pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), &trampoline,
         reinterpret_cast<void *>(this));

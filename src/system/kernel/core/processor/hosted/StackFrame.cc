@@ -21,7 +21,7 @@
 #include "pedigree/kernel/Log.h"
 #include <stdarg.h>
 
-#if defined(DEBUGGER)
+#if DEBUGGER
 
 uintptr_t HostedStackFrame::getParameter(size_t n)
 {

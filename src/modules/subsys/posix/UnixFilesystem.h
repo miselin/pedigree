@@ -250,7 +250,7 @@ class UnixSocket : public File
     Mutex m_Mutex;
 
     // Ack waiter lock
-#ifdef THREADS
+#if THREADS
     Semaphore m_AckWaiter;
 #endif
 

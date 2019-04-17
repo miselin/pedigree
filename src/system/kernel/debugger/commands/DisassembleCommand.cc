@@ -70,7 +70,7 @@ bool DisassembleCommand::execute(
 
     LargeStaticString text;
     Disassembler disassembler;
-#ifdef BITS_64
+#if BITS_64
     disassembler.setMode(64);
 #endif
     disassembler.setLocation(address);
@@ -88,10 +88,10 @@ bool DisassembleCommand::execute(
             KernelElf::instance().globalLookupSymbol(location, &symStart);
         if (location == symStart)
         {
-#ifdef BITS_32
+#if BITS_32
             output.append(location, 16, 8, '0');
 #endif
-#ifdef BITS_64
+#if BITS_64
             output.append(location, 16, 16, '0');
 #endif
             output += ": <";
@@ -101,10 +101,10 @@ bool DisassembleCommand::execute(
             output += ">:\n";
         }
 
-#ifdef BITS_32
+#if BITS_32
         output.append(location, 16, 8, ' ');
 #endif
-#ifdef BITS_64
+#if BITS_64
         output.append(location, 16, 16, ' ');
 #endif
         output += ": ";

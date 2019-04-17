@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(SMP)
+#if SMP
 
 #include "Smp.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -84,7 +84,7 @@ void Smp::initialise()
         return;
     }
 
-#if defined(APIC)
+#if APIC
 
     // PIC-Mode implemented?
     m_bPICMode = ((m_pFloatingPointer->features[1] & 0x80) == 0x80);
@@ -113,7 +113,7 @@ void Smp::initialise()
                 "  Processor #" << Dec << pProcessor->localApicId
                                 << (bUsable ? " usable" : " unusable"));
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
             // Is the processor usable?
             if (bUsable)
             {
@@ -153,7 +153,7 @@ void Smp::initialise()
                                << (bUsable ? " usable" : "") << " at " << Hex
                                << pIoApic->address);
 
-#if defined(APIC)
+#if APIC
             // Is the I/O APIC usable?
             if (bUsable)
             {
@@ -194,10 +194,10 @@ void Smp::initialise()
 
 Smp::Smp()
     : m_bValid(false), m_pFloatingPointer(0), m_pConfigTable(0)
-#if defined(APIC)
+#if APIC
       ,
       m_bPICMode(false), m_LocalApicAddress(0), m_IoApics()
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
       ,
       m_Processors()
 #endif

@@ -17,7 +17,7 @@
 #define _NEW_H
 
 // If UTILITY_LINUX is set, we're working on Linux and so already have <new>.
-#ifndef UTILITY_LINUX
+#if !UTILITY_LINUX
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"

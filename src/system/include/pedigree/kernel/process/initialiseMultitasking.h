@@ -26,7 +26,7 @@ void initialiseMultitasking();
 /// Shuts down the threading subsystem.
 void shutdownMultitasking();
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 /// Starts up the threading subsystem on a subsequently booted application
 /// processor.
 void initialiseMultitaskingPerProcessor();

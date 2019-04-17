@@ -44,7 +44,7 @@ class ARM926EInterruptManager : public ::InterruptManager,
     virtual bool
     registerInterruptHandler(size_t interruptNumber, InterruptHandler *handler);
 
-#ifdef DEBUGGER
+#if DEBUGGER
     virtual bool registerInterruptHandlerDebugger(
         size_t interruptNumber, InterruptHandler *handler);
     virtual size_t getBreakpointInterruptNumber() PURE;
@@ -81,7 +81,7 @@ class ARM926EInterruptManager : public ::InterruptManager,
     virtual ~ARM926EInterruptManager();
 
     InterruptHandler *m_Handler[256];
-#ifdef DEBUGGER
+#if DEBUGGER
     /** The debugger interrupt handlers */
     InterruptHandler *m_DbgHandler[256];
 #endif

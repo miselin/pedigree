@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(THREADS)
+#if THREADS
 
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -36,7 +36,7 @@ void initialiseMultitasking()
     pProcess->resetCounts();
     pProcess->description() += "Kernel Process";
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     pProcess->description() += " - Processor #";
     pProcess->description() += Processor::id();
 #endif
@@ -58,7 +58,7 @@ void shutdownMultitasking()
     /// housekeeping structures (including Process, Thread objects).
 }
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
 void initialiseMultitaskingPerProcessor()
 {
     // Create the kernel idle process.

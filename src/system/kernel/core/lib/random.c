@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 static uint64_t g_Seed = 1;
 

@@ -80,7 +80,7 @@ bool TraceCommand::execute(
     KernelElf::instance().globalLookupSymbol(nIp, &nSymStart);
 
     static Disassembler disassembler;
-#ifdef BITS_64
+#if BITS_64
     disassembler.setMode(64);
 #endif
     disassembler.setLocation(nSymStart);
@@ -211,7 +211,7 @@ TraceCommand::Disassembly::Disassembly(InterruptState &state)
     KernelElf::instance().globalLookupSymbol(m_nIp, &nSymStart);
 
     Disassembler disassembler;
-#ifdef BITS_64
+#if BITS_64
     disassembler.setMode(64);
 #endif
     disassembler.setLocation(nSymStart);
@@ -253,7 +253,7 @@ const char *TraceCommand::Disassembly::getLine1(
     size_t nInstruction = 0;
 
     Disassembler disassembler;
-#ifdef BITS_64
+#if BITS_64
     disassembler.setMode(64);
 #endif
     LargeStaticString text;
@@ -315,7 +315,7 @@ const char *TraceCommand::Disassembly::getLine2(
     size_t nInstruction = 0;
 
     Disassembler disassembler;
-#ifdef BITS_64
+#if BITS_64
     disassembler.setMode(64);
 #endif
 

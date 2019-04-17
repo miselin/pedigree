@@ -46,11 +46,20 @@ set(PEDIGREE_ACPI TRUE CACHE BOOL "Enable ACPI support for machine targets that 
 set(PEDIGREE_GRAPHICS FALSE CACHE BOOL "Enable graphics, including the graphical splash screen.")
 set(PEDIGREE_TRACK_HIDDEN_SYMBOLS FALSE CACHE BOOL "Enable tracking of hidden symbols, which increases kernel memory usage but dramatically improves debugger backtraces.")
 set(PEDIGREE_PEDANTIC FALSE CACHE BOOL "Enable pedantic mode for some warnings in Pedigree which indicate bad practices, but are otherwise handled correctly by the code emitting the warning.")
+set(PEDIGREE_DEBUGGER_RUN_AT_START FALSE CACHE BOOL "Enter directly into the debugger during startup.")
+set(PEDIGREE_LOG_TO_SERIAL TRUE CACHE BOOL "Emit the kernel log to the serial port.")
+set(PEDIGREE_STATIC_DRIVERS FALSE CACHE BOOL "Link all drivers directly into the kernel instead of loading them at runtime.")
+set(PEDIGREE_STRICT_LOCK_ORDERING FALSE CACHE BOOL "Enforce strict lock ordering for all types of locks in the kernel.")
+set(PEDIGREE_LOGGING TRUE CACHE BOOL "Enable the kernel logging facility.")
+set(PEDIGREE_TRACK_PAGE_ALLOCS FALSE CACHE BOOL "Track physical page allocations in the debugger allocations command.")
+set(PEDIGREE_VERBOSE_MEMORY_MANAGER FALSE CACHE BOOL "Be more verbose in PhysicalMemoryManager.")
 
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
 
 # Hosted build options
+# TODO: detect HOSTED=1 and cross compiling and error out!
+set(PEDIGREE_HOSTED FALSE CACHE BOOL "Run a hosted kernel build, which is not compatible with a cross-compiled build.")
 set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instead of Pedigree's in hosted builds.")
 
 # General build options.
@@ -91,7 +100,6 @@ endif ()
 
 if (PEDIGREE_TRAVIS)
     message("We appear to be building on Travis-CI.")
-    add_definitions(-DTRAVIS=1)
 endif ()
 
 if (CMAKE_COMPILER_IS_GNU)
@@ -178,95 +186,16 @@ if(CMAKE_CROSSCOMPILING)
         set(GENERIC_COMPILE_FLAGS ${GENERIC_COMPILE_FLAGS} -O0)
     endif ()
 
-    if (NOT PEDIGREE_GRAPHICS)
-        add_definitions(-DNOGFX=1)
-    endif ()
+    # Copy over all our definitions.
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
-    if (PEDIGREE_CRIPPLE_HDD)
-        add_definitions(-DCRIPPLE_HDD=1)
-    endif ()
+    # Include the definitions file in every translation unit
+    add_definitions(-include ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
-    if (PEDIGREE_DEBUGGER)
-        add_definitions(-DDEBUGGER=1)
-    endif ()
-
-    if (PEDIGREE_ADDITIONAL_CHECKS)
-        add_definitions(-DADDITIONAL_CHECKS=1)
-    endif ()
-
-    if (PEDIGREE_EXCESSIVE_ADDITIONAL_CHECKS)
-        add_definitions(-DEXCESSIVE_ADDITIONAL_CHECKS=1)
-    endif ()
-
-    if (PEDIGREE_ASSERTS)
-        add_definitions(-DASSERTS=1)
-    endif ()
-
-    if (PEDIGREE_DEBUG_LOGGING)
-        add_definitions(-DDEBUG_LOGGING=1)
-    else ()
-        add_definitions(-DDEBUG_LOGGING=0)
-    endif ()
-
-    if (PEDIGREE_SUPERDEBUG)
-        add_definitions(-DSUPERDEBUG=1)
-    endif ()
-
-    if (PEDIGREE_TRACING)
-        add_definitions(-DTRACING=1)
-    endif ()
-
-    if (PEDIGREE_DEBUG_ALLOCATOR)
-        add_definitions(-DDEBUG_ALLOCATOR=1)
-    endif ()
-
-    if (PEDIGREE_SERIAL_IS_FILE)
-        add_definitions(-DSERIAL_IS_FILE=1)
-    endif ()
-
-    if (PEDIGREE_MEMORY_LOG)
-        add_definitions(-DMEMORY_LOGGING_ENABLED=1)
-    endif ()
-
-    if (PEDIGREE_MEMORY_LOG_INLINE)
-        add_definitions(-DMEMORY_LOG_INLINE=1)
-    endif ()
-
-    if (PEDIGREE_MEMORY_TRACING)
-        add_definitions(-DMEMORY_TRACING=1)
-    endif ()
-
-    if (PEDIGREE_TRACK_LOCKS)
-        add_definitions(-DTRACK_LOCKS=1)
-    endif ()
-
-    if (PEDIGREE_MULTIPROCESSOR)
-        add_definitions(-DMULTIPROCESSOR=1)
-    endif ()
-
-    if (PEDIGREE_ACPI)
-        add_definitions(-DACPI=1)
-    endif ()
-
-    if (PEDIGREE_GRAPHICS)
-        add_definitions(-DGRAPHICS=1)
-    endif ()
-
-    if (PEDIGREE_TRACK_HIDDEN_SYMBOLS)
-        add_definitions(-DTRACK_HIDDEN_SYMBOLS=1)
-    endif ()
-
-    if (PEDIGREE_LIVECD)
-        add_definitions(-DLIVECD=1)
-    endif ()
-
-    if (PEDIGREE_PEDANTIC)
-        add_definitions(-DPEDANTIC_PEDIGREE=1)
-    endif ()
-
-    if (PEDIGREE_HOSTED_SYSTEM_MALLOC)
-        add_definitions(-DHOSTED_SYSTEM_MALLOC=1)
-    endif ()
+    # cross-compiled variant is definitely not running on a linux host
+    add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
 
     add_subdirectory(src/system/kernel)
     add_subdirectory(src/modules)
@@ -350,6 +279,24 @@ if(CMAKE_CROSSCOMPILING)
     add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
+
+    # Override some definitions for build utilities
+    set(PEDIGREE_HOSTED TRUE)
+    set(PEDIGREE_LOG_TO_SERIAL FALSE)
+    set(PEDIGREE_DEBUGGER FALSE)
+    set(PEDIGREE_MULTIPROCESSOR FALSE)
+    set(PEDIGREE_MEMORY_TRACING FALSE)
+    set(PEDIGREE_SERIAL_IS_FILE FALSE)
+
+    add_definitions(-DTHREADS=0 -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0)
+
+    # Copy over all our definitions.
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+
+    # Include the definitions file in every translation unit
+    add_definitions(-include ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
     add_subdirectory(external/googletest)
     add_subdirectory(src/buildutil)

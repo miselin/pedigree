@@ -39,15 +39,18 @@ IoEvent::IoEvent(PosixSubsystem *subsystem, File *file)
 
 void IoEvent::fire()
 {
-    Thread *pThread = Processor::information().getCurrentThread();
-    m_pSubsystem->sendSignal(pThread, SIGIO);
-
-    // Re-monitor now that we've gotten the event.
-    if (m_pRetriggerInstance)
+    EMIT_IF(THREADS)
     {
-        // NOTE: using retrigger instance which is the original serialized
-        // event - not the temporary one we deserialize later.
-        m_pFile->monitor(pThread, m_pRetriggerInstance);
+        Thread *pThread = Processor::information().getCurrentThread();
+        m_pSubsystem->sendSignal(pThread, SIGIO);
+
+        // Re-monitor now that we've gotten the event.
+        if (m_pRetriggerInstance)
+        {
+            // NOTE: using retrigger instance which is the original serialized
+            // event - not the temporary one we deserialize later.
+            m_pFile->monitor(pThread, m_pRetriggerInstance);
+        }
     }
 }
 

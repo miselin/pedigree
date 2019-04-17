@@ -41,4 +41,17 @@ int attachTo(void *handle)
     thread->join();
     return 0;  /// \todo get return value from thread?
 }
+
+VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr)
+{
+}
+
+VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch()
+{
+}
+
+void VirtualAddressSpaceSwitch::restore()
+{
+}
+
 }  // namespace pocketknife

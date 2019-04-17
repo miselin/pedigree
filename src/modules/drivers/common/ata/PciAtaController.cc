@@ -178,7 +178,7 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
         bDma = true;
     }
 
-#ifndef KERNEL_PROCESSOR_NO_PORT_IO
+#if !KERNEL_PROCESSOR_NO_PORT_IO
     IoPort *masterCommand = new IoPort("pci-ide-master-cmd");
     IoPort *slaveCommand = new IoPort("pci-ide-slave-cmd");
     IoPort *masterControl = new IoPort("pci-ide-master-ctl");

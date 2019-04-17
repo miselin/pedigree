@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if defined(APIC)
+#if APIC
 
 #include "LocalApic.h"
 #include "pedigree/kernel/Log.h"

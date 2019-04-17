@@ -32,7 +32,7 @@ Dma::Dma(
 {
     if (!PhysicalMemoryManager::instance().allocateRegion(
             m_DmaBuffer, 10,
-#ifdef X86_COMMON
+#if X86_COMMON
             PhysicalMemoryManager::below16MB |
 #endif
                 PhysicalMemoryManager::continuous |

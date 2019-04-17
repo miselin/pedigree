@@ -212,13 +212,14 @@ class StreamingScreenLogger : public Log::LogCallback
     /// therefore we simply redirect to it.
     void callback(const LogCord &cord)
     {
-#ifdef DEBUGGER
-        if (g_LogMode)
+        EMIT_IF(DEBUGGER)
         {
-            LockGuard<Mutex> guard(g_PrintLock);
-            printString(cord.toString(), cord.length());
+            if (g_LogMode)
+            {
+                LockGuard<Mutex> guard(g_PrintLock);
+                printString(cord.toString(), cord.length());
+            }
         }
-#endif
     }
 };
 
@@ -266,12 +267,13 @@ static void progress(const char *text)
     {
         Log::instance().removeCallback(&g_StreamLogger);
 
-#ifdef DEBUGGER
-        if (!g_NoGraphics)
+        EMIT_IF(DEBUGGER)
         {
-            InputManager::instance().removeCallback(keyCallback);
+            if (!g_NoGraphics)
+            {
+                InputManager::instance().removeCallback(keyCallback);
+            }
         }
-#endif
 
         bFinished = true;
     }
@@ -614,16 +616,17 @@ static bool handleSplash()
         "Please wait, Pedigree is loading...", g_Width / 2,
         g_ProgressY - (FONT_HEIGHT * 3));
 
-#ifdef DEBUGGER
-    // Draw a border around the log area
-    centerStringAt(
-        "< Kernel Log >", g_LogW / 2,
-        g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
-    centerStringAt(
-        "(you can push ESCAPE to view the kernel log, and again to make the "
-        "log fill the screen)",
-        g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
-#endif
+    EMIT_IF(DEBUGGER)
+    {
+        // Draw a border around the log area
+        centerStringAt(
+            "< Kernel Log >", g_LogW / 2,
+            g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
+        centerStringAt(
+            "(you can push ESCAPE to view the kernel log, and again to make the "
+            "log fill the screen)",
+            g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
+    }
 
     // Draw empty progress bar. Easiest way to draw a nonfilled rect? Draw two
     // filled rects.
@@ -640,9 +643,10 @@ static bool handleSplash()
 
     g_BootProgressUpdate = &progress;
 
-#ifdef DEBUGGER
-    InputManager::instance().installCallback(InputManager::Key, keyCallback);
-#endif
+    EMIT_IF(DEBUGGER)
+    {
+        InputManager::instance().installCallback(InputManager::Key, keyCallback);
+    }
 
     return true;
 }
@@ -683,12 +687,13 @@ static void destroy()
 
     Log::instance().removeCallback(&g_StreamLogger);
 
-#ifdef DEBUGGER
-    if (!g_NoGraphics)
+    EMIT_IF(DEBUGGER)
     {
-        InputManager::instance().removeCallback(keyCallback);
+        if (!g_NoGraphics)
+        {
+            InputManager::instance().removeCallback(keyCallback);
+        }
     }
-#endif
 
     g_BootProgressUpdate = 0;
 }

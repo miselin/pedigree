@@ -68,12 +68,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
      *\param[in] Info reference to the multiboot information structure */
     void initialise(const BootstrapStruct_t &Info) INITIALISATION_ONLY;
 
-/** Initialise the page stack, with ranges above 4 GB. Requires ranges
- *  below 4 GB to be available (call initialise first).
- *\param[in] Info reference to the multiboot information structure */
-#ifdef X64
+    /** Initialise the page stack, with ranges above 4 GB. Requires ranges
+     *  below 4 GB to be available (call initialise first).
+     *\param[in] Info reference to the multiboot information structure */
     void initialise64(const BootstrapStruct_t &Info) INITIALISATION_ONLY;
-#endif
 
     /** Unmap & free the .init section */
     void initialisationDone();
@@ -81,12 +79,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** Clean up tracking structures. */
     void shutdown();
 
-#if defined(ACPI)
-    inline const RangeList<uint64_t> &getAcpiRanges() const
+    const RangeList<uint64_t> &getAcpiRanges() const
     {
         return m_AcpiRanges;
     }
-#endif
 
     /** Specifies the number of pages that remain free on the system. */
     virtual size_t freePageCount() const;
@@ -172,12 +168,8 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
          */
         bool maybeMap(size_t index, uint64_t physicalAddress);
 
-/** The number of Stacks */
-#if defined(X86)
-        static const size_t StackCount = 1;
-#elif defined(X64)
+        /** The number of Stacks */
         static const size_t StackCount = 3;
-#endif
 
         /** Pointer to the base address of the stack. The stack grows upwards.
          */
@@ -208,10 +200,8 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** RangeList of free physical memory */
     RangeList<uint64_t> m_PhysicalRanges;
 
-#if defined(ACPI)
     /** RangeList of ACPI memory */
     RangeList<uint64_t> m_AcpiRanges;
-#endif
 
     /** Virtual-memory available for MemoryRegions
      *\todo rename this member (conflicts with

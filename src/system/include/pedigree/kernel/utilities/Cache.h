@@ -37,6 +37,10 @@
 class Thread;
 class UnlikelyLock;
 
+#ifndef STANDALONE_CACHE
+#define STANDALONE_CACHE 0
+#endif
+
 /// The age at which a cache page is considered "old" and can be evicted
 /// This is expressed in seconds.
 #define CACHE_AGE_THRESHOLD 10
@@ -53,7 +57,7 @@ class Cache;
 
 /** Provides a clean abstraction to a set of data caches. */
 class CacheManager :
-#ifndef STANDALONE_CACHE
+#if !STANDALONE_CACHE
     public TimerHandler,
 #endif
     public RequestQueue
@@ -79,7 +83,7 @@ class CacheManager :
 
     virtual void timer(uint64_t delta, InterruptState &state);
 
-#ifdef THREADS
+#if THREADS
     void trimThread();
 #endif
 
@@ -107,7 +111,7 @@ class CacheManager :
 
     List<Cache *> m_Caches;
 
-#ifdef THREADS
+#if THREADS
     Thread *m_pTrimThread;
 #endif
 

@@ -21,11 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 
-#ifdef THREADS
-#define RAII_LOCK LockGuard<Mutex> guard(m_Lock)
-#else
-#define RAII_LOCK
-#endif
+#define RAII_LOCK ConstexprLockGuard<Mutex, THREADS> guard(m_Lock)
 
 SymbolTable::SymbolTable(Elf *pElf)
     : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
@@ -61,9 +57,7 @@ void SymbolTable::insertMultiple(
     uintptr_t value)
 {
     RAII_LOCK;
-#ifdef THREADS
-    LockGuard<Mutex> guard2(pOther->m_Lock);
-#endif
+    ConstexprLockGuard<Mutex, THREADS> guard2(pOther->m_Lock);
 
     SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
     if (pOther)

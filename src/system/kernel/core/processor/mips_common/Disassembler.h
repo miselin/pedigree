@@ -67,6 +67,4 @@ class MipsDisassembler : public DisassemblerBase
     void disassembleOpcode(uint32_t nInstruction, LargeStaticString &text);
 };
 
-typedef MipsDisassembler Disassembler;
-
 #endif

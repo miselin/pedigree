@@ -34,7 +34,7 @@ class MIPS64StackFrame : public StackFrameBase
      * given symbol name (mangled). */
     inline MIPS64StackFrame(
         const ProcessorState &State, LargeStaticString mangledSymbol)
-        : StackFrameBase(State, mangledSymbol)
+        : StackFrameBase(State, 0, mangledSymbol)
     {
     }
     /** The destructor does nothing */

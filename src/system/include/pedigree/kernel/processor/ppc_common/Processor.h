@@ -20,6 +20,8 @@
 #ifndef KERNEL_PROCESSOR_PPC_COMMON_PROCESSOR_H
 #define KERNEL_PROCESSOR_PPC_COMMON_PROCESSOR_H
 
+#include "pedigree/kernel/processor/Processor.h"
+
 #define MSR_POW 0x00040000
 #define MSR_ILE 0x00010000
 #define MSR_EE 0x00008000
@@ -36,55 +38,15 @@
 #define MSR_RI 0x00000002
 #define MSR_LE 0x00000001
 
-void Processor::breakpoint()
+class PPCCommonProcessor : public ProcessorBase
 {
-    asm volatile("trap");
-}
+public:
+    static void
+    setSegmentRegisters(uint32_t segmentBase, bool supervisorKey, bool userKey);
+};
 
-void Processor::halt()
+class PPCProcessor : public PPCCommonProcessor
 {
-    // TODO: gcc will most certainly optimize this away in -O1/2/3 so please
-    //       replace it with some unoptimizable mighty magic
-    for (;;)
-        ;
-}
-
-void Processor::invalidate(void *pAddress)
-{
-    asm volatile("tlbie %0" : : "r"(pAddress));
-}
-
-void Processor::setSegmentRegisters(
-    uint32_t segmentBase, bool supervisorKey, bool userKey)
-{
-    uint32_t segs[16];
-    for (int i = 0; i < 16; i++)
-    {
-        segs[i] = 0;
-        if (supervisorKey)
-            segs[i] |= 0x40000000;
-        if (userKey)
-            segs[i] |= 0x20000000;
-        segs[i] |= (segmentBase + i) & 0x00FFFFFF;
-    }
-    asm volatile("mtsr 0, %0" : : "r"(segs[0]));
-    asm volatile("mtsr 1, %0" : : "r"(segs[1]));
-    asm volatile("mtsr 2, %0" : : "r"(segs[2]));
-    asm volatile("mtsr 3, %0" : : "r"(segs[3]));
-    asm volatile("mtsr 4, %0" : : "r"(segs[4]));
-    asm volatile("mtsr 5, %0" : : "r"(segs[5]));
-    asm volatile("mtsr 6, %0" : : "r"(segs[6]));
-    asm volatile("mtsr 7, %0" : : "r"(segs[7]));
-    // Don't set kernel regs!
-    // asm volatile("mtsr 8, %0" : :"r"(segs[8]));
-    // asm volatile("mtsr 9, %0" : :"r"(segs[9]));
-    // asm volatile("mtsr 10, %0" : :"r"(segs[10]));
-    // asm volatile("mtsr 11, %0" : :"r"(segs[11]));
-    // asm volatile("mtsr 12, %0" : :"r"(segs[12]));
-    // asm volatile("mtsr 13, %0" : :"r"(segs[13]));
-    // asm volatile("mtsr 14, %0" : :"r"(segs[14]));
-    // asm volatile("mtsr 15, %0" : :"r"(segs[15]));
-    asm volatile("sync");
-}
+};
 
 #endif

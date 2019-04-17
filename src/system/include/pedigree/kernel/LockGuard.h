@@ -29,6 +29,29 @@ class Semaphore;
 /** @addtogroup kernel
  * @{ */
 
+template <class T, bool Condition>
+class EXPORTED_PUBLIC ConstexprLockGuard
+{
+  public:
+    ConstexprLockGuard(T &Lock)
+        : m_Lock(Lock)
+    {
+        if constexpr (Condition)
+            m_Lock.acquire();
+    }
+    ~ConstexprLockGuard()
+    {
+        if (Condition)
+            m_Lock.release();
+    }
+
+  private:
+    ConstexprLockGuard() = delete;
+    NOT_COPYABLE_OR_ASSIGNABLE(ConstexprLockGuard);
+
+    T &m_Lock;
+};
+
 template <class T>
 class EXPORTED_PUBLIC LockGuard
 {
@@ -80,7 +103,7 @@ class EXPORTED_PUBLIC RecursingLockGuard
 
 extern template class LockGuard<Spinlock>;
 extern template class RecursingLockGuard<Spinlock>;
-#ifdef THREADS
+#if THREADS
 extern template class LockGuard<Mutex>;
 extern template class LockGuard<Semaphore>;
 #endif

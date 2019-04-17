@@ -74,7 +74,7 @@ File::File()
       ,
       m_FillCache()
 #endif
-#ifdef THREADS
+#if THREADS
       ,
       m_Lock(), m_MonitorTargets()
 #endif
@@ -93,7 +93,7 @@ File::File(
       ,
       m_FillCache()
 #endif
-#ifdef THREADS
+#if THREADS
       ,
       m_Lock(), m_MonitorTargets()
 #endif
@@ -350,7 +350,7 @@ void File::returnPhysicalPage(size_t offset)
 
 void File::sync()
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
@@ -653,8 +653,46 @@ void File::setGidOnly(size_t gid)
 
 void File::dataChanged()
 {
-#ifdef THREADS
-    bool bAny = false;
+    EMIT_IF(THREADS)
+    {
+        bool bAny = false;
+        {
+            LockGuard<Mutex> guard(m_Lock);
+
+            for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+                 it != m_MonitorTargets.end(); it++)
+            {
+                MonitorTarget *pMT = *it;
+
+                pMT->pThread->sendEvent(pMT->pEvent);
+                delete pMT;
+
+                bAny = true;
+            }
+
+            m_MonitorTargets.clear();
+        }
+
+        // If anything was waiting on a change, wake it up now.
+        if (bAny)
+        {
+            Scheduler::instance().yield();
+        }
+    }
+}
+
+void File::monitor(Thread *pThread, Event *pEvent)
+{
+    EMIT_IF(THREADS)
+    {
+        LockGuard<Mutex> guard(m_Lock);
+        m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
+    }
+}
+
+void File::cullMonitorTargets(Thread *pThread)
+{
+    EMIT_IF(THREADS)
     {
         LockGuard<Mutex> guard(m_Lock);
 
@@ -663,51 +701,16 @@ void File::dataChanged()
         {
             MonitorTarget *pMT = *it;
 
-            pMT->pThread->sendEvent(pMT->pEvent);
-            delete pMT;
-
-            bAny = true;
-        }
-
-        m_MonitorTargets.clear();
-    }
-
-    // If anything was waiting on a change, wake it up now.
-    if (bAny)
-    {
-        Scheduler::instance().yield();
-    }
-#endif
-}
-
-void File::monitor(Thread *pThread, Event *pEvent)
-{
-#ifdef THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
-#endif
-}
-
-void File::cullMonitorTargets(Thread *pThread)
-{
-#ifdef THREADS
-    LockGuard<Mutex> guard(m_Lock);
-
-    for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end(); it++)
-    {
-        MonitorTarget *pMT = *it;
-
-        if (pMT->pThread == pThread)
-        {
-            delete pMT;
-            m_MonitorTargets.erase(it);
-            it = m_MonitorTargets.begin();
-            if (it == m_MonitorTargets.end())
-                return;
+            if (pMT->pThread == pThread)
+            {
+                delete pMT;
+                m_MonitorTargets.erase(it);
+                it = m_MonitorTargets.begin();
+                if (it == m_MonitorTargets.end())
+                    return;
+            }
         }
     }
-#endif
 }
 
 void File::getFilesystemLabel(HugeStaticString &s)
@@ -759,7 +762,7 @@ String File::getFullPath(bool bWithLabel)
 
 uintptr_t File::getCachedPage(size_t block, bool locked)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock, locked);
 #endif
 
@@ -777,7 +780,7 @@ uintptr_t File::getCachedPage(size_t block, bool locked)
 
 void File::setCachedPage(size_t block, uintptr_t value, bool locked)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_Lock, locked);
 #endif
 

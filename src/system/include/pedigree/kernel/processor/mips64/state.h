@@ -29,6 +29,10 @@
 /** MIPS64 Interrupt State */
 class MIPS64InterruptState
 {
+    friend class MIPS64ProcessorState;
+    friend class MIPS64InterruptManager;
+    friend class PageFaultHandler;
+
   public:
     //
     // General Interface (both InterruptState and SyscallState)

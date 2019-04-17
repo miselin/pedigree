@@ -22,7 +22,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <vector>
 
 std::vector<FileDescriptor *> g_Descriptors;

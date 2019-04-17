@@ -304,7 +304,7 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
         ++m_Second;
         m_Nanosecond -= 1000000000ULL;
 
-#ifdef MEMORY_LOGGING_ENABLED
+#if MEMORY_LOGGING_ENABLED
         Serial *pSerial = Machine::instance().getSerial(1);
         NormalStaticString str;
         str += "Heap: ";

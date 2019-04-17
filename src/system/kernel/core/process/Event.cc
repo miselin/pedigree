@@ -31,42 +31,43 @@
 Event::Event(
     uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel)
     : m_HandlerAddress(handlerAddress), m_bIsDeletable(isDeletable),
-      m_NestingLevel(specificNestingLevel), m_Magic(EVENT_MAGIC)
-#ifdef THREADS
-      ,
+      m_NestingLevel(specificNestingLevel), m_Magic(EVENT_MAGIC),
       m_Threads(), m_Lock(false)
-#endif
 {
 }
 
 Event::~Event()
 {
-#ifdef THREADS
-    LockGuard<Spinlock> guard(m_Lock);
-
-    if (m_Threads.count())
+    EMIT_IF(THREADS)
     {
-        ERROR("UNSAFE EVENT DELETION");
-        for (auto it : m_Threads)
-        {
-            ERROR(
-                " => Pending delivery to thread "
-                << it << " (" << it->getParent()->getId() << ":" << it->getId()
-                << ").");
-        }
-        FATAL(
-            "Unsafe event deletion: " << m_Threads.count()
-                                      << " threads reference it!");
+        LockGuard<Spinlock> guard(m_Lock);
 
-        m_Threads.clear();
+        if (m_Threads.count())
+        {
+            ERROR("UNSAFE EVENT DELETION");
+            for (auto it : m_Threads)
+            {
+                ERROR(
+                    " => Pending delivery to thread "
+                    << it << " (" << it->getParent()->getId() << ":" << it->getId()
+                    << ").");
+            }
+            FATAL(
+                "Unsafe event deletion: " << m_Threads.count()
+                                          << " threads reference it!");
+
+            m_Threads.clear();
+        }
     }
-#endif
 }
 
 uintptr_t Event::getTrampoline()
 {
-    return VirtualAddressSpace::getKernelAddressSpace()
-        .getKernelEventBlockStart();
+    EMIT_IF(THREADS)
+    {
+        return VirtualAddressSpace::getKernelAddressSpace()
+            .getKernelEventBlockStart();
+    }
 }
 
 uintptr_t Event::getSecondaryTrampoline()
@@ -104,12 +105,10 @@ size_t Event::getEventType(uint8_t *pBuffer)
 }
 
 Event::Event(const Event &other)
-    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel){
-#ifdef THREADS
-          {LockGuard<Spinlock> guard(m_Lock);
-m_Threads.clear();
-}
-#endif
+    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel)
+{
+    ConstexprLockGuard<Spinlock, THREADS> guard(m_Lock);
+    m_Threads.clear();
 }
 
 Event &Event::operator=(const Event &other)
@@ -117,20 +116,16 @@ Event &Event::operator=(const Event &other)
     m_HandlerAddress = other.m_HandlerAddress;
     m_bIsDeletable = other.m_bIsDeletable;
     m_NestingLevel = other.m_NestingLevel;
-#ifdef THREADS
     {
-        LockGuard<Spinlock> guard(m_Lock);
+        ConstexprLockGuard<Spinlock, THREADS> guard(m_Lock);
         m_Threads.clear();
     }
-#endif
     return *this;
 }
 
-#ifdef THREADS
 void Event::registerThread(Thread *thread)
 {
     LockGuard<Spinlock> guard(m_Lock);
-
     m_Threads.pushBack(thread);
 }
 
@@ -158,16 +153,18 @@ size_t Event::pendingCount()
 
     return m_Threads.count();
 }
-#endif
 
 void Event::waitForDeliveries()
 {
     // no-op if no threads
-#ifdef THREADS
+    EMIT_IF(!THREADS)
+    {
+        return;
+    }
+
     while (pendingCount())
     {
         // Each yield will check event states on the new thread(s).
         Scheduler::instance().yield();
     }
-#endif
 }

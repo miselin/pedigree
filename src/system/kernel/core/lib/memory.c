@@ -28,16 +28,16 @@
 #define SSE_THRESHOLD 1024
 #define STOSB_THRESHOLD 64
 
-#ifdef HOSTED_X64
-#define X64
+#if HOSTED_X64
+#define X64 1
 #endif
 
-#ifdef UTILITY_LINUX_COVERAGE
+#if UTILITY_LINUX_COVERAGE
 #undef _STRING_H
 #include <string.h>
 #else
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #define EXPORT static
 #else
 #define EXPORT EXPORTED_PUBLIC
@@ -161,7 +161,7 @@ EXPORT void *memmove(void *s1, const void *s2, size_t n)
 #endif
     }
 
-#ifdef EXCESSIVE_ADDITIONAL_CHECKS
+#if EXCESSIVE_ADDITIONAL_CHECKS
     // We can't memcmp if the regions overlap at all.
     if (LIKELY(!overlaps(s1, s2, orig_n)))
     {

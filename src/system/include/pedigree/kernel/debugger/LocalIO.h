@@ -29,7 +29,7 @@
 class Keyboard;
 class Vga;
 
-#ifdef PPC_COMMON
+#if PPC_COMMON
 #define MAX_CONSOLE_WIDTH 128
 #define MAX_CONSOLE_HEIGHT 48
 #else

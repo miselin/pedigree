@@ -52,7 +52,7 @@ class ArmCommonProcessorInformation
 
     inline uintptr_t getKernelStack() const;
     inline void setKernelStack(uintptr_t stack);
-#ifdef THREADS
+#if THREADS
     inline Thread *getCurrentThread() const
     {
         return m_pCurrentThread;
@@ -75,7 +75,7 @@ class ArmCommonProcessorInformation
         ProcessorId processorId, uint8_t apicId = 0)
         : m_ProcessorId(processorId),
           m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace())
-#ifdef THREADS
+#if THREADS
           ,
           m_pCurrentThread(0), m_Scheduler()
 #endif
@@ -102,7 +102,7 @@ class ArmCommonProcessorInformation
     ProcessorId m_ProcessorId;
     /** The current VirtualAddressSpace */
     VirtualAddressSpace *m_VirtualAddressSpace;
-#ifdef THREADS
+#if THREADS
     /** The current thread */
     Thread *m_pCurrentThread;
     /** The processor's scheduler. */

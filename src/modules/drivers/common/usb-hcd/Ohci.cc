@@ -107,7 +107,7 @@ Ohci::Ohci(Device *pDev)
     m_pBulkQueueTail = m_pBulkQueueHead = 0;
     m_pControlQueueTail = m_pControlQueueHead = 0;
 
-#ifdef X86_COMMON
+#if X86_COMMON
     // Make sure bus mastering and MMIO are enabled.
     uint32_t nPciCmdSts = PciBus::instance().readConfigSpace(this, 1);
     PciBus::instance().writeConfigSpace(this, 1, nPciCmdSts | 0x6);
@@ -206,7 +206,7 @@ Ohci::Ohci(Device *pDev)
 // threadStub, reinterpret_cast<void*>(this));
 
 // Install the IRQ handler
-#ifdef X86_COMMON
+#if X86_COMMON
     Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
     Machine::instance().getIrqManager()->control(
         getInterruptNumber(), IrqManager::MitigationThreshold,
@@ -372,7 +372,7 @@ void Ohci::removeED(ED *pED)
     m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptEnable);
 }
 
-#ifdef X86_COMMON
+#if X86_COMMON
 bool Ohci::irq(irq_id_t number, InterruptState &state)
 #else
 void Ohci::interrupt(size_t number, InterruptState &state)
@@ -382,7 +382,7 @@ void Ohci::interrupt(size_t number, InterruptState &state)
     {
         // Assume not for us - no HCCA yet!
         return
-#ifdef X86_COMMON
+#if X86_COMMON
             false
 #endif
             ;
@@ -410,7 +410,7 @@ void Ohci::interrupt(size_t number, InterruptState &state)
     {
         DEBUG_LOG("USB: OHCI: irq is not for us");
         return
-#ifdef X86_COMMON
+#if X86_COMMON
             false
 #endif
             ;
@@ -433,7 +433,7 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         // Don't enable interrupts again, controller is not in a safe state.
         ERROR("OHCI: controller is hung!");
         return
-#ifdef X86_COMMON
+#if X86_COMMON
             true
 #endif
             ;
@@ -653,7 +653,7 @@ void Ohci::interrupt(size_t number, InterruptState &state)
     // Re-enable all interrupts.
     m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
 
-#ifdef X86_COMMON
+#if X86_COMMON
     return true;
 #endif
 }

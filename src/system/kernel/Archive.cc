@@ -26,35 +26,29 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 Archive::Archive(uint8_t *pPhys, size_t sSize)
-    :
-#ifdef HOSTED
-      m_pBase(pPhys)
-#else
-      m_Region("Archive")
-#endif
+    : m_pBase(pPhys), m_Region("Archive")
 {
-#ifndef HOSTED
-    if ((reinterpret_cast<physical_uintptr_t>(pPhys) &
-         (PhysicalMemoryManager::getPageSize() - 1)) != 0)
-        panic("Archive: Alignment issues");
-
-    if (PhysicalMemoryManager::instance().allocateRegion(
-            m_Region,
-            (sSize + PhysicalMemoryManager::getPageSize() - 1) /
-                PhysicalMemoryManager::getPageSize(),
-            PhysicalMemoryManager::continuous, VirtualAddressSpace::KernelMode,
-            reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
+    EMIT_IF(!HOSTED)
     {
-        ERROR("Archive: allocateRegion failed.");
+        if ((reinterpret_cast<physical_uintptr_t>(pPhys) &
+             (PhysicalMemoryManager::getPageSize() - 1)) != 0)
+            panic("Archive: Alignment issues");
+
+        if (PhysicalMemoryManager::instance().allocateRegion(
+                m_Region,
+                (sSize + PhysicalMemoryManager::getPageSize() - 1) /
+                    PhysicalMemoryManager::getPageSize(),
+                PhysicalMemoryManager::continuous, VirtualAddressSpace::KernelMode,
+                reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
+        {
+            ERROR("Archive: allocateRegion failed.");
+        }
     }
-#endif
 }
 
 Archive::~Archive()
 {
-#ifndef HOSTED
     m_Region.free();
-#endif
 }
 
 size_t Archive::getNumFiles()
@@ -89,11 +83,14 @@ uintptr_t *Archive::getFile(size_t n)
 
 Archive::ArchiveFile *Archive::getFirst()
 {
-#ifdef HOSTED
-    return reinterpret_cast<ArchiveFile *>(m_pBase);
-#else
-    return reinterpret_cast<ArchiveFile *>(m_Region.virtualAddress());
-#endif
+    EMIT_IF(HOSTED)
+    {
+        return reinterpret_cast<ArchiveFile *>(m_pBase);
+    }
+    else
+    {
+        return reinterpret_cast<ArchiveFile *>(m_Region.virtualAddress());
+    }
 }
 
 Archive::ArchiveFile *Archive::getNext(ArchiveFile *pFile)

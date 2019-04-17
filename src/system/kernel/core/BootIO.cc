@@ -57,17 +57,17 @@ void BootIO::write(T &str, Colour foreColour, Colour backColour)
         putCharVga(str[i], foreColour, backColour);
     if (Log::instance().echoToSerial())
     {
-#ifndef SERIAL_IS_FILE
+#if !SERIAL_IS_FILE
         startColour(Machine::instance().getSerial(0), foreColour, backColour);
 #endif
         for (size_t j = 0; j < str.length(); j++)
             Machine::instance().getSerial(0)->write(str[j]);
-#ifndef SERIAL_IS_FILE
+#if !SERIAL_IS_FILE
         endColour(Machine::instance().getSerial(0));
 #endif
     }
 
-#ifdef PPC_COMMON
+#if PPC_COMMON
     // For PPC: causes the graphics framebuffer to be updated from the text one.
     Vga *pVga = Machine::instance().getVga(0);
     uint16_t *pFramebuffer = *pVga;

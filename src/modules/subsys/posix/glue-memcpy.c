@@ -21,7 +21,7 @@
 
 #include "newlib.h"
 
-#ifdef X86_COMMON
+#if X86_COMMON
 
 void *memcpy(void *restrict s1, const void *restrict s2, size_t n)
 {

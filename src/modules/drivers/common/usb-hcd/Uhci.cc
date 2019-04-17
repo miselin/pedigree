@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef X86_COMMON
+#if X86_COMMON
 
 #include "Uhci.h"
 #include "modules/system/usb/Usb.h"

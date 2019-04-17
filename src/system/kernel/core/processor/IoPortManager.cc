@@ -23,16 +23,12 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/new"
 
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-
 IoPortManager IoPortManager::m_Instance;
 
 bool IoPortManager::allocate(IoPort *Port, io_port_t ioPort, size_t size)
 {
-#if defined(ADDITIONAL_CHECKS)
     if (Processor::isInitialised() == 0)
         Processor::halt();
-#endif
 
     // Acquire the lock untill the end of the function
     LockGuard<Spinlock> lock(m_Lock);
@@ -48,10 +44,8 @@ bool IoPortManager::allocate(IoPort *Port, io_port_t ioPort, size_t size)
 
 void IoPortManager::free(IoPort *Port)
 {
-#if defined(ADDITIONAL_CHECKS)
     if (Processor::isInitialised() == 0)
         Processor::halt();
-#endif
 
     // Acquire the lock untill the end of the function
     LockGuard<Spinlock> lock(m_Lock);
@@ -108,5 +102,3 @@ IoPortManager::IoPortManager() : m_Lock(), m_FreeIoPorts(), m_UsedIoPorts()
 IoPortManager::~IoPortManager()
 {
 }
-
-#endif
