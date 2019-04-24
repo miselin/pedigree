@@ -4,25 +4,31 @@ set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocat
 
 # TODO: x64-specific
 set(GENERIC_KERNEL_FLAGS
-    "-fno-builtin" "-nostdlib" "-ffreestanding" "-fno-common" "-m64"
-    "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fno-omit-frame-pointer"
+    "-fno-builtin" "-nostdlib" "-ffreestanding" "-fno-common" "-fno-omit-frame-pointer"
     "-ggdb" "-g3" "-gdwarf-2" "--sysroot=${CMAKE_SYSROOT}")
 set(GENERIC_KERNEL_CFLAGS "")
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
     "-fno-use-cxa-atexit")
 set(GENERIC_KERNEL_LINKFLAGS
-    "-nostdlib" "-nostartfiles" "-m64" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
+    "-nostdlib" "-nostartfiles" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
 set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
-    set(GENERIC_KERNEL_LINKFLAGS
-        ${GENERIC_KERNEL_LINKFLAGS} "-T${PEDIGREE_LINKERSCRIPT}")
+    set(ARCH_KERNEL_LINKSCRIPT "-T${PEDIGREE_LINKERSCRIPT}")
+endif ()
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+    set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
+    set(ARCH_KERNEL_LINKFLAGS "-m64")
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "armv7")
+    set(ARCH_KERNEL_FLAGS "-m32" "-mabi=aapcs" "-mapcs-frame")
+    set(ARCH_KERNEL_LINKFLAGS "-m32")
 endif ()
 
 set(KERNEL_CFLAGS
-    ${GENERIC_CFLAGS} ${GENERIC_KERNEL_FLAGS} ${GENERIC_KERNEL_CFLAGS})
+    ${GENERIC_CFLAGS} ${GENERIC_KERNEL_FLAGS} ${GENERIC_KERNEL_CFLAGS} ${ARCH_KERNEL_FLAGS})
 set(KERNEL_CXXFLAGS
-    ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_FLAGS} ${GENERIC_KERNEL_CXXFLAGS})
+    ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_FLAGS} ${GENERIC_KERNEL_CXXFLAGS} ${ARCH_KERNEL_FLAGS})
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/Version.cc.in
@@ -82,6 +88,26 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s
         PROPERTIES LANGUAGE ASM_NASM)
+elseif (PEDIGREE_ARCHDIR STREQUAL "armv7")
+    set(PROCESSOR_UNSHARED_SRCS "")
+
+    set(PROCESSOR_SRCS
+        # /core/processor/armv7/
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/Elf32.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/InterruptManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/PageFaultHandler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/PhysicalMemoryManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/Processor.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/StackFrame.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/state.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/VirtualAddressSpace.cc
+        # /core/processor/armv7/asm/
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/asm/InterruptManager.S
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/asm/Processor.S
+        # /core/processor/arm_common/
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/boot-arm.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Disassembler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Processor.cc)
 else ()
     set(PROCESSOR_SRCS "")
     set(PROCESSOR_UNSHARED_SRCS "")
@@ -118,9 +144,26 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/sys.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/decode.c
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c)
+
+    set(WITH_X86EMU TRUE)
+elseif (PEDIGREE_MACHDIR STREQUAL "arm_beagle")
+    set(MACHINE_SRCS
+        # /machine/arm_beagle/
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Beagle.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Gpio.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/GPTimer.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/I2C.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Keyboard.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Prcm.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Serial.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Vga.cc)
+
+    set(X86EMU_SRCS "")
+    set(WITH_X86EMU FALSE)
 else()
     set(MACHINE_SRCS "")
     set(X86EMU_SRCS "")
+    set(WITH_X86EMU FALSE)
 endif ()
 
 set(UDIS86_SRCS
@@ -328,12 +371,14 @@ target_compile_options(kernel_shared PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
     $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
 target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
-target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT})
+target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
 target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_compile_options(
-    "$<$<COMPILE_LANGUAGE:C>:-mcmodel=kernel>"
-    "$<$<COMPILE_LANGUAGE:CXX>:-mcmodel=kernel>")
+if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:C>:-mcmodel=kernel>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-mcmodel=kernel>")
+endif ()
 
 add_library(machine STATIC ${MACHINE_SRCS})
 # TODO: remove dependencies on this if possible
@@ -345,10 +390,12 @@ add_library(processor STATIC ${PROCESSOR_SRCS} ${PROCESSOR_UNSHARED_SRCS})
 target_include_directories(processor PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_library(x86emu STATIC ${X86EMU_SRCS})
-target_include_directories(x86emu PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/x86emu)
-target_compile_options(x86emu PRIVATE -w)
+if (WITH_X86EMU)
+    add_library(x86emu STATIC ${X86EMU_SRCS})
+    target_include_directories(x86emu PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/x86emu)
+    target_compile_options(x86emu PRIVATE -w)
+endif ()
 
 add_library(udis86 STATIC ${UDIS86_SRCS})
 target_compile_definitions(udis86 PRIVATE -D__UD_STANDALONE__)
@@ -359,8 +406,8 @@ target_compile_options(hash PRIVATE -w)
 # We link whole-archive for the kernel sources
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
-    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} -Wl,--whole-archive
-    machine processor hash x86emu udis86)
+    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
+    machine processor hash $<$<BOOL:$WITH_X86EMU>:x86emu> udis86)
 
 # split debug info into a .debug file so it's accessible but not present in the module binary itself
 add_custom_command(TARGET kernel POST_BUILD
@@ -368,8 +415,14 @@ add_custom_command(TARGET kernel POST_BUILD
     COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:kernel>
     COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/kernel.debug" $<TARGET_FILE:kernel>)
 
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
-    COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
-    DEPENDS kernel)
-add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    # Embed 64-bit kernel in a 32-bit ELF container to allow unpatched GRUBs to
+    # load it with ease.
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
+        COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
+        DEPENDS kernel)
+    add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
+else ()
+    add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel)
+endif ()

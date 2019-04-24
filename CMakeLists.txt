@@ -245,9 +245,11 @@ if(CMAKE_CROSSCOMPILING)
     add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
 
     # Build ISO file for live CD.
-    set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
-    file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
-        DESTINATION ${CMAKE_BINARY_DIR})
+    if (GRUB)
+        set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
+        file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
+            DESTINATION ${CMAKE_BINARY_DIR})
+    endif ()
 
     if (PEDIGREE_LIVECD)
         set(ISO_EXTRAFILES

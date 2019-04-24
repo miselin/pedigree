@@ -155,6 +155,11 @@ void ArmBeagle::initialiseDeviceTree()
     Device::addToRoot(pL4);
 }
 
+void ArmBeagle::stopAllOtherProcessors()
+{
+    // nothing to do here
+}
+
 void ArmBeagle::initialise()
 {
     m_Serial[0].setBase(0x49020000);  // uart3, RS-232 output on board

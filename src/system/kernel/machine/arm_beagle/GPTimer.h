@@ -20,7 +20,9 @@
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/List.h"
 
 #define MAX_TIMER_HANDLERS 32
