@@ -17,12 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef KERNEL_PROCESSOR_ARM_COMMON_PROCESSOR_H
-#define KERNEL_PROCESSOR_ARM_COMMON_PROCESSOR_H
+#ifndef KERNEL_PROCESSOR_ARMV7_PROCESSOR_H
+#define KERNEL_PROCESSOR_ARMV7_PROCESSOR_H
 
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/arm_common/Processor.h"
 
-class ARMCommonProcessor : public ProcessorBase
+class ARMv7Processor : public ARMCommonProcessor
 {
 };
 

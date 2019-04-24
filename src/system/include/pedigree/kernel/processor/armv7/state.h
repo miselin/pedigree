@@ -130,8 +130,13 @@ class ARMV7InterruptState
     uint32_t m_spsr;
 } PACKED;
 
-typedef ARMV7InterruptState ARMV7SyscallState;
-typedef ARMV7InterruptState ARMV7ProcessorState;
+class ARMV7SyscallState : public ARMV7InterruptState
+{
+};
+
+class ARMV7ProcessorState : public ARMV7InterruptState
+{
+};
 
 class __attribute__((aligned(8))) ARMV7SchedulerState
 {

@@ -1,10 +1,12 @@
-From 54aac1667f743cb5fa60fce458199442632ae2db Mon Sep 17 00:00:00 2001
+From fd4fa8c05afd13c957eaf9993d8ab14958bb92c7 Mon Sep 17 00:00:00 2001
 From: Matthew Iselin <matthew@theiselins.net>
-Date: Tue, 7 Mar 2017 11:23:43 -0800
+Date: Fri, 5 Apr 2019 13:44:53 -0700
 Subject: [PATCH] Add arm-pedigree and x86_64-pedigree to Binutils.
 
 ---
  bfd/config.bfd                   | 11 ++++++++++
+ binutils/configure               |  2 ++
+ binutils/configure.ac            |  3 +++
  config.sub                       |  2 ++
  configure.ac                     |  4 ++--
  gas/configure.tgt                |  2 ++
@@ -12,7 +14,7 @@ Subject: [PATCH] Add arm-pedigree and x86_64-pedigree to Binutils.
  ld/configure.tgt                 |  2 ++
  ld/emulparams/pedigree_arm.sh    | 35 ++++++++++++++++++++++++++++++++
  ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++
- 8 files changed, 89 insertions(+), 2 deletions(-)
+ 10 files changed, 94 insertions(+), 2 deletions(-)
  create mode 100644 ld/emulparams/pedigree_arm.sh
  create mode 100644 ld/emulparams/pedigree_x86_64.sh
 
@@ -45,6 +47,33 @@ index 0e1ddb659c..7b57257f45 100644
  
    ia16-*-elf)
      targ_defvec=i386_elf32_vec
+diff --git a/binutils/configure b/binutils/configure
+index 051db4baa2..24d1239ec8 100755
+--- a/binutils/configure
++++ b/binutils/configure
+@@ -14969,6 +14969,8 @@ do
+ 	  BUILD_WINDRES='$(WINDRES_PROG)$(EXEEXT)'
+ 	  BUILD_WINDMC='$(WINDMC_PROG)$(EXEEXT)'
+ 	  ;;
++  arm-*-pedigree*)
++    ;;
+ 	arm-*-pe*)
+   	  BUILD_DLLTOOL='$(DLLTOOL_PROG)$(EXEEXT)'
+ 	  if test -z "$DLLTOOL_DEFAULT"; then
+diff --git a/binutils/configure.ac b/binutils/configure.ac
+index b1cd4552f2..0e4e140c60 100644
+--- a/binutils/configure.ac
++++ b/binutils/configure.ac
+@@ -272,6 +272,9 @@ do
+ 	  BUILD_WINDRES='$(WINDRES_PROG)$(EXEEXT)'
+ 	  BUILD_WINDMC='$(WINDMC_PROG)$(EXEEXT)'
+ 	  ;;
++    arm-*-pedigree*)
++      # Avoid pedigree OS target overlapping with arm-*-pe
++      ;;
+ 	arm-*-pe*)
+   	  BUILD_DLLTOOL='$(DLLTOOL_PROG)$(EXEEXT)'
+ 	  if test -z "$DLLTOOL_DEFAULT"; then
 diff --git a/config.sub b/config.sub
 index 75bb6a3135..f30019f392 100755
 --- a/config.sub
@@ -230,5 +259,5 @@ index 0000000000..2a7005c34b
 +fi
 \ No newline at end of file
 -- 
-2.21.0.392.gf8f6787159e-goog
+2.21.0.593.g511ec345e18-goog
 

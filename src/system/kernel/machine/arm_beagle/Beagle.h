@@ -51,6 +51,8 @@ class ArmBeagle : public Machine
 
     virtual void initialiseDeviceTree();
 
+    virtual void stopAllOtherProcessors();
+
   private:
     /**
      * Default constructor, does nothing.

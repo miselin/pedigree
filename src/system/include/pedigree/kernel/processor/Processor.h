@@ -352,6 +352,7 @@ class EXPORTED_PUBLIC ProcessorBase
 #include "pedigree/kernel/processor/x86_common/Processor.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/mips_common/Processor.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/arm_common/Processor.h"  // IWYU pragma: export
+#include "pedigree/kernel/processor/armv7/Processor.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/ppc_common/Processor.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/hosted/Processor.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/x64/Processor.h"  // IWYU pragma: export
@@ -360,8 +361,8 @@ class EXPORTED_PUBLIC ProcessorBase
 typedef X64Processor Processor;
 #elif MIPS_COMMON
 typedef MIPSProcessor Processor;
-#elif ARM_COMMON
-typedef ARMProcessor Processor;
+#elif ARMV7
+typedef ARMv7Processor Processor;
 #elif PPC_COMMON
 typedef PPCProcessor Processor;
 #elif HOSTED
