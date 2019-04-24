@@ -17,6 +17,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
+import os
 import re
 import subprocess
 import sys
@@ -36,6 +37,9 @@ def main():
         tables += match + '\n'
 
     all_sql = re.sub('create table .*?;', '', all_sql, flags=re.M | re.S | re.I)
+
+    if os.path.isfile(sys.argv[1]):
+        os.unlink(sys.argv[1])
 
     with tempfile.NamedTemporaryFile() as f:
         f.write(b'begin;')
