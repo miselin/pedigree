@@ -191,12 +191,6 @@ void atexit(void (*f)(void *), void *p, void *d)
 {
 }
 
-extern "C" EXPORTED_PUBLIC void abort(void);
-void abort()
-{
-    FATAL_NOLOCK("abort");
-}
-
 /// Called by G++ if a pure virtual function is called. Bad Thing, should never
 /// happen!
 extern "C" EXPORTED_PUBLIC void __cxa_pure_virtual() NORETURN;

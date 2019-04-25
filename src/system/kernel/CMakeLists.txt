@@ -410,7 +410,7 @@ target_compile_options(hash PRIVATE -w)
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 gcc)
+    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive gcc)
 
 # split debug info into a .debug file so it's accessible but not present in the module binary itself
 add_custom_command(TARGET kernel POST_BUILD
