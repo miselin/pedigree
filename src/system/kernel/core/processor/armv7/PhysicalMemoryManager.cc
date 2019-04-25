@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/panic.h"
 
 ArmV7PhysicalMemoryManager ArmV7PhysicalMemoryManager::m_Instance;
 
@@ -31,8 +32,10 @@ PhysicalMemoryManager &PhysicalMemoryManager::instance()
     return ArmV7PhysicalMemoryManager::instance();
 }
 
-physical_uintptr_t ArmV7PhysicalMemoryManager::allocatePage()
+physical_uintptr_t ArmV7PhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
+    /// \todo do we need to care about pageConstraints at all?
+
     LockGuard<Spinlock> guard(m_Lock);
 
     /// \todo Cache compact if needed

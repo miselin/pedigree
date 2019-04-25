@@ -20,7 +20,6 @@
 #ifndef KERNEL_MEMORYTRACING_H
 #define KERNEL_MEMORYTRACING_H
 
-#if MEMORY_TRACING
 #include "pedigree/kernel/utilities/StaticString.h"
 
 namespace MemoryTracing
@@ -66,6 +65,5 @@ traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size);
  * loaded, so the correct debug symbols can be loaded and used.
  */
 extern void traceMetadata(NormalStaticString str, void *p1, void *p2);
-#endif
 
 #endif

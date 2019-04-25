@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessorARMV7

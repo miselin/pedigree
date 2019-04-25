@@ -20,9 +20,10 @@ endif ()
 if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
     set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
     set(ARCH_KERNEL_LINKFLAGS "-m64")
-elseif (PEDIGREE_ARCH_TARGET STREQUAL "armv7")
-    set(ARCH_KERNEL_FLAGS "-m32" "-mabi=aapcs" "-mapcs-frame")
-    set(ARCH_KERNEL_LINKFLAGS "-m32")
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+    # TODO: for non-v7 targets we need to adjust this
+    set(ARCH_KERNEL_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfloat-abi=hard" "-mfpu=neon")
+    set(ARCH_KERNEL_LINKFLAGS "")
 endif ()
 
 set(KERNEL_CFLAGS

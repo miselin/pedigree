@@ -24,7 +24,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 
-void Processor::initialise1(const BootstrapStruct_t &Info)
+void ProcessorBase::initialise1(const BootstrapStruct_t &Info)
 {
     // Initialise the physical memory-management
     ArmV7PhysicalMemoryManager::instance().initialise(Info);
@@ -49,7 +49,7 @@ void Processor::initialise1(const BootstrapStruct_t &Info)
     m_Initialised = 1;
 }
 
-void Processor::initialise2(const BootstrapStruct_t &Info)
+void ProcessorBase::initialise2(const BootstrapStruct_t &Info)
 {
 // Initialise multitasking
 #if THREADS
@@ -59,7 +59,7 @@ void Processor::initialise2(const BootstrapStruct_t &Info)
     m_Initialised = 2;
 }
 
-void Processor::identify(HugeStaticString &str)
+void ProcessorBase::identify(HugeStaticString &str)
 {
     // Read the Main ID register
     union
@@ -147,12 +147,12 @@ void Processor::identify(HugeStaticString &str)
     str += ")";
 }
 
-size_t Processor::getDebugBreakpointCount()
+size_t ProcessorBase::getDebugBreakpointCount()
 {
     return 0;
 }
 
-uintptr_t Processor::getDebugBreakpoint(
+uintptr_t ProcessorBase::getDebugBreakpoint(
     size_t nBpNumber, DebugFlags::FaultType &nFaultType, size_t &nLength,
     bool &bEnabled)
 {
@@ -160,19 +160,19 @@ uintptr_t Processor::getDebugBreakpoint(
     return 0;
 }
 
-void Processor::enableDebugBreakpoint(
+void ProcessorBase::enableDebugBreakpoint(
     size_t nBpNumber, uintptr_t nLinearAddress,
     DebugFlags::FaultType nFaultType, size_t nLength)
 {
     /// \todo Implement.
 }
 
-void Processor::disableDebugBreakpoint(size_t nBpNumber)
+void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber)
 {
     /// \todo Implement.
 }
 
-void Processor::setInterrupts(bool bEnable)
+void ProcessorBase::setInterrupts(bool bEnable)
 {
     bool bCurrent = getInterrupts();
     if (bCurrent == bEnable)
@@ -191,7 +191,7 @@ void Processor::setInterrupts(bool bEnable)
     }
 }
 
-bool Processor::getInterrupts()
+bool ProcessorBase::getInterrupts()
 {
     /// \todo FIQs count too
     if (m_Initialised >= 1)  // Interrupts are only initialised at phase 1
@@ -204,64 +204,64 @@ bool Processor::getInterrupts()
         return false;
 }
 
-void Processor::setSingleStep(bool bEnable, InterruptState &state)
+void ProcessorBase::setSingleStep(bool bEnable, InterruptState &state)
 {
     /// \todo Implement
     ERROR("Single step unavailable on ARM.");
 }
 
-void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
+void ProcessorBase::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 {
     const ArmV7VirtualAddressSpace &armAddressSpace =
         static_cast<const ArmV7VirtualAddressSpace &>(AddressSpace);
 
     // Do we need to set a new page directory?
-    if (readTTBR0() != armAddressSpace.m_PhysicalPageDirectory)
+    if (ARMv7Processor::readTTBR0() != armAddressSpace.m_PhysicalPageDirectory)
     {
         // Set the new page directory
-        writeTTBR0(armAddressSpace.m_PhysicalPageDirectory);
+        ARMv7Processor::writeTTBR0(armAddressSpace.m_PhysicalPageDirectory);
 
         // Update the information in the ProcessorInformation structure
-        ProcessorInformation &processorInformation = Processor::information();
+        ProcessorInformation &processorInformation = ProcessorBase::information();
         processorInformation.setVirtualAddressSpace(AddressSpace);
     }
 }
 
-physical_uintptr_t Processor::readTTBR0()
+void ProcessorBase::setTlsBase(uintptr_t newBase)
+{
+    // Using the user read-only thread and process ID register to store the TLS
+    // base
+    asm volatile("MCR p15,0,%0,c13,c0,3" : : "r"(newBase));
+}
+
+physical_uintptr_t ARMv7Processor::readTTBR0()
 {
     physical_uintptr_t ret = 0;
     asm volatile("MRC p15,0,%0,c2,c0,0" : "=r"(ret));
     return ret;
 }
-physical_uintptr_t Processor::readTTBR1()
+physical_uintptr_t ARMv7Processor::readTTBR1()
 {
     physical_uintptr_t ret = 0;
     asm volatile("MRC p15,0,%0,c2,c0,1" : "=r"(ret));
     return ret;
 }
-physical_uintptr_t Processor::readTTBCR()
+physical_uintptr_t ARMv7Processor::readTTBCR()
 {
     physical_uintptr_t ret = 0;
     asm volatile("MRC p15,0,%0,c2,c0,2" : "=r"(ret));
     return ret;
 }
 
-void Processor::writeTTBR0(physical_uintptr_t value)
+void ARMv7Processor::writeTTBR0(physical_uintptr_t value)
 {
     asm volatile("MCR p15,0,%0,c2,c0,0" : : "r"(value));
 }
-void Processor::writeTTBR1(physical_uintptr_t value)
+void ARMv7Processor::writeTTBR1(physical_uintptr_t value)
 {
     asm volatile("MCR p15,0,%0,c2,c0,1" : : "r"(value));
 }
-void Processor::writeTTBCR(uint32_t value)
+void ARMv7Processor::writeTTBCR(uint32_t value)
 {
     asm volatile("MCR p15,0,%0,c2,c0,2" : : "r"(value));
-}
-
-void Processor::setTlsBase(uintptr_t newBase)
-{
-    // Using the user read-only thread and process ID register to store the TLS
-    // base
-    asm volatile("MCR p15,0,%0,c13,c0,3" : : "r"(newBase));
 }

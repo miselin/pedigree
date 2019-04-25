@@ -57,18 +57,49 @@ ArmV7VirtualAddressSpace::~ArmV7VirtualAddressSpace()
 
 bool ArmV7VirtualAddressSpace::memIsInHeap(void *pMem)
 {
-    if (pMem < KERNEL_VIRTUAL_HEAP)
+    if (pMem < m_Heap)
+    {
+        WARNING("memIsInHeap: " << pMem << " is below the kernel heap.");
         return false;
+    }
     else if (pMem >= getEndOfHeap())
+    {
+        WARNING(
+            "memIsInHeap: " << pMem << " is beyond the end of the heap ("
+                            << getEndOfHeap() << ").");
         return false;
+    }
     else
         return true;
 }
+
+bool ArmV7VirtualAddressSpace::memIsInKernelHeap(void *pMem)
+{
+    if (pMem < KERNEL_VIRTUAL_HEAP)
+    {
+        return false;
+    }
+    else if (
+        pMem >= adjust_pointer(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_HEAP_SIZE))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 void *ArmV7VirtualAddressSpace::getEndOfHeap()
 {
-    return reinterpret_cast<void *>(
-        reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_HEAP) +
-        KERNEL_VIRTUAL_HEAP_SIZE);
+    if (m_Heap == KERNEL_VIRTUAL_HEAP)
+    {
+        return reinterpret_cast<void *>(
+            reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_HEAP) +
+            KERNEL_VIRTUAL_HEAP_SIZE);
+    }
+    else
+    {
+        return m_HeapEnd;
+    }
 }
 
 uint32_t ArmV7VirtualAddressSpace::toFlags(size_t flags)
@@ -429,7 +460,7 @@ void ArmV7VirtualAddressSpace::doUnmap(void *virtualAddress)
     }
 }
 
-void *ArmV7VirtualAddressSpace::allocateStack()
+VirtualAddressSpace::Stack *ArmV7VirtualAddressSpace::allocateStack()
 {
     size_t sz = USERSPACE_VIRTUAL_STACK_SIZE;
     if (this == &VirtualAddressSpace::getKernelAddressSpace())
@@ -437,14 +468,14 @@ void *ArmV7VirtualAddressSpace::allocateStack()
     return doAllocateStack(USERSPACE_VIRTUAL_STACK_SIZE);
 }
 
-void *ArmV7VirtualAddressSpace::allocateStack(size_t stackSz)
+VirtualAddressSpace::Stack *ArmV7VirtualAddressSpace::allocateStack(size_t stackSz)
 {
     if (stackSz == 0)
         return allocateStack();
     return doAllocateStack(stackSz);
 }
 
-void *ArmV7VirtualAddressSpace::doAllocateStack(size_t sSize)
+VirtualAddressSpace::Stack *ArmV7VirtualAddressSpace::doAllocateStack(size_t sSize)
 {
     size_t flags = 0;
     if (this == &VirtualAddressSpace::getKernelAddressSpace())
@@ -452,40 +483,53 @@ void *ArmV7VirtualAddressSpace::doAllocateStack(size_t sSize)
         flags == VirtualAddressSpace::KernelMode;
     }
 
-    m_Lock.acquire();
-
     // Get a virtual address for the stack
     void *pStack = 0;
+    m_Lock.acquire();
     if (m_freeStacks.count() != 0)
     {
-        pStack = m_freeStacks.popBack();
-        m_Lock.release();
-    }
-    else
-    {
-        pStack = m_pStackTop;
-        m_pStackTop = adjust_pointer(m_pStackTop, -sSize);
-
-        m_Lock.release();
-
-        // Map it in
-        uintptr_t stackBottom = reinterpret_cast<uintptr_t>(pStack) - sSize;
-        for (size_t j = 0; j < sSize; j += PhysicalMemoryManager::getPageSize())
+        Stack *poppedStack = m_freeStacks.popBack();
+        if (poppedStack->getSize() >= sSize)
         {
-            physical_uintptr_t phys =
-                PhysicalMemoryManager::instance().allocatePage();
-            bool b =
-                map(phys, reinterpret_cast<void *>(j + stackBottom),
-                    flags | VirtualAddressSpace::Write);
-            if (!b)
-                WARNING("map() failed in doAllocateStack");
+            pStack = poppedStack->getTop();
         }
+        delete poppedStack;
+        pStack = m_freeStacks.popBack();
     }
-    return pStack;
+    m_Lock.release();
+
+    if (pStack)
+    {
+        /// \todo if freeStack() actually frees the entire stack, we need to
+        /// map it rather than just return
+        return new Stack(pStack, sSize);
+    }
+
+    pStack = m_pStackTop;
+    m_pStackTop = adjust_pointer(m_pStackTop, -sSize);
+
+    m_Lock.release();
+
+    // Map it in
+    uintptr_t stackBottom = reinterpret_cast<uintptr_t>(pStack) - sSize;
+    for (size_t j = 0; j < sSize; j += PhysicalMemoryManager::getPageSize())
+    {
+        physical_uintptr_t phys =
+            PhysicalMemoryManager::instance().allocatePage();
+        bool b =
+            map(phys, reinterpret_cast<void *>(j + stackBottom),
+                flags | VirtualAddressSpace::Write);
+        if (!b)
+            WARNING("map() failed in doAllocateStack");
+    }
+
+    return new Stack(pStack, sSize);
 }
 
-void ArmV7VirtualAddressSpace::freeStack(void *pStack)
+void ArmV7VirtualAddressSpace::freeStack(VirtualAddressSpace::Stack *pStack)
 {
+    /// \todo free the memory
+
     // Add the stack to the list
     m_freeStacks.pushBack(pStack);
 }

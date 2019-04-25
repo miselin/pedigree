@@ -38,9 +38,10 @@ set(PEDIGREE_DRIVERDIR "arm")
 set(PEDIGREE_ASMDIR "arm")
 set(GRUB FALSE)
 
-# Definitions for amd64 across the entire source tree.
+# Definitions for ARMv7 across the entire source tree.
+# NOTE: we emulate Multiboot for the boot -> kernel interface.
 add_definitions(-DARM_COMMON=1 -DARMV7=1 -DARM_BEAGLE=1 -DBITS_32=1 -DBITS_64=0
-    -DTHREADS=1 -DKERNEL_STANDALONE=1 -DMULTIBOOT=0 -DTARGET_IS_LITTLE_ENDIAN=1
+    -DTHREADS=1 -DKERNEL_STANDALONE=1 -DMULTIBOOT=1 -DTARGET_IS_LITTLE_ENDIAN=1
     -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=1 -DKERNEL_PROCESSOR_NO_PORT_IO=1
     -DSTATIC_DRIVERS=1)
 

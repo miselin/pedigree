@@ -22,10 +22,10 @@
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/utility.h"
-#if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
-#endif
 #include "pedigree/kernel/Log.h"
 
 #define SYSCALL_INTERRUPT_NUMBER 8

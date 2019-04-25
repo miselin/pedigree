@@ -21,6 +21,7 @@
 #define MACHINE_ARMBEAGLE_KEYBOARD_H
 
 #include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/processor/types.h"
 
 /// \note No actual attached keyboard apart from one on USB perhaps - so this
 ///       is completely stubbed.
