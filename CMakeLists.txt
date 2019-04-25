@@ -74,7 +74,7 @@ set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, 
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
 
 # All nasm on x86-based systems
-enable_language(ASM_NASM)
+enable_language(ASM_NASM ASM)
 
 # Fix up nasm command line to not include a default like -f elf (so we can
 # control the bitness of the nasm output)
@@ -201,6 +201,10 @@ if(CMAKE_CROSSCOMPILING)
     add_subdirectory(src/modules)
     add_subdirectory(src/user)
     add_subdirectory(src/po)
+
+    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+        add_subdirectory(src/system/boot/arm)
+    endif ()
 
     # Build config database.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db

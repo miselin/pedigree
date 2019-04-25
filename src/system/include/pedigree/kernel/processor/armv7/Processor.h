@@ -31,13 +31,13 @@ public:
     /** Read TTBR1 */
     static physical_uintptr_t readTTBR1();
     /** Read TTBCR */
-    static uint32_t readTTBCR();
+    static physical_uintptr_t readTTBCR();
     /** Write TTBR0 */
     static void writeTTBR0(physical_uintptr_t value);
     /** Write TTBR1 */
     static void writeTTBR1(physical_uintptr_t value);
     /** Write TTBCR */
-    static void writeTTBCR(uint32_t value);
+    static void writeTTBCR(physical_uintptr_t value);
 };
 
 #endif

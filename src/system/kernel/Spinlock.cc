@@ -142,7 +142,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
         ///       depends on the log spinlock, which may have deadlocked. So we
         ///       actually force the spinlock to release here, then hit the
         ///       breakpoint.
-        size_t atom = m_Atom;
+        auto atom = m_Atom.value();
         m_Atom = true;
 
         uintptr_t myra =
@@ -251,7 +251,7 @@ void Spinlock::exit()
         ///       depends on the log spinlock, which may have deadlocked. So we
         ///       actually force the spinlock to release here, then hit the
         ///       breakpoint.
-        size_t atom = m_Atom;
+        auto atom = m_Atom.value();
         m_Atom = true;
 
         uintptr_t myra =

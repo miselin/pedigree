@@ -22,7 +22,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
     set(ARCH_KERNEL_LINKFLAGS "-m64")
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
     # TODO: for non-v7 targets we need to adjust this
-    set(ARCH_KERNEL_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfloat-abi=hard" "-mfpu=neon")
+    set(ARCH_KERNEL_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
     set(ARCH_KERNEL_LINKFLAGS "")
 endif ()
 
@@ -40,6 +40,7 @@ add_definitions(
 
 add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${KERNEL_CFLAGS}>"
+    "$<$<COMPILE_LANGUAGE:ASM>:${KERNEL_CFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${KERNEL_CXXFLAGS}>")
 
 if (PEDIGREE_ARCHDIR STREQUAL "x64")
@@ -108,7 +109,8 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "armv7")
         # /core/processor/arm_common/
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/boot-arm.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Disassembler.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Processor.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Processor.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/ProcessorInformation.cc)
 else ()
     set(PROCESSOR_SRCS "")
     set(PROCESSOR_UNSHARED_SRCS "")
@@ -408,7 +410,7 @@ target_compile_options(hash PRIVATE -w)
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    machine processor hash $<$<BOOL:$WITH_X86EMU>:x86emu> udis86)
+    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 gcc)
 
 # split debug info into a .debug file so it's accessible but not present in the module binary itself
 add_custom_command(TARGET kernel POST_BUILD

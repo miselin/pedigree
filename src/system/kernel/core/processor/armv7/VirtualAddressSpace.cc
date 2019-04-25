@@ -534,7 +534,7 @@ void ArmV7VirtualAddressSpace::freeStack(VirtualAddressSpace::Stack *pStack)
     m_freeStacks.pushBack(pStack);
 }
 
-extern char __start, __end;
+extern char kernel_end;
 
 bool ArmV7KernelVirtualAddressSpace::initialiseKernelAddressSpace()
 {
@@ -589,7 +589,7 @@ bool ArmV7KernelVirtualAddressSpace::initialiseKernelAddressSpace()
     }
 
     // Identity-map the kernel
-    size_t kernelSize = reinterpret_cast<uintptr_t>(&__end) - 0x80000000;
+    size_t kernelSize = reinterpret_cast<uintptr_t>(&kernel_end) - 0x80000000;
     for (size_t offset = 0; offset < kernelSize; offset += 0x100000)
     {
         uintptr_t baseAddr = 0x80000000 + offset;

@@ -22,8 +22,8 @@
 #include "Elf32.h"
 #include "support.h"
 
-// autogen.h contains the full kernel binary in a char array
-#include "autogen.h"
+extern char embeddedKernel[];
+extern unsigned long embeddedKernel_length;
 
 extern "C" {
 volatile unsigned char *uart1 = (volatile unsigned char *) 0x4806A000;
@@ -869,7 +869,7 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
 
     Elf32 elf("kernel");
     writeStr(3, "Preparing file... ");
-    elf.load((uint8_t *) file, 0);
+    elf.load((uint8_t *) embeddedKernel, 0);
     writeStr(3, "Done!\r\n");
 
     writeStr(3, "Loading file into memory (please wait) ");
@@ -889,8 +889,9 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     bs->flags |= MULTIBOOT_FLAG_ELF;
 
     // Repurpose these variables a little....
+    /// \todo adding 0x1000 is just to align, but may not be needed.
     bs->mods_addr = reinterpret_cast<uint32_t>(elf.m_pBuffer);
-    bs->mods_count = (sizeof file) + 0x1000;
+    bs->mods_count = embeddedKernel_length + 0x1000;
     bs->flags |= MULTIBOOT_FLAG_MODS;
 
     // For every section header, set .addr = .offset + m_pBuffer.

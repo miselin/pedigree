@@ -68,7 +68,7 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *\return the value after the addition */
     inline T operator+=(T x)
     {
-#if !defined(TARGET_HAS_NO_ATOMICS)
+#if !TARGET_HAS_NO_ATOMICS
         return __sync_add_and_fetch(&m_Atom, x);
 #else
         m_Atom += x;
@@ -80,7 +80,7 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *\return the value after the subtraction */
     inline T operator-=(T x)
     {
-#if !defined(TARGET_HAS_NO_ATOMICS)
+#if !TARGET_HAS_NO_ATOMICS
         return __sync_sub_and_fetch(&m_Atom, x);
 #else
         m_Atom -= x;
@@ -92,7 +92,7 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *\return the value after the bitwise or */
     inline T operator|=(T x)
     {
-#if !defined(TARGET_HAS_NO_ATOMICS)
+#if !TARGET_HAS_NO_ATOMICS
         return __sync_or_and_fetch(&m_Atom, x);
 #else
         m_Atom |= x;
@@ -104,7 +104,7 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *\return the value after the bitwise and */
     inline T operator&=(T x)
     {
-#if !defined(TARGET_HAS_NO_ATOMICS)
+#if !TARGET_HAS_NO_ATOMICS
         return __sync_and_and_fetch(&m_Atom, x);
 #else
         m_Atom &= x;
@@ -116,7 +116,7 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *\return the value after the bitwise xor */
     inline T operator^=(T x)
     {
-#if !defined(TARGET_HAS_NO_ATOMICS)
+#if !TARGET_HAS_NO_ATOMICS
         return __sync_xor_and_fetch(&m_Atom, x);
 #else
         m_Atom ^= x;
@@ -130,7 +130,7 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *to newVal, false otherwise */
     inline bool compareAndSwap(T oldVal, T newVal)
     {
-#if !defined(TARGET_HAS_NO_ATOMICS)
+#if !TARGET_HAS_NO_ATOMICS
         return __sync_bool_compare_and_swap(&m_Atom, oldVal, newVal);
 #else
         if (m_Atom == oldVal)
@@ -148,6 +148,13 @@ class EXPORTED_PUBLIC Atomic<T, true>
         return m_Atom;
     }
 
+    const volatile T &value() const
+    {
+        return m_Atom;
+    }
+
+    typedef T Type;
+
   private:
     /** The atomic value */
     volatile T m_Atom;
@@ -155,24 +162,24 @@ class EXPORTED_PUBLIC Atomic<T, true>
 
 /** Wrapper around gcc's builtin atomic operations */
 template <>
-class EXPORTED_PUBLIC Atomic<bool, true> : public Atomic<size_t>
+class EXPORTED_PUBLIC Atomic<bool, true> : public Atomic<processor_register_t>
 {
   public:
     /** The constructor
      *\param[in] value initial value */
-    inline Atomic(bool value = false) : Atomic<size_t>((value) ? 1 : 0)
+    inline Atomic(bool value = false) : Atomic<processor_register_t>((value) ? 1 : 0)
     {
     }
     /** The copy-constructor
      *\param[in] x reference object */
-    inline Atomic(const Atomic &x) : Atomic<size_t>(x)
+    inline Atomic(const Atomic &x) : Atomic<processor_register_t>(x)
     {
     }
     /** The assignment operator
      *\param[in] x reference object */
     inline Atomic &operator=(const Atomic &x)
     {
-        Atomic<size_t>::operator=(x);
+        Atomic<processor_register_t>::operator=(x);
         return *this;
     }
     /** The destructor does nothing */
@@ -183,21 +190,21 @@ class EXPORTED_PUBLIC Atomic<bool, true> : public Atomic<size_t>
      *\return the value after the bitwise or */
     inline bool operator|=(bool x)
     {
-        return Atomic<size_t>::operator|=(x);
+        return Atomic<processor_register_t>::operator|=(x);
     }
     /** Bitwise and
      *\param[in] x the operand
      *\return the value after the bitwise and */
     inline bool operator&=(bool x)
     {
-        return Atomic<size_t>::operator&=(x);
+        return Atomic<processor_register_t>::operator&=(x);
     }
     /** Bitwise xor
      *\param[in] x the operand
      *\return the value after the bitwise xor */
     inline bool operator^=(bool x)
     {
-        return Atomic<size_t>::operator^=(x);
+        return Atomic<processor_register_t>::operator^=(x);
     }
     /** Compare and swap
      *\param[in] oldVal the comparision value
@@ -206,14 +213,14 @@ class EXPORTED_PUBLIC Atomic<bool, true> : public Atomic<size_t>
      *to newVal, false otherwise */
     inline bool compareAndSwap(bool oldVal, bool newVal)
     {
-        return Atomic<size_t>::compareAndSwap(
+        return Atomic<processor_register_t>::compareAndSwap(
             (oldVal) ? 1 : 0, (newVal) ? 1 : 0);
     }
     /** Get the value
      *\return the value of the Atomic */
     inline operator bool() const
     {
-        return (Atomic<size_t>::operator size_t() == 1) ? true : false;
+        return (Atomic<processor_register_t>::operator processor_register_t() == 1) ? true : false;
     }
 };
 

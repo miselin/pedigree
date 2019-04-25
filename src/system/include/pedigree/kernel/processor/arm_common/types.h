@@ -41,15 +41,15 @@ typedef signed long long ARMint64_t;
 typedef unsigned long long ARMuint64_t;
 
 /** Define a signed integer type for pointer arithmetic */
-typedef ARMint32_t ARMintptr_t;
+typedef int ARMintptr_t;
 /** Define an unsigned integer type for pointer arithmetic */
-typedef ARMuint32_t ARMuintptr_t;
+typedef unsigned long ARMuintptr_t;
 
 /** Define a unsigned integer type for physical pointer arithmetic */
-typedef ARMuint32_t ARMphysical_uintptr_t;
+typedef ARMuintptr_t ARMphysical_uintptr_t;
 
 /** Define an unsigned integer type for the processor registers */
-typedef ARMuint32_t ARMprocessor_register_t;
+typedef ARMuintptr_t ARMprocessor_register_t;
 
 /** Define ssize_t */
 typedef ARMint32_t ARMssize_t;

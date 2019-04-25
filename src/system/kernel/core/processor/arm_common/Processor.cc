@@ -21,6 +21,25 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
 
+void ProcessorBase::initialisationDone()
+{
+}
+
+ProcessorId ProcessorBase::id()
+{
+    return 0;
+}
+
+ProcessorInformation &ProcessorBase::information()
+{
+    return m_SafeBspProcessorInformation;
+}
+
+size_t ProcessorBase::getCount()
+{
+    return 1;
+}
+
 void ProcessorBase::halt()
 {
     while (1)
