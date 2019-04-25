@@ -106,7 +106,7 @@ uint8_t checksum(const uint8_t *pMemory, size_t sMemory)
     return (sum == 0);
 }
 
-uint16_t checksum16(const uint8_t *pMemory, size_t sMemory)
+uint16_t checksum16(const uint16_t *pMemory, size_t sMemory)
 {
     uint16_t sum1 = 0, sum2 = 0;
 
@@ -119,28 +119,26 @@ uint16_t checksum16(const uint8_t *pMemory, size_t sMemory)
     return (sum2 << 8) | sum1;
 }
 
-uint32_t checksum32(const uint8_t *pMemory, size_t sMemory)
+uint32_t checksum32(const uint32_t *pMemory, size_t sMemory)
 {
     uint32_t sum1 = 0, sum2 = 0;
-    const uint16_t *mem = reinterpret_cast<const uint16_t *>(pMemory);
 
     for (size_t i = 0; i < sMemory / 2; ++i)
     {
-        sum1 = (sum1 + mem[i]) % 65535;
+        sum1 = (sum1 + pMemory[i]) % 65535;
         sum2 = (sum2 + sum1) % 65535;
     }
 
     return (sum2 << 16) | sum1;
 }
 
-uint32_t checksum32_naive(const uint8_t *pMemory, size_t sMemory)
+uint32_t checksum32_naive(const uint32_t *pMemory, size_t sMemory)
 {
     uint32_t sum1 = 0, sum2 = 0;
-    const uint16_t *mem = reinterpret_cast<const uint16_t *>(pMemory);
 
     for (size_t i = 0; i < sMemory / 2; ++i)
     {
-        sum1 = (sum1 + mem[i]) % 65535;
+        sum1 = (sum1 + pMemory[i]) % 65535;
         sum2 = (sum2 + sum1) % 65535;
     }
 
@@ -151,7 +149,7 @@ uint32_t checksumPage(uintptr_t address)
 {
     // may be able to be inlined with the knowledge of the constant size
     return checksum32(
-        reinterpret_cast<const uint8_t *>(address),
+        reinterpret_cast<const uint32_t *>(address),
         PhysicalMemoryManager::getPageSize());
 }
 

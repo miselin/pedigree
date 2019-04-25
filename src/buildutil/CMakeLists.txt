@@ -223,8 +223,10 @@ target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
 target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
 
+add_executable(headerify headerify/main.cc)
+
 export(
-    TARGETS keymap ext2img instrument memorytracer testsuite
+    TARGETS keymap ext2img instrument memorytracer testsuite headerify
     FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
 )
 

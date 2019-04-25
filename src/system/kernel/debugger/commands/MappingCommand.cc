@@ -81,7 +81,8 @@ bool MappingCommand::execute(
 
     if (thisVa.isMapped(vAddr))
     {
-        size_t flags, phys;
+        size_t flags;
+        physical_uintptr_t phys;
         thisVa.getMapping(vAddr, phys, flags);
         output += "    Mapped to ";
         output.append(phys, 16);
@@ -98,7 +99,8 @@ bool MappingCommand::execute(
 
     if (kernelVa.isMapped(vAddr))
     {
-        size_t flags, phys;
+        size_t flags;
+        physical_uintptr_t phys;
         kernelVa.getMapping(vAddr, phys, flags);
         output += "    Mapped to ";
         output.append(phys, 16);

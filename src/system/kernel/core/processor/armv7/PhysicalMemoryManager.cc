@@ -25,6 +25,8 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/panic.h"
 
+extern char kernel_start, kernel_end;
+
 ArmV7PhysicalMemoryManager ArmV7PhysicalMemoryManager::m_Instance;
 
 PhysicalMemoryManager &PhysicalMemoryManager::instance()
@@ -196,13 +198,12 @@ void ArmV7PhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 {
 }
 
-extern char __start, __end;
 void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
 {
 // Define beginning and end ranges of usable RAM
 #ifdef ARM_BEAGLE
     physical_uintptr_t addr = 0;
-    for (addr = reinterpret_cast<physical_uintptr_t>(&__end); addr < 0x87000000;
+    for (addr = reinterpret_cast<physical_uintptr_t>(&kernel_end); addr < 0x87000000;
          addr += 0x1000)
     {
         m_PageStack.free(addr);
@@ -212,8 +213,8 @@ void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
         m_PageStack.free(addr);
     }
 
-    size_t kernelSize = reinterpret_cast<physical_uintptr_t>(&__end) -
-                        reinterpret_cast<physical_uintptr_t>(&__start);
+    size_t kernelSize = reinterpret_cast<physical_uintptr_t>(&kernel_end) -
+                        reinterpret_cast<physical_uintptr_t>(&kernel_start);
     if (kernelSize % 4096)
     {
         kernelSize += 0x1000;
@@ -222,7 +223,7 @@ void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
 
     m_PhysicalRanges.free(0x80000000 + kernelSize, 0xF000000);
     m_PhysicalRanges.allocateSpecific(
-        0x80000000, reinterpret_cast<physical_uintptr_t>(&__end) - 0x80000000);
+        0x80000000, reinterpret_cast<physical_uintptr_t>(&kernel_end) - 0x80000000);
     m_PhysicalRanges.allocateSpecific(0x87000000, 0x1000000);
 
     m_NonRAMRanges.free(0, 0x80000000);

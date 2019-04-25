@@ -41,7 +41,8 @@ set(GRUB TRUE)
 # Definitions for amd64 across the entire source tree.
 add_definitions(-DX86_COMMON=1 -DX64=1 -DMACH_PC=1 -DBITS_64=1 -DBITS_32=0
     -DTHREADS=1 -DKERNEL_STANDALONE=1 -DMULTIBOOT=1 -DTARGET_IS_LITTLE_ENDIAN=1
-    -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0 -DKERNEL_PROCESSOR_NO_PORT_IO=0)
+    -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0 -DKERNEL_PROCESSOR_NO_PORT_IO=0
+    -DTARGET_HAS_NO_ATOMICS=0)
 
 # Hack around the shared library bits on the Linux platform.
 set(__LINUX_COMPILER_GNU 1)  # don't add -rdynamic

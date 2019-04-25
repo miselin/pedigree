@@ -34,7 +34,7 @@ class Thread;
  * @{ */
 
 /** ARMv7 processor information structure */
-class ArmCommonProcessorInformation
+class EXPORTED_PUBLIC ArmCommonProcessorInformation
 {
     friend class ProcessorBase;
   public:

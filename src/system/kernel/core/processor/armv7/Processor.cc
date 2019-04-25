@@ -261,7 +261,27 @@ void ARMv7Processor::writeTTBR1(physical_uintptr_t value)
 {
     asm volatile("MCR p15,0,%0,c2,c0,1" : : "r"(value));
 }
-void ARMv7Processor::writeTTBCR(uint32_t value)
+void ARMv7Processor::writeTTBCR(physical_uintptr_t value)
 {
     asm volatile("MCR p15,0,%0,c2,c0,2" : : "r"(value));
+}
+
+void ProcessorBase::invalidateICache(uintptr_t nAddr)
+{
+    /// \todo
+}
+
+void ProcessorBase::invalidateDCache(uintptr_t nAddr)
+{
+    /// \todo
+}
+
+void ProcessorBase::flushDCache(uintptr_t nAddr)
+{
+    /// \todo
+}
+
+void ProcessorBase::flushDCacheAndInvalidateICache(uintptr_t startAddr, uintptr_t endAddr)
+{
+    /// \todo
 }

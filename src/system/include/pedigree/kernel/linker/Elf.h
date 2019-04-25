@@ -240,7 +240,7 @@ class EXPORTED_PUBLIC Elf
      * dependencies have been loaded.
      *
      * The load base must be given again for reentrancy reasons. */
-    bool finaliseModule(uint8_t *pBuffer, uintptr_t length);
+    bool finaliseModule(uint8_t *pBuffer, size_t length);
 
     /** Performs the prerequisite allocation for any normal ELF file - library
      * or executable. For a library, this allocates loadBase, and allocates

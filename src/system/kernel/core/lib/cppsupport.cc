@@ -185,16 +185,16 @@ void traceMetadata(NormalStaticString str, void *p1, void *p2)
     // Removed for now - this can be provided by scripts/addr2line.py now
 }
 
-#if ARM_COMMON
-#define ATEXIT __aeabi_atexit
-#else
-#define ATEXIT atexit
-#endif
-
 /// Required for G++ to compile code.
-extern "C" EXPORTED_PUBLIC void ATEXIT(void (*f)(void *), void *p, void *d);
-void ATEXIT(void (*f)(void *), void *p, void *d)
+extern "C" EXPORTED_PUBLIC void atexit(void (*f)(void *), void *p, void *d);
+void atexit(void (*f)(void *), void *p, void *d)
 {
+}
+
+extern "C" EXPORTED_PUBLIC void abort(void);
+void abort()
+{
+    FATAL_NOLOCK("abort");
 }
 
 /// Called by G++ if a pure virtual function is called. Bad Thing, should never
@@ -294,6 +294,11 @@ extern "C" void *REALLOC(void *p, size_t sz)
 }
 
 #if !HOSTED_SYSTEM_MALLOC
+namespace std
+{
+    enum class align_val_t : size_t {};
+}
+
 void *operator new(size_t size) noexcept
 {
     void *ret =
@@ -309,6 +314,13 @@ void *operator new[](size_t size) noexcept
 void *operator new(size_t size, void *memory) noexcept
 {
     return memory;
+}
+void *operator new(size_t size, std::align_val_t align)
+{
+    /// \todo manage alignment
+    void *ret =
+        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
+    return ret;
 }
 void *operator new[](size_t size, void *memory) noexcept
 {
@@ -350,6 +362,14 @@ void operator delete[](void *p) noexcept
     delete_shared(p);
 }
 void operator delete(void *p, size_t sz) noexcept
+{
+    delete_shared(p);
+}
+void operator delete(void* p, std::align_val_t align) noexcept
+{
+    delete_shared(p);
+}
+void operator delete(void* p, size_t sz, std::align_val_t align) noexcept
 {
     delete_shared(p);
 }

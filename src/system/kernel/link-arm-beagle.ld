@@ -5,76 +5,77 @@ ENTRY(start)
 SECTIONS
 {
     . = 0x80100000;
-    __start = .;
+
+    PROVIDE(kernel_start = .);
     
     .init :
     {
         . = ALIGN(4096);
-        init = .; _init = .; __init = .;
-        *(.init.text);
-        *(.init.data);
+        PROVIDE(kernel_init = .);
+        *(.init.text)
+        *(.init.data)
+
+        . = ALIGN(4096);
+        *(.asm.bss)
+        PROVIDE(kernel_init_end = .);
     }
+
+    . = ALIGN(4096);
     
     .text :
     {
-        . = ALIGN(4096);
-        code = .; _code = .; __code = .;
-        *(.text*);
+        *(.text*)
     }
 
-    .ctors :
-    {
-        . = ALIGN(4096);
-        start_ctors = .;
-        *(.init_array);
-        *(.ctors);
-        end_ctors = .;
-        start_dtors = .;
-        *(.dtors)
-        *(.fini_array);
-        end_dtors = .;
-    
-        start_module_ctors = .;
-        *(.module_ctors);
-        end_module_ctors = .;
-    }
-    
-    .modinfo :
-    {
-        . = ALIGN(4);
-        start_modinfo = .;
-        *(.modinfo*);
-        end_modinfo = .;
-    }
+    . = ALIGN(4096);
 
     .data :
     {
+        PROVIDE(start_kernel_ctors = .);
+        *(.ctors)
+        PROVIDE(end_kernel_ctors = .);
+        PROVIDE(start_kernel_dtors = .);
+        *(.dtors)
+        PROVIDE(end_kernel_dtors = .);
+
+        *(.data)
+        *(.rodata*)
+
         . = ALIGN(4096);
-        data = .; _data = .; __data = .;
-        *(.data);
-        *(.rodata*);
+        PROVIDE(start_modinfo = .);
+        *(.modinfo)
+        PROVIDE(end_modinfo = .);
+
+        PROVIDE(start_module_ctors = .);
+        *(.module_ctors)
+        PROVIDE(end_module_ctors = .);
     }
+
+    . = ALIGN(4096);
 
     .bss :
     {
-        . = ALIGN(4096);
-        bss = .; _bss = .; __bss = .;
-        *(.stacks*);
-        *(.asm.bss);
-        *(.bss*);
-        *(.sbss);
-    }
-    
-    .ivt :
-    {
-        . = ALIGN(65536); /* Needs to be on a 64 KB boundary to map properly. */
-        *(.ivt);
+        *(.asm.preserve.bss)
+        *(.bss*)
+        *(.sbss*)
+        *(COMMON)
+        *(.stacks*)
     }
 
-    /* We do a strip to create a real kernel binary, so don't wipe out debug
-     * data from the kernel binary here. */
+    PROVIDE(__exidx_start = .);
+    .ARM.exidx   : { *(.ARM.exidx* .gnu.linkonce.armexidx.*) }
+    PROVIDE(__exidx_end = .);
+    
+    . = ALIGN(65536); /* Needs to be on a 64 KB boundary to map properly. */
+
+    .ivt :
+    {
+        *(.ivt)
+    }
+
     /DISCARD/ : { *(.comment) *(.eh_frame) }
 
     . = ALIGN(4096);
-    end = .; _end = .; __end = .;
+
+    PROVIDE(kernel_end = .);
 }
