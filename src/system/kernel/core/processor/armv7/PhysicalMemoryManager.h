@@ -43,7 +43,7 @@ class ArmV7PhysicalMemoryManager : public PhysicalMemoryManager
     //
     // PhysicalMemoryManager Interface
     //
-    virtual physical_uintptr_t allocatePage();
+    virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
     virtual void freePage(physical_uintptr_t page);
     /// \todo Implement pin()
     virtual void pin(physical_uintptr_t page){};

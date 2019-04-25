@@ -22,7 +22,9 @@
 
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/state.h"
 
 /// Implements the UART interface on the BeagleBoard
 class ArmBeagleSerial : public Serial, public InterruptHandler

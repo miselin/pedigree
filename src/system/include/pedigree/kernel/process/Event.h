@@ -144,7 +144,7 @@ class EXPORTED_PUBLIC Event
     size_t m_NestingLevel;
 
     /** Magic number for verification. */
-    size_t m_Magic;
+    uint64_t m_Magic;
 
     /** Associated threads that have us in their queue. */
     List<Thread *> m_Threads;

@@ -114,3 +114,23 @@ const char *ARMV7InterruptState::getRegisterName(size_t index) const
 {
     return ARMV7InterruptStateRegisterName[index];
 }
+
+ARMV7ProcessorState::ARMV7ProcessorState(const ARMV7InterruptState &state)
+{
+    m_spsr = state.m_spsr;
+    m_r0 = state.m_r0;
+    m_r1 = state.m_r1;
+    m_r2 = state.m_r2;
+    m_r3 = state.m_r3;
+    m_r4 = state.m_r4;
+    m_r5 = state.m_r5;
+    m_r6 = state.m_r6;
+    m_r7 = state.m_r7;
+    m_r8 = state.m_r8;
+    m_r9 = state.m_r9;
+    m_r10 = state.m_r10;
+    m_r11 = state.m_r11;
+    m_r12 = state.m_r12;
+    m_lr = state.m_lr;
+    m_pc = state.m_pc;
+}

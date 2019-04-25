@@ -136,6 +136,9 @@ class ARMV7SyscallState : public ARMV7InterruptState
 
 class ARMV7ProcessorState : public ARMV7InterruptState
 {
+public:
+  ARMV7ProcessorState() = default;
+  ARMV7ProcessorState(const ARMV7InterruptState &state);
 };
 
 class __attribute__((aligned(8))) ARMV7SchedulerState

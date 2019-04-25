@@ -23,6 +23,230 @@
 #include "pedigree/kernel/debugger/DwarfState.h"
 #include "pedigree/kernel/processor/state.h"
 
+template <class T>
+void fillDwarfState(DwarfState &outState, const T &inState);
+
+template <class T>
+void extractDwarfState(const DwarfState *endState, const DwarfState &startState, T &outState, uint32_t nReturnAddressRegister);
+
+template <>
+void fillDwarfState(DwarfState &outState, const X64ProcessorState &inState)
+{
+    outState.m_R[DWARF_REG_RAX] = inState.rax;
+    outState.m_R[DWARF_REG_RDX] = inState.rdx;
+    outState.m_R[DWARF_REG_RCX] = inState.rcx;
+    outState.m_R[DWARF_REG_RBX] = inState.rbx;
+    outState.m_R[DWARF_REG_RSI] = inState.rsi;
+    outState.m_R[DWARF_REG_RDI] = inState.rdi;
+    outState.m_R[DWARF_REG_RBP] = inState.rbp;
+    outState.m_R[DWARF_REG_RSP] = inState.rsp;
+    outState.m_R[DWARF_REG_R8] = inState.r8;
+    outState.m_R[DWARF_REG_R9] = inState.r9;
+    outState.m_R[DWARF_REG_R10] = inState.r10;
+    outState.m_R[DWARF_REG_R11] = inState.r11;
+    outState.m_R[DWARF_REG_R12] = inState.r12;
+    outState.m_R[DWARF_REG_R13] = inState.r13;
+    outState.m_R[DWARF_REG_R14] = inState.r14;
+    outState.m_R[DWARF_REG_R15] = inState.r15;
+    outState.m_R[DWARF_REG_RFLAGS] = inState.rflags;
+}
+
+template <>
+void extractDwarfState(const DwarfState *endState, const DwarfState &startState, X64ProcessorState &outState, uint32_t nReturnAddressRegister)
+{
+    outState.rax = endState->getRegister(DWARF_REG_RAX, startState);
+    outState.rdx = endState->getRegister(DWARF_REG_RDX, startState);
+    outState.rcx = endState->getRegister(DWARF_REG_RCX, startState);
+    outState.rbx = endState->getRegister(DWARF_REG_RBX, startState);
+    outState.rsi = endState->getRegister(DWARF_REG_RSI, startState);
+    outState.rdi = endState->getRegister(DWARF_REG_RDI, startState);
+    outState.rbp = endState->getRegister(DWARF_REG_RBP, startState);
+    outState.rsp = endState->getCfa(startState);  // Architectural rule.
+    outState.r8 = endState->getRegister(DWARF_REG_R8, startState);
+    outState.r9 = endState->getRegister(DWARF_REG_R9, startState);
+    outState.r10 = endState->getRegister(DWARF_REG_R10, startState);
+    outState.r11 = endState->getRegister(DWARF_REG_R11, startState);
+    outState.r12 = endState->getRegister(DWARF_REG_R12, startState);
+    outState.r13 = endState->getRegister(DWARF_REG_R13, startState);
+    outState.r14 = endState->getRegister(DWARF_REG_R14, startState);
+    outState.r15 = endState->getRegister(DWARF_REG_R15, startState);
+    outState.rflags = endState->getRegister(DWARF_REG_RFLAGS, startState);
+    outState.rip =
+        endState->getRegister(nReturnAddressRegister, startState);
+}
+
+template <>
+void fillDwarfState(DwarfState &outState, const MIPS32ProcessorState &inState)
+{
+    outState.m_R[DWARF_REG_AT] = inState.m_At;
+    outState.m_R[DWARF_REG_V0] = inState.m_V0;
+    outState.m_R[DWARF_REG_V1] = inState.m_V1;
+    outState.m_R[DWARF_REG_A0] = inState.m_A0;
+    outState.m_R[DWARF_REG_A1] = inState.m_A1;
+    outState.m_R[DWARF_REG_A2] = inState.m_A2;
+    outState.m_R[DWARF_REG_A3] = inState.m_A3;
+    outState.m_R[DWARF_REG_T0] = inState.m_T0;
+    outState.m_R[DWARF_REG_T1] = inState.m_T1;
+    outState.m_R[DWARF_REG_T2] = inState.m_T2;
+    outState.m_R[DWARF_REG_T3] = inState.m_T3;
+    outState.m_R[DWARF_REG_T4] = inState.m_T4;
+    outState.m_R[DWARF_REG_T5] = inState.m_T5;
+    outState.m_R[DWARF_REG_T6] = inState.m_T6;
+    outState.m_R[DWARF_REG_T7] = inState.m_T7;
+    outState.m_R[DWARF_REG_S0] = inState.m_S0;
+    outState.m_R[DWARF_REG_S1] = inState.m_S1;
+    outState.m_R[DWARF_REG_S2] = inState.m_S2;
+    outState.m_R[DWARF_REG_S3] = inState.m_S3;
+    outState.m_R[DWARF_REG_S4] = inState.m_S4;
+    outState.m_R[DWARF_REG_S5] = inState.m_S5;
+    outState.m_R[DWARF_REG_S6] = inState.m_S6;
+    outState.m_R[DWARF_REG_S7] = inState.m_S7;
+    outState.m_R[DWARF_REG_T8] = inState.m_T8;
+    outState.m_R[DWARF_REG_T9] = inState.m_T9;
+    //   outState.m_R[DWARF_REG_K0] = inState.m_K0;
+    //   outState.m_R[DWARF_REG_K1] = inState.m_K1;
+    outState.m_R[DWARF_REG_GP] = inState.m_Gp;
+    outState.m_R[DWARF_REG_SP] = inState.m_Sp;
+    outState.m_R[DWARF_REG_FP] = inState.m_Fp;
+    outState.m_R[DWARF_REG_RA] = inState.m_Ra;
+}
+
+template <>
+void extractDwarfState(const DwarfState *endState, const DwarfState &startState, MIPS32ProcessorState &outState, uint32_t nReturnAddressRegister)
+{
+    outState.m_At = endState->getRegister(DWARF_REG_AT, startState);
+    outState.m_V0 = endState->getRegister(DWARF_REG_V0, startState);
+    outState.m_V1 = endState->getRegister(DWARF_REG_V1, startState);
+    outState.m_A0 = endState->getRegister(DWARF_REG_A0, startState);
+    outState.m_A1 = endState->getRegister(DWARF_REG_A1, startState);
+    outState.m_A2 = endState->getRegister(DWARF_REG_A2, startState);
+    outState.m_A3 = endState->getRegister(DWARF_REG_A3, startState);
+    outState.m_T0 = endState->getRegister(DWARF_REG_T0, startState);
+    outState.m_T1 = endState->getRegister(DWARF_REG_T1, startState);
+    outState.m_T2 = endState->getRegister(DWARF_REG_T2, startState);
+    outState.m_T3 = endState->getRegister(DWARF_REG_T3, startState);
+    outState.m_T4 = endState->getRegister(DWARF_REG_T4, startState);
+    outState.m_T5 = endState->getRegister(DWARF_REG_T5, startState);
+    outState.m_T6 = endState->getRegister(DWARF_REG_T6, startState);
+    outState.m_T7 = endState->getRegister(DWARF_REG_T7, startState);
+    outState.m_S0 = endState->getRegister(DWARF_REG_S0, startState);
+    outState.m_S1 = endState->getRegister(DWARF_REG_S1, startState);
+    outState.m_S2 = endState->getRegister(DWARF_REG_S2, startState);
+    outState.m_S3 = endState->getRegister(DWARF_REG_S3, startState);
+    outState.m_S4 = endState->getRegister(DWARF_REG_S4, startState);
+    outState.m_S5 = endState->getRegister(DWARF_REG_S5, startState);
+    outState.m_S6 = endState->getRegister(DWARF_REG_S6, startState);
+    outState.m_S7 = endState->getRegister(DWARF_REG_S7, startState);
+    outState.m_T8 = endState->getRegister(DWARF_REG_T8, startState);
+    outState.m_T9 = endState->getRegister(DWARF_REG_T9, startState);
+    //     outState.m_K0 = endState->getRegister(DWARF_REG_K0, startState);
+    //     outState.m_K1 = endState->getRegister(DWARF_REG_K1, startState);
+    outState.m_Gp = endState->getRegister(DWARF_REG_GP, startState);
+    outState.m_Sp = endState->getCfa(startState);  // Architectural rule.
+    outState.m_Fp = endState->getRegister(DWARF_REG_FP, startState);
+    outState.m_Ra = endState->getRegister(DWARF_REG_RA, startState);
+    outState.m_Epc =
+        endState->getRegister(nReturnAddressRegister, startState);
+}
+
+template <>
+void fillDwarfState(DwarfState &outState, const PPC32ProcessorState &inState)
+{
+    outState.m_R[DWARF_REG_R0] = inState.m_R0;
+    outState.m_R[DWARF_REG_R1] = inState.m_R1;
+    outState.m_R[DWARF_REG_R2] = inState.m_R2;
+    outState.m_R[DWARF_REG_R3] = inState.m_R3;
+    outState.m_R[DWARF_REG_R4] = inState.m_R4;
+    outState.m_R[DWARF_REG_R5] = inState.m_R5;
+    outState.m_R[DWARF_REG_R6] = inState.m_R6;
+    outState.m_R[DWARF_REG_R7] = inState.m_R7;
+    outState.m_R[DWARF_REG_R8] = inState.m_R8;
+    outState.m_R[DWARF_REG_R9] = inState.m_R9;
+    outState.m_R[DWARF_REG_R10] = inState.m_R10;
+    outState.m_R[DWARF_REG_R11] = inState.m_R11;
+    outState.m_R[DWARF_REG_R12] = inState.m_R12;
+    outState.m_R[DWARF_REG_R13] = inState.m_R13;
+    outState.m_R[DWARF_REG_R14] = inState.m_R14;
+    outState.m_R[DWARF_REG_R15] = inState.m_R15;
+    outState.m_R[DWARF_REG_R16] = inState.m_R16;
+    outState.m_R[DWARF_REG_R17] = inState.m_R17;
+    outState.m_R[DWARF_REG_R18] = inState.m_R18;
+    outState.m_R[DWARF_REG_R19] = inState.m_R19;
+    outState.m_R[DWARF_REG_R20] = inState.m_R20;
+    outState.m_R[DWARF_REG_R21] = inState.m_R21;
+    outState.m_R[DWARF_REG_R22] = inState.m_R22;
+    outState.m_R[DWARF_REG_R23] = inState.m_R23;
+    outState.m_R[DWARF_REG_R24] = inState.m_R24;
+    outState.m_R[DWARF_REG_R25] = inState.m_R25;
+    outState.m_R[DWARF_REG_R26] = inState.m_R26;
+    outState.m_R[DWARF_REG_R27] = inState.m_R27;
+    outState.m_R[DWARF_REG_R28] = inState.m_R28;
+    outState.m_R[DWARF_REG_R29] = inState.m_R29;
+    outState.m_R[DWARF_REG_R30] = inState.m_R30;
+    outState.m_R[DWARF_REG_R31] = inState.m_R31;
+    outState.m_R[DWARF_REG_CR] = inState.m_Cr;
+    outState.m_R[DWARF_REG_LR] = inState.m_Lr;
+    // outState.m_R[DWARF_REG_CTR] = inState.m_Ctr;
+}
+
+template <>
+void extractDwarfState(const DwarfState *endState, const DwarfState &startState, PPC32ProcessorState &outState, uint32_t nReturnAddressRegister)
+{
+    outState.m_R0 = endState->getRegister(DWARF_REG_R0, startState);
+    outState.m_R1 = endState->getCfa(startState);  // Architectural rule.
+    outState.m_R2 = endState->getRegister(DWARF_REG_R2, startState);
+    outState.m_R3 = endState->getRegister(DWARF_REG_R3, startState);
+    outState.m_R4 = endState->getRegister(DWARF_REG_R4, startState);
+    outState.m_R5 = endState->getRegister(DWARF_REG_R5, startState);
+    outState.m_R6 = endState->getRegister(DWARF_REG_R6, startState);
+    outState.m_R7 = endState->getRegister(DWARF_REG_R7, startState);
+    outState.m_R8 = endState->getRegister(DWARF_REG_R8, startState);
+    outState.m_R9 = endState->getRegister(DWARF_REG_R9, startState);
+    outState.m_R10 = endState->getRegister(DWARF_REG_R10, startState);
+    outState.m_R11 = endState->getRegister(DWARF_REG_R11, startState);
+    outState.m_R12 = endState->getRegister(DWARF_REG_R12, startState);
+    outState.m_R13 = endState->getRegister(DWARF_REG_R13, startState);
+    outState.m_R14 = endState->getRegister(DWARF_REG_R14, startState);
+    outState.m_R15 = endState->getRegister(DWARF_REG_R15, startState);
+    outState.m_R16 = endState->getRegister(DWARF_REG_R16, startState);
+    outState.m_R17 = endState->getRegister(DWARF_REG_R17, startState);
+    outState.m_R18 = endState->getRegister(DWARF_REG_R18, startState);
+    outState.m_R19 = endState->getRegister(DWARF_REG_R19, startState);
+    outState.m_R20 = endState->getRegister(DWARF_REG_R20, startState);
+    outState.m_R21 = endState->getRegister(DWARF_REG_R21, startState);
+    outState.m_R22 = endState->getRegister(DWARF_REG_R22, startState);
+    outState.m_R23 = endState->getRegister(DWARF_REG_R23, startState);
+    outState.m_R24 = endState->getRegister(DWARF_REG_R24, startState);
+    outState.m_R25 = endState->getRegister(DWARF_REG_R25, startState);
+    outState.m_R26 = endState->getRegister(DWARF_REG_R26, startState);
+    outState.m_R27 = endState->getRegister(DWARF_REG_R27, startState);
+    outState.m_R28 = endState->getRegister(DWARF_REG_R28, startState);
+    outState.m_R29 = endState->getRegister(DWARF_REG_R29, startState);
+    outState.m_R30 = endState->getRegister(DWARF_REG_R30, startState);
+    outState.m_R31 = endState->getRegister(DWARF_REG_R31, startState);
+    outState.m_Cr = endState->getRegister(DWARF_REG_CR, startState);
+    outState.m_Lr = endState->getRegister(DWARF_REG_LR, startState);
+    //    outState.m_Ctr = endState->getRegister(DWARF_REG_CTR, startState);
+    // Ah so. G++ doesn't really support the DWARF standard (AGAIN) it
+    // seems, it leaves the return address in LR, and doesn't use the
+    // correct numbering. Nice.
+    outState.m_Srr0 =
+        outState.m_Lr;  // endState->getRegister(nReturnAddressRegister,
+                        // startState);
+}
+
+template <>
+void fillDwarfState(DwarfState &outState, const ARMV7ProcessorState &inState)
+{
+    /// \todo
+}
+
+template <>
+void extractDwarfState(const DwarfState *endState, const DwarfState &startState, ARMV7ProcessorState &outState, uint32_t nReturnAddressRegister)
+{
+    /// \todo
+}
+
 DwarfUnwinder::DwarfUnwinder(uintptr_t nData, size_t nLength)
     : m_nData(nData), m_nLength(nLength)
 {
@@ -39,102 +263,7 @@ bool DwarfUnwinder::unwind(
     // Construct a DwarfState object and populate it.
     DwarfState startState;
 
-    // Unfortunately the next few lines are highly architecture dependent.
-    EMIT_IF(X64)
-    {
-        auto castedInState = reinterpret_cast<const X64ProcessorState *>(&inState);
-        startState.m_R[DWARF_REG_RAX] = castedInState->rax;
-        startState.m_R[DWARF_REG_RDX] = castedInState->rdx;
-        startState.m_R[DWARF_REG_RCX] = castedInState->rcx;
-        startState.m_R[DWARF_REG_RBX] = castedInState->rbx;
-        startState.m_R[DWARF_REG_RSI] = castedInState->rsi;
-        startState.m_R[DWARF_REG_RDI] = castedInState->rdi;
-        startState.m_R[DWARF_REG_RBP] = castedInState->rbp;
-        startState.m_R[DWARF_REG_RSP] = castedInState->rsp;
-        startState.m_R[DWARF_REG_R8] = castedInState->r8;
-        startState.m_R[DWARF_REG_R9] = castedInState->r9;
-        startState.m_R[DWARF_REG_R10] = castedInState->r10;
-        startState.m_R[DWARF_REG_R11] = castedInState->r11;
-        startState.m_R[DWARF_REG_R12] = castedInState->r12;
-        startState.m_R[DWARF_REG_R13] = castedInState->r13;
-        startState.m_R[DWARF_REG_R14] = castedInState->r14;
-        startState.m_R[DWARF_REG_R15] = castedInState->r15;
-        startState.m_R[DWARF_REG_RFLAGS] = castedInState->rflags;
-    }
-    EMIT_IF(MIPS_COMMON)
-    {
-        auto castedInState = reinterpret_cast<const MIPS32ProcessorState *>(&inState);
-        startState.m_R[DWARF_REG_AT] = castedInState->m_At;
-        startState.m_R[DWARF_REG_V0] = castedInState->m_V0;
-        startState.m_R[DWARF_REG_V1] = castedInState->m_V1;
-        startState.m_R[DWARF_REG_A0] = castedInState->m_A0;
-        startState.m_R[DWARF_REG_A1] = castedInState->m_A1;
-        startState.m_R[DWARF_REG_A2] = castedInState->m_A2;
-        startState.m_R[DWARF_REG_A3] = castedInState->m_A3;
-        startState.m_R[DWARF_REG_T0] = castedInState->m_T0;
-        startState.m_R[DWARF_REG_T1] = castedInState->m_T1;
-        startState.m_R[DWARF_REG_T2] = castedInState->m_T2;
-        startState.m_R[DWARF_REG_T3] = castedInState->m_T3;
-        startState.m_R[DWARF_REG_T4] = castedInState->m_T4;
-        startState.m_R[DWARF_REG_T5] = castedInState->m_T5;
-        startState.m_R[DWARF_REG_T6] = castedInState->m_T6;
-        startState.m_R[DWARF_REG_T7] = castedInState->m_T7;
-        startState.m_R[DWARF_REG_S0] = castedInState->m_S0;
-        startState.m_R[DWARF_REG_S1] = castedInState->m_S1;
-        startState.m_R[DWARF_REG_S2] = castedInState->m_S2;
-        startState.m_R[DWARF_REG_S3] = castedInState->m_S3;
-        startState.m_R[DWARF_REG_S4] = castedInState->m_S4;
-        startState.m_R[DWARF_REG_S5] = castedInState->m_S5;
-        startState.m_R[DWARF_REG_S6] = castedInState->m_S6;
-        startState.m_R[DWARF_REG_S7] = castedInState->m_S7;
-        startState.m_R[DWARF_REG_T8] = castedInState->m_T8;
-        startState.m_R[DWARF_REG_T9] = castedInState->m_T9;
-        //   startState.m_R[DWARF_REG_K0] = castedInState->m_K0;
-        //   startState.m_R[DWARF_REG_K1] = castedInState->m_K1;
-        startState.m_R[DWARF_REG_GP] = castedInState->m_Gp;
-        startState.m_R[DWARF_REG_SP] = castedInState->m_Sp;
-        startState.m_R[DWARF_REG_FP] = castedInState->m_Fp;
-        startState.m_R[DWARF_REG_RA] = castedInState->m_Ra;
-    }
-    EMIT_IF(PPC_COMMON)
-    {
-        auto castedInState = reinterpret_cast<const PPC32ProcessorState *>(&inState);
-        startState.m_R[DWARF_REG_R0] = castedInState->m_R0;
-        startState.m_R[DWARF_REG_R1] = castedInState->m_R1;
-        startState.m_R[DWARF_REG_R2] = castedInState->m_R2;
-        startState.m_R[DWARF_REG_R3] = castedInState->m_R3;
-        startState.m_R[DWARF_REG_R4] = castedInState->m_R4;
-        startState.m_R[DWARF_REG_R5] = castedInState->m_R5;
-        startState.m_R[DWARF_REG_R6] = castedInState->m_R6;
-        startState.m_R[DWARF_REG_R7] = castedInState->m_R7;
-        startState.m_R[DWARF_REG_R8] = castedInState->m_R8;
-        startState.m_R[DWARF_REG_R9] = castedInState->m_R9;
-        startState.m_R[DWARF_REG_R10] = castedInState->m_R10;
-        startState.m_R[DWARF_REG_R11] = castedInState->m_R11;
-        startState.m_R[DWARF_REG_R12] = castedInState->m_R12;
-        startState.m_R[DWARF_REG_R13] = castedInState->m_R13;
-        startState.m_R[DWARF_REG_R14] = castedInState->m_R14;
-        startState.m_R[DWARF_REG_R15] = castedInState->m_R15;
-        startState.m_R[DWARF_REG_R16] = castedInState->m_R16;
-        startState.m_R[DWARF_REG_R17] = castedInState->m_R17;
-        startState.m_R[DWARF_REG_R18] = castedInState->m_R18;
-        startState.m_R[DWARF_REG_R19] = castedInState->m_R19;
-        startState.m_R[DWARF_REG_R20] = castedInState->m_R20;
-        startState.m_R[DWARF_REG_R21] = castedInState->m_R21;
-        startState.m_R[DWARF_REG_R22] = castedInState->m_R22;
-        startState.m_R[DWARF_REG_R23] = castedInState->m_R23;
-        startState.m_R[DWARF_REG_R24] = castedInState->m_R24;
-        startState.m_R[DWARF_REG_R25] = castedInState->m_R25;
-        startState.m_R[DWARF_REG_R26] = castedInState->m_R26;
-        startState.m_R[DWARF_REG_R27] = castedInState->m_R27;
-        startState.m_R[DWARF_REG_R28] = castedInState->m_R28;
-        startState.m_R[DWARF_REG_R29] = castedInState->m_R29;
-        startState.m_R[DWARF_REG_R30] = castedInState->m_R30;
-        startState.m_R[DWARF_REG_R31] = castedInState->m_R31;
-        startState.m_R[DWARF_REG_CR] = castedInState->m_Cr;
-        startState.m_R[DWARF_REG_LR] = castedInState->m_Lr;
-        // startState.m_R[DWARF_REG_CTR] = castedInState->m_Ctr;
-    }
+    fillDwarfState(startState, inState);
 
     // For each CIE or FDE...
     size_t nIndex = 0;
@@ -226,111 +355,8 @@ bool DwarfUnwinder::unwind(
             inState.getInstructionPointer());
         frameBase = endState->getCfa(startState);
 
-        EMIT_IF(X64)
-        {
-            auto castedOutState = reinterpret_cast<X64ProcessorState *>(&outState);
-            castedOutState->rax = endState->getRegister(DWARF_REG_RAX, startState);
-            castedOutState->rdx = endState->getRegister(DWARF_REG_RDX, startState);
-            castedOutState->rcx = endState->getRegister(DWARF_REG_RCX, startState);
-            castedOutState->rbx = endState->getRegister(DWARF_REG_RBX, startState);
-            castedOutState->rsi = endState->getRegister(DWARF_REG_RSI, startState);
-            castedOutState->rdi = endState->getRegister(DWARF_REG_RDI, startState);
-            castedOutState->rbp = endState->getRegister(DWARF_REG_RBP, startState);
-            castedOutState->rsp = endState->getCfa(startState);  // Architectural rule.
-            castedOutState->r8 = endState->getRegister(DWARF_REG_R8, startState);
-            castedOutState->r9 = endState->getRegister(DWARF_REG_R9, startState);
-            castedOutState->r10 = endState->getRegister(DWARF_REG_R10, startState);
-            castedOutState->r11 = endState->getRegister(DWARF_REG_R11, startState);
-            castedOutState->r12 = endState->getRegister(DWARF_REG_R12, startState);
-            castedOutState->r13 = endState->getRegister(DWARF_REG_R13, startState);
-            castedOutState->r14 = endState->getRegister(DWARF_REG_R14, startState);
-            castedOutState->r15 = endState->getRegister(DWARF_REG_R15, startState);
-            castedOutState->rflags = endState->getRegister(DWARF_REG_RFLAGS, startState);
-            castedOutState->rip =
-                endState->getRegister(nReturnAddressRegister, startState);
-        }
-        EMIT_IF(MIPS_COMMON)
-        {
-            auto castedOutState = reinterpret_cast<MIPS32ProcessorState *>(&outState);
-            castedOutState->m_At = endState->getRegister(DWARF_REG_AT, startState);
-            castedOutState->m_V0 = endState->getRegister(DWARF_REG_V0, startState);
-            castedOutState->m_V1 = endState->getRegister(DWARF_REG_V1, startState);
-            castedOutState->m_A0 = endState->getRegister(DWARF_REG_A0, startState);
-            castedOutState->m_A1 = endState->getRegister(DWARF_REG_A1, startState);
-            castedOutState->m_A2 = endState->getRegister(DWARF_REG_A2, startState);
-            castedOutState->m_A3 = endState->getRegister(DWARF_REG_A3, startState);
-            castedOutState->m_T0 = endState->getRegister(DWARF_REG_T0, startState);
-            castedOutState->m_T1 = endState->getRegister(DWARF_REG_T1, startState);
-            castedOutState->m_T2 = endState->getRegister(DWARF_REG_T2, startState);
-            castedOutState->m_T3 = endState->getRegister(DWARF_REG_T3, startState);
-            castedOutState->m_T4 = endState->getRegister(DWARF_REG_T4, startState);
-            castedOutState->m_T5 = endState->getRegister(DWARF_REG_T5, startState);
-            castedOutState->m_T6 = endState->getRegister(DWARF_REG_T6, startState);
-            castedOutState->m_T7 = endState->getRegister(DWARF_REG_T7, startState);
-            castedOutState->m_S0 = endState->getRegister(DWARF_REG_S0, startState);
-            castedOutState->m_S1 = endState->getRegister(DWARF_REG_S1, startState);
-            castedOutState->m_S2 = endState->getRegister(DWARF_REG_S2, startState);
-            castedOutState->m_S3 = endState->getRegister(DWARF_REG_S3, startState);
-            castedOutState->m_S4 = endState->getRegister(DWARF_REG_S4, startState);
-            castedOutState->m_S5 = endState->getRegister(DWARF_REG_S5, startState);
-            castedOutState->m_S6 = endState->getRegister(DWARF_REG_S6, startState);
-            castedOutState->m_S7 = endState->getRegister(DWARF_REG_S7, startState);
-            castedOutState->m_T8 = endState->getRegister(DWARF_REG_T8, startState);
-            castedOutState->m_T9 = endState->getRegister(DWARF_REG_T9, startState);
-            //     castedOutState->m_K0 = endState->getRegister(DWARF_REG_K0, startState);
-            //     castedOutState->m_K1 = endState->getRegister(DWARF_REG_K1, startState);
-            castedOutState->m_Gp = endState->getRegister(DWARF_REG_GP, startState);
-            castedOutState->m_Sp = endState->getCfa(startState);  // Architectural rule.
-            castedOutState->m_Fp = endState->getRegister(DWARF_REG_FP, startState);
-            castedOutState->m_Ra = endState->getRegister(DWARF_REG_RA, startState);
-            castedOutState->m_Epc =
-                endState->getRegister(nReturnAddressRegister, startState);
-        }
-        EMIT_IF(PPC_COMMON)
-        {
-            auto castedOutState = reinterpret_cast<PPC32ProcessorState *>(&outState);
-            castedOutState->m_R0 = endState->getRegister(DWARF_REG_R0, startState);
-            castedOutState->m_R1 = endState->getCfa(startState);  // Architectural rule.
-            castedOutState->m_R2 = endState->getRegister(DWARF_REG_R2, startState);
-            castedOutState->m_R3 = endState->getRegister(DWARF_REG_R3, startState);
-            castedOutState->m_R4 = endState->getRegister(DWARF_REG_R4, startState);
-            castedOutState->m_R5 = endState->getRegister(DWARF_REG_R5, startState);
-            castedOutState->m_R6 = endState->getRegister(DWARF_REG_R6, startState);
-            castedOutState->m_R7 = endState->getRegister(DWARF_REG_R7, startState);
-            castedOutState->m_R8 = endState->getRegister(DWARF_REG_R8, startState);
-            castedOutState->m_R9 = endState->getRegister(DWARF_REG_R9, startState);
-            castedOutState->m_R10 = endState->getRegister(DWARF_REG_R10, startState);
-            castedOutState->m_R11 = endState->getRegister(DWARF_REG_R11, startState);
-            castedOutState->m_R12 = endState->getRegister(DWARF_REG_R12, startState);
-            castedOutState->m_R13 = endState->getRegister(DWARF_REG_R13, startState);
-            castedOutState->m_R14 = endState->getRegister(DWARF_REG_R14, startState);
-            castedOutState->m_R15 = endState->getRegister(DWARF_REG_R15, startState);
-            castedOutState->m_R16 = endState->getRegister(DWARF_REG_R16, startState);
-            castedOutState->m_R17 = endState->getRegister(DWARF_REG_R17, startState);
-            castedOutState->m_R18 = endState->getRegister(DWARF_REG_R18, startState);
-            castedOutState->m_R19 = endState->getRegister(DWARF_REG_R19, startState);
-            castedOutState->m_R20 = endState->getRegister(DWARF_REG_R20, startState);
-            castedOutState->m_R21 = endState->getRegister(DWARF_REG_R21, startState);
-            castedOutState->m_R22 = endState->getRegister(DWARF_REG_R22, startState);
-            castedOutState->m_R23 = endState->getRegister(DWARF_REG_R23, startState);
-            castedOutState->m_R24 = endState->getRegister(DWARF_REG_R24, startState);
-            castedOutState->m_R25 = endState->getRegister(DWARF_REG_R25, startState);
-            castedOutState->m_R26 = endState->getRegister(DWARF_REG_R26, startState);
-            castedOutState->m_R27 = endState->getRegister(DWARF_REG_R27, startState);
-            castedOutState->m_R28 = endState->getRegister(DWARF_REG_R28, startState);
-            castedOutState->m_R29 = endState->getRegister(DWARF_REG_R29, startState);
-            castedOutState->m_R30 = endState->getRegister(DWARF_REG_R30, startState);
-            castedOutState->m_R31 = endState->getRegister(DWARF_REG_R31, startState);
-            castedOutState->m_Cr = endState->getRegister(DWARF_REG_CR, startState);
-            castedOutState->m_Lr = endState->getRegister(DWARF_REG_LR, startState);
-            //    castedOutState->m_Ctr = endState->getRegister(DWARF_REG_CTR, startState);
-            // Ah so. G++ doesn't really support the DWARF standard (AGAIN) it
-            // seems, it leaves the return address in LR, and doesn't use the
-            // correct numbering. Nice.
-            castedOutState->m_Srr0 =
-                castedOutState->m_Lr;  // endState->getRegister(nReturnAddressRegister,
-                                // startState);
-        }
+        extractDwarfState(endState, startState, outState, nReturnAddressRegister);
+
         return true;
     }
 

@@ -20,8 +20,10 @@
 #ifndef KERNEL_PROCESSOR_ARMV7_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_ARMV7_VIRTUALADDRESSSPACE_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 /** @addtogroup kernelprocessorArmV7
  * @{ */
@@ -69,7 +71,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
 {
     /** Processor::switchAddressSpace() needs access to m_PhysicalPageDirectory
      */
-    friend class Processor;
+    friend class ProcessorBase;
     /** VirtualAddressSpace::create needs access to the constructor */
     friend VirtualAddressSpace *VirtualAddressSpace::create();
     friend class ArmV7KernelVirtualAddressSpace;
@@ -88,11 +90,12 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
         size_t &flags);
     virtual void setFlags(void *virtualAddress, size_t newFlags);
     virtual void unmap(void *virtualAddress);
-    virtual void *allocateStack();
-    virtual void *allocateStack(size_t stackSz);
-    virtual void freeStack(void *pStack);
+    virtual Stack *allocateStack();
+    virtual Stack *allocateStack(size_t stackSz);
+    virtual void freeStack(Stack *pStack);
 
     virtual bool memIsInHeap(void *pMem);
+    virtual bool memIsInKernelHeap(void *pMem);
     virtual void *getEndOfHeap();
 
     //
@@ -112,7 +115,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
 
     /** Clone this VirtualAddressSpace. That means that we copy-on-write-map the
      * application image. */
-    virtual VirtualAddressSpace *clone()
+    virtual VirtualAddressSpace *clone(bool copyOnWrite = true)
     {
         return 0;
     };
@@ -216,7 +219,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
         size_t &flags);
     void doSetFlags(void *virtualAddress, size_t newFlags);
     void doUnmap(void *virtualAddress);
-    void *doAllocateStack(size_t sSize);
+    Stack *doAllocateStack(size_t sSize);
 
   private:
     /** The constructor for already present paging structures
@@ -365,7 +368,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
     /** Current top of the stacks */
     void *m_pStackTop;
     /** List of free stacks */
-    Vector<void *> m_freeStacks;
+    Vector<Stack *> m_freeStacks;
 
     /** Lock to guard against multiprocessor reentrancy. */
     Spinlock m_Lock;
@@ -375,7 +378,7 @@ class ArmV7VirtualAddressSpace : public VirtualAddressSpace
 class ArmV7KernelVirtualAddressSpace : public ArmV7VirtualAddressSpace
 {
     /** Give Processor access to m_Instance */
-    friend class Processor;
+    friend class ProcessorBase;
     /** ArmV7VirtualAddressSpace needs access to m_Instance */
     friend class ArmV7VirtualAddressSpace;
     /** VirtualAddressSpace::getKernelAddressSpace() needs access to m_Instance

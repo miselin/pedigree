@@ -20,6 +20,7 @@
 #if DEBUGGER
 
 #include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/processor/state.h"
 
 uintptr_t ARMV7StackFrame::getParameter(size_t n)
 {

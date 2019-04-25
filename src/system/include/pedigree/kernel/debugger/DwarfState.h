@@ -200,7 +200,7 @@ class DwarfState
         return *this;
     }
 
-    processor_register_t getCfa(const DwarfState &initialState)
+    processor_register_t getCfa(const DwarfState &initialState) const
     {
         switch (m_CfaState)
         {
@@ -223,7 +223,7 @@ class DwarfState
     }
 
     processor_register_t
-    getRegister(unsigned int nRegister, const DwarfState &initialState)
+    getRegister(unsigned int nRegister, const DwarfState &initialState) const
     {
         //       NOTICE("GetRegister: r" << Dec << nRegister);
         switch (m_RegisterStates[nRegister])

@@ -269,21 +269,6 @@ class EXPORTED_PUBLIC ProcessorBase
      *      this should be handled by the upper layers */
     static void invalidate(void *pAddress);
 
-#if ARMV7
-    /** Read TTBR0 */
-    static physical_uintptr_t readTTBR0();
-    /** Read TTBR1 */
-    static physical_uintptr_t readTTBR1();
-    /** Read TTBCR */
-    static uint32_t readTTBCR();
-    /** Write TTBR0 */
-    static void writeTTBR0(physical_uintptr_t value);
-    /** Write TTBR1 */
-    static void writeTTBR1(physical_uintptr_t value);
-    /** Write TTBCR */
-    static void writeTTBCR(uint32_t value);
-#endif
-
     /** Invalidate a line in the instruction cache.
      *\param[in] nAddr The address of a memory location to invalidate from the
      *Icache. */

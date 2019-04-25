@@ -127,7 +127,7 @@ bool I2C::transmit(uint8_t addr, uintptr_t buffer, size_t len)
     bool success = true;
     while (1)
     {
-        Time::delay(1 * Time::Multiplier::MILLISECOND);
+        Time::delay(1 * Time::Multiplier::Millisecond);
         uint16_t status = base[I2C_STAT];
         if (status & 0x1)
         {
@@ -154,7 +154,7 @@ bool I2C::transmit(uint8_t addr, uintptr_t buffer, size_t len)
             *reinterpret_cast<volatile uint8_t *>(&base[I2C_DATA]) = *buf++;
         }
 
-        Time::delay(50 * Time::Multiplier::MILLISECOND);
+        Time::delay(50 * Time::Multiplier::Millisecond);
         base[I2C_STAT] = status;
     }
 
@@ -181,7 +181,7 @@ bool I2C::receive(uint8_t addr, uintptr_t buffer, size_t maxlen)
     bool success = true;
     while (1)
     {
-        Time::delay(1 * Time::Multiplier::MILLISECOND);
+        Time::delay(1 * Time::Multiplier::Millisecond);
         uint16_t status = base[I2C_STAT];
         if (status & 0x1)
         {
@@ -208,7 +208,7 @@ bool I2C::receive(uint8_t addr, uintptr_t buffer, size_t maxlen)
             *buf++ = *reinterpret_cast<volatile uint8_t *>(&base[I2C_DATA]);
         }
 
-        Time::delay(50 * Time::Multiplier::MILLISECOND);
+        Time::delay(50 * Time::Multiplier::Millisecond);
         base[I2C_STAT] = status;
     }
 
@@ -229,7 +229,7 @@ void I2C::waitForBus()
     while ((status = base[I2C_STAT]) & 0x1000)
     {
         base[I2C_STAT] = status;
-        Time::delay(50 * Time::Multiplier::MILLISECOND);
+        Time::delay(50 * Time::Multiplier::Millisecond);
     }
     base[I2C_STAT] = 0xFFFF;
 }
