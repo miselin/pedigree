@@ -210,7 +210,7 @@ void Spinlock::trackRelease() const
 #endif
 }
 
-void Spinlock::exit()
+void Spinlock::exit(uintptr_t ra)
 {
     bool bWasInterrupts = Processor::getInterrupts();
     if (bWasInterrupts == true)
@@ -254,11 +254,9 @@ void Spinlock::exit()
         auto atom = m_Atom.value();
         m_Atom = true;
 
-        uintptr_t myra =
-            reinterpret_cast<uintptr_t>(__builtin_return_address(0));
         FATAL_NOLOCK(
             "Spinlock has deadlocked in release, my return address is "
-            << Hex << myra << ", return address of other locker is " << m_Ra
+            << Hex << ra << ", return address of other locker is " << m_Ra
             << ", spinlock is " << reinterpret_cast<uintptr_t>(this)
             << ", atom is " << Dec << atom << ".");
 
@@ -274,7 +272,11 @@ void Spinlock::release()
 {
     bool bInterrupts = m_bInterrupts;
 
-    exit();
+    // Grab return address to push into exit() so failures are more useful
+    uintptr_t myra =
+        reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+
+    exit(myra);
 
     // Reenable irqs if they were enabled before
     if (bInterrupts)

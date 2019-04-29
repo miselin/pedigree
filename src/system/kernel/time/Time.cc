@@ -26,14 +26,23 @@ namespace Time
 Timestamp getTime(bool sync)
 {
     Timer *pTimer = Machine::instance().getTimer();
+    if (!pTimer)
+    {
+        return 0;
+    }
     if (sync)
         pTimer->synchronise();
-    return pTimer->getUnixTimestamp();
+    auto r = pTimer->getUnixTimestamp();
+    return r;
 }
 
 Timestamp getTimeNanoseconds(bool sync)
 {
     Timer *pTimer = Machine::instance().getTimer();
+    if (!pTimer)
+    {
+        return 0;
+    }
     if (sync)
         pTimer->synchronise();
     Timestamp r = pTimer->getUnixTimestamp() * Multiplier::Second;
@@ -44,6 +53,10 @@ Timestamp getTimeNanoseconds(bool sync)
 Timestamp getTicks()
 {
     Timer *pTimer = Machine::instance().getTimer();
+    if (!pTimer)
+    {
+        return 0;
+    }
     return pTimer->getTickCountNano();
 }
 

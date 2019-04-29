@@ -71,7 +71,7 @@ bool ArmV7PhysicalMemoryManager::allocateRegion(
             panic("PhysicalMemoryManager::allocateRegion(): function misused");
 
 // Remove the memory from the range-lists (if desired/possible)
-#ifdef ARM_BEAGLE  // Beagleboard RAM locations
+#if ARM_BEAGLE  // Beagleboard RAM locations
         if ((start < 0x80000000) || (start >= 0x90000000))
         {
             if (!m_NonRAMRanges.allocateSpecific(start, cPages * getPageSize()))
@@ -201,7 +201,7 @@ void ArmV7PhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
 {
 // Define beginning and end ranges of usable RAM
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     physical_uintptr_t addr = 0;
     for (addr = reinterpret_cast<physical_uintptr_t>(&kernel_end); addr < 0x87000000;
          addr += 0x1000)

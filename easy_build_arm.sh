@@ -12,8 +12,6 @@ COMPILER_DIR=$script_dir/pedigree-compiler
 
 set -e
 
-ARM_SCONS_OPTS="arm_beagle=1 armv7=1 arm_cortex_a8=1"
-
 . $script_dir/scripts/easy_build_deps.sh
 
 echo "Please wait, checking for a working cross-compiler."
@@ -31,7 +29,9 @@ esac
 "$script_dir/scripts/checkBuildSystemNoInteractive.pl" arm-pedigree $COMPILER_DIR $compiler_build_options
 
 old=$(pwd)
-cd "$script_dir"
+
+# Fix up POSIX headers which sometimes get a recursive symlink.
+rm -f src/subsys/posix/include/include || true
 
 set +e
 
@@ -39,6 +39,14 @@ set +e
 changed=`git status -s -uno`
 if [ -z "$changed" ]; then
     git pull --rebase > /dev/null 2>&1
+fi
+
+if [ -d "src/modules/drivers/cdi" ]; then
+    cd src/modules/drivers/cdi
+    git pull || echo "Failed to update cdi."
+    cd ${old}
+else
+    git clone git://git.tyndur.org/cdi.git src/modules/drivers/cdi || echo "Failed to clone cdi, cdi will not be part of your build."
 fi
 
 set -e
@@ -52,8 +60,18 @@ $script_dir/run_pup.py sync
 # Needed for libc
 $script_dir/run_pup.py install ncurses
 
-# Run a quick build of libc and libm for the rest of the build system.
-scons CROSS=$script_dir/compilers/dir/bin/arm-pedigree- $ARM_SCONS_OPTS build/musl/lib/libc.so
+# Build Pedigree.
+mkdir -p build-host && cd build-host
+cmake $TRAVIS_OPTIONS ..
+make
+cd ..
+
+mkdir -p build && cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_arm.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake $TRAVIS_OPTIONS ..
+
+# Build libc/libm
+make libc
+cd ..
 
 # Pull down libtool.
 $script_dir/run_pup.py install libtool
@@ -96,6 +114,13 @@ $script_dir/run_pup.py install expat
 $script_dir/run_pup.py install mesa
 $script_dir/run_pup.py install gettext
 
+$script_dir/run_pup.py install pango
+$script_dir/run_pup.py install glib
+$script_dir/run_pup.py install libpcre
+$script_dir/run_pup.py install harfbuzz
+$script_dir/run_pup.py install libffi
+$script_dir/run_pup.py install dialog
+
 # Install GCC to pull in shared libstdc++.
 $script_dir/run_pup.py install gcc
 
@@ -105,8 +130,9 @@ echo
 echo "Beginning the Pedigree build."
 echo
 
-# Build Pedigree.
-scons CROSS="$script_dir/compilers/dir/bin/arm-pedigree-" $ARM_SCONS_OPTS $TRAVIS_OPTIONS
+# Build full kernel
+cd build
+make
 
 cd "$old"
 
@@ -125,4 +151,3 @@ echo "Patches should be posted in the issue tracker at http://pedigree-project.o
 echo "Support can be found in #pedigree on irc.freenode.net."
 echo
 echo "Have fun with Pedigree! :)"
-

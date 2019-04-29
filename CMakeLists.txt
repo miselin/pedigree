@@ -186,6 +186,11 @@ if(CMAKE_CROSSCOMPILING)
         set(GENERIC_COMPILE_FLAGS ${GENERIC_COMPILE_FLAGS} -O0)
     endif ()
 
+    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+        # No multiprocessor support for ARM
+        set(PEDIGREE_MULTIPROCESSOR FALSE)
+    endif ()
+
     # Copy over all our definitions.
     configure_file(
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in

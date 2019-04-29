@@ -130,7 +130,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
     Thread *m_pIdleThread;
 
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     size_t m_TickCount;
 #endif
 };

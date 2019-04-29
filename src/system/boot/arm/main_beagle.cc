@@ -827,11 +827,14 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     writeStr(
         3, "\r\nPlease press the USER button on the board to continue.\r\n");
 
+    /*
     while (!gpio.capturepin(7))
         ;
+    */
 
     writeStr(3, "USER button pressed, continuing...\r\n\r\n");
 
+#if 0
     writeStr(
         3, "Press 1 to toggle the USR0 LED, and 2 to toggle the USR1 "
            "LED.\r\nPress 0 to clear both LEDs. Hit ENTER to boot the "
@@ -864,6 +867,7 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
         else if ((c == 13) || (c == 10))
             break;
     }
+#endif
 
     writeStr(3, "\r\n\r\nPlease wait while the kernel is loaded...\r\n");
 
@@ -906,6 +910,12 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     // their states for debugging the kernel.
     gpio.clearpin(149);
     gpio.clearpin(150);
+
+    // Ensure no interrupts until the kernel is ready for them
+    uint32_t cpsr = 0;
+    asm volatile("MRS %0, cpsr" : "=r"(cpsr));
+    cpsr |= 0x80;
+    asm volatile("MSR cpsr_c, %0" : : "r"(cpsr));
 
     // Run the kernel, finally
     writeStr(

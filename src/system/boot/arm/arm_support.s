@@ -17,9 +17,10 @@
 
 .extern __start
 .global start
-.global init_stacks
+.type start, %function
+.type __start, %function
 
-.section .init
+.section .init, "x"
 start:
     # Disable IRQs and FIQs.
     mrs r0, cpsr
@@ -55,8 +56,8 @@ start:
 
     bl __start
 
-.section .stacks @nobits
-.lcomm stack_svc, 0x10000
-.lcomm stack_irq, 0x1000
-.lcomm stack_fiq, 0x1000
-.lcomm irq_save, 0x10
+.section .stacks, "Mw", @nobits
+.comm stack_svc, 0x10000
+.comm stack_irq, 0x1000
+.comm stack_fiq, 0x1000
+.comm irq_save, 0x10

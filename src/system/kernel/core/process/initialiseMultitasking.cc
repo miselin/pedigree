@@ -35,11 +35,8 @@ void initialiseMultitasking()
     Process *pProcess = new Process();
     pProcess->resetCounts();
     pProcess->description() += "Kernel Process";
-
-#if MULTIPROCESSOR
     pProcess->description() += " - Processor #";
     pProcess->description() += Processor::id();
-#endif
 
     // Create the main kernel thread.
     Thread *pThread = new Thread(pProcess);
@@ -58,7 +55,6 @@ void shutdownMultitasking()
     /// housekeeping structures (including Process, Thread objects).
 }
 
-#if MULTIPROCESSOR
 void initialiseMultitaskingPerProcessor()
 {
     // Create the kernel idle process.
@@ -73,6 +69,5 @@ void initialiseMultitaskingPerProcessor()
     pThread->detach();
     Processor::information().getScheduler().initialise(pThread);
 }
-#endif
 
 #endif

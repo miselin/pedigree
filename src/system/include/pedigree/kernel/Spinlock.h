@@ -43,7 +43,7 @@ class EXPORTED_PUBLIC Spinlock
     bool acquire(bool recurse = false, bool safe = true);
 
     /** Exit the critical section, without restoring interrupts. */
-    void exit();
+    void exit(uintptr_t ra = 0);
 
     /** Exit the critical section, restoring previous interrupt state. */
     void release();

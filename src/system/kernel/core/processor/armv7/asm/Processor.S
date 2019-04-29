@@ -17,12 +17,16 @@
 
 # uintptr_t Processor::getBasePointer()
 .global _ZN13ProcessorBase14getBasePointerEv
+.type _ZN13ProcessorBase14getBasePointerEv, function
 # uintptr_t Processor::getStackPointer()
 .global _ZN13ProcessorBase15getStackPointerEv
+.type _ZN13ProcessorBase15getStackPointerEv, function
 # uintptr_t Processor::getInstructionPointer()
 .global _ZN13ProcessorBase21getInstructionPointerEv
+.type _ZN13ProcessorBase21getInstructionPointerEv, function
 # uintptr_t Processor::getDebugStatus()
 .global _ZN13ProcessorBase14getDebugStatusEv
+.type _ZN13ProcessorBase14getDebugStatusEv, function
 
 _ZN13ProcessorBase14getBasePointerEv:
   mov r0, fp
@@ -38,23 +42,31 @@ _ZN13ProcessorBase21getInstructionPointerEv:
 
 # bool Processor::saveState(SchedulerState &)
 .global _ZN13ProcessorBase9saveStateER19ARMV7SchedulerState
+.type _ZN13ProcessorBase9saveStateER19ARMV7SchedulerState, function
 # void Processor::restoreState(SchedulerState &, volatile uintptr_t *)
 .global _ZN13ProcessorBase12restoreStateER19ARMV7SchedulerStatePVm
+.type _ZN13ProcessorBase12restoreStateER19ARMV7SchedulerStatePVm, function
 # void Processor::restoreState(volatile uintptr_t *, SyscallState &)
 .global _ZN13ProcessorBase12restoreStateER17ARMV7SyscallStatePVm
+.type _ZN13ProcessorBase12restoreStateER17ARMV7SyscallStatePVm, function
 # void Processor::jumpKernel(volatile uintptr_t *, uintptr_t, uintptr_t,
 #                            uintptr_t, uintptr_t, uintptr_t, uintptr_t)
 .global _ZN13ProcessorBase10jumpKernelEPVmmmmmmm
+.type _ZN13ProcessorBase10jumpKernelEPVmmmmmmm, function
 # void Processor::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
 #                          uintptr_t, uintptr_t, uintptr_t, uintptr_t)
 .global _ZN13ProcessorBase8jumpUserEPVmmmmmmm
+.type _ZN13ProcessorBase8jumpUserEPVmmmmmmm, function
 # void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, Spinlock*)
 .global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR19ARMV7SchedulerStatePVm
+.type _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR19ARMV7SchedulerStatePVm, function
 
 # void Thread::threadExited()
 .extern _ZN6Thread12threadExitedEv
+.type _ZN6Thread12threadExitedEv, function
 # void PerProcessorScheduler::deleteThread(Thread *)
 .extern _ZN21PerProcessorScheduler12deleteThreadEP6Thread
+.type _ZN21PerProcessorScheduler12deleteThreadEP6Thread, function
 
 _ZN13ProcessorBase9saveStateER19ARMV7SchedulerState:
     # Store state.
@@ -144,7 +156,14 @@ _ZN13ProcessorBase8jumpUserEPVmmmmmmm:
 _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR19ARMV7SchedulerStatePVm:
     # r0 = Thread to delete
     # r1 = New thread state
-    # third param = lock to unlock
+    # r2 = lock to unlock
+
+    # Release lock if needed
+    cmp r2, #0
+    beq .no_lock3
+    mov r3, #1
+    str r3, [r2]
+.no_lock3:
 
     # Load state, including stack pointer
     ldmia r1, {r4 - r11, r12, sp}
@@ -159,6 +178,7 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR19ARMV7Schedul
 .section .init.text
 
 .global init_stacks
+.type init_stacks, function
 init_stacks:
     # Read the CPSR, mask out the lower 6 bits, and enter Abort mode
     mrs r0, cpsr
