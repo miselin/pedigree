@@ -360,19 +360,8 @@ void ARMV7InterruptManager::initialiseProcessor()
             0x48200000))
         return;
 
-    // Map in the ARM vector table to 0xFFFF0000
-    if (!VirtualAddressSpace::getKernelAddressSpace().map(
-            reinterpret_cast<physical_uintptr_t>(&__arm_vector_table),
-            reinterpret_cast<void *>(0xFFFF0000),
-            VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode))
-        return;
-
-    // Switch to the high vector for the exception base
-    uint32_t sctlr = 0;
-    asm volatile("MRC p15,0,%0,c1,c0,0" : "=r"(sctlr));
-    if (!(sctlr & 0x2000))
-        sctlr |= 0x2000;
-    asm volatile("MCR p15,0,%0,c1,c0,0" : : "r"(sctlr));
+    // Use our custom IVT
+    __asm__ __volatile__ ("mcr p15, #0, %0, c12, c0, #0" :: "r" (&__arm_vector_table));
 
     // Initialise the MPU INTC
     volatile uint32_t *mpuIntcRegisters = reinterpret_cast<volatile uint32_t *>(

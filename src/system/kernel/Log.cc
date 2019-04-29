@@ -76,7 +76,7 @@ static const size_t g_NumRepeatedStrings = 20;
 Log::Log()
     :
       m_Lock(),
-      m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
+      m_StaticLog(), m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
       m_Buffer(),
       m_EchoToSerial(LOG_TO_SERIAL),
       m_nOutputCallbacks(0),
@@ -185,7 +185,10 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
             if (m_Timestamps)
             {
                 const NormalStaticString &ts = getTimestamp();
-                msg.append(ts, ts.length());
+                if (ts.length())
+                {
+                    msg.append(ts, ts.length());
+                }
             }
             msg.append(m_StaticLog[entry].str, m_StaticLog[entry].str.length());
             msg.append(m_LineEnding, m_LineEnding.length());
@@ -448,7 +451,10 @@ void Log::flushEntry(bool lock)
         if (m_Timestamps)
         {
             const NormalStaticString &ts = getTimestamp();
-            msg.append(ts, ts.length());
+            if (ts.length())
+            {
+                msg.append(ts, ts.length());
+            }
         }
         msg.append(m_Buffer.str, m_Buffer.str.length());
         msg.append(m_LineEnding, m_LineEnding.length());

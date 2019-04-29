@@ -32,7 +32,7 @@
     (which means we can't call the PMM!)
 
     There is one page per processor. */
-physical_uintptr_t g_EscrowPages[256];  /// \todo MAX_PROCESSORS
+static physical_uintptr_t g_EscrowPages[256] = {0};  /// \todo MAX_PROCESSORS
 
 ArmV7KernelVirtualAddressSpace ArmV7KernelVirtualAddressSpace::m_Instance;
 
@@ -496,12 +496,12 @@ VirtualAddressSpace::Stack *ArmV7VirtualAddressSpace::doAllocateStack(size_t sSi
         delete poppedStack;
         pStack = m_freeStacks.popBack();
     }
-    m_Lock.release();
 
     if (pStack)
     {
         /// \todo if freeStack() actually frees the entire stack, we need to
         /// map it rather than just return
+        m_Lock.release();
         return new Stack(pStack, sSize);
     }
 
@@ -699,7 +699,9 @@ ArmV7KernelVirtualAddressSpace::ArmV7KernelVirtualAddressSpace()
           KERNEL_VIRTUAL_STACK)
 {
     for (int i = 0; i < 256; i++)
+    {
         g_EscrowPages[i] = 0;
+    }
 
     initialiseKernelAddressSpace();
 }

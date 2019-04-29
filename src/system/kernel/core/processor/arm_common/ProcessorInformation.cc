@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/Log.h"
 
 VirtualAddressSpace &ArmCommonProcessorInformation::getVirtualAddressSpace() const
 {

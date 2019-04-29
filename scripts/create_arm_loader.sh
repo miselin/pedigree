@@ -2,46 +2,54 @@
 
 out=$1
 uboot=$2
-build_path=$3
+build_path=$(realpath $3)
 
-mkdir -p build/bits
-bits="build/bits"
+set -e
+
+mkdir -p "$build_path/bits"
+bits="$build_path/bits"
 
 if [ "x$out$uboot$build_path" = "x" ]; then
     echo "usage: create_arm_loader.sh output_image uboot_dir"
     exit 1
 fi
 
-CYLINDER_SIZE=8225280
+# TODO: create ext2 partition on the virtual SD card again
+dd if=/dev/zero of="$bits/out.img" bs=4096 count=64000  # 256M
 
-if [ ! -e "$bits/out.img" ]; then
-    dd if=/dev/zero of="$bits/out.img" bs=$CYLINDER_SIZE count=100
-fi
-
-fat_part="n\np\n1\n\n+50\nt\nc\na\n1\n"
-ext_part="n\np\n2\n\n\n"
-
-# Partition main disk image.
-echo -e "o\np\n${fat_part}${ext_part}p\nw" | \
-    fdisk -c=dos -u=cylinders -H 255 -S 63 "$bits/out.img"
-
-# Create new filesystems ready for access.
-dd if=/dev/zero of="$bits/fat.img" bs=$CYLINDER_SIZE count=50
-dd if=/dev/zero of="$bits/ext2.img" bs=$CYLINDER_SIZE count=49
-
-# Create ext2 filesystem.
-mkfs.ext2 -F "$bits/ext2.img"
+# Create the partition table on the target image
+fdisk -c=dos -u=cylinders "$bits/out.img" <<END
+o
+n
+p
+1
+1
++64M
+a
+t
+c
+w
+END
+fdisk -l "$bits/out.img"
 
 # Pedigree boot script.
 cat <<EOF >"$bits/pedigree.txt"
 setenv initrd_high "0xffffffff"
 setenv fdt_high "0xffffffff"
-setenv bootcmd "fatload mmc 0 88000000 uImage;bootm 88000000"
+setenv bootcmd "fatload mmc 0:1 0x88000000 uImage;bootm 88000000"
 boot
+EOF
+
+cat <<EOF >"$bits/uEnv.txt"
+bootenv=boot.scr
+loaduimage=fatload mmc \${mmcdev} \${loadaddr} \${bootenv}
+mmcboot=echo Running boot.scr script from mmc ...; source \${loadaddr}
 EOF
 
 mkimage -A arm -O linux -T script -C none -a 0 -e 0 -n 'Booting Pedigree...' \
     -d "$bits/pedigree.txt" "$bits/boot.scr"
+
+echo "Generating FAT filesystem..."
 
 # Create FAT filesystem.
 cat <<EOF >.mtoolsrc
@@ -52,8 +60,9 @@ export MTOOLSRC="$PWD/.mtoolsrc"
 
 # Copy files into the FAT partition.
 mformat z:
-mcopy "$uboot/MLO" "$uboot/u-boot.img" "$bits/boot.scr" z:
-mcopy "$build_path/uImage.bin" z:uImage
+mcopy "$uboot/MLO" z:
+mcopy "$uboot/u-boot.img" "$bits/boot.scr" "$bits/uEnv.txt" z:
+mcopy "$build_path/beagle_uImage" z:uImage
 
 rm -f .mtoolsrc
 

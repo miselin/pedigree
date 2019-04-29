@@ -26,7 +26,7 @@
 .extern arm_data_abort_handler
 .extern arm_addrexcept_handler
 
-.section .ivt
+.section .ivt, "x"
 
 .global __arm_vector_table
 .global __end_arm_vector_table

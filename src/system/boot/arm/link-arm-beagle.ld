@@ -6,47 +6,38 @@ SECTIONS
 {
     . = 0x87000000;
 
-    .init :
-    {
-        . = ALIGN(4096);
-        *(.init)
-    }
-
     .text :
     {
-        . = ALIGN(4096);
-        code = .; _code = .; __code = .;
+        *(.init)
         *(.text*)
     }
 
+    . = ALIGN(4096);
+
     .data :
     {
-        . = ALIGN(4096);
         start_ctors = .;
-        *(.ctors*)
+        *(.init_array)
         end_ctors = .;
         start_dtors = .;
-        *(.dtors)
+        *(.fini_array)
         end_dtors = .;
 
-        data = .; _data = .; __data = .;
         *(.data*)
         *(.rodata*)
-        
-    	__strtab = .;
 	    *(.strtab*)
-    	__strtab_end = .;
     }
+
+    . = ALIGN(4096);
 
     .bss :
     {
-        . = ALIGN(4096);
-        bss = .; _bss = .; __bss = .;
         *(.bss*)
         *(.sbss*)
-        . = ALIGN(4096);
-        *(.stacks*)
+        *(COMMON)
     }
 
-    end = .; _end = .; __end = .;
+    /DISCARD/ : { *(.comment) *(.eh_frame) }
+
+    . = ALIGN(4096);
 }

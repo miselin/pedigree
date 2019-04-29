@@ -10,7 +10,8 @@ set(GENERIC_BOOT_CXXFLAGS
 set(GENERIC_BOOT_LINKFLAGS
     "-nostdlib" "-nostartfiles" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
 set(GENERIC_BOOT_LINKFLAGS_NOLINKSCRIPT ${GENERIC_BOOT_LINKFLAGS})
-set(ARCH_BOOT_LINKSCRIPT "-T${CMAKE_CURRENT_SOURCE_DIR}/link-arm-beagle.ld")
+set(ARCH_BOOT_LINKSCRIPT_FILENAME "${CMAKE_CURRENT_SOURCE_DIR}/link-arm-beagle.ld")
+set(ARCH_BOOT_LINKSCRIPT "-T${ARCH_BOOT_LINKSCRIPT_FILENAME}")
 
 # TODO: for non-v7 targets we need to adjust this
 set(ARCH_BOOT_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
@@ -41,6 +42,7 @@ add_custom_target(embedkernel ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/embedkerne
 # build the boot shim
 add_executable(beagleboot main_beagle.cc Elf32.cc support.cc arm_support.s ${CMAKE_CURRENT_BINARY_DIR}/embedkernel.c)
 target_link_libraries(beagleboot PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_BOOT_LINKFLAGS} ${ARCH_BOOT_LINKFLAGS} ${ARCH_BOOT_LINKSCRIPT})
+set_target_properties(beagleboot PROPERTIES LINK_DEPENDS ${ARCH_BOOT_LINKSCRIPT_FILENAME})
 
 # build the final image
 # TODO: we need to find the mkimage binary to make this more reliable

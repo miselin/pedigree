@@ -57,19 +57,20 @@ bool Scheduler::initialise(Process *pKernelProcess)
 
     List<PerProcessorScheduler *> procList;
 
-#if MULTIPROCESSOR
+    m_pBspScheduler = &Processor::information().getScheduler();
+    procList.pushBack(m_pBspScheduler);
+
     size_t i = 0;
     for (Vector<ProcessorInformation *>::Iterator it =
              Processor::m_ProcessorInformation.begin();
          it != Processor::m_ProcessorInformation.end(); it++, i += 2)
     {
-        procList.pushBack(&((*it)->getScheduler()));
+        auto thisScheduler = &((*it)->getScheduler());
+        if (thisScheduler != m_pBspScheduler)
+        {
+            procList.pushBack(thisScheduler);
+        }
     }
-#else
-    procList.pushBack(&Processor::information().getScheduler());
-#endif
-
-    m_pBspScheduler = &Processor::information().getScheduler();
 
     pRoundRobin->initialise(procList);
 

@@ -32,10 +32,10 @@ SECTIONS
     .data :
     {
         PROVIDE(start_kernel_ctors = .);
-        *(.ctors)
+        *(.init_array)
         PROVIDE(end_kernel_ctors = .);
         PROVIDE(start_kernel_dtors = .);
-        *(.dtors)
+        *(.fini_array)
         PROVIDE(end_kernel_dtors = .);
 
         *(.data)
@@ -49,9 +49,18 @@ SECTIONS
         PROVIDE(start_module_ctors = .);
         *(.module_ctors)
         PROVIDE(end_module_ctors = .);
+
+        . = ALIGN(4096); /* Needs to be on a 64 KB boundary to map properly. */
+        *(.ivt)
     }
 
+    PROVIDE(__exidx_start = .);
+    .ARM.exidx   : { *(.ARM.exidx* .gnu.linkonce.armexidx.*) }
+    PROVIDE(__exidx_end = .);
+
     . = ALIGN(4096);
+
+    /DISCARD/ : { *(.comment) *(.eh_frame) }
 
     .bss :
     {
@@ -59,21 +68,7 @@ SECTIONS
         *(.bss*)
         *(.sbss*)
         *(COMMON)
-        *(.stacks*)
     }
-
-    PROVIDE(__exidx_start = .);
-    .ARM.exidx   : { *(.ARM.exidx* .gnu.linkonce.armexidx.*) }
-    PROVIDE(__exidx_end = .);
-    
-    . = ALIGN(65536); /* Needs to be on a 64 KB boundary to map properly. */
-
-    .ivt :
-    {
-        *(.ivt)
-    }
-
-    /DISCARD/ : { *(.comment) *(.eh_frame) }
 
     . = ALIGN(4096);
 
