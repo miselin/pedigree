@@ -70,7 +70,7 @@ bool PedigreeIpc::SharedIpcMessage::initialise()
 }
 
 bool PedigreeIpc::send(
-    IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync)
+    IpcEndpoint pEndpoint, IpcMessage *pMessage, bool bAsync)
 {
     return static_cast<bool>(syscall3(
         IPC_SEND_IPC, reinterpret_cast<uintptr_t>(pEndpoint),
@@ -78,7 +78,7 @@ bool PedigreeIpc::send(
 }
 
 bool PedigreeIpc::recv(
-    IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync)
+    IpcEndpoint pEndpoint, IpcMessage **pMessage, bool bAsync)
 {
     void *kernelPointer = reinterpret_cast<void *>(syscall2(
         IPC_RECV_PHASE1, reinterpret_cast<uintptr_t>(pEndpoint),

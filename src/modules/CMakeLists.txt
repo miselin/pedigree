@@ -18,16 +18,30 @@ set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
-# TODO: handle static drivers
-# TODO: x64-specific
+if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+    set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64"
+        "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
+    set(ARCH_MODULE_LINKFLAGS "-m64")
+
+    add_definitions(-DUSE_PIC_SYSCALLS)
+
+    set(MUSL_LIBNAME ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-x86_64.so.1)
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+    # TODO: for non-v7 targets we need to adjust this
+    set(ARCH_MODULE_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
+    set(ARCH_MODULE_LINKFLAGS "")
+
+    set(MUSL_LIBNAME ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-arm.so.1)
+endif ()
+
 set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link.ld")
-set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} "-fPIC" "-fno-omit-frame-pointer" "-nostdlib" "-m64"
-    "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
+set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} ${ARCH_MODULE_FLAGS} "-fPIC" "-nostdlib" )
 set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
 set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit")
-set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" "-Wl,-shared" "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
-
-add_definitions(-DUSE_PIC_SYSCALLS)
+set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" ${ARCH_MODULE_LINKFLAGS})
+if (NOT PEDIGREE_STATIC_DRIVERS)
+    set(PEDIGREE_MODULE_LINKFLAGS "${PEDIGREE_MODULE_LINKFLAGS}" "-Wl,-shared" "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
+endif ()
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/include)
@@ -79,13 +93,19 @@ function(pedigree_module name opts libs)
 
     # TODO: this doesn't correctly discover missing symbols if dependencies are
     # not listed in full - need to work on that.
-    add_executable(${name} ${ARGN})
-    set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
+    if (PEDIGREE_STATIC_DRIVERS)
+        add_library(${name} OBJECT ${ARGN})
+        set(additional_libs "")
+    else ()
+        add_executable(${name} ${ARGN})
+        set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
+        set(additional_libs module kernel_shared)
+    endif ()
     target_compile_options(${name} PRIVATE
         ${opts}
         $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
         $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
-    target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
+    target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} ${additional_libs})
 
     # Generic set of include directories for modules to find their own headers
     target_include_directories(${name} PRIVATE
@@ -96,27 +116,41 @@ function(pedigree_module name opts libs)
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/${PEDIGREE_DRIVERDIR}/${name})
 
     if (PEDIGREE_MODULE_${name})
-        list(APPEND PEDIGREE_KERNEL_MODULES $<TARGET_FILE:${name}>)
+        if (NOT PEDIGREE_STATIC_DRIVERS)
+            list(APPEND PEDIGREE_KERNEL_MODULES $<TARGET_FILE:${name}>)
+            set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
+        endif ()
+
         list(APPEND PEDIGREE_KERNEL_MODULE_TARGETS ${name})
 
-        set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
         set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
     endif ()
 
-    # split debug info into a .debug file so it's accessible but not present in the module binary itself
-    add_custom_command(TARGET ${name} POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
-        COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${name}>
-        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
+    if (NOT PEDIGREE_STATIC_DRIVERS)
+        # split debug info into a .debug file so it's accessible but not present in the module binary itself
+        add_custom_command(TARGET ${name} POST_BUILD
+            COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
+            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${name}>
+            COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
+
+        set_target_properties(${name} PROPERTIES LINK_DEPENDS ${PEDIGREE_MODULE_LINKSCRIPT})
+    endif ()
 endfunction()
 
-add_library(module STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
+if (NOT PEDIGREE_STATIC_DRIVERS)
+    add_library(module STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
+endif ()
+
+if (PEDIGREE_STATIC_DRIVERS)
+    set_source_files_properties(${CMAKE_BINARY_DIR}/embedconfigdb.c PROPERTIES GENERATED 1)
+endif ()
 
 pedigree_module(config "-w;-Os" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/Config.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/config/sqlite3/sqlite3.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/config/sqlite3/sqlite3.c
+    $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:${CMAKE_BINARY_DIR}/embedconfigdb.c>)
 target_compile_definitions(config PUBLIC
     -DSQLITE_SYSTEM_MALLOC=1 -DSQLITE_OS_OTHER=1 -DSQLITE_THREADSAFE=0
     -DSQLITE_TEMP_STORE=3 -DSQLITE_DISABLE_LFS=1 -DSQLITE_OMIT_ALTER_TABLE=1
@@ -133,6 +167,9 @@ target_compile_definitions(config PUBLIC
     -DSQLITE_OMIT_TEMPDB=1 -DSQLITE_OMIT_TRACE=1 -DSQLITE_OMIT_UTF16=1
     -DSQLITE_OMIT_WAL=1)
 add_dependencies(config libc)  # TODO: this shouldn't need headers.
+if (PEDIGREE_STATIC_DRIVERS)
+    add_dependencies(config embedconfigdb)
+endif ()
 
 pedigree_module(confignics "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/confignics/main.cc)
@@ -181,9 +218,11 @@ pedigree_module(linker "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/DynamicLinker.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/asm-${PEDIGREE_LINKERDIR}.s)
 
-set_source_files_properties(
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/asm-${PEDIGREE_LINKERDIR}.s
-    PROPERTIES LANGUAGE ASM_NASM)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/asm-${PEDIGREE_LINKERDIR}.s
+        PROPERTIES LANGUAGE ASM_NASM)
+endif ()
 
 pedigree_module(lodisk "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/lodisk/LoDisk.cc)
@@ -304,22 +343,8 @@ pedigree_module(ata "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaDisk.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/BusMasterIde.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/IsaAtaController.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/PciAtaController.cc
+    $<$<BOOL:${PEDIGREE_MACHINE_HASPCI}>:${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/PciAtaController.cc>
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/main.cc)
-
-pedigree_module(cdi "" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/compat.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/dma.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/lists.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/misc.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/net.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/pci.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/storage.cc)
-target_include_directories(cdi PRIVATE ${CDI_INCLUDE_DIRS})
 
 pedigree_module(dm9601 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/dm9601/Dm9601.cc
@@ -379,29 +404,43 @@ pedigree_module(usb-mass-storage "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/UsbMassStorageDevice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/main.cc)
 
-pedigree_module(e1000 "-w" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/main.c)
-target_include_directories(e1000 PRIVATE ${CDI_INCLUDE_DIRS})
-
-pedigree_module(pcnet "-w" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/pcnet.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/main.c)
-target_include_directories(pcnet PRIVATE ${CDI_INCLUDE_DIRS})
-
-pedigree_module(rtl8139 "-w" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/rtl8139.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/main.c)
-target_include_directories(rtl8139 PRIVATE ${CDI_INCLUDE_DIRS})
-
-pedigree_module(sis900 "-w" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/device.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/eeprom.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/main.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/sis900_io.c)
-target_include_directories(sis900 PRIVATE ${CDI_INCLUDE_DIRS})
-
 if (PEDIGREE_DRIVERDIR STREQUAL "x86")
+    pedigree_module(cdi "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/compat.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/dma.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/lists.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/misc.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/net.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/pci.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/storage.cc)
+    target_include_directories(cdi PRIVATE ${CDI_INCLUDE_DIRS})
+
+    pedigree_module(e1000 "-w" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/main.c)
+    target_include_directories(e1000 PRIVATE ${CDI_INCLUDE_DIRS})
+
+    pedigree_module(pcnet "-w" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/pcnet.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/main.c)
+    target_include_directories(pcnet PRIVATE ${CDI_INCLUDE_DIRS})
+
+    pedigree_module(rtl8139 "-w" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/rtl8139.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/main.c)
+    target_include_directories(rtl8139 PRIVATE ${CDI_INCLUDE_DIRS})
+
+    pedigree_module(sis900 "-w" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/device.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/eeprom.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/main.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/sis900_io.c)
+    target_include_directories(sis900 PRIVATE ${CDI_INCLUDE_DIRS})
+
     pedigree_module(ib700_wdt "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ib700_wdt/main.cc)
 
@@ -427,8 +466,10 @@ endif ()
 add_library(vdso SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld)
-target_compile_options(vdso PRIVATE "-mcmodel=small")
-target_link_libraries(vdso PRIVATE
+if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+    target_compile_options(vdso PRIVATE "-mcmodel=small")
+endif ()
+target_link_libraries(vdso PRIVATE gcc
     "-Wl,--soname,linux-vdso.so.1" "-Wl,--hash-style=both" "-Wl,-Bsymbolic"
     "-nostdlib"
     "-T${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld"
@@ -454,7 +495,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSubsystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PsAuxFile.cc
+    $<$<BOOL:${PEDIGREE_MACHINE_HASPS2}>:${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PsAuxFile.cc>
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pthread-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/select-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
@@ -462,18 +503,22 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/VirtualTerminal.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-amd64.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
     ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 target_include_directories(posix PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls)
+target_compile_definitions(posix PRIVATE
+    -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600)
 
-set_source_files_properties(
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-amd64.s
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
-    PROPERTIES LANGUAGE ASM_NASM)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
+        PROPERTIES LANGUAGE ASM_NASM)
+endif ()
 
 pedigree_module(native "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/NativeIpc.cc
@@ -517,10 +562,14 @@ add_dependencies(pedigree-c-user libc)
 
 set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> $<TARGET_FILE:pedigree-c-user> PARENT_SCOPE)
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
-    COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
-    DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
-add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar)
+if (PEDIGREE_STATIC_DRIVERS)
+    add_library(staticmodules OBJECT Module.cc)
+else ()
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
+        COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
+        DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
+    add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar)
+endif ()
 
 file(DOWNLOAD "https://www.musl-libc.org/releases/${MUSL_FILENAME}" ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
 
@@ -535,7 +584,7 @@ add_custom_target(musl_extract ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NA
 add_custom_command(
     OUTPUT
     ${CMAKE_BINARY_DIR}/musl/lib/libc.so
-    ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-x86_64.so.1
+    ${MUSL_LIBNAME}
     ${CMAKE_BINARY_DIR}/musl/lib/crt1.o
     ${CMAKE_BINARY_DIR}/musl/lib/crti.o
     ${CMAKE_BINARY_DIR}/musl/lib/crtn.o
@@ -557,13 +606,15 @@ add_custom_command(
     SRCDIR=${CMAKE_SOURCE_DIR}
     TARGETDIR=${CMAKE_BINARY_DIR}/musl
     ARCH_TARGET=${PEDIGREE_ARCH_TARGET}
-    ${CMAKE_SOURCE_DIR}/scripts/build-musl.sh
+    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     DEPENDS
+    ${CMAKE_SOURCE_DIR}/compilers/pedigree-musl.patch
+    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-x86_64.musl-s
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-${PEDIGREE_MUSLARCH}.musl-s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
     ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}

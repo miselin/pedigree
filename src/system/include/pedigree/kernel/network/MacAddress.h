@@ -53,11 +53,6 @@ class EXPORTED_PUBLIC MacAddress
 
     MacAddress &operator=(const uint16_t *a);
 
-    operator const uint16_t *() const
-    {
-        return getMac();
-    }
-
     String toString();
 
   private:

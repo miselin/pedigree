@@ -57,28 +57,28 @@ class NetworkSyscalls
     /// Implementation-specific final socket creation logic,
     /// implementations must set a SYSCALL_ERROR on failure.
     virtual bool create();
-    virtual int connect(const struct sockaddr *address, socklen_t addrlen) = 0;
+    virtual int connect(const struct sockaddr_storage *address, socklen_t addrlen) = 0;
 
     virtual ssize_t sendto_msg(const struct msghdr *msghdr) = 0;
     virtual ssize_t recvfrom_msg(struct msghdr *msghdr) = 0;
 
     virtual ssize_t sendto(
         const void *buffer, size_t bufferlen, int flags,
-        const struct sockaddr *address, socklen_t addrlen);
+        const struct sockaddr_storage *address, socklen_t addrlen);
     virtual ssize_t recvfrom(
-        void *buffer, size_t bufferlen, int flags, struct sockaddr *address,
+        void *buffer, size_t bufferlen, int flags, struct sockaddr_storage *address,
         socklen_t *addrlen);
 
     virtual int listen(int backlog) = 0;
-    virtual int bind(const struct sockaddr *address, socklen_t addrlen) = 0;
-    virtual int accept(struct sockaddr *address, socklen_t *addrlen) = 0;
+    virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen) = 0;
+    virtual int accept(struct sockaddr_storage *address, socklen_t *addrlen) = 0;
 
     virtual int shutdown(int how);
 
     virtual int
-    getpeername(struct sockaddr *address, socklen_t *address_len) = 0;
+    getpeername(struct sockaddr_storage *address, socklen_t *address_len) = 0;
     virtual int
-    getsockname(struct sockaddr *address, socklen_t *address_len) = 0;
+    getsockname(struct sockaddr_storage *address, socklen_t *address_len) = 0;
 
     virtual int setsockopt(
         int level, int optname, const void *optvalue, socklen_t optlen) = 0;
@@ -136,19 +136,19 @@ class LwipSocketSyscalls : public NetworkSyscalls
 
     /// Implementation-specific final socket creation logic.
     virtual bool create();
-    virtual int connect(const struct sockaddr *address, socklen_t addrlen);
+    virtual int connect(const struct sockaddr_storage *address, socklen_t addrlen);
 
     virtual ssize_t sendto_msg(const struct msghdr *msghdr);
     virtual ssize_t recvfrom_msg(struct msghdr *msghdr);
 
     virtual int listen(int backlog);
-    virtual int bind(const struct sockaddr *address, socklen_t addrlen);
-    virtual int accept(struct sockaddr *address, socklen_t *addrlen);
+    virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen);
+    virtual int accept(struct sockaddr_storage *address, socklen_t *addrlen);
 
     virtual int shutdown(int how);
 
-    virtual int getpeername(struct sockaddr *address, socklen_t *address_len);
-    virtual int getsockname(struct sockaddr *address, socklen_t *address_len);
+    virtual int getpeername(struct sockaddr_storage *address, socklen_t *address_len);
+    virtual int getsockname(struct sockaddr_storage *address, socklen_t *address_len);
 
     virtual int
     setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
@@ -193,19 +193,19 @@ class UnixSocketSyscalls : public NetworkSyscalls
 
     /// Implementation-specific final socket creation logic.
     virtual bool create();
-    virtual int connect(const struct sockaddr *address, socklen_t addrlen);
+    virtual int connect(const struct sockaddr_storage *address, socklen_t addrlen);
 
     virtual ssize_t sendto_msg(const struct msghdr *msghdr);
     virtual ssize_t recvfrom_msg(struct msghdr *msghdr);
 
     virtual int listen(int backlog);
-    virtual int bind(const struct sockaddr *address, socklen_t addrlen);
-    virtual int accept(struct sockaddr *address, socklen_t *addrlen);
+    virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen);
+    virtual int accept(struct sockaddr_storage *address, socklen_t *addrlen);
 
     virtual int shutdown(int how);
 
-    virtual int getpeername(struct sockaddr *address, socklen_t *address_len);
-    virtual int getsockname(struct sockaddr *address, socklen_t *address_len);
+    virtual int getpeername(struct sockaddr_storage *address, socklen_t *address_len);
+    virtual int getsockname(struct sockaddr_storage *address, socklen_t *address_len);
 
     virtual int
     setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
@@ -243,27 +243,27 @@ struct netconnMetadata *getNetconnMetadata(struct netconn *conn);
 
 int posix_socket(int domain, int type, int protocol);
 int posix_socketpair(int domain, int type, int protocol, int sv[2]);
-int posix_connect(int sock, const struct sockaddr *address, socklen_t addrlen);
+int posix_connect(int sock, const struct sockaddr_storage *address, socklen_t addrlen);
 
 ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags);
 ssize_t posix_sendto(
     int sock, const void *buff, size_t bufflen, int flags,
-    struct sockaddr *address, socklen_t addrlen);
+    struct sockaddr_storage *address, socklen_t addrlen);
 ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags);
 ssize_t posix_recvfrom(
-    int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address,
+    int sock, void *buff, size_t bufflen, int flags, struct sockaddr_storage *address,
     socklen_t *addrlen);
 
 int posix_listen(int sock, int backlog);
-int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen);
-int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen);
+int posix_bind(int sock, const struct sockaddr_storage *address, socklen_t addrlen);
+int posix_accept(int sock, struct sockaddr_storage *address, socklen_t *addrlen);
 
 int posix_shutdown(int socket, int how);
 
 int posix_getpeername(
-    int socket, struct sockaddr *address, socklen_t *address_len);
+    int socket, struct sockaddr_storage *address, socklen_t *address_len);
 int posix_getsockname(
-    int socket, struct sockaddr *address, socklen_t *address_len);
+    int socket, struct sockaddr_storage *address, socklen_t *address_len);
 
 int posix_setsockopt(
     int sock, int level, int optname, const void *optvalue, socklen_t optlen);

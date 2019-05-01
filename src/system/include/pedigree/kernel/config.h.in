@@ -135,6 +135,8 @@
 #cmakedefine01 PEDIGREE_VERBOSE_MEMORY_MANAGER
 #define VERBOSE_MEMORY_MANAGER PEDIGREE_VERBOSE_MEMORY_MANAGER
 
+#cmakedefine01 PEDIGREE_MACHINE_HASPCI
+
 /** Clean up less common machine/target specific definitions. */
 
 #ifndef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
@@ -193,6 +195,10 @@
 
 #ifndef ARM_COMMON
 #define ARM_COMMON 0
+#endif
+
+#ifndef ARM_BEAGLE
+#define ARM_BEAGLE 0
 #endif
 
 #ifndef MIPS_COMMON

@@ -36,7 +36,13 @@ set(PEDIGREE_LINKERDIR "amd64")
 set(PEDIGREE_DRIVERDIR "x86")
 # TODO: normalize on this so the number of definitions above can be reduced
 set(PEDIGREE_ASMDIR "amd64")
+set(PEDIGREE_MUSLARCH "amd64")
+set(PEDIGREE_TARGET_LIVECD TRUE)
 set(GRUB TRUE)
+
+# Machine-specific info
+set(PEDIGREE_MACHINE_HASPS2 TRUE)
+set(PEDIGREE_MACHINE_HASPCI TRUE)
 
 # Definitions for amd64 across the entire source tree.
 add_definitions(-DX86_COMMON=1 -DX64=1 -DMACH_PC=1 -DBITS_64=1 -DBITS_32=0

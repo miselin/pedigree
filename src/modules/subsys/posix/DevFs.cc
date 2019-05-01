@@ -482,7 +482,10 @@ DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);
 
-    delete m_pPsAuxFile;
+    EMIT_IF(X86_COMMON)
+    {
+        delete m_pPsAuxFile;
+    }
     delete m_VtManager;
     delete m_pTty;
     delete m_pRoot;
@@ -649,16 +652,19 @@ bool DevFs::initialise(Disk *pDisk)
     RtcFile *rtc = new RtcFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(rtc->getName(), rtc);
 
-    PsAuxFile *pPsAux =
-        new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
-    if (pPsAux->initialise())
+    EMIT_IF(X86_COMMON)
     {
-        m_pRoot->addEntry(pPsAux->getName(), pPsAux);
-        m_pPsAuxFile = pPsAux;
-    }
-    else
-    {
-        delete pPsAux;
+        PsAuxFile *pPsAux =
+            new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
+        if (pPsAux->initialise())
+        {
+            m_pRoot->addEntry(pPsAux->getName(), pPsAux);
+            m_pPsAuxFile = pPsAux;
+        }
+        else
+        {
+            delete pPsAux;
+        }
     }
 
     // add input handler for terminal switching

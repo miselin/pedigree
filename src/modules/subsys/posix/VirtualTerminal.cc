@@ -351,7 +351,7 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
 #if THREADS
     Process *pProcess = m_Terminals[n].owner;
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("VirtualTerminal::sendSignal: no subsystem");

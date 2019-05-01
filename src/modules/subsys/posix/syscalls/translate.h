@@ -23,6 +23,11 @@
 // from musl
 #include <bits/syscall.h>
 
+#define TRANSLATION_ENTRY(FROM, TO) \
+    case FROM: \
+        pedigree_translation = TO; \
+        break;
+
 #include <posixSyscallNumbers.h>
 
 inline long posix_translate_syscall(long which)
@@ -31,466 +36,210 @@ inline long posix_translate_syscall(long which)
 
     switch (which)
     {
-        case SYS_read:
-            pedigree_translation = POSIX_READ;
-            break;
-        case SYS_write:
-            pedigree_translation = POSIX_WRITE;
-            break;
-        case SYS_open:
-            pedigree_translation = POSIX_OPEN;
-            break;
-        case SYS_close:
-            pedigree_translation = POSIX_CLOSE;
-            break;
-        case SYS_stat:
-            pedigree_translation = POSIX_STAT;
-            break;
-        case SYS_fstat:
-            pedigree_translation = POSIX_FSTAT;
-            break;
-        case SYS_lstat:
-            pedigree_translation = POSIX_LSTAT;
-            break;
-        case SYS_poll:
-            pedigree_translation = POSIX_POLL;
-            break;
-        case SYS_lseek:
-            pedigree_translation = POSIX_LSEEK;
-            break;
-        case SYS_mmap:
-            pedigree_translation = POSIX_MMAP;
-            break;
-        case SYS_mprotect:
-            pedigree_translation = POSIX_MPROTECT;
-            break;
-        case SYS_munmap:
-            pedigree_translation = POSIX_MUNMAP;
-            break;
-        case SYS_brk:
-            pedigree_translation = POSIX_BRK;
-            break;
-        case SYS_rt_sigaction:
-            pedigree_translation = POSIX_SIGACTION;
-            break;
-        case SYS_rt_sigprocmask:
-            pedigree_translation = POSIX_SIGPROCMASK;
-            break;
-        case SYS_rt_sigreturn:
-            pedigree_translation = PEDIGREE_SIGRET;
-            break;
-        case SYS_ioctl:
-            pedigree_translation = POSIX_IOCTL;
-            break;
+        TRANSLATION_ENTRY(SYS_read, POSIX_READ)
+        TRANSLATION_ENTRY(SYS_write, POSIX_WRITE)
+        TRANSLATION_ENTRY(SYS_open, POSIX_OPEN)
+        TRANSLATION_ENTRY(SYS_close, POSIX_CLOSE)
+        TRANSLATION_ENTRY(SYS_stat, POSIX_STAT)
+        TRANSLATION_ENTRY(SYS_fstat, POSIX_FSTAT)
+        TRANSLATION_ENTRY(SYS_lstat, POSIX_LSTAT)
+        TRANSLATION_ENTRY(SYS_poll, POSIX_POLL)
+        TRANSLATION_ENTRY(SYS_lseek, POSIX_LSEEK)
+#ifdef SYS_mmap
+        TRANSLATION_ENTRY(SYS_mmap, POSIX_MMAP)
+#endif
+        TRANSLATION_ENTRY(SYS_mprotect, POSIX_MPROTECT)
+        TRANSLATION_ENTRY(SYS_munmap, POSIX_MUNMAP)
+        TRANSLATION_ENTRY(SYS_brk, POSIX_BRK)
+        TRANSLATION_ENTRY(SYS_rt_sigaction, POSIX_SIGACTION)
+        TRANSLATION_ENTRY(SYS_rt_sigprocmask, POSIX_SIGPROCMASK)
+        TRANSLATION_ENTRY(SYS_rt_sigreturn, PEDIGREE_SIGRET)
+        TRANSLATION_ENTRY(SYS_ioctl, POSIX_IOCTL)
         // ...
-        case SYS_readv:
-            pedigree_translation = POSIX_READV;
-            break;
-        case SYS_writev:
-            pedigree_translation = POSIX_WRITEV;
-            break;
-        case SYS_access:
-            pedigree_translation = POSIX_ACCESS;
-            break;
-        case SYS_pipe:
-            pedigree_translation = POSIX_PIPE;
-            break;
-        case SYS_select:
-            pedigree_translation = POSIX_SELECT;
-            break;
-        case SYS_sched_yield:
-            pedigree_translation = POSIX_SCHED_YIELD;
-            break;
+        TRANSLATION_ENTRY(SYS_readv, POSIX_READV)
+        TRANSLATION_ENTRY(SYS_writev, POSIX_WRITEV)
+        TRANSLATION_ENTRY(SYS_access, POSIX_ACCESS)
+        TRANSLATION_ENTRY(SYS_pipe, POSIX_PIPE)
+#ifdef SYS_select
+        TRANSLATION_ENTRY(SYS_select, POSIX_SELECT)
+#endif
+        TRANSLATION_ENTRY(SYS_sched_yield, POSIX_SCHED_YIELD)
         // ...
-        case SYS_msync:
-            pedigree_translation = POSIX_MSYNC;
-            break;
+        TRANSLATION_ENTRY(SYS_msync, POSIX_MSYNC)
         // ...
-        case SYS_dup:
-            pedigree_translation = POSIX_DUP;
-            break;
-        case SYS_dup2:
-            pedigree_translation = POSIX_DUP2;
-            break;
-        case SYS_pause:
-            pedigree_translation = POSIX_PAUSE;
-            break;
+        TRANSLATION_ENTRY(SYS_dup, POSIX_DUP)
+        TRANSLATION_ENTRY(SYS_dup2, POSIX_DUP2)
+        TRANSLATION_ENTRY(SYS_pause, POSIX_PAUSE)
         // ...
-        case SYS_nanosleep:
-            pedigree_translation = POSIX_NANOSLEEP;
-            break;
-        case SYS_getitimer:
-            pedigree_translation = POSIX_GETITIMER;
-            break;
-        case SYS_alarm:
-            pedigree_translation = POSIX_ALARM;
-            break;
-        case SYS_setitimer:
-            pedigree_translation = POSIX_SETITIMER;
-            break;
-        case SYS_getpid:
-            pedigree_translation = POSIX_GETPID;
-            break;
+        TRANSLATION_ENTRY(SYS_nanosleep, POSIX_NANOSLEEP)
+        TRANSLATION_ENTRY(SYS_getitimer, POSIX_GETITIMER)
+#ifdef SYS_alarm
+        TRANSLATION_ENTRY(SYS_alarm, POSIX_ALARM)
+#endif
+        TRANSLATION_ENTRY(SYS_setitimer, POSIX_SETITIMER)
+        TRANSLATION_ENTRY(SYS_getpid, POSIX_GETPID)
         // ...
-        case SYS_socket:
-            pedigree_translation = POSIX_SOCKET;
-            break;
-        case SYS_connect:
-            pedigree_translation = POSIX_CONNECT;
-            break;
-        case SYS_accept:
-            pedigree_translation = POSIX_ACCEPT;
-            break;
-        case SYS_sendto:
-            pedigree_translation = POSIX_SENDTO;
-            break;
-        case SYS_recvfrom:
-            pedigree_translation = POSIX_RECVFROM;
-            break;
-        case SYS_sendmsg:
-            pedigree_translation = POSIX_SENDMSG;
-            break;
-        case SYS_recvmsg:
-            pedigree_translation = POSIX_RECVMSG;
-            break;
-        case SYS_shutdown:
-            pedigree_translation = POSIX_SHUTDOWN;
-            break;
-        case SYS_bind:
-            pedigree_translation = POSIX_BIND;
-            break;
-        case SYS_listen:
-            pedigree_translation = POSIX_LISTEN;
-            break;
-        case SYS_getsockname:
-            pedigree_translation = POSIX_GETSOCKNAME;
-            break;
-        case SYS_getpeername:
-            pedigree_translation = POSIX_GETPEERNAME;
-            break;
-        case SYS_socketpair:
-            pedigree_translation = POSIX_SOCKETPAIR;
-            break;
-        case SYS_setsockopt:
-            pedigree_translation = POSIX_SETSOCKOPT;
-            break;
-        case SYS_getsockopt:
-            pedigree_translation = POSIX_GETSOCKOPT;
-            break;
-        case SYS_clone:
-            pedigree_translation = POSIX_CLONE;
-            break;
-        case SYS_fork:
-            pedigree_translation = POSIX_FORK;
-            break;
+        TRANSLATION_ENTRY(SYS_socket, POSIX_SOCKET)
+        TRANSLATION_ENTRY(SYS_connect, POSIX_CONNECT)
+        TRANSLATION_ENTRY(SYS_accept, POSIX_ACCEPT)
+        TRANSLATION_ENTRY(SYS_sendto, POSIX_SENDTO)
+        TRANSLATION_ENTRY(SYS_recvfrom, POSIX_RECVFROM)
+        TRANSLATION_ENTRY(SYS_sendmsg, POSIX_SENDMSG)
+        TRANSLATION_ENTRY(SYS_recvmsg, POSIX_RECVMSG)
+        TRANSLATION_ENTRY(SYS_shutdown, POSIX_SHUTDOWN)
+        TRANSLATION_ENTRY(SYS_bind, POSIX_BIND)
+        TRANSLATION_ENTRY(SYS_listen, POSIX_LISTEN)
+        TRANSLATION_ENTRY(SYS_getsockname, POSIX_GETSOCKNAME)
+        TRANSLATION_ENTRY(SYS_getpeername, POSIX_GETPEERNAME)
+        TRANSLATION_ENTRY(SYS_socketpair, POSIX_SOCKETPAIR)
+        TRANSLATION_ENTRY(SYS_setsockopt, POSIX_SETSOCKOPT)
+        TRANSLATION_ENTRY(SYS_getsockopt, POSIX_GETSOCKOPT)
+        TRANSLATION_ENTRY(SYS_clone, POSIX_CLONE)
+        TRANSLATION_ENTRY(SYS_fork, POSIX_FORK)
         // ...
-        case SYS_execve:
-            pedigree_translation = POSIX_EXECVE;
-            break;
-        case SYS_exit:
-            pedigree_translation = POSIX_EXIT;
-            break;
-        case SYS_wait4:
-            pedigree_translation = POSIX_WAITPID;
-            break;
-        case SYS_kill:
-            pedigree_translation = POSIX_KILL;
-            break;
-        case SYS_uname:
-            pedigree_translation = POSIX_UNAME;
-            break;
+        TRANSLATION_ENTRY(SYS_execve, POSIX_EXECVE)
+        TRANSLATION_ENTRY(SYS_exit, POSIX_EXIT)
+        TRANSLATION_ENTRY(SYS_wait4, POSIX_WAITPID)
+        TRANSLATION_ENTRY(SYS_kill, POSIX_KILL)
+        TRANSLATION_ENTRY(SYS_uname, POSIX_UNAME)
         // ...
-        case SYS_fcntl:
-            pedigree_translation = POSIX_FCNTL;
-            break;
-        case SYS_flock:
-            pedigree_translation = POSIX_FLOCK;
-            break;
-        case SYS_fsync:
-            pedigree_translation = POSIX_FSYNC;
-            break;
+        TRANSLATION_ENTRY(SYS_fcntl, POSIX_FCNTL)
+#ifdef SYS_flock
+        TRANSLATION_ENTRY(SYS_flock, POSIX_FLOCK)
+#endif
+        TRANSLATION_ENTRY(SYS_fsync, POSIX_FSYNC)
         // ...
-        case SYS_ftruncate:
-            pedigree_translation = POSIX_FTRUNCATE;
-            break;
-        case SYS_getdents:
-            pedigree_translation = POSIX_GETDENTS;
-            break;
-        case SYS_getcwd:
-            pedigree_translation = POSIX_GETCWD;
-            break;
-        case SYS_chdir:
-            pedigree_translation = POSIX_CHDIR;
-            break;
-        case SYS_fchdir:
-            pedigree_translation = POSIX_FCHDIR;
-            break;
-        case SYS_rename:
-            pedigree_translation = POSIX_RENAME;
-            break;
-        case SYS_mkdir:
-            pedigree_translation = POSIX_MKDIR;
-            break;
-        case SYS_rmdir:
-            pedigree_translation = POSIX_RMDIR;
-            break;
-        case SYS_creat:
-            pedigree_translation = POSIX_CREAT;
-            break;
-        case SYS_link:
-            pedigree_translation = POSIX_LINK;
-            break;
-        case SYS_unlink:
-            pedigree_translation = POSIX_UNLINK;
-            break;
-        case SYS_symlink:
-            pedigree_translation = POSIX_SYMLINK;
-            break;
-        case SYS_readlink:
-            pedigree_translation = POSIX_READLINK;
-            break;
-        case SYS_chmod:
-            pedigree_translation = POSIX_CHMOD;
-            break;
-        case SYS_fchmod:
-            pedigree_translation = POSIX_FCHMOD;
-            break;
-        case SYS_chown:
-            pedigree_translation = POSIX_CHOWN;
-            break;
-        case SYS_fchown:
-            pedigree_translation = POSIX_FCHOWN;
-            break;
+        TRANSLATION_ENTRY(SYS_ftruncate, POSIX_FTRUNCATE)
+        TRANSLATION_ENTRY(SYS_getdents, POSIX_GETDENTS)
+        TRANSLATION_ENTRY(SYS_getcwd, POSIX_GETCWD)
+        TRANSLATION_ENTRY(SYS_chdir, POSIX_CHDIR)
+        TRANSLATION_ENTRY(SYS_fchdir, POSIX_FCHDIR)
+        TRANSLATION_ENTRY(SYS_rename, POSIX_RENAME)
+        TRANSLATION_ENTRY(SYS_mkdir, POSIX_MKDIR)
+        TRANSLATION_ENTRY(SYS_rmdir, POSIX_RMDIR)
+        TRANSLATION_ENTRY(SYS_creat, POSIX_CREAT)
+        TRANSLATION_ENTRY(SYS_link, POSIX_LINK)
+        TRANSLATION_ENTRY(SYS_unlink, POSIX_UNLINK)
+        TRANSLATION_ENTRY(SYS_symlink, POSIX_SYMLINK)
+        TRANSLATION_ENTRY(SYS_readlink, POSIX_READLINK)
+        TRANSLATION_ENTRY(SYS_chmod, POSIX_CHMOD)
+        TRANSLATION_ENTRY(SYS_fchmod, POSIX_FCHMOD)
+        TRANSLATION_ENTRY(SYS_chown, POSIX_CHOWN)
+        TRANSLATION_ENTRY(SYS_fchown, POSIX_FCHOWN)
         // ...
-        case SYS_umask:
-            pedigree_translation = POSIX_UMASK;
-            break;
-        case SYS_gettimeofday:
-            pedigree_translation = POSIX_GETTIMEOFDAY;
-            break;
-        case SYS_getrlimit:
-            pedigree_translation = POSIX_GETRLIMIT;
-            break;
+        TRANSLATION_ENTRY(SYS_umask, POSIX_UMASK)
+        TRANSLATION_ENTRY(SYS_gettimeofday, POSIX_GETTIMEOFDAY)
+#ifdef SYS_getrlimit
+        TRANSLATION_ENTRY(SYS_getrlimit, POSIX_GETRLIMIT)
+#endif
         // ...
-        case SYS_times:
-            pedigree_translation = POSIX_TIMES;
-            break;
+        TRANSLATION_ENTRY(SYS_times, POSIX_TIMES)
         // ...
-        case SYS_getuid:
-            pedigree_translation = POSIX_GETUID;
-            break;
-        case SYS_syslog:
-            pedigree_translation = POSIX_L_SYSLOG;
-            break;
-        case SYS_getgid:
-            pedigree_translation = POSIX_GETGID;
-            break;
-        case SYS_setuid:
-            pedigree_translation = POSIX_SETUID;
-            break;
-        case SYS_setgid:
-            pedigree_translation = POSIX_SETGID;
-            break;
-        case SYS_geteuid:
-            pedigree_translation = POSIX_GETEUID;
-            break;
-        case SYS_getegid:
-            pedigree_translation = POSIX_GETEGID;
-            break;
-        case SYS_setpgid:
-            pedigree_translation = POSIX_SETPGID;
-            break;
-        case SYS_getppid:
-            pedigree_translation = POSIX_GETPPID;
-            break;
-        case SYS_getpgrp:
-            pedigree_translation = POSIX_GETPGRP;
-            break;
-        case SYS_setsid:
-            pedigree_translation = POSIX_SETSID;
-            break;
-        case SYS_setreuid:
-            pedigree_translation = POSIX_SETREUID;
-            break;
-        case SYS_setregid:
-            pedigree_translation = POSIX_SETREGID;
-            break;
-        case SYS_getgroups:
-            pedigree_translation = POSIX_GETGROUPS;
-            break;
-        case SYS_setgroups:
-            pedigree_translation = POSIX_SETGROUPS;
-            break;
-        case SYS_setresuid:
-            pedigree_translation = POSIX_SETRESUID;
-            break;
-        case SYS_getresuid:
-            pedigree_translation = POSIX_GETRESUID;
-            break;
-        case SYS_setresgid:
-            pedigree_translation = POSIX_SETRESGID;
-            break;
-        case SYS_getresgid:
-            pedigree_translation = POSIX_GETRESGID;
-            break;
-        case SYS_getpgid:
-            pedigree_translation = POSIX_GETPGID;
-            break;
+        TRANSLATION_ENTRY(SYS_getuid, POSIX_GETUID)
+        TRANSLATION_ENTRY(SYS_syslog, POSIX_L_SYSLOG)
+        TRANSLATION_ENTRY(SYS_getgid, POSIX_GETGID)
+        TRANSLATION_ENTRY(SYS_setuid, POSIX_SETUID)
+        TRANSLATION_ENTRY(SYS_setgid, POSIX_SETGID)
+        TRANSLATION_ENTRY(SYS_geteuid, POSIX_GETEUID)
+        TRANSLATION_ENTRY(SYS_getegid, POSIX_GETEGID)
+        TRANSLATION_ENTRY(SYS_setpgid, POSIX_SETPGID)
+        TRANSLATION_ENTRY(SYS_getppid, POSIX_GETPPID)
+        TRANSLATION_ENTRY(SYS_getpgrp, POSIX_GETPGRP)
+        TRANSLATION_ENTRY(SYS_setsid, POSIX_SETSID)
+        TRANSLATION_ENTRY(SYS_setreuid, POSIX_SETREUID)
+        TRANSLATION_ENTRY(SYS_setregid, POSIX_SETREGID)
+        TRANSLATION_ENTRY(SYS_getgroups, POSIX_GETGROUPS)
+        TRANSLATION_ENTRY(SYS_setgroups, POSIX_SETGROUPS)
+        TRANSLATION_ENTRY(SYS_setresuid, POSIX_SETRESUID)
+        TRANSLATION_ENTRY(SYS_getresuid, POSIX_GETRESUID)
+        TRANSLATION_ENTRY(SYS_setresgid, POSIX_SETRESGID)
+        TRANSLATION_ENTRY(SYS_getresgid, POSIX_GETRESGID)
+        TRANSLATION_ENTRY(SYS_getpgid, POSIX_GETPGID)
         // ...
-        case SYS_capget:
-            pedigree_translation = POSIX_CAPGET;
-            break;
-        case SYS_capset:
-            pedigree_translation = POSIX_CAPSET;
-            break;
+        TRANSLATION_ENTRY(SYS_capget, POSIX_CAPGET)
+        TRANSLATION_ENTRY(SYS_capset, POSIX_CAPSET)
         // ...
-        case SYS_utime:
-            pedigree_translation = POSIX_UTIME;
-            break;
-        case SYS_mknod:
-            pedigree_translation = POSIX_MKNOD;
-            break;
+#ifdef SYS_utime
+        TRANSLATION_ENTRY(SYS_utime, POSIX_UTIME)
+#endif
+        TRANSLATION_ENTRY(SYS_mknod, POSIX_MKNOD)
         // ...
-        case SYS_statfs:
-            pedigree_translation = POSIX_STATFS;
-            break;
-        case SYS_fstatfs:
-            pedigree_translation = POSIX_FSTATFS;
-            break;
+        TRANSLATION_ENTRY(SYS_statfs, POSIX_STATFS)
+        TRANSLATION_ENTRY(SYS_fstatfs, POSIX_FSTATFS)
         // ...
-        case SYS_getpriority:
-            pedigree_translation = POSIX_GETPRIORITY;
-            break;
-        case SYS_setpriority:
-            pedigree_translation = POSIX_SETPRIORITY;
-            break;
+        TRANSLATION_ENTRY(SYS_getpriority, POSIX_GETPRIORITY)
+        TRANSLATION_ENTRY(SYS_setpriority, POSIX_SETPRIORITY)
         // ...
-        case SYS_prctl:
-            pedigree_translation = POSIX_PRCTL;
-            break;
-        case SYS_arch_prctl:
-            pedigree_translation = POSIX_ARCH_PRCTL;
-            break;
+        TRANSLATION_ENTRY(SYS_prctl, POSIX_PRCTL)
+#ifdef SYS_arch_prctl
+        TRANSLATION_ENTRY(SYS_arch_prctl, POSIX_ARCH_PRCTL)
+#endif
         // ...
-        case SYS_setrlimit:
-            pedigree_translation = POSIX_SETRLIMIT;
-            break;
-        case SYS_chroot:
-            pedigree_translation = POSIX_CHROOT;
-            break;
+#ifdef SYS_setrlimit
+        TRANSLATION_ENTRY(SYS_setrlimit, POSIX_SETRLIMIT)
+#endif
+        TRANSLATION_ENTRY(SYS_chroot, POSIX_CHROOT)
         // ...
-        case SYS_settimeofday:
-            pedigree_translation = POSIX_SETTIMEOFDAY;
-            break;
-        case SYS_mount:
-            pedigree_translation = POSIX_MOUNT;
-            break;
+        TRANSLATION_ENTRY(SYS_settimeofday, POSIX_SETTIMEOFDAY)
+        TRANSLATION_ENTRY(SYS_mount, POSIX_MOUNT)
         // ...
-        case SYS_sethostname:
-            pedigree_translation = POSIX_SETHOSTNAME;
-            break;
+        TRANSLATION_ENTRY(SYS_sethostname, POSIX_SETHOSTNAME)
         // ...
-        case SYS_iopl:
-            pedigree_translation = POSIX_IOPL;
-            break;
-        case SYS_ioperm:
-            pedigree_translation = POSIX_IOPERM;
-            break;
+#ifdef SYS_iopl
+        TRANSLATION_ENTRY(SYS_iopl, POSIX_IOPL)
+#endif
+#ifdef SYS_ioperm
+        TRANSLATION_ENTRY(SYS_ioperm, POSIX_IOPERM)
+#endif
         // ...
-        case SYS_gettid:
-            pedigree_translation = POSIX_GETTID;
-            break;
+        TRANSLATION_ENTRY(SYS_gettid, POSIX_GETTID)
         // ...
-        case SYS_getxattr:
-            pedigree_translation = POSIX_GETXATTR;
-            break;
-        case SYS_lgetxattr:
-            pedigree_translation = POSIX_LGETXATTR;
-            break;
-        case SYS_fgetxattr:
-            pedigree_translation = POSIX_FGETXATTR;
-            break;
+        TRANSLATION_ENTRY(SYS_getxattr, POSIX_GETXATTR)
+        TRANSLATION_ENTRY(SYS_lgetxattr, POSIX_LGETXATTR)
+        TRANSLATION_ENTRY(SYS_fgetxattr, POSIX_FGETXATTR)
         // ...
-        case SYS_time:
-            pedigree_translation = POSIX_TIME;
-            break;
-        case SYS_futex:
-            pedigree_translation = POSIX_FUTEX;
-            break;
+#ifdef SYS_time
+        TRANSLATION_ENTRY(SYS_time, POSIX_TIME)
+#endif
+        TRANSLATION_ENTRY(SYS_futex, POSIX_FUTEX)
         // ...
-        case SYS_set_thread_area:
-            pedigree_translation = POSIX_SET_TLS_AREA;
-            break;
+#ifdef SYS_set_thread_area
+        TRANSLATION_ENTRY(SYS_set_thread_area, POSIX_SET_TLS_AREA)
+#endif
         // ...
-        case SYS_getdents64:
-            pedigree_translation = POSIX_GETDENTS64;
-            break;
+        TRANSLATION_ENTRY(SYS_getdents64, POSIX_GETDENTS64)
         /// \todo this is a hack.
         case SYS_set_tid_address:
             return 0;
         // ...
-        case SYS_clock_gettime:
-            pedigree_translation = POSIX_CLOCK_GETTIME;
-            break;
+        TRANSLATION_ENTRY(SYS_clock_gettime, POSIX_CLOCK_GETTIME)
         // ...
-        case SYS_exit_group:
-            pedigree_translation = POSIX_EXIT_GROUP;
-            break;
+        TRANSLATION_ENTRY(SYS_exit_group, POSIX_EXIT_GROUP)
         // ...
-        case SYS_utimes:
-            pedigree_translation = POSIX_UTIMES;
-            break;
+        TRANSLATION_ENTRY(SYS_utimes, POSIX_UTIMES)
         // ...
-        case SYS_openat:
-            pedigree_translation = POSIX_OPENAT;
-            break;
-        case SYS_mkdirat:
-            pedigree_translation = POSIX_MKDIRAT;
-            break;
+        TRANSLATION_ENTRY(SYS_openat, POSIX_OPENAT)
+        TRANSLATION_ENTRY(SYS_mkdirat, POSIX_MKDIRAT)
         // ...
-        case SYS_fchownat:
-            pedigree_translation = POSIX_FCHOWNAT;
-            break;
-        case SYS_futimesat:
-            pedigree_translation = POSIX_FUTIMESAT;
-            break;
-        case SYS_newfstatat:
-            pedigree_translation = POSIX_FSTATAT;
-            break;
-        case SYS_unlinkat:
-            pedigree_translation = POSIX_UNLINKAT;
-            break;
-        case SYS_renameat:
-            pedigree_translation = POSIX_RENAMEAT;
-            break;
-        case SYS_linkat:
-            pedigree_translation = POSIX_LINKAT;
-            break;
-        case SYS_symlinkat:
-            pedigree_translation = POSIX_SYMLINKAT;
-            break;
-        case SYS_readlinkat:
-            pedigree_translation = POSIX_READLINKAT;
-            break;
-        case SYS_fchmodat:
-            pedigree_translation = POSIX_FCHMODAT;
-            break;
-        case SYS_faccessat:
-            pedigree_translation = POSIX_FACCESSAT;
-            break;
+        TRANSLATION_ENTRY(SYS_fchownat, POSIX_FCHOWNAT)
+        TRANSLATION_ENTRY(SYS_futimesat, POSIX_FUTIMESAT)
+#ifdef SYS_newfstatat
+        TRANSLATION_ENTRY(SYS_newfstatat, POSIX_FSTATAT)
+#endif
+        TRANSLATION_ENTRY(SYS_unlinkat, POSIX_UNLINKAT)
+        TRANSLATION_ENTRY(SYS_renameat, POSIX_RENAMEAT)
+        TRANSLATION_ENTRY(SYS_linkat, POSIX_LINKAT)
+        TRANSLATION_ENTRY(SYS_symlinkat, POSIX_SYMLINKAT)
+        TRANSLATION_ENTRY(SYS_readlinkat, POSIX_READLINKAT)
+        TRANSLATION_ENTRY(SYS_fchmodat, POSIX_FCHMODAT)
+        TRANSLATION_ENTRY(SYS_faccessat, POSIX_FACCESSAT)
         // ...
-        case SYS_set_robust_list:
-            pedigree_translation = POSIX_SET_ROBUST_LIST;
-            break;
-        case SYS_get_robust_list:
-            pedigree_translation = POSIX_GET_ROBUST_LIST;
-            break;
+        TRANSLATION_ENTRY(SYS_set_robust_list, POSIX_SET_ROBUST_LIST)
+        TRANSLATION_ENTRY(SYS_get_robust_list, POSIX_GET_ROBUST_LIST)
 
         // Pedigree pass-through syscalls.
-        case 0x8000:
-            pedigree_translation = POSIX_TTYNAME;
+        TRANSLATION_ENTRY(0x8000, POSIX_TTYNAME)
     }
-
     return pedigree_translation;
 }
 

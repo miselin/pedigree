@@ -18,7 +18,17 @@
  */
 
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/panic.h"
 
 Machine::~Machine()
 {
+}
+
+void Machine::stopAllOtherProcessors()
+{
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        panic("stopAllOtherProcessors not implemented in a multiprocessor build.");
+    }
 }

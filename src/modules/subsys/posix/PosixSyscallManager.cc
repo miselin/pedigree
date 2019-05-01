@@ -88,7 +88,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         Process *pProcess =
             Processor::information().getCurrentThread()->getParent();
         PosixSubsystem *pSubsystem =
-            reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+            static_cast<PosixSubsystem *>(pProcess->getSubsystem());
         pSubsystem->setAbi(PosixSubsystem::LinuxAbi);
 
         base = 6;  // use Linux syscall ABI
@@ -97,7 +97,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         long which = posix_translate_syscall(syscallNumber);
         if (which < 0)
         {
-            size_t key = (pProcess->getId() << 32ULL) | syscallNumber;
+            uint64_t key = (static_cast<uint64_t>(pProcess->getId()) << 32ULL) | syscallNumber;
             if (!m_SeenUnknownSyscalls.lookup(key))
             {
                 ERROR(
@@ -197,7 +197,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 static_cast<int>(p3));
         case POSIX_CONNECT:
             return posix_connect(
-                static_cast<int>(p1), reinterpret_cast<sockaddr *>(p2), p3);
+                static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2), p3);
         case POSIX_SEND:
             return posix_send(
                 static_cast<int>(p1), reinterpret_cast<void *>(p2), p3,
@@ -208,22 +208,22 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 static_cast<int>(p4));
         case POSIX_BIND:
             return posix_bind(
-                static_cast<int>(p1), reinterpret_cast<sockaddr *>(p2), p3);
+                static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2), p3);
         case POSIX_LISTEN:
             return posix_listen(static_cast<int>(p1), static_cast<int>(p2));
         case POSIX_ACCEPT:
             return posix_accept(
-                static_cast<int>(p1), reinterpret_cast<sockaddr *>(p2),
+                static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2),
                 reinterpret_cast<socklen_t *>(p3));
         case POSIX_RECVFROM:
             return posix_recvfrom(
                 static_cast<int>(p1), reinterpret_cast<void *>(p2), p3,
-                static_cast<int>(p4), reinterpret_cast<struct sockaddr *>(p5),
+                static_cast<int>(p4), reinterpret_cast<struct sockaddr_storage *>(p5),
                 reinterpret_cast<socklen_t *>(p6));
         case POSIX_SENDTO:
             return posix_sendto(
                 static_cast<int>(p1), reinterpret_cast<void *>(p2), p3,
-                static_cast<int>(p4), reinterpret_cast<struct sockaddr *>(p5),
+                static_cast<int>(p4), reinterpret_cast<struct sockaddr_storage *>(p5),
                 static_cast<socklen_t>(p6));
         case POSIX_GETTIMEOFDAY:
             return posix_gettimeofday(
@@ -414,11 +414,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 reinterpret_cast<void *>(p1), p2, static_cast<int>(p3));
         case POSIX_GETPEERNAME:
             return posix_getpeername(
-                static_cast<int>(p1), reinterpret_cast<struct sockaddr *>(p2),
+                static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2),
                 reinterpret_cast<socklen_t *>(p3));
         case POSIX_GETSOCKNAME:
             return posix_getsockname(
-                static_cast<int>(p1), reinterpret_cast<struct sockaddr *>(p2),
+                static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2),
                 reinterpret_cast<socklen_t *>(p3));
         case POSIX_FSYNC:
             return posix_fsync(static_cast<int>(p1));

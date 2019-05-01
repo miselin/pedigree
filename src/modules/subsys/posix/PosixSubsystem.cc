@@ -1398,7 +1398,7 @@ bool PosixSubsystem::invoke(
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     // Grab the thread we're going to return into - need to tweak it.
     Thread *pThread = pProcess->getThread(0);

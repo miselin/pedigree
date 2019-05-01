@@ -24,26 +24,26 @@
  * @{ */
 
 /** Define an 8bit signed integer type */
-typedef signed char ARMint8_t;
+typedef __INT8_TYPE__ ARMint8_t;
 /** Define an 8bit unsigned integer type */
-typedef unsigned char ARMuint8_t;
+typedef __UINT8_TYPE__ ARMuint8_t;
 /** Define an 16bit signed integer type */
-typedef signed short ARMint16_t;
+typedef __INT16_TYPE__ ARMint16_t;
 /** Define an 16bit unsigned integer type */
-typedef unsigned short ARMuint16_t;
+typedef __UINT16_TYPE__ ARMuint16_t;
 /** Define a 32bit signed integer type */
-typedef signed long ARMint32_t;
+typedef __INT32_TYPE__ ARMint32_t;
 /** Define a 32bit unsigned integer type */
-typedef unsigned long ARMuint32_t;
+typedef __UINT32_TYPE__ ARMuint32_t;
 /** Define a 64bit signed integer type */
-typedef signed long long ARMint64_t;
+typedef __INT64_TYPE__ ARMint64_t;
 /** Define a 64bit unsigned integer type */
-typedef unsigned long long ARMuint64_t;
+typedef __UINT64_TYPE__ ARMuint64_t;
 
 /** Define a signed integer type for pointer arithmetic */
-typedef int ARMintptr_t;
+typedef __INTPTR_TYPE__ ARMintptr_t;
 /** Define an unsigned integer type for pointer arithmetic */
-typedef unsigned long ARMuintptr_t;
+typedef __UINTPTR_TYPE__ ARMuintptr_t;
 
 /** Define a unsigned integer type for physical pointer arithmetic */
 typedef ARMuintptr_t ARMphysical_uintptr_t;
@@ -52,9 +52,9 @@ typedef ARMuintptr_t ARMphysical_uintptr_t;
 typedef ARMuintptr_t ARMprocessor_register_t;
 
 /** Define ssize_t */
-typedef ARMint32_t ARMssize_t;
+typedef __INTPTR_TYPE__ ARMssize_t;
 /** Define size_t */
-typedef ARMuint32_t ARMsize_t;
+typedef __SIZE_TYPE__ ARMsize_t;
 
 /** Define an I/O port type */
 typedef ARMuint16_t ARMio_port_t;
@@ -65,9 +65,8 @@ typedef ARMuint16_t ARMio_port_t;
 /** Define the size of one physical page */
 #define PAGE_SIZE 4096
 
-/** Clean up preprocessor namespace to force use of our types. */
-#undef __INTPTR_TYPE__
-#undef __UINTPTR_TYPE__
+/** Help other headers see what we've defined. */
+#define __DEFINED_size_t 1
 
 /** @} */
 

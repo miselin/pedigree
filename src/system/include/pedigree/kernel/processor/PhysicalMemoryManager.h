@@ -51,8 +51,6 @@ class EXPORTED_PUBLIC PhysicalMemoryManager
     /** Only allocate virtual address space for the region. */
     static const size_t virtualOnly = 1 << 3;
 
-// x86/x64 specific flags
-#if X86_COMMON
     /** The allocated pages should be below the 1MB mark */
     static const size_t below1MB = 1 << 4;
     /** The allocated pages should be below the 16MB mark */
@@ -65,7 +63,7 @@ class EXPORTED_PUBLIC PhysicalMemoryManager
     /** All address size constraints */
     static const size_t addressConstraints =
         below1MB | below16MB | below4GB | below64GB;
-#endif
+
     /** Don't track the memory region. */
     static const size_t anonymous = 1 << 8;
 

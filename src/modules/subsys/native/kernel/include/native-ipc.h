@@ -62,7 +62,7 @@ extern void destroyMessage(PedigreeIpc::IpcMessage *pMessage);
  * Sends the given message to the given endpoint, optionally asynchronously.
  */
 extern bool sendIpc(
-    PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMessage,
+    PedigreeIpc::IpcEndpoint pEndpoint, PedigreeIpc::IpcMessage *pMessage,
     bool bAsync);
 
 /**
@@ -70,7 +70,7 @@ extern bool sendIpc(
  * message is queued, otherwise will return a pointer to be passed to the
  * PedigreeIpc::SharedIpcMessage::SharedIpcMessage(void*) constructor.
  */
-extern void *recvIpcPhase1(PedigreeIpc::IpcEndpoint *pEndpoint, bool bAsync);
+extern void *recvIpcPhase1(PedigreeIpc::IpcEndpoint pEndpoint, bool bAsync);
 
 /**
  * Second phase of receiving a message. To be called within the

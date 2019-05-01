@@ -38,7 +38,7 @@ SECTIONS
     }
 
     . = ALIGN(0x100); /* text, stay away from data */
-    .text : { *(.text*) } :text =0x90909090
+    .text : { *(.text*) } :text
 }
 
 PHDRS

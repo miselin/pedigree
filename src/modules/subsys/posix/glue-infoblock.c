@@ -27,7 +27,14 @@
 #include "pedigree/kernel/process/InfoBlock.h"
 
 /// \todo this is hardcoded for x64
+#if X86_COMMON
 static struct InfoBlock *infoBlock = (struct InfoBlock *) 0xFFFFFFFF8FFF0000;
+#elif ARMV7
+/// \todo set this to something sane
+static struct InfoBlock *infoBlock = (struct InfoBlock *) 0xF0000000;
+#else
+#error no infoblock address configured for this platform
+#endif
 
 struct getcpu_cache;
 

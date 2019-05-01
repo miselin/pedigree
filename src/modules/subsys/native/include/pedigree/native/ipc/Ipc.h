@@ -77,9 +77,9 @@ typedef void *IpcEndpoint;
 
 /// System calls. Cast SharedIpcMessage pointers to StandardIpcMessage.
 EXPORTED_PUBLIC bool
-send(IpcEndpoint *pEndpoint, StandardIpcMessage *pMessage, bool bAsync = false);
+send(IpcEndpoint pEndpoint, StandardIpcMessage *pMessage, bool bAsync = false);
 EXPORTED_PUBLIC bool recv(
-    IpcEndpoint *pEndpoint, StandardIpcMessage **pMessage, bool bAsync = false);
+    IpcEndpoint pEndpoint, StandardIpcMessage **pMessage, bool bAsync = false);
 
 EXPORTED_PUBLIC IpcEndpoint *getEndpoint(const char *name);
 
