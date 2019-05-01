@@ -169,7 +169,7 @@ int posix_sigaction(
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("posix_sigaction: no subsystem");
@@ -269,7 +269,7 @@ int posix_raise(int sig, SyscallState &State)
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("posix_raise: no subsystem");
@@ -312,7 +312,7 @@ int pedigree_sigret()
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     // If the alternate stack is in use, we're done with it for now
     PosixSubsystem::AlternateSignalStack &currStack =
@@ -353,7 +353,7 @@ static int doThreadKill(Thread *p, int sig)
 
     // Build the pending signal and pass it in
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(p->getParent()->getSubsystem());
+        static_cast<PosixSubsystem *>(p->getParent()->getSubsystem());
     if (!pSubsystem)
     {
         ERROR(
@@ -525,7 +525,7 @@ size_t posix_alarm(uint32_t seconds)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("posix_alarm: no subsystem");
@@ -686,7 +686,7 @@ int posix_sigaltstack(const stack_t *stack, stack_t *oldstack)
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     // Look at the current alternative stack
     PosixSubsystem::AlternateSignalStack &currStack =
@@ -763,7 +763,7 @@ void pedigree_init_sigret()
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         pSubsystem = new PosixSubsystem();

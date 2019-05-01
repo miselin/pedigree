@@ -52,33 +52,40 @@ static Device *probeIsaDevice(Controller *pDev)
 
 static Device *probePiixController(Device *pDev)
 {
-    static uint8_t interrupt = 14;
-
-    // Create a new AtaController device node.
-    Controller *pDevController = new Controller(pDev);
-    uintptr_t intnum = pDevController->getInterruptNumber();
-    if (intnum == 0)
+    EMIT_IF(PEDIGREE_MACHINE_HASPCI)
     {
-        // No valid interrupt, handle
-        pDevController->setInterruptNumber(interrupt);
-        if (interrupt < 15)
-            interrupt++;
-        else
+        static uint8_t interrupt = 14;
+
+        // Create a new AtaController device node.
+        Controller *pDevController = new Controller(pDev);
+        uintptr_t intnum = pDevController->getInterruptNumber();
+        if (intnum == 0)
         {
-            ERROR("PCI IDE: Controller found with no IRQ and IRQs 14 and 15 "
-                  "are already allocated");
-            delete pDevController;
+            // No valid interrupt, handle
+            pDevController->setInterruptNumber(interrupt);
+            if (interrupt < 15)
+                interrupt++;
+            else
+            {
+                ERROR("PCI IDE: Controller found with no IRQ and IRQs 14 and 15 "
+                      "are already allocated");
+                delete pDevController;
 
-            return pDev;
+                return pDev;
+            }
         }
+
+        PciAtaController *pController =
+            new PciAtaController(pDevController, nController++);
+
+        bFound = true;
+
+        return pController;
     }
-
-    PciAtaController *pController =
-        new PciAtaController(pDevController, nController++);
-
-    bFound = true;
-
-    return pController;
+    else
+    {
+        return nullptr;
+    }
 }
 
 /// Removes the ISA ATA controllers added early in boot

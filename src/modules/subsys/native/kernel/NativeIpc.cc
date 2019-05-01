@@ -92,7 +92,7 @@ void destroyMessage(PedigreeIpc::IpcMessage *pMessage)
 }
 
 bool sendIpc(
-    PedigreeIpc::IpcEndpoint *pEndpoint, PedigreeIpc::IpcMessage *pMessage,
+    PedigreeIpc::IpcEndpoint pEndpoint, PedigreeIpc::IpcMessage *pMessage,
     bool bAsync)
 {
     PerProcessUserPointerPair p = makePair(getPid(), pMessage);
@@ -108,7 +108,7 @@ bool sendIpc(
     return false;
 }
 
-void *recvIpcPhase1(PedigreeIpc::IpcEndpoint *pEndpoint, bool bAsync)
+void *recvIpcPhase1(PedigreeIpc::IpcEndpoint pEndpoint, bool bAsync)
 {
     Ipc::IpcMessage *pMessage = 0;
     bool ret = Ipc::recv(

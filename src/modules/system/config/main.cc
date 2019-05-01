@@ -399,11 +399,7 @@ static void xCallback2(sqlite3_context *context, int n, sqlite3_value **values)
     sqlite3_result_int(context, 0);
 }
 
-#if STATIC_DRIVERS
-#include "config_database.h"
-#else
 static uint8_t file[0] = {};
-#endif
 
 // Memory region containing the config database. Not used if static drivers are
 // being used, but used in all other cases.
@@ -449,8 +445,11 @@ static bool init()
     }
     else
     {
-        g_pFile = file;
-        g_FileSz = sizeof file;
+        extern char embeddedConfigDb[];
+        extern unsigned long embeddedConfigDb_length;
+
+        g_pFile = reinterpret_cast<uint8_t *>(embeddedConfigDb);
+        g_FileSz = embeddedConfigDb_length;
     }
 
     sqlite3_initialize();

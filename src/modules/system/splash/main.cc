@@ -589,8 +589,7 @@ static bool handleSplash()
                         (fontRow * bytesPerLine) + (col * bytesPerPixel);
                     size_t bufferOffset = pixelOffset;
 
-                    uint32_t *p = reinterpret_cast<uint32_t *>(
-                        adjust_pointer(g_pBuffer, bufferOffset));
+                    uint32_t *p = adjust_pointer<uint8_t, uint32_t>(g_pBuffer, bufferOffset);
                     *p = g_ForegroundColour;
                 }
             }

@@ -337,7 +337,7 @@ long posix_clone(
     }
 
     PosixSubsystem *pParentSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pParentProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pParentProcess->getSubsystem());
     PosixSubsystem *pSubsystem = new PosixSubsystem(*pParentSubsystem);
     if (!pSubsystem || !pParentSubsystem)
     {
@@ -464,7 +464,7 @@ int posix_execve(
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -737,7 +737,7 @@ int posix_exit(int code, bool allthreads)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     if (allthreads)
     {
@@ -1658,7 +1658,7 @@ int posix_uname(struct utsname *n)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     StringCopy(n->sysname, "Pedigree");
 

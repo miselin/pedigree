@@ -189,6 +189,9 @@ if(CMAKE_CROSSCOMPILING)
     if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
         # No multiprocessor support for ARM
         set(PEDIGREE_MULTIPROCESSOR FALSE)
+
+        # Need static drivers for ARM
+        set(PEDIGREE_STATIC_DRIVERS TRUE)
     endif ()
 
     # Copy over all our definitions.
@@ -201,15 +204,6 @@ if(CMAKE_CROSSCOMPILING)
 
     # cross-compiled variant is definitely not running on a linux host
     add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
-
-    add_subdirectory(src/system/kernel)
-    add_subdirectory(src/modules)
-    add_subdirectory(src/user)
-    add_subdirectory(src/po)
-
-    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
-        add_subdirectory(src/system/boot/arm)
-    endif ()
 
     # Build config database.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
@@ -226,6 +220,29 @@ if(CMAKE_CROSSCOMPILING)
         ${CMAKE_SOURCE_DIR}/src/modules/system/users/schema)
     add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
 
+    # Embed config database in a header for static driver builds
+    if (PEDIGREE_STATIC_DRIVERS)
+        # generate kernel as an embedded file
+        add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/embedconfigdb.c
+            COMMAND $<TARGET_FILE:host-headerify>
+            -i ${CMAKE_CURRENT_BINARY_DIR}/config.db
+            -o ${CMAKE_BINARY_DIR}/embedconfigdb.c
+            -v embeddedConfigDb
+            DEPENDS configdb)
+        add_custom_target(embedconfigdb ALL DEPENDS ${CMAKE_BINARY_DIR}/embedconfigdb.c)
+    endif ()
+
+    add_subdirectory(src/modules)
+    add_subdirectory(src/system/kernel)
+    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "arm")
+        add_subdirectory(src/user)
+    endif ()
+    add_subdirectory(src/po)
+
+    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+        add_subdirectory(src/system/boot/arm)
+    endif ()
+
     # Build hard disk image ready for a live CD or imaging.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
         COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
@@ -234,8 +251,9 @@ if(CMAKE_CROSSCOMPILING)
         ${PEDIGREE_IMAGESDIR}  # => image tree directory
         ${CMAKE_SOURCE_DIR}  # => base source directory
         ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
-        ${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64  # => kernel
-        ${CMAKE_BINARY_DIR}/src/modules/initrd.tar  # => initrd
+        ${KERNEL_FILENAME}  # => kernel
+        $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>  # => initrd
+        $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
         ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
         ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
         ${CMAKE_BINARY_DIR}/musl  # => musl build directory
@@ -245,7 +263,8 @@ if(CMAKE_CROSSCOMPILING)
         ${PEDIGREE_LIBS}
         ${PEDIGREE_SUBSYSTEM_LIBS}
         DEPENDS
-        kernel kernelfinal initrd
+        kernel kernelfinal
+        $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
         ${PEDIGREE_KERNEL_MODULE_TARGETS}
         configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
         libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
@@ -254,40 +273,42 @@ if(CMAKE_CROSSCOMPILING)
     add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
 
     # Build ISO file for live CD.
-    if (GRUB)
-        set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
-        file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
-            DESTINATION ${CMAKE_BINARY_DIR})
-    endif ()
+    if (PEDIGREE_TARGET_LIVECD)
+        if (GRUB)
+            set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
+            file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
+                DESTINATION ${CMAKE_BINARY_DIR})
+        endif ()
 
-    if (PEDIGREE_LIVECD)
-        set(ISO_EXTRAFILES
-            livedisk.img=${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
-        set(ISO_EXTRADEPENDS hddimage)
-    else ()
-        set(ISO_EXTRAFILES "")
-        set(ISO_EXTRADEPENDS "")
-    endif ()
+        if (PEDIGREE_LIVECD)
+            set(ISO_EXTRAFILES
+                livedisk.img=${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
+            set(ISO_EXTRADEPENDS hddimage)
+        else ()
+            set(ISO_EXTRAFILES "")
+            set(ISO_EXTRADEPENDS "")
+        endif ()
 
-    if (MKISOFS MATCHES "xorriso$")
-        set(MKISOFS_EXTRA_OPTS -as mkisofs)
-    else ()
-        set(MKISOFS_EXTRA_OPTS "")
-    endif ()
+        if (MKISOFS MATCHES "xorriso$")
+            set(MKISOFS_EXTRA_OPTS -as mkisofs)
+        else ()
+            set(MKISOFS_EXTRA_OPTS "")
+        endif ()
 
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
-        COMMAND ${MKISOFS} ${MKISOFS_EXTRA_OPTS} -D -joliet -graft-points -quiet -input-charset iso8859-1
-        -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
-        -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
-        boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
-        boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
-        boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
-        boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-        .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
-        ${ISO_EXTRAFILES}
-        DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
-        ${ISO_EXTRADEPENDS})
-    add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
+        add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
+            COMMAND ${MKISOFS} ${MKISOFS_EXTRA_OPTS} -D -joliet -graft-points -quiet -input-charset iso8859-1
+            -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
+            -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
+            boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
+            boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
+            boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
+            boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
+            .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
+            ${ISO_EXTRAFILES}
+            DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
+            ${ISO_EXTRADEPENDS})
+        add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
+    endif ()
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
 

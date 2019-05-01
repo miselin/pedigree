@@ -31,6 +31,8 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/IoBase.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"

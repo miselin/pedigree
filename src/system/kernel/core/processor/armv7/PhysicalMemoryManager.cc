@@ -27,6 +27,9 @@
 
 extern char kernel_start, kernel_end;
 
+EXPORTED_PUBLIC size_t g_FreePages = 0;
+EXPORTED_PUBLIC size_t g_AllocedPages = 0;
+
 ArmV7PhysicalMemoryManager ArmV7PhysicalMemoryManager::m_Instance;
 
 PhysicalMemoryManager &PhysicalMemoryManager::instance()
@@ -257,6 +260,12 @@ ArmV7PhysicalMemoryManager::PageStack::allocate(size_t constraints)
             *(reinterpret_cast<uint32_t *>(m_Stack) +
               m_StackSize / sizeof(physical_uintptr_t));
     }
+
+    ++g_AllocedPages;
+    if (g_FreePages)
+    {
+        --g_FreePages;
+    }
     return ret;
 }
 
@@ -264,7 +273,7 @@ void ArmV7PhysicalMemoryManager::PageStack::free(
     physical_uintptr_t physicalAddress)
 {
 // Input verification (machine-specific)
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     if (physicalAddress < 0x80000000)
         return;
     else if (physicalAddress >= 0x90000000)
@@ -292,6 +301,12 @@ void ArmV7PhysicalMemoryManager::PageStack::free(
     *(reinterpret_cast<physical_uintptr_t *>(m_Stack) +
       (m_StackSize / sizeof(physical_uintptr_t))) = physicalAddress;
     m_StackSize += sizeof(physical_uintptr_t);
+
+    ++g_FreePages;
+    if (g_AllocedPages)
+    {
+        --g_AllocedPages;
+    }
 }
 
 ArmV7PhysicalMemoryManager::PageStack::PageStack()

@@ -97,12 +97,12 @@ uintptr_t NativeSyscallManager::syscall(SyscallState &state)
 
         case IPC_SEND_IPC:
             return static_cast<uintptr_t>(sendIpc(
-                reinterpret_cast<PedigreeIpc::IpcEndpoint *>(p1),
+                reinterpret_cast<PedigreeIpc::IpcEndpoint>(p1),
                 reinterpret_cast<PedigreeIpc::IpcMessage *>(p2),
                 static_cast<bool>(p3)));
         case IPC_RECV_PHASE1:
             return reinterpret_cast<uintptr_t>(recvIpcPhase1(
-                reinterpret_cast<PedigreeIpc::IpcEndpoint *>(p1),
+                reinterpret_cast<PedigreeIpc::IpcEndpoint>(p1),
                 static_cast<bool>(p2)));
         case IPC_RECV_PHASE2:
             return recvIpcPhase2(

@@ -28,6 +28,7 @@
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"

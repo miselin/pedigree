@@ -50,7 +50,7 @@ class PosixSyscallManager : public SyscallHandler
      *\note Not implemented (singleton) */
     PosixSyscallManager &operator=(const PosixSyscallManager &);
     /** Records seen unknown syscalls so we don't spam logs. */
-    Tree<size_t, bool> m_SeenUnknownSyscalls;
+    Tree<uint64_t, bool> m_SeenUnknownSyscalls;
 };
 
 #endif

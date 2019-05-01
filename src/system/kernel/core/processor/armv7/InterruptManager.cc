@@ -19,6 +19,7 @@
 
 #include "InterruptManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -230,6 +231,7 @@ void kdata_abort(InterruptState &state)
             sError.append("Unknown fault");
     }
 
+    Machine::instance().getSerial(0)->write(sError);
     ERROR_NOLOCK(static_cast<const char *>(sError));
     Debugger::instance().start(state, sError);
 #else

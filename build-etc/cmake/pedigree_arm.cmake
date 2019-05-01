@@ -36,7 +36,13 @@ set(PEDIGREE_LINKERDIR "arm")
 set(PEDIGREE_DRIVERDIR "arm")
 # TODO: normalize on this so the number of definitions above can be reduced
 set(PEDIGREE_ASMDIR "arm")
+set(PEDIGREE_MUSLARCH "arm")
+set(PEDIGREE_TARGET_LIVECD FALSE)
 set(GRUB FALSE)
+
+# Machine-specific info
+set(PEDIGREE_MACHINE_HASPS2 FALSE)
+set(PEDIGREE_MACHINE_HASPCI FALSE)
 
 # Definitions for ARMv7 across the entire source tree.
 # NOTE: we emulate Multiboot for the boot -> kernel interface.

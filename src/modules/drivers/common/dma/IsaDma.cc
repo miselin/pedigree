@@ -19,6 +19,7 @@
 
 #include "IsaDma.h"
 #include "modules/Module.h"
+#include "pedigree/kernel/Log.h"
 
 IsaDma::IsaDma() = default;
 IsaDma::~IsaDma() = default;
@@ -30,13 +31,19 @@ IsaDma &IsaDma::instance()
     return X86IsaDma::instance();
 }
 #else
-#warning Unsupported architecture for IsaDma
 static IsaDma ins;
 IsaDma &IsaDma::instance()
 {
+    WARNING("Unsupported platform for IsaDma, yet it's being used.");
     return ins;
 }
 #endif
+
+bool IsaDma::initTransfer(uint8_t channel, uint8_t mode, size_t length, uintptr_t addr)
+{
+    WARNING("IsaDma::initTransfer is not implemented");
+    return false;
+}
 
 static bool pedigree_init()
 {

@@ -377,7 +377,7 @@ target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
 target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
 target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     add_compile_options(
         "$<$<COMPILE_LANGUAGE:C>:-mcmodel=kernel>"
         "$<$<COMPILE_LANGUAGE:CXX>:-mcmodel=kernel>")
@@ -410,7 +410,12 @@ target_compile_options(hash PRIVATE -w)
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive gcc)
+    $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:staticmodules> machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive gcc)
+if (PEDIGREE_STATIC_DRIVERS)
+    foreach (module ${PEDIGREE_KERNEL_MODULE_TARGETS})
+        target_sources(kernel PRIVATE $<TARGET_OBJECTS:${module}>)
+    endforeach ()
+endif ()
 if (PEDIGREE_LINKERSCRIPT)
     set_target_properties(kernel PROPERTIES LINK_DEPENDS ${PEDIGREE_LINKERSCRIPT})
 endif ()
@@ -429,6 +434,12 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
         COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
         DEPENDS kernel)
     add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
+
+    set(KERNEL_FILENAME ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
 else ()
     add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel)
+
+    set(KERNEL_FILENAME ${CMAKE_CURRENT_BINARY_DIR}/kernel)
 endif ()
+
+set(KERNEL_FILENAME ${KERNEL_FILENAME} PARENT_SCOPE)

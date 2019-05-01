@@ -53,7 +53,7 @@ int posix_pipe(int filedes[2])
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for the process!");

@@ -1,7 +1,8 @@
 
 link_directories(
     ${CMAKE_BINARY_DIR}/musl/lib
-    ${CMAKE_SOURCE_DIR}/images/local/libraries)
+    ${CMAKE_SOURCE_DIR}/images/local/libraries
+    ${CMAKE_SOURCE_DIR}/compilers/dir/${PEDIGREE_COMPILER_TARGET}/lib)
 
 include_directories(
     ${CMAKE_BINARY_DIR}/musl/include
@@ -12,8 +13,19 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/images/local/include/pango-1.0
     ${CMAKE_SOURCE_DIR}/images/local/include/cairo
     ${CMAKE_SOURCE_DIR}/images/local/include/freetype2
-    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
-    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
+    ${CMAKE_SOURCE_DIR}/compilers/dir/${PEDIGREE_COMPILER_TARGET}/include/c++/${CMAKE_CXX_COMPILER_VERSION}
+    ${CMAKE_SOURCE_DIR}/compilers/dir/${PEDIGREE_COMPILER_TARGET}/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+    # TODO: for non-v7 targets we need to adjust this
+    # Make sure we're targeting the right CPU and ABI
+    set(ARM_COMPILE_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
+
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:C>:${ARM_COMPILE_FLAGS}>"
+        "$<$<COMPILE_LANGUAGE:ASM>:${ARM_COMPILE_FLAGS}>"
+        "$<$<COMPILE_LANGUAGE:CXX>:${ARM_COMPILE_FLAGS}>")
+endif ()
 
 function(pedigree_app name posix native pedigreec libs)
     add_executable(app-${name} ${ARGN})
@@ -29,7 +41,7 @@ function(pedigree_app name posix native pedigreec libs)
     # Using rpath-link option to help find the libraries at link time. At
     # runtime these will be found by the dynamic linker automatically.
     target_link_libraries(app-${name} PRIVATE
-        ${TARGET_LIBS}
+        ${TARGET_LIBS} gcc
         -Wl,-rpath-link=${CMAKE_SOURCE_DIR}/images/local/libraries)
     target_include_directories(app-${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/${name}
@@ -46,7 +58,7 @@ endfunction()
 function(pedigree_lib name libs)
     add_library(lib${name} SHARED ${ARGN})
     set_target_properties(lib${name} PROPERTIES OUTPUT_NAME "${name}")
-    target_link_libraries(lib${name} PRIVATE ${libs})
+    target_link_libraries(lib${name} PRIVATE ${libs} gcc)
     target_include_directories(lib${name}
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/libraries/lib${name}/src

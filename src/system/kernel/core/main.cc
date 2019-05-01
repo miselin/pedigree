@@ -160,8 +160,8 @@ class SlamRecovery : public MemoryPressureHandler
 
 /** Kernel entry point for application processors (after processor/machine has
    been initialised on the particular processor */
-pedigree_std::enable_if<MULTIPROCESSOR>::type
-apMain()
+#if MULTIPROCESSOR
+void apMain()
 {
     NOTICE("Processor #" << Processor::id() << " started.");
 
@@ -183,6 +183,7 @@ apMain()
         }
     }
 }
+#endif
 
 /** Loads all kernel modules */
 static int loadModules(void *inf)
@@ -274,6 +275,8 @@ static int loadModules(void *inf)
     return 0;
 }
 
+#include <pedigree/kernel/machine/Serial.h>
+
 /** Kernel entry point. */
 extern "C" void _main(BootstrapStruct_t &bsInf) USED NORETURN;
 extern "C" void _main(BootstrapStruct_t &bsInf)
@@ -317,6 +320,9 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     TRACE("Machine init2");
 
     machine.initialise2();
+
+#undef TRACE
+#define TRACE(...) Machine::instance().getSerial(0)->write("TRACE: " __VA_ARGS__ "\r\n")
 
     TRACE("Log init2");
 

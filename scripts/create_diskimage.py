@@ -147,7 +147,8 @@ def build_file_list(all_sources):
     add_copy(copies, configdb, '/.pedigree-root')
     add_copy(copies, grublst, '/boot/grub/menu.lst')
     add_copy(copies, kernel, '/boot/kernel')
-    add_copy(copies, initrd, '/boot/initrd.tar')
+    if initrd != '__noinitrd__':
+        add_copy(copies, initrd, '/boot/initrd.tar')
 
     for source in additional_sources:
         prefix = '/'

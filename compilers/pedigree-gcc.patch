@@ -1,4 +1,4 @@
-From ed2d4df8d4fb5dd99887ead08906e722ceafab4d Mon Sep 17 00:00:00 2001
+From 9e12b96ca0283041b29e310a867d880a95b928b9 Mon Sep 17 00:00:00 2001
 From: Matthew Iselin <matthew@theiselins.net>
 Date: Tue, 7 Mar 2017 11:32:09 -0800
 Subject: [PATCH] Add arm-pedigree and x86_64-pedigree targets to GCC.
@@ -7,15 +7,15 @@ Subject: [PATCH] Add arm-pedigree and x86_64-pedigree targets to GCC.
  config.sub                                    |  3 ++
  configure.ac                                  |  4 +-
  gcc/Makefile.in                               |  1 +
- gcc/config.gcc                                | 23 +++++++++-
+ gcc/config.gcc                                | 19 +++++++-
  gcc/config/pedigree.h                         | 44 +++++++++++++++++++
  gcc/config/t-pedigree                         |  6 +++
- libgcc/config.host                            | 10 ++++-
+ libgcc/config.host                            | 17 ++++++-
  libstdc++-v3/config/os/gnu-linux/os_defines.h |  7 ---
  libstdc++-v3/configure.host                   |  4 ++
  libstdc++-v3/crossconfig.m4                   |  4 ++
  libtool.m4                                    |  4 +-
- 11 files changed, 96 insertions(+), 14 deletions(-)
+ 11 files changed, 99 insertions(+), 14 deletions(-)
  create mode 100644 gcc/config/pedigree.h
  create mode 100644 gcc/config/t-pedigree
 
@@ -68,24 +68,20 @@ index 20bee0494b1..363f5b91903 100644
  BISONFLAGS =
  FLEX = @FLEX@
 diff --git a/gcc/config.gcc b/gcc/config.gcc
-index 7af8e028104..ab7ed9c5988 100644
+index 7af8e028104..4f8543975c8 100644
 --- a/gcc/config.gcc
 +++ b/gcc/config.gcc
-@@ -930,6 +930,13 @@ case ${target} in
+@@ -930,6 +930,9 @@ case ${target} in
        ;;
    esac
    ;;
 +*-*-pedigree*)
-+  extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"
-+  gas=yes
-+  gnu_ld=yes
-+  default_use_cxa_atexit=yes
 +  use_gcc_stdint=provide
 +  ;;
  *-*-elf|arc*-*-elf*)
    # Assume that newlib is being used and so __cxa_atexit is provided.
    default_use_cxa_atexit=yes
-@@ -1172,7 +1179,7 @@ arm*-*-phoenix*)
+@@ -1172,7 +1175,7 @@ arm*-*-phoenix*)
  	tmake_file="${tmake_file} arm/t-arm arm/t-bpabi arm/t-phoenix"
  	target_cpu_cname="arm7tdmi"
  	;;
@@ -94,7 +90,7 @@ index 7af8e028104..ab7ed9c5988 100644
  	case ${target} in
  	arm*eb-*-eabi*)
  	  tm_defines="${tm_defines} TARGET_BIG_ENDIAN_DEFAULT=1"
-@@ -1182,10 +1189,17 @@ arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia*)
+@@ -1182,10 +1185,17 @@ arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia*)
  	tmake_file="${tmake_file} arm/t-arm arm/t-arm-elf"
  	target_cpu_cname="arm7tdmi"
  	case ${target} in
@@ -113,7 +109,7 @@ index 7af8e028104..ab7ed9c5988 100644
  	  ;;
  	arm*-*-fuchsia*)
  	  tm_file="${tm_file} fuchsia.h arm/fuchsia-elf.h glibc-stdint.h"
-@@ -1641,6 +1655,11 @@ x86_64-*-linux* | x86_64-*-kfreebsd*-gnu)
+@@ -1641,6 +1651,11 @@ x86_64-*-linux* | x86_64-*-kfreebsd*-gnu)
  	done
  	TM_MULTILIB_CONFIG=`echo $TM_MULTILIB_CONFIG | sed 's/^,//'`
  	;;
@@ -188,20 +184,21 @@ index 00000000000..29165bda66b
 +
 +TARGET_LIBGCC2_CFLAGS = -fPIC
 diff --git a/libgcc/config.host b/libgcc/config.host
-index 11b4acaff55..dc4f515b2ca 100644
+index 11b4acaff55..ad4ce8b3344 100644
 --- a/libgcc/config.host
 +++ b/libgcc/config.host
-@@ -260,6 +260,9 @@ case ${host} in
+@@ -260,6 +260,10 @@ case ${host} in
        ;;
    esac
    ;;
 +*-*-pedigree*)
++  tmake_file="$tmake_file $cpu_type/t-crtstuff t-crtstuff-pic t-libgcc-pic"
 +  extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"
 +  ;;
  *-*-rtems*)
    tmake_file="$tmake_file t-rtems"
    extra_parts="crtbegin.o crtend.o"
-@@ -444,11 +447,11 @@ arm*-*-phoenix*)
+@@ -444,13 +448,19 @@ arm*-*-phoenix*)
  	extra_parts="crtbegin.o crtend.o crti.o crtn.o"
  	unwind_header=config/arm/unwind-arm.h
  	;;
@@ -214,8 +211,16 @@ index 11b4acaff55..dc4f515b2ca 100644
 +	arm*-*-eabi* | arm*-*-rtems* | arm*-*-pedigree*)
  	  tmake_file="${tmake_file} arm/t-bpabi t-crtfm"
  	  extra_parts="crtbegin.o crtend.o crti.o crtn.o"
++      case ${host} in
++      arm*-*-pedigree*)
++        # crti/crtn provided by musl
++        extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"
++        ;;
++      esac
  	  ;;
-@@ -623,6 +626,9 @@ x86_64-*-dragonfly*)
+ 	arm*-*-symbianelf*)
+ 	  tmake_file="${tmake_file} arm/t-symbian t-slibgcc-nolc-override"
+@@ -623,6 +633,9 @@ x86_64-*-dragonfly*)
  	tmake_file="${tmake_file} i386/t-dragonfly i386/t-crtstuff"
  	md_unwind_header=i386/dragonfly-unwind.h
  	;;
@@ -289,5 +294,5 @@ index 24d13f34409..c35bfa03ceb 100644
  
    # Report which library types will actually be built
 -- 
-2.21.0.392.gf8f6787159e-goog
+2.21.0.593.g511ec345e18-goog
 

@@ -83,7 +83,7 @@ typedef union
         uint16_t : 16;
 
         // Words 10-19: Serial number
-        char serial_number[20];
+        uint16_t serial_number[10];
 
         // Words 20-21: Retired
         uint32_t : 32;
@@ -92,10 +92,10 @@ typedef union
         uint16_t : 16;
 
         // Words 23-26: Firmware revision
-        char firmware_revision[8];
+        uint16_t firmware_revision[4];
 
         // Words 27-46: Model number
-        char model_number[40];
+        uint16_t model_number[20];
 
         // Word 47: Misc data.
         uint8_t always_80h;
@@ -507,9 +507,8 @@ typedef union
 } IdentifyData;
 
 /// Loads a buffer with N byte-swapped 16-bit words.
-inline void ataLoadSwapped(char *out, char *in, size_t N)
+inline void ataLoadSwapped(char *out, const uint16_t *in16, size_t N)
 {
-    uint16_t *in16 = reinterpret_cast<uint16_t *>(in);
     for (size_t i = 0; i < N; ++i)
     {
         EMIT_IF(TARGET_IS_LITTLE_ENDIAN)
