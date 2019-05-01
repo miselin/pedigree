@@ -181,7 +181,7 @@ void Spinlock::release()
     exit();
 }
 
-void Spinlock::exit()
+void Spinlock::exit(uintptr_t)
 {
     m_Atom.compareAndSwap(false, true);
 }
@@ -468,12 +468,12 @@ void TimeoutGuard::cancel()
     siglongjmp(*buf, 1);
 }
 
-size_t Processor::id()
+size_t ProcessorBase::id()
 {
     return 0;
 }
 
-void Processor::pause()
+void ProcessorBase::pause()
 {
 }
 

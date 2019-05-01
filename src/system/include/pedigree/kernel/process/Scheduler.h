@@ -50,7 +50,6 @@ class EXPORTED_PUBLIC Scheduler
         return m_Instance;
     }
 
-#if THREADS
     /** Initialises the scheduler. */
     bool initialise(Process *pKernelProcess);
 
@@ -71,7 +70,6 @@ class EXPORTED_PUBLIC Scheduler
     /** Removes a process.
      *  \note This is purely for enumeration purposes. */
     void removeProcess(Process *pProcess);
-#endif  // THREADS
 
     /** Causes a manual reschedule. */
     void yield();
@@ -79,7 +77,6 @@ class EXPORTED_PUBLIC Scheduler
     /** Returns the number of processes currently in operation. */
     size_t getNumProcesses();
 
-#if THREADS
     /** Returns the n'th process currently in operation. */
     Process *getProcess(size_t n);
 
@@ -94,7 +91,6 @@ class EXPORTED_PUBLIC Scheduler
     {
         return m_pBspScheduler;
     }
-#endif  // THREADS
 
   private:
     Scheduler();
@@ -103,7 +99,6 @@ class EXPORTED_PUBLIC Scheduler
     /** The Scheduler instance. */
     static Scheduler m_Instance;
 
-#if THREADS
     /** All the processes currently in operation, for enumeration purposes. */
     List<Process *, 0> m_Processes;
 
@@ -130,7 +125,6 @@ class EXPORTED_PUBLIC Scheduler
 
     /** Main scheduler lock for modifying internal structures. */
     Spinlock m_SchedulerLock;
-#endif  // THREADS
 };
 
 #endif  // SCHEDULER_H

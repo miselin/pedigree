@@ -70,29 +70,29 @@ TEST(PedigreeUtility, BaseName)
 
 TEST(PedigreeUtility, Fletcher16)
 {
-    uint8_t buf[4096];
+    uint16_t buf[2048];
     memset(buf, 'a', 4096);
 
     uint16_t c1 = checksum16(buf, 4096);
-    buf[0] = 'b';
+    reinterpret_cast<uint8_t *>(buf)[0] = 'b';
     uint16_t c2 = checksum16(buf, 4096);
     EXPECT_NE(c1, c2);
 }
 
 TEST(PedigreeUtility, Fletcher32)
 {
-    uint8_t buf[4096];
+    uint32_t buf[1024];
     memset(buf, 'a', 4096);
 
     uint32_t c1 = checksum32(buf, 4096);
-    buf[0] = 'b';
+    reinterpret_cast<uint8_t *>(buf)[0] = 'b';
     uint32_t c2 = checksum32(buf, 4096);
     EXPECT_NE(c1, c2);
 }
 
 TEST(PedigreeUtility, Fletcher32MatchesNaive)
 {
-    uint8_t buf[4096];
+    uint32_t buf[1024];
     memset(buf, 'a', 4096);
 
     EXPECT_EQ(checksum32(buf, 4096), checksum32_naive(buf, 4096));
@@ -100,18 +100,18 @@ TEST(PedigreeUtility, Fletcher32MatchesNaive)
 
 TEST(PedigreeUtility, ChecksumsDifferCorrectly)
 {
-    uint8_t buf[4096];
+    uint32_t buf[1024];
     memset(buf, 'a', 4096);
 
-    buf[1] = 'b';
-    uint16_t s1 = checksum16(buf, 4096);
+    reinterpret_cast<uint8_t *>(buf)[1] = 'b';
+    uint16_t s1 = checksum16(reinterpret_cast<uint16_t *>(buf), 4096);
     uint32_t d1 = checksum32(buf, 4096);
 
-    // swap first two bytes now - checksum should differ ads the data has
+    // swap first two bytes now - checksum should differ as the data has
     // actually changed (will catch out purely naive sums)
-    buf[0] = 'b';
-    buf[1] = 'a';
-    uint16_t s2 = checksum16(buf, 4096);
+    reinterpret_cast<uint8_t *>(buf)[0] = 'b';
+    reinterpret_cast<uint8_t *>(buf)[1] = 'a';
+    uint16_t s2 = checksum16(reinterpret_cast<uint16_t *>(buf), 4096);
     uint32_t d2 = checksum32(buf, 4096);
 
     EXPECT_NE(s1, s2);

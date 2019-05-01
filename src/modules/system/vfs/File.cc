@@ -69,15 +69,8 @@ File::File()
     : m_Name(), m_AccessedTime(0), m_ModifiedTime(0), m_CreationTime(0),
       m_Inode(0), m_pFilesystem(0), m_Size(0), m_pParent(0), m_nWriters(0),
       m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0),
-      m_DataCache(FILE_BAD_BLOCK), m_bDirect(false)
-#ifndef VFS_NOMMU
-      ,
-      m_FillCache()
-#endif
-#if THREADS
-      ,
-      m_Lock(), m_MonitorTargets()
-#endif
+      m_DataCache(FILE_BAD_BLOCK), m_bDirect(false),
+      m_FillCache(), m_Lock(), m_MonitorTargets()
 {
 }
 
@@ -88,15 +81,8 @@ File::File(
     : m_Name(name), m_AccessedTime(accessedTime), m_ModifiedTime(modifiedTime),
       m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
       m_Size(size), m_pParent(pParent), m_nWriters(0), m_nReaders(0), m_Uid(0),
-      m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK), m_bDirect(false)
-#ifndef VFS_NOMMU
-      ,
-      m_FillCache()
-#endif
-#if THREADS
-      ,
-      m_Lock(), m_MonitorTargets()
-#endif
+      m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK), m_bDirect(false),
+      m_FillCache(), m_Lock(), m_MonitorTargets()
 {
     size_t maxBlock = size / getBlockSize();
     if (size % getBlockSize())
@@ -247,7 +233,11 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
         return ~0UL;
     }
 
-#ifndef VFS_NOMMU
+    EMIT_IF(VFS_NOMMU)
+    {
+        return ~0UL;
+    }
+
     // Sanitise input.
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
@@ -307,7 +297,6 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
 
         return phys;
     }
-#endif  // VFS_NOMMU
 
     return ~0UL;
 }
@@ -319,7 +308,6 @@ void File::returnPhysicalPage(size_t offset)
         return;
     }
 
-#ifndef VFS_NOMMU
     // Sanitise input.
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
@@ -345,14 +333,11 @@ void File::returnPhysicalPage(size_t offset)
     {
         unpinBlock(offset);
     }
-#endif  // VFS_NOMMU
 }
 
 void File::sync()
 {
-#if THREADS
     LockGuard<Mutex> guard(m_Lock);
-#endif
 
     const size_t blockSize = getBlockSize();
     for (size_t i = 0; i < m_DataCache.count(); ++i)
@@ -762,9 +747,7 @@ String File::getFullPath(bool bWithLabel)
 
 uintptr_t File::getCachedPage(size_t block, bool locked)
 {
-#if THREADS
     LockGuard<Mutex> guard(m_Lock, locked);
-#endif
 
     DataCacheKey key(block);
     auto result = m_DataCache.lookup(key);
@@ -780,9 +763,7 @@ uintptr_t File::getCachedPage(size_t block, bool locked)
 
 void File::setCachedPage(size_t block, uintptr_t value, bool locked)
 {
-#if THREADS
     LockGuard<Mutex> guard(m_Lock, locked);
-#endif
 
     assert(value);
 
@@ -806,14 +787,17 @@ void File::setCachedPage(size_t block, uintptr_t value, bool locked)
 
 bool File::useFillCache() const
 {
-#ifdef VFS_NOMMU
-    // No fill cache in NOMMU builds.
-    return false;
-#else
-    size_t blockSize = getBlockSize();
-    size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
-    return blockSize < nativeBlockSize;
-#endif
+    EMIT_IF(VFS_NOMMU)
+    {
+        // No fill cache in NOMMU builds.
+        return false;
+    }
+    else
+    {
+        size_t blockSize = getBlockSize();
+        size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
+        return blockSize < nativeBlockSize;
+    }
 }
 
 uintptr_t File::readIntoCache(uintptr_t block)
@@ -831,7 +815,6 @@ uintptr_t File::readIntoCache(uintptr_t block)
     size_t blockOffset = offset & mask;
     offset &= ~mask;
 
-#ifndef VFS_NOMMU
     if (useFillCache())
     {
         // Using Cache::insert() here is atomic compared to if we did a
@@ -863,7 +846,6 @@ uintptr_t File::readIntoCache(uintptr_t block)
         NOTICE("readIntoCache: fillcache blockOffset=" << blockOffset);
         return vaddr + blockOffset;
     }
-#endif
 
     uintptr_t buff = FILE_BAD_BLOCK;
     if (!m_bDirect)

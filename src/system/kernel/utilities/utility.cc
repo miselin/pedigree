@@ -109,10 +109,11 @@ uint8_t checksum(const uint8_t *pMemory, size_t sMemory)
 uint16_t checksum16(const uint16_t *pMemory, size_t sMemory)
 {
     uint16_t sum1 = 0, sum2 = 0;
+    const uint8_t *mem = reinterpret_cast<const uint8_t *>(pMemory);
 
     for (size_t i = 0; i < sMemory; ++i)
     {
-        sum1 = (sum1 + pMemory[i]) % 255;
+        sum1 = (sum1 + mem[i]) % 255;
         sum2 = (sum2 + sum1) % 255;
     }
 
@@ -122,10 +123,11 @@ uint16_t checksum16(const uint16_t *pMemory, size_t sMemory)
 uint32_t checksum32(const uint32_t *pMemory, size_t sMemory)
 {
     uint32_t sum1 = 0, sum2 = 0;
+    const uint16_t *mem = reinterpret_cast<const uint16_t *>(pMemory);
 
     for (size_t i = 0; i < sMemory / 2; ++i)
     {
-        sum1 = (sum1 + pMemory[i]) % 65535;
+        sum1 = (sum1 + mem[i]) % 65535;
         sum2 = (sum2 + sum1) % 65535;
     }
 
@@ -135,10 +137,11 @@ uint32_t checksum32(const uint32_t *pMemory, size_t sMemory)
 uint32_t checksum32_naive(const uint32_t *pMemory, size_t sMemory)
 {
     uint32_t sum1 = 0, sum2 = 0;
+    const uint16_t *mem = reinterpret_cast<const uint16_t *>(pMemory);
 
     for (size_t i = 0; i < sMemory / 2; ++i)
     {
-        sum1 = (sum1 + pMemory[i]) % 65535;
+        sum1 = (sum1 + mem[i]) % 65535;
         sum2 = (sum2 + sum1) % 65535;
     }
 
