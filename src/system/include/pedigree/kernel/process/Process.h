@@ -20,8 +20,6 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
-#if THREADS
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -560,7 +558,5 @@ class EXPORTED_PUBLIC Process
   public:
     Semaphore m_DeadThreads;
 };
-
-#endif
 
 #endif

@@ -212,3 +212,7 @@
 #ifndef UTILITY_LINUX_COVERAGE
 #define UTILITY_LINUX_COVERAGE 0
 #endif
+
+#ifndef VFS_NOMMU
+#define VFS_NOMMU 0
+#endif

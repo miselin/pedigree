@@ -100,7 +100,7 @@ int main(int argc, char **argv)
     strcpy(sun1.sun_path, "unix»/s1");
     socklen = strlen(sun1.sun_path) + sizeof(sa_family_t);
 
-    int rc = posix_bind(s1, reinterpret_cast<const sockaddr *>(&sun1), socklen);
+    int rc = posix_bind(s1, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -110,14 +110,14 @@ int main(int argc, char **argv)
     }
 
     assert(
-        posix_connect(s2, reinterpret_cast<sockaddr *>(&sun1), socklen) == 0);
+        posix_connect(s2, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) == 0);
 
     const char *msg = "hello";
 
     assert(posix_send(s2, msg, 6, 0) == 6);
     assert(
         posix_recvfrom(
-            s1, buf, 128, 0, reinterpret_cast<sockaddr *>(&sun_misc),
+            s1, buf, 128, 0, reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
             &socklen_misc) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -135,7 +135,7 @@ int main(int argc, char **argv)
 
     assert(
         posix_sendto(
-            s2, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun1), socklen) == 6);
+            s2, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) == 6);
     assert(posix_recv(s1, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
     strcpy(sun2.sun_path, "unix»/s2");
     socklen = strlen(sun2.sun_path) + sizeof(sa_family_t);
 
-    rc = posix_bind(s2, reinterpret_cast<const sockaddr *>(&sun2), socklen);
+    rc = posix_bind(s2, reinterpret_cast<const sockaddr_storage *>(&sun2), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -160,16 +160,16 @@ int main(int argc, char **argv)
 
     assert(
         posix_sendto(
-            s1, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun2), socklen) == 6);
+            s1, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun2), socklen) == 6);
     assert(
         posix_sendto(
-            s2, msg, 6, 0, reinterpret_cast<sockaddr *>(&sun1), socklen) == 6);
+            s2, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) == 6);
     assert(posix_recv(s1, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
     assert(
         posix_recvfrom(
-            s2, buf, 128, 0, reinterpret_cast<sockaddr *>(&sun_misc),
+            s2, buf, 128, 0, reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
             &socklen_misc) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -204,7 +204,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = posix_bind(s1, reinterpret_cast<const sockaddr *>(&sun1), socklen);
+    rc = posix_bind(s1, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = posix_connect(s2, reinterpret_cast<const sockaddr *>(&sun1), socklen);
+    rc = posix_connect(s2, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -248,7 +248,7 @@ int main(int argc, char **argv)
     }
 
     int fd2 = posix_accept(
-        s1, reinterpret_cast<sockaddr *>(&sun_misc), &socklen_misc);
+        s1, reinterpret_cast<struct sockaddr_storage *>(&sun_misc), &socklen_misc);
     if (fd2 < 0)
     {
         fprintf(

@@ -20,8 +20,6 @@
 #ifndef THREAD_H
 #define THREAD_H
 
-#if THREADS
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
@@ -579,7 +577,5 @@ class EXPORTED_PUBLIC Thread
     /** Whether this thread has been marked interruptible or not. */
     bool m_bInterruptible = true;
 };
-
-#endif
 
 #endif

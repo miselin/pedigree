@@ -20,6 +20,12 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSOR_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSOR_H
 
+#include "pedigree/kernel/processor/Processor.h"
+
+class HostedProcessor : public ProcessorBase
+{
+};
+
 extern "C" int callOnStack(
     uintptr_t stack, uintptr_t func, uintptr_t p1 = 0, uintptr_t p2 = 0,
     uintptr_t p3 = 0, uintptr_t p4 = 0);

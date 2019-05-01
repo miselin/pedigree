@@ -37,9 +37,7 @@ HostedProcessorInformation::HostedProcessorInformation(
     ProcessorId processorId, uint8_t apicId)
     : m_ProcessorId(processorId),
       m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
-#if THREADS
       m_pCurrentThread(0), m_Scheduler(0),
-#endif
       m_KernelStack(0)
 {
     m_Scheduler = new PerProcessorScheduler();
@@ -64,7 +62,6 @@ void HostedProcessorInformation::setVirtualAddressSpace(
     m_VirtualAddressSpace = &virtualAddressSpace;
 }
 
-#if THREADS
 Thread *HostedProcessorInformation::getCurrentThread() const
 {
     return m_pCurrentThread;
@@ -79,7 +76,6 @@ PerProcessorScheduler &HostedProcessorInformation::getScheduler()
 {
     return *m_Scheduler;
 }
-#endif
 
 /**
  * So, the sigaltstack implementation implements EPERM for sigaltstack by
