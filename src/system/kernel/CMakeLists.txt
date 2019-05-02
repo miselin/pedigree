@@ -410,11 +410,13 @@ target_compile_options(hash PRIVATE -w)
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:staticmodules> machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive gcc)
+    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive gcc)
 if (PEDIGREE_STATIC_DRIVERS)
     foreach (module ${PEDIGREE_KERNEL_MODULE_TARGETS})
         target_sources(kernel PRIVATE $<TARGET_OBJECTS:${module}>)
     endforeach ()
+
+    target_sources(kernel PRIVATE $<TARGET_OBJECTS:staticmodules>)
 endif ()
 if (PEDIGREE_LINKERSCRIPT)
     set_target_properties(kernel PROPERTIES LINK_DEPENDS ${PEDIGREE_LINKERSCRIPT})
