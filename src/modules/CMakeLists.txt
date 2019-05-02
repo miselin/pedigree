@@ -95,17 +95,17 @@ function(pedigree_module name opts libs)
     # not listed in full - need to work on that.
     if (PEDIGREE_STATIC_DRIVERS)
         add_library(${name} OBJECT ${ARGN})
-        set(additional_libs "")
     else ()
         add_executable(${name} ${ARGN})
         set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
-        set(additional_libs module kernel_shared)
     endif ()
     target_compile_options(${name} PRIVATE
         ${opts}
         $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
         $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
-    target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} ${additional_libs})
+    if (NOT PEDIGREE_STATIC_DRIVERS)
+        target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
+    endif ()
 
     # Generic set of include directories for modules to find their own headers
     target_include_directories(${name} PRIVATE

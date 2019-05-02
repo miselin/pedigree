@@ -13,8 +13,8 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/images/local/include/pango-1.0
     ${CMAKE_SOURCE_DIR}/images/local/include/cairo
     ${CMAKE_SOURCE_DIR}/images/local/include/freetype2
-    ${CMAKE_SOURCE_DIR}/compilers/dir/${PEDIGREE_COMPILER_TARGET}/include/c++/${CMAKE_CXX_COMPILER_VERSION}
-    ${CMAKE_SOURCE_DIR}/compilers/dir/${PEDIGREE_COMPILER_TARGET}/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
+    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
+    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
     # TODO: for non-v7 targets we need to adjust this
