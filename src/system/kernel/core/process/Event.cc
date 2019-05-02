@@ -68,6 +68,8 @@ uintptr_t Event::getTrampoline()
         return VirtualAddressSpace::getKernelAddressSpace()
             .getKernelEventBlockStart();
     }
+
+    return 0;
 }
 
 uintptr_t Event::getSecondaryTrampoline()
