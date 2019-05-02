@@ -56,8 +56,8 @@ addons:
       - u-boot-tools
       - valgrind
       - python-requests
-      - g++-6
-      - libstdc++-6-dev
+      - g++-8
+      - libstdc++-8-dev
       - lcov
 cache:
   directories:
