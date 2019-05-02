@@ -21,6 +21,7 @@ script:
   - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
   - if [[ "$EASY_BUILD" != "tests" ]]; then ./scripts/runtest.py; fi
 before_install:
+  - CC=gcc-8 && CXX=g++-8
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install qemu; fi
   - if [[ "$EASY_BUILD" == "tests" ]]; then pip install --user codecov gcovr; fi
 after_success:
