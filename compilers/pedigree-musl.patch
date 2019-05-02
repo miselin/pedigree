@@ -1,0 +1,42 @@
+diff -rup musl-1.1.14.orig/include/alltypes.h.in musl-1.1.14/include/alltypes.h.in
+--- musl-1.1.14.orig/include/alltypes.h.in	2016-02-21 21:07:05.000000000 -0800
++++ musl-1.1.14/include/alltypes.h.in	2019-04-30 13:39:13.473770405 -0700
+@@ -1,22 +1,22 @@
+-TYPEDEF unsigned _Addr size_t;
+-TYPEDEF unsigned _Addr uintptr_t;
+-TYPEDEF _Addr ptrdiff_t;
+-TYPEDEF _Addr ssize_t;
+-TYPEDEF _Addr intptr_t;
++TYPEDEF __SIZE_TYPE__ size_t;
++TYPEDEF __UINTPTR_TYPE__ uintptr_t;
++TYPEDEF __PTRDIFF_TYPE__ ptrdiff_t;
++TYPEDEF __INTPTR_TYPE__ ssize_t;
++TYPEDEF __INTPTR_TYPE__ intptr_t;
+ TYPEDEF _Addr regoff_t;
+ TYPEDEF _Reg register_t;
+ 
+-TYPEDEF signed char     int8_t;
+-TYPEDEF short           int16_t;
+-TYPEDEF int             int32_t;
+-TYPEDEF _Int64          int64_t;
+-TYPEDEF _Int64          intmax_t;
+-TYPEDEF unsigned char   uint8_t;
+-TYPEDEF unsigned short  uint16_t;
+-TYPEDEF unsigned int    uint32_t;
+-TYPEDEF unsigned _Int64 uint64_t;
+-TYPEDEF unsigned _Int64 u_int64_t;
+-TYPEDEF unsigned _Int64 uintmax_t;
++TYPEDEF __INT8_TYPE__   int8_t;
++TYPEDEF __INT16_TYPE__  int16_t;
++TYPEDEF __INT32_TYPE__  int32_t;
++TYPEDEF __INT64_TYPE__  int64_t;
++TYPEDEF __INTMAX_TYPE__ intmax_t;
++TYPEDEF __UINT8_TYPE__  uint8_t;
++TYPEDEF __UINT16_TYPE__ uint16_t;
++TYPEDEF __UINT32_TYPE__ uint32_t;
++TYPEDEF __UINT64_TYPE__ uint64_t;
++TYPEDEF __UINT64_TYPE__ u_int64_t;
++TYPEDEF __UINTMAX_TYPE__ uintmax_t;
+ 
+ TYPEDEF unsigned mode_t;
+ TYPEDEF unsigned _Reg nlink_t;
