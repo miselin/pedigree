@@ -41,17 +41,19 @@ SECTIONS
         *(.data)
         *(.rodata*)
 
+        . = ALIGN(4096); /* Needs to be on a 64 KB boundary to map properly. */
+        *(.ivt)
+    }
+
+    .modinfo : {
         . = ALIGN(4096);
         PROVIDE(start_modinfo = .);
-        *(.modinfo)
+        *(.modinfo*)
         PROVIDE(end_modinfo = .);
 
         PROVIDE(start_module_ctors = .);
-        *(.module_ctors)
+        *(.module_ctors*)
         PROVIDE(end_module_ctors = .);
-
-        . = ALIGN(4096); /* Needs to be on a 64 KB boundary to map properly. */
-        *(.ivt)
     }
 
     PROVIDE(__exidx_start = .);

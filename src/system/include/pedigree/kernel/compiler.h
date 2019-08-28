@@ -48,6 +48,8 @@
 #define PACKED __attribute__((packed))
 /** The type may alias */
 #define MAY_ALIAS __attribute__((may_alias))
+/** The function is a constructor to be run at program load time. */
+#define CONSTRUCTOR __attribute__((constructor))
 /** The expression is very likely to be true */
 #define LIKELY(exp) __builtin_expect(!!(exp), 1)
 /** The expression is very unlikely to be true */
@@ -84,6 +86,7 @@
  * This is needed for anything that the kernel will expose to kernel modules.
  */
 #define EXPORTED_PUBLIC __attribute__((visibility("default")))
+#define SYMBOL_HIDDEN __attribute__((visibility("hidden")))
 
 // Builtin checks.
 #ifndef __has_builtin

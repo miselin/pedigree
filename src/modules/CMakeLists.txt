@@ -1,4 +1,7 @@
 
+# Preserve original linker flags
+set(PRESERVED_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS})
+
 set(PEDIGREE_POSIX_VERBOSE FALSE CACHE BOOL "Enable verbose logging for all POSIX syscalls.")
 set(PEDIGREE_POSIX_FILE_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX file syscalls.")
 set(PEDIGREE_POSIX_SYS_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX system syscalls.")
@@ -35,11 +38,17 @@ elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
 endif ()
 
 set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link.ld")
+set(PEDIGREE_MODULE_STATICLINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link_static.ld")
 set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} ${ARCH_MODULE_FLAGS} "-fPIC" "-nostdlib" )
 set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
 set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit")
 set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" ${ARCH_MODULE_LINKFLAGS})
-if (NOT PEDIGREE_STATIC_DRIVERS)
+if (PEDIGREE_STATIC_DRIVERS)
+    # No special flags f-or shared objects in static driver builds
+    set(CMAKE_SHARED_LINKER_FLAGS "-r -nostdlib -T ${PEDIGREE_MODULE_STATICLINKSCRIPT}")
+    string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS}")
+    string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS}")
+else ()
     set(PEDIGREE_MODULE_LINKFLAGS "${PEDIGREE_MODULE_LINKFLAGS}" "-Wl,-shared" "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
 endif ()
 
@@ -94,7 +103,7 @@ function(pedigree_module name opts libs)
     # TODO: this doesn't correctly discover missing symbols if dependencies are
     # not listed in full - need to work on that.
     if (PEDIGREE_STATIC_DRIVERS)
-        add_library(${name} OBJECT ${ARGN})
+        add_library(${name} SHARED ${ARGN})
     else ()
         add_executable(${name} ${ARGN})
         set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
@@ -103,7 +112,10 @@ function(pedigree_module name opts libs)
         ${opts}
         $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
         $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
-    if (NOT PEDIGREE_STATIC_DRIVERS)
+
+    if (PEDIGREE_STATIC_DRIVERS)
+        target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS})
+    else()
         target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
     endif ()
 
@@ -126,13 +138,15 @@ function(pedigree_module name opts libs)
         set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
     endif ()
 
-    if (NOT PEDIGREE_STATIC_DRIVERS)
-        # split debug info into a .debug file so it's accessible but not present in the module binary itself
-        add_custom_command(TARGET ${name} POST_BUILD
-            COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
-            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${name}>
-            COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
+    # split debug info into a .debug file so it's accessible but not present in the module binary itself
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
+        COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${name}>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
 
+    if (PEDIGREE_STATIC_DRIVERS)
+        set_target_properties(${name} PROPERTIES LINK_DEPENDS ${PEDIGREE_MODULE_STATICLINKSCRIPT})
+    else()
         set_target_properties(${name} PROPERTIES LINK_DEPENDS ${PEDIGREE_MODULE_LINKSCRIPT})
     endif ()
 endfunction()
@@ -624,3 +638,6 @@ add_custom_target(libc ALL DEPENDS ${CMAKE_BINARY_DIR}/musl/lib/libc.so)
 
 set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
 set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
+
+# Restore original linker flags
+# set(CMAKE_SHARED_LINKER_FLAGS ${PRESERVED_SHARED_LINKER_FLAGS})

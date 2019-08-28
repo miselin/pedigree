@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_INTERRUPTHANDLER_H
 #define KERNEL_PROCESSOR_INTERRUPTHANDLER_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -29,7 +30,7 @@
 /** Abstract base class for all interrupt-handlers. All interrupt-handlers must
  *  be derived from this class
  *\brief Abstract base class for interrupt-handlers */
-class InterruptHandler
+class EXPORTED_PUBLIC InterruptHandler
 {
   public:
     /** Called when the handler is registered with the interrupt manager and the

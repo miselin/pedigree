@@ -37,6 +37,8 @@ class File;
 
 static bool bRootMounted = false;
 
+static List<Filesystem *> g_MountedFilesystems;
+
 static void error(const char *s)
 {
     extern BootIO bootIO;
@@ -56,7 +58,8 @@ static Device *probeDisk(Device *diskDevice)
 
     Disk *pDisk = static_cast<Disk *>(diskDevice);
     String alias;  // Null - gets assigned by the filesystem.
-    if (VFS::instance().mount(pDisk, alias))
+    Filesystem *pFs = nullptr;
+    if (VFS::instance().mount(pDisk, alias, &pFs))
     {
         // For mount message
         bool didMountAsRoot = false;
@@ -82,6 +85,8 @@ static Device *probeDisk(Device *diskDevice)
         {
             NOTICE("Mounted " << alias << ".");
         }
+
+        g_MountedFilesystems.pushBack(pFs);
     }
 
     return diskDevice;
@@ -151,12 +156,11 @@ static void destroy()
 {
     NOTICE("Unmounting all filesystems...");
 
-    Tree<Filesystem *, List<String *> *> &mounts = VFS::instance().getMounts();
     List<Filesystem *> deletionQueue;
 
-    for (auto it = mounts.begin(); it != mounts.end(); ++it)
+    for (auto it : g_MountedFilesystems)
     {
-        deletionQueue.pushBack(it.key());
+        deletionQueue.pushBack(it);
     }
 
     while (deletionQueue.count())

@@ -208,6 +208,10 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     template <class T>
     static T *rebase(Module *module, T *ptr)
     {
+        EMIT_IF(STATIC_DRIVERS)
+        {
+            return ptr;
+        }
         return adjust_pointer(ptr, module->loadBase);
     }
 

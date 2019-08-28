@@ -134,6 +134,7 @@ static bool init()
     if (!pNull)
     {
         error("dev»/null does not exist");
+        return false;
     }
 
     FileDescriptor *stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, 0);

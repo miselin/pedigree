@@ -23,6 +23,7 @@
  */
 
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include <stdarg.h>
 
@@ -59,7 +60,7 @@ static int skip_atoi(const char **s)
         __res;                                                                \
     })
 #else
-#define do_div(n, base) ({ n / base; })
+#define do_div(n, base) ({ int __res = n % base; n = n / base; __res; })
 #endif
 
 static char *
@@ -100,6 +101,7 @@ number(char *str, int64_t num, int base, int size, int precision, int type)
         {
             int d = do_div(num, base);
             tmp[i++] = digits[d];
+            assert(i < 36);
         }
     if (i > precision)
         precision = i;

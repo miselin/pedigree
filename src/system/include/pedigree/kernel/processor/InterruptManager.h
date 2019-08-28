@@ -36,7 +36,7 @@ class InterruptManager
   public:
     /** Get the interrupt manager instance
      *\return instance of the interrupt manager */
-    static InterruptManager &instance();
+    EXPORTED_PUBLIC static InterruptManager &instance();
     /** Register an interrupt handler
      *\param[in] nInterruptNumber the interrupt's number
      *\param[in] pHandler the interrupt handler

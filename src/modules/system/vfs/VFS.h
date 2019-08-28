@@ -74,7 +74,7 @@ class EXPORTED_PUBLIC VFS
     /** Mounts a Disk device as the alias "alias".
         If alias is zero-length, the Filesystem is asked for its preferred name
         (usually a volume name of some sort), and returned in "alias" */
-    bool mount(Disk *pDisk, String &alias);
+    bool mount(Disk *pDisk, String &alias, Filesystem **pMountedFs = nullptr);
 
     /** Adds an alias to an existing filesystem.
      *\param pFs The filesystem to add an alias for.
