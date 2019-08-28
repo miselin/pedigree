@@ -267,13 +267,12 @@ diff --git a/libstdc++-v3/crossconfig.m4 b/libstdc++-v3/crossconfig.m4
 index cb6e3afff3d..8828c4a5754 100644
 --- a/libstdc++-v3/crossconfig.m4
 +++ b/libstdc++-v3/crossconfig.m4
-@@ -219,6 +219,10 @@ case "${host}" in
+@@ -219,6 +219,9 @@ case "${host}" in
      fi
      AC_CHECK_FUNCS(aligned_alloc posix_memalign memalign _aligned_malloc)
      ;;
 +  *-pedigree*)
 +    AC_CHECK_HEADERS([sys/types.h locale.h float.h])
-+    GLIBCXX_CHECK_COMPLEX_MATH_SUPPORT
 +    ;;
    *-qnx6.1* | *-qnx6.2*)
      SECTION_FLAGS='-ffunction-sections -fdata-sections'
