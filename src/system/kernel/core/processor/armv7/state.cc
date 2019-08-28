@@ -24,6 +24,81 @@ const char *ARMV7InterruptStateRegisterName[17] = {
     "r9", "r10", "r11", "r12", "lr", "pc", "usersp", "userlr",
 };
 
+uintptr_t ARMV7InterruptState::getStackPointer() const
+{
+    return m_usersp;
+}
+
+void ARMV7InterruptState::setStackPointer(uintptr_t stackPointer)
+{
+    m_usersp = stackPointer;
+}
+
+uintptr_t ARMV7InterruptState::getInstructionPointer() const
+{
+    return m_pc;
+}
+
+void ARMV7InterruptState::setInstructionPointer(uintptr_t instructionPointer)
+{
+    m_pc = instructionPointer;
+}
+
+uintptr_t ARMV7InterruptState::getBasePointer() const
+{
+    return m_r11;
+}
+
+void ARMV7InterruptState::setBasePointer(uintptr_t basePointer)
+{
+    m_r11 = basePointer;
+}
+
+size_t ARMV7InterruptState::getRegisterSize(size_t index) const
+{
+#if BITS_32
+    return 4;
+#else
+    return 4;  // TODO: handle other bits sizes (this is mainly here)
+               // in order to help future development if ARM ends up
+               // requiring 64-bit or something
+#endif
+}
+
+bool ARMV7InterruptState::kernelMode() const
+{
+    uint32_t cpsr;
+    asm volatile("mrs %0, cpsr" : "=r"(cpsr));
+    return ((cpsr & 0x1F) != 0x10);
+}
+
+size_t ARMV7InterruptState::getInterruptNumber() const
+{
+    /// \todo implement
+    return 0;
+}
+
+size_t ARMV7InterruptState::getSyscallService() const
+{
+    /// \todo implement
+    return 0;
+}
+
+size_t ARMV7InterruptState::getSyscallNumber() const
+{
+    /// \todo implement
+    return 0;
+}
+
+uintptr_t ARMV7InterruptState::getSyscallParameter(size_t n) const
+{
+    return 0;
+}
+
+void ARMV7InterruptState::setSyscallReturnValue(uintptr_t val)
+{
+}
+
 ARMV7InterruptState::ARMV7InterruptState()
     : m_usersp(), m_userlr(), m_r0(), m_r1(), m_r2(), m_r3(), m_r4(), m_r5(),
       m_r6(), m_r7(), m_r8(), m_r9(), m_r10(), m_r11(), m_r12(), m_lr(), m_pc(),
@@ -113,6 +188,26 @@ processor_register_t ARMV7InterruptState::getRegister(size_t index) const
 const char *ARMV7InterruptState::getRegisterName(size_t index) const
 {
     return ARMV7InterruptStateRegisterName[index];
+}
+
+ARMV7SyscallState::ARMV7SyscallState(const ARMV7InterruptState &state)
+{
+    m_spsr = state.m_spsr;
+    m_r0 = state.m_r0;
+    m_r1 = state.m_r1;
+    m_r2 = state.m_r2;
+    m_r3 = state.m_r3;
+    m_r4 = state.m_r4;
+    m_r5 = state.m_r5;
+    m_r6 = state.m_r6;
+    m_r7 = state.m_r7;
+    m_r8 = state.m_r8;
+    m_r9 = state.m_r9;
+    m_r10 = state.m_r10;
+    m_r11 = state.m_r11;
+    m_r12 = state.m_r12;
+    m_lr = state.m_lr;
+    m_pc = state.m_pc;
 }
 
 ARMV7ProcessorState::ARMV7ProcessorState(const ARMV7InterruptState &state)

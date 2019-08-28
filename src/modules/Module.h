@@ -87,6 +87,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/Log.h"
 
 #ifndef __cplusplus
 #include <stdbool.h>
@@ -97,36 +98,34 @@ typedef void (*ModuleExit)();
 
 #define MODULE_TAG 0xdeadbaba
 
-#ifdef __cplusplus
 struct ModuleInfo
 {
-    ModuleInfo(
-        const char *newName, ModuleEntry newEntry, ModuleExit newExit,
-        const char **newDeps)
-    {
-        tag = MODULE_TAG;
-        name = newName;
-        entry = newEntry;
-        exit = newExit;
-        dependencies = newDeps;
-    }
-
     uint32_t tag;
     const char *name;
     ModuleEntry entry;
     ModuleExit exit;
     const char **dependencies;
+    const char **opt_dependencies;
 } PACKED;
-#endif
 
 #if STATIC_DRIVERS
 
+// Need a way to have a way to manage the optional-ness of optional
+// dependencies without using a local section or similar.
+// _OPTIONAL_DEPENDS tends to be run after the MODULE_INFO macro
+
 #define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \
-    static ModuleInfo __module SECTION(".modinfo")      \
-        USED(name, entry, exit, __mod_deps);
+    static ModuleInfo __module SECTION(".modinfo") USED = \
+        {MODULE_TAG, name, entry, exit, __mod_deps, 0};
 
-#define MODULE_OPTIONAL_DEPENDS(...)
+#define MODULE_OPTIONAL_DEPENDS(...)                        \
+    static const char *__mod_opt_deps[] = {__VA_ARGS__, 0}; \
+    static void CONSTRUCTOR __add_optional_deps() {         \
+        DEBUG_LOG("== __add_optional_deps() " << __module.name << " ==");           \
+        __module.opt_dependencies = __mod_opt_deps;         \
+    }
+
 
 #else
 

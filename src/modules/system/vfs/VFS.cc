@@ -85,7 +85,7 @@ VFS::~VFS()
     }
 }
 
-bool VFS::mount(Disk *pDisk, String &alias)
+bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
 {
     for (List<Filesystem::ProbeCallback *>::Iterator it =
              m_ProbeCallbacks.begin();
@@ -112,6 +112,11 @@ bool VFS::mount(Disk *pDisk, String &alias)
             {
                 MountCallback mc = *(*it2);
                 mc();
+            }
+
+            if (pMountedFs)
+            {
+                *pMountedFs = pFs;
             }
 
             return true;

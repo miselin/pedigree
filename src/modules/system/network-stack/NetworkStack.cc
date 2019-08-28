@@ -122,15 +122,19 @@ NetworkStack::NetworkStack()
       ,
       m_NextInterfaceNumber(0)
 {
+    NOTICE("1");
     if (stack)
     {
         FATAL("NetworkStack created multiple times.");
     }
 
+    NOTICE("2");
     stack = this;
 
+    NOTICE("3");
     initialise();
 
+    NOTICE("4");
 #if X86_COMMON || HOSTED
     // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
     if (!m_MemPool.initialise(4096, 1600))
@@ -147,6 +151,7 @@ NetworkStack::NetworkStack()
 #else
 #warning Unhandled architecture for the NetworkStack buffer pool
 #endif
+    NOTICE("5");
 }
 
 NetworkStack::~NetworkStack()
@@ -319,7 +324,9 @@ bool NetworkStack::Packet::copyFrom(uintptr_t otherPacket, size_t size)
 
 static bool entry()
 {
+    NOTICE("A");
     g_NetworkStack = new NetworkStack();
+    NOTICE("B");
 
     return true;
 }

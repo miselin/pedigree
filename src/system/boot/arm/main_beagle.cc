@@ -921,6 +921,9 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     writeStr(
         3, "Now starting the Pedigree kernel (can take a while, please "
            "wait).\r\n\r\n");
+    writeStr(3, "Main is at 0x");
+    writeHex(3, (uint32_t)main);
+    writeStr(3, "\r\n");
     main(bs);
 
     while (1)

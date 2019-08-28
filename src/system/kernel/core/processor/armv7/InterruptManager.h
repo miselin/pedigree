@@ -36,7 +36,7 @@ class ARMV7InterruptManager : public ::InterruptManager, public ::SyscallManager
   public:
     /** Get the ARMV7InterruptManager class instance
      *\return instance of the ARMV7InterruptManager class */
-    inline static ARMV7InterruptManager &instance()
+    static ARMV7InterruptManager &instance()
     {
         return m_Instance;
     }

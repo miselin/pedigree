@@ -610,9 +610,6 @@ void KernelElf::executeModules(bool silent, bool progress)
 Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
 {
     /// \todo rewrite to the new module dependency logic
-    return nullptr;
-
-    /*
     Module *module = new Module;
 
     module->buffer = 0;
@@ -622,54 +619,54 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
     module->entry = info->entry;
     module->exit = info->exit;
     module->depends = info->dependencies;
+    module->depends_opt = info->opt_dependencies;
     DEBUG_LOG("KERNELELF: Preloaded module " << module->name);
 
-    g_BootProgressCurrent++;
-    if (g_BootProgressUpdate && !silent)
-        g_BootProgressUpdate("moduleload");
-
-    m_Modules.pushBack(module);
-
-    // Can we load this module yet?
-    if (moduleDependenciesSatisfied(module))
+    EMIT_IF(DUMP_DEPENDENCIES)
     {
-        executeModule(module);
-
-        g_BootProgressCurrent++;
-        if (g_BootProgressUpdate && !silent)
-            g_BootProgressUpdate("moduleexec");
-
-        // Now check if we've allowed any currently pending modules to load.
-        bool somethingLoaded = true;
-        while (somethingLoaded)
+        size_t i = 0;
+        while (module->depends_opt && rebase(module, module->depends_opt[i]))
         {
-            somethingLoaded = false;
-            for (Vector<Module *>::Iterator it = m_PendingModules.begin();
-                 it != m_PendingModules.end();)
-            {
-                if (moduleDependenciesSatisfied(*it))
-                {
-                    executeModule(*it);
-                    g_BootProgressCurrent++;
-                    if (g_BootProgressUpdate && !silent)
-                        g_BootProgressUpdate("moduleexec");
-
-                    it = m_PendingModules.erase(it);
-                    somethingLoaded = true;
-                    break;
-                }
-                else
-                    ++it;
-            }
+            DEBUG_LOG(
+                "KERNELELF: Module " << module->name << " optdepends on "
+                                     << rebase(module, module->depends_opt[i]));
+            ++i;
         }
+
+        i = 0;
+        while (module->depends && rebase(module, module->depends[i]))
+        {
+            DEBUG_LOG(
+                "KERNELELF: Module " << module->name << " depends on "
+                                     << rebase(module, module->depends[i]));
+            ++i;
+        }
+    }
+
+    EMIT_IF(MEMORY_TRACING)
+    {
+        traceMetadata(
+            NormalStaticString(module->name),
+            reinterpret_cast<void *>(module->loadBase),
+            reinterpret_cast<void *>(module->loadBase + module->loadSize));
+    }
+
+    if (!StringCompare(module->name, "init"))
+    {
+        m_InitModule = module;
     }
     else
     {
-        m_PendingModules.pushBack(module);
+        g_BootProgressCurrent++;
+        if (g_BootProgressUpdate && !silent)
+            g_BootProgressUpdate("moduleload");
+
+        module->status = Module::Preloaded;
+
+        m_Modules.pushBack(module);
     }
 
     return module;
-    */
 }
 
 void KernelElf::unloadModule(const char *name, bool silent, bool progress)
@@ -963,6 +960,14 @@ static int executeModuleThread(void *mod)
         else
         {
             WARNING("KERNELELF: Module " << module->name << " had no ctors!");
+        }
+
+        uintptr_t optionalDeps = module->elf->lookupSymbol("__add_optional_deps");
+        if (optionalDeps)
+        {
+            NOTICE("KERNELELF: Running module " << module->name << " optional dependencies function.");
+            void (*fp)(void) = reinterpret_cast<void (*)(void)>(optionalDeps);
+            fp();
         }
     }
 

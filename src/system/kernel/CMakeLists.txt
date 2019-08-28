@@ -410,17 +410,16 @@ target_compile_options(hash PRIVATE -w)
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive gcc)
+    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive)
 if (PEDIGREE_STATIC_DRIVERS)
-    foreach (module ${PEDIGREE_KERNEL_MODULE_TARGETS})
-        target_sources(kernel PRIVATE $<TARGET_OBJECTS:${module}>)
-    endforeach ()
-
+    target_link_libraries(kernel PRIVATE ${PEDIGREE_KERNEL_MODULE_TARGETS})
     target_sources(kernel PRIVATE $<TARGET_OBJECTS:staticmodules>)
 endif ()
 if (PEDIGREE_LINKERSCRIPT)
     set_target_properties(kernel PROPERTIES LINK_DEPENDS ${PEDIGREE_LINKERSCRIPT})
 endif ()
+# link libgcc last so everything before it in the command line can reference its symbols
+target_link_libraries(kernel PRIVATE gcc)
 
 # split debug info into a .debug file so it's accessible but not present in the module binary itself
 add_custom_command(TARGET kernel POST_BUILD
