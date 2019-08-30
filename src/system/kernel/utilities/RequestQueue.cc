@@ -55,7 +55,6 @@ RequestQueue::~RequestQueue()
 void RequestQueue::initialise()
 {
 // Start the worker thread.
-    NOTICE("R1");
 #if THREADS
     if (m_pThread)
     {
@@ -63,17 +62,14 @@ void RequestQueue::initialise()
         return;
     }
 
-    NOTICE("R2");
     // Start RequestQueue workers in the kernel process only.
     Process *pProcess = Scheduler::instance().getKernelProcess();
 
-    NOTICE("R3");
     m_Stop = false;
     m_pThread =
         new Thread(pProcess, &trampoline, reinterpret_cast<void *>(this));
     m_Halted = false;
 
-    NOTICE("R4");
     // Add our timer so we can figure out if we're not keeping up with
     // synchronous requests
     Timer *t = Machine::instance().getTimer();
@@ -81,7 +77,6 @@ void RequestQueue::initialise()
     {
         t->registerHandler(&m_OverrunChecker);
     }
-    NOTICE("R5");
 #else
     WARNING("RequestQueue: This build does not support threads");
 #endif
@@ -371,9 +366,7 @@ void RequestQueue::resume()
 
 int RequestQueue::trampoline(void *p)
 {
-    NOTICE("trampoline A");
     RequestQueue *pRQ = reinterpret_cast<RequestQueue *>(p);
-    NOTICE("trampoline B, working");
     return pRQ->work();
 }
 
@@ -413,7 +406,6 @@ RequestQueue::Request *RequestQueue::getNextRequest()
 
 int RequestQueue::work()
 {
-    NOTICE("RequestQueue::work");
 #if THREADS
     // Hold from the start - this will be released by the condition variable
     // wait for us, and re-acquired on return, so we'll always have the lock
