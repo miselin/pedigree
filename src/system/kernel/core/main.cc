@@ -241,11 +241,6 @@ static int loadModules(void *inf)
         Archive initrd(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
         bsInf = nullptr;
 
-        // The initialisation is done here, unmap/free the .init section and on
-        // x86/64 the identity mapping of 0-4MB NOTE: BootstrapStruct_t unusable
-        // after this point
-        Processor::initialisationDone();
-
         size_t nFiles = initrd.getNumFiles();
         NOTICE("there are " << nFiles << " files");
         g_BootProgressTotal =
@@ -267,6 +262,11 @@ static int loadModules(void *inf)
 
     // Wait for all modules to finish loading before we continue.
     KernelElf::instance().waitForModulesToLoad();
+
+    // The initialisation is done here, unmap/free the .init section and on
+    // x86/64 the identity mapping of 0-4MB NOTE: BootstrapStruct_t unusable
+    // after this point
+    Processor::initialisationDone();
 
     // Now that we've cleaned up and are done loading modules, we can run the init module.
     KernelElf::instance().invokeInitModule();

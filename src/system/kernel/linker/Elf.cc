@@ -504,7 +504,6 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
             for (List<char *>::Iterator it = m_NeededLibraries.begin();
                  it != m_NeededLibraries.end(); it++)
             {
-                NOTICE("it=" << reinterpret_cast<const void *>(*it) << "...");
                 *it = *it + reinterpret_cast<uintptr_t>(m_pDynamicStringTable);
             }
         }
@@ -701,7 +700,10 @@ bool Elf::loadModule(
             }
             else
             {
-                nameLengthHint = pNextSymbol->name - pSymbol->name;
+                if (pNextSymbol->name > pSymbol->name)
+                {
+                    nameLengthHint = pNextSymbol->name - pSymbol->name;
+                }
             }
 
             if (ST_TYPE(pSymbol->info) == STT_SECTION)
@@ -747,19 +749,15 @@ bool Elf::loadModule(
                 // undefined!
                 if (*pStr != '\0' && pSymbol->shndx != 0)
                 {
-                    NOTICE("inserting '" << pStr << "' length hint " << nameLengthHint);
                     String name(pStr, nameLengthHint);
-                    NOTICE(" ... created String object for " << name);
                     m_SymbolTable.insert(
                         name, binding, this, pSymbol->value + loadBase);
-                    NOTICE(" ... tracked copy");
                     if ((pSymbol->other != STV_HIDDEN) || TRACK_HIDDEN_SYMBOLS)
                     {
                         // not hidden - add to the copied symbol table
                         pSymbolTableCopy->insert(
                             name, binding, this, pSymbol->value + loadBase);
                     }
-                    NOTICE(" ... symbol inserted");
                 }
             }
             pSymbol++;

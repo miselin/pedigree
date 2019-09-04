@@ -17,13 +17,15 @@ if (PEDIGREE_LINKERSCRIPT)
     set(ARCH_KERNEL_LINKSCRIPT "-T${PEDIGREE_LINKERSCRIPT}")
 endif ()
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
     set(ARCH_KERNEL_LINKFLAGS "-m64")
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
     # TODO: for non-v7 targets we need to adjust this
     set(ARCH_KERNEL_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
     set(ARCH_KERNEL_LINKFLAGS "")
+else ()
+    message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the kernel CMakeLists.txt")
 endif ()
 
 set(KERNEL_CFLAGS

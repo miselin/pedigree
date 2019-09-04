@@ -21,7 +21,7 @@ set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64"
         "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
     set(ARCH_MODULE_LINKFLAGS "-m64")
@@ -35,6 +35,8 @@ elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
     set(ARCH_MODULE_LINKFLAGS "")
 
     set(MUSL_LIBNAME ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-arm.so.1)
+else ()
+    message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the modules CMakeLists.txt")
 endif ()
 
 set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link.ld")
@@ -480,7 +482,7 @@ endif ()
 add_library(vdso SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld)
-if (PEDIGREE_ARCH_TARGET STREQUAL "x64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     target_compile_options(vdso PRIVATE "-mcmodel=small")
 endif ()
 target_link_libraries(vdso PRIVATE gcc

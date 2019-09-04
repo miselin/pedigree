@@ -73,16 +73,11 @@ void MeminfoFile::updateThread()
     while (m_bRunning)
     {
         m_Lock.acquire();
-        NOTICE("updating meminfo contents...");
         uint64_t freeKb = (g_FreePages * 4096) / 1024;      // each page is 4K
         uint64_t allocKb = (g_AllocedPages * 4096) / 1024;  // each page is 4K
-        NOTICE("formatting string...");
-        NOTICE(" -> " << (freeKb + allocKb));
-        NOTICE(" -> " << freeKb);
         m_Contents.Format(
             "MemTotal: %ld kB\nMemFree: %ld kB\nMemAvailable: %ld kB\n",
             freeKb + allocKb, freeKb, freeKb);
-        NOTICE("done...");
         m_Lock.release();
 
         Time::delay(1 * Time::Multiplier::Second);
@@ -395,7 +390,6 @@ bool ProcFs::initialise(Disk *pDisk)
         delete m_pRoot;
     }
 
-    NOTICE("procfs 1");
     m_pRoot =
         new ProcFsDirectory(String(""), 0, 0, 0, getNextInode(), this, 0, 0);
     // Allow user/group to read and write, but disallow all others anything
@@ -404,7 +398,6 @@ bool ProcFs::initialise(Disk *pDisk)
         FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
         FILE_OX);
 
-    NOTICE("procfs 2");
     // dot entry
     /// \todo need to know parent (if any) so we can add dotdot too
     Directory *dot = new ProcFsDirectory(
@@ -412,26 +405,21 @@ bool ProcFs::initialise(Disk *pDisk)
     dot->setPermissions(m_pRoot->getPermissions());
     m_pRoot->addEntry(dot->getName(), dot);
 
-    NOTICE("procfs 3");
     MeminfoFile *meminfo = new MeminfoFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(meminfo->getName(), meminfo);
 
-    NOTICE("procfs 4");
     /// \todo also probably need /etc/mtab...
     MountFile *mounts = new MountFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(mounts->getName(), mounts);
 
-    NOTICE("procfs 5");
     UptimeFile *uptime = new UptimeFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(uptime->getName(), uptime);
 
-    NOTICE("procfs 6");
     static String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
     ConstantFile *pFilesystems = new ConstantFile(
         String("filesystems"), fs.cstr(), fs.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
-    NOTICE("procfs 7");
     // Kernel command line
     static String cmdline("noswap quiet boot=live\n", 25);  //(g_pBootstrapInfo->getCommandLine());
     NOTICE("cmdline is '" << cmdline << "'");
@@ -440,7 +428,6 @@ bool ProcFs::initialise(Disk *pDisk)
         m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
-    NOTICE("procfs 8");
     // /proc/version contains some extra version info (not same as uname)
     static String version;
     version.Format(
@@ -451,7 +438,6 @@ bool ProcFs::initialise(Disk *pDisk)
         m_pRoot);
     m_pRoot->addEntry(pVersion->getName(), pVersion);
 
-    NOTICE("procfs 9");
     ProcFsDirectory *pBusDir = new ProcFsDirectory(
         String("bus"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
     ProcFsDirectory *pPciDir = new ProcFsDirectory(
@@ -465,7 +451,6 @@ bool ProcFs::initialise(Disk *pDisk)
     m_pRoot->addEntry(pBusDir->getName(), pBusDir);
     pBusDir->addEntry(pPciDir->getName(), pPciDir);
 
-    NOTICE("procfs 10");
     // Load PCI devices into bus/pci/devices file
     auto printer = [pPciDir, this](Device *p) -> Device * {
         String bus;
@@ -549,16 +534,13 @@ bool ProcFs::initialise(Disk *pDisk)
         return p;
     };
 
-    NOTICE("procfs 11");
     auto callback = pedigree_std::make_callable(printer);
     Device::foreach (callback, nullptr);
-    NOTICE("procfs 12");
 
     ConstantFile *pPciDevices = new ConstantFile(
         String("devices"), m_PciDevices.cstr(), m_PciDevices.length(), getNextInode(),
         this, pPciDir);
     pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
-    NOTICE("procfs 13");
 
     return true;
 }

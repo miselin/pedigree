@@ -319,9 +319,7 @@ bool NetworkStack::Packet::copyFrom(uintptr_t otherPacket, size_t size)
 
 static bool entry()
 {
-    NOTICE("A");
     g_NetworkStack = new NetworkStack();
-    NOTICE("B");
 
     return true;
 }
