@@ -4,6 +4,7 @@
 		{
 			"path": "../",
             "folder_exclude_patterns": ["pedigree-compiler", "compilers/dir", "images/local", "docs/doxygen"],
+            "index_exclude_patterns": ["build/", "build-arm/", "build-host/", "compilers/dir/", "pedigree-compiler/"],
             "follow_symlinks": true
 		}
 	],
