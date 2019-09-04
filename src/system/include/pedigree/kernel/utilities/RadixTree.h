@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/ObjectPool.h"
 #include "pedigree/kernel/utilities/Result.h"
@@ -34,6 +35,9 @@
  *\author James Molloy <jamesm@osdev.org>
  *\date   Fri May  8 10:50:45 2009
  *\brief  Implements a Radix Tree, a kind of Trie with compressed keys. */
+
+/** Set to 1 to use a pool of nodes to reduce allocation churn. */
+#define RADIX_TREE_USE_POOLED_NODES 1
 
 /** @addtogroup kernelutilities
  * @{ */
@@ -108,12 +112,18 @@ class EXPORTED_PUBLIC RadixTree
         /** Sets the node's key to the concatenation of \p cpKey and the
          *  current key.
          *\param cpKey Key to prepend to the current key. */
-        void prependKey(const char *cpKey);
+        void prependKey(const String &cpKey);
 
         void setKey(const char *cpKey);
         /** If you know the length of cpKey, this can be a small boost. */
         void setKey(const char *cpKey, size_t lengthHint);
+        /** If you already have a String version of the key, this is fastest. */
+        void setKey(const String &cpKey);
         inline const char *getKey() const
+        {
+            return m_Key.cstr();
+        }
+        const String &getKeyStr() const
         {
             return m_Key;
         }
@@ -223,7 +233,7 @@ class EXPORTED_PUBLIC RadixTree
     {
         Node *iterNode = iter.__getNode();
         Node *next = iterNode->next();
-        remove(String(iterNode->getKey()));
+        remove(iterNode->getKeyStr());
         Iterator ret(next);
         return ret;
     }
@@ -268,20 +278,31 @@ class EXPORTED_PUBLIC RadixTree
     /** Obtain a new Node with the same case-sensitive flag. */
     Node *getNewNode()
     {
-        Node *p = m_NodePool.allocate(m_bCaseSensitive);
-        p->m_pParentTree = this;
-        return p;
+        if (RADIX_TREE_USE_POOLED_NODES)
+        {
+            Node *p = m_NodePool.allocate(m_bCaseSensitive);
+            p->m_pParentTree = this;
+            return p;
+        }
+        else
+        {
+            return new Node(m_bCaseSensitive);
+        }
     }
     /** Return a Node so it can be allocated again. */
     void returnNode(Node *p)
     {
-        if (p)
+        if (RADIX_TREE_USE_POOLED_NODES && p)
         {
             // wipe out info that shouldn't go back to the pool
-            p->m_Key = String();
+            p->m_Key.clear();
             p->value = T();
             p->m_bHasValue = false;
             m_NodePool.deallocate(p);
+        }
+        else
+        {
+            delete p;
         }
     }
 
@@ -399,12 +420,7 @@ void RadixTree<T>::insert(const String &key, const T &value)
                 // pNode's new key is the uncommon postfix.
                 size_t len = pNode->m_Key.length();
 
-                // Note: this is guaranteed to not require an allocation,
-                // because it's smaller than the current string in m_Key. We'll
-                // not overwrite because we're copying from deeper in the
-                // string. The null write will suffice.
-                pNode->m_Key.assign(
-                    &pNode->getKey()[partialOffset], len - partialOffset);
+                pNode->m_Key.ltrim(partialOffset);
 
                 // If the uncommon postfix of the key is non-zero length, we
                 // have to create another node, a child of pInter.
@@ -524,7 +540,7 @@ void RadixTree<T>::remove(const String &key)
 
     // Our invariant is that the root node always exists. Therefore we must
     // special case here so it doesn't get deleted.
-    if (*cpKey == 0)
+    if (!cpKey || (*cpKey == 0))
     {
         m_pRoot->removeValue();
         return;
@@ -602,7 +618,7 @@ void RadixTree<T>::remove(const String &key)
                     // deleted.
                     pNode->removeChild(pChild);
 
-                    pChild->prependKey(pNode->getKey());
+                    pChild->prependKey(pNode->getKeyStr());
                     pChild->setParent(pParent);
                     pParent->removeChild(pNode);
                     pParent->addChild(pChild);
@@ -803,17 +819,23 @@ void RadixTree<T>::Node::setKey(const char *cpKey, size_t lengthHint)
 }
 
 template <class T>
+void RadixTree<T>::Node::setKey(const String &cpKey)
+{
+    m_Key.assign(cpKey);
+}
+
+template <class T>
 typename RadixTree<T>::Node *RadixTree<T>::Node::getFirstChild() const
 {
     return *(m_Children.begin());
 }
 
 template <class T>
-void RadixTree<T>::Node::prependKey(const char *cpKey)
+void RadixTree<T>::Node::prependKey(const String &cpKey)
 {
-    String temp = m_Key;
+    String tmp = pedigree_std::move(m_Key);
     m_Key.assign(cpKey);
-    m_Key += temp;
+    m_Key += tmp;
 }
 
 template <class T>

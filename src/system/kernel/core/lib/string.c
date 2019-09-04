@@ -68,6 +68,20 @@ int min(size_t a, size_t b)
 
 WEAK size_t _StringLength(const char *src)
 {
+    if (UNLIKELY(!src))
+    {
+        return 0;
+    }
+
+    size_t n = 0;
+    while (*src++)
+    {
+        ++n;
+    }
+
+    return n;
+
+    /*
     if (!src)
     {
         return 0;
@@ -93,6 +107,7 @@ WEAK size_t _StringLength(const char *src)
 #undef UNROLL
         src += 8;
     }
+    */
 }
 
 char *StringCopy(char *dest, const char *src)
@@ -232,7 +247,7 @@ WEAK int StringMatch(const char *p1, const char *p2)
     return (*p1 == *p2) ? 0 : 1;
 }
 
-WEAK int StringMatchN(const char *p1, const char *p2, size_t n)
+WEAK int StringMatchN(const char *restrict p1, const char *restrict p2, size_t n)
 {
     if (!n)
     {
@@ -244,15 +259,19 @@ WEAK int StringMatchN(const char *p1, const char *p2, size_t n)
     }
 
     size_t i;
+    char c1 = 0, c2 = 0;
     for (i = 0; i < n; ++i)
     {
-        if (p1[i] != p2[i])
+        c1 = p1[i];
+        c2 = p2[i];
+
+        if ((!c1) || (c1 != c2))
         {
-            return 1;
+            break;
         }
     }
 
-    return 0;
+    return c1 - c2;
 }
 
 WEAK int

@@ -105,7 +105,7 @@ class EXPORTED_PUBLIC RamFs : public Filesystem
     {
         return m_pRoot;
     }
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
         return m_VolumeLabel;
     }

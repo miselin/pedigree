@@ -204,9 +204,10 @@ class ProcFs : public Filesystem
     {
         return m_pRoot;
     }
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
-        return String("proc");
+        static String volumeLabel("proc");
+        return volumeLabel;
     }
 
     virtual size_t getNextInode();

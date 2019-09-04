@@ -52,7 +52,7 @@ class Ext2Directory : public Directory, public Ext2Node
     virtual void cacheDirectoryContents();
 
     /** Adds a directory entry. */
-    virtual bool addEntry(String filename, File *pFile, size_t type);
+    virtual bool addEntry(const String &filename, File *pFile, size_t type);
     /** Removes a directory entry. */
     virtual bool removeEntry(const String &filename, Ext2Node *pFile);
 

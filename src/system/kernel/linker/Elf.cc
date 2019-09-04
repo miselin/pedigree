@@ -504,6 +504,7 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
             for (List<char *>::Iterator it = m_NeededLibraries.begin();
                  it != m_NeededLibraries.end(); it++)
             {
+                NOTICE("it=" << reinterpret_cast<const void *>(*it) << "...");
                 *it = *it + reinterpret_cast<uintptr_t>(m_pDynamicStringTable);
             }
         }
@@ -686,9 +687,22 @@ bool Elf::loadModule(
 
         const char *pStrtab = reinterpret_cast<const char *>(m_pStringTable);
 
-        for (size_t i = 0; i < m_nSymbolTableSize / sizeof(ElfSymbol_t); i++)
+        size_t numSymbolTableEntries = m_nSymbolTableSize / sizeof(ElfSymbol_t);
+        for (size_t i = 0; i < numSymbolTableEntries; i++)
         {
             const char *pStr;
+
+            size_t nameLengthHint = 0;
+
+            ElfSymbol_t *pNextSymbol = pSymbol + 1;
+            if ((i + 1) >= numSymbolTableEntries)
+            {
+                pNextSymbol = 0;
+            }
+            else
+            {
+                nameLengthHint = pNextSymbol->name - pSymbol->name;
+            }
 
             if (ST_TYPE(pSymbol->info) == STT_SECTION)
             {
@@ -733,15 +747,19 @@ bool Elf::loadModule(
                 // undefined!
                 if (*pStr != '\0' && pSymbol->shndx != 0)
                 {
-                    String name(pStr);
+                    NOTICE("inserting '" << pStr << "' length hint " << nameLengthHint);
+                    String name(pStr, nameLengthHint);
+                    NOTICE(" ... created String object for " << name);
                     m_SymbolTable.insert(
                         name, binding, this, pSymbol->value + loadBase);
+                    NOTICE(" ... tracked copy");
                     if ((pSymbol->other != STV_HIDDEN) || TRACK_HIDDEN_SYMBOLS)
                     {
                         // not hidden - add to the copied symbol table
                         pSymbolTableCopy->insert(
                             name, binding, this, pSymbol->value + loadBase);
                     }
+                    NOTICE(" ... symbol inserted");
                 }
             }
             pSymbol++;
@@ -1503,6 +1521,7 @@ void Elf::preallocateSymbols(
             pAdditionalSymtab->preallocateAdditional(
                 numGlobal, numWeak, this, numLocal);
         }
+        NOTICE("ELF: preallocation has completed");
     }
 }
 

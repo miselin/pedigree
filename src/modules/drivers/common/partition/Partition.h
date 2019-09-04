@@ -31,7 +31,7 @@
 class Partition : public Disk
 {
   public:
-    Partition(String type, uint64_t start, uint64_t length);
+    Partition(const String &type, uint64_t start, uint64_t length);
     virtual ~Partition();
 
     virtual void getName(String &str)
@@ -39,7 +39,7 @@ class Partition : public Disk
         NormalStaticString str2;
         str2 += m_Type;
         str2 += " partition";
-        str = str2;
+        str.assign(str2, str2.length());
     }
 
     virtual void dump(String &str)
@@ -50,7 +50,7 @@ class Partition : public Disk
         str2.append(m_Start, 16);
         str2 += "-";
         str2.append(m_Start + m_Length, 16);
-        str = str2;
+        str.assign(str2, str2.length());
     }
 
     virtual uintptr_t read(uint64_t location)
@@ -116,7 +116,7 @@ class Partition : public Disk
     }
 
     /** Returns a string giving the type of the partition. */
-    String getPartitionType()
+    const String &getPartitionType() const
     {
         return m_Type;
     }

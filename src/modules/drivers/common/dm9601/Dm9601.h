@@ -42,7 +42,7 @@ class Dm9601 : public UsbDevice, public Network
 
     virtual void getName(String &str)
     {
-        str = "DM9601";
+        str.assign("DM9601", 7);
     }
 
     virtual bool send(size_t nBytes, uintptr_t buffer);

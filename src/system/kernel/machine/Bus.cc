@@ -35,10 +35,10 @@ Bus::Type Bus::getType()
 
 void Bus::getName(String &str)
 {
-    str = m_pName;
+    str.assign(m_pName);
 }
 
 void Bus::dump(String &str)
 {
-    str = m_pName;
+    str.assign(m_pName);
 }

@@ -287,7 +287,7 @@ bool Filesystem::remove(const StringView &path, File *pStartNode)
             // Are the entries only ., ..?
             for (auto it : removalDir->getCache())
             {
-                String name = (*it)->getName();
+                const String &name = (*it)->getName();
                 if (name != "." && name != "..")
                 {
                     SYSCALL_ERROR(NotEmpty);
@@ -406,10 +406,13 @@ File *Filesystem::findNode(File *pNode, StringView path)
     Directory *reparse = pDir->getReparsePoint();
     if (reparse)
     {
+        String fullPath, reparseFullPath;
+        pDir->getFullPath(fullPath);
+        pDir->getFullPath(reparseFullPath);
         WARNING(
-            "VFS: found reparse point at '" << pDir->getFullPath()
+            "VFS: found reparse point at '" << fullPath
                                             << "', following it (new target: "
-                                            << reparse->getFullPath() << ")");
+                                            << reparseFullPath << ")");
         pDir = reparse;
     }
 

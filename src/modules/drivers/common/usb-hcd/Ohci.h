@@ -165,7 +165,7 @@ class Ohci : public UsbHub,
 
     virtual void getName(String &str)
     {
-        str = "OHCI";
+        str.assign("OHCI", 5);
     }
 
     virtual void addTransferToTransaction(

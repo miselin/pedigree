@@ -31,7 +31,7 @@ Display::ScreenMode::ScreenMode()
 
 Display::Display()
 {
-    m_SpecificType = "Generic Display";
+    m_SpecificType.assign("Generic Display", 16);
 }
 
 Display::Display(Device *p) : Device(p)
@@ -49,12 +49,12 @@ Device::Type Display::getType()
 
 void Display::getName(String &str)
 {
-    str = "Generic Display";
+    str.assign("Generic Display", 16);
 }
 
 void Display::dump(String &str)
 {
-    str = "Generic Display";
+    str.assign("Generic Display", 16);
 }
 
 void *Display::getFramebuffer()

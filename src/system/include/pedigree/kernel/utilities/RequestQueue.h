@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #if THREADS
 #include "pedigree/kernel/machine/TimerHandler.h"
 #endif
@@ -215,7 +216,7 @@ class EXPORTED_PUBLIC RequestQueue
 
     size_t m_nTotalRequests;
 
-    String m_Name;
+    NormalStaticString m_Name;
 };
 
 #endif

@@ -249,7 +249,7 @@ File *Ext2Filesystem::getRoot() const
     return m_pRoot;
 }
 
-String Ext2Filesystem::getVolumeLabel() const
+const String &Ext2Filesystem::getVolumeLabel() const
 {
     return m_VolumeLabel;
 }
@@ -268,8 +268,8 @@ bool Ext2Filesystem::createNode(
     }
 
     // The filename cannot be the special entries "." or "..".
-    if (filename.length() == 0 || !StringCompare(filename, ".") ||
-        !StringCompare(filename, ".."))
+    if (filename.length() == 0 || !StringCompare(filename.cstr(), ".") ||
+        !StringCompare(filename.cstr(), ".."))
     {
         SYSCALL_ERROR(InvalidArgument);
         return false;
@@ -323,7 +323,9 @@ bool Ext2Filesystem::createNode(
     if (value.length() && value.length() < 4 * 15)
     {
         MemoryCopy(
-            reinterpret_cast<void *>(newInode->i_block), value, value.length());
+            reinterpret_cast<void *>(newInode->i_block),
+            value.cstr(),
+            value.length());
         newInode->i_size = HOST_TO_LITTLE32(value.length());
     }
     // Else case comes later, after pFile is created.
@@ -385,8 +387,7 @@ bool Ext2Filesystem::createNode(
     // Else case from earlier.
     if (value.length() && value.length() >= 4 * 15)
     {
-        const char *pStr = value;
-        pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(pStr));
+        pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(value.cstr()));
     }
 
     // Add to the parent directory.

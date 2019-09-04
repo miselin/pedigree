@@ -1688,7 +1688,7 @@ bool PosixSubsystem::invoke(
     STACK_PUSH_STRING(loaderStack, "x86_64", 7);
     void *platform = loaderStack;
 
-    STACK_PUSH_STRING(loaderStack, originalName, originalName.length() + 1);
+    STACK_PUSH_STRING(loaderStack, originalName.cstr(), originalName.length() + 1);
     void *execfn = loaderStack;
 
     // Align to 16 bytes to prepare for the auxv entries

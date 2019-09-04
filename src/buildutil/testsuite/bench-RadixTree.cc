@@ -73,9 +73,37 @@ static void BM_RadixTreeInsert(benchmark::State &state)
         tree.clear();
         state.ResumeTiming();
 
-        for (auto word : words)
+        for (auto &word : words)
         {
             tree.insert(word, value);
+        }
+    }
+
+    state.SetItemsProcessed(
+        int64_t(state.iterations()) * int64_t(words.size()));
+}
+
+static void BM_RadixTreeRemove(benchmark::State &state)
+{
+    std::vector<String> words;
+    const int64_t value = 1;
+
+    LoadWords(words);
+
+    RadixTree<int64_t> tree;
+    while (state.KeepRunning())
+    {
+        state.PauseTiming();
+        tree.clear();
+        for (auto &word : words)
+        {
+            tree.insert(word, value);
+        }
+        state.ResumeTiming();
+
+        for (auto &word : words)
+        {
+            tree.remove(word);
         }
     }
 
@@ -107,7 +135,7 @@ static void BM_RadixTreeLookupHit(benchmark::State &state)
     LoadWords(words);
 
     RadixTree<int64_t> tree;
-    for (auto word : words)
+    for (auto &word : words)
     {
         tree.insert(word, value);
     }
@@ -130,9 +158,9 @@ static void BM_RadixTreeLookupMiss(benchmark::State &state)
     LoadWords(words);
 
     RadixTree<int64_t> tree;
-    for (auto word : words)
+    for (auto &word : words)
     {
-        String copy = word;
+        String copy = word.copy();
         copy += "_";  // to never allow a match
         tree.insert(copy, value);
     }
@@ -161,7 +189,7 @@ static void BM_RadixTreeCaseInsensitiveInsert(benchmark::State &state)
         tree.clear();
         state.ResumeTiming();
 
-        for (auto word : words)
+        for (auto &word : words)
         {
             tree.insert(word, value);
         }
@@ -195,7 +223,7 @@ static void BM_RadixTreeCaseInsensitiveLookupHit(benchmark::State &state)
     LoadWords(words);
 
     RadixTree<int64_t> tree(false);
-    for (auto word : words)
+    for (auto &word : words)
     {
         tree.insert(word, value);
     }
@@ -218,9 +246,9 @@ static void BM_RadixTreeCaseInsensitiveLookupMiss(benchmark::State &state)
     LoadWords(words);
 
     RadixTree<int64_t> tree(false);
-    for (auto word : words)
+    for (auto &word : words)
     {
-        String copy = word;
+        String copy = word.copy();
         copy += "_";  // to never allow a match
         tree.insert(copy, value);
     }
@@ -235,18 +263,12 @@ static void BM_RadixTreeCaseInsensitiveLookupMiss(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-/*
 BENCHMARK(BM_RadixTreeInsert);
+BENCHMARK(BM_RadixTreeRemove);
 BENCHMARK(BM_RadixTreeInsertSame);
-*/
 BENCHMARK(BM_RadixTreeLookupHit);
-/*
 BENCHMARK(BM_RadixTreeLookupMiss);
-
 BENCHMARK(BM_RadixTreeCaseInsensitiveInsert);
 BENCHMARK(BM_RadixTreeCaseInsensitiveInsertSame);
-*/
 BENCHMARK(BM_RadixTreeCaseInsensitiveLookupHit);
-/*
 BENCHMARK(BM_RadixTreeCaseInsensitiveLookupMiss);
-*/

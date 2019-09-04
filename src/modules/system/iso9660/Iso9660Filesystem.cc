@@ -205,7 +205,7 @@ File *Iso9660Filesystem::getRoot() const
     return m_pRoot;
 }
 
-String Iso9660Filesystem::getVolumeLabel() const
+const String &Iso9660Filesystem::getVolumeLabel() const
 {
     return m_VolumeLabel;
 }

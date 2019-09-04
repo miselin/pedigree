@@ -54,7 +54,7 @@ Ext2Directory::~Ext2Directory()
 {
 }
 
-bool Ext2Directory::addEntry(String filename, File *pFile, size_t type)
+bool Ext2Directory::addEntry(const String &filename, File *pFile, size_t type)
 {
     // Make sure we're already cached before we add an entry.
     cacheDirectoryContents();

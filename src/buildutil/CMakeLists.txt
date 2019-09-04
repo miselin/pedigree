@@ -1,6 +1,7 @@
 
 set(PEDIGREE_BUILDUTILS_ASAN OFF CACHE BOOL "Build build utilities with the address sanitizer enabled.")
 
+include(CheckCCompilerFlag)
 include(CodeCoverage)
 
 find_package(OpenSSL)
@@ -8,6 +9,12 @@ find_package(Threads REQUIRED)
 
 find_library(BENCHMARK_LIBRARY benchmark)
 find_path(BENCHMARK_INCLUDE_DIR benchmark/benchmark.h)
+
+# Do we have asan? Need both here as the link flag is also needed.
+set(CMAKE_REQUIRED_FLAGS "-fsanitize=address")
+check_c_compiler_flag("-fsanitize=address" HAVE_ASAN)
+
+unset(CMAKE_REQUIRED_FLAGS)
 
 if (BENCHMARK_INCLUDE_DIR)
     include_directories(${BENCHMARK_INCLUDE_DIR})
@@ -25,7 +32,7 @@ set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPI
 set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
 set(BUILDUTIL_LINKFLAGS "")
 
-if (PEDIGREE_BUILDUTILS_ASAN)
+if (PEDIGREE_BUILDUTILS_ASAN AND HAVE_ASAN)
     set(BUILDUTIL_CFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
     set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_CXXFLAGS} -fsanitize=address)
     set(BUILDUTIL_LINKFLAGS "${BUILDUTIL_LINKFLAGS} -fsanitize=address")
@@ -188,7 +195,7 @@ target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
 
 # TODO: figure out how to build vdsotest given vdso.h could potentially not exist
 
-add_executable(testsuite
+set(TESTSUITE_SRCS
     testsuite/test-BloomFilter.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
@@ -216,13 +223,25 @@ add_executable(testsuite
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
-    testsuite/test-Cord.cc
-)
+    testsuite/test-Cord.cc)
+
+# non-ASAN testsuite
+add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
     debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
 target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+
+# ASAN testsuite
+if (HAVE_ASAN)
+    add_executable(testsuite-asan ${TESTSUITE_SRCS})
+    target_link_libraries(testsuite-asan PRIVATE
+        debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
+    target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
+    target_compile_options(testsuite-asan PRIVATE ${COVERAGE_FLAGS} "-fsanitize=address")
+    target_link_libraries(testsuite-asan PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS} "-fsanitize=address")
+endif ()
 
 add_executable(headerify headerify/main.cc)
 

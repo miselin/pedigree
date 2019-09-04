@@ -43,6 +43,10 @@ Archive::Archive(uint8_t *pPhys, size_t sSize)
         {
             ERROR("Archive: allocateRegion failed.");
         }
+        else
+        {
+            NOTICE("Archive: mapped to " << m_Region.virtualAddress());
+        }
     }
 }
 

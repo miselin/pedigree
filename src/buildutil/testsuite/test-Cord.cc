@@ -39,7 +39,7 @@ TEST(PedigreeCord, ToString)
 
     String str = s.toString();
 
-    EXPECT_STREQ(str, "hello world!");
+    EXPECT_STREQ(str.cstr(), "hello world!");
 }
 
 TEST(PedigreeCord, Append)
@@ -55,7 +55,7 @@ TEST(PedigreeCord, Append)
     EXPECT_EQ(s.length(), 5);
 
     String str = s.toString();
-    EXPECT_STREQ(str, "a b c");
+    EXPECT_STREQ(str.cstr(), "a b c");
 }
 
 TEST(PedigreeCord, Prepend)
@@ -71,7 +71,7 @@ TEST(PedigreeCord, Prepend)
     EXPECT_EQ(s.length(), 5);
 
     String str = s.toString();
-    EXPECT_STREQ(str, "a b c");
+    EXPECT_STREQ(str.cstr(), "a b c");
 }
 
 TEST(PedigreeCord, Indexing)
@@ -130,7 +130,7 @@ TEST(PedigreeCord, StaticAppend)
     EXPECT_EQ(s.length(), 5);
 
     String str = s.toString();
-    EXPECT_STREQ(str, "a b c");
+    EXPECT_STREQ(str.cstr(), "a b c");
 }
 
 TEST(PedigreeCord, StaticIndexing)

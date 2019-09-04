@@ -167,7 +167,7 @@ bool Elf::applyRelocation(
                                  << ")...");
         }
 
-        symbolName = pStr;
+        symbolName.assign(pStr);
         symbolSize = pSymbols[R_SYM(rel.info)].size;
     }
 

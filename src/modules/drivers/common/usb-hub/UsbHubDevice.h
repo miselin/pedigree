@@ -38,7 +38,7 @@ class UsbHubDevice : public UsbDevice, public UsbHub
 
     virtual void getName(String &str)
     {
-        str = "USB Hub Device";
+        str.assign("USB Hub Device", 15);
     }
 
     virtual void addTransferToTransaction(

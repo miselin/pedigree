@@ -33,6 +33,7 @@ class String;
 class EXPORTED_PUBLIC Cord
 {
     friend class CordIterator;
+    friend class String;
   public:
     class CordIterator
     {
@@ -56,6 +57,29 @@ class EXPORTED_PUBLIC Cord
             const Cord &cord;
             size_t segment;
             size_t index;
+    };
+    class CordSegmentIterator
+    {
+        friend class Cord;
+        public:
+            CordSegmentIterator(const Cord &owner);
+            virtual ~CordSegmentIterator();
+
+            CordSegmentIterator &operator++();
+            CordSegmentIterator &operator--();
+
+            const char *ptr() const;
+            size_t length() const;
+
+            bool operator==(const CordSegmentIterator &other) const;
+            bool operator!=(const CordSegmentIterator &other) const;
+
+        protected:
+            CordSegmentIterator(const Cord &owner, bool end);
+
+        private:
+            const Cord &cord;
+            size_t segment;
     };
 
     Cord();
@@ -86,8 +110,20 @@ class EXPORTED_PUBLIC Cord
     void append(const char *s, size_t len=0);
     void prepend(const char *s, size_t len=0);
 
+    /**
+     * \note The String& versions of append/prepend are somewhat dangerous.
+     * Use these with caution, as if the String is modified or freed, the Cord
+     * will point at invalid memory.
+     */
+
+    void append(const String &str);
+    void prepend(const String &str);
+
     CordIterator begin() const;
     CordIterator end() const;
+
+    CordSegmentIterator segbegin() const;
+    CordSegmentIterator segend() const;
 
   private:
     struct CordSegment

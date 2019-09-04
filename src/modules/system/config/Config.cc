@@ -153,3 +153,8 @@ Config::Result *Config::query(const char *sql)
         result, static_cast<size_t>(rows), static_cast<size_t>(cols), error,
         ret);
 }
+
+Config::Result *Config::query(const String &sql)
+{
+    return query(sql.cstr());
+}

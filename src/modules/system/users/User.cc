@@ -26,8 +26,8 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 User::User(
-    size_t uid, String username, String fullName, Group *pGroup, String home,
-    String shell, String password)
+    size_t uid, const String &username, const String &fullName, Group *pGroup,
+    const String &home, const String &shell, const String &password)
     : m_Uid(uid), m_Username(username), m_FullName(fullName),
       m_pDefaultGroup(pGroup), m_Home(home), m_Shell(shell),
       m_Password(password), m_Groups()
@@ -69,7 +69,7 @@ bool User::isMember(Group *pGroup)
     return false;
 }
 
-bool User::login(String password)
+bool User::login(const String &password)
 {
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();

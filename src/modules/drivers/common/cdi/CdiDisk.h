@@ -39,10 +39,10 @@ class CdiDisk : public Disk
         virtual void getName(String &str)
         {
             if((!m_Device) || (!m_Device->dev.name))
-                str = "cdi-disk";
+                str.assign("cdi-disk", 8);
             else
             {
-                str = m_Device->dev.name;
+                str.assign(m_Device->dev.name);
             }
         }
 

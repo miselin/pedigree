@@ -166,7 +166,7 @@ class EXPORTED_PUBLIC Device
     }
 
     /** Returns the (specific) type of the device, in string form. */
-    virtual String getSpecificType()
+    virtual const String &getSpecificType()
     {
         return m_SpecificType;
     }
@@ -249,7 +249,7 @@ class EXPORTED_PUBLIC Device
     /** Dumps a textual representation of the device into the given string. */
     virtual void dump(String &str)
     {
-        str = "Abstract Device";
+        str.assign("Abstract Device", 16);
     }
 
     /** Returns the addresses of the device, in its parent's address space */

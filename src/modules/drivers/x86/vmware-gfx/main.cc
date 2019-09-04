@@ -199,12 +199,12 @@ class VmwareGraphics : public Display
 
     virtual void getName(String &str)
     {
-        str = "vmware-gfx";
+        str.assign("vmware-gfx", 11);
     }
 
     virtual void dump(String &str)
     {
-        str = "vmware guest tools, graphics card";
+        str.assign("vmware guest tools, graphics card", 34);
     }
 
     /** Returns the current screen mode.

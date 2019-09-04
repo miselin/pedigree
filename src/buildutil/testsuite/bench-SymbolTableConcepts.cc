@@ -131,7 +131,7 @@ static void LoadSymbols(std::vector<String> &result)
         std::getline(ifs, s);
 
         String word(s.c_str());
-        result.push_back(word);
+        result.push_back(pedigree_std::move(word));
     }
 }
 

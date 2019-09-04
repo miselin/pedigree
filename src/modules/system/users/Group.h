@@ -48,12 +48,12 @@ class EXPORTED_PUBLIC Group
     bool isMember(User *pUser);
 
     /** Returns the GID. */
-    size_t getId()
+    size_t getId() const
     {
         return m_Gid;
     }
     /** Returns the group name. */
-    String getName()
+    const String &getName() const
     {
         return m_Name;
     }

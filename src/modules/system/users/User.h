@@ -42,8 +42,8 @@ class EXPORTED_PUBLIC User
         \param password Password hash.
         \note Password hash not currently implemented - plaintext only. */
     User(
-        size_t uid, String username, String fullName, Group *pGroup,
-        String home, String shell, String password);
+        size_t uid, const String &username, const String &fullName, Group *pGroup,
+        const String &home, const String &shell, const String &password);
 
     /** The destructor does nothing. */
     virtual ~User();
@@ -60,20 +60,20 @@ class EXPORTED_PUBLIC User
     /** (Attempts to) log in as this user. On success this process' user is set
        to this, and the group is set to this user's default group. \return True
        on success, false on failure. */
-    bool login(String password);
+    bool login(const String &password);
 
     /** Retrieves the user's UID. */
-    size_t getId()
+    size_t getId() const
     {
         return m_Uid;
     }
     /** Retrieves the user's username. */
-    String getUsername()
+    const String &getUsername() const
     {
         return m_Username;
     }
     /** Retrieves the user's full name. */
-    String getFullName()
+    const String &getFullName() const
     {
         return m_FullName;
     }
@@ -83,12 +83,12 @@ class EXPORTED_PUBLIC User
         return m_pDefaultGroup;
     }
     /** Retrieves the user's home directory. */
-    String getHome()
+    const String &getHome() const
     {
         return m_Home;
     }
     /** Retrieves the user's default shell. */
-    String getShell()
+    const String &getShell() const
     {
         return m_Shell;
     }

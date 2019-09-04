@@ -52,7 +52,7 @@ class FatFilesystem : public Filesystem
     virtual bool initialise(Disk *pDisk);
     static Filesystem *probe(Disk *pDisk);
     virtual File *getRoot() const;
-    virtual String getVolumeLabel() const;
+    virtual const String &getVolumeLabel() const;
     virtual uint64_t read(
         File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);

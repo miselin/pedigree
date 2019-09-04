@@ -47,7 +47,7 @@ class Iso9660Filesystem : public Filesystem
     virtual bool initialise(Disk *pDisk);
     static Filesystem *probe(Disk *pDisk);
     virtual File *getRoot() const;
-    virtual String getVolumeLabel() const;
+    virtual const String &getVolumeLabel() const;
 
   protected:
     uintptr_t readBlock(File *pFile, uint64_t location);

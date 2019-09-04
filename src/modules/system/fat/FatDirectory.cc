@@ -489,9 +489,10 @@ void FatDirectory::cacheDirectoryContents()
                     ent->DIR_FstClusLO | (ent->DIR_FstClusHI << 16);
                 String filename;
                 if (nextIsEnd)
-                    filename = static_cast<const char *>(
-                        longFileName);  // use the long filename rather than the
-                                        // short one
+                {
+                    // use the long filename rather than the short one
+                    filename.assign(longFileName);
+                }
                 else
                 {
                     // WARNING("FAT: Using short filename rather than long

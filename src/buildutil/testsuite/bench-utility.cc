@@ -50,7 +50,8 @@ static void BM_Utility_Checksum16(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum16(buf, state.range(0)));
+        benchmark::DoNotOptimize(
+            checksum16(reinterpret_cast<uint16_t *>(buf), state.range(0)));
     }
 
     state.SetBytesProcessed(
@@ -66,7 +67,8 @@ static void BM_Utility_Checksum32(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum32(buf, state.range(0)));
+        benchmark::DoNotOptimize(
+            checksum32(reinterpret_cast<uint32_t *>(buf), state.range(0)));
     }
 
     state.SetBytesProcessed(
@@ -81,7 +83,8 @@ static void BM_Utility_Checksum32Naive(benchmark::State &state)
 
     while (state.KeepRunning())
     {
-        benchmark::DoNotOptimize(checksum32_naive(buf, state.range(0)));
+        benchmark::DoNotOptimize(
+            checksum32_naive(reinterpret_cast<uint32_t *>(buf), state.range(0)));
     }
 
     state.SetBytesProcessed(

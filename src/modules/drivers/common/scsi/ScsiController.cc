@@ -22,12 +22,12 @@
 #include "pedigree/kernel/utilities/new"
 
 ScsiController::ScsiController(Controller *pDev)
-    : Controller(pDev), RequestQueue("ScsiController")
+    : Controller(pDev), RequestQueue(MakeConstantString("ScsiController"))
 {
     initialise();
 }
 
-ScsiController::ScsiController() : RequestQueue("ScsiController")
+ScsiController::ScsiController() : RequestQueue(MakeConstantString("ScsiController"))
 {
     // Start the RequestQueue
     initialise();

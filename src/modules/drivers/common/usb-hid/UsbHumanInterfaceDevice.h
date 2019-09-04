@@ -38,7 +38,7 @@ class UsbHumanInterfaceDevice : public UsbDevice
 
     virtual void getName(String &str)
     {
-        str = "USB Human Interface Device";
+        str.assign("USB Human Interface Device", 27);
     }
 
   private:

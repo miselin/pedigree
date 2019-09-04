@@ -113,12 +113,18 @@ class EXPORTED_PUBLIC Vector
     /** Add an element to the end of the Vector
      *\param[in] value the element */
     void pushBack(const T &value);
+    /** Move a value to the end of the Vector
+     *\param[in] value the value that should be added */
+    void pushBack(T &&value);
     /** Remove the element from the back and return it
      *\return the removed element */
     T popBack();
     /** Add an element to the front of the Vector
      *\param[in] value the element */
     void pushFront(const T &value);
+    /** Move a value to the end of the Vector
+     *\param[in] value the value that should be added */
+    void pushFront(T &&value);
     /** Remove the element from the front and return it
      *\return the removed element */
     T popFront();
@@ -283,6 +289,22 @@ void Vector<T>::pushBack(const T &value)
 }
 
 template <class T>
+void Vector<T>::pushBack(T &&value)
+{
+    reserve(m_Count + 1, true);
+
+    // If we've hit the end of the reserved space we can use, we need to move
+    // the existing entries (rather than this happening in each reserve).
+    if ((m_Start + m_Count + 1) > m_Size)
+    {
+        pedigree_std::copy(m_Data, m_Data + m_Start, m_Count);
+        m_Start = 0;
+    }
+
+    m_Data[m_Start + m_Count++] = pedigree_std::move(value);
+}
+
+template <class T>
 T Vector<T>::popBack()
 {
     m_Count--;
@@ -318,9 +340,37 @@ void Vector<T>::pushFront(const T &value)
 }
 
 template <class T>
+void Vector<T>::pushFront(T &&value)
+{
+    const T *oldData = m_Data;
+
+    reserve(m_Count + 1, true, false);
+
+    if (m_Start && (m_Data == oldData))
+    {
+        m_Start--;
+        m_Data[m_Start] = pedigree_std::move(value);
+    }
+    else
+    {
+        // We have a bigger buffer, copy items from the old buffer now.
+        pedigree_std::copy(&m_Data[1], oldData, m_Count);
+        m_Data[0] = pedigree_std::move(value);
+    }
+
+    m_Count++;
+
+    // All finished with the previous buffer now.
+    if (m_Data != oldData)
+    {
+        delete[] oldData;
+    }
+}
+
+template <class T>
 T Vector<T>::popFront()
 {
-    T ret = m_Data[m_Start];
+    const T &ret = m_Data[m_Start];
     m_Count--;
     m_Start++;
     return ret;

@@ -102,6 +102,7 @@ class EXPORTED_PUBLIC Config
     /** Performs a select/update/insert/whatever query on the database.
         \return A Result* object, which should be deleted after use, or 0. */
     Result *query(const char *sql);
+    Result *query(const String &sql);
 
   private:
     static Config m_Instance;

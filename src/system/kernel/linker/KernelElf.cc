@@ -496,7 +496,7 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
         ERROR("KERNELELF: Hit an invalid module, ignoring");
         return 0;
     }
-    module->name = rebase(module, *pName);
+    module->name.assign(rebase(module, *pName));
     module->elf->setName(module->name);
     auto entryPoint = *reinterpret_cast<bool (**)()>(
         module->elf->lookupSymbol("g_pModuleEntry"));
@@ -555,7 +555,7 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
             reinterpret_cast<void *>(module->loadBase + module->loadSize));
     }
 
-    if (!StringCompare(module->name, "init"))
+    if (!StringCompare(module->name.cstr(), "init"))
     {
         m_InitModule = module;
     }
@@ -615,7 +615,7 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
     module->buffer = 0;
     module->buflen = 0;
 
-    module->name = info->name;
+    module->name.assign(info->name);
     module->entry = info->entry;
     module->exit = info->exit;
     module->depends = info->dependencies;
@@ -651,7 +651,7 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
             reinterpret_cast<void *>(module->loadBase + module->loadSize));
     }
 
-    if (!StringCompare(module->name, "init"))
+    if (!StringCompare(module->name.cstr(), "init"))
     {
         m_InitModule = module;
     }
@@ -1013,7 +1013,7 @@ void KernelElf::updateModuleStatus(Module *module, bool status)
     {
         NOTICE("KERNELELF: Module " << moduleName << " failed, unloading.");
         module->status = Module::Failed;
-        unloadModule(moduleName, true, false);
+        unloadModule(moduleName.cstr(), true, false);
     }
 
     m_ModuleProgress.release();
@@ -1111,7 +1111,7 @@ bool KernelElf::hasPendingModules() const
     {
         if (it->isPending())
         {
-            NOTICE("Pending module: " << *it->name);
+            NOTICE("Pending module: " << it->name);
         }
     }
     return hasPending;

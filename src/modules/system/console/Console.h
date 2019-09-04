@@ -390,9 +390,10 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem
     {
         return 0;
     }
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
-        return String("consolemanager");
+        static String volumeLabel("consolemanager");
+        return volumeLabel;
     }
 
   protected:

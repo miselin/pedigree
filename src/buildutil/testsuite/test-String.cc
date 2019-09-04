@@ -23,6 +23,9 @@
 
 #include <gtest/gtest.h>
 
+#define IN_STRING_TESTSUITE 1
+
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 
@@ -30,7 +33,7 @@
 std::ostream &operator<<(::std::ostream &os, const String &s)
 {
     return os << "\"" << static_cast<const char *>(s) << "\" ["
-              << static_cast<const void *>(s) << "]";
+              << static_cast<const void *>(s.cstr()) << "]";
 }
 
 #define BIGSTRING                                                              \
@@ -96,7 +99,7 @@ TEST(PedigreeString, ChompDynamicToStatic)
         "hello                                                           ");
     s.chomp();
     EXPECT_EQ(s.length(), 63);
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), 65);
 }
 
 TEST(PedigreeString, LChompDynamicToStatic)
@@ -105,7 +108,7 @@ TEST(PedigreeString, LChompDynamicToStatic)
         "hello                                                           ");
     s.lchomp();
     EXPECT_EQ(s.length(), 63);
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), 65);
 }
 
 TEST(PedigreeString, Strip)
@@ -142,7 +145,7 @@ TEST(PedigreeString, LstripSwitchesToStatic)
         "                                                            hello");
     s.lstrip();
     EXPECT_EQ(s, "hello");
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), 66);
     EXPECT_EQ(s.length(), 5);
 }
 
@@ -159,7 +162,7 @@ TEST(PedigreeString, RstripSwitchesToStatic)
         "hello                                                            ");
     s.rstrip();
     EXPECT_EQ(s, "hello");
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), 66);
     EXPECT_EQ(s.length(), 5);
 }
 
@@ -194,7 +197,7 @@ TEST(PedigreeString, EmptyTokenise)
     String s("  a  ");
     Vector<String> result = s.tokenise(' ');
     EXPECT_EQ(result.count(), 1);
-    EXPECT_STREQ(result.popFront(), "a");
+    EXPECT_STREQ(result[0].cstr(), "a");
 }
 
 TEST(PedigreeString, Tokenise)
@@ -202,15 +205,15 @@ TEST(PedigreeString, Tokenise)
     String s("hello world, this is a testcase that exercises tokenise");
     Vector<String> result = s.tokenise(' ');
     EXPECT_EQ(result.count(), 9);
-    EXPECT_STREQ(result.popFront(), "hello");
-    EXPECT_STREQ(result.popFront(), "world,");
-    EXPECT_STREQ(result.popFront(), "this");
-    EXPECT_STREQ(result.popFront(), "is");
-    EXPECT_STREQ(result.popFront(), "a");
-    EXPECT_STREQ(result.popFront(), "testcase");
-    EXPECT_STREQ(result.popFront(), "that");
-    EXPECT_STREQ(result.popFront(), "exercises");
-    EXPECT_STREQ(result.popFront(), "tokenise");
+    EXPECT_STREQ(result.popFront().cstr(), "hello");
+    EXPECT_STREQ(result.popFront().cstr(), "world,");
+    EXPECT_STREQ(result.popFront().cstr(), "this");
+    EXPECT_STREQ(result.popFront().cstr(), "is");
+    EXPECT_STREQ(result.popFront().cstr(), "a");
+    EXPECT_STREQ(result.popFront().cstr(), "testcase");
+    EXPECT_STREQ(result.popFront().cstr(), "that");
+    EXPECT_STREQ(result.popFront().cstr(), "exercises");
+    EXPECT_STREQ(result.popFront().cstr(), "tokenise");
     EXPECT_EQ(result.count(), 0);  // no more tokens
 }
 
@@ -288,10 +291,10 @@ TEST(PedigreeString, Equality)
 
     // freed vs freed
     String s1("a"), s2("b");
-    s1.free();
+    s1.clear();
     EXPECT_NE(s1, s2);
     EXPECT_NE(s2, s1);
-    s2.free();
+    s2.clear();
     EXPECT_EQ(s1, s2);
 }
 
@@ -300,7 +303,7 @@ TEST(PedigreeString, EqualityRawCharBuffer)
     String a("hello");
     EXPECT_EQ(a, "hello");
     EXPECT_NE(a, nullptr);
-    a.free();
+    a.clear();
     EXPECT_EQ(a, nullptr);
     EXPECT_NE(a, "hello");
 }
@@ -308,7 +311,7 @@ TEST(PedigreeString, EqualityRawCharBuffer)
 TEST(PedigreeString, AssignCString)
 {
     String s;
-    s = "hello";
+    s.assign("hello");
     EXPECT_EQ(s, "hello");
 }
 
@@ -344,8 +347,10 @@ TEST(PedigreeString, AssignBigEmpty)
 {
     String s;
     s.assign("a", 1024);
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), 1024);
     EXPECT_EQ(s, "a");
+    s.downsize();
+    EXPECT_EQ(s.size(), 64);
 }
 
 TEST(PedigreeString, AssignAnother)
@@ -362,7 +367,7 @@ TEST(PedigreeString, ReduceReserve)
     String s;
     s.reserve(1024);
     EXPECT_EQ(s.size(), 1024);
-    s.reserve(8);
+    s.downsize();
     EXPECT_EQ(s.size(), 64);
 }
 
@@ -407,7 +412,7 @@ TEST(PedigreeString, Sprintf)
 TEST(PedigreeString, Free)
 {
     String s("hello");
-    s.free();
+    s.clear();
     EXPECT_EQ(s, "");
     EXPECT_EQ(s.length(), 0);
     EXPECT_EQ(s.size(), 0);
@@ -416,23 +421,23 @@ TEST(PedigreeString, Free)
 TEST(PedigreeString, FreeComparison)
 {
     String s1("hello"), s2("hello");
-    s1.free();
+    s1.clear();
     EXPECT_NE(s1, s2);
-    s2.free();
+    s2.clear();
     EXPECT_EQ(s1, s2);
 }
 
 TEST(PedigreeString, FreeCharCast)
 {
     String s("hello");
-    s.free();
-    EXPECT_STREQ("", static_cast<const char *>(s));
+    s.clear();
+    EXPECT_EQ(static_cast<const char *>(s), nullptr);
 }
 
 TEST(PedigreeString, FreeThenUse)
 {
     String s("hello");
-    s.free();
+    s.clear();
     s.assign("hello");
     EXPECT_EQ(s, "hello");
 }
@@ -440,7 +445,7 @@ TEST(PedigreeString, FreeThenUse)
 TEST(PedigreeString, FreeThenStrip)
 {
     String s("hello");
-    s.free();
+    s.clear();
     // Expecting no asan/valgrind/segfault errors, and no other funniness.
     s.strip();
     EXPECT_EQ(s, "");
@@ -525,7 +530,7 @@ TEST(PedigreeString, Equality2)
     EXPECT_NE(s1, s2);
     EXPECT_NE(s2, s1);
     EXPECT_EQ(s1, "/dev/tty");
-    EXPECT_NE(s2, "/dev/tty");
+    EXPECT_NE(s2.cstr(), "/dev/tty");
     EXPECT_EQ(s1, s3);
     EXPECT_EQ(s2, s4);
 }
@@ -533,9 +538,9 @@ TEST(PedigreeString, Equality2)
 TEST(PedigreeString, Equality3)
 {
     String s1("/boot/kernel"), s2("/boot/kernel");
-    EXPECT_STREQ(s1, s2);
+    EXPECT_STREQ(s1.cstr(), s2.cstr());
     EXPECT_EQ(s1, s2);
-    EXPECT_STREQ(s1, "/boot/kernel");
+    EXPECT_STREQ(s1.cstr(), "/boot/kernel");
     EXPECT_EQ(s1, "/boot/kernel");
 }
 
@@ -613,20 +618,20 @@ TEST(PedigreeString, UnicodeConversion)
 TEST(PedigreeString, Move)
 {
     String s1("hello"), s2;
-    EXPECT_STREQ(s1, "hello");
-    EXPECT_STRNE(s2, "hello");
+    EXPECT_STREQ(s1.cstr(), "hello");
+    EXPECT_STRNE(s2.cstr(), "hello");
     s2 = pedigree_std::move(s1);
-    EXPECT_STREQ(s1, "");
-    EXPECT_STREQ(s2, "hello");
+    EXPECT_EQ(s1.cstr(), nullptr);
+    EXPECT_STREQ(s2.cstr(), "hello");
 }
 
 TEST(PedigreeString, MoveConstruct)
 {
     String s1("hello");
-    EXPECT_STREQ(s1, "hello");
+    EXPECT_STREQ(s1.cstr(), "hello");
     String s2(pedigree_std::move(s1));
-    EXPECT_STREQ(s1, "");
-    EXPECT_STREQ(s2, "hello");
+    EXPECT_EQ(s1.cstr(), nullptr);
+    EXPECT_STREQ(s2.cstr(), "hello");
 }
 
 TEST(PedigreeString, AppendOtherString)
@@ -634,14 +639,14 @@ TEST(PedigreeString, AppendOtherString)
     String s1("hello");
     String s2(" world");
     s1 += s2;
-    EXPECT_STREQ(s1, "hello world");
+    EXPECT_STREQ(s1.cstr(), "hello world");
 }
 
 TEST(PedigreeString, AppendOtherCString)
 {
     String s1("hello");
     s1 += " world";
-    EXPECT_STREQ(s1, "hello world");
+    EXPECT_STREQ(s1.cstr(), "hello world");
 }
 
 TEST(PedigreeString, AppendOtherStringBig)
@@ -649,14 +654,14 @@ TEST(PedigreeString, AppendOtherStringBig)
     String s1("hello");
     String s2(BIGSTRING);
     s1 += s2;
-    EXPECT_STREQ(s1, "hello" BIGSTRING);
+    EXPECT_STREQ(s1.cstr(), "hello" BIGSTRING);
 }
 
 TEST(PedigreeString, AppendOtherCStringBig)
 {
     String s1("hello");
     s1 += BIGSTRING;
-    EXPECT_STREQ(s1, "hello" BIGSTRING);
+    EXPECT_STREQ(s1.cstr(), "hello" BIGSTRING);
 }
 
 TEST(PedigreeString, View)
@@ -664,4 +669,34 @@ TEST(PedigreeString, View)
     String s1("hello");
     StringView s1_view = s1.view();
     EXPECT_EQ(s1_view, s1);
+}
+
+TEST(PedigreeString, CordAssignment)
+{
+    Cord cord;
+    cord.append("hello ");
+    cord.append("world");
+    String str;
+    str.assign(cord);
+    EXPECT_EQ(str, "hello world");
+}
+
+TEST(PedigreeString, LTrim)
+{
+    String s1("hello world");
+    s1.ltrim(6);
+    EXPECT_STREQ(s1.cstr(), "world");
+}
+
+TEST(PedigreeString, RTrim)
+{
+    String s1("hello world");
+    s1.rtrim(6);
+    EXPECT_STREQ(s1.cstr(), "hello");
+}
+
+TEST(PedigreeString, ConstantCompare)
+{
+    auto s1 = MakeConstantString("hello world");
+    EXPECT_STREQ(s1.cstr(), "hello world");
 }

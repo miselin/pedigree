@@ -44,7 +44,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice
 
     virtual void getUsbDeviceName(String &str)
     {
-        str = "USB Mass Storage Device";
+        str.assign("USB Mass Storage Device", 24);
     }
 
     virtual bool hasSubtree() const

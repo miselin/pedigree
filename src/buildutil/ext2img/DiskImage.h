@@ -41,12 +41,12 @@ class DiskImage : public Disk
 
     virtual void getName(String &str)
     {
-        str = "Hosted disk image";
+        str.assign("Hosted disk image", 18);
     }
 
     virtual void dump(String &str)
     {
-        str = "Hosted disk image";
+        str.assign("Hosted disk image", 18);
     }
 
     virtual uintptr_t read(uint64_t location);

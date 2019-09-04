@@ -22,7 +22,7 @@
 
 Disk::Disk()
 {
-    m_SpecificType = "Generic Disk";
+    m_SpecificType.assign("Generic Disk", 13);
 }
 
 Disk::Disk(Device *p) : Device(p)
@@ -45,12 +45,12 @@ Disk::SubType Disk::getSubType()
 
 void Disk::getName(String &str)
 {
-    str = "Generic disk";
+    str.assign("Generic disk", 13);
 }
 
 void Disk::dump(String &str)
 {
-    str = "Generic disk";
+    str.assign("Generic disk", 13);
 }
 
 uintptr_t Disk::read(uint64_t location)

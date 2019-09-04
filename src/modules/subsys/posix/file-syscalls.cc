@@ -453,7 +453,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
                 *onDevFs = true;
         }
 
-        nameToOpen = name;
+        nameToOpen.assign(name);
         return true;
     }
     else if (!StringCompareN(name, "/@/", StringLength("/@/")))
@@ -464,7 +464,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         const char *newName = name + StringLength("/@/");
         if (*newName == '/')
             ++newName;
-        nameToOpen = newName;
+        nameToOpen.assign(newName);
         return true;
     }
     else
@@ -496,7 +496,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 #if ENABLE_VERBOSE_NORMALISATION
                 F_NOTICE(" -> direct remap to " << remap->to);
 #endif
-                nameToOpen = remap->to;
+                nameToOpen.assign(remap->to);
                 ok = true;
                 break;
             }
@@ -513,7 +513,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
                 if (*(name + StringLength(remap->from)) == '/')
                 {
                     // good
-                    nameToOpen = remap->to;
+                    nameToOpen.assign(remap->to);
                     nameToOpen += (name + StringLength(remap->from));
 #if ENABLE_VERBOSE_NORMALISATION
                     F_NOTICE(
@@ -541,7 +541,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 
         if (!ok)
         {
-            nameToOpen = name;
+            nameToOpen.assign(name);
             return false;
         }
 
@@ -927,7 +927,9 @@ int posix_realpath(const char *path, char *buf, size_t bufsize)
     }
 
     String actualPath("/@/");
-    actualPath += f->getFullPath(true);
+    String fullPath;
+    f->getFullPath(fullPath, true);
+    actualPath += fullPath;
     if (actualPath.length() > (bufsize - 1))
     {
         SYSCALL_ERROR(NameTooLong);
@@ -973,7 +975,9 @@ int posix_getcwd(char *buf, size_t maxlen)
 
     // Absolute path syntax.
     String str("/@/");
-    str += curr->getFullPath(true);
+    String fullPath;
+    curr->getFullPath(fullPath, true);
+    str += fullPath;
 
     size_t maxLength = str.length();
     if (maxLength > maxlen)
@@ -2333,7 +2337,7 @@ pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
                     info += s;
                 }
                 else
-                    info = "no disk";
+                    info.assign("no disk", 8);
 
                 StringCopy(mount_buf, static_cast<const char *>(mount));
                 StringCopy(info_buf, static_cast<const char *>(info));
@@ -4073,7 +4077,7 @@ int posix_mount(
 
 void generate_mtab(String &result)
 {
-    result = "";
+    result.clear();
 
     struct Remapping *remap = g_Remappings;
     while (remap->from != nullptr)

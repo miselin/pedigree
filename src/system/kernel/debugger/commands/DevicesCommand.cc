@@ -110,7 +110,7 @@ bool DevicesCommand::execute(
                 "Querying device - press any key to exit. ", 1, 0,
                 DebuggerIO::White, DebuggerIO::Black);
             pScreen->drawString(
-                str, 2, 0, DebuggerIO::LightGrey, DebuggerIO::Black);
+                str.cstr(), 2, 0, DebuggerIO::LightGrey, DebuggerIO::Black);
             while ((c = pScreen->getChar()) == 0)
                 ;
             drawBackground(nLines, pScreen);

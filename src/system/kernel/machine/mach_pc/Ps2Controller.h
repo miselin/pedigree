@@ -43,12 +43,12 @@ class Ps2Controller : public Controller, private IrqHandler
 
     virtual void getName(String &str)
     {
-        str = "PS/2 Controller";
+        str.assign("PS/2 Controller", 16);
     }
 
     virtual void dump(String &str)
     {
-        str = "PS/2 Controller";
+        str.assign("PS/2 Controller", 16);
     }
 
     void initialise();

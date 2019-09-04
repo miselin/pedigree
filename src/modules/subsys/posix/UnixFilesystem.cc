@@ -28,7 +28,7 @@
 String UnixFilesystem::m_VolumeLabel("unix");
 
 UnixSocket::UnixSocket(
-    String name, Filesystem *pFs, File *pParent, UnixSocket *other,
+    const String &name, Filesystem *pFs, File *pParent, UnixSocket *other,
     SocketType type)
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
       m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other),
@@ -164,7 +164,7 @@ uint64_t UnixSocket::recvfrom(
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);
     if (b->remotePath)
     {
-        from = b->remotePath;
+        from.assign(b->remotePath, b->remotePathLen);
         delete[] b->remotePath;
     }
     delete[] b->pBuffer;
@@ -211,6 +211,7 @@ uint64_t UnixSocket::writeBytewise(
     {
         b->remotePath = new char[255];
         StringCopyN(b->remotePath, reinterpret_cast<char *>(location), 255);
+        b->remotePathLen = StringLength(b->remotePath);
     }
     m_Datagrams.write(b);
 
@@ -448,7 +449,7 @@ void UnixSocket::setCreds()
 #endif
 }
 
-UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)
+UnixDirectory::UnixDirectory(const String &name, Filesystem *pFs, File *pParent)
     : Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock(false)
 {
     cacheDirectoryContents();
@@ -458,7 +459,7 @@ UnixDirectory::~UnixDirectory()
 {
 }
 
-bool UnixDirectory::addEntry(String filename, File *pFile)
+bool UnixDirectory::addEntry(const String &filename, File *pFile)
 {
     LockGuard<Mutex> guard(m_Lock);
     addDirectoryEntry(filename, pFile);
@@ -467,10 +468,8 @@ bool UnixDirectory::addEntry(String filename, File *pFile)
 
 bool UnixDirectory::removeEntry(File *pFile)
 {
-    String filename = pFile->getName();
-
     LockGuard<Mutex> guard(m_Lock);
-    remove(filename.view());
+    remove(pFile->getName().view());
     return true;
 }
 

@@ -42,7 +42,7 @@ StationInfo::~StationInfo()
 
 Network::Network() : m_StationInfo()
 {
-    m_SpecificType = "Generic Network Device";
+    m_SpecificType.assign("Generic Network Device", 23);
 }
 
 Network::Network(Network *pDev) : Device(pDev), m_StationInfo()
@@ -60,12 +60,12 @@ Device::Type Network::getType()
 
 void Network::getName(String &str)
 {
-    str = "Generic Network Device";
+    str.assign("Generic Network Device", 23);
 }
 
 void Network::dump(String &str)
 {
-    str = "Generic Network Device";
+    str.assign("Generic Network Device", 23);
 }
 
 bool Network::setStationInfo(const StationInfo &info)

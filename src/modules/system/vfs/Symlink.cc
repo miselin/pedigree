@@ -55,7 +55,7 @@ void Symlink::initialise(bool bForce)
     pBuffer[sz] = '\0';
 
     // Convert to String object, wipe out whitespace.
-    m_sTarget = pBuffer;
+    m_sTarget.assign(pBuffer, sz);
     m_sTarget.rstrip();
 
     // Wipe out cached symlink if we're being forced to re-init.

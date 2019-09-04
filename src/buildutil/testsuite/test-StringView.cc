@@ -76,7 +76,7 @@ TEST(PedigreeStringView, ToString)
     StringView view("Hello world", 11);
     String str = view.toString();
 
-    EXPECT_STREQ(str, "Hello world");
+    EXPECT_STREQ(str.cstr(), "Hello world");
 }
 
 TEST(PedigreeStringView, Substring)

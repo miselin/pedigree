@@ -393,7 +393,7 @@ void File::setModifiedTime(Time::Timestamp t)
     fileAttributeChanged();
 }
 
-String File::getName() const
+const String &File::getName() const
 {
     return m_Name;
 }
@@ -586,7 +586,9 @@ uint64_t File::writeBytewise(
 
 uintptr_t File::readBlock(uint64_t location)
 {
-    ERROR("File: base class readBlock() called for " << getFullPath());
+    String fullPath;
+    getFullPath(fullPath);
+    ERROR("File: base class readBlock() called for " << fullPath);
     // only truly breaks on debug-enabled builds - in release builds this will
     // just cause an error in the caller
     assert(false);
@@ -703,7 +705,7 @@ void File::getFilesystemLabel(HugeStaticString &s)
     s = m_pFilesystem->getVolumeLabel();
 }
 
-String File::getFullPath(bool bWithLabel)
+void File::getFullPath(String &result, bool bWithLabel)
 {
     HugeStaticString str;
     HugeStaticString tmp;
@@ -742,7 +744,7 @@ String File::getFullPath(bool bWithLabel)
         ERROR("File::getFullPath called without a filesystem!");
     }
 
-    return String(str);
+    result.assign(str, str.length());
 }
 
 uintptr_t File::getCachedPage(size_t block, bool locked)

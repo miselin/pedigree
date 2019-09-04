@@ -102,11 +102,11 @@ static int clientThread(void *p)
                           httpRequest.startswith("HEAD")))
                     {
                         // We really don't want to deal with this.
-                        httpResponse =
+                        httpResponse.assign(
                             "HTTP/1.1 400 Bad Request\r\nAllow: GET, "
                             "HEAD\r\nContent-Type: text/plain; "
                             "charset=utf-8\r\n\r\nThe Pedigree built-in status "
-                            "server only accepts GET and HEAD requests.";
+                            "server only accepts GET and HEAD requests.");
                         stillOk = false;
                     }
                 }
@@ -307,7 +307,7 @@ static int clientThread(void *p)
                     diskInfo += temp;
                 }
                 else
-                    diskInfo = "(no disk)";
+                    diskInfo.assign("(no disk)", 10);
 
                 responseContent += "<tr><td>";
                 responseContent += mount;
@@ -381,7 +381,7 @@ static int clientThread(void *p)
     String contentLength;
     contentLength.Format("\r\nContent-Length: %d", responseContent.length());
 
-    httpResponse = statusLine;
+    httpResponse.assign(statusLine, statusLine.length());
     httpResponse += contentLength;
     httpResponse += "\r\nContent-type: text/html; charset=utf-8";
     httpResponse += "\r\nConnection: close";

@@ -667,5 +667,5 @@ Device::Type UsbDeviceContainer::getType()
 
 void UsbDeviceContainer::dump(String &str)
 {
-    str = "Generic USB Device";
+    str.assign("Generic USB Device", 19);
 }

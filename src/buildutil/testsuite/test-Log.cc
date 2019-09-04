@@ -31,7 +31,7 @@ class StringLogger : public Log::LogCallback
     void callback(const LogCord &cord)
     {
         String str = cord.toString();
-        m_Messages += std::string(str, str.length());
+        m_Messages += std::string(str.cstr(), str.length());
     }
 
     const std::string &messages() const

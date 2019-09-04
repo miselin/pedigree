@@ -143,7 +143,7 @@ bool Ib700Watchdog::initialise()
 
 void Ib700Watchdog::getName(String &str)
 {
-    str = "ib700_wdt";
+    str.assign("ib700_wdt", 10);
 }
 
 void Ib700Watchdog::timer(uint64_t delta, InterruptState &state)

@@ -376,3 +376,26 @@ TEST(PedigreeRadixTree, LibrariesIssue)
     result = x.lookup(String("lib"));
     EXPECT_TRUE(result.hasError());
 }
+
+TEST(PedigreeRadixTree, hmm)
+{
+    String foo("foo");
+    String bar("bar");
+
+    RadixTree<int> x;
+
+    x.insert(foo, 1);
+    x.insert(bar, 2);
+    x.clear();
+
+    x.insert(foo, 3);
+    x.insert(bar, 4);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("bar"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
+}

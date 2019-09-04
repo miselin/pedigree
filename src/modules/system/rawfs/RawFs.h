@@ -47,9 +47,10 @@ class RawFs : public Filesystem
         return 0;
     }
     virtual File *getRoot() const;
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
-        return String("RawFs");
+        static String volumeLabel("RawFs");
+        return volumeLabel;
     }
     virtual uint64_t read(
         File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,

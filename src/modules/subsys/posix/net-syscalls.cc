@@ -1589,7 +1589,7 @@ int UnixSocketSyscalls::connect(
         N_NOTICE(" -> dgram");
     }
 
-    m_RemotePath = pathname;
+    m_RemotePath = pedigree_std::move(pathname);
 
     N_NOTICE(" -> remote is now " << m_RemotePath);
 
@@ -1716,7 +1716,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
         struct sockaddr_un *un =
             reinterpret_cast<struct sockaddr_un *>(msghdr->msg_name);
         un->sun_family = AF_UNIX;
-        StringCopy(un->sun_path, remote);
+        StringCopy(un->sun_path, remote.cstr());
         msghdr->msg_namelen = sizeof(sa_family_t) + remote.length();
     }
 
@@ -1834,7 +1834,7 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t a
     }
 
     m_Socket = socket;
-    m_LocalPath = adjusted_pathname;
+    m_LocalPath = pedigree_std::move(adjusted_pathname);
 
     return 0;
 }
@@ -1860,9 +1860,10 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addr
         if (remote->getName().length())
         {
             // Named.
-            String name = remote->getFullPath();
+            String name;
+            remote->getFullPath(name);
 
-            StringCopy(sun->sun_path, name);
+            StringCopy(sun->sun_path, name.cstr());
             *addrlen = sizeof(sa_family_t) + name.length();
         }
         else
@@ -1877,7 +1878,7 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addr
         obj->m_Socket = remote;
         obj->m_Remote = remote->getOther();
         obj->m_LocalPath = String();
-        obj->m_RemotePath = m_Socket->getFullPath();
+        m_Socket->getFullPath(obj->m_RemotePath);
         obj->create();
 
         size_t fd = getAvailableDescriptor();
@@ -1907,7 +1908,7 @@ int UnixSocketSyscalls::getpeername(
     N_NOTICE("UNIX getpeername");
     struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
-    StringCopy(sun->sun_path, m_RemotePath);
+    StringCopy(sun->sun_path, m_RemotePath.cstr());
     *address_len = sizeof(sa_family_t) + m_RemotePath.length();
 
     N_NOTICE(" -> " << m_RemotePath);
@@ -1920,7 +1921,7 @@ int UnixSocketSyscalls::getsockname(
     N_NOTICE("UNIX getsockname");
     struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
-    StringCopy(sun->sun_path, m_LocalPath);
+    StringCopy(sun->sun_path, m_LocalPath.cstr());
     *address_len = sizeof(sa_family_t) + m_LocalPath.length();
 
     N_NOTICE(" -> " << m_LocalPath);

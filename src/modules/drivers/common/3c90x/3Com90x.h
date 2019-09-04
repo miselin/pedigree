@@ -41,7 +41,7 @@ class Nic3C90x : public Network, public IrqHandler
 
     virtual void getName(String &str)
     {
-        str = "3C90x";
+        str.assign("3C90x", 6);
     }
 
     virtual bool send(size_t nBytes, uintptr_t buffer);

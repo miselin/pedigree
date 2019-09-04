@@ -20,6 +20,7 @@
 #include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/sha1/sha1.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -94,22 +95,29 @@ size_t DeviceHashTree::getHash(Device *pChild)
     uint32_t dev = pChild->getPciDevicePosition();
     uint32_t func = pChild->getPciFunctionNumber();
 
+    TinyStaticString busStr, devStr, funcStr;
+    busStr.append(bus);
+    devStr.append(dev);
+    funcStr.append(func);
+
     // Build the string to be hashed
-    NormalStaticString theString;
-    theString.clear();
-    theString += name;
-    theString += "-";
-    theString += dump;
-    theString += "-";
-    theString.append(bus);
-    theString += ".";
-    theString.append(dev);
-    theString += ".";
-    theString.append(func);
+    Cord hashBuild;
+    hashBuild.append(name);
+    hashBuild.append("-");
+    hashBuild.append(dump);
+    hashBuild.append("-");
+    hashBuild.append(busStr);
+    hashBuild.append(".");
+    hashBuild.append(devStr);
+    hashBuild.append(".");
+    hashBuild.append(funcStr);
 
     // Hash the string
     mySha1.Reset();
-    mySha1.Input(static_cast<const char *>(theString), theString.length());
+    for (auto it = hashBuild.segbegin(); it != hashBuild.segend(); ++it)
+    {
+        mySha1.Input(it.ptr(), it.length());
+    }
     unsigned int digest[5];
     mySha1.Result(digest);
 

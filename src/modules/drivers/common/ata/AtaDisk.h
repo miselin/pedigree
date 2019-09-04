@@ -66,7 +66,7 @@ class AtaDisk : public ScsiDisk
 
     virtual void getName(String &str)
     {
-        str = m_pName;
+        str.assign(m_pName);
     }
 
     /**

@@ -182,6 +182,14 @@ static void printString(const char *str, size_t len=0)
     }
 }
 
+static void printString(const LogCord &str)
+{
+    for (auto it = str.segbegin(); it != str.segend(); ++it)
+    {
+        printString(it.ptr(), it.length());
+    }
+}
+
 static void printStringAt(const char *str, size_t x, size_t y)
 {
     /// \todo Handle overflows
@@ -217,7 +225,7 @@ class StreamingScreenLogger : public Log::LogCallback
             if (g_LogMode)
             {
                 LockGuard<Mutex> guard(g_PrintLock);
-                printString(cord.toString(), cord.length());
+                printString(cord);
             }
         }
     }

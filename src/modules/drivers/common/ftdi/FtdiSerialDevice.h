@@ -45,7 +45,7 @@ class FtdiSerialDevice : public UsbDevice, public Serial
 
     virtual void getName(String &str)
     {
-        str = "USB FTDI Serial Device";
+        str.assign("USB FTDI Serial Device", 23);
     }
 
   private:

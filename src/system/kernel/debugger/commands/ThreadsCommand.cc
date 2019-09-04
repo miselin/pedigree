@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/demangle.h"
 
 ThreadsCommand::ThreadsCommand()
@@ -305,6 +306,26 @@ const char *ThreadsCommand::getLine2(
                 Line += "Cond-Wait @";
             else
                 Line += "<unknown DebugState> @";
+            Line.append(ip, 16);
+
+            uintptr_t symStart;
+            const char *pSym =
+                KernelElf::instance().globalLookupSymbol(ip, &symStart);
+            if (pSym)
+            {
+                LargeStaticString sym;
+                demangle_full(LargeStaticString(pSym), sym);
+                Line += ": ";
+                Line += sym;
+            }
+        }
+        else
+        {
+            // Extract the last instruction pointer from the scheduler state
+            const SchedulerState &state = tehThread->state();
+            ip = state.getInstructionPointer();
+
+            Line += " @ ";
             Line.append(ip, 16);
 
             uintptr_t symStart;

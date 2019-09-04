@@ -142,9 +142,9 @@ static char **load_string_array(
     int i = 0;
     for (auto it = rArray.begin(); it != rArray.end(); it++)
     {
-        SharedPointer<String> pStr = *it;
+        const String *pStr = it->get();
 
-        StringCopy(pPtr, *pStr);
+        StringCopy(pPtr, pStr->cstr());
         pPtr[pStr->length()] = '\0';  // Ensure NULL-termination.
 
         pMasterArray[i] = pPtr;
@@ -486,7 +486,7 @@ int posix_execve(
     String invokePath;
     normalisePath(invokePath, name);
 
-    if (!pSubsystem->invoke(invokePath, listArgv, listEnv, state))
+    if (!pSubsystem->invoke(invokePath.cstr(), listArgv, listEnv, state))
     {
         SC_NOTICE(" -> execve failed in invoke");
         return -1;

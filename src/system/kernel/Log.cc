@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -113,7 +114,7 @@ void Log::initialise1()
         Vector<String> cmds = String(cmdline).tokenise(' ');
         for (auto it = cmds.begin(); it != cmds.end(); it++)
         {
-            auto cmd = *it;
+            auto &cmd = *it;
             if (cmd == String("--disable-log-to-serial"))
             {
                 m_EchoToSerial = false;
@@ -259,13 +260,46 @@ Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 
 Log::LogEntry &Log::LogEntry::operator<<(const String &s)
 {
-    str.appendBytes(s, s.length());
+    str.appendBytes(s.cstr(), s.length());
     return *this;
 }
 
 Log::LogEntry &Log::LogEntry::operator<<(const StringView &s)
 {
     str.appendBytes(s.str(), s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const Cord &c)
+{
+    for (auto it = c.segbegin(); it != c.segend(); ++it)
+    {
+        str.appendBytes(it.ptr(), it.length());
+    }
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const TinyStaticString &s)
+{
+    str.appendBytes(s, s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const NormalStaticString &s)
+{
+    str.appendBytes(s, s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const LargeStaticString &s)
+{
+    str.appendBytes(s, s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const HugeStaticString &s)
+{
+    str.appendBytes(s, s.length());
     return *this;
 }
 

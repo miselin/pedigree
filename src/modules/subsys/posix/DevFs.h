@@ -299,9 +299,10 @@ class DevFs : public Filesystem
     {
         return m_pRoot;
     }
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
-        return String("dev");
+        static String devfsLabel("dev");
+        return devfsLabel;
     }
 
     virtual size_t getNextInode();

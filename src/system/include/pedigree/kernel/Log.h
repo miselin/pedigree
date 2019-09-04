@@ -29,6 +29,7 @@
 
 class String;
 class StringView;
+class Cord;
 
 /** @addtogroup kernel
  * @{ */
@@ -254,8 +255,25 @@ class Log
          *\param[in] str the null-terminated ASCII string that should be added
          */
         LogEntry &operator<<(const char *);
+        template<size_t N>
+        LogEntry &operator<<(const char (&str)[N])
+        {
+            str.appendBytes(str, N);
+            return *this;
+        }
         LogEntry &operator<<(const String &);
         LogEntry &operator<<(const StringView &);
+        LogEntry &operator<<(const Cord &);
+        template<size_t N>
+        LogEntry &operator<<(const StaticString<N> &s)
+        {
+            str.appendBytes(s, s.length());
+            return *this;
+        }
+        LogEntry &operator<<(const TinyStaticString &);
+        LogEntry &operator<<(const NormalStaticString &);
+        LogEntry &operator<<(const LargeStaticString &);
+        LogEntry &operator<<(const HugeStaticString &);
         /** Adds an entry to the log
          *\param[in] str the null-terminated ASCII string that should be added
          */

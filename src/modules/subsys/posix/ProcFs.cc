@@ -383,6 +383,10 @@ ProcFs::~ProcFs()
 
 bool ProcFs::initialise(Disk *pDisk)
 {
+    /// \todo ConstantFile is taking const char *s of all this and holding them
+    /// which is extremely unsafe. That must be fixed because right now the
+    /// ConstantFile could point into freed heap memory.
+
     // Deterministic inode assignment to each ProcFs node
     m_NextInode = 0;
 
@@ -422,29 +426,28 @@ bool ProcFs::initialise(Disk *pDisk)
     m_pRoot->addEntry(uptime->getName(), uptime);
 
     NOTICE("procfs 6");
-    String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
+    static String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
     ConstantFile *pFilesystems = new ConstantFile(
-        String("filesystems"), fs, fs.length(), getNextInode(), this, m_pRoot);
+        String("filesystems"), fs.cstr(), fs.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
     NOTICE("procfs 7");
     // Kernel command line
-    String cmdline;  //(g_pBootstrapInfo->getCommandLine());
-    cmdline = "noswap quiet boot=live\n";
+    static String cmdline("noswap quiet boot=live\n", 25);  //(g_pBootstrapInfo->getCommandLine());
     NOTICE("cmdline is '" << cmdline << "'");
     ConstantFile *pCmdline = new ConstantFile(
-        String("cmdline"), cmdline, cmdline.length(), getNextInode(), this,
+        String("cmdline"), cmdline.cstr(), cmdline.length(), getNextInode(), this,
         m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
     NOTICE("procfs 8");
     // /proc/version contains some extra version info (not same as uname)
-    String version;
+    static String version;
     version.Format(
         "Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser,
         g_pBuildMachine, g_pBuildTime);
     ConstantFile *pVersion = new ConstantFile(
-        String("version"), version, version.length(), getNextInode(), this,
+        String("version"), version.cstr(), version.length(), getNextInode(), this,
         m_pRoot);
     m_pRoot->addEntry(pVersion->getName(), pVersion);
 
@@ -552,7 +555,7 @@ bool ProcFs::initialise(Disk *pDisk)
     NOTICE("procfs 12");
 
     ConstantFile *pPciDevices = new ConstantFile(
-        String("devices"), m_PciDevices, m_PciDevices.length(), getNextInode(),
+        String("devices"), m_PciDevices.cstr(), m_PciDevices.length(), getNextInode(),
         this, pPciDir);
     pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
     NOTICE("procfs 13");

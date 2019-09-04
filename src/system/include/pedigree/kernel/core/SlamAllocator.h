@@ -123,7 +123,7 @@ class SlamCache;
 /// freeing. This makes the kernel heap enormous (as it never truly frees
 /// address space), but allows for rapid discovery of use-after-frees as the
 /// freed allocations are completely unmapped.
-#define EVERY_ALLOCATION_IS_A_SLAB 0
+#define EVERY_ALLOCATION_IS_A_SLAB 1
 
 #ifndef SLAM_USE_DEBUG_ALLOCATOR
 /// Define this to enable the debug allocator (which is basically placement new).

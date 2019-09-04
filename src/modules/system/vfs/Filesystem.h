@@ -73,7 +73,7 @@ class EXPORTED_PUBLIC Filesystem
     virtual File *getRoot() const = 0;
 
     /** Returns a string identifying the volume label. */
-    virtual String getVolumeLabel() const = 0;
+    virtual const String &getVolumeLabel() const = 0;
 
     /** Creates a file on the filesystem - fails if the file's parent directory
      * does not exist. */

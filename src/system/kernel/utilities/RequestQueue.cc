@@ -37,7 +37,8 @@ RequestQueue::RequestQueue(const String &name)
 #if THREADS
       m_RequestQueueMutex(false), m_pThread(0), m_Halted(false),
 #endif
-      m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_Name(name)
+      m_nMaxAsyncRequests(256), m_nAsyncRequests(0),
+      m_Name(name.cstr(), name.length())
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
         m_pRequestQueue[i] = 0;

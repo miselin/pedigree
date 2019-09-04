@@ -1186,6 +1186,10 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     // Don't allow huge allocations.
     /// \note Even 2G is a stretch on most systems. Use some other allocator
     ///       to allocate such large buffers.
+    if (nBytes >= (1U << 31))
+    {
+        ERROR("SlamAllocator: massive allocation: " << origSize);
+    }
     assert(nBytes < (1U << 31));
 
     // Default to minimum object size if we must.

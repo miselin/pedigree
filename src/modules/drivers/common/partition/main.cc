@@ -58,8 +58,8 @@ static Device *checkNode(Device *pDev)
         {
             String name;
             pDev->getChild(i)->getName(name);
-            if (!StringCompare(name, "msdos-partition") ||
-                !StringCompare(name, "apple-partition"))
+            if (!StringCompare(name.cstr(), "msdos-partition") ||
+                !StringCompare(name.cstr(), "apple-partition"))
             {
                 hasPartitions = true;
                 break;

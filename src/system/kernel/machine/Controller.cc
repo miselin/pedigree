@@ -35,10 +35,10 @@ Device::Type Controller::getType()
 
 void Controller::getName(String &str)
 {
-    str = "Generic controller";
+    str.assign("Generic controller", 19);
 }
 
 void Controller::dump(String &str)
 {
-    str = "Generic controller";
+    str.assign("Generic controller", 19);
 }

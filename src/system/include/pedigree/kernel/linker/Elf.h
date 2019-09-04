@@ -350,7 +350,7 @@ class EXPORTED_PUBLIC Elf
     /** Sets a friendly name for debugging. */
     void setName(const String &s)
     {
-        m_Name = s;
+        m_Name.assign(s);
     }
 
     /** Gets the friendly name. */

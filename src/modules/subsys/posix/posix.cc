@@ -74,10 +74,10 @@ static bool init()
         String path;
         File *target;
     } reparses[] = {
-        // {"root»/dev", g_pDevFs->getRoot()},
-        {"root»/var/run", g_pRunFilesystem->getRoot()},
-        {"root»/proc", g_pProcFs->getRoot()},
-        {"root»/tmp", scratchfs ? scratchfs->getRoot() : 0},
+        // {String("root»/dev"), g_pDevFs->getRoot()},
+        {String("root»/var/run"), g_pRunFilesystem->getRoot()},
+        {String("root»/proc"), g_pProcFs->getRoot()},
+        {String("root»/tmp"), scratchfs ? scratchfs->getRoot() : 0},
     };
 
     for (auto &p : reparses)

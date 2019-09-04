@@ -148,7 +148,7 @@ class Ehci : public UsbHub,
 
     virtual void getName(String &str)
     {
-        str = "EHCI";
+        str.assign("EHCI", 5);
     }
 
     virtual void addTransferToTransaction(

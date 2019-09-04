@@ -484,6 +484,6 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         *onDevFs = false;
     }
 
-    nameToOpen = name;
+    nameToOpen.assign(name);
     return true;
 }

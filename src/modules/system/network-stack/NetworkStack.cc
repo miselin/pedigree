@@ -113,7 +113,7 @@ static err_t netifInit(struct netif *netif)
 }
 
 NetworkStack::NetworkStack()
-    : RequestQueue("Network Stack"), m_pLoopback(0), m_Children(),
+    : RequestQueue(MakeConstantString("Network Stack")), m_pLoopback(0), m_Children(),
       m_MemPool("network-pool")
 #if UTILITY_LINUX
       ,
@@ -122,19 +122,15 @@ NetworkStack::NetworkStack()
       ,
       m_NextInterfaceNumber(0)
 {
-    NOTICE("1");
     if (stack)
     {
         FATAL("NetworkStack created multiple times.");
     }
 
-    NOTICE("2");
     stack = this;
 
-    NOTICE("3");
     initialise();
 
-    NOTICE("4");
 #if X86_COMMON || HOSTED
     // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
     if (!m_MemPool.initialise(4096, 1600))
@@ -151,7 +147,6 @@ NetworkStack::NetworkStack()
 #else
 #warning Unhandled architecture for the NetworkStack buffer pool
 #endif
-    NOTICE("5");
 }
 
 NetworkStack::~NetworkStack()

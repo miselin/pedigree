@@ -53,7 +53,7 @@
 #define PHYS_TD(idx) (m_pTDListPhys + ((idx) * sizeof(TD)))
 
 Ohci::Ohci(Device *pDev)
-    : UsbHub(pDev), RequestQueue("OHCI"), m_Mutex(false),
+    : UsbHub(pDev), RequestQueue(MakeConstantString("OHCI")), m_Mutex(false),
       m_ScheduleChangeLock(), m_PeriodicListChangeLock(),
       m_ControlListChangeLock(), m_BulkListChangeLock(), m_PeriodicEDBitmap(),
       m_ControlEDBitmap(), m_BulkEDBitmap(), m_pBulkQueueHead(0),

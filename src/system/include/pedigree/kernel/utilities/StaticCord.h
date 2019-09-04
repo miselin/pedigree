@@ -99,13 +99,81 @@ class EXPORTED_PUBLIC StaticCord
         protected:
             CordIterator(const StaticCord &owner, bool end) : cord(owner), segment(0), index(0)
             {
-                segment = owner.m_NumSegments;
+                if (end)
+                {
+                    segment = owner.m_NumSegments;
+                }
             }
 
         private:
             const StaticCord &cord;
             size_t segment;
             size_t index;
+    };
+
+    class CordSegmentIterator
+    {
+        friend class StaticCord;
+        public:
+            CordSegmentIterator(const StaticCord &owner) : cord(owner), segment(0)
+            {
+            }
+            virtual ~CordSegmentIterator() = default;
+
+            CordSegmentIterator &operator++()
+            {
+                ++segment;
+
+                if (segment > cord.m_NumSegments)
+                {
+                    segment = cord.m_NumSegments;
+                }
+
+                return *this;
+            }
+
+            CordSegmentIterator &operator--()
+            {
+                if (segment)
+                {
+                    --segment;
+                }
+
+                return *this;
+            }
+
+            const char *ptr() const
+            {
+                return cord.m_Segments[segment].ptr;
+            }
+
+            size_t length() const
+            {
+                return cord.m_Segments[segment].length;
+            }
+
+            bool operator==(const CordSegmentIterator &other) const
+            {
+                return segment == other.segment;
+            }
+
+            bool operator!=(const CordSegmentIterator &other) const
+            {
+                return !(*this == other);
+            }
+
+        protected:
+            CordSegmentIterator(const StaticCord &owner, bool end) : cord(owner), segment(0)
+            {
+                if (end)
+                {
+                    segment = owner.m_NumSegments;
+                }
+            }
+
+        private:
+            const StaticCord &cord;
+            size_t segment;
     };
 
     StaticCord() = default;
@@ -193,6 +261,16 @@ class EXPORTED_PUBLIC StaticCord
     CordIterator end() const
     {
         return CordIterator(*this, true);
+    }
+
+    CordSegmentIterator segbegin() const
+    {
+        return CordSegmentIterator(*this);
+    }
+
+    CordSegmentIterator segend() const
+    {
+        return CordSegmentIterator(*this, true);
     }
 
   private:

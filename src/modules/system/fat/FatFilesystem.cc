@@ -332,7 +332,7 @@ void FatFilesystem::cacheVolumeLabel()
     m_VolumeLabel.assign(str, str.length(), true);
 }
 
-String FatFilesystem::getVolumeLabel() const
+const String &FatFilesystem::getVolumeLabel() const
 {
     return m_VolumeLabel;
 }
@@ -400,7 +400,9 @@ uint64_t FatFilesystem::read(
                 << clus << ", cluster offset = " << clusOffset
                 << ".");  // <-- This is where the installer + lodisk is
                           // failing.
-            WARNING("    -> file: " << pFile->getFullPath());
+            String fullPath;
+            pFile->getFullPath(fullPath);
+            WARNING("    -> file: " << fullPath);
             WARNING("    -> size: " << pFile->getSize());
             return 0;  // can't do it
         }

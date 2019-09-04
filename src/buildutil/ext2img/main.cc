@@ -510,7 +510,7 @@ bool probeAndMount(const char *image, size_t part)
     }
 
     // Make sure we actually have a filesystem here.
-    String alias("fs");
+    String alias(FS_ALIAS);
     if (!VFS::instance().mount(pDisk, alias))
     {
         std::cerr << "This partition does not appear to be an ext2 filesystem."

@@ -120,7 +120,7 @@ void Device::removeIoMappings()
 
 void Device::getName(String &str)
 {
-    str = "Root";
+    str.assign("Root", 5);
 }
 
 /** Adds a device as a child of this device. */
@@ -363,7 +363,7 @@ Device::Address::Address(
     {
         if (m_IsIoSpace)
         {
-            IoPort *pIo = new IoPort(m_Name);
+            IoPort *pIo = new IoPort(m_Name.cstr());
             pIo->allocate(a, s);
             m_Io = pIo;
             return;
@@ -376,7 +376,7 @@ Device::Address::Address(
     if (s % pageSize)
         numPages++;
 
-    MemoryMappedIo *pIo = new MemoryMappedIo(m_Name, a % pageSize, pad);
+    MemoryMappedIo *pIo = new MemoryMappedIo(m_Name.cstr(), a % pageSize, pad);
     m_Io = pIo;
 #endif  // DEVICE_IGNORE_ADDRESSES
 }

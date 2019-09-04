@@ -43,7 +43,7 @@ class Ps2Mouse : public Device
 
     virtual void getName(String &str)
     {
-        str = "mouse";
+        str.assign("mouse", 6);
     }
 
     EXPORTED_PUBLIC void write(const char *bytes, size_t len);

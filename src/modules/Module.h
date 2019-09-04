@@ -87,7 +87,6 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/Log.h"
 
 #ifndef __cplusplus
 #include <stdbool.h>
@@ -122,7 +121,6 @@ struct ModuleInfo
 #define MODULE_OPTIONAL_DEPENDS(...)                        \
     static const char *__mod_opt_deps[] = {__VA_ARGS__, 0}; \
     static void CONSTRUCTOR __add_optional_deps() {         \
-        DEBUG_LOG("== __add_optional_deps() " << __module.name << " ==");           \
         __module.opt_dependencies = __mod_opt_deps;         \
     }
 

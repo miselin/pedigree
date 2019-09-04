@@ -38,10 +38,10 @@ class CdiNet : public Network
         virtual void getName(String &str)
         {
             if((!m_Device) || (!m_Device->dev.name))
-                str = "cdi-net";
+                str.assign("cdi-net", 8);
             else
             {
-                str = m_Device->dev.name;
+                str.assign(m_Device->dev.name);
             }
         }
 

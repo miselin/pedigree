@@ -187,7 +187,7 @@ class EXPORTED_PUBLIC UsbDevice
 
     virtual void getUsbDeviceName(String &str)
     {
-        str = "Generic USB Device";
+        str.assign("Generic USB Device", 19);
     }
 
     /// Returns the current address of the device

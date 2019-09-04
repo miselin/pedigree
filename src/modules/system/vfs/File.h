@@ -142,12 +142,12 @@ class EXPORTED_PUBLIC File
     void setModifiedTime(Time::Timestamp t);
 
     /** Returns the name of the file. */
-    String getName() const;
+    const String &getName() const;
     void getName(String &s) const;
     // File names cannot be changed.
 
     /** Obtains the full path of the File. */
-    virtual String getFullPath(bool bWithLabel = true);
+    virtual void getFullPath(String &result, bool bWithLabel = true);
 
     /** Delete all data from the file. */
     virtual void truncate();

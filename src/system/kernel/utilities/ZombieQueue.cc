@@ -23,7 +23,7 @@
 
 ZombieQueue ZombieQueue::m_Instance;
 
-ZombieQueue::ZombieQueue() : RequestQueue("ZombieQueue")
+ZombieQueue::ZombieQueue() : RequestQueue(MakeConstantString("ZombieQueue"))
 {
 }
 

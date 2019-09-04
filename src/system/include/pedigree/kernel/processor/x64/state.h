@@ -366,6 +366,11 @@ class X64SchedulerState
     uint64_t rsp;
     uint64_t rip;
 
+    uintptr_t getInstructionPointer() const
+    {
+        return rip;
+    }
+
     // bit 0: Has FPU
     // bit 1: Used SSE
     uint32_t flags;

@@ -46,7 +46,7 @@ class Ne2k : public Network, public IrqHandler
 
     virtual void getName(String &str)
     {
-        str = "ne2k";
+        str.assign("ne2k", 5);
     }
 
     virtual bool send(size_t nBytes, uintptr_t buffer);

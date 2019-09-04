@@ -99,7 +99,7 @@ bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
             {
                 alias = pFs->getVolumeLabel();
             }
-            alias = getUniqueAlias(alias);
+            alias = pedigree_std::move(getUniqueAlias(alias));
             addAlias(pFs, alias);
 
             if (m_Mounts.lookup(pFs) == 0)
@@ -118,6 +118,8 @@ bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
             {
                 *pMountedFs = pFs;
             }
+
+            NOTICE("mounted '" << alias << "'");
 
             return true;
         }
@@ -158,7 +160,9 @@ void VFS::addAlias(const String &oldAlias, const String &newAlias)
 String VFS::getUniqueAlias(const String &alias)
 {
     if (!aliasExists(alias))
+    {
         return alias;
+    }
 
     // <alias>-n is how we keep them unique
     // negative numbers already have a dash
@@ -169,9 +173,11 @@ String VFS::getUniqueAlias(const String &alias)
         tmpAlias += static_cast<const char *>(alias);
         tmpAlias.append(index);
 
-        String s(static_cast<const char *>(tmpAlias));
+        String s(tmpAlias, tmpAlias.length());
         if (!aliasExists(s))
+        {
             return s;
+        }
         index--;
     }
 }
@@ -242,6 +248,7 @@ Filesystem *VFS::lookupFilesystem(const String &alias)
 Filesystem *VFS::lookupFilesystem(const HashedStringView &alias)
 {
     AliasTable::LookupResult result = m_Aliases.lookup(alias);
+    NOTICE("alias lookup hasValue: " << result.hasValue());
     return result.hasValue() ? result.value() : nullptr;
 }
 
@@ -349,6 +356,7 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
         {
+            NOTICE("no start node found");
             return false;
         }
         else
@@ -366,6 +374,7 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
         Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
         {
+            NOTICE("no filesystem found for fs " << left);
             return false;
         }
         return pFs->createDirectory(right, mask, 0);

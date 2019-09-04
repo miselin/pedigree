@@ -59,7 +59,7 @@ static int trimTrampoline(void *p)
 #endif
 
 CacheManager::CacheManager()
-    : RequestQueue("CacheManager"), m_Caches(),
+    : RequestQueue(MakeConstantString("CacheManager")), m_Caches(),
 #if THREADS
       m_pTrimThread(0),
 #endif
