@@ -34,6 +34,9 @@ class EXPORTED_PUBLIC Cord
 {
     friend class CordIterator;
     friend class String;
+
+    struct CordSegment;
+
   public:
     class CordIterator
     {
@@ -57,6 +60,8 @@ class EXPORTED_PUBLIC Cord
             const Cord &cord;
             size_t segment;
             size_t index;
+
+            Cord::CordSegment *segptr;
     };
     class CordSegmentIterator
     {
