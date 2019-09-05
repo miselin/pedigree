@@ -145,14 +145,23 @@ String &String::operator+=(const char *s)
 
 bool String::operator==(const String &s) const
 {
+    /// \note Even if the hashes don't exist yet, we still calculate them.
+    /// The hash functions are faster than StringMatch as they operate on
+    /// larger sections of the string at one time. The downside is that the
+    /// worst case performance for comparison is therefore comparing two
+    /// strings that do in fact match.
+
     if (m_Length != s.m_Length)
     {
         return false;
     }
-    else if (m_Hash && (m_Hash != s.hash()))  // TODO: s.hash() != 0
+    else if (LIKELY(m_Hash && s.maybeHash()))
     {
-        // precomputed hash didn't match, don't bother
-        return false;
+        if (m_Hash != s.hash())
+        {
+            // precomputed hash didn't match, don't bother
+            return false;
+        }
     }
 
     const char *buf = extract();
@@ -192,6 +201,21 @@ bool String::operator==(const char *s) const
     }
 }
 
+bool String::compare(const char *s, size_t len) const
+{
+    if (m_Length != len)
+    {
+        // Mismatch in length
+        return false;
+    }
+    else if (UNLIKELY(s == 0))
+    {
+        // other buffer is null, don't match
+        return false;
+    }
+    else
+    {
+        const char *buf = extract();
         return !StringMatchN(buf, s, m_Length);
     }
 }
@@ -220,6 +244,11 @@ uint32_t String::hash()
         computeHash();
     }
 
+    return m_Hash;
+}
+
+uint32_t String::maybeHash() const
+{
     return m_Hash;
 }
 
@@ -836,7 +865,9 @@ String String::copy() const
 StringView String::view() const
 {
     // hash already calculated, enable hashing
-    return StringView(extract(), m_Length, m_Hash, true);
+    const char *buf = extract();
+    assert(buf);
+    return StringView(buf, m_Length, m_Hash, true);
 }
 
 bool String::resizable() const

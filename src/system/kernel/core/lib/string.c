@@ -158,96 +158,26 @@ int StringFormat(char *buf, const char *fmt, ...)
     return i;
 }
 
-WEAK int StringCompare(const char *p1, const char *p2)
+WEAK int StringCompare(const char *restrict p1, const char *restrict p2)
 {
     if (p1 == p2)
         return 0;
 
-    while (*p1 && *p2)
+    char c1 = 0, c2 = 0;
+    while (1)
     {
-        char c = *p1 - *p2;
-        if (c)
-            return c;
-        ++p1;
-        ++p2;
-    }
-
-    return *p1 - *p2;
-}
-
-WEAK int StringCompareN(const char *p1, const char *p2, size_t n)
-{
-    if (!n)
-        return 0;
-    if (p1 == p2)
-        return 0;
-
-    while (*p1 && *p2)
-    {
-        char c = *p1 - *p2;
-        if (c)
-            return c;
-        else if (!--n)
-            return *p1 - *p2;
-
-        ++p1;
-        ++p2;
-    }
-
-    return *p1 - *p2;
-}
-
-WEAK int
-StringCompareNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
-{
-    if (!n)
-    {
-        return 0;
-    }
-    if (p1 == p2)
-    {
-        return 0;
-    }
-
-    size_t orig_n = n;
-
-    while (*p1 && *p2)
-    {
-        char c = *p1 - *p2;
-        if (c || !--n)
-            break;
-
-        ++p1;
-        ++p2;
-    }
-
-    char c = *p1 - *p2;
-    if (c && offset)
-    {
-        *offset = orig_n - n;
-    }
-    return c;
-}
-
-WEAK int StringMatch(const char *p1, const char *p2)
-{
-    if (p1 == p2)
-        return 0;
-
-    while (*p1 && *p2)
-    {
-        if (*p1 != *p2)
+        c1 = *p1++;
+        c2 = *p2++;
+        if ((!c1) || (c1 != c2))
         {
-            return 1;
+            break;
         }
-        ++p1;
-        ++p2;
     }
 
-    return (*p1 == *p2) ? 0 : 1;
+    return c1 - c2;
 }
 
-WEAK int StringMatchN(const char *restrict p1, const char *restrict p2, size_t n)
+WEAK int StringCompareN(const char *restrict p1, const char *restrict p2, size_t n)
 {
     if (!n)
     {
@@ -275,7 +205,7 @@ WEAK int StringMatchN(const char *restrict p1, const char *restrict p2, size_t n
 }
 
 WEAK int
-StringMatchNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
+StringCompareNOffset(const char *restrict p1, const char *restrict p2, size_t n, size_t *offset)
 {
     if (!n)
     {
@@ -287,16 +217,61 @@ StringMatchNOffset(const char *p1, const char *p2, size_t n, size_t *offset)
     }
 
     size_t i;
+    char c1 = 0, c2 = 0;
     for (i = 0; i < n; ++i)
     {
-        if (p1[i] != p2[i])
+        c1 = p1[i];
+        c2 = p2[i];
+
+        if ((!c1) || (c1 != c2))
         {
-            *offset = i;
-            return 1;
+            break;
         }
     }
 
-    return 0;
+    if (offset)
+    {
+        *offset = i;
+    }
+    return c1 - c2;
+}
+
+WEAK int StringMatch(const char *restrict p1, const char *restrict p2)
+{
+    return StringCompare(p1, p2) == 0 ? 0 : 1;
+}
+
+WEAK int StringMatchN(const char *restrict p1, const char *restrict p2, size_t n)
+{
+    if (!n)
+    {
+        return 0;
+    }
+    else if (p1 == p2)
+    {
+        return 0;
+    }
+
+    size_t i;
+    char c1 = 0, c2 = 0;
+    for (i = 0; i < n; ++i)
+    {
+        c1 = p1[i];
+        c2 = p2[i];
+
+        if ((!c1) || (c1 != c2))
+        {
+            break;
+        }
+    }
+
+    return (c1 == c2) ? 0 : 1;
+}
+
+WEAK int
+StringMatchNOffset(const char *restrict p1, const char *restrict p2, size_t n, size_t *offset)
+{
+    return StringCompareNOffset(p1, p2, n, offset) == 0 ? 0 : 1;
 }
 
 char *StringConcat(char *dest, const char *src)

@@ -700,3 +700,12 @@ TEST(PedigreeString, ConstantCompare)
     auto s1 = MakeConstantString("hello world");
     EXPECT_STREQ(s1.cstr(), "hello world");
 }
+
+TEST(PedigreeString, DirectCompare)
+{
+    String s1("hello world");
+    EXPECT_TRUE(s1.compare("hello world", 11));  // same string
+    EXPECT_TRUE(s1.compare("hello world"));  // same string, using template
+    EXPECT_FALSE(s1.compare("hello", 5));  // length mismatch
+    EXPECT_FALSE(s1.compare("hello", 6));  // null mismatch
+}

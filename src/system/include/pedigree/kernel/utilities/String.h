@@ -90,6 +90,22 @@ class EXPORTED_PUBLIC String
     bool operator==(const StringView &s) const;
     bool operator==(const char *s) const;
 
+    /** Perform a string comparison with the given string. */
+    bool compare(const char *s, size_t len) const;
+
+    /**
+     * Perform a string comparison with the given constant string.
+     * You should use this rather than operator== for these types of
+     * comparisons as this uses a length hint to potentially avoid
+     * an actual comparison of the string contents.
+     */
+    template<size_t N>
+    bool compare(const char (&s)[N]) const
+    {
+        // ignore null in c-string for comparison
+        return compare(s, N - 1);
+    }
+
     char operator[](size_t i) const;
 
     const char *cstr() const
@@ -211,6 +227,8 @@ class EXPORTED_PUBLIC String
     /** Recompute internal hash but don't store it. */
     uint32_t computeHash() const;
   private:
+    /** Extract hash without recomputing it. */
+    uint32_t maybeHash() const;
     /** Extract the correct string buffer for this string. */
     virtual char *extract() const;
     /** Move another string into this one. */
@@ -235,6 +253,11 @@ class EXPORTED_PUBLIC String
     void setSize(size_t n);
 };
 
+/** Class for immmutable strings with values known at compile time.
+ *
+ * \todo make String hashes more expressive so we can do a compile-time hash
+ * of these ConstantString objects and avoid the runtime computation.
+ */
 template <size_t N>
 class ConstantString : public String
 {

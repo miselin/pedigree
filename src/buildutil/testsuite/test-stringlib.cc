@@ -161,7 +161,7 @@ TEST(PedigreeStringLibrary, MatchLess)
 TEST(PedigreeStringLibrary, MatchSome)
 {
     EXPECT_EQ(StringMatchN("abcdef", "abc", 3), 0);
-    EXPECT_GT(StringMatchN("abcdef", "abc", 4), 0);
+    EXPECT_EQ(StringMatchN("abcdef", "abc", 4), 1);
     EXPECT_EQ(StringMatchN("abcdef", "abc", 1), 0);
     EXPECT_EQ(StringMatchN("abcdef", "abc", 0), 0);
 }
@@ -169,7 +169,7 @@ TEST(PedigreeStringLibrary, MatchSome)
 TEST(PedigreeStringLibrary, MatchSomeOtherLonger)
 {
     EXPECT_EQ(StringMatchN("abc", "abcdef", 3), 0);
-    EXPECT_LT(StringMatchN("abc", "abcdef", 4), 0);
+    EXPECT_EQ(StringMatchN("abc", "abcdef", 4), 1);
     EXPECT_EQ(StringMatchN("abc", "abcdef", 1), 0);
     EXPECT_EQ(StringMatchN("abc", "abcdef", 0), 0);
 }
