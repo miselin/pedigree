@@ -163,9 +163,15 @@ static void LoadDirents(std::vector<String> &result)
         std::string s;
         std::getline(ifs, s);
 
-        String word(s.c_str());
-        result.push_back(pedigree_std::move(word));
+        if (!s.length())
+        {
+            continue;
+        }
+
+        result.emplace_back(s.c_str(), s.length());
     }
+
+    assert(result.size());
 }
 
 template <class T>
