@@ -185,6 +185,36 @@ TEST(PedigreeRadixTree, Prefixes)
     EXPECT_EQ(result.value(), 5);
 }
 
+TEST(PedigreeRadixTree, PrefixesCaseInsensitive)
+{
+    RadixTree<int> x(false);
+    x.insert(String("toast"), 1);
+    x.insert(String("toasted"), 2);
+    x.insert(String("toaster"), 3);
+    x.insert(String("toasting"), 4);
+    x.insert(String("toastier"), 5);
+
+    RadixTree<int>::LookupType result = x.lookup(String("toast"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("toasted"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
+
+    result = x.lookup(String("toaster"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("toasting"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
+
+    result = x.lookup(String("toastier"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 5);
+}
+
 TEST(PedigreeRadixTree, SplitKeys)
 {
     RadixTree<int> x;
