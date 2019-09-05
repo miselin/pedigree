@@ -582,7 +582,7 @@ int StringContainsN(
 }
 
 int StringCompareCase(
-    const char *s1, const char *s2, int sensitive, size_t length,
+    const char *restrict s1, const char *restrict s2, int sensitive, size_t length,
     size_t *offset)
 {
     // Case-sensitive compare is just strncmp, basically.
@@ -618,32 +618,32 @@ int StringCompareCase(
         offset = &local;
     }
 
-    // Case insensitive search.
-    size_t i = 0;
-    while (*s1 && *s2)
+    size_t i;
+    char c1 = 0, c2 = 0, r1 = 0, r2 = 0;
+    for (i = 0; i < length; ++i)
     {
-        char c = *s1 - *s2;
-        if (c)
+        r1 = s1[i];
+        r2 = s2[i];
+        c1 = toLower(r1);
+        c2 = toLower(r2);
+
+        if (c1 != c2)
         {
-            // Didn't match, check if that's because the case was wrong.
-            c = toLower(*s1) - toLower(*s2);
-            if (c)
+            if (offset)
             {
-                break;
+                *offset = i;
             }
-        }
-        else if (!--length)
-        {
+
             break;
         }
 
-        ++s1;
-        ++s2;
-        ++i;
+        if (!c1)
+        {
+            break;
+        }
     }
 
-    *offset = i;
-    return toLower(*s1) - toLower(*s2);
+    return r1 - r2;
 }
 
 size_t nextCharacter(const char *s, size_t i)

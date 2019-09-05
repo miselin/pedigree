@@ -217,7 +217,7 @@ TEST(PedigreeStringLibrary, CompareCaseLess)
     size_t off = 0;
     EXPECT_EQ(StringCompareCase("abc", "bcd", false, 3, &off), 'a' - 'b');
     EXPECT_EQ(off, 0);
-    EXPECT_EQ(StringCompareCase("ABC", "bcd", false, 3, &off), 'a' - 'b');
+    EXPECT_EQ(StringCompareCase("ABC", "bcd", false, 3, &off), 'A' - 'b');
     EXPECT_EQ(off, 0);
     EXPECT_EQ(StringCompareCase("ABC", "bcd", true, 3, &off), 'A' - 'b');
     EXPECT_EQ(off, 0);
