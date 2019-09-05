@@ -268,6 +268,8 @@ static void BM_StringFind(benchmark::State &state)
         int64_t(state.iterations()) * int64_t(state.range(0)));
     state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
+
+    delete [] buf;
 }
 
 static void BM_StringReverseFind(benchmark::State &state)
@@ -286,22 +288,26 @@ static void BM_StringReverseFind(benchmark::State &state)
         int64_t(state.iterations()) * int64_t(state.range(0)));
     state.SetItemsProcessed(int64_t(state.iterations()));
     state.SetComplexityN(state.range(0));
+
+    delete [] buf;
 }
 
 static void BM_StringConcat(benchmark::State &state)
 {
     char *buf1 = new char[(state.range(0) * 2) + 1];
-    char *buf2 = new char[state.range(0)];
+    char *buf2 = new char[state.range(0) + 1];
     memset(buf1, 'a', state.range(0) * 2);
     memset(buf2, 'a', state.range(0));
 
     buf1[state.range(0) * 2] = 0;
     buf2[state.range(0)] = 0;
 
-    while (state.KeepRunning())
+    for (auto _ : state)
     {
         buf1[state.range(0)] = 0;
+        benchmark::DoNotOptimize(buf1);
         StringConcat(buf1, buf2);
+        benchmark::ClobberMemory();
     }
 
     state.SetBytesProcessed(

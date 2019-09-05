@@ -219,7 +219,7 @@ static void BM_CxxStringRStrip(benchmark::State &state)
 
 static void BM_CxxStringSplit(benchmark::State &state)
 {
-    char *buf = new char[state.range(0)];
+    char *buf = new char[state.range(0) + 1];
     memset(buf, 'a', state.range(0));
     buf[state.range(0)] = 0;
 
@@ -233,11 +233,13 @@ static void BM_CxxStringSplit(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
     // cater for the string assignment which is also O(N)
     state.SetComplexityN(state.range(0) * 2);
+
+    delete [] buf;
 }
 
 static void BM_CxxStringSplitRef(benchmark::State &state)
 {
-    char *buf = new char[state.range(0)];
+    char *buf = new char[state.range(0) + 1];
     memset(buf, 'a', state.range(0));
     buf[state.range(0)] = 0;
 
@@ -252,6 +254,8 @@ static void BM_CxxStringSplitRef(benchmark::State &state)
     state.SetItemsProcessed(int64_t(state.iterations()));
     // cater for the string assignment which is also O(N)
     state.SetComplexityN(state.range(0) * 2);
+
+    delete [] buf;
 }
 
 static void BM_CxxStringTokenize(benchmark::State &state)
@@ -445,6 +449,60 @@ static void BM_CxxStringCompareRawWorstCase(benchmark::State &state)
     state.SetComplexityN(state.range(0));
 }
 
+static void BM_CxxStringCompareRawFuncBestCase(benchmark::State &state)
+{
+    char left[state.range(0)];
+    char right[state.range(0)];
+    memset(left, 'a', state.range(0));
+    memset(right, 'a', state.range(0));
+    right[0] = 'b';  // very early fail
+
+    String l(left, state.range(0));
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(l.compare(right, state.range(0)));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawFuncAverageCase(benchmark::State &state)
+{
+    char left[state.range(0)];
+    char right[state.range(0)];
+    memset(left, 'a', state.range(0));
+    memset(right, 'a', state.range(0));
+    right[state.range(0) / 2] = 'b';  // middle range fail
+
+    String l(left, state.range(0));
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(l.compare(right, state.range(0)));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawFuncWorstCase(benchmark::State &state)
+{
+    char left[state.range(0)];
+    char right[state.range(0)];
+    memset(left, 'a', state.range(0));
+    memset(right, 'a', state.range(0));
+    right[state.range(0) - 1] = 'b';  // end of range fail
+
+    String l(left, state.range(0)), r(right, state.range(0));
+    while (state.KeepRunning())
+    {
+        benchmark::DoNotOptimize(l.compare(right, state.range(0)));
+    }
+
+    state.SetItemsProcessed(int64_t(state.iterations()));
+    state.SetComplexityN(state.range(0));
+}
+
 BENCHMARK(BM_CxxStringCreation);
 BENCHMARK(BM_CxxStringCreationConstexpr);
 BENCHMARK(BM_CxxStringCopyToStatic);
@@ -468,3 +526,6 @@ BENCHMARK(BM_CxxStringCompareWorstCase)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringCompareRawBestCase)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringCompareRawAverageCase)->Range(8, 4096)->Complexity();
 BENCHMARK(BM_CxxStringCompareRawWorstCase)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringCompareRawFuncBestCase)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringCompareRawFuncAverageCase)->Range(8, 4096)->Complexity();
+BENCHMARK(BM_CxxStringCompareRawFuncWorstCase)->Range(8, 4096)->Complexity();
