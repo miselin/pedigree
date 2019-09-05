@@ -346,8 +346,8 @@ TEST(PedigreeString, AssignNull)
 TEST(PedigreeString, AssignBigEmpty)
 {
     String s;
-    s.assign("a", 1024);
-    EXPECT_EQ(s.size(), 1024);
+    s.assign("a", 1025);
+    EXPECT_EQ(s.size(), 1025);
     EXPECT_EQ(s, "a");
     s.downsize();
     EXPECT_EQ(s.size(), 64);

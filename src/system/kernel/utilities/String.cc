@@ -188,11 +188,9 @@ bool String::operator==(const char *s) const
     }
     else
     {
-        size_t otherLength = StringLength(s);
-        if (m_Length != otherLength)
-        {
-            return false;
-        }
+        return !StringMatchN(buf, s, m_Length);
+    }
+}
 
         return !StringMatchN(buf, s, m_Length);
     }
@@ -332,7 +330,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
     }
     else
     {
-        reserve((origLength ? origLength : copyLength + 1), false);
+        reserve(copyLength + 1, false);
         MemoryCopy(m_Data, s, copyLength);
         m_Data[copyLength] = '\0';
     }
