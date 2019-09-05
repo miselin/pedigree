@@ -288,7 +288,7 @@ bool Filesystem::remove(const StringView &path, File *pStartNode)
             for (auto it : removalDir->getCache())
             {
                 const String &name = (*it)->getName();
-                if (name != "." && name != "..")
+                if (!(name.compare(".", 1) || name.compare("..", 2)))
                 {
                     SYSCALL_ERROR(NotEmpty);
                     return false;

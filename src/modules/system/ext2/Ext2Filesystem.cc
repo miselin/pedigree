@@ -534,7 +534,7 @@ bool Ext2Filesystem::remove(File *parent, File *file)
     bool result = pE2Parent->removeEntry(filename, pNode);
 
     // Update the group descriptor directory count to reflect the deletion.
-    if (result && file->isDirectory() && (filename != "." && filename != ".."))
+    if (result && file->isDirectory() && !(filename.compare(".") || filename.compare("..")))
     {
         uint32_t inode_num = pNode->getInodeNumber();
 

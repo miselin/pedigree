@@ -194,6 +194,8 @@ static bool doChdir(File *dir)
 static bool
 doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
 {
+    static ConstantString nullName = MakeConstantString("null");
+
     if (traverse)
     {
         pFile = traverseSymlink(pFile);
@@ -208,7 +210,7 @@ doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
     /// \todo files really should be able to expose their "type"...
     if (ConsoleManager::instance().isConsole(pFile) ||
         (name && !StringCompare(name, "/dev/null")) ||
-        (pFile && pFile->getName() == "null"))
+        (pFile && pFile->getName() == nullName))
     {
         F_NOTICE("    -> S_IFCHR");
         mode = S_IFCHR;
@@ -293,7 +295,7 @@ doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
     if (pFs == g_pDevFs)
     {
         if ((name && !StringCompare(name, "/dev/null")) ||
-            (pFile->getName() == "null"))
+            (pFile->getName() == nullName))
         {
             F_NOTICE("/dev/null, fixing st_rdev");
             // major/minor device numbers
@@ -2708,7 +2710,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     bool openingCtty = false;
     String nameToOpen;
     normalisePath(nameToOpen, pathname, &onDevFs);
-    if (nameToOpen == "/dev/tty")
+    if (nameToOpen.compare("/dev/tty"))
     {
         openingCtty = true;
 
@@ -3894,7 +3896,7 @@ static int do_statfs(File *file, struct statfs *buf)
         F_NOTICE(" -> file '" << file->getName() << "' is on devfs");
 
         // Special handling for devfs
-        if (file->getName() == "pts")
+        if (file->getName().compare("pts"))
         {
             F_NOTICE(" -> filling statfs struct with /dev/pts data");
             ByteSet(buf, 0, sizeof(*buf));
@@ -4032,7 +4034,7 @@ int posix_mount(
     Directory *targetDir = Directory::fromFile(targetFile);
 
     // Check for special filesystems.
-    if (fstype == "proc")
+    if (fstype.compare("proc"))
     {
         F_NOTICE(" -> adding another procfs mount");
 
@@ -4054,7 +4056,7 @@ int posix_mount(
         targetDir->setReparsePoint(Directory::fromFile(pFs->getRoot()));
         return 0;
     }
-    else if (fstype == "tmpfs")
+    else if (fstype.compare("tmpfs"))
     {
         F_NOTICE(" -> creating new tmpfs");
 

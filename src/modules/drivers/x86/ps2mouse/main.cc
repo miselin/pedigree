@@ -40,7 +40,7 @@ static bool entry()
 
         if (p->addresses().count() > 0)
         {
-            if (p->addresses()[0]->m_Name == "ps2-base")
+            if (p->addresses()[0]->m_Name.compare("ps2-base", 8))
             {
                 Ps2Controller *controller = static_cast<Ps2Controller *>(p);
 

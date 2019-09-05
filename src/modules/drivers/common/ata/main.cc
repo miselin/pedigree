@@ -98,10 +98,9 @@ static Device *removeIsaAta(Device *dev)
         bool foundControl = false;
         for (unsigned int j = 0; j < dev->addresses().count(); j++)
         {
-            /// \todo Problem with String::operator== - fix.
-            if (dev->addresses()[j]->m_Name == "command")
+            if (dev->addresses()[j]->m_Name.compare("command"))
                 foundCommand = true;
-            if (dev->addresses()[j]->m_Name == "control")
+            if (dev->addresses()[j]->m_Name.compare("control"))
                 foundControl = true;
         }
 
@@ -196,10 +195,9 @@ static Device *probeDisk(Device *pDev)
             bool foundControl = false;
             for (unsigned int j = 0; j < pDev->addresses().count(); j++)
             {
-                /// \todo Problem with String::operator== - fix.
-                if (pDev->addresses()[j]->m_Name == "command")
+                if (pDev->addresses()[j]->m_Name.compare("command"))
                     foundCommand = true;
-                if (pDev->addresses()[j]->m_Name == "control")
+                if (pDev->addresses()[j]->m_Name.compare("control"))
                     foundControl = true;
             }
             if (allowProbing && foundCommand && foundControl)

@@ -41,14 +41,14 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     bool bPortsFound = false;
     for (unsigned int i = 0; i < m_Addresses.count(); i++)
     {
-        if (m_Addresses[i]->m_Name == "command" ||
-            m_Addresses[i]->m_Name == "bar0")
+        if (m_Addresses[i]->m_Name.compare("command") ||
+            m_Addresses[i]->m_Name.compare("bar0"))
         {
             m_pCommandRegs = m_Addresses[i]->m_Io;
             bPortsFound = true;
         }
-        if (m_Addresses[i]->m_Name == "control" ||
-            m_Addresses[i]->m_Name == "bar1")
+        if (m_Addresses[i]->m_Name.compare("control") ||
+            m_Addresses[i]->m_Name.compare("bar1"))
         {
             m_pControlRegs = m_Addresses[i]->m_Io;
             bPortsFound = true;

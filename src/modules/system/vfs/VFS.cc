@@ -248,7 +248,6 @@ Filesystem *VFS::lookupFilesystem(const String &alias)
 Filesystem *VFS::lookupFilesystem(const HashedStringView &alias)
 {
     AliasTable::LookupResult result = m_Aliases.lookup(alias);
-    NOTICE("alias lookup hasValue: " << result.hasValue());
     return result.hasValue() ? result.value() : nullptr;
 }
 

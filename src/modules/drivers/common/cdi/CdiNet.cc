@@ -123,7 +123,7 @@ EXPORTED_PUBLIC void cdi_net_receive(struct cdi_net_device* device, void* buffer
     auto f = [&] (Device *p) {
         if (p->getType() == Device::Network)
         {
-            if (p->getSpecificType() == "CDI NIC")
+            if (p->getSpecificType().compare("CDI NIC"))
             {
                 CdiNet *pNet = static_cast<CdiNet *>(p);
                 if (pNet->getCdiDevice() == device)
