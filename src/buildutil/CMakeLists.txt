@@ -276,7 +276,7 @@ if (BENCHMARK_LIBRARY)
     )
     target_link_libraries(benchmarker PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
-    target_compile_options(benchmarker PRIVATE "-Os" "-march=native" "-mtune=native")
+    target_compile_options(benchmarker PRIVATE "-Os" "-march=k8" "-mtune=k8" "-mno-sse" "-mno-mmx" "-mno-red-zone" "-fno-omit-frame-pointer")
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 
     export(
