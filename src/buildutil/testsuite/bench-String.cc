@@ -226,7 +226,7 @@ static void BM_CxxStringSplit(benchmark::State &state)
     String s;
     while (state.KeepRunning())
     {
-        s.assign(buf, state.range(0));
+        s.assign(buf, state.range(0), true);
         benchmark::DoNotOptimize(s.split(state.range(0) / 2));
     }
 

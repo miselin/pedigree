@@ -272,7 +272,6 @@ void String::assign(const String &x)
     {
         assert(extract() != x.extract());
     }
-    clear();
 
     reserve(x.size(), false);
     MemoryCopy(m_Data, x.extract(), x.size());
@@ -294,7 +293,6 @@ void String::assign(const Cord &x)
 {
     assert(assignable());
 
-    clear();
     reserve(x.length() + 1);
 
     size_t offset = 0;
@@ -317,8 +315,6 @@ void String::assign(const Cord &x)
 void String::assign(const char *s, size_t len, bool unsafe)
 {
     assert(assignable());
-
-    clear();
 
     // Trying to assign self to self?
     assert((m_Data == nullptr) || (m_Data && (m_Data != s)));
@@ -483,7 +479,7 @@ void String::split(size_t offset, String &back)
 
     char *buf = extract();
 
-    back.assign(&buf[offset]);
+    back.assign(&buf[offset], m_Length - offset, true);
     m_Length = offset;
     buf[m_Length] = 0;
 
