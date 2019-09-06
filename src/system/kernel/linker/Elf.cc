@@ -1458,6 +1458,13 @@ void Elf::preallocateSymbols(
         pSymtabOverride = &m_SymbolTable;
     }
 
+
+    if (pSymtabOverride->hasPreallocated())
+    {
+        NOTICE("no need to preallocate, already done");
+        return;
+    }
+
     size_t numLocal = 0;
     size_t numWeak = 0;
     size_t numGlobal = 0;

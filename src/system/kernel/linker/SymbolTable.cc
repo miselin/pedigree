@@ -25,7 +25,7 @@
 
 SymbolTable::SymbolTable(Elf *pElf)
     : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
-      m_pOriginatingElf(pElf)
+      m_pOriginatingElf(pElf),  m_bPreallocated(false)
 {
 }
 
@@ -75,6 +75,8 @@ void SymbolTable::preallocate(
 
     tree = getOrInsertTree(localElf, Weak);
     tree->reserve(numWeak);
+
+    m_bPreallocated = true;
 }
 
 void SymbolTable::preallocateAdditional(
@@ -88,6 +90,13 @@ void SymbolTable::preallocateAdditional(
 
     tree = getOrInsertTree(localElf);
     tree->reserve(tree->count() + numLocal);
+
+    m_bPreallocated = true;
+}
+
+bool SymbolTable::hasPreallocated() const
+{
+    return m_bPreallocated;
 }
 
 SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
