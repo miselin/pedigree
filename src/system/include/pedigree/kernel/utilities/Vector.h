@@ -113,6 +113,23 @@ class EXPORTED_PUBLIC Vector
     /** Add an element to the end of the Vector
      *\param[in] value the element */
     void pushBack(const T &value);
+    /** Create an element in place at the end of the Vector */
+    template <class... Args>
+    void createBack(Args&&... args)
+    {
+        reserve(m_Count + 1, true);
+
+        // If we've hit the end of the reserved space we can use, we need to move
+        // the existing entries (rather than this happening in each reserve).
+        if ((m_Start + m_Count + 1) > m_Size)
+        {
+            pedigree_std::copy(m_Data, m_Data + m_Start, m_Count);
+            m_Start = 0;
+        }
+
+        T *loc = &m_Data[m_Start + m_Count++];
+        new (loc) T(pedigree_std::forward<Args>(args)...);
+    }
     /** Move a value to the end of the Vector
      *\param[in] value the value that should be added */
     void pushBack(T &&value);
@@ -459,9 +476,9 @@ void Vector<T>::reserve(size_t size, bool copy, bool free)
     m_Data = new T[size];
     if (tmp != 0)
     {
-        if ((copy == true) && m_Size)
+        if ((copy == true) && m_Count)
         {
-            pedigree_std::copy(m_Data, tmp + m_Start, m_Size - m_Start);
+            pedigree_std::copy(m_Data, tmp + m_Start, m_Count - m_Start);
             m_Start = 0;
         }
         if (free)

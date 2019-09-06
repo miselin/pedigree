@@ -56,8 +56,10 @@ class EXPORTED_PUBLIC String
     // is that they will not be used accidentally.
     explicit String(const char *s);
     explicit String(const char *s, size_t length);
+    explicit String(const char *s, size_t length, bool unsafe);
     explicit String(const Cord &x);
     String(const String &x);
+    explicit String(const StringView &x);
     String(String &&x);
     virtual ~String();
 

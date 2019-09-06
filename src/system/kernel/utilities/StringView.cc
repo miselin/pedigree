@@ -150,7 +150,7 @@ StringView StringView::substring(size_t start, size_t end, bool hashed) const
 
 String StringView::toString() const
 {
-    return String(m_String, m_Length);
+    return String(m_String, m_Length, true);
 }
 
 char StringView::operator[](size_t index) const

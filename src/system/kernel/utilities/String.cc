@@ -43,9 +43,19 @@ String::String(const char *s, size_t length) : String()
     assign(s, length);
 }
 
+String::String(const char *s, size_t length, bool unsafe) : String()
+{
+    assign(s, length, unsafe);
+}
+
 String::String(const String &x) : String()
 {
     assign(x);
+}
+
+String::String(const StringView &x) : String()
+{
+    assign(x.str(), x.length(), true);
 }
 
 String::String(String &&x)
@@ -606,6 +616,8 @@ void String::tokenise(char token, Vector<StringView> &output) const
     const char *buffer = orig_buffer;
 
     output.clear();
+    // reserve for the worst-case, where we tokenise every character of this string
+    // output.reserve(m_Length, false);
 
     const char *pos = buffer ? StringFind(buffer, token) : nullptr;
     while (pos && (*buffer))
@@ -618,7 +630,7 @@ void String::tokenise(char token, Vector<StringView> &output) const
 
         if (pos > buffer)
         {
-            output.pushBack(StringView(buffer, pos - buffer));
+            output.createBack(buffer, pos - buffer);
         }
 
         buffer = pos + 1;
@@ -631,14 +643,14 @@ void String::tokenise(char token, Vector<StringView> &output) const
         // might be able to just copy this string rather than copy & move
         if (buffer == orig_buffer)
         {
-            output.pushBack(view());
+            output.createBack(view());
         }
         else
         {
             size_t length = m_Length - (buffer - orig_buffer);
             if (length)
             {
-                output.pushBack(StringView(buffer, length));
+                output.createBack(buffer, length);
             }
         }
     }
@@ -650,9 +662,10 @@ void String::tokenise(char token, Vector<String> &output) const
     tokenise(token, views);
 
     output.clear();
+    output.reserve(views.count(), false);
     for (auto &it : views)
     {
-        output.pushBack(it.toString());
+        output.createBack(it);
     }
 }
 

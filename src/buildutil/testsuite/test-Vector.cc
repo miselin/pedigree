@@ -23,6 +23,7 @@
 
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/String.h"
 
 TEST(PedigreeVector, Construction)
 {
@@ -490,4 +491,26 @@ TEST(PedigreeVector, PopFrontWorks)
     EXPECT_EQ(x.popFront(), 3);
     EXPECT_EQ(x.popFront(), 4);
     EXPECT_EQ(x.count(), 0);
+}
+
+TEST(PedigreeVector, CreateBack)
+{
+    Vector<int> x;
+    x.createBack(1);
+    x.createBack(2);
+    x.createBack(3);
+    EXPECT_EQ(x[0], 1);
+    EXPECT_EQ(x[1], 2);
+    EXPECT_EQ(x[2], 3);
+}
+
+TEST(PedigreeVector, CreateBackComplex)
+{
+    Vector<String> x;
+    x.createBack("foo", 3);
+    x.createBack("bar", 3);
+    x.createBack("baz", 3);
+    EXPECT_TRUE(x[0].compare("foo"));
+    EXPECT_TRUE(x[1].compare("bar"));
+    EXPECT_TRUE(x[2].compare("baz"));
 }
