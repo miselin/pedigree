@@ -2,7 +2,8 @@
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
 SET(CMAKE_BUILD_TYPE_INIT Debug)
-set (CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
@@ -86,7 +87,7 @@ cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 # NOTE: don't include optimization flags - they need to be added elsewhere based on input flags.
 set(GENERIC_COMPILE_FLAGS "-fvisibility=hidden" "-pipe")
 set(GENERIC_COMPILE_CFLAGS "-std=gnu99")
-set(GENERIC_COMPILE_CXXFLAGS "-std=gnu++11")
+set(GENERIC_COMPILE_CXXFLAGS "")
 set(GENERIC_LINKFLAGS "-fvisibility=hidden")
 
 if (NOT PEDIGREE_WARNINGS)
