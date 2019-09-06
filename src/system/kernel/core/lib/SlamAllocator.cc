@@ -1210,8 +1210,10 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
         // NOTE: use something else to allocate 4K or more.
         if (nBytes >= getPageSize())
         {
+#if __GNUC__ && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wframe-address"
+#endif
             // return address of operator new()
             void *ret0 = __builtin_return_address(0);
             void *ret1 = __builtin_return_address(1);
@@ -1219,7 +1221,9 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
                 "alloc of " << origSize << " rounded to " << nBytes
                             << " exceeds page size [at " << ret0 << " " << ret1
                             << "]!");
+#if __GNUC__ && !defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
         }
     }
 

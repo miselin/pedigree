@@ -440,7 +440,7 @@ class EXPORTED_PUBLIC StaticString
                 m_pData[i + length()] = '\0';
                 m_Length += nLen - length2;
 
-                nLen - length2;
+                nLen = length2;
             }
         }
 
