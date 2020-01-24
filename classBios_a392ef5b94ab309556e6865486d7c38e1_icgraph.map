@@ -1,0 +1,6 @@
+<map id="Bios::setEs" name="Bios::setEs">
+<area shape="rect" id="node2" href="$classX86Vga.html#ab3ddac7ec3fe300d7d7342f479702f21" title="X86Vga::rememberMode" alt="" coords="155,5,321,32"/>
+<area shape="rect" id="node4" href="$classX86Vga.html#a8692f979330972606c4503ef8a8d4fd1" title="X86Vga::restoreMode" alt="" coords="164,56,312,83"/>
+<area shape="rect" id="node5" href="$classVbeDisplay.html#ade3f4466a4d380c97c023c71555d2c38" title="VbeDisplay::setScreenMode" alt="" coords="144,107,332,133"/>
+<area shape="rect" id="node3" href="$classX86Vga.html#aabca82365c5d094d0aa496dfaf09784b" title="X86Vga::getNumRows" alt="" coords="380,31,536,57"/>
+</map>

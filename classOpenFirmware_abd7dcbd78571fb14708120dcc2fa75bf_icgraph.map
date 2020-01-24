@@ -1,0 +1,18 @@
+<map id="OpenFirmware::call" name="OpenFirmware::call">
+<area shape="rect" id="node2" href="$classOpenFirmware.html#a7ff532b226afc1f0b474b8cd8c1200e1" title="OpenFirmware::findDevice" alt="" coords="194,237,371,264"/>
+<area shape="rect" id="node3" href="$classOpenFirmware.html#a74045e21aa485b353d2df6405ff58bd6" title="OpenFirmware::instance" alt="" coords="425,288,589,315"/>
+<area shape="rect" id="node5" href="$classOFDevice.html#a9192702fee1e438b0096783f5fb099be" title="OFDevice::setProperty" alt="" coords="667,5,823,32"/>
+<area shape="rect" id="node16" href="$classOpenFirmware.html#a6b8b0dc92bd6358071f9ecdf28a1caa1" title="OpenFirmware::getFirstChild" alt="" coords="188,339,377,365"/>
+<area shape="rect" id="node17" href="$classOpenFirmware.html#a9a33209eed623dbe50353f4a19e9a9f9" title="OpenFirmware::getSibling" alt="" coords="197,389,369,416"/>
+<area shape="rect" id="node4" href="$classDecrementer.html#a73e0dea94b3bcd63345c3222a7d82bc2" title="Decrementer::initialise" alt="" coords="669,376,821,403"/>
+<area shape="rect" id="node6" href="$classHashedPageTable.html#a20d472881b91f0c51371c9fd4f606d65" title="HashedPageTable::initialise" alt="" coords="901,427,1085,453"/>
+<area shape="rect" id="node7" href="$classPPC32InterruptManager.html#a838686d5771d313f4a2febe5a5be75b1" title="PPC32InterruptManager\l::initialiseProcessor" alt="" coords="664,478,827,519"/>
+<area shape="rect" id="node9" href="$classPPCKeyboard.html#a184c82854eec3775c709af37ef49b258" title="PPCKeyboard::initialise" alt="" coords="665,56,825,83"/>
+<area shape="rect" id="node10" href="$classPPCKeyboard.html#a07506fa8973bcd0552230260bed0dd55" title="PPCKeyboard::getChar" alt="" coords="666,107,825,133"/>
+<area shape="rect" id="node11" href="$classPPCKeyboard.html#add99bcbc91a7c6d53aba9f3d24858aff" title="PPCKeyboard::getCharNonBlock" alt="" coords="637,157,853,184"/>
+<area shape="rect" id="node12" href="$classMac.html#ac6c2cad0ef05832c8741188e8db96497" title="Mac::~Mac" alt="" coords="701,544,789,571"/>
+<area shape="rect" id="node13" href="$classMac.html#adc59251940a11bb19e8d868960e2694d" title="Mac::initialiseDeviceTree" alt="" coords="661,208,830,235"/>
+<area shape="rect" id="node14" href="$classPPCVga.html#a99248961cc4536d151e37c4a0acf9b80" title="PPCVga::initialise" alt="" coords="681,259,809,285"/>
+<area shape="rect" id="node15" href="$classPPC32VirtualAddressSpace.html#ae996153cbe09e1f3ce516084c45b331d" title="PPC32VirtualAddressSpace\l::initialise" alt="" coords="652,310,839,351"/>
+<area shape="rect" id="node8" href="$classPPC32InterruptManager.html#abd26cbece2398b67fb0bf0640fd09e6f" title="PPC32InterruptManager\l::instance" alt="" coords="912,478,1075,519"/>
+</map>

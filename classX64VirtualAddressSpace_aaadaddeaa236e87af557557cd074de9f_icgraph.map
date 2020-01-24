@@ -1,0 +1,5 @@
+<map id="X64VirtualAddressSpace::toFlags" name="X64VirtualAddressSpace::toFlags">
+<area shape="rect" id="node2" href="$classX64VirtualAddressSpace.html#a8aacbe71b943a44b5943274a4383bdab" title="X64VirtualAddressSpace\l::conditionalTableEntryAllocation" alt="" coords="220,5,432,47"/>
+<area shape="rect" id="node3" href="$classX64VirtualAddressSpace.html#a76df9f784135b53177d5270b81b1c7bd" title="X64VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="480,64,647,105"/>
+<area shape="rect" id="node4" href="$classX64VirtualAddressSpace.html#a930dd4caab25154fa0b614bbf2ebecc9" title="X64VirtualAddressSpace\l::conditionalTableEntryMapping" alt="" coords="224,123,428,164"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="IPv6" name="IPv6">
+<area shape="rect" id="node1" href="$group__lwip__opts.html" title="Options (lwipopts.h)" alt="" coords="5,64,144,91"/>
+<area shape="rect" id="node3" href="$group__lwip__opts__nd6.html" title="Neighbor discovery" alt="" coords="289,5,424,32"/>
+<area shape="rect" id="node4" href="$group__lwip__opts__mld6.html" title="Multicast listener\l discovery" alt="" coords="296,57,417,98"/>
+<area shape="rect" id="node5" href="$group__lwip__opts__icmp6.html" title="ICMP6" alt="" coords="325,123,388,149"/>
+</map>

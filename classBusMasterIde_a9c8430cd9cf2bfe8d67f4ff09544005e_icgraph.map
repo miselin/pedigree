@@ -1,0 +1,5 @@
+<map id="BusMasterIde::commandComplete" name="BusMasterIde::commandComplete">
+<area shape="rect" id="node2" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="277,42,416,69"/>
+<area shape="rect" id="node3" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="464,5,628,47"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="676,42,855,69"/>
+</map>

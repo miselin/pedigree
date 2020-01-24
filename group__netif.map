@@ -1,0 +1,7 @@
+<map id="Network interface (NETIF)" name="Network interface (NETIF)">
+<area shape="rect" id="node1" href="$group__netif__mib2.html" title="MIB2 statistics" alt="" coords="203,5,313,32"/>
+<area shape="rect" id="node2" href="$group__netif__cd.html" title="Client data handling" alt="" coords="189,56,327,83"/>
+<area shape="rect" id="node4" href="$group__netif__ip4.html" title="IPv4 address handling" alt="" coords="183,107,333,133"/>
+<area shape="rect" id="node5" href="$group__netif__ip6.html" title="IPv6 address handling" alt="" coords="183,157,333,184"/>
+<area shape="rect" id="node6" href="$group__netif__flags.html" title="Flags" alt="" coords="231,208,285,235"/>
+</map>

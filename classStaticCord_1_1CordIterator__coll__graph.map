@@ -1,0 +1,4 @@
+<map id="StaticCord&lt; N &gt;::CordIterator" name="StaticCord&lt; N &gt;::CordIterator">
+<area shape="rect" id="node2" href="$classStaticCord.html" title="{StaticCord\&lt; N \&gt;\n|&#45; m_Length\l&#45; m_NumSegments\l|+ StaticCord()\l+ StaticCord()\l+ ~StaticCord()\l+ operator=()\l+ assign()\l+ clear()\l+ length()\l+ operator[]()\l+ toString()\l+ append()\l+ begin()\l+ end()\l}" alt="" coords="41,175,176,428"/>
+<area shape="rect" id="node3" href="$structStaticCord_1_1CordSegment.html" title="{StaticCord\&lt; N \&gt;::CordSegment\n|+ ptr\l+ length\l|+ CordSegment()\l+ CordSegment()\l}" alt="" coords="5,5,212,112"/>
+</map>

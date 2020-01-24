@@ -1,0 +1,51 @@
+<map id="Semaphore::release" name="Semaphore::release">
+<area shape="rect" id="node2" href="$classRequestQueue.html#a0288772675c587225d38decf4d7490b3" title="RequestQueue::addRequest" alt="" coords="217,5,403,32"/>
+<area shape="rect" id="node3" href="$classProducerConsumer.html#a13404fb2d405ccfe688058bab5a7a8c2" title="ProducerConsumer::consumer\lThread" alt="" coords="479,30,678,71"/>
+<area shape="rect" id="node4" href="$classRequestQueue.html#a626fae68426621ecaf91e3970e852768" title="RequestQueue::destroy" alt="" coords="499,212,659,239"/>
+<area shape="rect" id="node6" href="$classConsoleFile.html#ab9dc9f3ec7172bb550a23cc53f0bd30a" title="ConsoleFile::eventComplete" alt="" coords="217,384,403,411"/>
+<area shape="rect" id="node7" href="$classRequestQueue.html#ab5593dd0ac26219af2c63e8f72667933" title="RequestQueue::halt" alt="" coords="241,259,379,285"/>
+<area shape="rect" id="node8" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="515,309,642,336"/>
+<area shape="rect" id="node12" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="248,435,372,461"/>
+<area shape="rect" id="node13" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="259,485,361,512"/>
+<area shape="rect" id="node15" href="$classPipe.html#adf69180c8c1d98a7a8671f73a3283f3e" title="Pipe::isFifo" alt="" coords="266,536,354,563"/>
+<area shape="rect" id="node16" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="509,579,649,621"/>
+<area shape="rect" id="node17" href="$classBuffer.html#a608cd7c19c8fe272b718784977dacc70" title="Buffer::notifyMonitors" alt="" coords="237,688,383,715"/>
+<area shape="rect" id="node18" href="$classAsidManager.html#a971575e394fbbdfc11ef0fec42b102f1" title="AsidManager::obtainAsid" alt="" coords="227,739,393,765"/>
+<area shape="rect" id="node19" href="$classPollEvent.html#a917b137fdd93d03f8eb1563aa995273a" title="PollEvent::PollEvent" alt="" coords="239,789,381,816"/>
+<area shape="rect" id="node20" href="$classInputManager.html#a82121acf33c2f2a588b28c260ed6cd8e" title="InputManager::putNotification" alt="" coords="213,840,407,867"/>
+<area shape="rect" id="node32" href="$classAsidManager.html#a03f17ebe6d324ce200b7a30e14782789" title="AsidManager::returnAsid" alt="" coords="227,891,393,917"/>
+<area shape="rect" id="node33" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="265,637,355,664"/>
+<area shape="rect" id="node35" href="$classInputManager.html#a1095125a4982c934faa19d177b0abde2" title="Shuts down the worker thread, clears queues, and removes callbacks. " alt="" coords="227,941,393,968"/>
+<area shape="rect" id="node36" href="$classUsbHub.html#a4939322b01966f474a45d98ffab8d8f3" title="Callback used by synchronous transactions. " alt="" coords="231,992,389,1019"/>
+<area shape="rect" id="node37" href="$group__sys__mutex.html#ga5568f68898fe9d5735f9ce2f665624fb" title="sys_mutex_unlock" alt="" coords="245,1043,375,1069"/>
+<area shape="rect" id="node39" href="$group__sys__sem.html#gaaf800273061fcc3f8200fd4e1b9ca875" title="sys_sem_signal" alt="" coords="252,1093,368,1120"/>
+<area shape="rect" id="node40" href="$classPosixSubsystem.html#a035a2f15c214a2658af85845e1a6ea29" title="PosixSubsystem::threadRemoved" alt="" coords="199,1144,421,1171"/>
+<area shape="rect" id="node41" href="$classLockedFile.html#aee7ee80676637f2133ecda620f518801" title="LockedFile::unlock" alt="" coords="245,1195,375,1221"/>
+<area shape="rect" id="node43" href="$classKernelElf.html#a35644e7e9968b1e027fdaa47ccd5a6d4" title="KernelElf::updateModuleStatus" alt="" coords="209,1245,411,1272"/>
+<area shape="rect" id="node45" href="$classConditionVariable.html#abd9f7f84df4b8efc7e1f0b0f34a91887" title="ConditionVariable::wait" alt="" coords="232,107,388,133"/>
+<area shape="rect" id="node47" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="506,161,651,188"/>
+<area shape="rect" id="node49" href="$classPipe.html#af4519cc3f1f13857a724db7b2220eefa" title="Pipe::~Pipe" alt="" coords="265,1296,355,1323"/>
+<area shape="rect" id="node50" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="192,1347,428,1373"/>
+<area shape="rect" id="node5" href="$classRequestQueue.html#a5f2f469937c7769d19158c7771b4a676" title="RequestQueue::RequestQueue" alt="" coords="729,212,933,239"/>
+<area shape="rect" id="node9" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="752,263,911,305"/>
+<area shape="rect" id="node10" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="764,329,899,356"/>
+<area shape="rect" id="node11" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="772,380,891,407"/>
+<area shape="rect" id="node14" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="508,485,649,512"/>
+<area shape="rect" id="node21" href="$classInputManager.html#afee32176f3cb0cc9870912a714a1b903" title="Called whenever joystick input comes in. " alt="" coords="733,992,929,1019"/>
+<area shape="rect" id="node23" href="$classInputManager.html#af673e1a06c5ca849c1b0a73d7fdda504" title="Called whenever a key is pressed and needs to be added to the queue. " alt="" coords="489,840,668,867"/>
+<area shape="rect" id="node27" href="$classInputManager.html#a5624b9c0f40e18b969d1282e5a73413d" title="Called whenever a machine&#45;specific key scancode comes in. " alt="" coords="741,673,922,714"/>
+<area shape="rect" id="node28" href="$classInputManager.html#ab6b0c1ad4b4bcc3c5b32352d4b4dae3e" title="Called whenever mouse input comes in. " alt="" coords="483,891,674,917"/>
+<area shape="rect" id="node30" href="$classInputManager.html#a9bf0c22e1c284bb9ffb17e5b821dcbab" title="InputManager::rawKeyUpdate" alt="" coords="481,789,676,816"/>
+<area shape="rect" id="node22" href="$namespaceHidUtils.html#a61723805418c7b34c156f9f6f78e30a5" title="Sends the input to the right handler in HidInputManager or InputManager. " alt="" coords="981,840,1180,867"/>
+<area shape="rect" id="node24" href="$classHidInputManager.html#a86c6c600c705cfc5cc83d5dc9a9b3dcc" title="Called when a key transitions to the &quot;down&quot; state. " alt="" coords="739,789,923,816"/>
+<area shape="rect" id="node26" href="$classHidInputManager.html#a8c200ef0915c486e17428098415914bd" title="HidInputManager::timer" alt="" coords="752,840,911,867"/>
+<area shape="rect" id="node25" href="$classX86Keyboard.html#adb114f4c9dd97405675f675ab4ce572e" title="X86Keyboard::setLedState" alt="" coords="991,739,1170,765"/>
+<area shape="rect" id="node29" href="$classPs2Mouse.html#afc4f5a7510f1720f7078ec1cff05d46f" title="Ps2Mouse::initialise" alt="" coords="762,941,901,968"/>
+<area shape="rect" id="node31" href="$classHidInputManager.html#affc71392e9963d26c47a2426677f7681" title="Called when a key transitions to the &quot;up&quot; state. " alt="" coords="748,739,915,765"/>
+<area shape="rect" id="node34" href="$classNe2k.html#afb3182a707c388a10b732a5d879d4450" title="Ne2k::getName" alt="" coords="521,645,636,672"/>
+<area shape="rect" id="node38" href="$mem_8h.html#a932aa40d85b14cb7331625e012d12335" title="mem_malloc" alt="" coords="531,1043,627,1069"/>
+<area shape="rect" id="node42" href="$classFileDescriptor.html#aaf3da94e82c4a05406c6872a56701195" title="Destructor &#45; decreases file reference count. " alt="" coords="479,1195,679,1221"/>
+<area shape="rect" id="node44" href="$classKernelElf.html#a31f5887fc179330aad411bf3768e1d8d" title="KernelElf::getDependingModule" alt="" coords="476,1245,681,1272"/>
+<area shape="rect" id="node46" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="499,95,658,137"/>
+<area shape="rect" id="node48" href="$classRequestQueue.html#ada7823ce253c561696e67c183fdf0ec6" title="RequestQueue::trampoline" alt="" coords="743,161,920,188"/>
+</map>

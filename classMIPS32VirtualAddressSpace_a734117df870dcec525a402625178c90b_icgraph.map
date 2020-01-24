@@ -1,0 +1,6 @@
+<map id="MIPS32VirtualAddressSpace::getPageTableChunk" name="MIPS32VirtualAddressSpace::getPageTableChunk">
+<area shape="rect" id="node2" href="$classMIPS32VirtualAddressSpace.html#a32abb7a8493379c0519e3c136323c70f" title="MIPS32VirtualAddressSpace\l::getMapping" alt="" coords="261,5,451,47"/>
+<area shape="rect" id="node3" href="$classMIPS32TlbManager.html#a998f0f2bd358ac29a4c1c9a3f0085efb" title="MIPS32TlbManager::interrupt" alt="" coords="260,71,452,98"/>
+<area shape="rect" id="node4" href="$classMIPS32VirtualAddressSpace.html#afe8011f0bb1ed53d75eed22fd57d422b" title="MIPS32VirtualAddressSpace\l::isMapped" alt="" coords="261,123,451,164"/>
+<area shape="rect" id="node5" href="$classMIPS32VirtualAddressSpace.html#a38b0f79f6eb04c2b526dbc9ea1da5008" title="MIPS32VirtualAddressSpace::map" alt="" coords="244,189,468,215"/>
+</map>

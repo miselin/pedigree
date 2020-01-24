@@ -1,0 +1,3 @@
+<map id="PosixProcess" name="PosixProcess">
+<area shape="rect" id="node2" href="$classProcess.html" title="{Process\n|+ m_DeadThreads\l&#45; m_Threads\l&#45; m_NextTid\l&#45; m_Id\l&#45; str\l&#45; m_pParent\l&#45; m_pAddressSpace\l&#45; m_ExitStatus\l&#45; m_Cwd\l&#45; m_Ctty\l&#45; m_SpaceAllocator\land 18 more...\l&#45; m_pInitProcess\l|+ Process()\l+ Process()\l+ ~Process()\l+ addThread()\l+ removeThread()\l+ getNumThreads()\l+ getThread()\l+ getId()\l+ description()\l+ getAddressSpace()\land 53 more...\l+ getInit()\l+ setInit()\l&#45; Process()\l&#45; operator=()\l&#45; reportTimesUpdated()\l&#45; processTerminated()\l&#45; notifyWaiters()\l}" alt="" coords="11,5,167,508"/>
+</map>

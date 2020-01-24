@@ -1,0 +1,8 @@
+<map id="InterruptHandler::interrupt" name="InterruptHandler::interrupt">
+<area shape="rect" id="node2" href="$classHostedInterruptManager.html#a08f5c431954d98c6969c16ffd71d26a9" title="HostedInterruptManager\l::interrupt" alt="" coords="224,5,387,47"/>
+<area shape="rect" id="node4" href="$classX64InterruptManager.html#a4a8f6a6ce39a3df3a2a99130e933999e" title="X64InterruptManager\l::interrupt" alt="" coords="234,71,377,112"/>
+<area shape="rect" id="node6" href="$classX86InterruptManager.html#ace9bf483e58430fb8486eda6470af678" title="X86InterruptManager\l::interrupt" alt="" coords="234,136,377,177"/>
+<area shape="rect" id="node3" href="$classHostedInterruptManager.html#a5652dd89389ea7d581e447f4e18a1023" title="HostedInterruptManager\l::instance" alt="" coords="435,5,597,47"/>
+<area shape="rect" id="node5" href="$classX64InterruptManager.html#a79ca4aed2cc2f849fe96d52f6f3d437e" title="X64InterruptManager\l::instance" alt="" coords="445,71,587,112"/>
+<area shape="rect" id="node7" href="$classX86InterruptManager.html#a8183bf96fbad7080e780cb9c456dea73" title="X86InterruptManager\l::instance" alt="" coords="445,136,587,177"/>
+</map>

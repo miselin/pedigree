@@ -1,0 +1,8 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classPhysicalMemoryManager.html" title="PhysicalMemoryManager" alt="" coords="5,115,175,141"/>
+<area shape="rect" id="node2" href="$classArmV7PhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common arm. " alt="" coords="241,5,450,32"/>
+<area shape="rect" id="node3" href="$classHostedPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common x86. " alt="" coords="240,56,451,83"/>
+<area shape="rect" id="node4" href="$classMipsCommonPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common mips. " alt="" coords="245,107,445,149"/>
+<area shape="rect" id="node5" href="$classPpcCommonPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common ppc. " alt="" coords="223,173,468,200"/>
+<area shape="rect" id="node6" href="$classX86CommonPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common x86. " alt="" coords="223,224,468,251"/>
+</map>

@@ -1,0 +1,51 @@
+<map id="List::count" name="List::count">
+<area shape="rect" id="node2" href="$classEvent.html#a73b55b706f7cf057ccba3c28069c1934" title="Event::Event" alt="" coords="183,91,282,117"/>
+<area shape="rect" id="node6" href="$classThread.html#a46bc93c8f782ae76ce78e7080140d1f3" title="Thread::getNextEvent" alt="" coords="157,176,308,203"/>
+<area shape="rect" id="node8" href="$classProcess.html#a37516a31cdaead1c44b67d0308acc6f5" title="Process::getUserId" alt="" coords="165,287,300,313"/>
+<area shape="rect" id="node11" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="412,400,579,427"/>
+<area shape="rect" id="node15" href="$classNetworkFilter.html#a079011edc806924856a2533bc507c5b9" title="NetworkFilter::installCallback" alt="" coords="136,400,329,427"/>
+<area shape="rect" id="node16" href="$classUhci.html#ab09bd68c4161dc0c694c0cff55347b4d" title="IRQ handler. " alt="" coords="197,451,268,477"/>
+<area shape="rect" id="node18" href="$classOhci.html#a2ddb51d83c6a046620eecb33c5a14e74" title="IRQ handler. " alt="" coords="197,501,268,528"/>
+<area shape="rect" id="node20" href="$classEvent.html#a7e8c984a65935b7e19e1650ea89321fb" title="Event::pendingCount" alt="" coords="161,603,305,629"/>
+<area shape="rect" id="node22" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="693,962,851,1003"/>
+<area shape="rect" id="node24" href="$classSemaphore.html#a608f82c98ce38a1ab8f93ae5d458fe1f" title="Semaphore::release" alt="" coords="163,1311,302,1337"/>
+<area shape="rect" id="node46" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="709,1995,835,2021"/>
+<area shape="rect" id="node50" href="$classOhci.html#a844e1d21343ac4ac6f09539f36952493" title="Prepares an ED to be reclaimed. " alt="" coords="173,552,292,579"/>
+<area shape="rect" id="node3" href="$classEvent.html#abde1491b9e0a2ca83403bb4655d474f6" title="Event::getEventType" alt="" coords="423,5,568,32"/>
+<area shape="rect" id="node4" href="$classIoEvent.html#a61d6d932713bcb9999341f777fee4106" title="IoEvent::IoEvent" alt="" coords="435,56,555,83"/>
+<area shape="rect" id="node5" href="$classPollEvent.html#a917b137fdd93d03f8eb1563aa995273a" title="PollEvent::PollEvent" alt="" coords="424,552,567,579"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="416,107,575,149"/>
+<area shape="rect" id="node9" href="$classPosixProcess.html#ab86623177a7f95092ed71d50d39943ad" title="PosixProcess::PosixProcess" alt="" coords="399,173,591,200"/>
+<area shape="rect" id="node10" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="689,275,855,301"/>
+<area shape="rect" id="node12" href="$classUnixSocket.html#a63b5ce22d230c6d24a5cb6b7e8e2c54f" title="UnixSocket::writeBytewise" alt="" coords="405,275,585,301"/>
+<area shape="rect" id="node13" href="$classVFS.html#a770c6986c962a9546641b278934116ff" title="VFS::checkAccess" alt="" coords="428,325,563,352"/>
+<area shape="rect" id="node14" href="$classPosixSubsystem.html#a035a2f15c214a2658af85845e1a6ea29" title="PosixSubsystem::threadRemoved" alt="" coords="661,515,883,541"/>
+<area shape="rect" id="node17" href="$classUhci.html#a34ff902b72d478cf2cde8aaeb96a5a81" title="Uhci::getName" alt="" coords="440,451,551,477"/>
+<area shape="rect" id="node19" href="$classOhci.html#a9ad430082fca345522d4eb7b78488b02" title="Ohci::getName" alt="" coords="440,501,551,528"/>
+<area shape="rect" id="node21" href="$classEvent.html#a5eded26f3623c8a06f80cda4c139eb95" title="Event::waitForDeliveries" alt="" coords="413,603,578,629"/>
+<area shape="rect" id="node23" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="931,962,1089,1003"/>
+<area shape="rect" id="node25" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="444,856,547,883"/>
+<area shape="rect" id="node26" href="$classAsidManager.html#a971575e394fbbdfc11ef0fec42b102f1" title="AsidManager::obtainAsid" alt="" coords="412,907,579,933"/>
+<area shape="rect" id="node27" href="$classAsidManager.html#a03f17ebe6d324ce200b7a30e14782789" title="AsidManager::returnAsid" alt="" coords="413,957,578,984"/>
+<area shape="rect" id="node28" href="$classBuffer.html#a608cd7c19c8fe272b718784977dacc70" title="Buffer::notifyMonitors" alt="" coords="422,1008,569,1035"/>
+<area shape="rect" id="node29" href="$classConditionVariable.html#abd9f7f84df4b8efc7e1f0b0f34a91887" title="ConditionVariable::wait" alt="" coords="417,1059,573,1085"/>
+<area shape="rect" id="node30" href="$classProducerConsumer.html#a13404fb2d405ccfe688058bab5a7a8c2" title="ProducerConsumer::consumer\lThread" alt="" coords="673,1141,871,1182"/>
+<area shape="rect" id="node31" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="699,1297,845,1324"/>
+<area shape="rect" id="node32" href="$classConsoleFile.html#ab9dc9f3ec7172bb550a23cc53f0bd30a" title="ConsoleFile::eventComplete" alt="" coords="402,1133,589,1160"/>
+<area shape="rect" id="node33" href="$classInputManager.html#a1095125a4982c934faa19d177b0abde2" title="Shuts down the worker thread, clears queues, and removes callbacks. " alt="" coords="413,1184,578,1211"/>
+<area shape="rect" id="node34" href="$classInputManager.html#a82121acf33c2f2a588b28c260ed6cd8e" title="InputManager::putNotification" alt="" coords="399,1235,592,1261"/>
+<area shape="rect" id="node35" href="$classKernelElf.html#a35644e7e9968b1e027fdaa47ccd5a6d4" title="KernelElf::updateModuleStatus" alt="" coords="394,1285,597,1312"/>
+<area shape="rect" id="node36" href="$classLockedFile.html#aee7ee80676637f2133ecda620f518801" title="LockedFile::unlock" alt="" coords="430,1539,561,1565"/>
+<area shape="rect" id="node37" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="433,1589,557,1616"/>
+<area shape="rect" id="node38" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="451,1488,540,1515"/>
+<area shape="rect" id="node39" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="702,1455,842,1497"/>
+<area shape="rect" id="node40" href="$classPipe.html#af4519cc3f1f13857a724db7b2220eefa" title="Pipe::~Pipe" alt="" coords="450,1741,541,1768"/>
+<area shape="rect" id="node41" href="$classPipe.html#adf69180c8c1d98a7a8671f73a3283f3e" title="Pipe::isFifo" alt="" coords="451,1792,539,1819"/>
+<area shape="rect" id="node42" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="377,1843,613,1869"/>
+<area shape="rect" id="node43" href="$classRequestQueue.html#a626fae68426621ecaf91e3970e852768" title="RequestQueue::destroy" alt="" coords="692,1665,852,1692"/>
+<area shape="rect" id="node44" href="$classRequestQueue.html#a0288772675c587225d38decf4d7490b3" title="RequestQueue::addRequest" alt="" coords="402,1893,589,1920"/>
+<area shape="rect" id="node45" href="$classRequestQueue.html#ab5593dd0ac26219af2c63e8f72667933" title="RequestQueue::halt" alt="" coords="426,1691,565,1717"/>
+<area shape="rect" id="node47" href="$group__sys__sem.html#gaaf800273061fcc3f8200fd4e1b9ca875" title="sys_sem_signal" alt="" coords="437,1944,553,1971"/>
+<area shape="rect" id="node48" href="$group__sys__mutex.html#ga5568f68898fe9d5735f9ce2f665624fb" title="sys_mutex_unlock" alt="" coords="430,755,561,781"/>
+<area shape="rect" id="node49" href="$classUsbHub.html#a4939322b01966f474a45d98ffab8d8f3" title="Callback used by synchronous transactions. " alt="" coords="417,805,574,832"/>
+</map>

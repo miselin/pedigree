@@ -1,0 +1,15 @@
+<map id="OpenFirmware::initialise" name="OpenFirmware::initialise">
+<area shape="rect" id="node2" href="$classOpenFirmware.html#a74045e21aa485b353d2df6405ff58bd6" title="OpenFirmware::instance" alt="" coords="216,275,380,301"/>
+<area shape="rect" id="node3" href="$classDecrementer.html#a73e0dea94b3bcd63345c3222a7d82bc2" title="Decrementer::initialise" alt="" coords="460,5,612,32"/>
+<area shape="rect" id="node4" href="$classOFDevice.html#a9192702fee1e438b0096783f5fb099be" title="OFDevice::setProperty" alt="" coords="458,56,614,83"/>
+<area shape="rect" id="node5" href="$classHashedPageTable.html#a20d472881b91f0c51371c9fd4f606d65" title="HashedPageTable::initialise" alt="" coords="692,107,876,133"/>
+<area shape="rect" id="node6" href="$classPPC32InterruptManager.html#a838686d5771d313f4a2febe5a5be75b1" title="PPC32InterruptManager\l::initialiseProcessor" alt="" coords="455,158,617,199"/>
+<area shape="rect" id="node8" href="$classPPCKeyboard.html#a184c82854eec3775c709af37ef49b258" title="PPCKeyboard::initialise" alt="" coords="456,224,616,251"/>
+<area shape="rect" id="node9" href="$classPPCKeyboard.html#a07506fa8973bcd0552230260bed0dd55" title="PPCKeyboard::getChar" alt="" coords="457,275,615,301"/>
+<area shape="rect" id="node10" href="$classPPCKeyboard.html#add99bcbc91a7c6d53aba9f3d24858aff" title="PPCKeyboard::getCharNonBlock" alt="" coords="428,325,644,352"/>
+<area shape="rect" id="node11" href="$classMac.html#ac6c2cad0ef05832c8741188e8db96497" title="Mac::~Mac" alt="" coords="492,376,580,403"/>
+<area shape="rect" id="node12" href="$classMac.html#adc59251940a11bb19e8d868960e2694d" title="Mac::initialiseDeviceTree" alt="" coords="451,427,621,453"/>
+<area shape="rect" id="node13" href="$classPPCVga.html#a99248961cc4536d151e37c4a0acf9b80" title="PPCVga::initialise" alt="" coords="472,477,600,504"/>
+<area shape="rect" id="node14" href="$classPPC32VirtualAddressSpace.html#ae996153cbe09e1f3ce516084c45b331d" title="PPC32VirtualAddressSpace\l::initialise" alt="" coords="443,529,629,570"/>
+<area shape="rect" id="node7" href="$classPPC32InterruptManager.html#abd26cbece2398b67fb0bf0640fd09e6f" title="PPC32InterruptManager\l::instance" alt="" coords="703,158,865,199"/>
+</map>

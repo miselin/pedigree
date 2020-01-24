@@ -1,0 +1,7 @@
+<map id="PhysicalMemoryManager" name="PhysicalMemoryManager">
+<area shape="rect" id="node2" href="$classArmV7PhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common arm. " alt="" coords="5,534,241,861"/>
+<area shape="rect" id="node3" href="$classHostedPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common x86. " alt="" coords="265,512,504,883"/>
+<area shape="rect" id="node4" href="$classMipsCommonPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common mips. " alt="" coords="529,571,747,824"/>
+<area shape="rect" id="node5" href="$classPpcCommonPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common ppc. " alt="" coords="771,549,1035,846"/>
+<area shape="rect" id="node6" href="$classX86CommonPhysicalMemoryManager.html" title="Implementation of the PhysicalMemoryManager for common x86. " alt="" coords="1059,483,1323,912"/>
+</map>

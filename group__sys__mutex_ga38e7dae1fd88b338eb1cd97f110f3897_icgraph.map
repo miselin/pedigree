@@ -1,0 +1,5 @@
+<map id="sys_mutex_new" name="sys_mutex_new">
+<area shape="rect" id="node2" href="$mem_8h.html#a44a136e3b70c36abb6f8dc060c778113" title="mem_init" alt="" coords="171,5,245,32"/>
+<area shape="rect" id="node4" href="$tcpip_8h.html#ac104b53faf0e3905ad0e970866835661" title="tcpip_init" alt="" coords="411,31,485,57"/>
+<area shape="rect" id="node3" href="$init_8h.html#a0c1a18439524d2f4a5e51d25c0ca2ce9" title="lwip_init" alt="" coords="293,5,363,32"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="ScsiDisk::getNativeBlockSize" name="ScsiDisk::getNativeBlockSize">
+<area shape="rect" id="node2" href="$classAtaDisk.html#a3c5bfa0f3176381f949abd413d97c563" title="AtaDisk::getNativeBlockSize" alt="" coords="252,5,444,32"/>
+<area shape="rect" id="node3" href="$classAtaDisk.html#aa5876dc6733efa665b6759e6cf6026bd" title="AtaDisk::getBusMaster" alt="" coords="492,5,651,32"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="699,5,837,32"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="1097,5,1276,32"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="885,27,1049,69"/>
+</map>

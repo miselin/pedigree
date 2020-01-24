@@ -1,0 +1,5 @@
+<map id="Timer::getDayOfMonth" name="Timer::getDayOfMonth">
+<area shape="rect" id="node2" href="$classTimer.html#a8780fdf3fb29052796de82587e846f66" title="Timer::getUnixTimestamp" alt="" coords="208,55,381,81"/>
+<area shape="rect" id="node3" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="432,29,599,56"/>
+<area shape="rect" id="node4" href="$classTimer.html#a17c08428dd03c2a34d0a5ad475a6db0f" title="Timer::getTickCountNano" alt="" coords="429,80,601,107"/>
+</map>

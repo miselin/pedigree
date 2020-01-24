@@ -1,0 +1,4 @@
+<map id="SideState::friendlyMove" name="SideState::friendlyMove">
+<area shape="rect" id="node2" href="$classBoardState.html#ac8698c815b4ad8542ccb84be7f268323" title="BoardState::move" alt="" coords="215,5,341,32"/>
+<area shape="rect" id="node3" href="$classBoardState.html#aa779e34cbb859e0882154839cbd4810f" title="BoardState::isLegal" alt="" coords="389,5,525,32"/>
+</map>

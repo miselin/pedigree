@@ -1,0 +1,3 @@
+<map id="Bonito64" name="Bonito64">
+<area shape="rect" id="node2" href="$classMachine.html" title="{Machine\n|# m_bInitialised\l|+ initialise()\l+ initialise2()\l+ initialise3()\l+ deinitialise()\l+ isInitialised()\l+ initialiseDeviceTree()\l+ getSerial()\l+ getNumSerial()\l+ getVga()\l+ getNumVga()\l+ getIrqManager()\l+ getSchedulerTimer()\l+ getTimer()\l+ getKeyboard()\l+ setKeyboard()\l+ instance()\l# Machine()\l# ~Machine()\l&#45; Machine()\l&#45; operator=()\l}" alt="" coords="5,5,161,361"/>
+</map>

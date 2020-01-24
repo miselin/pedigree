@@ -1,0 +1,6 @@
+<map id="machine&#45;specifc kernel" name="machine&#45;specifc kernel">
+<area shape="rect" id="node1" href="$group__kernelmachinemipscommon.html" title="mips&#45;common machine&#45;specific kernel " alt="" coords="315,5,419,32"/>
+<area shape="rect" id="node2" href="$group__kernelmachinex86common.html" title="x86&#45;common machine&#45;specific kernel " alt="" coords="318,56,415,83"/>
+<area shape="rect" id="node5" href="$group__kernelmachinearmcommon.html" title="arm&#45;common machine&#45;specific kernel " alt="" coords="317,107,416,133"/>
+<area shape="rect" id="node4" href="$group__kernel.html" title="The kernel. " alt="" coords="5,56,63,83"/>
+</map>

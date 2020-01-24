@@ -1,0 +1,6 @@
+<map id="Event::Event" name="Event::Event">
+<area shape="rect" id="node2" href="$classEvent.html#abde1491b9e0a2ca83403bb4655d474f6" title="Event::getEventType" alt="" coords="152,13,297,39"/>
+<area shape="rect" id="node4" href="$classIoEvent.html#a61d6d932713bcb9999341f777fee4106" title="IoEvent::IoEvent" alt="" coords="165,63,285,90"/>
+<area shape="rect" id="node5" href="$classPollEvent.html#a917b137fdd93d03f8eb1563aa995273a" title="PollEvent::PollEvent" alt="" coords="153,114,296,141"/>
+<area shape="rect" id="node3" href="$classPosixTerminalEvent.html#a3fefb3dad2b3467e7381bb9a0bb68f2e" title="PosixTerminalEvent\l::serialize" alt="" coords="345,5,484,47"/>
+</map>

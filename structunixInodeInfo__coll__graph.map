@@ -1,0 +1,7 @@
+<map id="unixInodeInfo" name="unixInodeInfo">
+<area shape="rect" id="node4" href="$structunixShmNode.html" title="{unixShmNode\n|+ zFilename\l+ h\l+ szRegion\l+ nRegion\l+ isReadonly\l+ apRegion\l+ nRef\l|}" alt="" coords="85,359,189,524"/>
+<area shape="rect" id="node2" href="$structUnixUnusedFd.html" title="{UnixUnusedFd\n|+ fd\l+ flags\l|}" alt="" coords="31,5,141,97"/>
+<area shape="rect" id="node3" href="$structunixFileId.html" title="{unixFileId\n|+ dev\l+ ino\l|}" alt="" coords="237,5,316,97"/>
+<area shape="rect" id="node6" href="$structunixShm.html" title="{unixShm\n|+ hasMutex\l+ id\l+ sharedMask\l+ exclMask\l|}" alt="" coords="84,587,189,708"/>
+<area shape="rect" id="node5" href="$structsqlite3__mutex.html" title="{sqlite3_mutex\n|+ mutex\l|}" alt="" coords="5,189,108,267"/>
+</map>

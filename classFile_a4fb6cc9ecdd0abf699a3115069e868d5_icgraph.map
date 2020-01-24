@@ -1,0 +1,7 @@
+<map id="File::write" name="File::write">
+<area shape="rect" id="node2" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="136,5,324,32"/>
+<area shape="rect" id="node3" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="132,56,328,83"/>
+<area shape="rect" id="node4" href="$classDevFs.html#a7975b933760278dd9bdbd0fceff87fa6" title="DevFs::initialise" alt="" coords="172,107,288,133"/>
+<area shape="rect" id="node5" href="$classConsolePhysicalFile.html#a6648a523228720e05ccc4a4fa505aecc" title="ConsolePhysicalFile\l::readBytewise" alt="" coords="159,158,301,199"/>
+<area shape="rect" id="node6" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="160,223,300,265"/>
+</map>

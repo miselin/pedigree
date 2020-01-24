@@ -1,0 +1,16 @@
+<map id="Directory::addDirectoryEntry" name="Directory::addDirectoryEntry">
+<area shape="rect" id="node2" href="$classRawFsDir.html#ad396b5674fd5698b6d724d81c64f30ad" title="RawFsDir::addEntry" alt="" coords="279,88,421,115"/>
+<area shape="rect" id="node6" href="$classFatDirectory.html#afb7cb216b03b7bdff0b7da5db5594734" title="FatDirectory::addEntry" alt="" coords="273,205,427,232"/>
+<area shape="rect" id="node10" href="$classExt2Directory.html#a5b7ecbd5ee2645c044f465037da6f25a" title="Ext2Directory::addEntry" alt="" coords="523,299,686,325"/>
+<area shape="rect" id="node13" href="$classFatDirectory.html#a3c97dc214fe16d9509c5f85ad5e59753" title="FatDirectory::cacheDirectory\lContents" alt="" coords="255,139,445,181"/>
+<area shape="rect" id="node14" href="$classExt2Directory.html#a077f08fd2241930e541d98035a1e108c" title="Ext2Directory::cacheDirectory\lContents" alt="" coords="251,307,449,349"/>
+<area shape="rect" id="node15" href="$classIso9660Directory.html#a2c43fbab4ae28f00333c9ee38a07fe67" title="Iso9660Directory::cacheDirectory\lContents" alt="" coords="241,373,459,414"/>
+<area shape="rect" id="node3" href="$classRawFs.html#ab50656d570d4146ed8ad8b91748778f9" title="RawFs::getRoot" alt="" coords="545,29,664,56"/>
+<area shape="rect" id="node5" href="$classRawFsDir.html#a39ec72d951f67bc781e7f296be04f023" title="RawFsDir::cacheDirectory\lContents" alt="" coords="516,81,693,122"/>
+<area shape="rect" id="node4" href="$classRawFs.html#aaea4b50ed3441cfcc8a097259bddbc26" title="RawFs::initialise" alt="" coords="785,29,904,56"/>
+<area shape="rect" id="node7" href="$classFatDirectory.html#ab16902f9839db9c4f9820f4784c5022d" title="FatDirectory::truncate" alt="" coords="530,147,679,173"/>
+<area shape="rect" id="node8" href="$classFatFilesystem.html#aef1ad9be6b6a15e9b2994cbf5d1e7cf7" title="FatFilesystem::createFile" alt="" coords="519,197,690,224"/>
+<area shape="rect" id="node9" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="507,248,703,275"/>
+<area shape="rect" id="node11" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="766,349,923,376"/>
+<area shape="rect" id="node12" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="751,299,939,325"/>
+</map>

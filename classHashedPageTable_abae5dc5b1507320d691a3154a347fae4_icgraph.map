@@ -1,0 +1,6 @@
+<map id="HashedPageTable::instance" name="HashedPageTable::instance">
+<area shape="rect" id="node2" href="$classPPC32VirtualAddressSpace.html#a667c16e16a6040a69727342c13ae2624" title="PPC32VirtualAddressSpace::map" alt="" coords="240,29,459,56"/>
+<area shape="rect" id="node4" href="$classPPC32VirtualAddressSpace.html#ac34241ed7ee3d64e0c7e0f3f51b86b7e" title="PPC32VirtualAddressSpace\l::unmap" alt="" coords="256,105,443,146"/>
+<area shape="rect" id="node3" href="$classPPC32VirtualAddressSpace.html#a7d60c6be12c1291d73f92ad2f75884c4" title="PPC32VirtualAddressSpace\l::clone" alt="" coords="513,31,700,73"/>
+<area shape="rect" id="node5" href="$classPPC32VirtualAddressSpace.html#a87acf72092b5e8d7b6805afdecc3774d" title="PPC32VirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="507,105,707,146"/>
+</map>

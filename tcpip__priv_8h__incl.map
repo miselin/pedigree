@@ -1,0 +1,33 @@
+<map id="tcpip_priv.h" name="tcpip_priv.h">
+<area shape="rect" id="node2" href="$opt_8h.html" title="lwip/opt.h" alt="" coords="767,528,846,555"/>
+<area shape="rect" id="node20" href="$tcpip_8h.html" title="lwip/tcpip.h" alt="" coords="1028,80,1116,107"/>
+<area shape="rect" id="node22" href="$timeouts_8h.html" title="lwip/timeouts.h" alt="" coords="1110,155,1221,181"/>
+<area shape="rect" id="node23" href="$sys_8h.html" title="lwip/sys.h" alt="" coords="1218,229,1299,256"/>
+<area shape="rect" id="node3" href="$lwipopts_8h_source.html" title="lwipopts.h" alt="" coords="883,677,965,704"/>
+<area shape="rect" id="node12" href="$modules_2system_2lwip_2include_2lwip_2debug_8h.html" title="lwip/debug.h" alt="" coords="759,603,854,629"/>
+<area shape="rect" id="node4" href="$utility_8h_source.html" title="pedigree/kernel/utilities\l/utility.h" alt="" coords="877,827,1032,868"/>
+<area shape="rect" id="node5" href="$system_2include_2pedigree_2kernel_2compiler_8h_source.html" title="pedigree/kernel/compiler.h" alt="" coords="571,1013,746,1039"/>
+<area shape="rect" id="node7" href="$system_2include_2pedigree_2kernel_2processor_2types_8h_source.html" title="pedigree/kernel/processor\l/types.h" alt="" coords="793,1005,964,1047"/>
+<area shape="rect" id="node9" href="$cpp_8h_source.html" title="pedigree/kernel/utilities\l/cpp.h" alt="" coords="928,916,1083,957"/>
+<area shape="rect" id="node10" href="$lib_8h_source.html" title="pedigree/kernel/utilities\l/lib.h" alt="" coords="1107,916,1261,957"/>
+<area shape="rect" id="node6" href="$threadsafety_8h_source.html" title="pedigree/kernel/utilities\l/threadsafety.h" alt="" coords="581,1095,736,1136"/>
+<area shape="rect" id="node8" href="$system_2include_2pedigree_2kernel_2processor_2x64_2types_8h_source.html" title="pedigree/kernel/processor\l/x64/types.h" alt="" coords="793,1095,964,1136"/>
+<area shape="rect" id="node13" href="$arch_8h.html" title="lwip/arch.h" alt="" coords="743,677,828,704"/>
+<area shape="rect" id="node14" href="$cc_8h_source.html" title="arch/cc.h" alt="" coords="747,752,823,779"/>
+<area shape="rect" id="node17" href="$stddef_8h_source.html" title="stddef.h" alt="" coords="848,752,917,779"/>
+<area shape="rect" id="node15" href="$assert_8h_source.html" title="pedigree/kernel/utilities\l/assert.h" alt="" coords="648,827,803,868"/>
+<area shape="rect" id="node16" href="$stdint_8h_source.html" title="stdint.h" alt="" coords="737,923,802,950"/>
+<area shape="rect" id="node21" href="$err_8h.html" title="lwip/err.h" alt="" coords="1059,304,1133,331"/>
+<area shape="rect" id="node25" href="$netif_8h.html" title="lwip/netif.h" alt="" coords="768,155,853,181"/>
+<area shape="rect" id="node24" href="$sys__arch_8h_source.html" title="arch/sys_arch.h" alt="" coords="1208,304,1323,331"/>
+<area shape="rect" id="node26" href="$ip__addr_8h.html" title="lwip/ip_addr.h" alt="" coords="281,304,383,331"/>
+<area shape="rect" id="node27" href="$def_8h.html" title="lwip/def.h" alt="" coords="171,453,250,480"/>
+<area shape="rect" id="node30" href="$pbuf_8h.html" title="lwip/pbuf.h" alt="" coords="848,229,933,256"/>
+<area shape="rect" id="node31" href="$stats_8h.html" title="lwip/stats.h" alt="" coords="683,229,773,256"/>
+<area shape="rect" id="node28" href="$ip4__addr_8h.html" title="lwip/ip4_addr.h" alt="" coords="144,379,253,405"/>
+<area shape="rect" id="node29" href="$ip6__addr_8h.html" title="lwip/ip6_addr.h" alt="" coords="277,379,387,405"/>
+<area shape="rect" id="node32" href="$mem_8h.html" title="lwip/mem.h" alt="" coords="542,453,631,480"/>
+<area shape="rect" id="node33" href="$memp_8h.html" title="lwip/memp.h" alt="" coords="680,304,776,331"/>
+<area shape="rect" id="node34" href="$memp__std_8h.html" title="lwip/priv/memp_std.h" alt="" coords="685,379,832,405"/>
+<area shape="rect" id="node35" href="$memp__priv_8h.html" title="lwip/priv/memp_priv.h" alt="" coords="512,379,661,405"/>
+</map>

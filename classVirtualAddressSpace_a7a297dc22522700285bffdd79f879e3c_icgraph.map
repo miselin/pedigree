@@ -1,0 +1,6 @@
+<map id="VirtualAddressSpace::revertToKernelAddressSpace" name="VirtualAddressSpace::revertToKernelAddressSpace">
+<area shape="rect" id="node2" href="$classVirtualAddressSpace.html#aca486db09d4336c50ae57ecb7d38daa1" title="VirtualAddressSpace\l::allocateStack" alt="" coords="273,5,417,47"/>
+<area shape="rect" id="node3" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="261,71,428,98"/>
+<area shape="rect" id="node4" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="277,122,412,149"/>
+<area shape="rect" id="node5" href="$classX64VirtualAddressSpace.html#ac6ca1b8304bedd42eecbf52016aa6a62" title="X64VirtualAddressSpace\l::~X64VirtualAddressSpace" alt="" coords="253,173,436,215"/>
+</map>

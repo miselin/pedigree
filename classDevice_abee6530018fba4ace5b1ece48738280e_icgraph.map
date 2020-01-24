@@ -1,0 +1,22 @@
+<map id="Device::getInterruptNumber" name="Device::getInterruptNumber">
+<area shape="rect" id="node2" href="$classAtaDisk.html#a931998a76f0ddabb606e5b2bf25054bf" title="AtaDisk::doRead" alt="" coords="265,94,387,121"/>
+<area shape="rect" id="node8" href="$classAtaDisk.html#a61b036e93c5755f0187e1a7cdb133be1" title="AtaDisk::doWrite" alt="" coords="265,43,387,70"/>
+<area shape="rect" id="node9" href="$classAtaDisk.html#a7669522ad06e41f75f4557fd4e517687" title="AtaDisk::initialise" alt="" coords="264,145,388,171"/>
+<area shape="rect" id="node10" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="475,188,639,229"/>
+<area shape="rect" id="node11" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="257,246,395,273"/>
+<area shape="rect" id="node12" href="$classNe2k.html#a7a21a7e54926ef73242b3706ecfe251d" title="Ne2k::Ne2k" alt="" coords="280,297,372,323"/>
+<area shape="rect" id="node13" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="253,347,399,374"/>
+<area shape="rect" id="node14" href="$classHostedIrqManager.html#afe8c0eb288a7240c1f27b99ffbfbd5b1" title="HostedIrqManager::register\lPciIrqHandler" alt="" coords="236,399,416,440"/>
+<area shape="rect" id="node18" href="$classPic.html#a9d153ed113aafd72c9843dc7c259183c" title="Pic::registerPciIrqHandler" alt="" coords="241,465,411,491"/>
+<area shape="rect" id="node3" href="$classIsaAtaController.html#aac26e07eb5047145cd9e9b46596f22be" title="IsaAtaController::execute\lRequest" alt="" coords="472,5,643,47"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a8f305fb6613b0e87274a1b273fce3d68" title="PciAtaController::execute\lRequest" alt="" coords="472,71,643,112"/>
+<area shape="rect" id="node7" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="492,137,623,163"/>
+<area shape="rect" id="node4" href="$classIsaAtaController.html#acc1f8486eb5de23b6a1ebd3f602868b6" title="IsaAtaController::getName" alt="" coords="705,13,883,39"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="705,195,883,222"/>
+<area shape="rect" id="node15" href="$classHostedIrqManager.html#ae12bed10ccff6813ac0ccb8251d48c99" title="HostedIrqManager::instance" alt="" coords="464,406,651,433"/>
+<area shape="rect" id="node16" href="$classHostedMachine.html#af35b1e284552fd7e046b54aa42a4c0ac" title="HostedMachine::initialise" alt="" coords="710,359,878,386"/>
+<area shape="rect" id="node17" href="$classHostedMachine.html#acecca4492c5a4a230824899a22205f59" title="HostedMachine::getNumVga" alt="" coords="699,410,889,437"/>
+<area shape="rect" id="node19" href="$classPic.html#a1017358137b165a6e18c5a08c98a03c8" title="Pic::instance" alt="" coords="508,465,607,491"/>
+<area shape="rect" id="node20" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="747,462,841,489"/>
+<area shape="rect" id="node21" href="$classPc.html#addf1c67b3f410b73a49b9f55238664bd" title="Pc::getNumVga" alt="" coords="737,513,851,539"/>
+</map>

@@ -1,0 +1,11 @@
+<map id="Ext2Filesystem::findFreeBlocks" name="Ext2Filesystem::findFreeBlocks">
+<area shape="rect" id="node2" href="$classExt2Node.html#a454662b976bc75f9d02406f42fe35b71" title="Ext2Node::ensureLargeEnough" alt="" coords="221,56,424,83"/>
+<area shape="rect" id="node3" href="$classExt2File.html#a00ff4cb549c9d8378e7d375d08a54648" title="Ext2File::preallocate" alt="" coords="495,5,637,32"/>
+<area shape="rect" id="node4" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="472,56,660,83"/>
+<area shape="rect" id="node5" href="$classExt2Node.html#a0aa5536e1ea4d363001ce32c147be342" title="Ext2Node::wipe" alt="" coords="509,107,623,133"/>
+<area shape="rect" id="node6" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="708,56,892,83"/>
+<area shape="rect" id="node9" href="$classExt2File.html#a83141d594d0f60b01feb5ca0676da47f" title="Ext2File::truncate" alt="" coords="737,107,863,133"/>
+<area shape="rect" id="node10" href="$classExt2Symlink.html#acec68435cdb30ba626a7d6a1b96daaa0" title="Ext2Symlink::truncate" alt="" coords="725,157,875,184"/>
+<area shape="rect" id="node7" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="940,31,1104,57"/>
+<area shape="rect" id="node8" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="943,81,1101,108"/>
+</map>

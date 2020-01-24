@@ -1,0 +1,11 @@
+<map id="Widget::redraw" name="Widget::redraw">
+<area shape="rect" id="node2" href="$classWidget.html#ad924693997ae334f7f70a83eaa927320" title="Widget::getHandle" alt="" coords="164,5,295,32"/>
+<area shape="rect" id="node3" href="$classTestWidget.html#abbb7dc198c6162b9361d4167192655cc" title="TestWidget::render" alt="" coords="343,5,477,32"/>
+<area shape="rect" id="node4" href="$classTui.html#ae7197bc03e3f875351f63bd107e5e06d" title="Performs a redraw. " alt="" coords="186,107,273,133"/>
+<area shape="rect" id="node10" href="$classGears.html#a0799e69b94335d6366e5b4f947b9c768" title="Gears::render" alt="" coords="179,181,280,208"/>
+<area shape="rect" id="node5" href="$classTui.html#a21e37ee87f01e9aaff20a6e2b5397a1c" title="(Re&#45;)initialise the terminal " alt="" coords="363,56,457,83"/>
+<area shape="rect" id="node7" href="$classTui.html#a432e25fc62dd69a16d571090225086f8" title="Set the cursor fill state (e.g. box outline vs shaded box) " alt="" coords="343,107,477,133"/>
+<area shape="rect" id="node8" href="$classTui.html#adb342977a5001d35f5968fe0e8c417aa" title="Handle a resize of the terminal. " alt="" coords="369,157,451,184"/>
+<area shape="rect" id="node9" href="$classTui.html#aa700aefc88f2fc10ee0ab169feef4a46" title="Runs the TUI main loop. " alt="" coords="377,208,443,235"/>
+<area shape="rect" id="node6" href="$classPedigreeTerminalEmulator.html#aead62bb553957f36b0984edd27b41deb" title="PedigreeTerminalEmulator\l::render" alt="" coords="525,125,700,166"/>
+</map>

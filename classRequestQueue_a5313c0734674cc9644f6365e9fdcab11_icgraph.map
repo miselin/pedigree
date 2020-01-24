@@ -1,0 +1,12 @@
+<map id="RequestQueue::work" name="RequestQueue::work">
+<area shape="rect" id="node2" href="$classRequestQueue.html#ada7823ce253c561696e67c183fdf0ec6" title="RequestQueue::trampoline" alt="" coords="199,64,376,91"/>
+<area shape="rect" id="node3" href="$classRequestQueue.html#aa87ccddad577b380a648dd744e4f7d11" title="RequestQueue::initialise" alt="" coords="424,64,588,91"/>
+<area shape="rect" id="node4" href="$classCacheManager.html#a411b65fac6ab596f1b2359d7e0c59b6b" title="CacheManager::initialise" alt="" coords="636,5,801,32"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="637,57,801,98"/>
+<area shape="rect" id="node7" href="$classRequestQueue.html#a5575e3c80ca571cc2c75226f24f82d32" title="RequestQueue::resume" alt="" coords="639,123,799,149"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="849,64,1028,91"/>
+<area shape="rect" id="node8" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="875,123,1002,149"/>
+<area shape="rect" id="node9" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="1076,57,1235,98"/>
+<area shape="rect" id="node10" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="1088,123,1223,149"/>
+<area shape="rect" id="node11" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1096,173,1215,200"/>
+</map>

@@ -1,0 +1,51 @@
+<map id="Vector::pushBack" name="Vector::pushBack">
+<area shape="rect" id="node2" href="$classLockManager.html#a907efee626865a81e281ddee5857a3fc" title="LockManager::acquired" alt="" coords="224,133,381,160"/>
+<area shape="rect" id="node3" href="$classDevice.html#a5df3b61714ed2cdaab667fb2f4180313" title="Device::addChild" alt="" coords="241,184,364,211"/>
+<area shape="rect" id="node10" href="$classProcess.html#af28b76baba70c9adf39711b443ccca72" title="Process::addThread" alt="" coords="233,248,372,275"/>
+<area shape="rect" id="node12" href="$classIoPortManager.html#a050bc8690393da44ab43ee4ece96da6f" title="IoPortManager::allocate" alt="" coords="516,561,676,588"/>
+<area shape="rect" id="node13" href="$classIoPortManager.html#a5b5171672ac3c94bea19957c5042bce5" title="IoPortManager::allocateIo\lPortList" alt="" coords="217,299,388,341"/>
+<area shape="rect" id="node15" href="$classPhysicalMemoryManager.html#a68a4a8dd795e37f16c6122b81809e7d6" title="PhysicalMemoryManager\l::allocateMemoryRegionList" alt="" coords="211,365,395,406"/>
+<area shape="rect" id="node16" href="$classArmV7PhysicalMemoryManager.html#a750a98a3fca1c42a016486b1bc5f755e" title="ArmV7PhysicalMemoryManager\l::allocateRegion" alt="" coords="198,430,407,471"/>
+<area shape="rect" id="node18" href="$classHostedPhysicalMemoryManager.html#ad9e944d2e9e5ef46c4cb6e48f384b8b4" title="HostedPhysicalMemoryManager\l::allocateRegion" alt="" coords="197,495,408,537"/>
+<area shape="rect" id="node20" href="$classPpcCommonPhysicalMemoryManager.html#a0a7c5c8c35dcea10468693414fc87c5e" title="PpcCommonPhysicalMemoryManager\l::allocateRegion" alt="" coords="180,663,425,705"/>
+<area shape="rect" id="node22" href="$classX86CommonPhysicalMemoryManager.html#ae21d07b5f2d6398cdd84af47a68cc737" title="X86CommonPhysicalMemoryManager\l::allocateRegion" alt="" coords="180,729,425,770"/>
+<area shape="rect" id="node24" href="$classRangeList.html#affb49c0bdb2c4e21329f16af596637ac" title="RangeList::allocateSpecific" alt="" coords="212,612,393,639"/>
+<area shape="rect" id="node26" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="211,794,395,835"/>
+<area shape="rect" id="node27" href="$classHostedVirtualAddressSpace.html#aaa3563efbe7ac3d6881c2065b7cae215" title="HostedVirtualAddressSpace\l::clone" alt="" coords="209,859,396,901"/>
+<area shape="rect" id="node28" href="$classX64VirtualAddressSpace.html#a90c94c03e1163511566d1d25e6360693" title="X64VirtualAddressSpace\l::clone" alt="" coords="219,925,386,966"/>
+<area shape="rect" id="node29" href="$classThread.html#a657d92e8852e5358e80743c982e27861" title="Thread::cullEvent" alt="" coords="241,991,365,1017"/>
+<area shape="rect" id="node30" href="$classDevice.html#aaa405b5d06277752c2f05e2f1cbc895a" title="Device::Device" alt="" coords="247,1041,359,1068"/>
+<area shape="rect" id="node31" href="$classDirectory.html#a2c415a2870e506317333c666ec013aa5" title="Directory::empty" alt="" coords="243,1092,362,1119"/>
+<area shape="rect" id="node32" href="$classExt2Node.html#a454662b976bc75f9d02406f42fe35b71" title="Ext2Node::ensureLargeEnough" alt="" coords="201,1143,404,1169"/>
+<area shape="rect" id="node33" href="$classAllocationCommand.html#a09a959389ae9746d004a28e1aa1c53a3" title="AllocationCommand::\lexecute" alt="" coords="229,1194,376,1235"/>
+<area shape="rect" id="node34" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="781,1344,960,1371"/>
+<area shape="rect" id="node35" href="$classExt2Node.html#aae51f1ed0ad5cd668f405ce3f167ec9b" title="Ext2Node::Ext2Node" alt="" coords="229,1311,376,1337"/>
+<area shape="rect" id="node36" href="$classExt2Filesystem.html#a95939f01a564eb6e6871981dcecaf850" title="Ext2Filesystem::findFree\lBlocksInGroup" alt="" coords="219,1362,387,1403"/>
+<area shape="rect" id="node37" href="$classRangeList.html#afb211908838a244a5748e298a6b459f2" title="RangeList::free" alt="" coords="247,1428,358,1455"/>
+<area shape="rect" id="node38" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="521,1428,671,1455"/>
+<area shape="rect" id="node39" href="$classX86VirtualAddressSpace.html#ad968d7983e79cfc6c7435eda43f61daa" title="X86VirtualAddressSpace\l::fromFlags" alt="" coords="219,1530,386,1571"/>
+<area shape="rect" id="node40" href="$classPosixProcess.html#a500d47ef17c582d23f2960f5c9b5d105" title="PosixProcess::getUserId" alt="" coords="219,1596,387,1623"/>
+<area shape="rect" id="node41" href="$group__kernelutilities.html#ga597069ade585b770e87a588ab8313b76" title="Vector::insert" alt="" coords="253,1647,353,1673"/>
+<area shape="rect" id="node42" href="$classConsoleManager.html#af5aa5a854663859bf97874653083c92e" title="ConsoleManager::newConsole" alt="" coords="203,1697,403,1724"/>
+<area shape="rect" id="node43" href="$classHidReport.html#a6f2d2720ac4b05ba5b37c1611d4b8b2c" title="Parses a HID report descriptor and stores the resulted data. " alt="" coords="212,1748,393,1775"/>
+<area shape="rect" id="node44" href="$classRangeList.html#a94ce959e6b0384c311f27f4c4cd3f237" title="RangeList::RangeList" alt="" coords="229,1799,377,1825"/>
+<area shape="rect" id="node45" href="$classNetworkStack.html#af17e5356835af1a9dfce7322c4f203b1" title="NetworkStack::registerDevice" alt="" coords="204,1849,401,1876"/>
+<area shape="rect" id="node46" href="$classLockManager.html#a479c84049371aa82b23272b09591fdd5" title="LockManager::released" alt="" coords="224,1900,381,1927"/>
+<area shape="rect" id="node47" href="$classExt2Filesystem.html#af98f6f4d271fbc4ba16f4d24c154a309" title="Ext2Filesystem::releaseInode" alt="" coords="205,1951,400,1977"/>
+<area shape="rect" id="node48" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="219,2025,386,2052"/>
+<area shape="rect" id="node49" href="$classString.html#a471673fd11963ad5547a8df1e726e9b1" title="String::tokenise" alt="" coords="246,2076,359,2103"/>
+<area shape="rect" id="node50" href="$classExt2Node.html#af83583ded224e0e1c2589274daf80f48" title="Ext2Node::~Ext2Node" alt="" coords="225,2127,380,2153"/>
+<area shape="rect" id="node4" href="$classArmBeagle.html#a7154c38061a8c632ed1332b1fb376125" title="ArmBeagle::initialiseDeviceTree" alt="" coords="767,245,975,272"/>
+<area shape="rect" id="node5" href="$classDevice.html#a0da24527214edb3648a812c0d934e2bb" title="Device::addToRoot" alt="" coords="529,220,663,247"/>
+<area shape="rect" id="node6" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="791,85,951,112"/>
+<area shape="rect" id="node7" href="$classMac.html#ac6c2cad0ef05832c8741188e8db96497" title="Mac::~Mac" alt="" coords="552,52,640,79"/>
+<area shape="rect" id="node8" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="514,103,678,145"/>
+<area shape="rect" id="node9" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="507,169,685,196"/>
+<area shape="rect" id="node11" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="541,321,651,348"/>
+<area shape="rect" id="node14" href="$classIoCommand.html#a1d1dd9333d28553c1dee07db7c5a5341" title="IoCommand::execute" alt="" coords="523,372,669,399"/>
+<area shape="rect" id="node17" href="$classArmV7PhysicalMemoryManager.html#ad6dfcc9fbfe13161bb138661f9fb0460" title="ArmV7PhysicalMemoryManager::pin" alt="" coords="479,437,713,464"/>
+<area shape="rect" id="node19" href="$classHostedPhysicalMemoryManager.html#abd61babab9fbff26538f61ec9b4eee0c" title="HostedPhysicalMemoryManager\l::instance" alt="" coords="491,495,701,537"/>
+<area shape="rect" id="node21" href="$classPpcCommonPhysicalMemoryManager.html#afd0c4003a4de06f8e4e458810fe301f9" title="PpcCommonPhysicalMemoryManager\l::instance" alt="" coords="473,663,719,705"/>
+<area shape="rect" id="node23" href="$classX86CommonPhysicalMemoryManager.html#aec6d29daffe674227805940438a7ba30" title="X86CommonPhysicalMemoryManager\l::instance" alt="" coords="473,729,719,770"/>
+<area shape="rect" id="node25" href="$classElf.html#aa7c6020a756cfdc503a2c62c8f032ffb" title="Elf::allocate" alt="" coords="551,612,641,639"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="Pic" name="Pic">
+<area shape="rect" id="node2" href="$classIrqManager.html" title="{IrqManager\n||+ registerIsaIrqHandler()\l+ registerPciIrqHandler()\l+ acknowledgeIrq()\l+ unregisterHandler()\l+ enable()\l+ tick()\l+ control()\l# IrqManager()\l# ~IrqManager()\l&#45; IrqManager()\l&#45; operator=()\l}" alt="" coords="5,5,169,229"/>
+<area shape="rect" id="node3" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="193,71,336,163"/>
+</map>

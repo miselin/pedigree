@@ -1,0 +1,4 @@
+<map id="Terminal::processKey" name="Terminal::processKey">
+<area shape="rect" id="node2" href="$classTui.html#a21f6340683d299bb731b7d4416414b6e" title="Handles a key press with all Pedigree input special flags. " alt="" coords="203,13,301,39"/>
+<area shape="rect" id="node3" href="$classPedigreeTerminalEmulator.html#aead62bb553957f36b0984edd27b41deb" title="PedigreeTerminalEmulator\l::render" alt="" coords="349,5,524,47"/>
+</map>

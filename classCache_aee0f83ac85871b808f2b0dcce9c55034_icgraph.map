@@ -1,0 +1,9 @@
+<map id="Cache::pin" name="Cache::pin">
+<area shape="rect" id="node2" href="$classFile.html#a8a7c1b5ac4f646c7cb8eeb7708772228" title="File::getPhysicalPage" alt="" coords="139,5,288,32"/>
+<area shape="rect" id="node4" href="$classDiskImage.html#a0156cd73654e1ebc8d2b561067df37d7" title="Pins a cache page. " alt="" coords="158,56,269,83"/>
+<area shape="rect" id="node8" href="$classFatFile.html#a256d067710cc77aba14ad7bc5ee02168" title="FatFile::pinBlock" alt="" coords="153,107,273,133"/>
+<area shape="rect" id="node3" href="$classMemoryMappedFile.html#a66353cd31e469385cd9492879fd8e834" title="MemoryMappedFile::setPermissions" alt="" coords="336,5,571,32"/>
+<area shape="rect" id="node5" href="$classDiskImage.html#ad164622638c31b85dbe30a05f01326f8" title="Gets the block size of the disk. " alt="" coords="368,56,539,83"/>
+<area shape="rect" id="node6" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="619,56,737,83"/>
+<area shape="rect" id="node7" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="785,56,911,83"/>
+</map>

@@ -1,0 +1,51 @@
+<map id="Thread::setStatus" name="Thread::setStatus">
+<area shape="rect" id="node2" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="180,173,339,214"/>
+<area shape="rect" id="node6" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="940,212,1099,253"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="940,1717,1099,1758"/>
+<area shape="rect" id="node8" href="$classSemaphore.html#a608f82c98ce38a1ab8f93ae5d458fe1f" title="Semaphore::release" alt="" coords="190,990,329,1016"/>
+<area shape="rect" id="node15" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="707,1670,833,1696"/>
+<area shape="rect" id="node16" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="952,1844,1087,1871"/>
+<area shape="rect" id="node47" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="180,1776,339,1817"/>
+<area shape="rect" id="node50" href="$classConditionVariable.html#a8654ace19a9f44f0e51cb7e8e0faf0b4" title="ConditionVariable::\lsignal" alt="" coords="193,593,325,634"/>
+<area shape="rect" id="node3" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="419,114,591,156"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="691,366,849,408"/>
+<area shape="rect" id="node4" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="715,122,825,148"/>
+<area shape="rect" id="node9" href="$classRequestQueue.html#a0288772675c587225d38decf4d7490b3" title="RequestQueue::addRequest" alt="" coords="411,231,598,258"/>
+<area shape="rect" id="node10" href="$classProducerConsumer.html#a13404fb2d405ccfe688058bab5a7a8c2" title="ProducerConsumer::consumer\lThread" alt="" coords="671,284,869,325"/>
+<area shape="rect" id="node11" href="$classRequestQueue.html#a626fae68426621ecaf91e3970e852768" title="RequestQueue::destroy" alt="" coords="690,1572,850,1599"/>
+<area shape="rect" id="node13" href="$classConsoleFile.html#ab9dc9f3ec7172bb550a23cc53f0bd30a" title="ConsoleFile::eventComplete" alt="" coords="411,559,598,586"/>
+<area shape="rect" id="node14" href="$classRequestQueue.html#ab5593dd0ac26219af2c63e8f72667933" title="RequestQueue::halt" alt="" coords="435,1572,574,1599"/>
+<area shape="rect" id="node18" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="443,610,567,636"/>
+<area shape="rect" id="node19" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="453,711,556,738"/>
+<area shape="rect" id="node21" href="$classPipe.html#adf69180c8c1d98a7a8671f73a3283f3e" title="Pipe::isFifo" alt="" coords="461,914,549,940"/>
+<area shape="rect" id="node22" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="700,780,840,821"/>
+<area shape="rect" id="node23" href="$classBuffer.html#a608cd7c19c8fe272b718784977dacc70" title="Buffer::notifyMonitors" alt="" coords="431,964,578,991"/>
+<area shape="rect" id="node24" href="$classAsidManager.html#a971575e394fbbdfc11ef0fec42b102f1" title="AsidManager::obtainAsid" alt="" coords="421,1015,588,1042"/>
+<area shape="rect" id="node25" href="$classPollEvent.html#a917b137fdd93d03f8eb1563aa995273a" title="PollEvent::PollEvent" alt="" coords="433,1066,576,1092"/>
+<area shape="rect" id="node26" href="$classInputManager.html#a82121acf33c2f2a588b28c260ed6cd8e" title="InputManager::putNotification" alt="" coords="408,1167,601,1194"/>
+<area shape="rect" id="node32" href="$classAsidManager.html#a03f17ebe6d324ce200b7a30e14782789" title="AsidManager::returnAsid" alt="" coords="422,1116,587,1143"/>
+<area shape="rect" id="node33" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="460,863,549,890"/>
+<area shape="rect" id="node35" href="$classInputManager.html#a1095125a4982c934faa19d177b0abde2" title="Shuts down the worker thread, clears queues, and removes callbacks. " alt="" coords="422,1268,587,1295"/>
+<area shape="rect" id="node36" href="$classUsbHub.html#a4939322b01966f474a45d98ffab8d8f3" title="Callback used by synchronous transactions. " alt="" coords="426,1319,583,1346"/>
+<area shape="rect" id="node37" href="$group__sys__mutex.html#ga5568f68898fe9d5735f9ce2f665624fb" title="sys_mutex_unlock" alt="" coords="439,1522,570,1548"/>
+<area shape="rect" id="node39" href="$group__sys__sem.html#gaaf800273061fcc3f8200fd4e1b9ca875" title="sys_sem_signal" alt="" coords="447,1370,563,1396"/>
+<area shape="rect" id="node40" href="$classPosixSubsystem.html#a035a2f15c214a2658af85845e1a6ea29" title="PosixSubsystem::threadRemoved" alt="" coords="394,1420,615,1447"/>
+<area shape="rect" id="node41" href="$classLockedFile.html#aee7ee80676637f2133ecda620f518801" title="LockedFile::unlock" alt="" coords="439,1471,570,1498"/>
+<area shape="rect" id="node42" href="$classKernelElf.html#a35644e7e9968b1e027fdaa47ccd5a6d4" title="KernelElf::updateModuleStatus" alt="" coords="403,332,606,359"/>
+<area shape="rect" id="node43" href="$classConditionVariable.html#abd9f7f84df4b8efc7e1f0b0f34a91887" title="ConditionVariable::wait" alt="" coords="427,383,583,410"/>
+<area shape="rect" id="node44" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="697,542,843,568"/>
+<area shape="rect" id="node45" href="$classPipe.html#af4519cc3f1f13857a724db7b2220eefa" title="Pipe::~Pipe" alt="" coords="459,434,550,460"/>
+<area shape="rect" id="node46" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="387,484,623,511"/>
+<area shape="rect" id="node12" href="$classRequestQueue.html#a5f2f469937c7769d19158c7771b4a676" title="RequestQueue::RequestQueue" alt="" coords="917,1572,1121,1599"/>
+<area shape="rect" id="node17" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="960,1666,1079,1692"/>
+<area shape="rect" id="node20" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="699,711,841,738"/>
+<area shape="rect" id="node27" href="$classInputManager.html#afee32176f3cb0cc9870912a714a1b903" title="Called whenever joystick input comes in. " alt="" coords="672,1218,868,1244"/>
+<area shape="rect" id="node28" href="$classInputManager.html#af673e1a06c5ca849c1b0a73d7fdda504" title="Called whenever a key is pressed and needs to be added to the queue. " alt="" coords="681,1268,859,1295"/>
+<area shape="rect" id="node29" href="$classInputManager.html#a5624b9c0f40e18b969d1282e5a73413d" title="Called whenever a machine&#45;specific key scancode comes in. " alt="" coords="679,1050,861,1092"/>
+<area shape="rect" id="node30" href="$classInputManager.html#ab6b0c1ad4b4bcc3c5b32352d4b4dae3e" title="Called whenever mouse input comes in. " alt="" coords="675,1116,865,1143"/>
+<area shape="rect" id="node31" href="$classInputManager.html#a9bf0c22e1c284bb9ffb17e5b821dcbab" title="InputManager::rawKeyUpdate" alt="" coords="673,1167,867,1194"/>
+<area shape="rect" id="node34" href="$classNe2k.html#afb3182a707c388a10b732a5d879d4450" title="Ne2k::getName" alt="" coords="713,863,827,890"/>
+<area shape="rect" id="node38" href="$mem_8h.html#a932aa40d85b14cb7331625e012d12335" title="mem_malloc" alt="" coords="722,1522,818,1548"/>
+<area shape="rect" id="node48" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="425,1841,584,1882"/>
+<area shape="rect" id="node49" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="425,1776,584,1817"/>
+</map>

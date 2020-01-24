@@ -1,0 +1,5 @@
+<map id="Bitboard::clear" name="Bitboard::clear">
+<area shape="rect" id="node2" href="$classSideState.html#a65dc2ab0ce98fb4961bc10fa85268626" title="SideState::friendlyMove" alt="" coords="160,5,321,32"/>
+<area shape="rect" id="node3" href="$classBoardState.html#ac8698c815b4ad8542ccb84be7f268323" title="BoardState::move" alt="" coords="369,5,496,32"/>
+<area shape="rect" id="node4" href="$classBoardState.html#aa779e34cbb859e0882154839cbd4810f" title="BoardState::isLegal" alt="" coords="544,5,680,32"/>
+</map>

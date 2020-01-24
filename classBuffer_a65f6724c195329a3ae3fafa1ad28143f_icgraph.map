@@ -1,0 +1,5 @@
+<map id="Buffer::canRead" name="Buffer::canRead">
+<area shape="rect" id="node2" href="$classConsolePhysicalFile.html#a6648a523228720e05ccc4a4fa505aecc" title="ConsolePhysicalFile\l::readBytewise" alt="" coords="171,5,312,47"/>
+<area shape="rect" id="node3" href="$classPsAuxFile.html#a77ffc0514a328caabd759cc26d50fb2e" title="PsAuxFile::select" alt="" coords="179,71,304,98"/>
+<area shape="rect" id="node4" href="$classPipe.html#ad36fcad65bb7cd1ee355081be6b3ca0b" title="Pipe::select" alt="" coords="196,122,287,149"/>
+</map>

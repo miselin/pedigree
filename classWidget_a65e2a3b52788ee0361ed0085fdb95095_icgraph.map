@@ -1,0 +1,17 @@
+<map id="Widget::handlePendingMessages" name="Widget::handlePendingMessages">
+<area shape="rect" id="node2" href="$classWidget.html#aa39372f9b130254de188ae3a577f73da" title="Widget::checkForEvents" alt="" coords="269,207,436,233"/>
+<area shape="rect" id="node8" href="$classWidget.html#af0c8fd5682518e68b8e8fa8f1b012b6b" title="Widget::getSocket" alt="" coords="484,207,615,233"/>
+<area shape="rect" id="node3" href="$classWidget.html#a4b903f1f2ca9f034c2259fe8a766a84a" title="Widget::construct" alt="" coords="889,156,1015,183"/>
+<area shape="rect" id="node5" href="$classTestWidget.html#abbb7dc198c6162b9361d4167192655cc" title="TestWidget::render" alt="" coords="1242,169,1375,196"/>
+<area shape="rect" id="node6" href="$classPedigreeTerminalEmulator.html#aead62bb553957f36b0984edd27b41deb" title="PedigreeTerminalEmulator\l::render" alt="" coords="1424,338,1599,379"/>
+<area shape="rect" id="node7" href="$classGears.html#a0799e69b94335d6366e5b4f947b9c768" title="Gears::render" alt="" coords="1077,269,1179,296"/>
+<area shape="rect" id="node13" href="$classTui.html#a21e37ee87f01e9aaff20a6e2b5397a1c" title="(Re&#45;)initialise the terminal " alt="" coords="1261,320,1356,347"/>
+<area shape="rect" id="node16" href="$classTui.html#aa700aefc88f2fc10ee0ab169feef4a46" title="Runs the TUI main loop. " alt="" coords="1275,472,1342,499"/>
+<area shape="rect" id="node4" href="$classWidget.html#ad924693997ae334f7f70a83eaa927320" title="Widget::getHandle" alt="" coords="1063,195,1193,221"/>
+<area shape="rect" id="node9" href="$classWidget.html#ad1acbdd89d4901f237a165e718ed7a76" title="Widget::checkForMessage" alt="" coords="663,207,841,233"/>
+<area shape="rect" id="node10" href="$classWidget.html#a9f65838eb063a9d2b264d757f996533f" title="Widget::destroy" alt="" coords="895,207,1009,233"/>
+<area shape="rect" id="node11" href="$classWidget.html#a8e8d74e8b85e355cf8e2e10a3dafcdc9" title="Widget::redraw" alt="" coords="897,308,1007,335"/>
+<area shape="rect" id="node12" href="$classTui.html#ae7197bc03e3f875351f63bd107e5e06d" title="Performs a redraw. " alt="" coords="1085,421,1171,448"/>
+<area shape="rect" id="node14" href="$classTui.html#a432e25fc62dd69a16d571090225086f8" title="Set the cursor fill state (e.g. box outline vs shaded box) " alt="" coords="1241,421,1376,448"/>
+<area shape="rect" id="node15" href="$classTui.html#adb342977a5001d35f5968fe0e8c417aa" title="Handle a resize of the terminal. " alt="" coords="1267,371,1350,397"/>
+</map>

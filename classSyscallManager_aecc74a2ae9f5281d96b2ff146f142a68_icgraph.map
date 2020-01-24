@@ -1,0 +1,6 @@
+<map id="SyscallManager::registerSyscallHandler" name="SyscallManager::registerSyscallHandler">
+<area shape="rect" id="node2" href="$classKernelCoreSyscallManager.html#a5fd07646fb20dd8d9abc3144eaa8b37e" title="KernelCoreSyscallManager\l::~KernelCoreSyscallManager" alt="" coords="220,5,416,47"/>
+<area shape="rect" id="node3" href="$classNativeSyscallManager.html#a1421162e6bcbe97a3cde1fd5c775649b" title="NativeSyscallManager\l::~NativeSyscallManager" alt="" coords="233,71,403,112"/>
+<area shape="rect" id="node4" href="$classPedigreeCSyscallManager.html#a5876ae8cbe82466643e48aab62f455db" title="PedigreeCSyscallManager\l::~PedigreeCSyscallManager" alt="" coords="222,136,414,177"/>
+<area shape="rect" id="node5" href="$classPosixSyscallManager.html#afbab0a98ab9bb261d2190abd02f41463" title="PosixSyscallManager\l::~PosixSyscallManager" alt="" coords="236,201,400,243"/>
+</map>

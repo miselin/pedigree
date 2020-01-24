@@ -1,0 +1,24 @@
+<map id="Tree::remove" name="Tree::remove">
+<area shape="rect" id="node2" href="$classPosixSubsystem.html#a84b925eaca9513c11c19a0d25d00b66e" title="PosixSubsystem::freeFd" alt="" coords="178,56,345,83"/>
+<area shape="rect" id="node4" href="$classPosixSubsystem.html#ab036c1a2edb91e183e080015a3c56f0f" title="PosixSubsystem::freeMultipleFds" alt="" coords="152,157,371,184"/>
+<area shape="rect" id="node10" href="$classSymbolTable.html#aa4aa07635e1b3187bd587f1be3ded7da" title="SymbolTable::insertShared" alt="" coords="172,233,351,260"/>
+<area shape="rect" id="node22" href="$classVFS.html#aad66a3585e8ceb2c742e43a6daa35ee9" title="VFS::removeAllAliases" alt="" coords="183,284,340,311"/>
+<area shape="rect" id="node23" href="$classPosixSubsystem_1_1PosixThread.html#a23ffad73917ef83a7c49c71738e00512" title="PosixSubsystem::PosixThread\l::removeThreadData" alt="" coords="160,335,363,377"/>
+<area shape="rect" id="node3" href="$classPosixSubsystem.html#ac2d6e4d427bc8c967ca42577f202c6ee" title="PosixSubsystem::addFileDescriptor" alt="" coords="421,5,652,32"/>
+<area shape="rect" id="node5" href="$classPosixSubsystem.html#a51aa70c0374ef76adf8528118742d56f" title="PosixSubsystem::copyDescriptors" alt="" coords="425,208,649,235"/>
+<area shape="rect" id="node6" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="461,56,612,83"/>
+<area shape="rect" id="node8" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="453,107,620,133"/>
+<area shape="rect" id="node9" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="419,157,655,184"/>
+<area shape="rect" id="node7" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="711,56,877,83"/>
+<area shape="rect" id="node11" href="$classSymbolTable.html#a86b0741d1ac4aefeb498f503e0e35f37" title="SymbolTable::doInsert" alt="" coords="460,259,613,285"/>
+<area shape="rect" id="node21" href="$classSymbolTable.html#a80c934132f8fedb7fb9e4a7bab714c8a" title="SymbolTable::insertMultiple" alt="" coords="703,309,885,336"/>
+<area shape="rect" id="node12" href="$classSymbolTable.html#a28daf9af30b8e4ecf0ed350359bb283a" title="SymbolTable::insert" alt="" coords="725,259,863,285"/>
+<area shape="rect" id="node13" href="$classElf.html#aa7c6020a756cfdc503a2c62c8f032ffb" title="Elf::allocate" alt="" coords="973,309,1064,336"/>
+<area shape="rect" id="node14" href="$classElf.html#a9f301088b6d4d8a07e5ac3dca8bfca19" title="Elf::loadModule" alt="" coords="1185,208,1297,235"/>
+<area shape="rect" id="node19" href="$classKernelElf.html#afb3a9a11f7c20cb84b7ae18b0d0e94a2" title="KernelElf::initialise" alt="" coords="953,259,1084,285"/>
+<area shape="rect" id="node20" href="$classElf.html#a2f6b07c31f79f025df893df1a690e263" title="Elf::populateSymbolTable" alt="" coords="933,157,1104,184"/>
+<area shape="rect" id="node17" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="1152,309,1331,336"/>
+<area shape="rect" id="node18" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="1379,284,1569,311"/>
+<area shape="rect" id="node15" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="1399,208,1549,235"/>
+<area shape="rect" id="node16" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="1617,208,1796,235"/>
+</map>

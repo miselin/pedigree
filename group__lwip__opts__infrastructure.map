@@ -1,0 +1,13 @@
+<map id="Infrastructure" name="Infrastructure">
+<area shape="rect" id="node1" href="$group__lwip__opts__nosys.html" title="NO_SYS" alt="" coords="383,5,459,32"/>
+<area shape="rect" id="node2" href="$group__lwip__opts__lock.html" title="Core locking and MPU" alt="" coords="343,56,498,83"/>
+<area shape="rect" id="node3" href="$group__lwip__opts.html" title="Options (lwipopts.h)" alt="" coords="5,233,144,260"/>
+<area shape="rect" id="node4" href="$group__lwip__opts__checksum.html" title="Checksum" alt="" coords="378,107,463,133"/>
+<area shape="rect" id="node5" href="$group__lwip__opts__hooks.html" title="Hooks" alt="" coords="391,157,451,184"/>
+<area shape="rect" id="node6" href="$group__lwip__opts__memcpy.html" title="memcpy" alt="" coords="385,208,457,235"/>
+<area shape="rect" id="node7" href="$group__lwip__opts__thread.html" title="Threading" alt="" coords="381,259,460,285"/>
+<area shape="rect" id="node8" href="$group__lwip__opts__mib2.html" title="SNMP MIB2 callbacks" alt="" coords="343,309,498,336"/>
+<area shape="rect" id="node9" href="$group__lwip__opts__mem.html" title="Heap and memory pools" alt="" coords="339,360,503,387"/>
+<area shape="rect" id="node10" href="$group__lwip__opts__timers.html" title="Timers" alt="" coords="389,411,452,437"/>
+<area shape="rect" id="node11" href="$group__lwip__opts__memp.html" title="Internal memory pools" alt="" coords="345,461,496,488"/>
+</map>

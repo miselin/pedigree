@@ -1,0 +1,5 @@
+<map id="i386_general_register" name="i386_general_register">
+<area shape="rect" id="node2" href="$structI32__reg__t.html" title="{I32_reg_t\n|+ e_reg\l|}" alt="" coords="5,13,81,90"/>
+<area shape="rect" id="node3" href="$structI16__reg__t.html" title="{I16_reg_t\n|+ x_reg\l|}" alt="" coords="105,13,181,90"/>
+<area shape="rect" id="node4" href="$structI8__reg__t.html" title="{I8_reg_t\n|+ l_reg\l+ h_reg\l|}" alt="" coords="206,5,275,97"/>
+</map>

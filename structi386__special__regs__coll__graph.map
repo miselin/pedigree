@@ -1,0 +1,6 @@
+<map id="i386_special_regs" name="i386_special_regs">
+<area shape="rect" id="node2" href="$unioni386__general__register.html" title="{i386_general_register\n||}" alt="" coords="71,160,216,237"/>
+<area shape="rect" id="node3" href="$structI32__reg__t.html" title="{I32_reg_t\n|+ e_reg\l|}" alt="" coords="5,13,81,90"/>
+<area shape="rect" id="node4" href="$structI16__reg__t.html" title="{I16_reg_t\n|+ x_reg\l|}" alt="" coords="105,13,181,90"/>
+<area shape="rect" id="node5" href="$structI8__reg__t.html" title="{I8_reg_t\n|+ l_reg\l+ h_reg\l|}" alt="" coords="206,5,275,97"/>
+</map>

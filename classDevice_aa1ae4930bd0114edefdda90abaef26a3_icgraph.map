@@ -1,0 +1,6 @@
+<map id="Device::getName" name="Device::getName">
+<area shape="rect" id="node2" href="$classDevicesCommand.html#a8593a51f257aa8b09e8c76dcdb744c7c" title="DevicesCommand::execute" alt="" coords="177,5,361,32"/>
+<area shape="rect" id="node3" href="$classDeviceHashTree.html#acac5dddf11bff64610169e3ada90252f" title="DeviceHashTree::getHash" alt="" coords="181,56,358,83"/>
+<area shape="rect" id="node4" href="$classRawFs.html#ab50656d570d4146ed8ad8b91748778f9" title="RawFs::getRoot" alt="" coords="210,131,329,157"/>
+<area shape="rect" id="node5" href="$classRawFs.html#aaea4b50ed3441cfcc8a097259bddbc26" title="RawFs::initialise" alt="" coords="409,131,528,157"/>
+</map>

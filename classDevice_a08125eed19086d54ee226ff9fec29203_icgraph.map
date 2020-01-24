@@ -1,0 +1,16 @@
+<map id="Device::getNumChildren" name="Device::getNumChildren">
+<area shape="rect" id="node2" href="$classDevicesCommand.html#a8593a51f257aa8b09e8c76dcdb744c7c" title="DevicesCommand::execute" alt="" coords="221,5,405,32"/>
+<area shape="rect" id="node3" href="$classRawFs.html#ab50656d570d4146ed8ad8b91748778f9" title="RawFs::getRoot" alt="" coords="253,80,372,107"/>
+<area shape="rect" id="node5" href="$classAtaController.html#a62eacd994bb3866967534fcfce2ac70f" title="AtaController::irq" alt="" coords="253,131,373,157"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="243,232,382,259"/>
+<area shape="rect" id="node7" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="462,174,626,215"/>
+<area shape="rect" id="node9" href="$classDevice.html#ad1eb151a044263eb721a4a4256b6e87f" title="Device::searchByVendorId\lInternal" alt="" coords="223,283,402,325"/>
+<area shape="rect" id="node11" href="$classHeathrow.html#a873945938f70f52c5d3601863da32f9d" title="Heathrow::unregisterHandler" alt="" coords="219,349,407,376"/>
+<area shape="rect" id="node14" href="$classOpenPic.html#a5fb453c744fa02e05203a0867d7a4414" title="OpenPic::unregisterHandler" alt="" coords="221,400,404,427"/>
+<area shape="rect" id="node4" href="$classRawFs.html#aaea4b50ed3441cfcc8a097259bddbc26" title="RawFs::initialise" alt="" coords="485,80,603,107"/>
+<area shape="rect" id="node8" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="681,211,860,237"/>
+<area shape="rect" id="node10" href="$classDevice.html#a596f9b4d29ffaf54afc85e545557ea4f" title="Device::searchByVendorId" alt="" coords="455,291,633,317"/>
+<area shape="rect" id="node12" href="$classHeathrow.html#a94a2ac17443bf7525b74ddd851a7f333" title="Heathrow::instance" alt="" coords="477,349,611,376"/>
+<area shape="rect" id="node13" href="$classMac.html#adc59251940a11bb19e8d868960e2694d" title="Mac::initialiseDeviceTree" alt="" coords="686,375,855,401"/>
+<area shape="rect" id="node15" href="$classOpenPic.html#aed4e3d404be358d005c71395a30c29c6" title="OpenPic::instance" alt="" coords="479,400,609,427"/>
+</map>

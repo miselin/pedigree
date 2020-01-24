@@ -1,0 +1,13 @@
+<map id="Rtc::setIndex" name="Rtc::setIndex">
+<area shape="rect" id="node2" href="$classRtc.html#ad07065368004b555a327ebba50e8dc03" title="Rtc::enableRtcUpdates" alt="" coords="405,35,564,62"/>
+<area shape="rect" id="node5" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="797,111,877,138"/>
+<area shape="rect" id="node6" href="$classRtc.html#a7279b20d2bd31dcbe0e2ef12415a21d4" title="Rtc::read" alt="" coords="447,238,523,265"/>
+<area shape="rect" id="node11" href="$classRtc.html#ab2bfe6d0633369d7073ff62e5be0996d" title="Rtc::waitForUpdateCompletion" alt="" coords="155,187,357,214"/>
+<area shape="rect" id="node12" href="$classRtc.html#a340542880fc70a75eb958c2611d87aae" title="Rtc::write" alt="" coords="445,339,524,366"/>
+<area shape="rect" id="node3" href="$classRtc.html#a4a64442f71823c3dd0b11bee6bbe9e39" title="Rtc::synchronise" alt="" coords="612,238,733,265"/>
+<area shape="rect" id="node4" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="781,289,893,315"/>
+<area shape="rect" id="node7" href="$classRtc.html#a0492a6115884d8f383278263867b43d1" title="Rtc::initialise1" alt="" coords="620,339,725,366"/>
+<area shape="rect" id="node9" href="$classRtc.html#ac91c58f54619f6af7ef41a257813e9ec" title="Rtc::initialise2" alt="" coords="620,390,725,417"/>
+<area shape="rect" id="node10" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="640,137,705,163"/>
+<area shape="rect" id="node8" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="791,365,884,391"/>
+</map>

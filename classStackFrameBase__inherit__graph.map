@@ -1,0 +1,10 @@
+<map id="StackFrameBase" name="StackFrameBase">
+<area shape="rect" id="node2" href="$classARM926EStackFrame.html" title="{ARM926EStackFrame\n||+ ARM926EStackFrame()\l+ ~ARM926EStackFrame()\l&#45; getParameter()\l}" alt="" coords="5,255,187,362"/>
+<area shape="rect" id="node3" href="$classARMV7StackFrame.html" title="{ARMV7StackFrame\n||+ ARMV7StackFrame()\l+ ~ARMV7StackFrame()\l+ construct()\l&#45; getParameter()\l}" alt="" coords="211,248,378,369"/>
+<area shape="rect" id="node4" href="$classHostedStackFrame.html" title="{HostedStackFrame\n||+ HostedStackFrame()\l+ ~HostedStackFrame()\l+ construct()\l&#45; getParameter()\l}" alt="" coords="403,248,565,369"/>
+<area shape="rect" id="node5" href="$classMIPS32StackFrame.html" title="{MIPS32StackFrame\n||+ MIPS32StackFrame()\l+ ~MIPS32StackFrame()\l&#45; getParameter()\l}" alt="" coords="589,255,757,362"/>
+<area shape="rect" id="node6" href="$classMIPS64StackFrame.html" title="{MIPS64StackFrame\n||+ MIPS64StackFrame()\l+ ~MIPS64StackFrame()\l&#45; getParameter()\l}" alt="" coords="781,255,949,362"/>
+<area shape="rect" id="node7" href="$classPPC32StackFrame.html" title="{PPC32StackFrame\n||+ PPC32StackFrame()\l+ ~PPC32StackFrame()\l+ construct()\l&#45; getParameter()\l}" alt="" coords="973,248,1136,369"/>
+<area shape="rect" id="node8" href="$classX64StackFrame.html" title="{X64StackFrame\n||+ X64StackFrame()\l+ ~X64StackFrame()\l+ construct()\l&#45; getParameter()\l}" alt="" coords="1160,248,1304,369"/>
+<area shape="rect" id="node9" href="$classX86StackFrame.html" title="{X86StackFrame\n||+ X86StackFrame()\l+ ~X86StackFrame()\l+ construct()\l&#45; getParameter()\l}" alt="" coords="1328,248,1472,369"/>
+</map>

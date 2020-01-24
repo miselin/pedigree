@@ -1,0 +1,13 @@
+<map id="arch.h" name="arch.h">
+<area shape="rect" id="node2" href="$cc_8h_source.html" title="arch/cc.h" alt="" coords="261,80,337,107"/>
+<area shape="rect" id="node13" href="$stddef_8h_source.html" title="stddef.h" alt="" coords="362,80,431,107"/>
+<area shape="rect" id="node3" href="$system_2include_2pedigree_2kernel_2compiler_8h_source.html" title="pedigree/kernel/compiler.h" alt="" coords="5,341,180,367"/>
+<area shape="rect" id="node5" href="$system_2include_2pedigree_2kernel_2processor_2types_8h_source.html" title="pedigree/kernel/processor\l/types.h" alt="" coords="337,333,507,375"/>
+<area shape="rect" id="node7" href="$assert_8h_source.html" title="pedigree/kernel/utilities\l/assert.h" alt="" coords="133,155,287,196"/>
+<area shape="rect" id="node9" href="$utility_8h_source.html" title="pedigree/kernel/utilities\l/utility.h" alt="" coords="311,155,466,196"/>
+<area shape="rect" id="node4" href="$threadsafety_8h_source.html" title="pedigree/kernel/utilities\l/threadsafety.h" alt="" coords="15,423,170,464"/>
+<area shape="rect" id="node6" href="$system_2include_2pedigree_2kernel_2processor_2x64_2types_8h_source.html" title="pedigree/kernel/processor\l/x64/types.h" alt="" coords="337,423,507,464"/>
+<area shape="rect" id="node8" href="$stdint_8h_source.html" title="stdint.h" alt="" coords="349,251,415,278"/>
+<area shape="rect" id="node10" href="$cpp_8h_source.html" title="pedigree/kernel/utilities\l/cpp.h" alt="" coords="490,244,645,285"/>
+<area shape="rect" id="node11" href="$lib_8h_source.html" title="pedigree/kernel/utilities\l/lib.h" alt="" coords="171,244,326,285"/>
+</map>

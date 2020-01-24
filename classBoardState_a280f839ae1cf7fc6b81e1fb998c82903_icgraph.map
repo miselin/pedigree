@@ -1,0 +1,4 @@
+<map id="BoardState::firstPawn" name="BoardState::firstPawn">
+<area shape="rect" id="node2" href="$classBoardState.html#aa779e34cbb859e0882154839cbd4810f" title="BoardState::isLegal" alt="" coords="204,5,340,32"/>
+<area shape="rect" id="node3" href="$classBoardState.html#a04057b940dc08d6d89b4cc595b682231" title="BoardState::save" alt="" coords="211,56,333,83"/>
+</map>

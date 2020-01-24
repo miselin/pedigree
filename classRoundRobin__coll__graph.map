@@ -1,0 +1,16 @@
+<map id="RoundRobin" name="RoundRobin">
+<area shape="rect" id="node2" href="$classSchedulingAlgorithm.html" title="{SchedulingAlgorithm\n||+ ~SchedulingAlgorithm()\l+ addThread()\l+ removeThread()\l+ getNext()\l+ threadStatusChanged()\l}" alt="" coords="5,1806,175,1942"/>
+<area shape="rect" id="node3" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="373,491,521,832"/>
+<area shape="rect" id="node9" href="$classObjectPool.html" title="{ObjectPool\&lt; _ListNode\l_t, 16 \&gt;\n||+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="646,1255,803,1391"/>
+<area shape="rect" id="node13" href="$classObjectPool.html" title="{ObjectPool\&lt; T, poolSize \&gt;\n||+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="411,975,587,1097"/>
+<area shape="rect" id="node16" href="$classObjectPool.html" title="{ObjectPool\&lt; _ListNode\l_t, nodePoolSize \&gt;\n||+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="358,1255,515,1391"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="265,248,398,325"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="329,5,472,83"/>
+<area shape="rect" id="node6" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="423,248,533,325"/>
+<area shape="rect" id="node7" href="$classList.html" title="{List\&lt; Thread * \&gt;\n|&#45; m_Count\l&#45; m_Magic\l|+ List()\l+ List()\l+ ~List()\l+ operator=()\l+ size()\l+ count()\l+ pushBack()\l+ pushBack()\l+ popBack()\l+ pushFront()\land 14 more...\l}" alt="" coords="815,1755,931,1993"/>
+<area shape="rect" id="node8" href="$struct__ListNode__t.html" title="One node in the list. " alt="" coords="743,615,867,707"/>
+<area shape="rect" id="node10" href="$classVector.html" title="{Vector\&lt; _ListNode_t * \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="850,895,1013,1177"/>
+<area shape="rect" id="node15" href="$classList.html" title="{List\&lt; T, nodePoolSize \&gt;\n|&#45; m_Count\l&#45; m_Magic\l|+ List()\l+ List()\l+ ~List()\l+ operator=()\l+ size()\l+ count()\l+ pushBack()\l+ pushBack()\l+ popBack()\l+ pushFront()\land 14 more...\l}" alt="" coords="711,1453,874,1692"/>
+<area shape="rect" id="node11" href="$classVector.html" title="A vector / dynamic array. " alt="" coords="571,145,705,428"/>
+<area shape="rect" id="node14" href="$classVector.html" title="{Vector\&lt; T * \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="571,520,705,803"/>
+</map>

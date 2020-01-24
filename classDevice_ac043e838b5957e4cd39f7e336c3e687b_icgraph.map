@@ -1,0 +1,8 @@
+<map id="Device::getPciBusPosition" name="Device::getPciBusPosition">
+<area shape="rect" id="node2" href="$classDeviceHashTree.html#acac5dddf11bff64610169e3ada90252f" title="DeviceHashTree::getHash" alt="" coords="232,5,409,32"/>
+<area shape="rect" id="node3" href="$classPciBus.html#a1e6155ca3828d12714dfd655d1a7b43b" title="PciBus::readConfigSpace" alt="" coords="235,107,407,133"/>
+<area shape="rect" id="node7" href="$classPciBus.html#a7429723ea019594cdff62b07088280fe" title="PciBus::writeConfigSpace" alt="" coords="233,56,408,83"/>
+<area shape="rect" id="node4" href="$classEhci.html#a2bb0bdcc2f048c4315c97b0bf422c8a8" title="Ehci::initialiseController" alt="" coords="460,52,619,79"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="457,103,621,145"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="669,111,848,137"/>
+</map>

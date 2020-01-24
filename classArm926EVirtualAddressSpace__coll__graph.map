@@ -1,0 +1,6 @@
+<map id="Arm926EVirtualAddressSpace" name="Arm926EVirtualAddressSpace">
+<area shape="rect" id="node2" href="$classVirtualAddressSpace.html" title="{VirtualAddressSpace\n|+ m_Heap\l+ m_HeapEnd\l+ KernelMode\l+ Write\l+ Execute\l+ WriteThrough\l+ CacheDisable\l+ CopyOnWrite\l+ Swapped\l+ MemoryCoherent\l+ Guarded\l+ Shared\l+ WriteCombine\l+ Accessed\l+ Dirty\l+ ClearDirty\l+ m_ZeroPage\l|+ expandHeap()\l+ isAddressValid()\l+ isMapped()\l+ map()\l+ mapHuge()\l+ getMapping()\l+ setFlags()\l+ unmap()\l+ allocateStack()\l+ allocateStack()\land 22 more...\l+ getKernelAddressSpace()\l+ create()\l# VirtualAddressSpace()\l&#45; VirtualAddressSpace()\l&#45; VirtualAddressSpace()\l&#45; operator=()\l&#45; rollbackHeapExpansion()\l}" alt="" coords="5,5,188,567"/>
+<area shape="rect" id="node3" href="$structArm926EVirtualAddressSpace_1_1Translation.html" title="{Arm926EVirtualAddressSpace\l::Translation\n|+ entries\l|}" alt="" coords="212,240,411,332"/>
+<area shape="rect" id="node4" href="$structArm926EVirtualAddressSpace_1_1SectionTable.html" title="{Arm926EVirtualAddressSpace\l::SectionTable\n|+ entry\l|}" alt="" coords="435,240,633,332"/>
+<area shape="rect" id="node5" href="$structArm926EVirtualAddressSpace_1_1CoarseTable.html" title="{Arm926EVirtualAddressSpace\l::CoarseTable\n|+ entries\l|}" alt="" coords="657,240,856,332"/>
+</map>

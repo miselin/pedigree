@@ -1,0 +1,7 @@
+<map id="VirtualAddressSpace::clone" name="VirtualAddressSpace::clone">
+<area shape="rect" id="node2" href="$classVirtualAddressSpace.html#aca486db09d4336c50ae57ecb7d38daa1" title="VirtualAddressSpace\l::allocateStack" alt="" coords="211,5,355,47"/>
+<area shape="rect" id="node3" href="$classX86GdtManager.html#a72fc84b01d6c5c094e50f25e1ec8266b" title="X86GdtManager::initialise\lDoubleFaultTss" alt="" coords="197,71,368,112"/>
+<area shape="rect" id="node6" href="$classProcess.html#a528b30584816801ded6ce681864afe45" title="Process::Process" alt="" coords="219,137,346,163"/>
+<area shape="rect" id="node4" href="$classX86GdtManager.html#a8b8ca99e3755ecd672eb67138d29b416" title="X86GdtManager::initialise" alt="" coords="416,53,587,79"/>
+<area shape="rect" id="node5" href="$classX86GdtManager.html#a91a7efcf5e77219d9ea417109e7039c2" title="X86GdtManager::instance" alt="" coords="635,78,808,105"/>
+</map>

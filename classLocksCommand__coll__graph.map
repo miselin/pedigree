@@ -1,0 +1,11 @@
+<map id="LocksCommand" name="LocksCommand">
+<area shape="rect" id="node2" href="$classDebuggerCommand.html" title="{DebuggerCommand\n||+ DebuggerCommand()\l+ ~DebuggerCommand()\l+ autocomplete()\l+ execute()\l+ getString()\l}" alt="" coords="5,932,172,1068"/>
+<area shape="rect" id="node3" href="$classScrollable.html" title="{Scrollable\n|# m_x\l# m_y\l# m_width\l# m_height\l# m_line\l# m_ScrollUp\l# m_ScrollDown\l|+ Scrollable()\l+ move()\l+ resize()\l+ scroll()\l+ scrollTo()\l+ refresh()\l+ setScrollKeys()\l+ getLine()\l+ centreOn()\l+ height()\l+ width()\l+ getLine1()\l+ getLine2()\l+ getLineCount()\l+ ~Scrollable()\l}" alt="" coords="197,815,319,1185"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; uint8_t \&gt;\n||}" alt="" coords="300,247,427,324"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="444,5,587,83"/>
+<area shape="rect" id="node6" href="$classAtomic.html" title="{Atomic\&lt; size_t \&gt;\n||}" alt="" coords="465,713,587,791"/>
+<area shape="rect" id="node7" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="563,145,673,223"/>
+<area shape="rect" id="node10" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="698,145,831,223"/>
+<area shape="rect" id="node9" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="688,348,836,689"/>
+<area shape="rect" id="node8" href="$structLocksCommand_1_1LockDescriptor.html" title="{LocksCommand::LockDescriptor\n|+ state\l|+ LockDescriptor()\l}" alt="" coords="655,961,869,1039"/>
+</map>

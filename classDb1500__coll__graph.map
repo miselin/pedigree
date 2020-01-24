@@ -1,0 +1,8 @@
+<map id="Db1500" name="Db1500">
+<area shape="rect" id="node2" href="$classMachine.html" title="{Machine\n|# m_bInitialised\l|+ initialise()\l+ initialise2()\l+ initialise3()\l+ deinitialise()\l+ isInitialised()\l+ initialiseDeviceTree()\l+ getSerial()\l+ getNumSerial()\l+ getVga()\l+ getNumVga()\l+ getIrqManager()\l+ getSchedulerTimer()\l+ getTimer()\l+ getKeyboard()\l+ setKeyboard()\l+ instance()\l# Machine()\l# ~Machine()\l&#45; Machine()\l&#45; operator=()\l}" alt="" coords="5,365,161,721"/>
+<area shape="rect" id="node3" href="$classAu1500Serial.html" title="{Au1500Serial\n||+ Au1500Serial()\l+ ~Au1500Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l}" alt="" coords="185,468,312,619"/>
+<area shape="rect" id="node4" href="$classSerial.html" title="{Serial\n||+ ~Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ write()\l}" alt="" coords="31,71,155,222"/>
+<area shape="rect" id="node5" href="$structAu1500Serial_1_1serial.html" title="{Au1500Serial::serial\n|+ rxdata\l+ txdata\l+ inten\l+ intcause\l+ fifoctrl\l+ linectrl\l+ mdmstat\l+ autoflow\l+ clkdiv\l+ enable\l|}" alt="" coords="179,42,318,251"/>
+<area shape="rect" id="node6" href="$classAu1500Vga.html" title="{Au1500Vga\n||+ Au1500Vga()\l+ ~Au1500Vga()\l+ read()\l+ write()\l}" alt="" coords="351,483,469,604"/>
+<area shape="rect" id="node7" href="$classVga.html" title="{Vga\n||+ ~Vga()\l+ setControl()\l+ clearControl()\l+ setMode()\l+ setLargestTextMode()\l+ isMode()\l+ isLargestTextMode()\l+ getNumCols()\l+ getNumRows()\l+ rememberMode()\l+ restoreMode()\l+ pokeBuffer()\l+ peekBuffer()\l+ moveCursor()\l+ operator uint16_t *()\l}" alt="" coords="343,5,504,288"/>
+</map>

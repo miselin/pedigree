@@ -1,0 +1,10 @@
+<map id="Serial" name="Serial">
+<area shape="rect" id="node2" href="$classArmBeagleSerial.html" title="Implements the UART interface on the BeagleBoard. " alt="" coords="5,204,155,443"/>
+<area shape="rect" id="node3" href="$classArmVersatileSerial.html" title="{ArmVersatileSerial\n|+ PACKED\l|+ ArmVersatileSerial()\l+ ~ArmVersatileSerial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l}" alt="" coords="179,248,338,399"/>
+<area shape="rect" id="node4" href="$classAu1500Serial.html" title="{Au1500Serial\n|+ PACKED\l+ m_pRegs\l|+ Au1500Serial()\l+ ~Au1500Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l}" alt="" coords="362,241,489,406"/>
+<area shape="rect" id="node5" href="$classFtdiSerialDevice.html" title="{FtdiSerialDevice\n|&#45; m_pInEndpoint\l&#45; m_pOutEndpoint\l|+ FtdiSerialDevice()\l+ ~FtdiSerialDevice()\l+ initialiseDriver()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ getName()\l}" alt="" coords="513,226,660,421"/>
+<area shape="rect" id="node6" href="$classHostedSerial.html" title="{HostedSerial\n|&#45; m_File\l&#45; m_nFileNumber\l|+ HostedSerial()\l+ setBase()\l+ ~HostedSerial()\l+ read()\l+ readNonBlock()\l+ write()\l&#45; isConnected()\l}" alt="" coords="684,233,809,413"/>
+<area shape="rect" id="node7" href="$classMaltaSerial.html" title="{MaltaSerial\n|&#45; PACKED\l&#45; m_pBuffer\l&#45; m_pRegs\l|+ MaltaSerial()\l+ ~MaltaSerial()\l+ setBase()\l+ write()\l+ read()\l+ readNonBlock()\l&#45; MaltaSerial()\l&#45; operator=()\l&#45; isConnected()\l}" alt="" coords="834,211,958,435"/>
+<area shape="rect" id="node8" href="$classPPCSerial.html" title="{PPCSerial\n|&#45; m_pBuffer\l|+ PPCSerial()\l+ ~PPCSerial()\l+ setBase()\l+ write()\l+ read()\l+ readNonBlock()\l&#45; PPCSerial()\l&#45; operator=()\l&#45; isConnected()\l}" alt="" coords="982,226,1106,421"/>
+<area shape="rect" id="node9" href="$classX86Serial.html" title="{X86Serial\n|&#45; m_Port\l|+ X86Serial()\l+ setBase()\l+ ~X86Serial()\l+ read()\l+ readNonBlock()\l+ write()\l&#45; isConnected()\l}" alt="" coords="1130,241,1254,406"/>
+</map>

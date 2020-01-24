@@ -1,0 +1,10 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classVga.html" title="Vga" alt="" coords="5,157,51,184"/>
+<area shape="rect" id="node2" href="$classArmBeagleVga.html" title="ArmBeagleVga" alt="" coords="104,5,213,32"/>
+<area shape="rect" id="node3" href="$classArmVersatileVga.html" title="ArmVersatileVga" alt="" coords="99,56,219,83"/>
+<area shape="rect" id="node4" href="$classAu1500Vga.html" title="Au1500Vga" alt="" coords="114,107,203,133"/>
+<area shape="rect" id="node5" href="$classHostedVga.html" title="HostedVga" alt="" coords="115,157,202,184"/>
+<area shape="rect" id="node6" href="$classMaltaVga.html" title="MaltaVga" alt="" coords="120,208,197,235"/>
+<area shape="rect" id="node7" href="$classPPCVga.html" title="PPCVga" alt="" coords="122,259,195,285"/>
+<area shape="rect" id="node8" href="$classX86Vga.html" title="X86Vga" alt="" coords="125,309,193,336"/>
+</map>

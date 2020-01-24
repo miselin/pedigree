@@ -1,0 +1,10 @@
+<map id="Vector::popBack" name="Vector::popBack">
+<area shape="rect" id="node2" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="186,5,370,47"/>
+<area shape="rect" id="node3" href="$classIoPortManager.html#a5ef2a48ef3f0098e80a67cb80eb7002b" title="IoPortManager::freeIoPortList" alt="" coords="181,71,375,98"/>
+<area shape="rect" id="node5" href="$classPhysicalMemoryManager.html#a31f2033c670730386cd7fb01d6f23cb5" title="PhysicalMemoryManager\l::freeMemoryRegionList" alt="" coords="193,123,363,164"/>
+<area shape="rect" id="node6" href="$classPosixSubsystem.html#a5bbd21893924596a4ef7fcb134d94e33" title="PosixSubsystem::parseShebang" alt="" coords="172,189,384,215"/>
+<area shape="rect" id="node8" href="$classLockManager.html#a479c84049371aa82b23272b09591fdd5" title="LockManager::released" alt="" coords="199,239,357,266"/>
+<area shape="rect" id="node9" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="191,291,365,332"/>
+<area shape="rect" id="node4" href="$classIoCommand.html#a1d1dd9333d28553c1dee07db7c5a5341" title="IoCommand::execute" alt="" coords="442,71,589,98"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="432,189,599,215"/>
+</map>

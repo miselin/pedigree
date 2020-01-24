@@ -1,0 +1,5 @@
+<map id="Thread::shutdown" name="Thread::shutdown">
+<area shape="rect" id="node2" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="180,5,339,47"/>
+<area shape="rect" id="node3" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="192,71,327,98"/>
+<area shape="rect" id="node4" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="200,122,319,149"/>
+</map>

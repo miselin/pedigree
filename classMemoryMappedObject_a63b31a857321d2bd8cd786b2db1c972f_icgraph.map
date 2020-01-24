@@ -1,0 +1,13 @@
+<map id="MemoryMappedObject::setPermissions" name="MemoryMappedObject::setPermissions">
+<area shape="rect" id="node2" href="$classMemoryMapManager.html#ab1ff259d9432ba44bc34a12789b84dc3" title="MemoryMapManager::instance" alt="" coords="227,183,429,209"/>
+<area shape="rect" id="node11" href="$classMemoryMappedObject.html#aa2894d0a2d7e66fef8cf12020ff24f72" title="MemoryMappedObject\l::MemoryMappedObject" alt="" coords="247,361,409,402"/>
+<area shape="rect" id="node12" href="$classMemoryMapManager.html#af8a8b40c1508308ad0bb5a53fd925bc5" title="MemoryMapManager::setPermissions" alt="" coords="207,309,449,336"/>
+<area shape="rect" id="node3" href="$classPosixSubsystem.html#aebeb7194a0d4fd8f83c444427648deb8" title="PosixSubsystem::checkAddress" alt="" coords="509,5,721,32"/>
+<area shape="rect" id="node5" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="540,107,691,133"/>
+<area shape="rect" id="node6" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="793,309,960,336"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem.html#af6864cdcf0fe3bfe665349c05c522183" title="PosixSubsystem::loadElf" alt="" coords="531,309,700,336"/>
+<area shape="rect" id="node8" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="526,208,705,235"/>
+<area shape="rect" id="node9" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="781,183,972,209"/>
+<area shape="rect" id="node10" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="497,56,733,83"/>
+<area shape="rect" id="node4" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="793,56,960,83"/>
+</map>

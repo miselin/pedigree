@@ -1,0 +1,30 @@
+<map id="TimeoutGuard.h" name="TimeoutGuard.h">
+<area shape="rect" id="node2" href="$Spinlock_8h_source.html" title="pedigree/kernel/Spinlock.h" alt="" coords="322,445,497,471"/>
+<area shape="rect" id="node4" href="$system_2include_2pedigree_2kernel_2compiler_8h_source.html" title="pedigree/kernel/compiler.h" alt="" coords="399,802,574,829"/>
+<area shape="rect" id="node6" href="$system_2include_2pedigree_2kernel_2processor_2types_8h_source.html" title="pedigree/kernel/processor\l/types.h" alt="" coords="1635,795,1805,836"/>
+<area shape="rect" id="node12" href="$Event_8h_source.html" title="pedigree/kernel/process\l/Event.h" alt="" coords="383,169,543,211"/>
+<area shape="rect" id="node22" href="$eventNumbers_8h_source.html" title="pedigree/kernel/process\l/eventNumbers.h" alt="" coords="2292,80,2452,121"/>
+<area shape="rect" id="node23" href="$state_8h_source.html" title="pedigree/kernel/processor\l/state.h" alt="" coords="828,80,999,121"/>
+<area shape="rect" id="node3" href="$Atomic_8h_source.html" title="pedigree/kernel/Atomic.h" alt="" coords="474,534,641,561"/>
+<area shape="rect" id="node8" href="$utility_8h_source.html" title="pedigree/kernel/utilities\l/utility.h" alt="" coords="668,616,823,657"/>
+<area shape="rect" id="node5" href="$threadsafety_8h_source.html" title="pedigree/kernel/utilities\l/threadsafety.h" alt="" coords="409,884,564,925"/>
+<area shape="rect" id="node7" href="$system_2include_2pedigree_2kernel_2processor_2x64_2types_8h_source.html" title="pedigree/kernel/processor\l/x64/types.h" alt="" coords="1635,884,1805,925"/>
+<area shape="rect" id="node9" href="$cpp_8h_source.html" title="pedigree/kernel/utilities\l/cpp.h" alt="" coords="676,705,831,747"/>
+<area shape="rect" id="node10" href="$lib_8h_source.html" title="pedigree/kernel/utilities\l/lib.h" alt="" coords="1007,705,1161,747"/>
+<area shape="rect" id="node13" href="$List_8h_source.html" title="pedigree/kernel/utilities\l/List.h" alt="" coords="885,259,1040,300"/>
+<area shape="rect" id="node14" href="$Iterator_8h_source.html" title="pedigree/kernel/utilities\l/Iterator.h" alt="" coords="1276,527,1431,568"/>
+<area shape="rect" id="node16" href="$ObjectPool_8h_source.html" title="pedigree/kernel/utilities\l/ObjectPool.h" alt="" coords="885,348,1040,389"/>
+<area shape="rect" id="node19" href="$assert_8h_source.html" title="pedigree/kernel/utilities\l/assert.h" alt="" coords="1327,616,1481,657"/>
+<area shape="rect" id="node15" href="$template_8h_source.html" title="pedigree/kernel/utilities\l/template.h" alt="" coords="1607,616,1761,657"/>
+<area shape="rect" id="node17" href="$LockGuard_8h_source.html" title="pedigree/kernel/LockGuard.h" alt="" coords="521,445,709,471"/>
+<area shape="rect" id="node18" href="$Vector_8h_source.html" title="pedigree/kernel/utilities\l/Vector.h" alt="" coords="767,527,921,568"/>
+<area shape="rect" id="node20" href="$stdint_8h_source.html" title="stdint.h" alt="" coords="1653,713,1718,739"/>
+<area shape="rect" id="node24" href="$state__forward_8h_source.html" title="pedigree/kernel/processor\l/state_forward.h" alt="" coords="828,169,999,211"/>
+<area shape="rect" id="node25" href="$x64_2state_8h_source.html" title="pedigree/kernel/processor\l/x64/state.h" alt="" coords="1117,169,1288,211"/>
+<area shape="rect" id="node26" href="$Log_8h_source.html" title="pedigree/kernel/Log.h" alt="" coords="1317,266,1464,293"/>
+<area shape="rect" id="node27" href="$StaticString_8h_source.html" title="pedigree/kernel/utilities\l/StaticString.h" alt="" coords="1047,527,1201,568"/>
+<area shape="rect" id="node28" href="$StaticCord_8h_source.html" title="pedigree/kernel/utilities\l/StaticCord.h" alt="" coords="1479,348,1633,389"/>
+<area shape="rect" id="node31" href="$Time_8h_source.html" title="pedigree/kernel/time\l/Time.h" alt="" coords="1439,705,1577,747"/>
+<area shape="rect" id="node29" href="$String_8h_source.html" title="pedigree/kernel/utilities\l/String.h" alt="" coords="1708,437,1863,479"/>
+<area shape="rect" id="node30" href="$StringView_8h_source.html" title="pedigree/kernel/utilities\l/StringView.h" alt="" coords="1809,527,1964,568"/>
+</map>

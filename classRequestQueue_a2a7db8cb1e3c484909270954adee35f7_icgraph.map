@@ -1,0 +1,15 @@
+<map id="RequestQueue::doAsync" name="RequestQueue::doAsync">
+<area shape="rect" id="node2" href="$classRequestQueue.html#af8a30850de31f65681d837f0a8795080" title="RequestQueue::addAsyncRequest" alt="" coords="221,132,445,159"/>
+<area shape="rect" id="node3" href="$classScsiDisk.html#a3f3bb7aea858a2aecd991e53a1f1d3ca" title="ScsiDisk::read" alt="" coords="495,31,603,57"/>
+<area shape="rect" id="node4" href="$classCache.html#a3a4f0916381ef6f3cd5ae0a1139e80d1" title="Cache::release" alt="" coords="493,81,604,108"/>
+<area shape="rect" id="node11" href="$classCache.html#a49319c0bbb177eb08db38a2958bf5611" title="Cache::sync" alt="" coords="501,132,597,159"/>
+<area shape="rect" id="node13" href="$classCache.html#a5e2cbc66e8c1d8709ea556ab2c973e36" title="Cache::timer" alt="" coords="500,183,597,209"/>
+<area shape="rect" id="node14" href="$classScsiDisk.html#a35c2d6efbc45c8d5862f81b36956558c" title="ScsiDisk::write" alt="" coords="493,233,604,260"/>
+<area shape="rect" id="node5" href="$classFile.html#adf3b7b34a5a5e63a99da4d9a719a7a2d" title="File::returnPhysicalPage" alt="" coords="652,5,816,32"/>
+<area shape="rect" id="node6" href="$classDiskImage.html#acb4d50da90301cf52b6ebc858967dd37" title="DiskImage::unpin" alt="" coords="672,56,796,83"/>
+<area shape="rect" id="node10" href="$classFatFile.html#ad6d4ab615702c95fe1f90bed713faae4" title="FatFile::unpinBlock" alt="" coords="667,107,801,133"/>
+<area shape="rect" id="node7" href="$classDiskImage.html#ad164622638c31b85dbe30a05f01326f8" title="Gets the block size of the disk. " alt="" coords="864,56,1035,83"/>
+<area shape="rect" id="node8" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="1083,56,1201,83"/>
+<area shape="rect" id="node9" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="1249,56,1375,83"/>
+<area shape="rect" id="node12" href="$classFatFile.html#a8a6df02c9ef7a04ecd85b616513cac5a" title="FatFile::sync" alt="" coords="685,157,783,184"/>
+</map>

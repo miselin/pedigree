@@ -1,0 +1,22 @@
+<map id="mem_malloc" name="mem_malloc">
+<area shape="rect" id="node2" href="$mem_8h.html#ab0bdc525971701883f2065e7fb257a24" title="mem_calloc" alt="" coords="149,31,241,57"/>
+<area shape="rect" id="node3" href="$memp_8h.html#a9693e5b1ac2c6b9c0e7870522d45efa2" title="memp_init" alt="" coords="154,81,237,108"/>
+<area shape="rect" id="node6" href="$group__pbuf.html#gacfcb0a2af918658ba0afe36499c65f47" title="pbuf_alloc" alt="" coords="155,132,236,159"/>
+<area shape="rect" id="node21" href="$slipif_8c.html#a687973ba82dab13a5b9d38d7399aeee3" title="slipif_init" alt="" coords="159,183,232,209"/>
+<area shape="rect" id="node4" href="$init_8h.html#a0c1a18439524d2f4a5e51d25c0ca2ce9" title="lwip_init" alt="" coords="332,31,401,57"/>
+<area shape="rect" id="node5" href="$tcpip_8h.html#ac104b53faf0e3905ad0e970866835661" title="tcpip_init" alt="" coords="535,5,610,32"/>
+<area shape="rect" id="node7" href="$group__netif.html#ga34e37a1e8e358760dc1c43887922c7db" title="netif_set_link_down" alt="" coords="298,107,435,133"/>
+<area shape="rect" id="node8" href="$classNetworkStack.html#ad1241196e21308ed5728288b072ba151" title="NetworkStack::receive" alt="" coords="289,157,444,184"/>
+<area shape="rect" id="node20" href="$group__pbuf.html#ga54ac7b116c6f53c704cbf74f35a8b35c" title="pbuf_coalesce" alt="" coords="313,208,420,235"/>
+<area shape="rect" id="node9" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="499,56,646,83"/>
+<area shape="rect" id="node10" href="$classCdiNet.html#a40cabd0c2cf11e9b2edf15b88fc04c10" title="CdiNet::setStationInfo" alt="" coords="497,107,649,133"/>
+<area shape="rect" id="node12" href="$classDm9601.html#a4b6f4fac5d984ba6874e948269c2491e" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="492,157,653,184"/>
+<area shape="rect" id="node13" href="$classLoopback.html#a3ad4a14a0042490ce9e0a2276ada336f" title="Loopback::send" alt="" coords="515,208,630,235"/>
+<area shape="rect" id="node15" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="528,259,617,285"/>
+<area shape="rect" id="node18" href="$classRtl8139.html#a6a635eceafcf8df99b8f22a38f538852" title="Rtl8139::send" alt="" coords="521,317,624,344"/>
+<area shape="rect" id="node11" href="$classCdiNet.html#ae7154246620adff926817e1932916a60" title="CdiNet::getName" alt="" coords="709,107,833,133"/>
+<area shape="rect" id="node14" href="$classLoopback.html#a1334cb7cbf4a5c3d78d016644d898676" title="Loopback::getName" alt="" coords="702,183,841,209"/>
+<area shape="rect" id="node16" href="$classNe2k.html#afb3182a707c388a10b732a5d879d4450" title="Ne2k::getName" alt="" coords="714,233,829,260"/>
+<area shape="rect" id="node17" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="701,285,841,326"/>
+<area shape="rect" id="node19" href="$classRtl8139.html#a9f22d79c43dbef20fa11774d041b798b" title="Rtl8139::getName" alt="" coords="707,351,835,377"/>
+</map>

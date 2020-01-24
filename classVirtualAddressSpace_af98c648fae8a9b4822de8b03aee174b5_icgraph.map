@@ -1,0 +1,5 @@
+<map id="VirtualAddressSpace::getKernelModulesStart" name="VirtualAddressSpace::getKernelModulesStart">
+<area shape="rect" id="node2" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="216,5,365,32"/>
+<area shape="rect" id="node4" href="$classVirtualAddressSpace.html#aec8cf05b090e1cfa0242d8bac9f27520" title="VirtualAddressSpace\l::setHeap" alt="" coords="219,57,363,98"/>
+<area shape="rect" id="node3" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="413,5,592,32"/>
+</map>

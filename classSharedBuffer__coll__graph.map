@@ -1,0 +1,4 @@
+<map id="SharedBuffer" name="SharedBuffer">
+<area shape="rect" id="node2" href="$classPedigreeIpc_1_1SharedIpcMessage.html" title="{PedigreeIpc::SharedIpcMessage\n|&#45; m_nBytes\l&#45; m_pHandle\l|+ SharedIpcMessage()\l+ ~SharedIpcMessage()\l+ initialise()\l+ getHandle()\l+ getSize()\l}" alt="" coords="5,205,216,356"/>
+<area shape="rect" id="node3" href="$classPedigreeIpc_1_1StandardIpcMessage.html" title="A standard IPC message that is less than 4 KB in size. " alt="" coords="24,5,197,156"/>
+</map>

@@ -1,0 +1,8 @@
+<map id="Container" name="Container">
+<area shape="rect" id="node4" href="$classWindow.html" title="{Window\n|&#45; m_Handle\l&#45; m_bPendingDecoration\l&#45; m_bFocus\l&#45; m_bRefresh\l&#45; m_nRegionWidth\l&#45; m_nRegionHeight\l&#45; m_Socket\l&#45; m_Sa\l&#45; m_SaLen\l|+ Window()\l+ Window()\l+ ~Window()\l+ getType()\l+ setTitle()\l+ render()\l+ resize()\l+ focus()\l+ nofocus()\l+ norefresh()\land 10 more...\l&#45; isClientDirty()\l}" alt="" coords="169,939,335,1295"/>
+<area shape="rect" id="node2" href="$classWObject.html" title="{WObject\n||+ WObject()\l+ ~WObject()\l+ getType()\l+ resize()\l+ reposition()\l+ bump()\l+ resized()\l+ getCopyDimensions()\l+ norefresh()\l+ yesrefresh()\l+ render()\l# setDimensions()\l# getDimensions()\l# refreshContext()\l}" alt="" coords="61,292,221,560"/>
+<area shape="rect" id="node3" href="$classPedigreeGraphics_1_1Rect.html" title="{PedigreeGraphics::Rect\n|&#45; x\l&#45; y\l&#45; w\l&#45; h\l|+ Rect()\l+ Rect()\l+ ~Rect()\l+ update()\l+ getX()\l+ getY()\l+ getW()\l+ getH()\l}" alt="" coords="129,5,290,229"/>
+<area shape="rect" id="node6" href="$classSharedBuffer.html" title="Abstracts a buffer shared between multiple processes. " alt="" coords="399,681,526,817"/>
+<area shape="rect" id="node7" href="$classPedigreeIpc_1_1SharedIpcMessage.html" title="{PedigreeIpc::SharedIpcMessage\n|&#45; m_nBytes\l&#45; m_pHandle\l|+ SharedIpcMessage()\l+ ~SharedIpcMessage()\l+ initialise()\l+ getHandle()\l+ getSize()\l}" alt="" coords="357,351,568,501"/>
+<area shape="rect" id="node8" href="$classPedigreeIpc_1_1StandardIpcMessage.html" title="A standard IPC message that is less than 4 KB in size. " alt="" coords="376,42,549,193"/>
+</map>

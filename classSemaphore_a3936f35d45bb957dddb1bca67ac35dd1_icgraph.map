@@ -1,0 +1,19 @@
+<map id="Semaphore::getValue" name="Semaphore::getValue">
+<area shape="rect" id="node2" href="$classRequestQueue.html#ad7f0619cef08f169ae7a0ee69140e56b" title="RequestQueue::getNextRequest" alt="" coords="212,72,424,99"/>
+<area shape="rect" id="node14" href="$classConditionVariable.html#abd9f7f84df4b8efc7e1f0b0f34a91887" title="ConditionVariable::wait" alt="" coords="240,139,396,165"/>
+<area shape="rect" id="node18" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="200,189,436,216"/>
+<area shape="rect" id="node3" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="511,64,656,91"/>
+<area shape="rect" id="node4" href="$classRequestQueue.html#ada7823ce253c561696e67c183fdf0ec6" title="RequestQueue::trampoline" alt="" coords="731,64,908,91"/>
+<area shape="rect" id="node5" href="$classRequestQueue.html#aa87ccddad577b380a648dd744e4f7d11" title="RequestQueue::initialise" alt="" coords="956,64,1120,91"/>
+<area shape="rect" id="node6" href="$classCacheManager.html#a411b65fac6ab596f1b2359d7e0c59b6b" title="CacheManager::initialise" alt="" coords="1168,5,1333,32"/>
+<area shape="rect" id="node7" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="1169,57,1333,98"/>
+<area shape="rect" id="node9" href="$classRequestQueue.html#a5575e3c80ca571cc2c75226f24f82d32" title="RequestQueue::resume" alt="" coords="1171,123,1331,149"/>
+<area shape="rect" id="node8" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="1381,64,1560,91"/>
+<area shape="rect" id="node10" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="1407,123,1534,149"/>
+<area shape="rect" id="node11" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="1608,57,1767,98"/>
+<area shape="rect" id="node12" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="1620,123,1755,149"/>
+<area shape="rect" id="node13" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1628,173,1747,200"/>
+<area shape="rect" id="node15" href="$classProducerConsumer.html#a13404fb2d405ccfe688058bab5a7a8c2" title="ProducerConsumer::consumer\lThread" alt="" coords="484,139,683,181"/>
+<area shape="rect" id="node16" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="504,205,663,246"/>
+<area shape="rect" id="node17" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="740,205,899,246"/>
+</map>

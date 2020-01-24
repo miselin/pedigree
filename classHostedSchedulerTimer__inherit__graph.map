@@ -1,0 +1,4 @@
+<map id="HostedSchedulerTimer" name="HostedSchedulerTimer">
+<area shape="rect" id="node2" href="$classSchedulerTimer.html" title="{SchedulerTimer\n||+ registerHandler()\l# SchedulerTimer()\l# ~SchedulerTimer()\l&#45; SchedulerTimer()\l&#45; operator=()\l}" alt="" coords="5,5,145,141"/>
+<area shape="rect" id="node3" href="$classIrqHandler.html" title="{IrqHandler\n||+ IrqHandler()\l+ irq()\l# ~IrqHandler()\l}" alt="" coords="170,20,279,127"/>
+</map>

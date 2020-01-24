@@ -1,0 +1,6 @@
+<map id="VirtualAddressSpace::getKernelStart" name="VirtualAddressSpace::getKernelStart">
+<area shape="rect" id="node2" href="$classPosixSubsystem.html#aebeb7194a0d4fd8f83c444427648deb8" title="PosixSubsystem::checkAddress" alt="" coords="197,29,409,56"/>
+<area shape="rect" id="node4" href="$classVirtualAddressSpace.html#aeedec40a4721469948a66cd23c01c38c" title="VirtualAddressSpace\l::expandHeap" alt="" coords="231,81,375,122"/>
+<area shape="rect" id="node5" href="$classVirtualAddressSpace.html#aec8cf05b090e1cfa0242d8bac9f27520" title="VirtualAddressSpace\l::setHeap" alt="" coords="231,146,375,187"/>
+<area shape="rect" id="node3" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="457,29,624,56"/>
+</map>

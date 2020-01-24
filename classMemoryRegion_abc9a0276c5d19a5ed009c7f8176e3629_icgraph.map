@@ -1,0 +1,43 @@
+<map id="MemoryRegion::virtualAddress" name="MemoryRegion::virtualAddress">
+<area shape="rect" id="node2" href="$classIpc_1_1IpcMessage.html#ab522669280f53a0fb5b09f5eb283fd86" title="Ipc::IpcMessage::getBuffer" alt="" coords="287,5,467,32"/>
+<area shape="rect" id="node3" href="$classArchive.html#a4c7fc210b857608ef5973c81594d56d1" title="Archive::getFile" alt="" coords="321,56,434,83"/>
+<area shape="rect" id="node4" href="$classGpio.html#a0ca4d94cb7aef0f44ea62d8d3f57d0c6" title="Gpio::getGpioForPin" alt="" coords="307,107,447,133"/>
+<area shape="rect" id="node5" href="$classX86Vga.html#aabca82365c5d094d0aa496dfaf09784b" title="X86Vga::getNumRows" alt="" coords="299,157,455,184"/>
+<area shape="rect" id="node6" href="$classUsbUlpi.html#a623eb34991ca147b6f9e4281977882ed" title="UsbUlpi::initialise" alt="" coords="315,208,439,235"/>
+<area shape="rect" id="node7" href="$classPPCVga.html#a99248961cc4536d151e37c4a0acf9b80" title="PPCVga::initialise" alt="" coords="313,259,441,285"/>
+<area shape="rect" id="node8" href="$classGPTimer.html#acd884f84e1a048cf0bfc6bff7247ae44" title="GPTimer::initialise" alt="" coords="313,309,442,336"/>
+<area shape="rect" id="node9" href="$classARMV7InterruptManager.html#a6c67923a4dab6dee4a4d8ae291141ce0" title="ARMV7InterruptManager\l::initialiseProcessor" alt="" coords="587,767,754,809"/>
+<area shape="rect" id="node11" href="$classARMV7InterruptManager.html#a1e525d69a83b48548ccdbedc7ec011ce" title="ARMV7InterruptManager\l::interrupt" alt="" coords="294,361,461,402"/>
+<area shape="rect" id="node13" href="$classGPTimer.html#abfba1beeddf850e623683a63e0da51c0" title="GPTimer::interrupt" alt="" coords="313,477,442,504"/>
+<area shape="rect" id="node14" href="$classIpc_1_1IpcMessage.html#a14b0a09c91c9c350697d24799c08df4a" title="Constructor for regions &gt; 4 KB in size. " alt="" coords="278,528,477,555"/>
+<area shape="rect" id="node15" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="315,579,439,605"/>
+<area shape="rect" id="node16" href="$classVbeDisplay.html#a4d8b083e4b638183899cccd3202bb819" title="VbeDisplay::newBuffer" alt="" coords="299,629,455,656"/>
+<area shape="rect" id="node18" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="304,680,451,707"/>
+<area shape="rect" id="node19" href="$classARMV7InterruptManager.html#a2233dd619dcd53b52b2782d6798c793a" title="ARMV7InterruptManager\l::registerInterruptHandler" alt="" coords="587,478,754,519"/>
+<area shape="rect" id="node20" href="$classARMV7InterruptManager.html#a24918d9ad440194f79fcb4805a920e49" title="ARMV7InterruptManager\l::registerInterruptHandlerDebugger" alt="" coords="559,694,782,735"/>
+<area shape="rect" id="node21" href="$classFramebuffer.html#a6a7fda43d9b792b66d56818b9888d023" title="Framebuffer::swCreateBuffer" alt="" coords="282,832,473,859"/>
+<area shape="rect" id="node22" href="$classPpcCommonPhysicalMemoryManager.html#aabd0258645d16c7ead805937d1244b2d" title="PpcCommonPhysicalMemoryManager\l::unmapRegion" alt="" coords="255,883,500,925"/>
+<area shape="rect" id="node24" href="$classHostedPhysicalMemoryManager.html#a891dd47fb0a9ce05f5869d299305a851" title="HostedPhysicalMemoryManager\l::unmapRegion" alt="" coords="272,949,483,990"/>
+<area shape="rect" id="node41" href="$classX86CommonPhysicalMemoryManager.html#a6a84e68afeff519cbcb3c12e290c118a" title="X86CommonPhysicalMemoryManager\l::unmapRegion" alt="" coords="255,1014,500,1055"/>
+<area shape="rect" id="node10" href="$classARMV7InterruptManager.html#a2ab8a40b2d8f04acc16112d92e3c645a" title="ARMV7InterruptManager\l::instance" alt="" coords="867,478,1034,519"/>
+<area shape="rect" id="node12" href="$classARMV7InterruptManager.html#a6bb69e7007bee7ac72222443f4d86e24" title="ARMV7InterruptManager\l::syscall" alt="" coords="587,361,754,402"/>
+<area shape="rect" id="node17" href="$classVbeDisplay.html#a723890a22334a5d228652ae2d9f00b5e" title="VbeDisplay::setScreenMode" alt="" coords="577,629,765,656"/>
+<area shape="rect" id="node23" href="$classPpcCommonPhysicalMemoryManager.html#afd0c4003a4de06f8e4e458810fe301f9" title="PpcCommonPhysicalMemoryManager\l::instance" alt="" coords="548,883,793,925"/>
+<area shape="rect" id="node25" href="$classHostedPhysicalMemoryManager.html#abd61babab9fbff26538f61ec9b4eee0c" title="HostedPhysicalMemoryManager\l::instance" alt="" coords="565,949,776,990"/>
+<area shape="rect" id="node26" href="$classProcessor.html#a2da3d5f8b642203eb82aa9a183e00aa9" title="Processor::initialisationDone" alt="" coords="857,956,1045,983"/>
+<area shape="rect" id="node27" href="$classHostedVirtualAddressSpace.html#a1bc2a2b1d3fbdcfde297c576f7b452cb" title="HostedVirtualAddressSpace::map" alt="" coords="841,1007,1060,1033"/>
+<area shape="rect" id="node28" href="$classHostedVirtualAddressSpace.html#a56e88cf071da0c2b571e318a4550125e" title="HostedVirtualAddressSpace\l::switchAddressSpace" alt="" coords="857,890,1044,931"/>
+<area shape="rect" id="node29" href="$classHostedVirtualAddressSpace.html#aa3c4dbc66332d02b04b6a49dacea5b78" title="HostedVirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="1108,861,1295,902"/>
+<area shape="rect" id="node30" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="1129,927,1274,953"/>
+<area shape="rect" id="node31" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="1347,854,1505,895"/>
+<area shape="rect" id="node37" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="1347,919,1505,961"/>
+<area shape="rect" id="node40" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="1343,985,1509,1012"/>
+<area shape="rect" id="node32" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="1564,854,1723,895"/>
+<area shape="rect" id="node35" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="1777,789,1936,830"/>
+<area shape="rect" id="node33" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="1777,919,1936,961"/>
+<area shape="rect" id="node36" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="1777,854,1936,895"/>
+<area shape="rect" id="node34" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1984,919,2143,961"/>
+<area shape="rect" id="node38" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="1557,978,1729,1019"/>
+<area shape="rect" id="node39" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="1801,985,1912,1012"/>
+<area shape="rect" id="node42" href="$classX86CommonPhysicalMemoryManager.html#aec6d29daffe674227805940438a7ba30" title="X86CommonPhysicalMemoryManager\l::instance" alt="" coords="548,1014,793,1055"/>
+</map>

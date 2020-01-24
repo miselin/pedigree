@@ -1,0 +1,51 @@
+<map id="TriggerStep" name="TriggerStep">
+<area shape="rect" id="node13" href="$structTrigger.html" title="{Trigger\n|+ zName\l+ table\l+ op\l+ tr_tm\l|}" alt="" coords="683,469,759,591"/>
+<area shape="rect" id="node2" href="$structExpr.html" title="{Expr\n|+ op\l+ affinity\l+ flags\l+ zToken\l+ iValue\l+ u\l+ x\l+ nHeight\l+ iTable\l+ iColumn\l+ iAgg\l+ iRightJoinTable\l+ op2\l|}" alt="" coords="602,2710,726,2963"/>
+<area shape="rect" id="node4" href="$structAggInfo_1_1AggInfo__col.html" title="{AggInfo::AggInfo_col\n|+ iTable\l+ iColumn\l+ iSorterColumn\l+ iMem\l|}" alt="" coords="893,3143,1037,3265"/>
+<area shape="rect" id="node10" href="$structColumn.html" title="{Column\n|+ zName\l+ zColl\l+ notNull\l+ affinity\l+ szEst\l+ colFlags\l|}" alt="" coords="685,3129,768,3279"/>
+<area shape="rect" id="node28" href="$structSelect.html" title="{Select\n|+ op\l+ nSelectRow\l+ selFlags\l+ iLimit\l+ iOffset\l+ addrOpenEphm\l|}" alt="" coords="210,3629,334,3779"/>
+<area shape="rect" id="node30" href="$structSrcList_1_1SrcList__item.html" title="{SrcList::SrcList_item\n|+ zDatabase\l+ zName\l+ zAlias\l+ addrFillSub\l+ regReturn\l+ regResult\l+ jointype\l+ notIndexed\l+ isIndexedBy\l+ isTabFunc\land 9 more...\l|}" alt="" coords="1143,3879,1287,4103"/>
+<area shape="rect" id="node31" href="$structIndex.html" title="{Index\n|+ zName\l+ aiColumn\l+ aiRowLogEst\l+ zColAff\l+ aSortOrder\l+ azColl\l+ tnum\l+ szIdxRow\l+ nKeyCol\l+ nColumn\land 7 more...\l|}" alt="" coords="1388,3592,1500,3816"/>
+<area shape="rect" id="node33" href="$structExprList_1_1ExprList__item.html" title="{ExprList::ExprList_item\n|+ zName\l+ zSpan\l+ sortOrder\l+ done\l+ bSpanIsTab\l+ reusable\l+ iOrderByCol\l+ iAlias\l+ x\l+ iConstExprReg\l+ u\l|}" alt="" coords="413,3092,571,3316"/>
+<area shape="rect" id="node50" href="$structAggInfo_1_1AggInfo__func.html" title="{AggInfo::AggInfo_func\n|+ iMem\l+ iDistinct\l|}" alt="" coords="1061,3158,1213,3250"/>
+<area shape="rect" id="node3" href="$structAggInfo.html" title="{AggInfo\n|+ directMode\l+ useSortingIdx\l+ sortingIdx\l+ sortingIdxPTab\l+ nSortingColumn\l+ mnReg\l+ mxReg\l+ nColumn\l+ nAccumulator\l+ nFunc\l|}" alt="" coords="810,3599,937,3809"/>
+<area shape="rect" id="node5" href="$structTable.html" title="{Table\n|+ zName\l+ zColAff\l+ tnum\l+ iPKey\l+ nCol\l+ nRef\l+ nRowLogEst\l+ szTabRow\l+ tabFlags\l+ keyConf\l+ addColOffset\l+ nModuleArg\l+ azModuleArg\l|}" alt="" coords="1133,2203,1243,2457"/>
+<area shape="rect" id="node6" href="$structSchema.html" title="{Schema\n|+ schema_cookie\l+ iGeneration\l+ file_format\l+ enc\l+ schemaFlags\l+ cache_size\l|}" alt="" coords="1304,2761,1429,2912"/>
+<area shape="rect" id="node11" href="$structFKey.html" title="{FKey\n|+ zTo\l+ nCol\l+ isDeferred\l+ aAction\l|}" alt="" coords="325,2776,419,2897"/>
+<area shape="rect" id="node25" href="$structParse.html" title="{Parse\n|+ zErrMsg\l+ rc\l+ colNamesSet\l+ checkSchema\l+ nested\l+ nTempReg\l+ isMultiWrite\l+ mayAbort\l+ hasCompound\l+ okConstFactor\land 41 more...\l|}" alt="" coords="1020,653,1140,877"/>
+<area shape="rect" id="node42" href="$structVtabCtx.html" title="{VtabCtx\n|+ bDeclared\l|}" alt="" coords="2299,2798,2392,2875"/>
+<area shape="rect" id="node45" href="$structModule.html" title="{Module\n|+ zName\l+ pAux\l+ xDestroy\l+ entry\l+ exit\l+ depends\l+ depends_opt\l+ buffer\l+ buflen\l+ loadBase\l+ loadSize\l+ status\l|+ Module()\l+ ~Module()\l+ isPending()\l+ isLoaded()\l+ isUnloaded()\l+ isFailed()\l+ isActive()\l+ isExecuting()\l+ wasAttempted()\l# Module()\l# operator=()\l}" alt="" coords="1911,2644,2038,3029"/>
+<area shape="rect" id="node44" href="$structDb.html" title="{Db\n|+ zDbSName\l+ safety_level\l+ bSyncSet\l|}" alt="" coords="1491,3151,1595,3257"/>
+<area shape="rect" id="node7" href="$structHash.html" title="{Hash\n|+ htsize\l+ count\l|}" alt="" coords="2033,1021,2103,1113"/>
+<area shape="rect" id="node17" href="$structsqlite3.html" title="{sqlite3\n|+ nDb\l+ flags\l+ lastRowid\l+ szMmap\l+ openFlags\l+ errCode\l+ errMask\l+ iSysErrno\l+ dbOptFlags\l+ enc\land 53 more...\l|}" alt="" coords="2015,1271,2121,1495"/>
+<area shape="rect" id="node8" href="$structHash_1_1__ht.html" title="{Hash::_ht\n|+ count\l|}" alt="" coords="2091,727,2170,804"/>
+<area shape="rect" id="node9" href="$structHashElem.html" title="{HashElem\n|+ data\l+ pKey\l|}" alt="" coords="2027,484,2109,576"/>
+<area shape="rect" id="node12" href="$structFKey_1_1sColMap.html" title="{FKey::sColMap\n|+ iFrom\l+ zCol\l|}" alt="" coords="359,2284,473,2376"/>
+<area shape="rect" id="node14" href="$structIdList.html" title="{IdList\n|+ nId\l|}" alt="" coords="705,160,759,237"/>
+<area shape="rect" id="node15" href="$structIdList_1_1IdList__item.html" title="{IdList::IdList_item\n|+ zName\l+ idx\l|}" alt="" coords="669,5,795,97"/>
+<area shape="rect" id="node16" href="$structVTable.html" title="{VTable\n|+ nRef\l+ bConstraint\l+ iSavepoint\l|}" alt="" coords="1945,1733,2047,1840"/>
+<area shape="rect" id="node18" href="$structMem.html" title="{Mem\n|+ flags\l+ enc\l+ eSubtype\l+ n\l+ z\l+ zMalloc\l+ szMalloc\l+ uTemp\l+ xDel\l|}" alt="" coords="2611,1689,2701,1884"/>
+<area shape="rect" id="node21" href="$structVdbe.html" title="{Vdbe\n|+ nVar\l+ nzVar\l+ magic\l+ nMem\l+ nCursor\l+ cacheCtr\l+ pc\l+ rc\l+ nChange\l+ iStatement\land 27 more...\l|}" alt="" coords="2672,955,2779,1179"/>
+<area shape="rect" id="node20" href="$structVdbeFrame.html" title="{VdbeFrame\n|+ anExec\l+ token\l+ lastRowid\l+ nCursor\l+ pc\l+ nOp\l+ nMem\l+ nChildMem\l+ nChildCsr\l+ nChange\l+ nDbChange\l|}" alt="" coords="2770,2218,2873,2442"/>
+<area shape="rect" id="node19" href="$unionMem_1_1MemValue.html" title="{Mem::MemValue\n|+ r\l+ i\l+ nZero\l|}" alt="" coords="2594,2783,2715,2890"/>
+<area shape="rect" id="node22" href="$structAuxData.html" title="{AuxData\n|+ iOp\l+ iArg\l+ pAux\l+ xDelete\l|}" alt="" coords="2810,705,2889,826"/>
+<area shape="rect" id="node23" href="$structSubProgram.html" title="{SubProgram\n|+ nOp\l+ nMem\l+ nCsr\l+ token\l|}" alt="" coords="2619,705,2714,826"/>
+<area shape="rect" id="node24" href="$structVdbeCursor.html" title="{VdbeCursor\n|+ eCurType\l+ iDb\l+ nullRow\l+ deferredMoveto\l+ isTable\l+ isEphemeral\l+ useRandomRowid\l+ isOrdered\l+ pgnoRoot\l+ nField\land 14 more...\l|}" alt="" coords="2985,653,3127,877"/>
+<area shape="rect" id="node26" href="$structWith.html" title="{With\n|+ nCte\l|}" alt="" coords="307,4173,370,4250"/>
+<area shape="rect" id="node27" href="$structWith_1_1Cte.html" title="{With::Cte\n|+ zName\l+ zCteErr\l|}" alt="" coords="299,3945,378,4037"/>
+<area shape="rect" id="node29" href="$structSrcList.html" title="{SrcList\n|+ nSrc\l+ nAlloc\l|}" alt="" coords="669,4165,739,4257"/>
+<area shape="rect" id="node32" href="$structExprList.html" title="{ExprList\n|+ nExpr\l|}" alt="" coords="622,3423,693,3500"/>
+<area shape="rect" id="node34" href="$structFuncDef.html" title="{FuncDef\n|+ nArg\l+ funcFlags\l+ pUserData\l+ xSFunc\l+ xFinalize\l+ zName\l+ u\l|}" alt="" coords="1706,2247,1803,2413"/>
+<area shape="rect" id="node35" href="$structFuncDestructor.html" title="{FuncDestructor\n|+ nRef\l+ xDestroy\l+ pUserData\l|}" alt="" coords="1699,1733,1811,1840"/>
+<area shape="rect" id="node36" href="$structSavepoint.html" title="{Savepoint\n|+ zName\l+ nDeferredCons\l+ nDeferredImmCons\l|}" alt="" coords="1326,1013,1474,1120"/>
+<area shape="rect" id="node37" href="$structLookaside.html" title="{Lookaside\n|+ bDisable\l+ sz\l+ bMalloced\l+ nOut\l+ mxOut\l+ anStat\l+ pStart\l+ pEnd\l|}" alt="" coords="1571,977,1664,1157"/>
+<area shape="rect" id="node38" href="$structsqlite3__mutex.html" title="{sqlite3_mutex\n|+ mutex\l|}" alt="" coords="1689,1028,1791,1105"/>
+<area shape="rect" id="node39" href="$structsqlite3__vfs.html" title="{sqlite3_vfs\n|+ iVersion\l+ szOsFile\l+ mxPathname\l+ zName\l+ pAppData\l+ xOpen\l+ xDelete\l+ xAccess\l+ xFullPathname\l+ xDlOpen\land 11 more...\l|}" alt="" coords="1815,955,1937,1179"/>
+<area shape="rect" id="node40" href="$structsqlite3_1_1sqlite3InitInfo.html" title="{sqlite3::sqlite3InitInfo\n|+ newTnum\l+ iDb\l+ busy\l+ orphanTrigger\l+ imposterTable\l|}" alt="" coords="2127,999,2273,1135"/>
+<area shape="rect" id="node41" href="$structBusyHandler.html" title="{BusyHandler\n|+ xFunc\l+ pArg\l+ nBusy\l|}" alt="" coords="2298,1013,2395,1120"/>
+<area shape="rect" id="node43" href="$structCollSeq.html" title="{CollSeq\n|+ zName\l+ enc\l+ pUser\l+ xCmp\l+ xDel\l|}" alt="" coords="2419,999,2495,1135"/>
+<area shape="rect" id="node46" href="$classString.html" title="{String\n|&#45; m_Data\l&#45; m_ConstData\l&#45; m_Length\l&#45; m_Size\l&#45; m_Static\l&#45; m_HeapData\l&#45; m_Hash\l&#45; StaticSize\l|+ String()\l+ String()\l+ String()\l+ String()\l+ String()\l+ ~String()\l+ operator=()\l+ operator=()\l+ operator=()\l+ operator const char *()\land 37 more...\l+ Utf32ToUtf8()\l&#45; reserve()\l&#45; extract()\l&#45; computeHash()\l&#45; computeHash()\l&#45; move()\l&#45; iswhitespace()\l}" alt="" coords="2157,1572,2320,2001"/>
+<area shape="rect" id="node48" href="$classElf.html" title="{Elf\n|# m_nSymbolTableSize\l# m_pStringTable\l# m_nStringTableSize\l# m_pShstrtab\l# m_nShstrtabSize\l# m_pGotTable\l# m_nRelTableSize\l# m_nRelaTableSize\l# m_bUsesRela\l# m_pDebugTable\land 11 more...\l|+ Elf()\l+ ~Elf()\l+ Elf()\l+ validate()\l+ create()\l+ createNeededOnly()\l+ loadModule()\l+ finaliseModule()\l+ allocate()\l+ load()\land 20 more...\l+ extractEntryPoint()\l+ extractInformation()\l&#45; relocate()\l&#45; relocateModinfo()\l&#45; applyRelocation()\l&#45; applyRelocation()\l&#45; rebaseDynamic()\l&#45; operator=()\l&#45; elfCopy()\l}" alt="" coords="2044,2079,2204,2581"/>
+<area shape="rect" id="node47" href="$structsqlite3__module.html" title="{sqlite3_module\n|+ iVersion\l+ xCreate\l+ xConnect\l+ xBestIndex\l+ xDisconnect\l+ xDestroy\l+ xOpen\l+ xClose\l+ xFilter\l+ xNext\land 13 more...\l|}" alt="" coords="1117,955,1227,1179"/>
+<area shape="rect" id="node49" href="$structsqlite3__vtab.html" title="{sqlite3_vtab\n|+ nRef\l+ zErrMsg\l|}" alt="" coords="1654,1337,1746,1429"/>
+</map>

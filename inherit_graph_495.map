@@ -1,0 +1,4 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classPedigreeIpc_1_1StandardIpcMessage.html" title="A standard IPC message that is less than 4 KB in size. " alt="" coords="5,5,175,47"/>
+<area shape="rect" id="node2" href="$classPedigreeIpc_1_1SharedIpcMessage.html" title="PedigreeIpc::SharedIpcMessage" alt="" coords="223,13,433,39"/>
+</map>

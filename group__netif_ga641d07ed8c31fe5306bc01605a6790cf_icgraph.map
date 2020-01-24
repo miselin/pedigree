@@ -1,0 +1,4 @@
+<map id="netif_set_down" name="netif_set_down">
+<area shape="rect" id="node2" href="$group__netif.html#ga9c6e541f0c184e1ea61a5cd8afe3e979" title="netif_remove" alt="" coords="164,13,261,39"/>
+<area shape="rect" id="node3" href="$classNetworkStack.html#ab2086651a27c0b1d625f7c88fdb2a34b" title="NetworkStack::deRegister\lDevice" alt="" coords="309,5,485,47"/>
+</map>

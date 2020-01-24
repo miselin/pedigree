@@ -1,0 +1,6 @@
+<map id="MIPS32InterruptManager" name="MIPS32InterruptManager">
+<area shape="rect" id="node2" href="$classInterruptManager.html" title="Handles interrupts and interrupt registrations from kernel components. " alt="" coords="5,5,221,215"/>
+<area shape="rect" id="node3" href="$classSyscallManager.html" title="{SyscallManager\n||+ registerSyscallHandler()\l+ syscall()\l+ instance()\l# SyscallManager()\l# ~SyscallManager()\l&#45; SyscallManager()\l&#45; operator=()\l}" alt="" coords="245,27,419,193"/>
+<area shape="rect" id="node4" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="443,64,586,156"/>
+<area shape="rect" id="node5" href="$classSyscallHandler.html" title="{SyscallHandler\n||+ syscall()\l# ~SyscallHandler()\l}" alt="" coords="610,64,747,156"/>
+</map>

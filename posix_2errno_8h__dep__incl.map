@@ -1,0 +1,37 @@
+<map id="errno.h" name="errno.h">
+<area shape="rect" id="node2" href="$glue-dlmalloc_8c_source.html" title="glue&#45;dlmalloc.c" alt="" coords="5,80,115,107"/>
+<area shape="rect" id="node3" href="$glue-fpurge_8c_source.html" title="glue&#45;fpurge.c" alt="" coords="139,80,237,107"/>
+<area shape="rect" id="node4" href="$glue-fseek_8c_source.html" title="glue&#45;fseek.c" alt="" coords="261,80,355,107"/>
+<area shape="rect" id="node5" href="$glue-pthread_8c_source.html" title="glue&#45;pthread.c" alt="" coords="379,80,483,107"/>
+<area shape="rect" id="node6" href="$glue-setlocale_8c_source.html" title="glue&#45;setlocale.c" alt="" coords="507,80,621,107"/>
+<area shape="rect" id="node7" href="$glue-sysconf_8c_source.html" title="glue&#45;sysconf.c" alt="" coords="645,80,752,107"/>
+<area shape="rect" id="node8" href="$glue_8c_source.html" title="glue.c" alt="" coords="777,80,834,107"/>
+<area shape="rect" id="node9" href="$glue-musl_8c_source.html" title="glue&#45;musl.c" alt="" coords="858,80,947,107"/>
+<area shape="rect" id="node10" href="$ttyname_8c_source.html" title="ttyname.c" alt="" coords="972,80,1052,107"/>
+<area shape="rect" id="node11" href="$sqlite3_8c_source.html" title="sqlite3.c" alt="" coords="1077,80,1147,107"/>
+<area shape="rect" id="node12" href="$boot-hosted_8cc_source.html" title="boot&#45;hosted.cc" alt="" coords="1171,80,1279,107"/>
+<area shape="rect" id="node13" href="$hosted_2InterruptManager_8cc_source.html" title="InterruptManager.cc" alt="" coords="1304,80,1443,107"/>
+<area shape="rect" id="node14" href="$hosted_2ProcessorInformation_8cc_source.html" title="ProcessorInformation.cc" alt="" coords="1467,80,1631,107"/>
+<area shape="rect" id="node15" href="$hosted_2VirtualAddressSpace_8cc_source.html" title="VirtualAddressSpace.cc" alt="" coords="1656,80,1819,107"/>
+<area shape="rect" id="node16" href="$cdhelp_2main_8c_source.html" title="main.c" alt="" coords="1843,80,1904,107"/>
+<area shape="rect" id="node17" href="$user_2applications_2gfxcon_2main_8cc_source.html" title="main.cc" alt="" coords="1929,80,1997,107"/>
+<area shape="rect" id="node18" href="$init_2main_8c_source.html" title="main.c" alt="" coords="2021,80,2083,107"/>
+<area shape="rect" id="node19" href="$lexer_8c_source.html" title="lexer.c" alt="" coords="2107,80,2168,107"/>
+<area shape="rect" id="node20" href="$keymap_2main_8c_source.html" title="main.c" alt="" coords="2192,80,2253,107"/>
+<area shape="rect" id="node21" href="$loader_8cc_source.html" title="loader.cc" alt="" coords="2277,80,2352,107"/>
+<area shape="rect" id="node22" href="$live_8cc_source.html" title="live.cc" alt="" coords="2377,80,2437,107"/>
+<area shape="rect" id="node23" href="$login_8c_source.html" title="login.c" alt="" coords="2461,80,2521,107"/>
+<area shape="rect" id="node24" href="$modlist_2main_8c_source.html" title="main.c" alt="" coords="2545,80,2607,107"/>
+<area shape="rect" id="node25" href="$net-test_8c_source.html" title="net&#45;test.c" alt="" coords="2631,80,2708,107"/>
+<area shape="rect" id="node26" href="$preloadd_2main_8c_source.html" title="main.c" alt="" coords="2732,80,2793,107"/>
+<area shape="rect" id="node27" href="$sudo_2main_8c_source.html" title="main.c" alt="" coords="2817,80,2879,107"/>
+<area shape="rect" id="node28" href="$syscall-test_8c_source.html" title="syscall&#45;test.c" alt="" coords="2903,80,3003,107"/>
+<area shape="rect" id="node29" href="$user_2applications_2thread-test_2main_8cc_source.html" title="main.cc" alt="" coords="3027,80,3095,107"/>
+<area shape="rect" id="node30" href="$ttyterm_8cc_source.html" title="ttyterm.cc" alt="" coords="3119,80,3201,107"/>
+<area shape="rect" id="node31" href="$user_2applications_2TUI_2main_8cc_source.html" title="main.cc" alt="" coords="3225,80,3293,107"/>
+<area shape="rect" id="node32" href="$user_2applications_2which_2main_8cc_source.html" title="main.cc" alt="" coords="3317,80,3385,107"/>
+<area shape="rect" id="node33" href="$objects_8cc_source.html" title="objects.cc" alt="" coords="3409,80,3492,107"/>
+<area shape="rect" id="node34" href="$winman_8cc_source.html" title="winman.cc" alt="" coords="3516,80,3601,107"/>
+<area shape="rect" id="node35" href="$Terminal_8cc_source.html" title="Terminal.cc" alt="" coords="3625,80,3716,107"/>
+<area shape="rect" id="node36" href="$Widget_8cc_source.html" title="Widget.cc" alt="" coords="3741,80,3822,107"/>
+</map>

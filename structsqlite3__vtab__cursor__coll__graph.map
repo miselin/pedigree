@@ -1,0 +1,4 @@
+<map id="sqlite3_vtab_cursor" name="sqlite3_vtab_cursor">
+<area shape="rect" id="node2" href="$structsqlite3__vtab.html" title="{sqlite3_vtab\n|+ nRef\l+ zErrMsg\l|}" alt="" coords="27,292,119,384"/>
+<area shape="rect" id="node3" href="$structsqlite3__module.html" title="{sqlite3_module\n|+ iVersion\l+ xCreate\l+ xConnect\l+ xBestIndex\l+ xDisconnect\l+ xDestroy\l+ xOpen\l+ xClose\l+ xFilter\l+ xNext\land 13 more...\l|}" alt="" coords="18,5,127,229"/>
+</map>

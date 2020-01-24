@@ -1,0 +1,26 @@
+<map id="IoPort::write8" name="IoPort::write8">
+<area shape="rect" id="node2" href="$classRtc.html#ad07065368004b555a327ebba50e8dc03" title="Rtc::enableRtcUpdates" alt="" coords="387,664,546,691"/>
+<area shape="rect" id="node6" href="$classPit.html#a1ab2aecf0ca932f0f010397506f348a3" title="Pit::initialise" alt="" coords="617,56,711,83"/>
+<area shape="rect" id="node10" href="$classPic.html#af6fc2ffaaff657a43b7dc0d0c6ed26ec" title="Pic::initialise" alt="" coords="616,157,712,184"/>
+<area shape="rect" id="node13" href="$classX86IsaDma.html#a23e2457615deb940d6a0ebedb89446eb" title="Initialises an operation. " alt="" coords="153,360,317,387"/>
+<area shape="rect" id="node14" href="$classPic.html#a6c00fd34c793159e6478ea2f628daa78" title="Pic::interrupt" alt="" coords="419,765,515,792"/>
+<area shape="rect" id="node16" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="153,294,317,335"/>
+<area shape="rect" id="node18" href="$classRtc.html#ae9fbf7e25c7f8902ff2f515ff2f103f6" title="Rtc::setIndex" alt="" coords="185,537,286,564"/>
+<area shape="rect" id="node24" href="$classRtc.html#a340542880fc70a75eb958c2611d87aae" title="Rtc::write" alt="" coords="625,411,703,437"/>
+<area shape="rect" id="node25" href="$classPic.html#a6bb38c42b0a1ada0e7d13f8c484bc85c" title="Pic::spurious" alt="" coords="186,715,285,741"/>
+<area shape="rect" id="node3" href="$classRtc.html#a4a64442f71823c3dd0b11bee6bbe9e39" title="Rtc::synchronise" alt="" coords="760,461,881,488"/>
+<area shape="rect" id="node5" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="967,588,1047,615"/>
+<area shape="rect" id="node4" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="951,360,1063,387"/>
+<area shape="rect" id="node7" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="960,107,1053,133"/>
+<area shape="rect" id="node8" href="$classPit.html#ae82d5e1258825ab4fda7fdf2372656ed" title="Pit::instance" alt="" coords="773,5,868,32"/>
+<area shape="rect" id="node9" href="$classPc.html#a4a1dc8f0dd8f21a5778f5b8688b4e1c0" title="Pc::getSchedulerTimer" alt="" coords="929,5,1084,32"/>
+<area shape="rect" id="node11" href="$classPic.html#a1017358137b165a6e18c5a08c98a03c8" title="Pic::instance" alt="" coords="771,157,870,184"/>
+<area shape="rect" id="node12" href="$classPc.html#addf1c67b3f410b73a49b9f55238664bd" title="Pc::getNumVga" alt="" coords="949,157,1064,184"/>
+<area shape="rect" id="node15" href="$classPic.html#abe5193c2bd5b494805297c4c4fd9d7e1" title="Pic::~Pic" alt="" coords="626,765,702,792"/>
+<area shape="rect" id="node17" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="377,301,556,328"/>
+<area shape="rect" id="node19" href="$classRtc.html#ab2bfe6d0633369d7073ff62e5be0996d" title="Rtc::waitForUpdateCompletion" alt="" coords="365,512,568,539"/>
+<area shape="rect" id="node20" href="$classRtc.html#a7279b20d2bd31dcbe0e2ef12415a21d4" title="Rtc::read" alt="" coords="626,487,702,513"/>
+<area shape="rect" id="node21" href="$classRtc.html#a0492a6115884d8f383278263867b43d1" title="Rtc::initialise1" alt="" coords="768,259,873,285"/>
+<area shape="rect" id="node22" href="$classRtc.html#ac91c58f54619f6af7ef41a257813e9ec" title="Rtc::initialise2" alt="" coords="768,309,873,336"/>
+<area shape="rect" id="node23" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="788,512,853,539"/>
+</map>

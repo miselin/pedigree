@@ -1,0 +1,3 @@
+<map id="X86Vga" name="X86Vga">
+<area shape="rect" id="node2" href="$classVga.html" title="{Vga\n||+ ~Vga()\l+ setControl()\l+ clearControl()\l+ setMode()\l+ setLargestTextMode()\l+ isMode()\l+ isLargestTextMode()\l+ getNumCols()\l+ getNumRows()\l+ rememberMode()\l+ restoreMode()\l+ pokeBuffer()\l+ peekBuffer()\l+ moveCursor()\l+ operator uint16_t *()\l}" alt="" coords="5,5,167,288"/>
+</map>

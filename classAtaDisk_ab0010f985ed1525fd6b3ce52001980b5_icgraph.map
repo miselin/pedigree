@@ -1,0 +1,6 @@
+<map id="AtaDisk::getSize" name="AtaDisk::getSize">
+<area shape="rect" id="node2" href="$classAtaDisk.html#aa5876dc6733efa665b6759e6cf6026bd" title="AtaDisk::getBusMaster" alt="" coords="175,42,333,69"/>
+<area shape="rect" id="node3" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="381,42,520,69"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="568,5,732,47"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="780,42,959,69"/>
+</map>

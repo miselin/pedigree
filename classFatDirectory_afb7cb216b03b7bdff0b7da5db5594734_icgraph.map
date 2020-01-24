@@ -1,0 +1,5 @@
+<map id="FatDirectory::addEntry" name="FatDirectory::addEntry">
+<area shape="rect" id="node2" href="$classFatFilesystem.html#aef1ad9be6b6a15e9b2994cbf5d1e7cf7" title="FatFilesystem::createFile" alt="" coords="221,5,391,32"/>
+<area shape="rect" id="node3" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="208,56,404,83"/>
+<area shape="rect" id="node4" href="$classFatDirectory.html#ab16902f9839db9c4f9820f4784c5022d" title="FatDirectory::truncate" alt="" coords="231,107,381,133"/>
+</map>

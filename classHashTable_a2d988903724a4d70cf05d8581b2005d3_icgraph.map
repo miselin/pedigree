@@ -1,0 +1,8 @@
+<map id="HashTable::remove" name="HashTable::remove">
+<area shape="rect" id="node2" href="$classDirectory.html#a7426726ec5606e1f78b8f9691621902b" title="Directory::remove" alt="" coords="190,55,317,81"/>
+<area shape="rect" id="node7" href="$classVFS.html#ac779c4b90c904c303f66fecc67f9a42e" title="VFS::removeAlias" alt="" coords="189,105,317,132"/>
+<area shape="rect" id="node3" href="$classFilesystem.html#aea07db34eb728503a50ad5fea9a53e78" title="Filesystem::remove" alt="" coords="384,29,521,56"/>
+<area shape="rect" id="node6" href="$classUnixSocket.html#a4158645e201be3e343ce927d776a9867" title="UnixSocket::~UnixSocket" alt="" coords="365,80,540,107"/>
+<area shape="rect" id="node4" href="$classDirectory.html#a2c415a2870e506317333c666ec013aa5" title="Directory::empty" alt="" coords="588,29,707,56"/>
+<area shape="rect" id="node5" href="$classVFS.html#abd14dce0f5f6258cab5750724f1942cf" title="VFS::remove" alt="" coords="598,80,697,107"/>
+</map>

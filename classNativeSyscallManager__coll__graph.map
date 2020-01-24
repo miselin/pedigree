@@ -1,0 +1,7 @@
+<map id="NativeSyscallManager" name="NativeSyscallManager">
+<area shape="rect" id="node2" href="$classSyscallHandler.html" title="{SyscallHandler\n||+ syscall()\l# ~SyscallHandler()\l}" alt="" coords="5,968,143,1060"/>
+<area shape="rect" id="node3" href="$classTree.html" title="{Tree\&lt; void *, NativeBase * \&gt;\n|&#45; nItems\l|+ Tree()\l+ Tree()\l+ ~Tree()\l+ operator=()\l+ count()\l+ insert()\l+ insert()\l+ lookup()\l+ lookupRef()\l+ contains()\land 7 more...\l&#45; copyFrom()\l&#45; rotateLeft()\l&#45; rotateRight()\l&#45; height()\l&#45; balanceFactor()\l&#45; rebalanceNode()\l&#45; traverseNode_Insert()\l&#45; traverseNode_Remove()\l&#45; createInsertionNode()\l}" alt="" coords="167,836,357,1192"/>
+<area shape="rect" id="node4" href="$classTree_1_1IteratorNode.html" title="{Tree\&lt; K, E \&gt;::IteratorNode\n||+ IteratorNode()\l+ IteratorNode()\l+ next()\l+ previous()\l+ reset()\l&#45; traverseNext()\l}" alt="" coords="222,204,401,355"/>
+<area shape="rect" id="node6" href="$classTree.html" title="A key/value dictionary. " alt="" coords="347,417,519,773"/>
+<area shape="rect" id="node5" href="$structTree_1_1Node.html" title="{Tree\&lt; K, E \&gt;::Node\n|+ key\l+ element\l+ height\l|}" alt="" coords="243,5,380,112"/>
+</map>

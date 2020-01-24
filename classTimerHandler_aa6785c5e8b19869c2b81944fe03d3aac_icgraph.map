@@ -1,0 +1,20 @@
+<map id="TimerHandler::timer" name="TimerHandler::timer">
+<area shape="rect" id="node2" href="$classHidInputManager.html#a6531ee0448c0e7197732bf81a9e0d411" title="Singleton design. " alt="" coords="191,138,369,165"/>
+<area shape="rect" id="node10" href="$classDecrementer.html#a7c8b02378464eef814c58eb10c890bfe" title="Decrementer::interrupt" alt="" coords="204,255,356,282"/>
+<area shape="rect" id="node12" href="$classCountCompareTimer.html#a407a3a284c2109fcd76b51139c19a4cd" title="CountCompareTimer::\linterrupt" alt="" coords="205,307,355,348"/>
+<area shape="rect" id="node14" href="$classPit.html#a25c0eabc38eae170f6a167042820f172" title="Pit::irq" alt="" coords="250,373,310,399"/>
+<area shape="rect" id="node16" href="$classHostedSchedulerTimer.html#a978c1c1f713b336fea7bc44150c5eda9" title="HostedSchedulerTimer::irq" alt="" coords="191,423,369,450"/>
+<area shape="rect" id="node17" href="$classHostedTimer.html#a02f4ed423fd605df41ae81feafe73e55" title="HostedTimer::irq" alt="" coords="221,474,339,501"/>
+<area shape="rect" id="node18" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="247,525,313,551"/>
+<area shape="rect" id="node3" href="$namespaceHidUtils.html#a61723805418c7b34c156f9f6f78e30a5" title="Sends the input to the right handler in HidInputManager or InputManager. " alt="" coords="420,37,619,63"/>
+<area shape="rect" id="node7" href="$classX86Keyboard.html#adb114f4c9dd97405675f675ab4ce572e" title="X86Keyboard::setLedState" alt="" coords="430,87,609,114"/>
+<area shape="rect" id="node8" href="$classKeymapManager.html#afbf166018f73224ad79373460c563c3f" title="Changes the current keymap to the given one. " alt="" coords="421,138,618,165"/>
+<area shape="rect" id="node9" href="$classKeymapManager.html#a778cfbd7a42b43c9e54e1800ef2f1296" title="Changes the current keymap to the given (compiled) one. " alt="" coords="417,189,621,231"/>
+<area shape="rect" id="node4" href="$structHidReport_1_1InputBlock.html#a51f3e1ba798499107d0e3858746ceac6" title="Feeds input to this block. " alt="" coords="669,29,820,71"/>
+<area shape="rect" id="node5" href="$structHidReport_1_1Collection.html#aa51b9fc0689ad9d4cd37afd7656c0b3e" title="HidReport::Collection\l::feedInput" alt="" coords="868,29,1015,71"/>
+<area shape="rect" id="node6" href="$classHidReport.html#a77c2765a52344f56da7c1e20deeba1be" title="Feeds the input interpreter with a new input buffer. " alt="" coords="1063,37,1205,63"/>
+<area shape="rect" id="node11" href="$classDecrementer.html#a32cbf44f5a520b766cdfcb5ed722e920" title="Decrementer::~Decrementer" alt="" coords="425,255,613,282"/>
+<area shape="rect" id="node13" href="$classCountCompareTimer.html#afc3bd6fd3bf1ed220d4275a17056910e" title="CountCompareTimer::\l~CountCompareTimer" alt="" coords="444,307,595,348"/>
+<area shape="rect" id="node15" href="$classPit.html#a9f83d40312c490c83f98683d5e11648d" title="Pit::~Pit" alt="" coords="484,373,555,399"/>
+<area shape="rect" id="node19" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="479,525,559,551"/>
+</map>

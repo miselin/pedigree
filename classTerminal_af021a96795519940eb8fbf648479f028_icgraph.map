@@ -1,0 +1,5 @@
+<map id="Terminal::write" name="Terminal::write">
+<area shape="rect" id="node2" href="$classTerminal.html#a186c5e69836354fa0d72f91c8a639e2b" title="Terminal::getSelectFd" alt="" coords="161,5,312,32"/>
+<area shape="rect" id="node3" href="$classTui.html#aa700aefc88f2fc10ee0ab169feef4a46" title="Runs the TUI main loop. " alt="" coords="360,31,427,57"/>
+<area shape="rect" id="node4" href="$classPedigreeTerminalEmulator.html#aead62bb553957f36b0984edd27b41deb" title="PedigreeTerminalEmulator\l::render" alt="" coords="475,23,649,65"/>
+</map>

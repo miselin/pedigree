@@ -1,0 +1,3 @@
+<map id="MIPS32VirtualAddressSpace" name="MIPS32VirtualAddressSpace">
+<area shape="rect" id="node2" href="$classVirtualAddressSpace.html" title="{VirtualAddressSpace\n|+ m_Heap\l+ m_HeapEnd\l+ KernelMode\l+ Write\l+ Execute\l+ WriteThrough\l+ CacheDisable\l+ CopyOnWrite\l+ Swapped\l+ MemoryCoherent\l+ Guarded\l+ Shared\l+ WriteCombine\l+ Accessed\l+ Dirty\l+ ClearDirty\l+ m_ZeroPage\l|+ expandHeap()\l+ isAddressValid()\l+ isMapped()\l+ map()\l+ mapHuge()\l+ getMapping()\l+ setFlags()\l+ unmap()\l+ allocateStack()\l+ allocateStack()\land 22 more...\l+ getKernelAddressSpace()\l+ create()\l# VirtualAddressSpace()\l&#45; VirtualAddressSpace()\l&#45; VirtualAddressSpace()\l&#45; operator=()\l&#45; rollbackHeapExpansion()\l}" alt="" coords="23,5,206,567"/>
+</map>

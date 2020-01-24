@@ -1,0 +1,4 @@
+<map id="ArmVersatileSerial" name="ArmVersatileSerial">
+<area shape="rect" id="node2" href="$classSerial.html" title="{Serial\n||+ ~Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ write()\l}" alt="" coords="5,5,129,156"/>
+<area shape="rect" id="node3" href="$structArmVersatileSerial_1_1serial.html" title="{ArmVersatileSerial\l::serial\n|+ dr\l|}" alt="" coords="153,35,283,127"/>
+</map>

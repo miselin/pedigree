@@ -1,0 +1,7 @@
+<map id="X86Vga" name="X86Vga">
+<area shape="rect" id="node2" href="$classVga.html" title="{Vga\n||+ ~Vga()\l+ setControl()\l+ clearControl()\l+ setMode()\l+ setLargestTextMode()\l+ isMode()\l+ isLargestTextMode()\l+ getNumCols()\l+ getNumRows()\l+ rememberMode()\l+ restoreMode()\l+ pokeBuffer()\l+ peekBuffer()\l+ moveCursor()\l+ operator uint16_t *()\l}" alt="" coords="5,425,167,708"/>
+<area shape="rect" id="node3" href="$classMemoryMappedIo.html" title="Memory mapped I/O range. " alt="" coords="314,425,469,708"/>
+<area shape="rect" id="node4" href="$classIoBase.html" title="Abstrace base class for hardware I/O capabilities. " alt="" coords="172,27,309,354"/>
+<area shape="rect" id="node6" href="$classIoPort.html" title="I/O port range. " alt="" coords="191,425,290,708"/>
+<area shape="rect" id="node5" href="$classMemoryRegion.html" title="Special memory entity in the kernel&#39;s virtual address space. " alt="" coords="334,5,510,376"/>
+</map>

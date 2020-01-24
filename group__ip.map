@@ -1,0 +1,4 @@
+<map id="IP" name="IP">
+<area shape="rect" id="node1" href="$group__ip4.html" title="IPv4" alt="" coords="92,5,141,32"/>
+<area shape="rect" id="node2" href="$group__ip6.html" title="IPv6" alt="" coords="92,56,141,83"/>
+</map>

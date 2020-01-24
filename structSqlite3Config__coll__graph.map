@@ -1,0 +1,7 @@
+<map id="Sqlite3Config" name="Sqlite3Config">
+<area shape="rect" id="node2" href="$structsqlite3__mem__methods.html" title="{sqlite3_mem_methods\n|+ xMalloc\l+ xFree\l+ xRealloc\l+ xSize\l+ xRoundup\l+ xInit\l+ xShutdown\l+ pAppData\l|}" alt="" coords="5,189,159,369"/>
+<area shape="rect" id="node3" href="$structsqlite3__mutex.html" title="{sqlite3_mutex\n|+ mutex\l|}" alt="" coords="244,13,347,90"/>
+<area shape="rect" id="node4" href="$structsqlite3__mutex__methods.html" title="{sqlite3_mutex_methods\n|+ xMutexInit\l+ xMutexEnd\l+ xMutexFree\l+ xMutexEnter\l+ xMutexTry\l+ xMutexLeave\l+ xMutexHeld\l+ xMutexNotheld\l|}" alt="" coords="305,189,465,369"/>
+<area shape="rect" id="node5" href="$structsqlite3__pcache__methods2.html" title="{sqlite3_pcache_methods2\n|+ iVersion\l+ pArg\l+ xInit\l+ xShutdown\l+ xCreate\l+ xCachesize\l+ xPagecount\l+ xUnpin\l+ xRekey\l+ xTruncate\l+ xDestroy\l+ xShrink\l|}" alt="" coords="489,160,662,399"/>
+<area shape="rect" id="node6" href="$structsqlite3__pcache__page.html" title="{sqlite3_pcache_page\n|+ pBuf\l+ pExtra\l|}" alt="" coords="503,5,647,97"/>
+</map>

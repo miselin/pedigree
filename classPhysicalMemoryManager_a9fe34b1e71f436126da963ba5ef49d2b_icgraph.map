@@ -1,0 +1,26 @@
+<map id="PhysicalMemoryManager::freePage" name="PhysicalMemoryManager::freePage">
+<area shape="rect" id="node2" href="$classMemoryMappedFile.html#a15a438cb79df2de64157cab4cbacc25e" title="MemoryMappedFile::compact" alt="" coords="229,5,423,32"/>
+<area shape="rect" id="node3" href="$classCache.html#ae9325f14b0e3b3276566e9a68f6ec81d" title="Cache::evict" alt="" coords="278,56,374,83"/>
+<area shape="rect" id="node4" href="$classVirtualAddressSpace.html#aeedec40a4721469948a66cd23c01c38c" title="VirtualAddressSpace\l::expandHeap" alt="" coords="254,107,398,149"/>
+<area shape="rect" id="node5" href="$classHostedVirtualAddressSpace.html#ac5a364ecfc4e4a93e0a2c86e3d7ef2fb" title="HostedVirtualAddressSpace\l::freeStack" alt="" coords="233,173,419,214"/>
+<area shape="rect" id="node6" href="$classX64VirtualAddressSpace.html#a4634b18b2e0b4fe3ae26fe86783456f0" title="X64VirtualAddressSpace\l::freeStack" alt="" coords="243,238,409,279"/>
+<area shape="rect" id="node7" href="$classMemoryMappedFile.html#a100caaed515f37bdca8f00295710b1ce" title="MemoryMappedFile::invalidate" alt="" coords="227,304,425,331"/>
+<area shape="rect" id="node8" href="$classX64VirtualAddressSpace.html#a28c26d9aa0cbbb1d5873b15651a11ca9" title="Possibly cleans up tables for the given address. " alt="" coords="243,355,409,397"/>
+<area shape="rect" id="node10" href="$classAnonymousMemoryMap.html#abb0a91e3268fd8f7479da88b786a2f36" title="AnonymousMemoryMap\l::remove" alt="" coords="245,421,407,462"/>
+<area shape="rect" id="node11" href="$classMemoryMappedFile.html#a9a514803c46c4adc4d47774ca0284bda" title="MemoryMappedFile::remove" alt="" coords="233,487,419,513"/>
+<area shape="rect" id="node12" href="$classX86VirtualAddressSpace.html#a4018d1b0a9b7299967cd750c29d4c70a" title="X86VirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="226,538,426,579"/>
+<area shape="rect" id="node13" href="$classHostedVirtualAddressSpace.html#a3ab3b2f7f8beef967a109cfa833f70f5" title="HostedVirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="226,603,426,645"/>
+<area shape="rect" id="node14" href="$classX64VirtualAddressSpace.html#a58a150db2fad1986f983e6da6e496dc8" title="X64VirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="226,669,426,710"/>
+<area shape="rect" id="node15" href="$classVirtualAddressSpace.html#ae22da7054f489c75f98f38254facd275" title="VirtualAddressSpace\l::rollbackHeapExpansion" alt="" coords="243,734,409,775"/>
+<area shape="rect" id="node17" href="$classAnonymousMemoryMap.html#a81be7a75b2cb34b1730f1b9794b030ce" title="AnonymousMemoryMap\l::trap" alt="" coords="245,799,407,841"/>
+<area shape="rect" id="node18" href="$classKernelElf.html#af756a5e96dca85388e8377b6f6e09ae3" title="KernelElf::unloadModule" alt="" coords="245,865,407,892"/>
+<area shape="rect" id="node22" href="$classMIPS32VirtualAddressSpace.html#a406379a3633014d83787bd628938111b" title="MIPS32VirtualAddressSpace\l::~MIPS32VirtualAddressSpace" alt="" coords="223,917,429,958"/>
+<area shape="rect" id="node23" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="267,983,385,1009"/>
+<area shape="rect" id="node24" href="$classX64VirtualAddressSpace.html#ac6ca1b8304bedd42eecbf52016aa6a62" title="X64VirtualAddressSpace\l::~X64VirtualAddressSpace" alt="" coords="235,1034,417,1075"/>
+<area shape="rect" id="node25" href="$classX86VirtualAddressSpace.html#a6453409fb38be66d5ce6a818bda4e1e2" title="X86VirtualAddressSpace\l::~X86VirtualAddressSpace" alt="" coords="235,1099,417,1141"/>
+<area shape="rect" id="node9" href="$classX64VirtualAddressSpace.html#a76df9f784135b53177d5270b81b1c7bd" title="X64VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="495,355,662,397"/>
+<area shape="rect" id="node16" href="$classVirtualAddressSpace.html#ac0d681a9455634b9759f1fb0c0bec746" title="VirtualAddressSpace\l::VirtualAddressSpace" alt="" coords="503,734,655,775"/>
+<area shape="rect" id="node19" href="$classKernelElf.html#a4a6d6c929e72b8dcd57201ddc20f1338" title="KernelElf::unloadModules" alt="" coords="493,840,664,867"/>
+<area shape="rect" id="node20" href="$classKernelElf.html#a35644e7e9968b1e027fdaa47ccd5a6d4" title="KernelElf::updateModuleStatus" alt="" coords="477,891,680,917"/>
+<area shape="rect" id="node21" href="$classKernelElf.html#a31f5887fc179330aad411bf3768e1d8d" title="KernelElf::getDependingModule" alt="" coords="728,891,933,917"/>
+</map>

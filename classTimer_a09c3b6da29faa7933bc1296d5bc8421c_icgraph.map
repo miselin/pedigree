@@ -1,0 +1,5 @@
+<map id="Timer::getTickCount" name="Timer::getTickCount">
+<area shape="rect" id="node2" href="$classTimer.html#a17c08428dd03c2a34d0a5ad475a6db0f" title="Timer::getTickCountNano" alt="" coords="196,5,368,32"/>
+<area shape="rect" id="node3" href="$structLog_1_1LogEntry.html#aa1721c53018bd169ff9240dc587de523" title="Log::LogEntry::operator\&lt;\&lt;" alt="" coords="195,56,369,83"/>
+<area shape="rect" id="node4" href="$classUptimeFile.html#a44c671daa7f4a46bc976fa1dc8759fb2" title="UptimeFile::writeBytewise" alt="" coords="195,107,369,133"/>
+</map>

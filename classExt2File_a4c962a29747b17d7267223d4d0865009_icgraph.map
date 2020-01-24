@@ -1,0 +1,6 @@
+<map id="Ext2File::pinBlock" name="Ext2File::pinBlock">
+<area shape="rect" id="node2" href="$classExt2Filesystem.html#af98f6f4d271fbc4ba16f4d24c154a309" title="Ext2Filesystem::releaseInode" alt="" coords="181,31,376,57"/>
+<area shape="rect" id="node3" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="424,31,608,57"/>
+<area shape="rect" id="node4" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="656,5,820,32"/>
+<area shape="rect" id="node5" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="659,56,817,83"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Directory::convertToFile" name="Directory::convertToFile">
+<area shape="rect" id="node2" href="$classDirectory.html#a2c415a2870e506317333c666ec013aa5" title="Directory::empty" alt="" coords="216,29,335,56"/>
+<area shape="rect" id="node3" href="$classFilesystem.html#aea07db34eb728503a50ad5fea9a53e78" title="Filesystem::remove" alt="" coords="383,29,520,56"/>
+<area shape="rect" id="node4" href="$classVFS.html#abd14dce0f5f6258cab5750724f1942cf" title="VFS::remove" alt="" coords="568,29,667,56"/>
+</map>

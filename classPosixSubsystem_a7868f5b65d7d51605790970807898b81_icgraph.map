@@ -1,0 +1,11 @@
+<map id="PosixSubsystem::getSignalHandler" name="PosixSubsystem::getSignalHandler">
+<area shape="rect" id="node2" href="$classPosixSubsystem.html#aa8ee8389b87d74875f36e3de50108ae7" title="PosixSubsystem::kill" alt="" coords="260,31,405,57"/>
+<area shape="rect" id="node3" href="$classPosixSubsystem.html#a08d789cb3282e51cd86d21cc8439a08d" title="PosixSubsystem::sendSignal" alt="" coords="236,81,429,108"/>
+<area shape="rect" id="node4" href="$classIoEvent.html#a61d6d932713bcb9999341f777fee4106" title="IoEvent::IoEvent" alt="" coords="529,5,649,32"/>
+<area shape="rect" id="node5" href="$classIntervalTimer.html#a5a21987eed6d4003dfecc1e1350ea5f8" title="IntervalTimer::signal" alt="" coords="519,56,659,83"/>
+<area shape="rect" id="node9" href="$classPosixSubsystem.html#a96fe232872c2f519284ac03ab65cde0e" title="PosixSubsystem::threadException" alt="" coords="477,107,700,133"/>
+<area shape="rect" id="node10" href="$classVirtualTerminalManager.html#a1b146be19b417290c7d060628bd8d2da" title="VirtualTerminalManager\l::setTerminalMode" alt="" coords="509,158,668,199"/>
+<area shape="rect" id="node6" href="$classIntervalTimer.html#af375a008d4893671ef06236a13ae08dc" title="Adjust the current value directly. " alt="" coords="748,31,923,57"/>
+<area shape="rect" id="node8" href="$classIntervalTimer.html#a96be127d902d9bf9abb7c02ced975c87" title="IntervalTimer::timer" alt="" coords="768,81,903,108"/>
+<area shape="rect" id="node7" href="$classPosixProcess.html#a25790b0b8ed035584827320e04219438" title="PosixProcess::reportTimes\lUpdated" alt="" coords="971,23,1151,65"/>
+</map>

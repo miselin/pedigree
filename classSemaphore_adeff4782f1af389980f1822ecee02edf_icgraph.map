@@ -1,0 +1,51 @@
+<map id="Semaphore::acquire" name="Semaphore::acquire">
+<area shape="rect" id="node2" href="$classRequestQueue.html#a0288772675c587225d38decf4d7490b3" title="RequestQueue::addRequest" alt="" coords="192,5,379,32"/>
+<area shape="rect" id="node3" href="$classProducerConsumer.html#a13404fb2d405ccfe688058bab5a7a8c2" title="ProducerConsumer::consumer\lThread" alt="" coords="427,42,625,83"/>
+<area shape="rect" id="node4" href="$classPipe.html#abd738aac7fba239dc4484b3ff4122294" title="Pipe::decreaseRefCount" alt="" coords="203,259,368,285"/>
+<area shape="rect" id="node5" href="$classRequestQueue.html#a626fae68426621ecaf91e3970e852768" title="RequestQueue::destroy" alt="" coords="446,309,606,336"/>
+<area shape="rect" id="node7" href="$classUsbHub.html#a118ab7f8ce68047b51cd46931929ae5c" title="UsbHub::doSync" alt="" coords="224,411,347,437"/>
+<area shape="rect" id="node19" href="$classRequestQueue.html#ab5593dd0ac26219af2c63e8f72667933" title="RequestQueue::halt" alt="" coords="216,360,355,387"/>
+<area shape="rect" id="node24" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="223,461,347,488"/>
+<area shape="rect" id="node25" href="$classLockedFile.html#a422addf055e56bdb72e79d5dd9fba7a1" title="LockedFile::lock" alt="" coords="227,512,344,539"/>
+<area shape="rect" id="node26" href="$classLockedFile.html#a40911c8c04b5d882d382974009302353" title="LockedFile::LockedFile" alt="" coords="207,563,363,589"/>
+<area shape="rect" id="node27" href="$classInputManager.html#adfff346563bcb1ffc32f36365d43a3aa" title="Main worker thread. " alt="" coords="197,613,374,640"/>
+<area shape="rect" id="node29" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="456,701,596,742"/>
+<area shape="rect" id="node30" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="212,765,359,792"/>
+<area shape="rect" id="node31" href="$classAsidManager.html#a971575e394fbbdfc11ef0fec42b102f1" title="AsidManager::obtainAsid" alt="" coords="202,816,369,843"/>
+<area shape="rect" id="node32" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="447,107,605,149"/>
+<area shape="rect" id="node34" href="$classAsidManager.html#a03f17ebe6d324ce200b7a30e14782789" title="AsidManager::returnAsid" alt="" coords="203,867,368,893"/>
+<area shape="rect" id="node35" href="$classNic3C90x.html#aa1080904ebf0d43bb811bd7fb1a3a3a1" title="Nic3C90x::send" alt="" coords="227,917,343,944"/>
+<area shape="rect" id="node37" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="241,715,330,741"/>
+<area shape="rect" id="node39" href="$group__sys__sem.html#ga8d364c5037778acb21c3df675db81b4f" title="sys_arch_sem_wait" alt="" coords="216,968,355,995"/>
+<area shape="rect" id="node43" href="$group__sys__mutex.html#ga4d4eb9afe5965fa2661dd54ff55d616a" title="sys_mutex_lock" alt="" coords="227,1019,344,1045"/>
+<area shape="rect" id="node45" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="202,1093,369,1120"/>
+<area shape="rect" id="node46" href="$classConditionVariable.html#abd9f7f84df4b8efc7e1f0b0f34a91887" title="ConditionVariable::wait" alt="" coords="207,107,363,133"/>
+<area shape="rect" id="node47" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="453,173,599,200"/>
+<area shape="rect" id="node49" href="$classKernelElf.html#a3a0c1fd2b8a645e23b82ecae22f58a72" title="KernelElf::waitForModules\lToLoad" alt="" coords="198,1145,373,1186"/>
+<area shape="rect" id="node50" href="$classPipe.html#af4519cc3f1f13857a724db7b2220eefa" title="Pipe::~Pipe" alt="" coords="240,1211,331,1237"/>
+<area shape="rect" id="node6" href="$classRequestQueue.html#a5f2f469937c7769d19158c7771b4a676" title="RequestQueue::RequestQueue" alt="" coords="673,212,877,239"/>
+<area shape="rect" id="node8" href="$classUsbDevice.html#ac0abfedd23074e8a6f0bbe5fb292dd69" title="Initialises the device at the given address. " alt="" coords="937,765,1080,792"/>
+<area shape="rect" id="node10" href="$classUsbDevice.html#aca7e02d90c0dca9de5f6f8cbb57b7f5c" title="Performs an USB control request. " alt="" coords="435,599,617,625"/>
+<area shape="rect" id="node9" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="1140,808,1319,835"/>
+<area shape="rect" id="node11" href="$classUsbDevice.html#a3f0eb5e78e89ac1e5a8e326cc85ba314" title="Gets device&#39;s current status. " alt="" coords="700,933,851,960"/>
+<area shape="rect" id="node12" href="$classUsbDevice.html#a1b67d276c669f1056f12d6e9a8db14a6" title="Clears a halt on the given endpoint. " alt="" coords="676,481,875,508"/>
+<area shape="rect" id="node13" href="$classUsbDevice.html#a15d5fd630d4091f9c7a465c52a2a2cc4" title="Switches to the given configuration. " alt="" coords="679,765,872,792"/>
+<area shape="rect" id="node14" href="$classUsbDevice.html#a4676628af245992887c19102480c97d4" title="Switches to the given interface. " alt="" coords="925,849,1092,876"/>
+<area shape="rect" id="node15" href="$classUsbDevice.html#a9f1216317173a1a536b72c9b64e3e4f8" title="Gets a descriptor from the device. " alt="" coords="689,532,862,559"/>
+<area shape="rect" id="node16" href="$classUsbDevice.html#a9534ef2fa9f624721fc64375c16a069a" title="Gets a descriptor&#39;s length from the device. " alt="" coords="689,817,862,858"/>
+<area shape="rect" id="node17" href="$classUsbHumanInterfaceDevice.html#a103dfd9c7fcd122b0f6f3eb8c55110c2" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="685,583,865,625"/>
+<area shape="rect" id="node18" href="$classUsbMassStorageDevice.html#a89414bd660a46eb55aa15b4663f34210" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="693,649,857,690"/>
+<area shape="rect" id="node20" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="463,360,589,387"/>
+<area shape="rect" id="node21" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="696,365,855,406"/>
+<area shape="rect" id="node22" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="708,263,843,289"/>
+<area shape="rect" id="node23" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="716,313,835,340"/>
+<area shape="rect" id="node28" href="$classInputManager.html#ab95f98b88ce1a36f3dd73cfba6a9d778" title="Thread trampoline. " alt="" coords="441,649,611,676"/>
+<area shape="rect" id="node33" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="696,95,855,137"/>
+<area shape="rect" id="node36" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="455,867,597,893"/>
+<area shape="rect" id="node38" href="$classNe2k.html#afb3182a707c388a10b732a5d879d4450" title="Ne2k::getName" alt="" coords="469,767,583,793"/>
+<area shape="rect" id="node40" href="$group__sys__misc.html#ga6b8786f43e779953e8b74e983c88682e" title="sys_msleep" alt="" coords="480,917,572,944"/>
+<area shape="rect" id="node41" href="$tcpip__priv_8h.html#a12bdf37eddcd72c4178e3ea7d370395d" title="tcpip_send_msg_wait_sem" alt="" coords="436,968,616,995"/>
+<area shape="rect" id="node42" href="$tcpip__priv_8h.html#a3d42b0c46607f91aedcc7745ed466b08" title="tcpip_api_call" alt="" coords="475,1019,577,1045"/>
+<area shape="rect" id="node44" href="$mem_8h.html#a932aa40d85b14cb7331625e012d12335" title="mem_malloc" alt="" coords="478,1069,574,1096"/>
+<area shape="rect" id="node48" href="$classRequestQueue.html#ada7823ce253c561696e67c183fdf0ec6" title="RequestQueue::trampoline" alt="" coords="687,161,864,188"/>
+</map>

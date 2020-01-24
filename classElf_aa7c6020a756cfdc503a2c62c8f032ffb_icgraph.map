@@ -1,0 +1,7 @@
+<map id="Elf::allocate" name="Elf::allocate">
+<area shape="rect" id="node2" href="$classElf.html#a9f301088b6d4d8a07e5ac3dca8bfca19" title="Elf::loadModule" alt="" coords="177,5,289,32"/>
+<area shape="rect" id="node5" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="144,56,323,83"/>
+<area shape="rect" id="node6" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="371,81,561,108"/>
+<area shape="rect" id="node3" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="391,5,541,32"/>
+<area shape="rect" id="node4" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="609,5,788,32"/>
+</map>

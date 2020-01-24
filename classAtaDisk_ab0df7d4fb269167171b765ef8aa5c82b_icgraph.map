@@ -1,0 +1,8 @@
+<map id="AtaDisk::irqReceived" name="AtaDisk::irqReceived">
+<area shape="rect" id="node2" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="204,5,335,32"/>
+<area shape="rect" id="node3" href="$classIsaAtaController.html#a980ca01ef1f44a72c9913c2a6cd92242" title="IsaAtaController::irq" alt="" coords="200,56,339,83"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="200,111,339,137"/>
+<area shape="rect" id="node4" href="$classIsaAtaController.html#acc1f8486eb5de23b6a1ebd3f602868b6" title="IsaAtaController::getName" alt="" coords="387,52,564,79"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="393,103,557,145"/>
+<area shape="rect" id="node7" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="612,140,791,167"/>
+</map>

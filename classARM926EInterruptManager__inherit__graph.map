@@ -1,0 +1,4 @@
+<map id="ARM926EInterruptManager" name="ARM926EInterruptManager">
+<area shape="rect" id="node2" href="$classInterruptManager.html" title="Handles interrupts and interrupt registrations from kernel components. " alt="" coords="5,5,221,215"/>
+<area shape="rect" id="node3" href="$classSyscallManager.html" title="{SyscallManager\n||+ registerSyscallHandler()\l+ syscall()\l+ instance()\l# SyscallManager()\l# ~SyscallManager()\l&#45; SyscallManager()\l&#45; operator=()\l}" alt="" coords="245,27,419,193"/>
+</map>

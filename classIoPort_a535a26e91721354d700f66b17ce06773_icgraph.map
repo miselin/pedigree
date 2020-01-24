@@ -1,0 +1,8 @@
+<map id="IoPort::read32" name="IoPort::read32">
+<area shape="rect" id="node2" href="$classPciBus.html#a98acf28c907dccfe463c211d1618d54e" title="PciBus::initialise" alt="" coords="184,5,303,32"/>
+<area shape="rect" id="node4" href="$classPciBus.html#a1e6155ca3828d12714dfd655d1a7b43b" title="PciBus::readConfigSpace" alt="" coords="157,56,329,83"/>
+<area shape="rect" id="node3" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="379,5,539,32"/>
+<area shape="rect" id="node5" href="$classEhci.html#a2bb0bdcc2f048c4315c97b0bf422c8a8" title="Ehci::initialiseController" alt="" coords="380,56,539,83"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="377,107,541,149"/>
+<area shape="rect" id="node7" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="589,115,768,141"/>
+</map>

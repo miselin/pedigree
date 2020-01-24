@@ -1,0 +1,12 @@
+<map id="KeymapManager" name="KeymapManager">
+<area shape="rect" id="node2" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="121,865,269,1207"/>
+<area shape="rect" id="node3" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="5,557,139,634"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="79,241,222,318"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="163,557,274,634"/>
+<area shape="rect" id="node6" href="$classTree.html" title="{Tree\&lt; uint8_t, KeymapManager\l::KeyState * \&gt;\n|&#45; nItems\l|+ Tree()\l+ Tree()\l+ ~Tree()\l+ operator=()\l+ count()\l+ insert()\l+ insert()\l+ lookup()\l+ lookupRef()\l+ contains()\land 7 more...\l&#45; copyFrom()\l&#45; rotateLeft()\l&#45; rotateRight()\l&#45; height()\l&#45; balanceFactor()\l&#45; rebalanceNode()\l&#45; traverseNode_Insert()\l&#45; traverseNode_Remove()\l&#45; createInsertionNode()\l}" alt="" coords="293,851,499,1221"/>
+<area shape="rect" id="node7" href="$classTree_1_1IteratorNode.html" title="{Tree\&lt; K, E \&gt;::IteratorNode\n||+ IteratorNode()\l+ IteratorNode()\l+ next()\l+ previous()\l+ reset()\l&#45; traverseNext()\l}" alt="" coords="357,204,536,355"/>
+<area shape="rect" id="node9" href="$classTree.html" title="A key/value dictionary. " alt="" coords="481,417,653,773"/>
+<area shape="rect" id="node8" href="$structTree_1_1Node.html" title="{Tree\&lt; K, E \&gt;::Node\n|+ key\l+ element\l+ height\l|}" alt="" coords="378,5,515,112"/>
+<area shape="rect" id="node10" href="$structKeymapManager_1_1KeymapEntry.html" title="Structure representing an entry in the keymap table. " alt="" coords="523,990,730,1082"/>
+<area shape="rect" id="node11" href="$structKeymapManager_1_1SparseEntry.html" title="Structure representing an entry in the sparse table. " alt="" coords="755,990,955,1082"/>
+</map>

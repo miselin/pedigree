@@ -1,0 +1,5 @@
+<map id="Disk::write" name="Disk::write">
+<area shape="rect" id="node2" href="$classFileDisk.html#a1016f922087800e7cd80f082bfb91584" title="FileDisk::getName" alt="" coords="163,5,293,32"/>
+<area shape="rect" id="node3" href="$classPartition.html#afecaf343ff3d38848845fb0d852b028c" title="Partition::write" alt="" coords="175,56,281,83"/>
+<area shape="rect" id="node4" href="$classFatFilesystem.html#a392bd9e44754c57058573bb515d32464" title="FatFilesystem::writeSector\lBlock" alt="" coords="139,107,317,149"/>
+</map>

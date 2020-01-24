@@ -1,0 +1,4 @@
+<map id="NetworkSyscalls" name="NetworkSyscalls">
+<area shape="rect" id="node2" href="$classLwipSocketSyscalls.html" title="{LwipSocketSyscalls\n|&#45; m_Socket\l&#45; m_Metadata\l&#45; m_SyscallObjects\l|+ LwipSocketSyscalls()\l+ ~LwipSocketSyscalls()\l+ create()\l+ connect()\l+ sendto_msg()\l+ recvfrom_msg()\l+ listen()\l+ bind()\l+ accept()\l+ shutdown()\land 7 more...\l&#45; netconnCallback()\l&#45; lwipToSyscallError()\l}" alt="" coords="5,351,173,633"/>
+<area shape="rect" id="node3" href="$classUnixSocketSyscalls.html" title="{UnixSocketSyscalls\n|&#45; m_Socket\l&#45; m_Remote\l&#45; m_LocalPath\l&#45; m_RemotePath\l|+ UnixSocketSyscalls()\l+ ~UnixSocketSyscalls()\l+ create()\l+ connect()\l+ sendto_msg()\l+ recvfrom_msg()\l+ listen()\l+ bind()\l+ accept()\l+ shutdown()\land 10 more...\l&#45; NOT_COPYABLE_OR_ASSIGNABLE()\l&#45; getRemote()\l&#45; getSocketType()\l}" alt="" coords="197,336,461,648"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="Framebuffer::getFramebuffer" name="Framebuffer::getFramebuffer">
+<area shape="rect" id="node2" href="$classVbeDisplay.html#a94aebe24e2c0d8651d8ff1fecfe67397" title="VbeDisplay::fillRectangle" alt="" coords="241,5,411,32"/>
+<area shape="rect" id="node4" href="$classVbeDisplay.html#a4d8b083e4b638183899cccd3202bb819" title="VbeDisplay::newBuffer" alt="" coords="248,56,404,83"/>
+<area shape="rect" id="node3" href="$classVbeDisplay.html#a723890a22334a5d228652ae2d9f00b5e" title="VbeDisplay::setScreenMode" alt="" coords="459,31,647,57"/>
+</map>

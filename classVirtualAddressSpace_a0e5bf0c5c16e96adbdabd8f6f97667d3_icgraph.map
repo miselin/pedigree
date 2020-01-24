@@ -1,0 +1,6 @@
+<map id="VirtualAddressSpace::getEndOfHeap" name="VirtualAddressSpace::getEndOfHeap">
+<area shape="rect" id="node2" href="$classX86VirtualAddressSpace.html#afc0e91ef3e7a79bd3312fb24c3a55e0e" title="X86VirtualAddressSpace\l::memIsInHeap" alt="" coords="207,5,374,47"/>
+<area shape="rect" id="node3" href="$classHostedVirtualAddressSpace.html#a86ebdffb84d57363021112a823415de5" title="HostedVirtualAddressSpace\l::memIsInHeap" alt="" coords="197,71,384,112"/>
+<area shape="rect" id="node4" href="$classX64VirtualAddressSpace.html#aa344565b60f5000e6cbc3c67e9a7f9be" title="X64VirtualAddressSpace\l::memIsInHeap" alt="" coords="207,136,374,177"/>
+<area shape="rect" id="node5" href="$classVirtualAddressSpace.html#aec8cf05b090e1cfa0242d8bac9f27520" title="VirtualAddressSpace\l::setHeap" alt="" coords="219,201,363,243"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="Rtc::read" name="Rtc::read">
+<area shape="rect" id="node2" href="$classRtc.html#a0492a6115884d8f383278263867b43d1" title="Rtc::initialise1" alt="" coords="137,5,243,32"/>
+<area shape="rect" id="node4" href="$classRtc.html#ac91c58f54619f6af7ef41a257813e9ec" title="Rtc::initialise2" alt="" coords="137,56,243,83"/>
+<area shape="rect" id="node5" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="157,107,223,133"/>
+<area shape="rect" id="node6" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="315,145,395,172"/>
+<area shape="rect" id="node7" href="$classRtc.html#a4a64442f71823c3dd0b11bee6bbe9e39" title="Rtc::synchronise" alt="" coords="129,208,251,235"/>
+<area shape="rect" id="node8" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="299,221,411,248"/>
+<area shape="rect" id="node3" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="308,31,401,57"/>
+</map>

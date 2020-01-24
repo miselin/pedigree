@@ -1,0 +1,9 @@
+<map id="Device::addToRoot" name="Device::addToRoot">
+<area shape="rect" id="node2" href="$classArmBeagle.html#a7154c38061a8c632ed1332b1fb376125" title="ArmBeagle::initialiseDeviceTree" alt="" coords="188,5,396,32"/>
+<area shape="rect" id="node4" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="212,56,372,83"/>
+<area shape="rect" id="node5" href="$classCdiNet.html#a40cabd0c2cf11e9b2edf15b88fc04c10" title="CdiNet::setStationInfo" alt="" coords="216,107,368,133"/>
+<area shape="rect" id="node7" href="$classCdiDisk.html#ab1bc1f9238667555fd8a30f5560cea33" title="CdiDisk::write" alt="" coords="239,157,345,184"/>
+<area shape="rect" id="node3" href="$classArmBeagle.html#aed2e8f5d001bbcfe4c6a54d8fdb5265e" title="ArmBeagle::setKeyboard" alt="" coords="444,5,611,32"/>
+<area shape="rect" id="node6" href="$classCdiNet.html#ae7154246620adff926817e1932916a60" title="CdiNet::getName" alt="" coords="465,107,589,133"/>
+<area shape="rect" id="node8" href="$classCdiDisk.html#a6dcf94a83aeca7b772dd01b92beb0caf" title="CdiDisk::getName" alt="" coords="462,157,593,184"/>
+</map>

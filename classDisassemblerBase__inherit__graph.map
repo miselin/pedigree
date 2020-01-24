@@ -1,0 +1,6 @@
+<map id="DisassemblerBase" name="DisassemblerBase">
+<area shape="rect" id="node2" href="$classArm926EDisassembler.html" title="{Arm926EDisassembler\n|&#45; m_nLocation\l|+ Arm926EDisassembler()\l+ ~Arm926EDisassembler()\l+ setLocation()\l+ getLocation()\l+ setMode()\l+ disassemble()\l&#45; disassembleSpecial()\l&#45; disassembleRegImm()\l&#45; disassembleOpcode()\l}" alt="" coords="5,219,189,413"/>
+<area shape="rect" id="node3" href="$classMipsDisassembler.html" title="{MipsDisassembler\n|&#45; m_nLocation\l|+ MipsDisassembler()\l+ ~MipsDisassembler()\l+ setLocation()\l+ getLocation()\l+ setMode()\l+ disassemble()\l&#45; disassembleSpecial()\l&#45; disassembleRegImm()\l&#45; disassembleOpcode()\l}" alt="" coords="214,219,375,413"/>
+<area shape="rect" id="node4" href="$classPPCDisassembler.html" title="{PPCDisassembler\n|+ m_nLocation\l|+ PPCDisassembler()\l+ ~PPCDisassembler()\l+ setLocation()\l+ getLocation()\l+ setMode()\l+ disassemble()\l+ twi()\l+ mulli()\l+ subfic()\l+ cmpli()\land 49 more...\l}" alt="" coords="399,204,558,428"/>
+<area shape="rect" id="node5" href="$classX86Disassembler.html" title="{X86Disassembler\n|&#45; m_Location\l&#45; m_Mode\l&#45; m_Obj\l|+ X86Disassembler()\l+ ~X86Disassembler()\l+ setLocation()\l+ getLocation()\l+ setMode()\l+ disassemble()\l}" alt="" coords="582,226,735,406"/>
+</map>

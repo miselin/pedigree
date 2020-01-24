@@ -1,0 +1,21 @@
+<map id="IoPort::base" name="IoPort::base">
+<area shape="rect" id="node2" href="$classIoPortManager.html#ac7d7ac53a4dd8a5f630cce5cd06e821b" title="IoPortManager::free" alt="" coords="147,198,284,225"/>
+<area shape="rect" id="node3" href="$classIoPort.html#a4a5f3d90816833050a5124b066c122e4" title="IoPort::free" alt="" coords="332,198,419,225"/>
+<area shape="rect" id="node4" href="$classIoPort.html#afbeecef8f3b49d4a3968d23f024f7811" title="IoPort::~IoPort" alt="" coords="469,122,577,149"/>
+<area shape="rect" id="node5" href="$classIoPort.html#a5dcc88f8b1fe1acfc60c63f5bae8223c" title="IoPort::allocate" alt="" coords="467,173,578,199"/>
+<area shape="rect" id="node19" href="$classPit.html#a46f449ff40b0dc71eeb71b9c17af53c6" title="Pit::uninitialise" alt="" coords="469,223,576,250"/>
+<area shape="rect" id="node20" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="467,274,579,301"/>
+<area shape="rect" id="node6" href="$classDevice_1_1Address.html#ac5c7a78fc99d638565c571fcbb13a2c6" title="Device::Address::Address" alt="" coords="627,71,801,98"/>
+<area shape="rect" id="node7" href="$classPciBus.html#a98acf28c907dccfe463c211d1618d54e" title="PciBus::initialise" alt="" coords="655,122,773,149"/>
+<area shape="rect" id="node9" href="$classPit.html#a1ab2aecf0ca932f0f010397506f348a3" title="Pit::initialise" alt="" coords="667,274,761,301"/>
+<area shape="rect" id="node13" href="$classPic.html#af6fc2ffaaff657a43b7dc0d0c6ed26ec" title="Pic::initialise" alt="" coords="666,173,762,199"/>
+<area shape="rect" id="node16" href="$classRtc.html#a0492a6115884d8f383278263867b43d1" title="Rtc::initialise1" alt="" coords="886,223,991,250"/>
+<area shape="rect" id="node17" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="632,5,796,47"/>
+<area shape="rect" id="node8" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="859,71,1019,98"/>
+<area shape="rect" id="node10" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="1107,223,1200,250"/>
+<area shape="rect" id="node11" href="$classPit.html#ae82d5e1258825ab4fda7fdf2372656ed" title="Pit::instance" alt="" coords="891,325,986,351"/>
+<area shape="rect" id="node12" href="$classPc.html#a4a1dc8f0dd8f21a5778f5b8688b4e1c0" title="Pc::getSchedulerTimer" alt="" coords="1076,325,1231,351"/>
+<area shape="rect" id="node14" href="$classPic.html#a1017358137b165a6e18c5a08c98a03c8" title="Pic::instance" alt="" coords="889,122,988,149"/>
+<area shape="rect" id="node15" href="$classPc.html#addf1c67b3f410b73a49b9f55238664bd" title="Pc::getNumVga" alt="" coords="1096,122,1211,149"/>
+<area shape="rect" id="node18" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="849,13,1028,39"/>
+</map>

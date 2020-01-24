@@ -1,0 +1,8 @@
+<map id="Vga::setLargestTextMode" name="Vga::setLargestTextMode">
+<area shape="rect" id="node2" href="$classFramebufferFile.html#a6394c053b50f045b8f8c4cff7d6c26ed" title="FramebufferFile::command" alt="" coords="225,5,404,32"/>
+<area shape="rect" id="node3" href="$classBootIO.html#abcafb7f57609545e6afc9d95a49dc447" title="BootIO::initialise" alt="" coords="255,56,374,83"/>
+<area shape="rect" id="node4" href="$classTextIO.html#a1fe7b77c653ce4384427549354a6ecc0" title="TextIO::initialise" alt="" coords="256,107,373,133"/>
+<area shape="rect" id="node7" href="$classLocalIO.html#a11fd207011f47d5f5975508bf31201d8" title="LocalIO::LocalIO" alt="" coords="255,157,375,184"/>
+<area shape="rect" id="node5" href="$classDevFs.html#a7975b933760278dd9bdbd0fceff87fa6" title="DevFs::initialise" alt="" coords="473,77,589,104"/>
+<area shape="rect" id="node6" href="$classVirtualTerminalManager.html#a72fcf824eefa7ee5fb8099de36ed0cb1" title="VirtualTerminalManager\l::openInactive" alt="" coords="452,129,611,170"/>
+</map>

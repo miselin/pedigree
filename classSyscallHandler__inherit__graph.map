@@ -1,0 +1,6 @@
+<map id="SyscallHandler" name="SyscallHandler">
+<area shape="rect" id="node2" href="$classKernelCoreSyscallManager.html" title="{KernelCoreSyscallManager\n|&#45; m_Functions\l&#45; m_Instance\l|+ initialise()\l+ call()\l+ syscall()\l+ registerSyscall()\l+ instance()\l# KernelCoreSyscallManager()\l# ~KernelCoreSyscallManager()\l&#45; KernelCoreSyscallManager()\l&#45; operator=()\l}" alt="" coords="5,145,212,355"/>
+<area shape="rect" id="node3" href="$classNativeSyscallManager.html" title="{NativeSyscallManager\n|&#45; m_NativeObjects\l|+ initialise()\l+ call()\l+ syscall()\l+ NativeSyscallManager()\l+ ~NativeSyscallManager()\l&#45; NativeSyscallManager()\l&#45; operator=()\l&#45; factory()\l}" alt="" coords="237,160,418,340"/>
+<area shape="rect" id="node4" href="$classPedigreeCSyscallManager.html" title="{PedigreeCSyscallManager\n||+ initialise()\l+ call()\l+ syscall()\l+ PedigreeCSyscallManager()\l+ ~PedigreeCSyscallManager()\l&#45; PedigreeCSyscallManager()\l&#45; operator=()\l}" alt="" coords="443,167,647,333"/>
+<area shape="rect" id="node5" href="$classPosixSyscallManager.html" title="{PosixSyscallManager\n|&#45; m_SeenUnknownSyscalls\l|+ initialise()\l+ call()\l+ syscall()\l+ PosixSyscallManager()\l+ ~PosixSyscallManager()\l&#45; PosixSyscallManager()\l&#45; operator=()\l}" alt="" coords="671,167,853,333"/>
+</map>

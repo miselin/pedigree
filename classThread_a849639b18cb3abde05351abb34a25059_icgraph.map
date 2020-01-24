@@ -1,0 +1,7 @@
+<map id="Thread::setScheduler" name="Thread::setScheduler">
+<area shape="rect" id="node2" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="200,39,359,80"/>
+<area shape="rect" id="node3" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="407,5,579,47"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="413,71,572,112"/>
+<area shape="rect" id="node4" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="651,13,761,39"/>
+<area shape="rect" id="node6" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="627,71,785,112"/>
+</map>

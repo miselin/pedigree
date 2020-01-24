@@ -1,0 +1,18 @@
+<map id="Cache::insert" name="Cache::insert">
+<area shape="rect" id="node2" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="162,31,281,57"/>
+<area shape="rect" id="node4" href="$classFatFile.html#ac2bb223e5028c8e64708e091da725b92" title="FatFile::readBlock" alt="" coords="157,81,285,108"/>
+<area shape="rect" id="node5" href="$classFile.html#a8be3584ef2f2a607cee6ed7f36784876" title="File::readIntoCache" alt="" coords="153,132,289,159"/>
+<area shape="rect" id="node3" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="337,31,463,57"/>
+<area shape="rect" id="node6" href="$classFile.html#a29f9b0b8ee6a02ef8c5deb2b516fc022" title="File::read" alt="" coords="362,107,438,133"/>
+<area shape="rect" id="node12" href="$classFile.html#a4fb6cc9ecdd0abf699a3115069e868d5" title="File::write" alt="" coords="361,300,439,327"/>
+<area shape="rect" id="node7" href="$classMemoryMappedFile.html#a66353cd31e469385cd9492879fd8e834" title="MemoryMappedFile::setPermissions" alt="" coords="511,5,745,32"/>
+<area shape="rect" id="node8" href="$classPosixSubsystem.html#a5bbd21893924596a4ef7fcb134d94e33" title="PosixSubsystem::parseShebang" alt="" coords="522,56,734,83"/>
+<area shape="rect" id="node9" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="793,81,960,108"/>
+<area shape="rect" id="node10" href="$classSymlink.html#a5fe1e7dba3adb206dca4bb897824d7e4" title="Symlink::initialise" alt="" coords="566,157,690,184"/>
+<area shape="rect" id="node11" href="$classSymlink.html#a08f184455757dec97a82d974280f52b3" title="Symlink::followLink" alt="" coords="809,157,944,184"/>
+<area shape="rect" id="node13" href="$classConsolePhysicalFile.html#a6648a523228720e05ccc4a4fa505aecc" title="ConsolePhysicalFile\l::readBytewise" alt="" coords="557,209,699,250"/>
+<area shape="rect" id="node14" href="$classDevFs.html#a7975b933760278dd9bdbd0fceff87fa6" title="DevFs::initialise" alt="" coords="570,275,686,301"/>
+<area shape="rect" id="node15" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="534,325,722,352"/>
+<area shape="rect" id="node16" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="530,376,726,403"/>
+<area shape="rect" id="node17" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="558,427,698,469"/>
+</map>

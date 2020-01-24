@@ -1,0 +1,9 @@
+<map id="IrqManager::unregisterHandler" name="IrqManager::unregisterHandler">
+<area shape="rect" id="node2" href="$classPit.html#a46f449ff40b0dc71eeb71b9c17af53c6" title="Pit::uninitialise" alt="" coords="281,31,387,57"/>
+<area shape="rect" id="node6" href="$classHostedSchedulerTimer.html#a95a38fa2984c37bb1e7ae4117df92333" title="HostedSchedulerTimer\l::uninitialise" alt="" coords="257,82,411,123"/>
+<area shape="rect" id="node7" href="$classHostedTimer.html#accf603719e99f0f1ece41e6a04e587dc" title="HostedTimer::uninitialise" alt="" coords="251,148,417,175"/>
+<area shape="rect" id="node8" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="278,199,390,225"/>
+<area shape="rect" id="node3" href="$classPit.html#ae82d5e1258825ab4fda7fdf2372656ed" title="Pit::instance" alt="" coords="465,31,560,57"/>
+<area shape="rect" id="node4" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="639,5,732,32"/>
+<area shape="rect" id="node5" href="$classPc.html#a4a1dc8f0dd8f21a5778f5b8688b4e1c0" title="Pc::getSchedulerTimer" alt="" coords="608,56,763,83"/>
+</map>

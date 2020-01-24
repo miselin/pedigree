@@ -1,0 +1,3 @@
+<map id="ZombieQueue" name="ZombieQueue">
+<area shape="rect" id="node2" href="$classRequestQueue.html" title="{RequestQueue\n|# m_pRequestQueue\l# m_Stop\l# m_RequestQueueMutex\l# m_RequestQueueCondition\l# m_AsyncRequestQueueCondition\l# m_pThread\l# m_Halted\l# m_HaltAcknowledged\l# m_OverrunChecker\l# m_nMaxAsyncRequests\l# m_nAsyncRequests\l# m_nTotalRequests\l# m_Name\l|+ RequestQueue()\l+ ~RequestQueue()\l+ initialise()\l+ destroy()\l+ addRequest()\l+ addRequest()\l+ addAsyncRequest()\l+ halt()\l+ resume()\l# executeRequest()\l# RequestQueue()\l# operator=()\l# compareRequests()\l# isRequestValid()\l# work()\l# getNextRequest()\l# trampoline()\l# doAsync()\l}" alt="" coords="5,5,236,508"/>
+</map>

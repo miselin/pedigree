@@ -1,0 +1,5 @@
+<map id="HostedIrqManager::registerIsaIrqHandler" name="HostedIrqManager::registerIsaIrqHandler">
+<area shape="rect" id="node2" href="$classHostedIrqManager.html#ae12bed10ccff6813ac0ccb8251d48c99" title="HostedIrqManager::instance" alt="" coords="233,31,420,57"/>
+<area shape="rect" id="node3" href="$classHostedMachine.html#acecca4492c5a4a230824899a22205f59" title="HostedMachine::getNumVga" alt="" coords="468,5,659,32"/>
+<area shape="rect" id="node4" href="$classHostedMachine.html#af35b1e284552fd7e046b54aa42a4c0ac" title="HostedMachine::initialise" alt="" coords="479,56,647,83"/>
+</map>

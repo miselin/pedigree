@@ -1,0 +1,5 @@
+<map id="HostedInterruptManager::initialiseProcessor" name="HostedInterruptManager::initialiseProcessor">
+<area shape="rect" id="node2" href="$classProcessor.html#a2da3d5f8b642203eb82aa9a183e00aa9" title="Processor::initialisationDone" alt="" coords="216,5,404,32"/>
+<area shape="rect" id="node3" href="$classHostedInterruptManager.html#a5652dd89389ea7d581e447f4e18a1023" title="HostedInterruptManager\l::instance" alt="" coords="229,57,391,98"/>
+<area shape="rect" id="node4" href="$classHostedInterruptManager.html#a08f5c431954d98c6969c16ffd71d26a9" title="HostedInterruptManager\l::interrupt" alt="" coords="452,57,615,98"/>
+</map>

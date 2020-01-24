@@ -1,0 +1,3 @@
+<map id="PosixSubsystem" name="PosixSubsystem">
+<area shape="rect" id="node2" href="$classSubsystem.html" title="{Subsystem\n|# m_Type\l# m_pProcess\l|+ Subsystem()\l+ Subsystem()\l+ Subsystem()\l+ ~Subsystem()\l+ acquire()\l+ release()\l+ exit()\l+ kill()\l+ threadException()\l+ getType()\land 6 more...\l# threadRemoved()\l&#45; operator=()\l}" alt="" coords="29,5,165,273"/>
+</map>

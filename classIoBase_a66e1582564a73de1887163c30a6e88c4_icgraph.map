@@ -1,0 +1,17 @@
+<map id="IoBase::read32" name="IoBase::read32">
+<area shape="rect" id="node2" href="$classOpenPic.html#a68820f005a26307d4227f962bf5e8ac4" title="OpenPic::initialise" alt="" coords="203,5,329,32"/>
+<area shape="rect" id="node5" href="$classHeathrow.html#a0f3edab05a086e0dbf0a757519eec8cc" title="Heathrow::interrupt" alt="" coords="199,56,333,83"/>
+<area shape="rect" id="node7" href="$classOpenPic.html#aa753c062cefc2a5d03c20021896b8c20" title="OpenPic::interrupt" alt="" coords="203,107,329,133"/>
+<area shape="rect" id="node9" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="440,436,543,463"/>
+<area shape="rect" id="node11" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="418,309,565,336"/>
+<area shape="rect" id="node12" href="$classIoBase.html#a5d495dbf7b29a155400f7ab080cd4039" title="IoBase::read64HighFirst" alt="" coords="185,259,347,285"/>
+<area shape="rect" id="node13" href="$classIoBase.html#ad5c51388f84675a2c06a336d7f29e19c" title="IoBase::read64LowFirst" alt="" coords="186,309,346,336"/>
+<area shape="rect" id="node14" href="$classVmwareGraphics.html#a47fc580b98135d0908abdfa63f49ab6b" title="VmwareGraphics::readRegister" alt="" coords="164,360,368,387"/>
+<area shape="rect" id="node15" href="$classNic3C90x.html#a45bed301275ea48ff6f92137a7ec24e5" title="Nic3C90x::reset" alt="" coords="207,411,325,437"/>
+<area shape="rect" id="node16" href="$classNic3C90x.html#aa1080904ebf0d43bb811bd7fb1a3a3a1" title="Nic3C90x::send" alt="" coords="433,208,549,235"/>
+<area shape="rect" id="node3" href="$classOpenPic.html#aed4e3d404be358d005c71395a30c29c6" title="OpenPic::instance" alt="" coords="427,5,556,32"/>
+<area shape="rect" id="node4" href="$classMac.html#adc59251940a11bb19e8d868960e2694d" title="Mac::initialiseDeviceTree" alt="" coords="615,5,784,32"/>
+<area shape="rect" id="node6" href="$classHeathrow.html#af1cb5a840df0eb3361a57b9c01abf982" title="Heathrow::~Heathrow" alt="" coords="416,56,567,83"/>
+<area shape="rect" id="node8" href="$classOpenPic.html#aecd07407d2156ea0aa3982c47eb08b0f" title="OpenPic::~OpenPic" alt="" coords="422,107,561,133"/>
+<area shape="rect" id="node10" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="629,385,770,412"/>
+</map>

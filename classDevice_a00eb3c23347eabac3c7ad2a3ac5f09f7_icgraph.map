@@ -1,0 +1,6 @@
+<map id="Device::getPciDeviceId" name="Device::getPciDeviceId">
+<area shape="rect" id="node2" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="221,5,385,47"/>
+<area shape="rect" id="node4" href="$classDevice.html#ad1eb151a044263eb721a4a4256b6e87f" title="Device::searchByVendorId\lInternal" alt="" coords="213,71,392,112"/>
+<area shape="rect" id="node3" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="440,13,619,39"/>
+<area shape="rect" id="node5" href="$classDevice.html#a596f9b4d29ffaf54afc85e545557ea4f" title="Device::searchByVendorId" alt="" coords="440,78,619,105"/>
+</map>

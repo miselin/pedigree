@@ -1,0 +1,3 @@
+<map id="LwipSocketSyscalls" name="LwipSocketSyscalls">
+<area shape="rect" id="node2" href="$classNetworkSyscalls.html" title="{NetworkSyscalls\n|# m_Domain\l# m_Type\l# m_Protocol\l# m_Blocking\l# m_Fd\l|+ NetworkSyscalls()\l+ ~NetworkSyscalls()\l+ create()\l+ connect()\l+ sendto_msg()\l+ recvfrom_msg()\l+ sendto()\l+ recvfrom()\l+ listen()\l+ bind()\land 18 more...\l}" alt="" coords="15,5,164,288"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="ud" name="ud">
+<area shape="rect" id="node2" href="$structud__operand.html" title="{ud_operand\n|+ type\l+ size\l+ sbyte\l+ ubyte\l+ sword\l+ uword\l+ sdword\l+ udword\l+ sqword\l+ uqword\land 8 more...\l|}" alt="" coords="5,189,104,413"/>
+<area shape="rect" id="node3" href="$structmap__entry.html" title="{map_entry\n|+ mnemonic\l+ prefix\l|}" alt="" coords="129,255,223,347"/>
+<area shape="rect" id="node4" href="$structmap__operand.html" title="{map_operand\n|+ type\l+ size\l|}" alt="" coords="126,5,226,97"/>
+<area shape="rect" id="node5" href="$structFILE.html" title="{FILE\n|+ empty\l|}" alt="" coords="247,263,318,340"/>
+</map>

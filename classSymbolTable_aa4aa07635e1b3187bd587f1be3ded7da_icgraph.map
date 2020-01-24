@@ -1,0 +1,13 @@
+<map id="SymbolTable::insertShared" name="SymbolTable::insertShared">
+<area shape="rect" id="node2" href="$classSymbolTable.html#a86b0741d1ac4aefeb498f503e0e35f37" title="SymbolTable::doInsert" alt="" coords="232,81,385,108"/>
+<area shape="rect" id="node12" href="$classSymbolTable.html#a80c934132f8fedb7fb9e4a7bab714c8a" title="SymbolTable::insertMultiple" alt="" coords="433,31,616,57"/>
+<area shape="rect" id="node3" href="$classSymbolTable.html#a28daf9af30b8e4ecf0ed350359bb283a" title="SymbolTable::insert" alt="" coords="455,81,594,108"/>
+<area shape="rect" id="node4" href="$classElf.html#aa7c6020a756cfdc503a2c62c8f032ffb" title="Elf::allocate" alt="" coords="704,31,795,57"/>
+<area shape="rect" id="node5" href="$classElf.html#a9f301088b6d4d8a07e5ac3dca8bfca19" title="Elf::loadModule" alt="" coords="916,81,1028,108"/>
+<area shape="rect" id="node10" href="$classKernelElf.html#afb3a9a11f7c20cb84b7ae18b0d0e94a2" title="KernelElf::initialise" alt="" coords="684,183,815,209"/>
+<area shape="rect" id="node11" href="$classElf.html#a2f6b07c31f79f025df893df1a690e263" title="Elf::populateSymbolTable" alt="" coords="664,132,835,159"/>
+<area shape="rect" id="node8" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="883,31,1061,57"/>
+<area shape="rect" id="node9" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="1109,5,1300,32"/>
+<area shape="rect" id="node6" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="1130,81,1279,108"/>
+<area shape="rect" id="node7" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="1348,81,1527,108"/>
+</map>

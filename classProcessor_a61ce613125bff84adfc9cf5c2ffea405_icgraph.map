@@ -1,0 +1,51 @@
+<map id="Processor::isInitialised" name="Processor::isInitialised">
+<area shape="rect" id="node2" href="$classIoPortManager.html#a050bc8690393da44ab43ee4ece96da6f" title="IoPortManager::allocate" alt="" coords="214,520,374,547"/>
+<area shape="rect" id="node3" href="$classIoPortManager.html#ac7d7ac53a4dd8a5f630cce5cd06e821b" title="IoPortManager::free" alt="" coords="225,571,363,597"/>
+<area shape="rect" id="node14" href="$classLocksCommand.html#acf717d08d18d2ae9178dd13e4669cb23" title="LocksCommand::setFatal" alt="" coords="208,1085,380,1112"/>
+<area shape="rect" id="node4" href="$classIoPort.html#a4a5f3d90816833050a5124b066c122e4" title="IoPort::free" alt="" coords="473,132,560,159"/>
+<area shape="rect" id="node5" href="$classIoPort.html#a5dcc88f8b1fe1acfc60c63f5bae8223c" title="IoPort::allocate" alt="" coords="659,132,770,159"/>
+<area shape="rect" id="node11" href="$classPit.html#a46f449ff40b0dc71eeb71b9c17af53c6" title="Pit::uninitialise" alt="" coords="661,183,768,209"/>
+<area shape="rect" id="node12" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="659,31,771,57"/>
+<area shape="rect" id="node13" href="$classIoPort.html#afbeecef8f3b49d4a3968d23f024f7811" title="IoPort::~IoPort" alt="" coords="661,81,769,108"/>
+<area shape="rect" id="node6" href="$classDevice_1_1Address.html#ac5c7a78fc99d638565c571fcbb13a2c6" title="Device::Address::Address" alt="" coords="858,208,1033,235"/>
+<area shape="rect" id="node7" href="$classPciBus.html#a98acf28c907dccfe463c211d1618d54e" title="PciBus::initialise" alt="" coords="886,5,1005,32"/>
+<area shape="rect" id="node8" href="$classPit.html#a1ab2aecf0ca932f0f010397506f348a3" title="Pit::initialise" alt="" coords="899,56,992,83"/>
+<area shape="rect" id="node9" href="$classPic.html#af6fc2ffaaff657a43b7dc0d0c6ed26ec" title="Pic::initialise" alt="" coords="897,107,993,133"/>
+<area shape="rect" id="node10" href="$classRtc.html#a0492a6115884d8f383278263867b43d1" title="Rtc::initialise1" alt="" coords="893,157,998,184"/>
+<area shape="rect" id="node15" href="$classSpinlock.html#aa8ed26227a4d17e4037aa5f75f9990d3" title="Spinlock::acquire" alt="" coords="653,1060,776,1087"/>
+<area shape="rect" id="node48" href="$classLocksCommand.html#acae1199b0f89ffe69f24925ccf7852c3" title="LocksCommand::getString" alt="" coords="428,1111,605,1137"/>
+<area shape="rect" id="node49" href="$classSpinlock.html#a403ba6364948bd3aefa3da9553db1ab1" title="Spinlock::trackRelease" alt="" coords="438,1511,595,1537"/>
+<area shape="rect" id="node16" href="$classCache.html#ae9325f14b0e3b3276566e9a68f6ec81d" title="Cache::evict" alt="" coords="897,1355,993,1381"/>
+<area shape="rect" id="node17" href="$classConditionVariable.html#a8654ace19a9f44f0e51cb7e8e0faf0b4" title="ConditionVariable::\lsignal" alt="" coords="879,1406,1011,1447"/>
+<area shape="rect" id="node18" href="$classGPTimer.html#acd884f84e1a048cf0bfc6bff7247ae44" title="GPTimer::initialise" alt="" coords="881,1472,1010,1499"/>
+<area shape="rect" id="node19" href="$classInputManager.html#adfff346563bcb1ffc32f36365d43a3aa" title="Main worker thread. " alt="" coords="1144,1060,1321,1087"/>
+<area shape="rect" id="node20" href="$classKernelElf.html#aea752ba23c9d66ce960a5ccf0cd67099" title="KernelElf::lockModules" alt="" coords="867,1523,1023,1549"/>
+<area shape="rect" id="node21" href="$classLog.html#acea972e23dfd3b2088af8ccf1e631dd4" title="Log::flushEntry" alt="" coords="890,1573,1001,1600"/>
+<area shape="rect" id="node22" href="$classMemoryMappedFile.html#a66353cd31e469385cd9492879fd8e834" title="MemoryMappedFile::setPermissions" alt="" coords="828,1624,1063,1651"/>
+<area shape="rect" id="node23" href="$classMemoryMapManager.html#a3d3bbf7c337b1a25fbcffe230862a6a5" title="MemoryMapManager::remove" alt="" coords="848,1675,1043,1701"/>
+<area shape="rect" id="node24" href="$classMemoryMapManager.html#af8a8b40c1508308ad0bb5a53fd925bc5" title="MemoryMapManager::setPermissions" alt="" coords="824,1725,1067,1752"/>
+<area shape="rect" id="node25" href="$classMemoryMapManager.html#afcab011dd8e1a29f073c6d5e4db9175d" title="MemoryMapManager::contains" alt="" coords="845,1776,1046,1803"/>
+<area shape="rect" id="node26" href="$classMemoryMapManager.html#a796a7326d0344410bfaaffaf3645ea83" title="MemoryMapManager::trap" alt="" coords="858,259,1033,285"/>
+<area shape="rect" id="node27" href="$classMemoryMapManager.html#a86669366491673f49b0bda4f21aa9c68" title="MemoryMapManager::acquireLock" alt="" coords="834,309,1057,336"/>
+<area shape="rect" id="node28" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="1171,617,1295,644"/>
+<area shape="rect" id="node29" href="$classOhci.html#a1e5a88f9cd44a15defe81124eda9b55a" title="Ohci::doAsync" alt="" coords="891,360,999,387"/>
+<area shape="rect" id="node30" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="1153,1819,1312,1861"/>
+<area shape="rect" id="node31" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="866,1878,1025,1919"/>
+<area shape="rect" id="node32" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="866,1137,1025,1178"/>
+<area shape="rect" id="node33" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="1399,977,1557,1018"/>
+<area shape="rect" id="node34" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="1115,705,1351,732"/>
+<area shape="rect" id="node35" href="$classPosixSubsystem.html#afede8ce542a973e15d5fec6d206f2ddd" title="Acquire full mutual exclusion for all Subsystem resources. " alt="" coords="860,781,1031,808"/>
+<area shape="rect" id="node36" href="$classPosixSubsystem.html#aebc209f9c8d351927810cdc6dde375f1" title="PosixSubsystem::release" alt="" coords="860,680,1031,707"/>
+<area shape="rect" id="node37" href="$classProcess.html#ac99a764d539353fb4bbffd0c00231ca8" title="Process::kill" alt="" coords="898,883,993,909"/>
+<area shape="rect" id="node38" href="$classSemaphore.html#a5cc555f28ca5f236604e6d1d74e13d29" title="Semaphore::removeThread" alt="" coords="856,933,1035,960"/>
+<area shape="rect" id="node39" href="$classSemaphore.html#a408d218d5e8497c4dfa7b3e31f8daaac" title="Semaphore::acquireWithResult" alt="" coords="1131,883,1334,909"/>
+<area shape="rect" id="node40" href="$classSemaphore.html#a608f82c98ce38a1ab8f93ae5d458fe1f" title="Semaphore::release" alt="" coords="876,579,1015,605"/>
+<area shape="rect" id="node41" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="1169,541,1296,568"/>
+<area shape="rect" id="node42" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1419,476,1537,503"/>
+<area shape="rect" id="node43" href="$classSlamCache.html#aaf4195375a41c14adfaf51a37bf6acd5" title="SlamCache::recovery" alt="" coords="871,1203,1019,1229"/>
+<area shape="rect" id="node44" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="890,1253,1001,1280"/>
+<area shape="rect" id="node45" href="$classThread.html#ad1455ad5719b52f45993565b28e649ba" title="Thread::sendEvent" alt="" coords="879,1085,1011,1112"/>
+<area shape="rect" id="node46" href="$classThread.html#a6d767b9746588b8be5f274f4da454b08" title="Thread::join" alt="" coords="900,1304,991,1331"/>
+<area shape="rect" id="node47" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="853,462,1037,503"/>
+<area shape="rect" id="node50" href="$classSpinlock.html#ac9969c70c789f746bd06ec2bce878824" title="Spinlock::exit" alt="" coords="664,1885,765,1912"/>
+</map>

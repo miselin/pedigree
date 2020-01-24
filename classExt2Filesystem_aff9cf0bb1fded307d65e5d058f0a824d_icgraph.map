@@ -1,0 +1,8 @@
+<map id="Ext2Filesystem::releaseBlock" name="Ext2Filesystem::releaseBlock">
+<area shape="rect" id="node2" href="$classExt2Node.html#a0aa5536e1ea4d363001ce32c147be342" title="Ext2Node::wipe" alt="" coords="249,81,364,108"/>
+<area shape="rect" id="node3" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="412,31,596,57"/>
+<area shape="rect" id="node6" href="$classExt2File.html#a83141d594d0f60b01feb5ca0676da47f" title="Ext2File::truncate" alt="" coords="441,81,567,108"/>
+<area shape="rect" id="node7" href="$classExt2Symlink.html#acec68435cdb30ba626a7d6a1b96daaa0" title="Ext2Symlink::truncate" alt="" coords="429,132,579,159"/>
+<area shape="rect" id="node4" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="644,5,808,32"/>
+<area shape="rect" id="node5" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="647,56,805,83"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="ARMV7InterruptManager" name="ARMV7InterruptManager">
+<area shape="rect" id="node2" href="$classInterruptManager.html" title="Handles interrupts and interrupt registrations from kernel components. " alt="" coords="5,86,221,295"/>
+<area shape="rect" id="node3" href="$classSyscallManager.html" title="{SyscallManager\n||+ registerSyscallHandler()\l+ syscall()\l+ instance()\l# SyscallManager()\l# ~SyscallManager()\l&#45; SyscallManager()\l&#45; operator=()\l}" alt="" coords="245,108,419,273"/>
+<area shape="rect" id="node4" href="$classMemoryRegion.html" title="Special memory entity in the kernel&#39;s virtual address space. " alt="" coords="443,5,619,376"/>
+<area shape="rect" id="node5" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="643,145,786,237"/>
+<area shape="rect" id="node6" href="$classSyscallHandler.html" title="{SyscallHandler\n||+ syscall()\l# ~SyscallHandler()\l}" alt="" coords="810,145,947,237"/>
+</map>

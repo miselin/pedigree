@@ -1,0 +1,8 @@
+<map id="HostedInterruptManager" name="HostedInterruptManager">
+<area shape="rect" id="node2" href="$classInterruptManager.html" title="Handles interrupts and interrupt registrations from kernel components. " alt="" coords="5,351,221,561"/>
+<area shape="rect" id="node3" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="246,285,394,627"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="189,145,323,223"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="262,5,405,83"/>
+<area shape="rect" id="node6" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="347,145,458,223"/>
+<area shape="rect" id="node7" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="418,410,561,502"/>
+</map>

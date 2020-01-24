@@ -1,0 +1,14 @@
+<map id="ethernet.h" name="ethernet.h">
+<area shape="rect" id="node2" href="$arch_8h.html" title="lwip/arch.h" alt="" coords="403,80,489,107"/>
+<area shape="rect" id="node3" href="$cc_8h_source.html" title="arch/cc.h" alt="" coords="261,155,337,181"/>
+<area shape="rect" id="node14" href="$stddef_8h_source.html" title="stddef.h" alt="" coords="362,155,431,181"/>
+<area shape="rect" id="node4" href="$system_2include_2pedigree_2kernel_2compiler_8h_source.html" title="pedigree/kernel/compiler.h" alt="" coords="5,415,180,442"/>
+<area shape="rect" id="node6" href="$system_2include_2pedigree_2kernel_2processor_2types_8h_source.html" title="pedigree/kernel/processor\l/types.h" alt="" coords="337,408,507,449"/>
+<area shape="rect" id="node8" href="$assert_8h_source.html" title="pedigree/kernel/utilities\l/assert.h" alt="" coords="133,229,287,271"/>
+<area shape="rect" id="node10" href="$utility_8h_source.html" title="pedigree/kernel/utilities\l/utility.h" alt="" coords="311,229,466,271"/>
+<area shape="rect" id="node5" href="$threadsafety_8h_source.html" title="pedigree/kernel/utilities\l/threadsafety.h" alt="" coords="15,497,170,539"/>
+<area shape="rect" id="node7" href="$system_2include_2pedigree_2kernel_2processor_2x64_2types_8h_source.html" title="pedigree/kernel/processor\l/x64/types.h" alt="" coords="337,497,507,539"/>
+<area shape="rect" id="node9" href="$stdint_8h_source.html" title="stdint.h" alt="" coords="349,326,415,353"/>
+<area shape="rect" id="node11" href="$cpp_8h_source.html" title="pedigree/kernel/utilities\l/cpp.h" alt="" coords="490,319,645,360"/>
+<area shape="rect" id="node12" href="$lib_8h_source.html" title="pedigree/kernel/utilities\l/lib.h" alt="" coords="171,319,326,360"/>
+</map>

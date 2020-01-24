@@ -1,0 +1,11 @@
+<map id="Event::getTrampoline" name="Event::getTrampoline">
+<area shape="rect" id="node2" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="470,105,629,147"/>
+<area shape="rect" id="node8" href="$classEvent.html#a9018e2c89efc03e2fe6479b7eaf8965d" title="Event::getHandlerBuffer" alt="" coords="223,163,385,190"/>
+<area shape="rect" id="node10" href="$classEvent.html#a21c5df928656732d8d0073b6b1b15974" title="Event::getSecondaryTrampoline" alt="" coords="200,214,408,241"/>
+<area shape="rect" id="node3" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="691,73,849,115"/>
+<area shape="rect" id="node6" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="897,136,1056,177"/>
+<area shape="rect" id="node4" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="897,5,1056,47"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="897,71,1056,112"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1104,5,1263,47"/>
+<area shape="rect" id="node9" href="$classEvent.html#a8686eb101b2be8a03a9053a3f4f6104e" title="Event::getLastHandlerBuffer" alt="" coords="456,171,643,198"/>
+</map>

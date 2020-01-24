@@ -1,0 +1,8 @@
+<map id="HidReport::Collection::Child" name="HidReport::Collection::Child">
+<area shape="rect" id="node7" href="$classVector.html" title="{Vector\&lt; HidReport::\lCollection::Child * \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="180,1520,319,1817"/>
+<area shape="rect" id="node2" href="$structHidReport_1_1Collection.html" title="Structure representing a Collection whitin a report. " alt="" coords="5,1880,152,1972"/>
+<area shape="rect" id="node3" href="$structHidReport_1_1LocalState.html" title="Structure holding various global and local values for a Main item. " alt="" coords="70,851,221,1119"/>
+<area shape="rect" id="node8" href="$structHidReport_1_1InputBlock.html" title="Structure representing an Input block whitin a Collection. " alt="" coords="70,1196,221,1273"/>
+<area shape="rect" id="node4" href="$classVector.html" title="{Vector\&lt; size_t \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_Data\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="83,491,218,788"/>
+<area shape="rect" id="node5" href="$classVector.html" title="A vector / dynamic array. " alt="" coords="154,145,289,428"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="TraceCommand::Stacktrace" name="TraceCommand::Stacktrace">
+<area shape="rect" id="node2" href="$classScrollable.html" title="{Scrollable\n|# m_x\l# m_y\l# m_width\l# m_height\l# m_line\l# m_ScrollUp\l# m_ScrollDown\l|+ Scrollable()\l+ move()\l+ resize()\l+ scroll()\l+ scrollTo()\l+ refresh()\l+ setScrollKeys()\l+ getLine()\l+ centreOn()\l+ height()\l+ width()\l+ getLine1()\l+ getLine2()\l+ getLineCount()\l+ ~Scrollable()\l}" alt="" coords="5,5,128,376"/>
+<area shape="rect" id="node3" href="$classBacktrace.html" title="{Backtrace\n|&#45; m_pReturnAddresses\l&#45; m_pBasePointers\l&#45; m_pStates\l&#45; m_nStackFrames\l|+ Backtrace()\l+ ~Backtrace()\l+ performBacktrace()\l+ numStackFrames()\l+ getReturnAddress()\l+ getBasePointer()\l+ prettyPrint()\l+ performBpBacktrace()\l&#45; performDwarfBacktrace()\l}" alt="" coords="152,71,328,310"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="LocalIO" name="LocalIO">
+<area shape="rect" id="node2" href="$classDebuggerIO.html" title="{DebuggerIO\n|# m_bReady\l# m_pCommand\l# m_bRefreshesEnabled\l|+ DebuggerIO()\l+ ~DebuggerIO()\l+ initialise()\l+ destroy()\l+ setCliUpperLimit()\l+ setCliLowerLimit()\l+ cls()\l+ getCharNonBlock()\l+ enableCli()\l+ disableCli()\land 13 more...\l# putChar()\l# scroll()\l# moveCursor()\l}" alt="" coords="5,5,171,303"/>
+<area shape="rect" id="node3" href="$classKeyboard.html" title="{Keyboard\n||+ Keyboard()\l+ ~Keyboard()\l+ initialise()\l+ setDebugState()\l+ getDebugState()\l+ getChar()\l+ getCharNonBlock()\l+ getLedState()\l+ setLedState()\l}" alt="" coords="195,57,341,251"/>
+<area shape="rect" id="node4" href="$classVga.html" title="{Vga\n||+ ~Vga()\l+ setControl()\l+ clearControl()\l+ setMode()\l+ setLargestTextMode()\l+ isMode()\l+ isLargestTextMode()\l+ getNumCols()\l+ getNumRows()\l+ rememberMode()\l+ restoreMode()\l+ pokeBuffer()\l+ peekBuffer()\l+ moveCursor()\l+ operator uint16_t *()\l}" alt="" coords="365,13,526,295"/>
+</map>

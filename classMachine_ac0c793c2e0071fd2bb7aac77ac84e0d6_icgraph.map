@@ -1,0 +1,7 @@
+<map id="Machine::getSerial" name="Machine::getSerial">
+<area shape="rect" id="node2" href="$classSlamCommand.html#ab47622468ba4195939c2c1e398207739" title="SlamCommand::execute" alt="" coords="184,5,351,32"/>
+<area shape="rect" id="node3" href="$classBootIO.html#abcafb7f57609545e6afc9d95a49dc447" title="BootIO::initialise" alt="" coords="208,56,327,83"/>
+<area shape="rect" id="node4" href="$classHostedTimer.html#a02f4ed423fd605df41ae81feafe73e55" title="HostedTimer::irq" alt="" coords="208,107,327,133"/>
+<area shape="rect" id="node5" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="235,157,300,184"/>
+<area shape="rect" id="node6" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="399,157,479,184"/>
+</map>

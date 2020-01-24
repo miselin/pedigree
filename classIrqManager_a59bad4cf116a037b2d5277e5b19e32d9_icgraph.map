@@ -1,0 +1,5 @@
+<map id="IrqManager::tick" name="IrqManager::tick">
+<area shape="rect" id="node2" href="$classHostedTimer.html#a02f4ed423fd605df41ae81feafe73e55" title="HostedTimer::irq" alt="" coords="169,5,288,32"/>
+<area shape="rect" id="node3" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="196,56,261,83"/>
+<area shape="rect" id="node4" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="336,56,416,83"/>
+</map>

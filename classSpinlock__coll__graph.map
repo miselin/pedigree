@@ -1,0 +1,5 @@
+<map id="Spinlock" name="Spinlock">
+<area shape="rect" id="node2" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="5,145,139,223"/>
+<area shape="rect" id="node3" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="78,5,221,83"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="163,145,274,223"/>
+</map>

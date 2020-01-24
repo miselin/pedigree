@@ -1,0 +1,5 @@
+<map id="KernelElf::unloadModule" name="KernelElf::unloadModule">
+<area shape="rect" id="node2" href="$classKernelElf.html#a4a6d6c929e72b8dcd57201ddc20f1338" title="KernelElf::unloadModules" alt="" coords="232,5,403,32"/>
+<area shape="rect" id="node3" href="$classKernelElf.html#a35644e7e9968b1e027fdaa47ccd5a6d4" title="KernelElf::updateModuleStatus" alt="" coords="216,56,419,83"/>
+<area shape="rect" id="node4" href="$classKernelElf.html#a31f5887fc179330aad411bf3768e1d8d" title="KernelElf::getDependingModule" alt="" coords="467,56,672,83"/>
+</map>

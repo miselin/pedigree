@@ -1,0 +1,4 @@
+<map id="MemoryMappedIo" name="MemoryMappedIo">
+<area shape="rect" id="node2" href="$classIoBase.html" title="Abstrace base class for hardware I/O capabilities. " alt="" coords="5,27,143,354"/>
+<area shape="rect" id="node3" href="$classMemoryRegion.html" title="Special memory entity in the kernel&#39;s virtual address space. " alt="" coords="167,5,343,376"/>
+</map>

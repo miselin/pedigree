@@ -1,0 +1,3 @@
+<map id="UnixFilesystem" name="UnixFilesystem">
+<area shape="rect" id="node2" href="$classFilesystem.html" title="{Filesystem\n|# m_bReadOnly\l# m_pDisk\l&#45; m_nAliases\l|+ Filesystem()\l+ ~Filesystem()\l+ initialise()\l+ find()\l+ find()\l+ find()\l+ find()\l+ getRoot()\l+ getVolumeLabel()\l+ createFile()\land 8 more...\l# createFile()\l# createDirectory()\l# createSymlink()\l# createLink()\l&#45; getTrueRoot()\l&#45; findNode()\l&#45; findParent()\l&#45; Filesystem()\l&#45; operator=()\l}" alt="" coords="29,5,164,391"/>
+</map>

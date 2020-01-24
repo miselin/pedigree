@@ -1,0 +1,7 @@
+<map id="Buffer::read" name="Buffer::read">
+<area shape="rect" id="node2" href="$classPsAuxFile.html#a014bcbd1635ea7ad8f05d61fc81162db" title="PsAuxFile::readBytewise" alt="" coords="165,5,334,32"/>
+<area shape="rect" id="node3" href="$classPipe.html#aba7f60a6dd88bb66629bab8a82529d34" title="Pipe::readBytewise" alt="" coords="182,56,317,83"/>
+<area shape="rect" id="node4" href="$classConsoleMasterFile.html#adb30bfa341ccf4cd829c2ada97db92f0" title="ConsoleMasterFile::\lreadBytewise" alt="" coords="180,107,319,149"/>
+<area shape="rect" id="node5" href="$classConsoleSlaveFile.html#a5ca6529e252afb928bec3ea77624e250" title="ConsoleSlaveFile::readBytewise" alt="" coords="144,173,355,200"/>
+<area shape="rect" id="node6" href="$classConsolePhysicalFile.html#a6648a523228720e05ccc4a4fa505aecc" title="ConsolePhysicalFile\l::readBytewise" alt="" coords="179,225,320,266"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="X86GdtManager::setSegmentDescriptor" name="X86GdtManager::setSegmentDescriptor">
+<area shape="rect" id="node2" href="$classX86GdtManager.html#a8b8ca99e3755ecd672eb67138d29b416" title="X86GdtManager::initialise" alt="" coords="530,32,701,58"/>
+<area shape="rect" id="node3" href="$classX86GdtManager.html#a91a7efcf5e77219d9ea417109e7039c2" title="X86GdtManager::instance" alt="" coords="759,57,932,84"/>
+<area shape="rect" id="node4" href="$classX86GdtManager.html#a6455f70c0b98ffa5d792b60db7ac4844" title="X86GdtManager::setTlsBase" alt="" coords="520,133,711,160"/>
+<area shape="rect" id="node5" href="$classX86GdtManager.html#a08b8bc89bfbed4e85ca51377e95ba2a8" title="X86GdtManager::setTssDescriptor" alt="" coords="248,82,472,109"/>
+</map>

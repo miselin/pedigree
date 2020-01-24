@@ -1,0 +1,12 @@
+<map id="Vector::size" name="Vector::size">
+<area shape="rect" id="node2" href="$group__kernelutilities.html#ga24fa32004a576758e88d550c5aa4fc86" title="Vector::assign" alt="" coords="189,31,296,57"/>
+<area shape="rect" id="node5" href="$classRangeList.html#a238dad62036099922ca9d7e74c2dec28" title="RangeList::getRange" alt="" coords="170,81,315,108"/>
+<area shape="rect" id="node6" href="$classPosixProcess.html#a500d47ef17c582d23f2960f5c9b5d105" title="PosixProcess::getUserId" alt="" coords="159,132,327,159"/>
+<area shape="rect" id="node7" href="$classExt2Filesystem.html#af98f6f4d271fbc4ba16f4d24c154a309" title="Ext2Filesystem::releaseInode" alt="" coords="145,183,340,209"/>
+<area shape="rect" id="node11" href="$group__kernelutilities.html#ga819651abd85b0ea8e1e13edf85499a8e" title="Vector::reserve" alt="" coords="187,233,298,260"/>
+<area shape="rect" id="node3" href="$group__kernelutilities.html#ga16cf2eddb61bf017e9a761c8eeb561c6" title="Vector::operator=" alt="" coords="419,5,541,32"/>
+<area shape="rect" id="node4" href="$group__kernelutilities.html#ga0d7a70dfd5fb3b6762e840e18306d9c6" title="Vector::Vector" alt="" coords="427,56,533,83"/>
+<area shape="rect" id="node8" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="388,183,572,209"/>
+<area shape="rect" id="node9" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="623,157,781,184"/>
+<area shape="rect" id="node10" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="620,208,784,235"/>
+</map>

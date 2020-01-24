@@ -1,0 +1,6 @@
+<map id="HashTable::clear" name="HashTable::clear">
+<area shape="rect" id="node2" href="$classHashTable.html#a331a44b33035fc60160f3902a7abe536" title="HashTable\&lt; String,\l Filesystem *, HashedString\lView \&gt;::copyFrom" alt="" coords="175,5,361,61"/>
+<area shape="rect" id="node3" href="$classDirectory.html#a2c415a2870e506317333c666ec013aa5" title="Directory::empty" alt="" coords="209,85,327,112"/>
+<area shape="rect" id="node4" href="$classFilesystem.html#aea07db34eb728503a50ad5fea9a53e78" title="Filesystem::remove" alt="" coords="409,85,547,112"/>
+<area shape="rect" id="node5" href="$classVFS.html#abd14dce0f5f6258cab5750724f1942cf" title="VFS::remove" alt="" coords="595,85,693,112"/>
+</map>

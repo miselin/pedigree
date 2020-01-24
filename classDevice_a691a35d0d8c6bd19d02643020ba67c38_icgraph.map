@@ -1,0 +1,11 @@
+<map id="Device::setSpecificType" name="Device::setSpecificType">
+<area shape="rect" id="node2" href="$classCdiNet.html#a67ff299d843380cb3ce18a909436c43c" title="CdiNet::CdiNet" alt="" coords="267,5,379,32"/>
+<area shape="rect" id="node3" href="$classArmBeagle.html#a7154c38061a8c632ed1332b1fb376125" title="ArmBeagle::initialiseDeviceTree" alt="" coords="219,56,427,83"/>
+<area shape="rect" id="node5" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="243,107,403,133"/>
+<area shape="rect" id="node6" href="$classNe2k.html#a7a21a7e54926ef73242b3706ecfe251d" title="Ne2k::Ne2k" alt="" coords="277,157,369,184"/>
+<area shape="rect" id="node7" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="249,208,396,235"/>
+<area shape="rect" id="node8" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="241,259,405,301"/>
+<area shape="rect" id="node10" href="$classMac.html#ac6c2cad0ef05832c8741188e8db96497" title="Mac::~Mac" alt="" coords="279,325,367,352"/>
+<area shape="rect" id="node4" href="$classArmBeagle.html#aed2e8f5d001bbcfe4c6a54d8fdb5265e" title="ArmBeagle::setKeyboard" alt="" coords="481,56,647,83"/>
+<area shape="rect" id="node9" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="475,267,653,293"/>
+</map>

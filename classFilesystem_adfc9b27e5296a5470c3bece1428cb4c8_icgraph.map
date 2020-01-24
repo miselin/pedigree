@@ -1,0 +1,7 @@
+<map id="Filesystem::createFile" name="Filesystem::createFile">
+<area shape="rect" id="node2" href="$classFatFilesystem.html#a19979882ad945a91047e88aed324eb28" title="FatFilesystem::createDirectory" alt="" coords="204,5,407,32"/>
+<area shape="rect" id="node3" href="$classFatFilesystem.html#aaae46beeed096a6b5bff4160bd7806e2" title="FatFilesystem::createFile" alt="" coords="220,56,391,83"/>
+<area shape="rect" id="node4" href="$classVFS.html#a14e26f766d86b81f4250fc73d01476b4" title="VFS::createFile" alt="" coords="249,107,362,133"/>
+<area shape="rect" id="node6" href="$classRamFs.html#a64c727faca1c74f28e3dd1b7d0740567" title="RamFs::getVolumeLabel" alt="" coords="222,157,389,184"/>
+<area shape="rect" id="node5" href="$classFilesystem.html#a58c29297083036729416ba67bbeb2a90" title="Filesystem::isCaseSensitive" alt="" coords="455,107,644,133"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="MemoryPressureHandler" name="MemoryPressureHandler">
+<area shape="rect" id="node2" href="$classMemoryMapManager.html" title="{MemoryMapManager\n|&#45; m_MmObjectLists\l&#45; m_Lock\l&#45; m_Instance\l|+ mapFile()\l+ mapAnon()\l+ clone()\l+ remove()\l+ setPermissions()\l+ contains()\l+ sync()\l+ invalidate()\l+ unmap()\l+ unmapAll()\l+ trap()\l+ compact()\l+ getMemoryPressureDescription()\l+ instance()\l# unmapAllUnlocked()\l# acquireLock()\l# releaseLock()\l&#45; MemoryMapManager()\l&#45; ~MemoryMapManager()\l&#45; sanitiseAddress()\l&#45; op()\l}" alt="" coords="5,175,231,575"/>
+<area shape="rect" id="node3" href="$classMemoryPoolPressureHandler.html" title="{MemoryPoolPressureHandler\n|&#45; m_Pool\l|+ MemoryPoolPressureHandler()\l+ ~MemoryPoolPressureHandler()\l+ getMemoryPressureDescription()\l+ compact()\l}" alt="" coords="255,314,480,435"/>
+<area shape="rect" id="node4" href="$classMemoryPressureProcessKiller.html" title="{MemoryPressureProcessKiller\n||+ getMemoryPressureDescription()\l+ compact()\l}" alt="" coords="504,329,729,421"/>
+<area shape="rect" id="node5" href="$classSlamRecovery.html" title="{SlamRecovery\n||+ getMemoryPressureDescription()\l+ compact()\l}" alt="" coords="753,329,979,421"/>
+</map>

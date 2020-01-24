@@ -1,0 +1,3 @@
+<map id="HostedMachine" name="HostedMachine">
+<area shape="rect" id="node2" href="$classMachine.html" title="{Machine\n|# m_bInitialised\l|+ initialise()\l+ initialise2()\l+ initialise3()\l+ deinitialise()\l+ isInitialised()\l+ initialiseDeviceTree()\l+ getSerial()\l+ getNumSerial()\l+ getVga()\l+ getNumVga()\l+ getIrqManager()\l+ getSchedulerTimer()\l+ getTimer()\l+ getKeyboard()\l+ setKeyboard()\l+ instance()\l# Machine()\l# ~Machine()\l&#45; Machine()\l&#45; operator=()\l}" alt="" coords="17,5,173,361"/>
+</map>

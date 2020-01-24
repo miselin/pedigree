@@ -1,0 +1,3 @@
+<map id="KernelElf" name="KernelElf">
+<area shape="rect" id="node2" href="$classElf.html" title="{Elf\n|# PACKED\l# PACKED\l# PACKED\l# PACKED\l# PACKED\l# PACKED\l# PACKED\l# PACKED\l# PACKED\l# m_pSymbolTable\land 32 more...\l|+ Elf()\l+ ~Elf()\l+ Elf()\l+ validate()\l+ create()\l+ createNeededOnly()\l+ loadModule()\l+ finaliseModule()\l+ allocate()\l+ load()\land 20 more...\l+ extractEntryPoint()\l+ extractInformation()\l&#45; relocate()\l&#45; relocateModinfo()\l&#45; applyRelocation()\l&#45; applyRelocation()\l&#45; rebaseDynamic()\l&#45; operator=()\l&#45; elfCopy()\l}" alt="" coords="37,5,188,508"/>
+</map>

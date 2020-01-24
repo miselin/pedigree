@@ -1,0 +1,5 @@
+<map id="VirtualAddressSpace::mapHuge" name="VirtualAddressSpace::mapHuge">
+<area shape="rect" id="node2" href="$classX86CommonPhysicalMemoryManager.html#a2fd295a1c9d12b6713476e4337d20e25" title="X86CommonPhysicalMemoryManager\l::initialise64" alt="" coords="197,5,443,47"/>
+<area shape="rect" id="node4" href="$classX64VirtualAddressSpace.html#a4c35909ffe022c9ad67369ca849e9b44" title="X64VirtualAddressSpace\l::mapHuge" alt="" coords="237,71,403,112"/>
+<area shape="rect" id="node3" href="$classX86CommonPhysicalMemoryManager.html#aec6d29daffe674227805940438a7ba30" title="X86CommonPhysicalMemoryManager\l::instance" alt="" coords="491,5,736,47"/>
+</map>

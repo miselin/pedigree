@@ -1,0 +1,29 @@
+<map id="Tree::insert" name="Tree::insert">
+<area shape="rect" id="node2" href="$classVFS.html#a52260a8b83544580b9d8d71d9858c4e3" title="VFS::addAlias" alt="" coords="203,29,310,56"/>
+<area shape="rect" id="node5" href="$classVFS.html#a8daab1e2996b6e0f48222260d8527f0f" title="VFS::mount" alt="" coords="463,80,555,107"/>
+<area shape="rect" id="node6" href="$classPosixSubsystem.html#ac2d6e4d427bc8c967ca42577f202c6ee" title="PosixSubsystem::addFileDescriptor" alt="" coords="141,131,372,157"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem_1_1PosixThread.html#afde02857d50d9ff1a16ee7bd6510dade" title="PosixSubsystem::PosixThread\l::addThreadData" alt="" coords="155,182,358,223"/>
+<area shape="rect" id="node8" href="$classPosixSubsystem.html#a51aa70c0374ef76adf8528118742d56f" title="PosixSubsystem::copyDescriptors" alt="" coords="145,248,369,275"/>
+<area shape="rect" id="node9" href="$classUserManager.html#aebd21564d7629a9cc4def9577c82bb01" title="UserManager::getGroup" alt="" coords="176,299,337,325"/>
+<area shape="rect" id="node10" href="$classSymbolTable.html#a8a990aeddedd0ae2eab193d9d5be8951" title="SymbolTable::getOrInsertTree" alt="" coords="158,349,355,376"/>
+<area shape="rect" id="node26" href="$classNetworkFilter.html#a079011edc806924856a2533bc507c5b9" title="NetworkFilter::installCallback" alt="" coords="160,400,353,427"/>
+<area shape="rect" id="node27" href="$classPosixSubsystem.html#a84cbc73113ca5d520c2adf95ac06ee81" title="PosixSubsystem::PosixSubsystem" alt="" coords="143,451,371,477"/>
+<area shape="rect" id="node28" href="$classPosixSyscallManager.html#a5a9837e08124ed0937bb7142721ee594" title="PosixSyscallManager\l::syscall" alt="" coords="183,502,331,543"/>
+<area shape="rect" id="node3" href="$classRawFs.html#ab50656d570d4146ed8ad8b91748778f9" title="RawFs::getRoot" alt="" coords="450,29,569,56"/>
+<area shape="rect" id="node4" href="$classRawFs.html#aaea4b50ed3441cfcc8a097259bddbc26" title="RawFs::initialise" alt="" coords="672,29,791,56"/>
+<area shape="rect" id="node11" href="$classSymbolTable.html#aa4aa07635e1b3187bd587f1be3ded7da" title="SymbolTable::insertShared" alt="" coords="420,408,599,435"/>
+<area shape="rect" id="node23" href="$classSymbolTable.html#a376d46ddcba5675bae97755d9a6d95f0" title="SymbolTable::preallocate" alt="" coords="647,291,816,317"/>
+<area shape="rect" id="node25" href="$classSymbolTable.html#af7422390fffd441d7ed2e846aa750ba2" title="SymbolTable::preallocate\lAdditional" alt="" coords="425,342,594,383"/>
+<area shape="rect" id="node12" href="$classSymbolTable.html#a86b0741d1ac4aefeb498f503e0e35f37" title="SymbolTable::doInsert" alt="" coords="655,400,808,427"/>
+<area shape="rect" id="node22" href="$classSymbolTable.html#a80c934132f8fedb7fb9e4a7bab714c8a" title="SymbolTable::insertMultiple" alt="" coords="864,425,1047,452"/>
+<area shape="rect" id="node13" href="$classSymbolTable.html#a28daf9af30b8e4ecf0ed350359bb283a" title="SymbolTable::insert" alt="" coords="886,312,1025,339"/>
+<area shape="rect" id="node14" href="$classElf.html#aa7c6020a756cfdc503a2c62c8f032ffb" title="Elf::allocate" alt="" coords="1135,425,1225,452"/>
+<area shape="rect" id="node15" href="$classElf.html#a9f301088b6d4d8a07e5ac3dca8bfca19" title="Elf::loadModule" alt="" coords="1347,349,1459,376"/>
+<area shape="rect" id="node20" href="$classKernelElf.html#afb3a9a11f7c20cb84b7ae18b0d0e94a2" title="KernelElf::initialise" alt="" coords="1115,223,1245,249"/>
+<area shape="rect" id="node21" href="$classElf.html#a2f6b07c31f79f025df893df1a690e263" title="Elf::populateSymbolTable" alt="" coords="1095,324,1265,351"/>
+<area shape="rect" id="node18" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="1313,400,1492,427"/>
+<area shape="rect" id="node19" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="1540,425,1731,452"/>
+<area shape="rect" id="node16" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="1561,349,1710,376"/>
+<area shape="rect" id="node17" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="1779,349,1957,376"/>
+<area shape="rect" id="node24" href="$classElf.html#aa7cb80b7bbdb030759b184766133f984" title="Elf::preallocateSymbols" alt="" coords="875,363,1035,389"/>
+</map>

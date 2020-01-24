@@ -1,0 +1,12 @@
+<map id="processor&#45;specifc kernel" name="processor&#45;specifc kernel">
+<area shape="rect" id="node1" href="$group__kernelprocessorarm.html" title="arm processor&#45;specific kernel " alt="" coords="353,5,397,32"/>
+<area shape="rect" id="node2" href="$group__kernelprocessorarmcommon.html" title="arm&#45;common processor&#45;specific kernel " alt="" coords="325,56,424,83"/>
+<area shape="rect" id="node3" href="$group__kernelprocessorARM926E.html" title="ARM926E processor&#45;specific kernel. " alt="" coords="333,107,416,133"/>
+<area shape="rect" id="node4" href="$group__kernelprocessorx64.html" title="x64 processor&#45;specific kernel " alt="" coords="353,157,396,184"/>
+<area shape="rect" id="node5" href="$group__kernel.html" title="The kernel. " alt="" coords="5,208,63,235"/>
+<area shape="rect" id="node6" href="$group__kernelprocessorx86.html" title="x86 processor&#45;specific kernel " alt="" coords="353,208,396,235"/>
+<area shape="rect" id="node7" href="$group__kernelprocessorMIPS32.html" title="MIPS32 processor&#45;specific kernel. " alt="" coords="340,259,409,285"/>
+<area shape="rect" id="node8" href="$group__kernelprocessorMIPS64.html" title="MIPS64 processor&#45;specific kernel. " alt="" coords="340,309,409,336"/>
+<area shape="rect" id="node9" href="$group__kernelprocessormipscommon.html" title="mips&#45;common processor&#45;specific kernel " alt="" coords="323,360,427,387"/>
+<area shape="rect" id="node11" href="$group__kernelprocessorx86common.html" title="x86&#45;common processor&#45;specific kernel " alt="" coords="326,411,423,437"/>
+</map>

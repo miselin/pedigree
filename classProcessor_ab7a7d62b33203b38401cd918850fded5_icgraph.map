@@ -1,0 +1,14 @@
+<map id="Processor::getDebugBreakpointCount" name="Processor::getDebugBreakpointCount">
+<area shape="rect" id="node2" href="$classBreakpointCommand.html#a2c1d66a42c51155386bcce9c3b23f0c3" title="BreakpointCommand::\lexecute" alt="" coords="260,77,412,119"/>
+<area shape="rect" id="node3" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="263,143,409,170"/>
+<area shape="rect" id="node4" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="464,71,623,112"/>
+<area shape="rect" id="node10" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="464,136,623,177"/>
+<area shape="rect" id="node13" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="460,202,627,229"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="681,71,840,112"/>
+<area shape="rect" id="node8" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="895,5,1053,47"/>
+<area shape="rect" id="node6" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="895,136,1053,177"/>
+<area shape="rect" id="node9" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="895,71,1053,112"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1101,136,1260,177"/>
+<area shape="rect" id="node11" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="675,195,847,236"/>
+<area shape="rect" id="node12" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="919,202,1029,229"/>
+</map>

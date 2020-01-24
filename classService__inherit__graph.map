@@ -1,0 +1,4 @@
+<map id="Service" name="Service">
+<area shape="rect" id="node2" href="$classGraphicsService.html" title="{GraphicsService\n|&#45; m_Providers\l&#45; m_pCurrentProvider\l&#45; m_pCurrentTextProvider\l|+ GraphicsService()\l+ ~GraphicsService()\l+ serve()\l&#45; determineBestProvider()\l}" alt="" coords="5,160,177,311"/>
+<area shape="rect" id="node3" href="$classPartitionService.html" title="{PartitionService\n||+ PartitionService()\l+ ~PartitionService()\l+ serve()\l}" alt="" coords="201,182,344,289"/>
+</map>

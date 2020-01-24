@@ -1,0 +1,24 @@
+<map id="Processor::breakpoint" name="Processor::breakpoint">
+<area shape="rect" id="node2" href="$group__kernel.html#gabcc2d693811bf720ae413aad950ca027" title="_assert" alt="" coords="243,31,308,58"/>
+<area shape="rect" id="node3" href="$classProcessor.html#a007670de131fb2db8a7e048f2b026785" title="Processor::cpuid" alt="" coords="215,82,335,109"/>
+<area shape="rect" id="node9" href="$classLog.html#acea972e23dfd3b2088af8ccf1e631dd4" title="Log::flushEntry" alt="" coords="220,137,331,163"/>
+<area shape="rect" id="node13" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="203,267,348,294"/>
+<area shape="rect" id="node4" href="$classNMFaultHandler.html#ae76ab554b13fa010837469f33a41424a" title="NMFaultHandler::initialise\lProcessor" alt="" coords="396,71,568,112"/>
+<area shape="rect" id="node8" href="$classX64VirtualAddressSpace.html#a4c35909ffe022c9ad67369ca849e9b44" title="X64VirtualAddressSpace\l::mapHuge" alt="" coords="399,5,565,47"/>
+<area shape="rect" id="node5" href="$classNMFaultHandler.html#a041d17524742a54ee9381053262ef4de" title="NMFaultHandler::initialise" alt="" coords="616,53,788,79"/>
+<area shape="rect" id="node6" href="$classNMFaultHandler.html#aa7b7794358331fd1a4e9540a354d8e20" title="NMFaultHandler::instance" alt="" coords="836,78,1011,105"/>
+<area shape="rect" id="node7" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1079,78,1197,105"/>
+<area shape="rect" id="node10" href="$classLog.html#a869a5e102abc36b1e7c17f63fe41779a" title="Log::addEntry" alt="" coords="431,187,533,214"/>
+<area shape="rect" id="node12" href="$classLog.html#a46442f537e43f3cb02e353bced87a5e9" title="Log::operator\&lt;\&lt;" alt="" coords="425,137,539,163"/>
+<area shape="rect" id="node11" href="$classLog.html#a0fbfda88fbee5027c89f6eb121059360" title="Log::~Log" alt="" coords="662,187,742,214"/>
+<area shape="rect" id="node14" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="403,289,561,331"/>
+<area shape="rect" id="node20" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="403,355,561,396"/>
+<area shape="rect" id="node23" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="399,238,565,265"/>
+<area shape="rect" id="node15" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="623,289,781,331"/>
+<area shape="rect" id="node18" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="844,224,1003,265"/>
+<area shape="rect" id="node16" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="844,355,1003,396"/>
+<area shape="rect" id="node19" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="844,289,1003,331"/>
+<area shape="rect" id="node17" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1059,355,1217,396"/>
+<area shape="rect" id="node21" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="616,413,788,455"/>
+<area shape="rect" id="node22" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="868,421,979,447"/>
+</map>

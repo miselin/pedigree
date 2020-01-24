@@ -1,0 +1,5 @@
+<map id="Cord" name="Cord">
+<area shape="rect" id="node2" href="$classVector.html" title="{Vector\&lt; Cord::CordSegment \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="36,491,236,773"/>
+<area shape="rect" id="node3" href="$structCord_1_1CordSegment.html" title="{Cord::CordSegment\n|+ ptr\l+ length\l|+ CordSegment()\l+ CordSegment()\l}" alt="" coords="5,233,144,340"/>
+<area shape="rect" id="node4" href="$classVector.html" title="A vector / dynamic array. " alt="" coords="169,145,303,428"/>
+</map>

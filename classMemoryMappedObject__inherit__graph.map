@@ -1,0 +1,4 @@
+<map id="MemoryMappedObject" name="MemoryMappedObject">
+<area shape="rect" id="node2" href="$classAnonymousMemoryMap.html" title="{AnonymousMemoryMap\n|&#45; m_Mappings\l&#45; m_Lock\l&#45; m_Zero\l|+ AnonymousMemoryMap()\l+ ~AnonymousMemoryMap()\l+ clone()\l+ split()\l+ remove()\l+ setPermissions()\l+ unmap()\l+ trap()\l&#45; unmapUnlocked()\l}" alt="" coords="5,505,196,729"/>
+<area shape="rect" id="node3" href="$classMemoryMappedFile.html" title="{MemoryMappedFile\n|&#45; m_pBacking\l&#45; m_Offset\l&#45; m_Mappings\l&#45; m_Lock\l|+ MemoryMappedFile()\l+ ~MemoryMappedFile()\l+ clone()\l+ split()\l+ remove()\l+ setPermissions()\l+ sync()\l+ invalidate()\l+ unmap()\l+ trap()\l+ compact()\l&#45; unmapUnlocked()\l&#45; trackMapping()\l&#45; untrackMapping()\l&#45; getMapping()\l&#45; getMappingCount()\l&#45; clearMappings()\l}" alt="" coords="220,439,384,795"/>
+</map>

@@ -1,0 +1,34 @@
+<map id="Vector::clear" name="Vector::clear">
+<area shape="rect" id="node2" href="$classAllocationCommand.html#a09a959389ae9746d004a28e1aa1c53a3" title="AllocationCommand::\lexecute" alt="" coords="199,5,345,47"/>
+<area shape="rect" id="node3" href="$classLockManager.html#a794b97106f69b01d16350b06ac2576d8" title="LockManager::LockManager" alt="" coords="179,71,365,98"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="190,123,354,164"/>
+<area shape="rect" id="node6" href="$classPosixProcess.html#ab86623177a7f95092ed71d50d39943ad" title="PosixProcess::PosixProcess" alt="" coords="176,189,368,215"/>
+<area shape="rect" id="node7" href="$classX86CommonPhysicalMemoryManager.html#ab3cc6ec21d8a668a7e5b7db38c0a95b8" title="X86CommonPhysicalMemoryManager\l::shutdown" alt="" coords="149,240,395,281"/>
+<area shape="rect" id="node9" href="$classString.html#a471673fd11963ad5547a8df1e726e9b1" title="String::tokenise" alt="" coords="215,306,329,333"/>
+<area shape="rect" id="node10" href="$classExt2Node.html#a0aa5536e1ea4d363001ce32c147be342" title="Ext2Node::wipe" alt="" coords="215,357,329,383"/>
+<area shape="rect" id="node16" href="$classHostedPhysicalMemoryManager.html#afb484bb1cc692aeab64f679a5949cf19" title="HostedPhysicalMemoryManager\l::~HostedPhysicalMemoryManager" alt="" coords="159,408,385,449"/>
+<area shape="rect" id="node33" href="$classRangeList.html#aaa2b6be84967af4ab24a8d492fbb1227" title="RangeList::~RangeList" alt="" coords="194,474,350,501"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="476,130,655,157"/>
+<area shape="rect" id="node8" href="$classX86CommonPhysicalMemoryManager.html#aec6d29daffe674227805940438a7ba30" title="X86CommonPhysicalMemoryManager\l::instance" alt="" coords="443,240,688,281"/>
+<area shape="rect" id="node11" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="473,306,657,333"/>
+<area shape="rect" id="node14" href="$classExt2File.html#a83141d594d0f60b01feb5ca0676da47f" title="Ext2File::truncate" alt="" coords="503,357,628,383"/>
+<area shape="rect" id="node15" href="$classExt2Symlink.html#acec68435cdb30ba626a7d6a1b96daaa0" title="Ext2Symlink::truncate" alt="" coords="490,407,641,434"/>
+<area shape="rect" id="node12" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="767,331,924,358"/>
+<area shape="rect" id="node13" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="763,281,927,307"/>
+<area shape="rect" id="node17" href="$classHostedPhysicalMemoryManager.html#abd61babab9fbff26538f61ec9b4eee0c" title="HostedPhysicalMemoryManager\l::instance" alt="" coords="460,459,671,500"/>
+<area shape="rect" id="node18" href="$classProcessor.html#a2da3d5f8b642203eb82aa9a183e00aa9" title="Processor::initialisationDone" alt="" coords="751,525,939,551"/>
+<area shape="rect" id="node19" href="$classHostedVirtualAddressSpace.html#a1bc2a2b1d3fbdcfde297c576f7b452cb" title="HostedVirtualAddressSpace::map" alt="" coords="736,407,955,434"/>
+<area shape="rect" id="node20" href="$classHostedVirtualAddressSpace.html#a56e88cf071da0c2b571e318a4550125e" title="HostedVirtualAddressSpace\l::switchAddressSpace" alt="" coords="752,459,939,500"/>
+<area shape="rect" id="node21" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="1023,437,1169,463"/>
+<area shape="rect" id="node32" href="$classHostedVirtualAddressSpace.html#aa3c4dbc66332d02b04b6a49dacea5b78" title="HostedVirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="1003,488,1189,529"/>
+<area shape="rect" id="node22" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="1241,364,1400,405"/>
+<area shape="rect" id="node28" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="1241,429,1400,471"/>
+<area shape="rect" id="node31" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="1237,495,1404,522"/>
+<area shape="rect" id="node23" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="1459,364,1617,405"/>
+<area shape="rect" id="node26" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="1672,299,1831,340"/>
+<area shape="rect" id="node24" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="1672,429,1831,471"/>
+<area shape="rect" id="node27" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="1672,364,1831,405"/>
+<area shape="rect" id="node25" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1879,429,2037,471"/>
+<area shape="rect" id="node29" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="1452,488,1624,529"/>
+<area shape="rect" id="node30" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="1696,495,1807,522"/>
+</map>

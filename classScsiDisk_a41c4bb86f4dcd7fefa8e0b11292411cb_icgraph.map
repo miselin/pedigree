@@ -1,0 +1,7 @@
+<map id="ScsiDisk::getSize" name="ScsiDisk::getSize">
+<area shape="rect" id="node2" href="$classAtaDisk.html#ab0010f985ed1525fd6b3ce52001980b5" title="Gets the size of the disk. " alt="" coords="180,5,301,32"/>
+<area shape="rect" id="node3" href="$classAtaDisk.html#aa5876dc6733efa665b6759e6cf6026bd" title="AtaDisk::getBusMaster" alt="" coords="349,5,508,32"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="556,5,695,32"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="955,5,1133,32"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="743,27,907,69"/>
+</map>

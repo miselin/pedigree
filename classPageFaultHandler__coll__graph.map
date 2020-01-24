@@ -1,0 +1,16 @@
+<map id="PageFaultHandler" name="PageFaultHandler">
+<area shape="rect" id="node2" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="5,1828,148,1920"/>
+<area shape="rect" id="node3" href="$classList.html" title="{List\&lt; MemoryTrapHandler * \&gt;\n|&#45; m_Count\l&#45; m_Magic\l|+ List()\l+ List()\l+ ~List()\l+ operator=()\l+ size()\l+ count()\l+ pushBack()\l+ pushBack()\l+ popBack()\l+ pushFront()\land 14 more...\l}" alt="" coords="173,1755,367,1993"/>
+<area shape="rect" id="node4" href="$struct__ListNode__t.html" title="One node in the list. " alt="" coords="116,615,240,707"/>
+<area shape="rect" id="node10" href="$classVector.html" title="{Vector\&lt; _ListNode_t * \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="225,895,387,1177"/>
+<area shape="rect" id="node15" href="$classList.html" title="{List\&lt; T, nodePoolSize \&gt;\n|&#45; m_Count\l&#45; m_Magic\l|+ List()\l+ List()\l+ ~List()\l+ operator=()\l+ size()\l+ count()\l+ pushBack()\l+ pushBack()\l+ popBack()\l+ pushFront()\land 14 more...\l}" alt="" coords="189,1453,351,1692"/>
+<area shape="rect" id="node5" href="$classObjectPool.html" title="{ObjectPool\&lt; _ListNode\l_t, 16 \&gt;\n||+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="545,1255,702,1391"/>
+<area shape="rect" id="node6" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="681,491,829,832"/>
+<area shape="rect" id="node13" href="$classObjectPool.html" title="{ObjectPool\&lt; T, poolSize \&gt;\n||+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="573,975,749,1097"/>
+<area shape="rect" id="node16" href="$classObjectPool.html" title="{ObjectPool\&lt; _ListNode\l_t, nodePoolSize \&gt;\n||+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="290,1255,447,1391"/>
+<area shape="rect" id="node7" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="819,248,953,325"/>
+<area shape="rect" id="node8" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="741,5,884,83"/>
+<area shape="rect" id="node9" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="684,248,795,325"/>
+<area shape="rect" id="node11" href="$classVector.html" title="A vector / dynamic array. " alt="" coords="407,145,541,428"/>
+<area shape="rect" id="node14" href="$classVector.html" title="{Vector\&lt; T * \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="523,520,657,803"/>
+</map>

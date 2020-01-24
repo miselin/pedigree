@@ -1,0 +1,6 @@
+<map id="Vga::pokeBuffer" name="Vga::pokeBuffer">
+<area shape="rect" id="node2" href="$classLocalIO.html#a799a987bd069cb0139f84b24a961e4b8" title="LocalIO::enableRefreshes" alt="" coords="169,5,343,32"/>
+<area shape="rect" id="node4" href="$classBootIO.html#abcafb7f57609545e6afc9d95a49dc447" title="BootIO::initialise" alt="" coords="197,56,315,83"/>
+<area shape="rect" id="node5" href="$classLocalIO.html#a11fd207011f47d5f5975508bf31201d8" title="LocalIO::LocalIO" alt="" coords="196,107,316,133"/>
+<area shape="rect" id="node3" href="$classLocalIO.html#aac4194b23c317201924975a3bfacaff4" title="LocalIO::getWidth" alt="" coords="391,5,517,32"/>
+</map>

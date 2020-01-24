@@ -1,0 +1,5 @@
+<map id="PedigreeGraphics::Framebuffer::getWidth" name="PedigreeGraphics::Framebuffer::getWidth">
+<area shape="rect" id="node2" href="$classTerminal.html#a186c5e69836354fa0d72f91c8a639e2b" title="Terminal::getSelectFd" alt="" coords="256,13,407,39"/>
+<area shape="rect" id="node3" href="$classTui.html#aa700aefc88f2fc10ee0ab169feef4a46" title="Runs the TUI main loop. " alt="" coords="455,13,521,39"/>
+<area shape="rect" id="node4" href="$classPedigreeTerminalEmulator.html#aead62bb553957f36b0984edd27b41deb" title="PedigreeTerminalEmulator\l::render" alt="" coords="569,5,744,47"/>
+</map>

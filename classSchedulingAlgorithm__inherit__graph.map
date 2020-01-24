@@ -1,0 +1,3 @@
+<map id="SchedulingAlgorithm" name="SchedulingAlgorithm">
+<area shape="rect" id="node2" href="$classRoundRobin.html" title="{RoundRobin\n|&#45; m_pReadyQueues\l&#45; m_Lock\l|+ RoundRobin()\l+ ~RoundRobin()\l+ addThread()\l+ removeThread()\l+ getNext()\l+ threadStatusChanged()\l&#45; isReady()\l}" alt="" coords="6,189,174,369"/>
+</map>

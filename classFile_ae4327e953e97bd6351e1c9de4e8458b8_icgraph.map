@@ -1,0 +1,4 @@
+<map id="File::isSocket" name="File::isSocket">
+<area shape="rect" id="node2" href="$classUnixSocketSyscalls.html#a4baea46f8944d4b959bcf46b99e9472e" title="UnixSocketSyscalls\l::connect" alt="" coords="156,5,296,47"/>
+<area shape="rect" id="node3" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="156,71,296,112"/>
+</map>

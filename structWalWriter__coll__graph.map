@@ -1,0 +1,7 @@
+<map id="WalWriter" name="WalWriter">
+<area shape="rect" id="node2" href="$structsqlite3__file.html" title="{sqlite3_file\n||}" alt="" coords="375,365,459,443"/>
+<area shape="rect" id="node4" href="$structWal.html" title="{Wal\n|+ iCallback\l+ mxWalSize\l+ nWiData\l+ szFirstBlock\l+ apWiData\l+ szPage\l+ readLock\l+ syncFlags\l+ exclusiveMode\l+ writeLock\land 9 more...\l|}" alt="" coords="237,593,359,817"/>
+<area shape="rect" id="node3" href="$structsqlite3__io__methods.html" title="{sqlite3_io_methods\n|+ iVersion\l+ xClose\l+ xRead\l+ xWrite\l+ xTruncate\l+ xSync\l+ xFileSize\l+ xLock\l+ xUnlock\l+ xCheckReservedLock\land 9 more...\l|}" alt="" coords="335,5,498,229"/>
+<area shape="rect" id="node5" href="$structsqlite3__vfs.html" title="{sqlite3_vfs\n|+ iVersion\l+ szOsFile\l+ mxPathname\l+ zName\l+ pAppData\l+ xOpen\l+ xDelete\l+ xAccess\l+ xFullPathname\l+ xDlOpen\land 11 more...\l|}" alt="" coords="5,292,127,516"/>
+<area shape="rect" id="node6" href="$structWalIndexHdr.html" title="{WalIndexHdr\n|+ iVersion\l+ unused\l+ iChange\l+ isInit\l+ bigEndCksum\l+ szPage\l+ mxFrame\l+ nPage\l+ aFrameCksum\l+ aSalt\l+ aCksum\l|}" alt="" coords="223,292,343,516"/>
+</map>

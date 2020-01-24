@@ -1,0 +1,5 @@
+<map id="Timer::getYear" name="Timer::getYear">
+<area shape="rect" id="node2" href="$classTimer.html#a8780fdf3fb29052796de82587e846f66" title="Timer::getUnixTimestamp" alt="" coords="161,43,335,69"/>
+<area shape="rect" id="node3" href="$classTimer.html#a17c08428dd03c2a34d0a5ad475a6db0f" title="Timer::getTickCountNano" alt="" coords="383,5,555,32"/>
+<area shape="rect" id="node4" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="385,80,552,107"/>
+</map>

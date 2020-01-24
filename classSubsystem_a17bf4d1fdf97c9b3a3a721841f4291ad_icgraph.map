@@ -1,0 +1,11 @@
+<map id="Subsystem::threadException" name="Subsystem::threadException">
+<area shape="rect" id="node2" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="250,29,401,56"/>
+<area shape="rect" id="node4" href="$classHostedInterruptManager.html#a08f5c431954d98c6969c16ffd71d26a9" title="HostedInterruptManager\l::interrupt" alt="" coords="244,81,407,122"/>
+<area shape="rect" id="node6" href="$classX64InterruptManager.html#a4a8f6a6ce39a3df3a2a99130e933999e" title="X64InterruptManager\l::interrupt" alt="" coords="254,146,397,187"/>
+<area shape="rect" id="node8" href="$classX86InterruptManager.html#ace9bf483e58430fb8486eda6470af678" title="X86InterruptManager\l::interrupt" alt="" coords="254,211,397,253"/>
+<area shape="rect" id="node10" href="$classProcess.html#ab47d600c8f7828e7a11f00eec7d74a57" title="Process::suspend" alt="" coords="262,277,389,304"/>
+<area shape="rect" id="node3" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="455,29,621,56"/>
+<area shape="rect" id="node5" href="$classHostedInterruptManager.html#a5652dd89389ea7d581e447f4e18a1023" title="HostedInterruptManager\l::instance" alt="" coords="457,81,619,122"/>
+<area shape="rect" id="node7" href="$classX64InterruptManager.html#a79ca4aed2cc2f849fe96d52f6f3d437e" title="X64InterruptManager\l::instance" alt="" coords="467,146,609,187"/>
+<area shape="rect" id="node9" href="$classX86InterruptManager.html#a8183bf96fbad7080e780cb9c456dea73" title="X86InterruptManager\l::instance" alt="" coords="467,211,609,253"/>
+</map>

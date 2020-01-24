@@ -1,0 +1,11 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classMachine.html" title="Machine" alt="" coords="5,183,76,209"/>
+<area shape="rect" id="node2" href="$classArmBeagle.html" title="ArmBeagle" alt="" coords="137,5,224,32"/>
+<area shape="rect" id="node3" href="$classArmVersatile.html" title="ArmVersatile" alt="" coords="132,56,229,83"/>
+<area shape="rect" id="node4" href="$classBonito64.html" title="Bonito64" alt="" coords="144,107,217,133"/>
+<area shape="rect" id="node5" href="$classDb1500.html" title="Db1500" alt="" coords="147,157,214,184"/>
+<area shape="rect" id="node6" href="$classHostedMachine.html" title="HostedMachine" alt="" coords="124,208,237,235"/>
+<area shape="rect" id="node7" href="$classMac.html" title="Mac" alt="" coords="157,259,204,285"/>
+<area shape="rect" id="node8" href="$classMalta.html" title="Malta" alt="" coords="153,309,208,336"/>
+<area shape="rect" id="node9" href="$classPc.html" title="Pc" alt="" coords="161,360,200,387"/>
+</map>

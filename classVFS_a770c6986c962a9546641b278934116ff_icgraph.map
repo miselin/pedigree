@@ -1,0 +1,31 @@
+<map id="VFS::checkAccess" name="VFS::checkAccess">
+<area shape="rect" id="node2" href="$classFilesystem.html#a81dfba2cdadcad756425c259ee6fc9c6" title="Filesystem::createDirectory" alt="" coords="659,131,841,157"/>
+<area shape="rect" id="node6" href="$classFilesystem.html#adfc9b27e5296a5470c3bece1428cb4c8" title="Filesystem::createFile" alt="" coords="675,232,825,259"/>
+<area shape="rect" id="node10" href="$classFilesystem.html#a8f313b114b2450efc9bd76d9bf40691c" title="Filesystem::createLink" alt="" coords="673,333,827,360"/>
+<area shape="rect" id="node12" href="$classFilesystem.html#a5ea4ae14b0bf0b0bd1c936fadf7efd86" title="Filesystem::createSymlink" alt="" coords="661,29,839,56"/>
+<area shape="rect" id="node14" href="$classFilesystem.html#ac9060f083c3fc3cb973d1ac83a7abe15" title="Filesystem::findNode" alt="" coords="225,308,372,335"/>
+<area shape="rect" id="node26" href="$classFilesystem.html#aea07db34eb728503a50ad5fea9a53e78" title="Filesystem::remove" alt="" coords="681,421,819,448"/>
+<area shape="rect" id="node29" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="215,536,382,563"/>
+<area shape="rect" id="node30" href="$classPosixSubsystem.html#a035a2f15c214a2658af85845e1a6ea29" title="PosixSubsystem::threadRemoved" alt="" coords="188,587,409,613"/>
+<area shape="rect" id="node3" href="$classVFS.html#abb163b4e69296d761119f6d498d390c6" title="VFS::createDirectory" alt="" coords="918,131,1063,157"/>
+<area shape="rect" id="node5" href="$classRamFs.html#a64c727faca1c74f28e3dd1b7d0740567" title="RamFs::getVolumeLabel" alt="" coords="907,80,1074,107"/>
+<area shape="rect" id="node4" href="$classFilesystem.html#a58c29297083036729416ba67bbeb2a90" title="Filesystem::isCaseSensitive" alt="" coords="1141,181,1330,208"/>
+<area shape="rect" id="node7" href="$classFatFilesystem.html#a19979882ad945a91047e88aed324eb28" title="FatFilesystem::createDirectory" alt="" coords="889,283,1092,309"/>
+<area shape="rect" id="node8" href="$classFatFilesystem.html#aaae46beeed096a6b5bff4160bd7806e2" title="FatFilesystem::createFile" alt="" coords="905,181,1076,208"/>
+<area shape="rect" id="node9" href="$classVFS.html#a14e26f766d86b81f4250fc73d01476b4" title="VFS::createFile" alt="" coords="934,232,1047,259"/>
+<area shape="rect" id="node11" href="$classVFS.html#aab0958e7f7056f76fec58070966bcee6" title="VFS::createLink" alt="" coords="933,333,1049,360"/>
+<area shape="rect" id="node13" href="$classVFS.html#a0139a82ee322c1739487557783935d78" title="VFS::createSymlink" alt="" coords="921,29,1060,56"/>
+<area shape="rect" id="node15" href="$classFilesystem.html#aa6df096411033dfc15daf6b0242d35fa" title="Filesystem::find" alt="" coords="477,635,591,661"/>
+<area shape="rect" id="node25" href="$classFilesystem.html#a0c6329b3ac2dfcc722d652c4f067d2b6" title="Filesystem::findParent" alt="" coords="457,283,611,309"/>
+<area shape="rect" id="node16" href="$classVFS.html#a4a7a10737613ec5a2c4b71e3f9f09069" title="VFS::find" alt="" coords="711,635,789,661"/>
+<area shape="rect" id="node24" href="$classSymlink.html#a08f184455757dec97a82d974280f52b3" title="Symlink::followLink" alt="" coords="683,685,817,712"/>
+<area shape="rect" id="node17" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="1140,580,1331,607"/>
+<area shape="rect" id="node18" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="901,605,1080,632"/>
+<area shape="rect" id="node19" href="$classUnixSocketSyscalls.html#a4baea46f8944d4b959bcf46b99e9472e" title="UnixSocketSyscalls\l::connect" alt="" coords="921,657,1061,698"/>
+<area shape="rect" id="node20" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="921,722,1061,763"/>
+<area shape="rect" id="node21" href="$classUnixSocketSyscalls.html#a48974c15d8b4e853ed6ffd6485b21ddc" title="UnixSocketSyscalls\l::bind" alt="" coords="921,787,1061,829"/>
+<area shape="rect" id="node22" href="$classPosixSubsystem.html#a9ce2b901aa4ea02738f398230dd61a22" title="PosixSubsystem::findFile" alt="" coords="905,853,1076,880"/>
+<area shape="rect" id="node23" href="$classProcFs.html#ae9c6292f109e70f1513691d850b8e721" title="ProcFs::initialise" alt="" coords="931,504,1050,531"/>
+<area shape="rect" id="node27" href="$classDirectory.html#a2c415a2870e506317333c666ec013aa5" title="Directory::empty" alt="" coords="931,403,1050,429"/>
+<area shape="rect" id="node28" href="$classVFS.html#abd14dce0f5f6258cab5750724f1942cf" title="VFS::remove" alt="" coords="941,453,1040,480"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classIoBase.html" title="Abstrace base class for hardware I/O capabilities. " alt="" coords="29,5,92,32"/>
+<area shape="rect" id="node2" href="$classIoPort.html" title="I/O port range. " alt="" coords="199,5,256,32"/>
+<area shape="rect" id="node3" href="$classMemoryMappedIo.html" title="Memory mapped I/O range. " alt="" coords="164,56,291,83"/>
+<area shape="rect" id="node4" href="$classMemoryRegion.html" title="Special memory entity in the kernel&#39;s virtual address space. " alt="" coords="5,56,116,83"/>
+</map>

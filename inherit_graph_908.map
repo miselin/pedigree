@@ -1,0 +1,5 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classZombieObject.html" title="ZombieObject" alt="" coords="5,31,108,57"/>
+<area shape="rect" id="node2" href="$classZombiePipe.html" title="ZombiePipe" alt="" coords="167,5,258,32"/>
+<area shape="rect" id="node3" href="$classZombieProcess.html" title="Special wrapper object for Process. " alt="" coords="156,56,269,83"/>
+</map>

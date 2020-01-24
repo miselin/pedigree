@@ -1,0 +1,14 @@
+<map id="Scheduler::getNumProcesses" name="Scheduler::getNumProcesses">
+<area shape="rect" id="node2" href="$classMemoryPressureProcessKiller.html#a5e5bcf598d21cc42fa06a2b713f47295" title="MemoryPressureProcessKiller\l::compact" alt="" coords="249,5,448,47"/>
+<area shape="rect" id="node3" href="$classThreadsCommand.html#aeb715a33d855b2699437f75f79cb7f21" title="ThreadsCommand::execute" alt="" coords="257,71,440,98"/>
+<area shape="rect" id="node4" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="316,122,381,149"/>
+<area shape="rect" id="node6" href="$classProcess.html#ac99a764d539353fb4bbffd0c00231ca8" title="Process::kill" alt="" coords="301,173,396,199"/>
+<area shape="rect" id="node8" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="711,173,877,199"/>
+<area shape="rect" id="node10" href="$classX64VirtualAddressSpace.html#add398c3f401ddbb77c958855e13f2ee4" title="X64VirtualAddressSpace\l::mapUnlocked" alt="" coords="265,275,432,316"/>
+<area shape="rect" id="node13" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="261,340,436,381"/>
+<area shape="rect" id="node5" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="539,71,619,98"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="504,122,655,149"/>
+<area shape="rect" id="node9" href="$classSubsystem.html#aa7e06b70da371a07c3a942eda94431d3" title="Subsystem::Subsystem" alt="" coords="498,173,661,199"/>
+<area shape="rect" id="node11" href="$classX64VirtualAddressSpace.html#a90c94c03e1163511566d1d25e6360693" title="X64VirtualAddressSpace\l::clone" alt="" coords="496,275,663,316"/>
+<area shape="rect" id="node12" href="$classX64VirtualAddressSpace.html#a76df9f784135b53177d5270b81b1c7bd" title="X64VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="496,340,663,381"/>
+</map>

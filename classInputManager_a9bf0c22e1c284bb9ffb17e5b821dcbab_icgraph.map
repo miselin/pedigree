@@ -1,0 +1,9 @@
+<map id="InputManager::rawKeyUpdate" name="InputManager::rawKeyUpdate">
+<area shape="rect" id="node2" href="$classHidInputManager.html#a86c6c600c705cfc5cc83d5dc9a9b3dcc" title="Called when a key transitions to the &quot;down&quot; state. " alt="" coords="248,37,432,63"/>
+<area shape="rect" id="node8" href="$classHidInputManager.html#affc71392e9963d26c47a2426677f7681" title="Called when a key transitions to the &quot;up&quot; state. " alt="" coords="257,87,423,114"/>
+<area shape="rect" id="node3" href="$namespaceHidUtils.html#a61723805418c7b34c156f9f6f78e30a5" title="Sends the input to the right handler in HidInputManager or InputManager. " alt="" coords="480,37,679,63"/>
+<area shape="rect" id="node7" href="$classX86Keyboard.html#adb114f4c9dd97405675f675ab4ce572e" title="X86Keyboard::setLedState" alt="" coords="490,87,669,114"/>
+<area shape="rect" id="node4" href="$structHidReport_1_1InputBlock.html#a51f3e1ba798499107d0e3858746ceac6" title="Feeds input to this block. " alt="" coords="727,29,877,71"/>
+<area shape="rect" id="node5" href="$structHidReport_1_1Collection.html#aa51b9fc0689ad9d4cd37afd7656c0b3e" title="HidReport::Collection\l::feedInput" alt="" coords="925,29,1072,71"/>
+<area shape="rect" id="node6" href="$classHidReport.html#a77c2765a52344f56da7c1e20deeba1be" title="Feeds the input interpreter with a new input buffer. " alt="" coords="1120,37,1263,63"/>
+</map>

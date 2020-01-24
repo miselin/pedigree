@@ -1,0 +1,3 @@
+<map id="PedigreeGraphics::GraphicsProvider" name="PedigreeGraphics::GraphicsProvider">
+<area shape="rect" id="node2" href="$classPedigreeGraphics_1_1Framebuffer.html" title="{PedigreeGraphics::Framebuffer\n|&#45; m_bProviderValid\l&#45; m_bIsChild\l|+ Framebuffer()\l+ ~Framebuffer()\l+ getWidth()\l+ getHeight()\l+ getFormat()\l+ getBytesPerPixel()\l+ setPalette()\l+ getRawBuffer()\l+ createChild()\l+ convertPixel()\land 11 more...\l}" alt="" coords="5,248,208,487"/>
+</map>

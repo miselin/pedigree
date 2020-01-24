@@ -1,0 +1,5 @@
+<map id="Timer::removeAlarm" name="Timer::removeAlarm">
+<area shape="rect" id="node2" href="$classSemaphore.html#a408d218d5e8497c4dfa7b3e31f8daaac" title="Semaphore::acquireWithResult" alt="" coords="193,5,396,32"/>
+<area shape="rect" id="node3" href="$classTimer.html#a17c08428dd03c2a34d0a5ad475a6db0f" title="Timer::getTickCountNano" alt="" coords="209,56,381,83"/>
+<area shape="rect" id="node4" href="$classTimeoutGuard.html#ad4235dba01e8af54aa9c8722af18206b" title="TimeoutGuard::~TimeoutGuard" alt="" coords="193,107,396,133"/>
+</map>

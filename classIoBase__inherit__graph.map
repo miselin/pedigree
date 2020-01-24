@@ -1,0 +1,4 @@
+<map id="IoBase" name="IoBase">
+<area shape="rect" id="node2" href="$classIoPort.html" title="I/O port range. " alt="" coords="5,380,104,663"/>
+<area shape="rect" id="node3" href="$classMemoryMappedIo.html" title="Memory mapped I/O range. " alt="" coords="128,380,283,663"/>
+</map>

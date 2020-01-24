@@ -1,0 +1,4 @@
+<map id="FuncDefHash" name="FuncDefHash">
+<area shape="rect" id="node2" href="$structFuncDef.html" title="{FuncDef\n|+ nArg\l+ funcFlags\l+ pUserData\l+ xSFunc\l+ xFinalize\l+ zName\l+ u\l|}" alt="" coords="13,175,110,340"/>
+<area shape="rect" id="node3" href="$structFuncDestructor.html" title="{FuncDestructor\n|+ nRef\l+ xDestroy\l+ pUserData\l|}" alt="" coords="5,5,117,112"/>
+</map>

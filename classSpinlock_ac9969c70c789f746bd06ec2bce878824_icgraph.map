@@ -1,0 +1,51 @@
+<map id="Spinlock::exit" name="Spinlock::exit">
+<area shape="rect" id="node2" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="905,83,1064,124"/>
+<area shape="rect" id="node3" href="$classSpinlock.html#a50cca0412a4d430ea09b64bf6266b626" title="Spinlock::release" alt="" coords="155,853,277,880"/>
+<area shape="rect" id="node26" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="367,1604,526,1646"/>
+<area shape="rect" id="node4" href="$classCache.html#ae9325f14b0e3b3276566e9a68f6ec81d" title="Cache::evict" alt="" coords="399,372,495,398"/>
+<area shape="rect" id="node5" href="$classConditionVariable.html#a8654ace19a9f44f0e51cb7e8e0faf0b4" title="ConditionVariable::\lsignal" alt="" coords="381,306,513,347"/>
+<area shape="rect" id="node7" href="$classGPTimer.html#acd884f84e1a048cf0bfc6bff7247ae44" title="GPTimer::initialise" alt="" coords="382,726,511,753"/>
+<area shape="rect" id="node8" href="$classInputManager.html#adfff346563bcb1ffc32f36365d43a3aa" title="Main worker thread. " alt="" coords="645,732,823,758"/>
+<area shape="rect" id="node10" href="$classKernelElf.html#aae65bc0e2300d2aa51aa376b42acfe44" title="KernelElf::unlockModules" alt="" coords="361,878,532,905"/>
+<area shape="rect" id="node12" href="$classLog.html#acea972e23dfd3b2088af8ccf1e631dd4" title="Log::flushEntry" alt="" coords="391,929,502,956"/>
+<area shape="rect" id="node15" href="$classMemoryMappedFile.html#a66353cd31e469385cd9492879fd8e834" title="MemoryMappedFile::setPermissions" alt="" coords="329,980,564,1006"/>
+<area shape="rect" id="node16" href="$classMemoryMapManager.html#a3d3bbf7c337b1a25fbcffe230862a6a5" title="MemoryMapManager::remove" alt="" coords="349,1030,544,1057"/>
+<area shape="rect" id="node17" href="$classMemoryMapManager.html#af8a8b40c1508308ad0bb5a53fd925bc5" title="MemoryMapManager::setPermissions" alt="" coords="325,1081,568,1108"/>
+<area shape="rect" id="node19" href="$classMemoryMapManager.html#afcab011dd8e1a29f073c6d5e4db9175d" title="MemoryMapManager::contains" alt="" coords="346,1182,547,1209"/>
+<area shape="rect" id="node20" href="$classMemoryMapManager.html#a796a7326d0344410bfaaffaf3645ea83" title="MemoryMapManager::trap" alt="" coords="359,1233,534,1260"/>
+<area shape="rect" id="node21" href="$classMemoryMapManager.html#ae9d4cf0c00c59d21d992e8841fbf7405" title="MemoryMapManager::releaseLock" alt="" coords="335,524,558,550"/>
+<area shape="rect" id="node22" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="616,574,852,601"/>
+<area shape="rect" id="node23" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="672,473,796,500"/>
+<area shape="rect" id="node24" href="$classOhci.html#a1e5a88f9cd44a15defe81124eda9b55a" title="Ohci::doAsync" alt="" coords="393,1284,501,1310"/>
+<area shape="rect" id="node28" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="655,1604,813,1646"/>
+<area shape="rect" id="node30" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="367,1436,526,1478"/>
+<area shape="rect" id="node32" href="$classPosixSubsystem.html#afede8ce542a973e15d5fec6d206f2ddd" title="Acquire full mutual exclusion for all Subsystem resources. " alt="" coords="361,574,532,601"/>
+<area shape="rect" id="node33" href="$classPosixSubsystem.html#aebc209f9c8d351927810cdc6dde375f1" title="PosixSubsystem::release" alt="" coords="361,625,532,652"/>
+<area shape="rect" id="node34" href="$classProcess.html#a1252e76a44d1d7da581224c8064b294c" title="Process::getThread" alt="" coords="379,1132,515,1158"/>
+<area shape="rect" id="node42" href="$classSemaphore.html#a5cc555f28ca5f236604e6d1d74e13d29" title="Semaphore::removeThread" alt="" coords="357,1334,536,1361"/>
+<area shape="rect" id="node43" href="$classSemaphore.html#a408d218d5e8497c4dfa7b3e31f8daaac" title="Semaphore::acquireWithResult" alt="" coords="633,1422,835,1449"/>
+<area shape="rect" id="node44" href="$classSemaphore.html#a608f82c98ce38a1ab8f93ae5d458fe1f" title="Semaphore::release" alt="" coords="377,422,516,449"/>
+<area shape="rect" id="node45" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="671,204,797,230"/>
+<area shape="rect" id="node46" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="925,229,1044,256"/>
+<area shape="rect" id="node47" href="$classSlamCache.html#aaf4195375a41c14adfaf51a37bf6acd5" title="SlamCache::recovery" alt="" coords="373,1502,521,1529"/>
+<area shape="rect" id="node48" href="$classThread.html#ad1455ad5719b52f45993565b28e649ba" title="Thread::sendEvent" alt="" coords="381,777,513,804"/>
+<area shape="rect" id="node49" href="$classThread.html#a6d767b9746588b8be5f274f4da454b08" title="Thread::join" alt="" coords="401,86,492,113"/>
+<area shape="rect" id="node50" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="355,138,539,179"/>
+<area shape="rect" id="node6" href="$classRequestQueue.html#a0288772675c587225d38decf4d7490b3" title="RequestQueue::addRequest" alt="" coords="641,368,827,394"/>
+<area shape="rect" id="node9" href="$classInputManager.html#ab95f98b88ce1a36f3dd73cfba6a9d778" title="Thread trampoline. " alt="" coords="900,732,1069,758"/>
+<area shape="rect" id="node11" href="$classKernelElf.html#ad0db2ea17f26dafb0b29b2718d7ec4c2" title="KernelElf::globalLookupSymbol" alt="" coords="633,782,835,809"/>
+<area shape="rect" id="node13" href="$classLog.html#a869a5e102abc36b1e7c17f63fe41779a" title="Log::addEntry" alt="" coords="683,833,785,860"/>
+<area shape="rect" id="node14" href="$classLog.html#a46442f537e43f3cb02e353bced87a5e9" title="Log::operator\&lt;\&lt;" alt="" coords="677,884,791,910"/>
+<area shape="rect" id="node18" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="651,934,817,961"/>
+<area shape="rect" id="node25" href="$classOhci.html#a9ad430082fca345522d4eb7b78488b02" title="Ohci::getName" alt="" coords="679,1372,789,1398"/>
+<area shape="rect" id="node27" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="655,1539,813,1580"/>
+<area shape="rect" id="node29" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="655,1670,813,1711"/>
+<area shape="rect" id="node31" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="648,1474,820,1515"/>
+<area shape="rect" id="node35" href="$classMemoryPressureProcessKiller.html#a5e5bcf598d21cc42fa06a2b713f47295" title="MemoryPressureProcessKiller\l::compact" alt="" coords="635,1154,833,1195"/>
+<area shape="rect" id="node36" href="$classThreadsCommand.html#aeb715a33d855b2699437f75f79cb7f21" title="ThreadsCommand::execute" alt="" coords="643,1220,825,1246"/>
+<area shape="rect" id="node37" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="909,1296,1060,1322"/>
+<area shape="rect" id="node38" href="$classProcess.html#ac99a764d539353fb4bbffd0c00231ca8" title="Process::kill" alt="" coords="687,1321,781,1348"/>
+<area shape="rect" id="node39" href="$classVirtualTerminalManager.html#a1b146be19b417290c7d060628bd8d2da" title="VirtualTerminalManager\l::setTerminalMode" alt="" coords="655,986,813,1027"/>
+<area shape="rect" id="node40" href="$classIntervalTimer.html#a5a21987eed6d4003dfecc1e1350ea5f8" title="IntervalTimer::signal" alt="" coords="664,1052,804,1078"/>
+<area shape="rect" id="node41" href="$classProcess.html#ab47d600c8f7828e7a11f00eec7d74a57" title="Process::suspend" alt="" coords="671,1102,797,1129"/>
+</map>

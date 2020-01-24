@@ -1,0 +1,8 @@
+<map id="Rtc::write" name="Rtc::write">
+<area shape="rect" id="node2" href="$classRtc.html#a0492a6115884d8f383278263867b43d1" title="Rtc::initialise1" alt="" coords="140,5,245,32"/>
+<area shape="rect" id="node4" href="$classRtc.html#ac91c58f54619f6af7ef41a257813e9ec" title="Rtc::initialise2" alt="" coords="140,56,245,83"/>
+<area shape="rect" id="node5" href="$classRtc.html#a4a64442f71823c3dd0b11bee6bbe9e39" title="Rtc::synchronise" alt="" coords="132,107,253,133"/>
+<area shape="rect" id="node6" href="$classRtc.html#a119359a6dc41700acf7c7122d89011c6" title="Rtc::uninitialise" alt="" coords="301,120,413,147"/>
+<area shape="rect" id="node7" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="153,208,233,235"/>
+<area shape="rect" id="node3" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="311,44,404,71"/>
+</map>

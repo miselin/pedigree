@@ -1,0 +1,11 @@
+<map id="Elf::lookupSymbol" name="Elf::lookupSymbol">
+<area shape="rect" id="node2" href="$classLookupCommand.html#a22d17111ae474503c94c479dbd9a5919" title="LookupCommand::execute" alt="" coords="193,5,372,32"/>
+<area shape="rect" id="node3" href="$classKernelElf.html#a31f5887fc179330aad411bf3768e1d8d" title="KernelElf::getDependingModule" alt="" coords="683,157,888,184"/>
+<area shape="rect" id="node4" href="$classKernelElf.html#ad0db2ea17f26dafb0b29b2718d7ec4c2" title="KernelElf::globalLookupSymbol" alt="" coords="181,107,384,133"/>
+<area shape="rect" id="node5" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="208,157,357,184"/>
+<area shape="rect" id="node7" href="$classElf.html#a1a45f8881a54993df8b5f348f26180f2" title="Elf::lookupSymbol" alt="" coords="219,208,347,235"/>
+<area shape="rect" id="node8" href="$classKernelElf.html#af756a5e96dca85388e8377b6f6e09ae3" title="KernelElf::unloadModule" alt="" coords="201,259,364,285"/>
+<area shape="rect" id="node6" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="444,157,623,184"/>
+<area shape="rect" id="node9" href="$classKernelElf.html#a4a6d6c929e72b8dcd57201ddc20f1338" title="KernelElf::unloadModules" alt="" coords="448,208,619,235"/>
+<area shape="rect" id="node10" href="$classKernelElf.html#a35644e7e9968b1e027fdaa47ccd5a6d4" title="KernelElf::updateModuleStatus" alt="" coords="432,259,635,285"/>
+</map>

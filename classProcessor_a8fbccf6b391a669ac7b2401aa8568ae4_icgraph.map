@@ -1,0 +1,26 @@
+<map id="Processor::invalidate" name="Processor::invalidate">
+<area shape="rect" id="node2" href="$classX64VirtualAddressSpace.html#a90c94c03e1163511566d1d25e6360693" title="X64VirtualAddressSpace\l::clone" alt="" coords="463,160,629,201"/>
+<area shape="rect" id="node3" href="$classX86VirtualAddressSpace.html#ad968d7983e79cfc6c7435eda43f61daa" title="X86VirtualAddressSpace\l::fromFlags" alt="" coords="221,65,387,106"/>
+<area shape="rect" id="node4" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="459,6,633,48"/>
+<area shape="rect" id="node6" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="231,510,377,536"/>
+<area shape="rect" id="node17" href="$classX64VirtualAddressSpace.html#add398c3f401ddbb77c958855e13f2ee4" title="X64VirtualAddressSpace\l::mapUnlocked" alt="" coords="221,182,387,224"/>
+<area shape="rect" id="node19" href="$classX86VirtualAddressSpace.html#a4018d1b0a9b7299967cd750c29d4c70a" title="X86VirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="204,313,404,354"/>
+<area shape="rect" id="node20" href="$classX64VirtualAddressSpace.html#a58a150db2fad1986f983e6da6e496dc8" title="X64VirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="204,378,404,420"/>
+<area shape="rect" id="node21" href="$classX64VirtualAddressSpace.html#acf03ad234503aeec07b748b30f33d140" title="X64VirtualAddressSpace\l::setFlags" alt="" coords="221,444,387,485"/>
+<area shape="rect" id="node22" href="$classX64VirtualAddressSpace.html#aaddd40082d03d630b3aad015f02fc0bd" title="X64VirtualAddressSpace\l::unmapUnlocked" alt="" coords="221,248,387,289"/>
+<area shape="rect" id="node23" href="$classProcessor.html#a2da8cb804780db099508bdc2842ee9a0" title="Processor::writeMachineSpecific\lRegister" alt="" coords="197,564,411,605"/>
+<area shape="rect" id="node5" href="$classX86VirtualAddressSpace.html#a555823e58574cf7509b1fb7831005c5c" title="X86VirtualAddressSpace\l::getKernelHeapEnd" alt="" coords="463,72,629,113"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="467,532,625,573"/>
+<area shape="rect" id="node13" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="467,414,625,456"/>
+<area shape="rect" id="node16" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="463,480,629,507"/>
+<area shape="rect" id="node8" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="688,480,847,521"/>
+<area shape="rect" id="node11" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="901,545,1060,586"/>
+<area shape="rect" id="node9" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="901,414,1060,456"/>
+<area shape="rect" id="node12" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="901,480,1060,521"/>
+<area shape="rect" id="node10" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1108,414,1267,456"/>
+<area shape="rect" id="node14" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="681,356,853,397"/>
+<area shape="rect" id="node15" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="925,363,1036,390"/>
+<area shape="rect" id="node18" href="$classX64VirtualAddressSpace.html#a76df9f784135b53177d5270b81b1c7bd" title="X64VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="463,237,629,278"/>
+<area shape="rect" id="node24" href="$classX64SyscallManager.html#aa5fbd13dfcb4b26fe109bc3c9ad77665" title="X64SyscallManager::\linitialiseProcessor" alt="" coords="473,597,619,638"/>
+<area shape="rect" id="node25" href="$classX64SyscallManager.html#ad98baeb651becb792440fad0aa61bb0b" title="X64SyscallManager::\linstance" alt="" coords="694,597,841,638"/>
+</map>

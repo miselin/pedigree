@@ -1,0 +1,7 @@
+<map id="File::read" name="File::read">
+<area shape="rect" id="node2" href="$classSymlink.html#a5fe1e7dba3adb206dca4bb897824d7e4" title="Symlink::initialise" alt="" coords="185,5,309,32"/>
+<area shape="rect" id="node4" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="412,81,579,108"/>
+<area shape="rect" id="node5" href="$classPosixSubsystem.html#a5bbd21893924596a4ef7fcb134d94e33" title="PosixSubsystem::parseShebang" alt="" coords="141,107,353,133"/>
+<area shape="rect" id="node6" href="$classMemoryMappedFile.html#a66353cd31e469385cd9492879fd8e834" title="MemoryMappedFile::setPermissions" alt="" coords="129,157,364,184"/>
+<area shape="rect" id="node3" href="$classSymlink.html#a08f184455757dec97a82d974280f52b3" title="Symlink::followLink" alt="" coords="428,5,563,32"/>
+</map>

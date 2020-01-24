@@ -1,0 +1,4 @@
+<map id="UniqueArray&lt; T &gt;" name="UniqueArray&lt; T &gt;">
+<area shape="rect" id="node3" href="$classUniqueArray.html" title="{UniqueArray\&lt; char \&gt;\n||+ UniqueArray()\l+ UniqueArray()\l+ ~UniqueArray()\l+ NOT_COPYABLE_OR_ASSIGNABLE()\l+ operator=()\l+ allocate()\l# destroy()\l&#45; UniqueArray()\l&#45; move_from()\l}" alt="" coords="5,536,273,731"/>
+<area shape="rect" id="node2" href="$classUniqueCommon.html" title="{UniqueCommon\&lt; T \&gt;\n|# m_Pointer\l|+ UniqueCommon()\l+ ~UniqueCommon()\l+ operator*()\l+ operator void *()\l+ get()\l+ reset()\l+ NOT_COPYABLE_OR_ASSIGNABLE()\l# UniqueCommon()\l# destroy()\l# setPointer()\l# release()\l}" alt="" coords="5,5,273,229"/>
+</map>

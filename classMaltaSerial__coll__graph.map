@@ -1,0 +1,4 @@
+<map id="MaltaSerial" name="MaltaSerial">
+<area shape="rect" id="node2" href="$classSerial.html" title="{Serial\n||+ ~Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ write()\l}" alt="" coords="5,20,129,171"/>
+<area shape="rect" id="node3" href="$structMaltaSerial_1_1serial.html" title="{MaltaSerial::serial\n|+ rxtx\l+ inten\l+ iififo\l+ lctrl\l+ mctrl\l+ lstat\l+ mstat\l+ scratch\l|}" alt="" coords="153,5,280,185"/>
+</map>

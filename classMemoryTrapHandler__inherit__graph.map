@@ -1,0 +1,4 @@
+<map id="MemoryTrapHandler" name="MemoryTrapHandler">
+<area shape="rect" id="node2" href="$classDLTrapHandler.html" title="{DLTrapHandler\n|&#45; m_Instance\l|+ trap()\l+ instance()\l&#45; DLTrapHandler()\l&#45; ~DLTrapHandler()\l}" alt="" coords="5,285,140,406"/>
+<area shape="rect" id="node3" href="$classMemoryMapManager.html" title="{MemoryMapManager\n|&#45; m_MmObjectLists\l&#45; m_Lock\l&#45; m_Instance\l|+ mapFile()\l+ mapAnon()\l+ clone()\l+ remove()\l+ setPermissions()\l+ contains()\l+ sync()\l+ invalidate()\l+ unmap()\l+ unmapAll()\l+ trap()\l+ compact()\l+ getMemoryPressureDescription()\l+ instance()\l# unmapAllUnlocked()\l# acquireLock()\l# releaseLock()\l&#45; MemoryMapManager()\l&#45; ~MemoryMapManager()\l&#45; sanitiseAddress()\l&#45; op()\l}" alt="" coords="164,145,389,545"/>
+</map>

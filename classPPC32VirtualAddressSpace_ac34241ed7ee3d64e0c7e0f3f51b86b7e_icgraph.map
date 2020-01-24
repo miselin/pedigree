@@ -1,0 +1,4 @@
+<map id="PPC32VirtualAddressSpace::unmap" name="PPC32VirtualAddressSpace::unmap">
+<area shape="rect" id="node2" href="$classPPC32VirtualAddressSpace.html#a7d60c6be12c1291d73f92ad2f75884c4" title="PPC32VirtualAddressSpace\l::clone" alt="" coords="247,5,433,47"/>
+<area shape="rect" id="node3" href="$classPPC32VirtualAddressSpace.html#a87acf72092b5e8d7b6805afdecc3774d" title="PPC32VirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="240,71,440,112"/>
+</map>

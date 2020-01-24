@@ -1,0 +1,8 @@
+<map id="Bitboard::rotate180" name="Bitboard::rotate180">
+<area shape="rect" id="node2" href="$classBoardState.html#a7a4e08fd598a90fa025b1f14023a0e3b" title="BoardState::dump" alt="" coords="197,5,324,32"/>
+<area shape="rect" id="node3" href="$classBitboard.html#a50d4cc453da641d2ca5ce9644bd0a557" title="Bitboard::empty" alt="" coords="203,56,318,83"/>
+<area shape="rect" id="node4" href="$classBoardState.html#a280f839ae1cf7fc6b81e1fb998c82903" title="BoardState::firstPawn" alt="" coords="185,208,336,235"/>
+<area shape="rect" id="node5" href="$classBoardState.html#aa779e34cbb859e0882154839cbd4810f" title="BoardState::isLegal" alt="" coords="384,157,520,184"/>
+<area shape="rect" id="node7" href="$classBoardState.html#ac8698c815b4ad8542ccb84be7f268323" title="BoardState::move" alt="" coords="197,157,324,184"/>
+<area shape="rect" id="node6" href="$classBoardState.html#a04057b940dc08d6d89b4cc595b682231" title="BoardState::save" alt="" coords="391,208,513,235"/>
+</map>

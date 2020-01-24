@@ -1,0 +1,4 @@
+<map id="SharedPointer&lt; T &gt;" name="SharedPointer&lt; T &gt;">
+<area shape="rect" id="node2" href="$classSharedPointer.html" title="{SharedPointer\&lt; class\l NetworkSyscalls \&gt;\n|&#45; m_Control\l|+ SharedPointer()\l+ SharedPointer()\l+ SharedPointer()\l+ SharedPointer()\l+ ~SharedPointer()\l+ reset()\l+ reset()\l+ get()\l+ operator&#45;\&gt;()\l+ operator*()\land 11 more...\l+ allocate()\l&#45; release()\l}" alt="" coords="5,321,152,589"/>
+<area shape="rect" id="node3" href="$classSharedPointer.html" title="{SharedPointer\&lt; Extensible\lBitmap \&gt;\n|&#45; m_Control\l|+ SharedPointer()\l+ SharedPointer()\l+ SharedPointer()\l+ SharedPointer()\l+ ~SharedPointer()\l+ reset()\l+ reset()\l+ get()\l+ operator&#45;\&gt;()\l+ operator*()\land 11 more...\l+ allocate()\l&#45; release()\l}" alt="" coords="183,321,361,589"/>
+</map>

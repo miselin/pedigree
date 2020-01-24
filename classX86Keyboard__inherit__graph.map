@@ -1,0 +1,3 @@
+<map id="X86Keyboard" name="X86Keyboard">
+<area shape="rect" id="node2" href="$classKeyboard.html" title="{Keyboard\n||+ Keyboard()\l+ ~Keyboard()\l+ initialise()\l+ setDebugState()\l+ getDebugState()\l+ getChar()\l+ getCharNonBlock()\l+ getLedState()\l+ setLedState()\l}" alt="" coords="22,5,167,200"/>
+</map>

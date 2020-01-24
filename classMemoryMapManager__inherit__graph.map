@@ -1,0 +1,4 @@
+<map id="MemoryMapManager" name="MemoryMapManager">
+<area shape="rect" id="node2" href="$classMemoryTrapHandler.html" title="{MemoryTrapHandler\n||+ ~MemoryTrapHandler()\l+ trap()\l}" alt="" coords="5,20,173,112"/>
+<area shape="rect" id="node3" href="$classMemoryPressureHandler.html" title="{MemoryPressureHandler\n||+ MemoryPressureHandler()\l+ ~MemoryPressureHandler()\l+ getMemoryPressureDescription()\l+ compact()\l}" alt="" coords="198,5,423,127"/>
+</map>

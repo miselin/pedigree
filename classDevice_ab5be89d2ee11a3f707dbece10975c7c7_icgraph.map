@@ -1,0 +1,9 @@
+<map id="Device::getType" name="Device::getType">
+<area shape="rect" id="node2" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="181,13,359,39"/>
+<area shape="rect" id="node4" href="$classUsbHub.html#a67da0a92407a7677e2693dc1246316a3" title="Called when a device is disconnected from a port on the hub. " alt="" coords="172,63,368,90"/>
+<area shape="rect" id="node5" href="$classUsbPnP.html#a244c91e87041c76552a275d95a2e5450" title="UsbPnP::doProbe" alt="" coords="207,114,333,141"/>
+<area shape="rect" id="node7" href="$classRawFs.html#ab50656d570d4146ed8ad8b91748778f9" title="RawFs::getRoot" alt="" coords="211,189,329,215"/>
+<area shape="rect" id="node3" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="418,5,585,47"/>
+<area shape="rect" id="node6" href="$classUsbPnP.html#a2798c5d7855d25e381e519bd158b68b2" title="Goes down the device tree, reprobing every USB device. " alt="" coords="416,114,587,141"/>
+<area shape="rect" id="node8" href="$classRawFs.html#aaea4b50ed3441cfcc8a097259bddbc26" title="RawFs::initialise" alt="" coords="442,189,561,215"/>
+</map>

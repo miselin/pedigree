@@ -1,0 +1,13 @@
+<map id="KeymapManager::resolveHidKeycode" name="KeymapManager::resolveHidKeycode">
+<area shape="rect" id="node2" href="$classHidInputManager.html#a86c6c600c705cfc5cc83d5dc9a9b3dcc" title="Called when a key transitions to the &quot;down&quot; state. " alt="" coords="510,37,694,63"/>
+<area shape="rect" id="node8" href="$classX86Keyboard.html#adca8b9b662fea2b85bfdaadbd7d3fa99" title="Converts a scancode into an ASCII character (for use in debug state) " alt="" coords="244,239,452,266"/>
+<area shape="rect" id="node9" href="$classHidInputManager.html#a637e1dde0c1907f198bb89cca9e33f8a" title="Apply modifier or keymap changes to all keys in down state. " alt="" coords="249,87,447,114"/>
+<area shape="rect" id="node11" href="$classKeymapManager.html#afbf166018f73224ad79373460c563c3f" title="Changes the current keymap to the given one. " alt="" coords="503,138,701,165"/>
+<area shape="rect" id="node12" href="$classKeymapManager.html#a778cfbd7a42b43c9e54e1800ef2f1296" title="Changes the current keymap to the given (compiled) one. " alt="" coords="500,189,704,231"/>
+<area shape="rect" id="node3" href="$namespaceHidUtils.html#a61723805418c7b34c156f9f6f78e30a5" title="Sends the input to the right handler in HidInputManager or InputManager. " alt="" coords="752,37,951,63"/>
+<area shape="rect" id="node7" href="$classX86Keyboard.html#adb114f4c9dd97405675f675ab4ce572e" title="X86Keyboard::setLedState" alt="" coords="762,87,941,114"/>
+<area shape="rect" id="node4" href="$structHidReport_1_1InputBlock.html#a51f3e1ba798499107d0e3858746ceac6" title="Feeds input to this block. " alt="" coords="999,29,1149,71"/>
+<area shape="rect" id="node5" href="$structHidReport_1_1Collection.html#aa51b9fc0689ad9d4cd37afd7656c0b3e" title="HidReport::Collection\l::feedInput" alt="" coords="1197,29,1344,71"/>
+<area shape="rect" id="node6" href="$classHidReport.html#a77c2765a52344f56da7c1e20deeba1be" title="Feeds the input interpreter with a new input buffer. " alt="" coords="1392,37,1535,63"/>
+<area shape="rect" id="node10" href="$classHidInputManager.html#affc71392e9963d26c47a2426677f7681" title="Called when a key transitions to the &quot;up&quot; state. " alt="" coords="519,87,685,114"/>
+</map>

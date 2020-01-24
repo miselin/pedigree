@@ -1,0 +1,7 @@
+<map id="VirtualAddressSpace::setFlags" name="VirtualAddressSpace::setFlags">
+<area shape="rect" id="node2" href="$classElf.html#aaa45160cd78f62bb3dd5d70c3628f557" title="Elf::finaliseModule" alt="" coords="250,5,379,32"/>
+<area shape="rect" id="node4" href="$classHostedVirtualAddressSpace.html#a222c640b202a9febdfcd4ce5077f3488" title="HostedVirtualAddressSpace\l::setFlags" alt="" coords="221,57,408,98"/>
+<area shape="rect" id="node5" href="$classAnonymousMemoryMap.html#a88a4248c9b2b097cb4a67573d18f5d40" title="AnonymousMemoryMap\l::setPermissions" alt="" coords="233,122,396,163"/>
+<area shape="rect" id="node6" href="$classMemoryMappedFile.html#a66353cd31e469385cd9492879fd8e834" title="MemoryMappedFile::setPermissions" alt="" coords="197,188,432,215"/>
+<area shape="rect" id="node3" href="$classKernelElf.html#a31f5887fc179330aad411bf3768e1d8d" title="KernelElf::getDependingModule" alt="" coords="480,5,685,32"/>
+</map>

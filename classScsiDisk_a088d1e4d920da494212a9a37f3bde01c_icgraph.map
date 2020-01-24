@@ -1,0 +1,6 @@
+<map id="ScsiDisk::initialise" name="ScsiDisk::initialise">
+<area shape="rect" id="node2" href="$classAtaDisk.html#a7669522ad06e41f75f4557fd4e517687" title="AtaDisk::initialise" alt="" coords="184,35,308,61"/>
+<area shape="rect" id="node3" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="373,5,503,32"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="356,57,520,98"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="568,64,747,91"/>
+</map>

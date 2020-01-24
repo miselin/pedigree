@@ -1,0 +1,9 @@
+<map id="File::extend" name="File::extend">
+<area shape="rect" id="node2" href="$classFile.html#a6cb622a343a86c45077f394f77df4578" title="File::extend" alt="" coords="144,71,235,98"/>
+<area shape="rect" id="node3" href="$classFile.html#a4fb6cc9ecdd0abf699a3115069e868d5" title="File::write" alt="" coords="150,122,229,149"/>
+<area shape="rect" id="node4" href="$classConsolePhysicalFile.html#a6648a523228720e05ccc4a4fa505aecc" title="ConsolePhysicalFile\l::readBytewise" alt="" coords="310,5,451,47"/>
+<area shape="rect" id="node5" href="$classDevFs.html#a7975b933760278dd9bdbd0fceff87fa6" title="DevFs::initialise" alt="" coords="323,71,439,98"/>
+<area shape="rect" id="node6" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="287,122,475,149"/>
+<area shape="rect" id="node7" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="283,173,479,199"/>
+<area shape="rect" id="node8" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="311,224,451,265"/>
+</map>

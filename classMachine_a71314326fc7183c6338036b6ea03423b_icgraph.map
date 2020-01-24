@@ -1,0 +1,9 @@
+<map id="Machine::getVga" name="Machine::getVga">
+<area shape="rect" id="node2" href="$classFramebufferFile.html#a6394c053b50f045b8f8c4cff7d6c26ed" title="FramebufferFile::command" alt="" coords="195,5,373,32"/>
+<area shape="rect" id="node3" href="$classBootIO.html#abcafb7f57609545e6afc9d95a49dc447" title="BootIO::initialise" alt="" coords="225,56,343,83"/>
+<area shape="rect" id="node4" href="$classTextIO.html#a1fe7b77c653ce4384427549354a6ecc0" title="TextIO::initialise" alt="" coords="225,107,343,133"/>
+<area shape="rect" id="node7" href="$classVbeDisplay.html#ade3f4466a4d380c97c023c71555d2c38" title="VbeDisplay::setScreenMode" alt="" coords="190,157,378,184"/>
+<area shape="rect" id="node8" href="$classVmwareGraphics.html#a302605a525bb24ea476cfc036ddc171f" title="VmwareGraphics::setScreenMode" alt="" coords="173,208,395,235"/>
+<area shape="rect" id="node5" href="$classDevFs.html#a7975b933760278dd9bdbd0fceff87fa6" title="DevFs::initialise" alt="" coords="464,77,580,104"/>
+<area shape="rect" id="node6" href="$classVirtualTerminalManager.html#a72fcf824eefa7ee5fb8099de36ed0cb1" title="VirtualTerminalManager\l::openInactive" alt="" coords="443,129,601,170"/>
+</map>

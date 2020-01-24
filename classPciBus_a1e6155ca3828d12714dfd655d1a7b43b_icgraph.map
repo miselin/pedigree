@@ -1,0 +1,5 @@
+<map id="PciBus::readConfigSpace" name="PciBus::readConfigSpace">
+<area shape="rect" id="node2" href="$classEhci.html#a2bb0bdcc2f048c4315c97b0bf422c8a8" title="Ehci::initialiseController" alt="" coords="228,5,387,32"/>
+<area shape="rect" id="node3" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="225,57,389,98"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="437,64,616,91"/>
+</map>

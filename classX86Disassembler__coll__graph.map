@@ -1,0 +1,8 @@
+<map id="X86Disassembler" name="X86Disassembler">
+<area shape="rect" id="node2" href="$classDisassemblerBase.html" title="{DisassemblerBase\n||+ ~DisassemblerBase()\l+ setLocation()\l+ getLocation()\l+ setMode()\l+ disassemble()\l# DisassemblerBase()\l}" alt="" coords="5,513,165,663"/>
+<area shape="rect" id="node3" href="$structud.html" title="{ud\n|+ inp_hook\l+ inp_curr\l+ inp_fill\l+ inp_ctr\l+ inp_buff\l+ inp_buff_end\l+ inp_end\l+ translator\l+ insn_offset\l+ insn_hexcode\land 26 more...\l|}" alt="" coords="189,476,304,700"/>
+<area shape="rect" id="node4" href="$structud__operand.html" title="{ud_operand\n|+ type\l+ size\l+ sbyte\l+ ubyte\l+ sword\l+ uword\l+ sdword\l+ udword\l+ sqword\l+ uqword\land 8 more...\l|}" alt="" coords="76,189,175,413"/>
+<area shape="rect" id="node5" href="$structmap__entry.html" title="{map_entry\n|+ mnemonic\l+ prefix\l|}" alt="" coords="199,255,294,347"/>
+<area shape="rect" id="node6" href="$structmap__operand.html" title="{map_operand\n|+ type\l+ size\l|}" alt="" coords="197,5,297,97"/>
+<area shape="rect" id="node7" href="$structFILE.html" title="{FILE\n|+ empty\l|}" alt="" coords="318,263,389,340"/>
+</map>

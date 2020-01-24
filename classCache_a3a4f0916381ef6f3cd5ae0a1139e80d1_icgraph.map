@@ -1,0 +1,8 @@
+<map id="Cache::release" name="Cache::release">
+<area shape="rect" id="node2" href="$classFile.html#adf3b7b34a5a5e63a99da4d9a719a7a2d" title="File::returnPhysicalPage" alt="" coords="164,5,328,32"/>
+<area shape="rect" id="node3" href="$classDiskImage.html#acb4d50da90301cf52b6ebc858967dd37" title="DiskImage::unpin" alt="" coords="184,56,308,83"/>
+<area shape="rect" id="node7" href="$classFatFile.html#ad6d4ab615702c95fe1f90bed713faae4" title="FatFile::unpinBlock" alt="" coords="179,107,313,133"/>
+<area shape="rect" id="node4" href="$classDiskImage.html#ad164622638c31b85dbe30a05f01326f8" title="Gets the block size of the disk. " alt="" coords="376,56,547,83"/>
+<area shape="rect" id="node5" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="595,56,713,83"/>
+<area shape="rect" id="node6" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="761,56,887,83"/>
+</map>

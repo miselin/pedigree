@@ -1,0 +1,4 @@
+<map id="UsbHub::portReset" name="UsbHub::portReset">
+<area shape="rect" id="node2" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="188,5,367,32"/>
+<area shape="rect" id="node3" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="415,23,581,65"/>
+</map>

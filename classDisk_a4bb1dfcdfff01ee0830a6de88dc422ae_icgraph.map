@@ -1,0 +1,6 @@
+<map id="Disk::getName" name="Disk::getName">
+<area shape="rect" id="node2" href="$classExt2Filesystem.html#a33f87a42cc16602e7d1ae0e7758e2295" title="Ext2Filesystem::initialise" alt="" coords="164,29,332,56"/>
+<area shape="rect" id="node3" href="$classFatFilesystem.html#a5d9618ef5ae2a1924be229e13306e8be" title="FatFilesystem::initialise" alt="" coords="168,104,328,131"/>
+<area shape="rect" id="node5" href="$msdos_8h.html#a278a4cbf8e5e3a310ce76d1d893af337" title="msdosProbeDisk" alt="" coords="187,155,309,181"/>
+<area shape="rect" id="node4" href="$classFatSymlink.html#a3041d9a475ace5bb55714a89d9364df4" title="FatSymlink::writeBytewise" alt="" coords="380,104,559,131"/>
+</map>

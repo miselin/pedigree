@@ -1,0 +1,15 @@
+<map id="Device::addChild" name="Device::addChild">
+<area shape="rect" id="node2" href="$classDevice.html#a0da24527214edb3648a812c0d934e2bb" title="Device::addToRoot" alt="" coords="198,107,333,133"/>
+<area shape="rect" id="node3" href="$classArmBeagle.html#a7154c38061a8c632ed1332b1fb376125" title="ArmBeagle::initialiseDeviceTree" alt="" coords="403,5,611,32"/>
+<area shape="rect" id="node9" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="427,157,587,184"/>
+<area shape="rect" id="node10" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="176,208,355,235"/>
+<area shape="rect" id="node12" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="183,259,347,301"/>
+<area shape="rect" id="node14" href="$classMac.html#ac6c2cad0ef05832c8741188e8db96497" title="Mac::~Mac" alt="" coords="221,325,309,352"/>
+<area shape="rect" id="node5" href="$classCdiDisk.html#ab1bc1f9238667555fd8a30f5560cea33" title="CdiDisk::write" alt="" coords="454,56,559,83"/>
+<area shape="rect" id="node7" href="$classCdiNet.html#a40cabd0c2cf11e9b2edf15b88fc04c10" title="CdiNet::setStationInfo" alt="" coords="431,107,583,133"/>
+<area shape="rect" id="node4" href="$classArmBeagle.html#aed2e8f5d001bbcfe4c6a54d8fdb5265e" title="ArmBeagle::setKeyboard" alt="" coords="659,5,825,32"/>
+<area shape="rect" id="node6" href="$classCdiDisk.html#a6dcf94a83aeca7b772dd01b92beb0caf" title="CdiDisk::getName" alt="" coords="677,56,807,83"/>
+<area shape="rect" id="node8" href="$classCdiNet.html#ae7154246620adff926817e1932916a60" title="CdiNet::getName" alt="" coords="680,107,804,133"/>
+<area shape="rect" id="node11" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="423,209,590,250"/>
+<area shape="rect" id="node13" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="417,275,596,301"/>
+</map>

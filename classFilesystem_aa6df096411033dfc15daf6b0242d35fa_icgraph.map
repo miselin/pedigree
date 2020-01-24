@@ -1,0 +1,11 @@
+<map id="Filesystem::find" name="Filesystem::find">
+<area shape="rect" id="node2" href="$classVFS.html#a4a7a10737613ec5a2c4b71e3f9f09069" title="VFS::find" alt="" coords="197,170,274,196"/>
+<area shape="rect" id="node10" href="$classSymlink.html#a08f184455757dec97a82d974280f52b3" title="Symlink::followLink" alt="" coords="168,220,303,247"/>
+<area shape="rect" id="node3" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="577,20,768,47"/>
+<area shape="rect" id="node4" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="351,46,529,72"/>
+<area shape="rect" id="node5" href="$classUnixSocketSyscalls.html#a4baea46f8944d4b959bcf46b99e9472e" title="UnixSocketSyscalls\l::connect" alt="" coords="370,97,510,138"/>
+<area shape="rect" id="node6" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="370,162,510,204"/>
+<area shape="rect" id="node7" href="$classUnixSocketSyscalls.html#a48974c15d8b4e853ed6ffd6485b21ddc" title="UnixSocketSyscalls\l::bind" alt="" coords="370,228,510,269"/>
+<area shape="rect" id="node8" href="$classPosixSubsystem.html#a9ce2b901aa4ea02738f398230dd61a22" title="PosixSubsystem::findFile" alt="" coords="355,294,525,320"/>
+<area shape="rect" id="node9" href="$classProcFs.html#ae9c6292f109e70f1513691d850b8e721" title="ProcFs::initialise" alt="" coords="381,344,499,371"/>
+</map>

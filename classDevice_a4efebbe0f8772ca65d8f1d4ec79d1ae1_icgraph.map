@@ -1,0 +1,8 @@
+<map id="Device::setInterruptNumber" name="Device::setInterruptNumber">
+<area shape="rect" id="node2" href="$classArmBeagle.html#a7154c38061a8c632ed1332b1fb376125" title="ArmBeagle::initialiseDeviceTree" alt="" coords="236,5,444,32"/>
+<area shape="rect" id="node4" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="260,56,420,83"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="258,107,422,149"/>
+<area shape="rect" id="node7" href="$classMac.html#ac6c2cad0ef05832c8741188e8db96497" title="Mac::~Mac" alt="" coords="296,173,384,200"/>
+<area shape="rect" id="node3" href="$classArmBeagle.html#aed2e8f5d001bbcfe4c6a54d8fdb5265e" title="ArmBeagle::setKeyboard" alt="" coords="498,5,665,32"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="492,115,671,141"/>
+</map>

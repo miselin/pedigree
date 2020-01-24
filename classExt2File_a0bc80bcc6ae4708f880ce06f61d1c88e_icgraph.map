@@ -1,0 +1,13 @@
+<map id="Ext2File::writeBlock" name="Ext2File::writeBlock">
+<area shape="rect" id="node2" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="196,5,384,32"/>
+<area shape="rect" id="node3" href="$classExt2Filesystem.html#a95939f01a564eb6e6871981dcecaf850" title="Ext2Filesystem::findFree\lBlocksInGroup" alt="" coords="206,57,374,98"/>
+<area shape="rect" id="node4" href="$classExt2Filesystem.html#a04b18a800fb490ba4e94410a960a2be1" title="Ext2Filesystem::findFree\lInode" alt="" coords="206,122,374,163"/>
+<area shape="rect" id="node5" href="$classExt2Filesystem.html#aff9cf0bb1fded307d65e5d058f0a824d" title="Ext2Filesystem::releaseBlock" alt="" coords="192,188,388,215"/>
+<area shape="rect" id="node8" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="911,289,1075,316"/>
+<area shape="rect" id="node12" href="$classExt2Filesystem.html#af98f6f4d271fbc4ba16f4d24c154a309" title="Ext2Filesystem::releaseInode" alt="" coords="436,239,631,265"/>
+<area shape="rect" id="node6" href="$classExt2Node.html#a0aa5536e1ea4d363001ce32c147be342" title="Ext2Node::wipe" alt="" coords="476,188,591,215"/>
+<area shape="rect" id="node7" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="679,239,863,265"/>
+<area shape="rect" id="node10" href="$classExt2File.html#a83141d594d0f60b01feb5ca0676da47f" title="Ext2File::truncate" alt="" coords="708,137,833,164"/>
+<area shape="rect" id="node11" href="$classExt2Symlink.html#acec68435cdb30ba626a7d6a1b96daaa0" title="Ext2Symlink::truncate" alt="" coords="695,188,846,215"/>
+<area shape="rect" id="node9" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="914,239,1071,265"/>
+</map>

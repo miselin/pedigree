@@ -1,0 +1,51 @@
+<map id="ArmV7PhysicalMemoryManager::freePage" name="ArmV7PhysicalMemoryManager::freePage">
+<area shape="rect" id="node2" href="$classArmV7PhysicalMemoryManager.html#ad1f5eea0c78426a9879f46ff8e30d3c3" title="ArmV7PhysicalMemoryManager\l::instance" alt="" coords="263,1210,472,1251"/>
+<area shape="rect" id="node3" href="$classPhysicalMemoryManager.html#a53c92df823a2510612d6dd32969a0fd9" title="PhysicalMemoryManager\l::instance" alt="" coords="520,1210,689,1251"/>
+<area shape="rect" id="node4" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="771,5,918,32"/>
+<area shape="rect" id="node5" href="$classArchive.html#a2189af7f7b51f63f5641f983cfd998cb" title="Archive::Archive" alt="" coords="785,56,904,83"/>
+<area shape="rect" id="node6" href="$classBusMasterIde.html#a8e60e26858013365de9b0bba6bbe7284" title="Initialises DMA for a specific channel. " alt="" coords="765,107,924,133"/>
+<area shape="rect" id="node7" href="$classCacheManager.html#aee44abeaf9f1cf4f62c95485ee879844" title="CacheManager::executeRequest" alt="" coords="738,157,951,184"/>
+<area shape="rect" id="node8" href="$classCache.html#a4cc09c83e2cbbc57c7776acba57a2985" title="Cache::map" alt="" coords="798,208,891,235"/>
+<area shape="rect" id="node9" href="$classCache.html#ae9325f14b0e3b3276566e9a68f6ec81d" title="Cache::evict" alt="" coords="797,259,893,285"/>
+<area shape="rect" id="node10" href="$classCache.html#a0718417b7108a0b376820a5618b8b5ee" title="Cache::lruEvict" alt="" coords="789,309,901,336"/>
+<area shape="rect" id="node11" href="$classDevice_1_1Address.html#a44498b70d4356e480382f0e7bd57523c" title="Device::Address::map" alt="" coords="769,360,921,387"/>
+<area shape="rect" id="node12" href="$classDynamicLinker.html#a2adbd0c58cd4ca389f042cf771e8f2ca" title="DynamicLinker::initPlt" alt="" coords="769,411,920,437"/>
+<area shape="rect" id="node13" href="$classDynamicLinker.html#aa470f8a17b234a26b4a46271e53e5ce6" title="DynamicLinker::trap" alt="" coords="775,461,914,488"/>
+<area shape="rect" id="node14" href="$classEhci.html#a2bb0bdcc2f048c4315c97b0bf422c8a8" title="Ehci::initialiseController" alt="" coords="765,512,924,539"/>
+<area shape="rect" id="node15" href="$classElf.html#a9f301088b6d4d8a07e5ac3dca8bfca19" title="Elf::loadModule" alt="" coords="1000,588,1112,615"/>
+<area shape="rect" id="node16" href="$classElf.html#aa7c6020a756cfdc503a2c62c8f032ffb" title="Elf::allocate" alt="" coords="799,613,890,640"/>
+<area shape="rect" id="node17" href="$classFramebuffer.html#a6a7fda43d9b792b66d56818b9888d023" title="Framebuffer::swCreateBuffer" alt="" coords="749,664,940,691"/>
+<area shape="rect" id="node18" href="$classGPTimer.html#acd884f84e1a048cf0bfc6bff7247ae44" title="GPTimer::initialise" alt="" coords="780,715,909,741"/>
+<area shape="rect" id="node19" href="$classARMV7InterruptManager.html#a6c67923a4dab6dee4a4d8ae291141ce0" title="ARMV7InterruptManager\l::initialiseProcessor" alt="" coords="761,766,928,807"/>
+<area shape="rect" id="node20" href="$classIoCommand.html#a1d1dd9333d28553c1dee07db7c5a5341" title="IoCommand::execute" alt="" coords="771,832,918,859"/>
+<area shape="rect" id="node21" href="$classIpc_1_1IpcMessage.html#a14b0a09c91c9c350697d24799c08df4a" title="Constructor for regions &gt; 4 KB in size. " alt="" coords="745,883,944,909"/>
+<area shape="rect" id="node22" href="$classKernelElf.html#afb3a9a11f7c20cb84b7ae18b0d0e94a2" title="KernelElf::initialise" alt="" coords="779,933,910,960"/>
+<area shape="rect" id="node23" href="$classKernelElf.html#af756a5e96dca85388e8377b6f6e09ae3" title="KernelElf::unloadModule" alt="" coords="763,984,926,1011"/>
+<area shape="rect" id="node24" href="$classAnonymousMemoryMap.html#abb0a91e3268fd8f7479da88b786a2f36" title="AnonymousMemoryMap\l::remove" alt="" coords="763,1035,926,1077"/>
+<area shape="rect" id="node25" href="$classAnonymousMemoryMap.html#a81be7a75b2cb34b1730f1b9794b030ce" title="AnonymousMemoryMap\l::trap" alt="" coords="763,1101,926,1142"/>
+<area shape="rect" id="node26" href="$classMemoryMappedFile.html#a9a514803c46c4adc4d47774ca0284bda" title="MemoryMappedFile::remove" alt="" coords="751,1167,938,1193"/>
+<area shape="rect" id="node27" href="$classMemoryMappedFile.html#a100caaed515f37bdca8f00295710b1ce" title="MemoryMappedFile::invalidate" alt="" coords="745,1217,944,1244"/>
+<area shape="rect" id="node28" href="$classMemoryMappedFile.html#ab81975953742d8551460d4fa59a38e3a" title="MemoryMappedFile::trap" alt="" coords="761,1268,928,1295"/>
+<area shape="rect" id="node29" href="$classMemoryMappedFile.html#a15a438cb79df2de64157cab4cbacc25e" title="MemoryMappedFile::compact" alt="" coords="747,1319,942,1345"/>
+<area shape="rect" id="node30" href="$classMemoryPool.html#aec1407f210e2eb290906fad520f9bd2c" title="MemoryPool::initialise" alt="" coords="769,1369,920,1396"/>
+<area shape="rect" id="node31" href="$classMemoryRegion.html#aa22720d71d361fb3bd56734708bad445" title="MemoryRegion::~MemoryRegion" alt="" coords="737,1420,952,1447"/>
+<area shape="rect" id="node32" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="783,1471,907,1497"/>
+<area shape="rect" id="node33" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="765,1522,924,1563"/>
+<area shape="rect" id="node34" href="$classPrcm.html#ad79e8556097fcd8ea5ac9b57fb1dd05d" title="Prcm::initialise" alt="" coords="791,1588,899,1615"/>
+<area shape="rect" id="node35" href="$classArmBeagleSerial.html#ab8788d5b8847b6d764d432d897b8a495" title="ArmBeagleSerial::setBase" alt="" coords="757,1639,932,1665"/>
+<area shape="rect" id="node36" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="785,1689,904,1716"/>
+<area shape="rect" id="node37" href="$classThread.html#ad81f5257601b3994df0ec62ff441d9f2" title="Thread::getTlsBase" alt="" coords="777,1740,913,1767"/>
+<area shape="rect" id="node38" href="$classUsbUlpi.html#a623eb34991ca147b6f9e4281977882ed" title="UsbUlpi::initialise" alt="" coords="783,1791,907,1817"/>
+<area shape="rect" id="node39" href="$classVbeFramebuffer.html#a2933d04edccb28eab93703661d2e052a" title="Inherited by drivers that provide a hardware redraw function. " alt="" coords="752,1841,937,1868"/>
+<area shape="rect" id="node40" href="$classVbeDisplay.html#a4d8b083e4b638183899cccd3202bb819" title="VbeDisplay::newBuffer" alt="" coords="767,1892,923,1919"/>
+<area shape="rect" id="node41" href="$classX86Vga.html#a7d6711ae47f9f2a5b9fd7c2d7e92d2dd" title="X86Vga::moveCursor" alt="" coords="771,1943,918,1969"/>
+<area shape="rect" id="node42" href="$classPPCVga.html#a99248961cc4536d151e37c4a0acf9b80" title="PPCVga::initialise" alt="" coords="781,1993,909,2020"/>
+<area shape="rect" id="node43" href="$classArmV7VirtualAddressSpace.html#a07e6c8c44e0870e1567bf1eb2e0cc8f4" title="ArmV7VirtualAddressSpace\l::doMap" alt="" coords="753,2045,937,2086"/>
+<area shape="rect" id="node44" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="753,2110,937,2151"/>
+<area shape="rect" id="node45" href="$classHostedVirtualAddressSpace.html#aaa3563efbe7ac3d6881c2065b7cae215" title="HostedVirtualAddressSpace\l::clone" alt="" coords="751,2175,938,2217"/>
+<area shape="rect" id="node46" href="$classHostedVirtualAddressSpace.html#a3ab3b2f7f8beef967a109cfa833f70f5" title="HostedVirtualAddressSpace\l::revertToKernelAddressSpace" alt="" coords="745,2241,945,2282"/>
+<area shape="rect" id="node47" href="$classHostedVirtualAddressSpace.html#a0eb99f55303a016298f2cdfefa729598" title="HostedVirtualAddressSpace\l::doAllocateStack" alt="" coords="751,2306,938,2347"/>
+<area shape="rect" id="node48" href="$classHostedVirtualAddressSpace.html#ac5a364ecfc4e4a93e0a2c86e3d7ef2fb" title="HostedVirtualAddressSpace\l::freeStack" alt="" coords="751,2371,938,2413"/>
+<area shape="rect" id="node49" href="$classMIPS32VirtualAddressSpace.html#a406379a3633014d83787bd628938111b" title="MIPS32VirtualAddressSpace\l::~MIPS32VirtualAddressSpace" alt="" coords="741,2437,948,2478"/>
+<area shape="rect" id="node50" href="$classMIPS32VirtualAddressSpace.html#aa309822f826cdb36b6208570b422202f" title="MIPS32VirtualAddressSpace\l::generateNullChunk" alt="" coords="749,2502,940,2543"/>
+</map>

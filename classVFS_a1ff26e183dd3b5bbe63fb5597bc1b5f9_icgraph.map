@@ -1,0 +1,8 @@
+<map id="VFS::addProbeCallback" name="VFS::addProbeCallback">
+<area shape="rect" id="node2" href="$classExt2Filesystem.html#af98f6f4d271fbc4ba16f4d24c154a309" title="Ext2Filesystem::releaseInode" alt="" coords="216,31,411,57"/>
+<area shape="rect" id="node6" href="$classIso9660Filesystem.html#a84fe66040b1fed0b37e75b2155de9118" title="Iso9660Filesystem::\lremove" alt="" coords="243,82,383,123"/>
+<area shape="rect" id="node7" href="$classFatFilesystem.html#a7daacfc13e3488c620f87f7d7c291e5f" title="FatFilesystem::remove" alt="" coords="235,148,391,175"/>
+<area shape="rect" id="node3" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="459,31,643,57"/>
+<area shape="rect" id="node4" href="$classExt2Filesystem.html#aa0c8963217042f4391c321976048db60" title="Ext2Filesystem::remove" alt="" coords="691,5,855,32"/>
+<area shape="rect" id="node5" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="694,56,851,83"/>
+</map>

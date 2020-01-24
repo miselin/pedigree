@@ -1,0 +1,5 @@
+<map id="KernelElf::rebase" name="KernelElf::rebase">
+<area shape="rect" id="node2" href="$classKernelElf.html#a31f5887fc179330aad411bf3768e1d8d" title="KernelElf::getDependingModule" alt="" coords="176,5,381,32"/>
+<area shape="rect" id="node3" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="204,56,353,83"/>
+<area shape="rect" id="node4" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="429,56,608,83"/>
+</map>

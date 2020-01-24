@@ -1,0 +1,9 @@
+<map id="ExtensibleBitmap::set" name="ExtensibleBitmap::set">
+<area shape="rect" id="node2" href="$classPosixSubsystem.html#a4ae2de7057684dd68de428eb829659f1" title="PosixSubsystem::allocateFd" alt="" coords="221,5,411,32"/>
+<area shape="rect" id="node4" href="$classPosixSubsystem.html#a51aa70c0374ef76adf8528118742d56f" title="PosixSubsystem::copyDescriptors" alt="" coords="204,56,428,83"/>
+<area shape="rect" id="node5" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="227,107,405,133"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem.html#a5a62f6e4c75ca0d2a0f55952aef284ce" title="PosixSubsystem::getFd" alt="" coords="235,157,397,184"/>
+<area shape="rect" id="node8" href="$classThread.html#ad4c8a76165f162c321393651dc05e048" title="Thread::inhibitEvent" alt="" coords="247,208,385,235"/>
+<area shape="rect" id="node3" href="$classPosixSubsystem.html#ac2d6e4d427bc8c967ca42577f202c6ee" title="PosixSubsystem::addFileDescriptor" alt="" coords="476,5,707,32"/>
+<area shape="rect" id="node6" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="508,99,675,141"/>
+</map>

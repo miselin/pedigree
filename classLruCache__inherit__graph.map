@@ -1,0 +1,4 @@
+<map id="LruCache&lt; K, T, Slots &gt;" name="LruCache&lt; K, T, Slots &gt;">
+<area shape="rect" id="node2" href="$classLruCache.html" title="{LruCache\&lt; String, File * \&gt;\n|&#45; m_Slots\l&#45; m_Hits\l&#45; m_Misses\l|+ LruCache()\l+ ~LruCache()\l+ get()\l+ store()\l+ hits()\l+ misses()\l}" alt="" coords="5,248,180,428"/>
+<area shape="rect" id="node3" href="$classLruCache.html" title="{LruCache\&lt; String, Filesystem * \&gt;\n|&#45; m_Slots\l&#45; m_Hits\l&#45; m_Misses\l|+ LruCache()\l+ ~LruCache()\l+ get()\l+ store()\l+ hits()\l+ misses()\l}" alt="" coords="204,248,421,428"/>
+</map>

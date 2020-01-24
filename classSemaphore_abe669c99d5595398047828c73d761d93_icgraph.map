@@ -1,0 +1,16 @@
+<map id="Semaphore::tryAcquire" name="Semaphore::tryAcquire">
+<area shape="rect" id="node2" href="$classSemaphore.html#a408d218d5e8497c4dfa7b3e31f8daaac" title="Semaphore::acquireWithResult" alt="" coords="225,5,427,32"/>
+<area shape="rect" id="node3" href="$classLockedFile.html#a422addf055e56bdb72e79d5dd9fba7a1" title="LockedFile::lock" alt="" coords="267,56,385,83"/>
+<area shape="rect" id="node4" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="253,107,399,133"/>
+<area shape="rect" id="node15" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="208,157,444,184"/>
+<area shape="rect" id="node5" href="$classRequestQueue.html#ada7823ce253c561696e67c183fdf0ec6" title="RequestQueue::trampoline" alt="" coords="492,107,669,133"/>
+<area shape="rect" id="node6" href="$classRequestQueue.html#aa87ccddad577b380a648dd744e4f7d11" title="RequestQueue::initialise" alt="" coords="717,107,881,133"/>
+<area shape="rect" id="node7" href="$classCacheManager.html#a411b65fac6ab596f1b2359d7e0c59b6b" title="CacheManager::initialise" alt="" coords="929,48,1095,75"/>
+<area shape="rect" id="node8" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="930,99,1094,141"/>
+<area shape="rect" id="node10" href="$classRequestQueue.html#a5575e3c80ca571cc2c75226f24f82d32" title="RequestQueue::resume" alt="" coords="932,165,1092,192"/>
+<area shape="rect" id="node9" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="1143,107,1321,133"/>
+<area shape="rect" id="node11" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="1169,165,1295,192"/>
+<area shape="rect" id="node12" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="1369,99,1528,141"/>
+<area shape="rect" id="node13" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="1381,165,1516,192"/>
+<area shape="rect" id="node14" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1389,216,1508,243"/>
+</map>

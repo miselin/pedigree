@@ -1,0 +1,5 @@
+<map id="Disk::align" name="Disk::align">
+<area shape="rect" id="node2" href="$classFileDisk.html#a1016f922087800e7cd80f082bfb91584" title="FileDisk::getName" alt="" coords="137,5,268,32"/>
+<area shape="rect" id="node3" href="$classPartition.html#a433d8226ab863f5e3a0064fde84a5957" title="Partition::read" alt="" coords="151,56,254,83"/>
+<area shape="rect" id="node4" href="$classPartition.html#afecaf343ff3d38848845fb0d852b028c" title="Partition::write" alt="" coords="149,107,256,133"/>
+</map>

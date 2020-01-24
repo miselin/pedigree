@@ -1,0 +1,17 @@
+<map id="VFS::lookupFilesystem" name="VFS::lookupFilesystem">
+<area shape="rect" id="node2" href="$classVFS.html#abb163b4e69296d761119f6d498d390c6" title="VFS::createDirectory" alt="" coords="219,5,364,32"/>
+<area shape="rect" id="node4" href="$classVFS.html#a14e26f766d86b81f4250fc73d01476b4" title="VFS::createFile" alt="" coords="235,56,348,83"/>
+<area shape="rect" id="node5" href="$classVFS.html#aab0958e7f7056f76fec58070966bcee6" title="VFS::createLink" alt="" coords="233,107,349,133"/>
+<area shape="rect" id="node6" href="$classVFS.html#a0139a82ee322c1739487557783935d78" title="VFS::createSymlink" alt="" coords="222,157,361,184"/>
+<area shape="rect" id="node7" href="$classVFS.html#a4a7a10737613ec5a2c4b71e3f9f09069" title="VFS::find" alt="" coords="253,259,330,285"/>
+<area shape="rect" id="node10" href="$classPosixSubsystem.html#a9ce2b901aa4ea02738f398230dd61a22" title="PosixSubsystem::findFile" alt="" coords="428,128,599,155"/>
+<area shape="rect" id="node15" href="$classPosixProcess.html#af9b28f4307c4027183356025d8ad42e6" title="PosixProcess::getType" alt="" coords="212,309,371,336"/>
+<area shape="rect" id="node16" href="$classVFS.html#abd14dce0f5f6258cab5750724f1942cf" title="VFS::remove" alt="" coords="242,360,341,387"/>
+<area shape="rect" id="node3" href="$classFilesystem.html#a58c29297083036729416ba67bbeb2a90" title="Filesystem::isCaseSensitive" alt="" coords="419,64,608,91"/>
+<area shape="rect" id="node8" href="$classUnixSocketSyscalls.html#a48974c15d8b4e853ed6ffd6485b21ddc" title="UnixSocketSyscalls\l::bind" alt="" coords="443,179,583,221"/>
+<area shape="rect" id="node9" href="$classUnixSocketSyscalls.html#a4baea46f8944d4b959bcf46b99e9472e" title="UnixSocketSyscalls\l::connect" alt="" coords="443,245,583,286"/>
+<area shape="rect" id="node11" href="$classProcFs.html#ae9c6292f109e70f1513691d850b8e721" title="ProcFs::initialise" alt="" coords="454,311,573,337"/>
+<area shape="rect" id="node12" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="424,361,603,388"/>
+<area shape="rect" id="node13" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="656,387,847,413"/>
+<area shape="rect" id="node14" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="443,463,583,505"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="X64GdtManager::setSegmentDescriptor" name="X64GdtManager::setSegmentDescriptor">
+<area shape="rect" id="node2" href="$classX64GdtManager.html#a722b77083b618eec378ecff3bbdc32a6" title="X64GdtManager::initialise" alt="" coords="520,28,691,54"/>
+<area shape="rect" id="node3" href="$classX64GdtManager.html#ae65f6e8eee469c21011e9978e3e90c2e" title="X64GdtManager::instance" alt="" coords="739,28,912,54"/>
+<area shape="rect" id="node4" href="$classX64GdtManager.html#ac8e593ca3d136d59cb1caa2ebe865c2e" title="X64GdtManager::setTssDescriptor" alt="" coords="248,78,472,105"/>
+</map>

@@ -1,0 +1,8 @@
+<map id="Elf32" name="Elf32">
+<area shape="rect" id="node2" href="$structElf32_1_1Elf32ProcessHeader__t.html" title="{Elf32::Elf32ProcessHeader_t\n|+ type\l+ offset\l+ vaddr\l+ paddr\l+ filesz\l+ memsz\l+ flags\l+ align\l|}" alt="" coords="5,49,196,229"/>
+<area shape="rect" id="node3" href="$structElf32_1_1Elf32Rel__t.html" title="{Elf32::Elf32Rel_t\n|+ offset\l+ info\l|}" alt="" coords="220,93,341,185"/>
+<area shape="rect" id="node4" href="$structElf32_1_1Elf32Symbol__t.html" title="{Elf32::Elf32Symbol_t\n|+ name\l+ value\l+ size\l+ info\l+ other\l+ shndx\l|}" alt="" coords="365,64,511,215"/>
+<area shape="rect" id="node5" href="$structElf32_1_1Elf32SectionHeader__t.html" title="{Elf32::Elf32SectionHeader_t\n|+ name\l+ type\l+ flags\l+ addr\l+ offset\l+ size\l+ link\l+ info\l+ addralign\l+ entsize\l|}" alt="" coords="535,35,722,244"/>
+<area shape="rect" id="node6" href="$structElf32_1_1Elf32Dyn__t.html" title="{Elf32::Elf32Dyn_t\n|+ tag\l+ val\l+ ptr\l+ un\l+ un\l+ un\l|}" alt="" coords="746,64,871,215"/>
+<area shape="rect" id="node7" href="$structElf32_1_1Elf32Header__t.html" title="{Elf32::Elf32Header_t\n|+ ident\l+ type\l+ machine\l+ version\l+ entry\l+ phoff\l+ shoff\l+ flags\l+ ehsize\l+ phentsize\l+ phnum\l+ shentsize\l+ shnum\l+ shstrndx\l|}" alt="" coords="896,5,1039,273"/>
+</map>

@@ -1,0 +1,51 @@
+<map id="List::clear" name="List::clear">
+<area shape="rect" id="node2" href="$group__kernelutilities.html#gacbcab878be7db51203f2655fa8d1411a" title="List::assign" alt="" coords="177,56,266,83"/>
+<area shape="rect" id="node5" href="$classEvent.html#abde1491b9e0a2ca83403bb4655d474f6" title="Event::getEventType" alt="" coords="149,144,294,171"/>
+<area shape="rect" id="node7" href="$classHostedIrqManager.html#a01f255c035d15215d9de506ae00c1db1" title="HostedIrqManager::Hosted\lIrqManager" alt="" coords="132,225,311,266"/>
+<area shape="rect" id="node12" href="$classPic.html#ad48005caafee9eb548b0b124aeb788ea" title="Pic::Pic" alt="" coords="187,316,255,343"/>
+<area shape="rect" id="node17" href="$classThread.html#a254cc3c615ce12a9290fa4c69cafe7cf" title="Thread::reportWakeup" alt="" coords="146,367,297,393"/>
+<area shape="rect" id="node38" href="$classThread.html#aa4f074ab1a92785a1f08fa2b01d2611f" title="Thread::setStatus" alt="" coords="389,1067,515,1093"/>
+<area shape="rect" id="node48" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="138,492,305,519"/>
+<area shape="rect" id="node49" href="$group__kernelutilities.html#gac21207a24c023e5c1c752674cd1343e5" title="List::~List" alt="" coords="181,543,261,569"/>
+<area shape="rect" id="node50" href="$classSemaphore.html#a633658a6fde276bffc912028725c6ade" title="Semaphore::~Semaphore" alt="" coords="136,593,307,620"/>
+<area shape="rect" id="node3" href="$group__kernelutilities.html#ga605bb796acd72244c4e8eb61b12802c3" title="List::List" alt="" coords="416,5,488,32"/>
+<area shape="rect" id="node4" href="$group__kernelutilities.html#ga818709a9379955f8a6b4e70dbd4701c1" title="List::operator=" alt="" coords="399,56,505,83"/>
+<area shape="rect" id="node6" href="$classPosixTerminalEvent.html#a3fefb3dad2b3467e7381bb9a0bb68f2e" title="PosixTerminalEvent\l::serialize" alt="" coords="383,107,521,149"/>
+<area shape="rect" id="node8" href="$classHostedIrqManager.html#ae12bed10ccff6813ac0ccb8251d48c99" title="HostedIrqManager::instance" alt="" coords="359,173,545,200"/>
+<area shape="rect" id="node11" href="$classHostedIrqManager.html#a2915bcb08fbea3b1a5acac12dd9e64e2" title="HostedIrqManager::\l~HostedIrqManager" alt="" coords="383,225,521,266"/>
+<area shape="rect" id="node9" href="$classHostedMachine.html#af35b1e284552fd7e046b54aa42a4c0ac" title="HostedMachine::initialise" alt="" coords="606,123,774,149"/>
+<area shape="rect" id="node10" href="$classHostedMachine.html#acecca4492c5a4a230824899a22205f59" title="HostedMachine::getNumVga" alt="" coords="595,173,785,200"/>
+<area shape="rect" id="node13" href="$classPic.html#a1017358137b165a6e18c5a08c98a03c8" title="Pic::instance" alt="" coords="403,291,501,317"/>
+<area shape="rect" id="node16" href="$classPic.html#abe5193c2bd5b494805297c4c4fd9d7e1" title="Pic::~Pic" alt="" coords="414,341,490,368"/>
+<area shape="rect" id="node14" href="$classPc.html#a097603724ea2cbabcc1874e9e8dce9dc" title="Pc::initialise" alt="" coords="643,224,737,251"/>
+<area shape="rect" id="node15" href="$classPc.html#addf1c67b3f410b73a49b9f55238664bd" title="Pc::getNumVga" alt="" coords="633,275,747,301"/>
+<area shape="rect" id="node18" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="865,1067,991,1093"/>
+<area shape="rect" id="node22" href="$classThread.html#ad1455ad5719b52f45993565b28e649ba" title="Thread::sendEvent" alt="" coords="386,544,518,571"/>
+<area shape="rect" id="node19" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="1069,1143,1228,1185"/>
+<area shape="rect" id="node20" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="1081,1223,1216,1249"/>
+<area shape="rect" id="node21" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1089,1067,1208,1093"/>
+<area shape="rect" id="node23" href="$classBuffer.html#a608cd7c19c8fe272b718784977dacc70" title="Buffer::notifyMonitors" alt="" coords="855,712,1001,739"/>
+<area shape="rect" id="node24" href="$classConsoleFile.html#aac447d3311b51f75d2f0e27d24d91a9e" title="Triggers our event. " alt="" coords="605,696,775,723"/>
+<area shape="rect" id="node25" href="$classFile.html#ad1493c9998a2c86d78848d9df0b95116" title="File::dataChanged" alt="" coords="626,747,754,773"/>
+<area shape="rect" id="node26" href="$classGPTimer.html#abfba1beeddf850e623683a63e0da51c0" title="GPTimer::interrupt" alt="" coords="625,392,755,419"/>
+<area shape="rect" id="node27" href="$classInputManager.html#adfff346563bcb1ffc32f36365d43a3aa" title="Main worker thread. " alt="" coords="601,443,779,469"/>
+<area shape="rect" id="node28" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="611,326,769,367"/>
+<area shape="rect" id="node34" href="$classPosixSubsystem.html#aa8ee8389b87d74875f36e3de50108ae7" title="PosixSubsystem::kill" alt="" coords="617,493,763,520"/>
+<area shape="rect" id="node35" href="$classPosixSubsystem.html#a08d789cb3282e51cd86d21cc8439a08d" title="PosixSubsystem::sendSignal" alt="" coords="593,544,787,571"/>
+<area shape="rect" id="node36" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="657,595,723,621"/>
+<area shape="rect" id="node37" href="$classHostedTimer.html#a02f4ed423fd605df41ae81feafe73e55" title="HostedTimer::irq" alt="" coords="631,645,749,672"/>
+<area shape="rect" id="node29" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="849,519,1007,561"/>
+<area shape="rect" id="node32" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="1069,422,1228,463"/>
+<area shape="rect" id="node30" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="1069,878,1228,919"/>
+<area shape="rect" id="node33" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="1069,519,1228,561"/>
+<area shape="rect" id="node31" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1276,1078,1435,1119"/>
+<area shape="rect" id="node39" href="$classConditionVariable.html#a8654ace19a9f44f0e51cb7e8e0faf0b4" title="ConditionVariable::\lsignal" alt="" coords="624,950,756,991"/>
+<area shape="rect" id="node41" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="611,1118,769,1159"/>
+<area shape="rect" id="node43" href="$classSemaphore.html#a608f82c98ce38a1ab8f93ae5d458fe1f" title="Semaphore::release" alt="" coords="621,899,759,925"/>
+<area shape="rect" id="node40" href="$classRequestQueue.html#a0288772675c587225d38decf4d7490b3" title="RequestQueue::addRequest" alt="" coords="835,965,1021,992"/>
+<area shape="rect" id="node42" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="842,1118,1014,1159"/>
+<area shape="rect" id="node44" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="877,813,979,840"/>
+<area shape="rect" id="node45" href="$classAsidManager.html#a971575e394fbbdfc11ef0fec42b102f1" title="AsidManager::obtainAsid" alt="" coords="845,915,1011,941"/>
+<area shape="rect" id="node46" href="$classAsidManager.html#a03f17ebe6d324ce200b7a30e14782789" title="AsidManager::returnAsid" alt="" coords="845,864,1011,891"/>
+<area shape="rect" id="node47" href="$classConditionVariable.html#abd9f7f84df4b8efc7e1f0b0f34a91887" title="ConditionVariable::wait" alt="" coords="850,763,1006,789"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="X86InterruptState::kernelMode" name="X86InterruptState::kernelMode">
+<area shape="rect" id="node2" href="$classX86InterruptState.html#a1d11de12c58c1c7677fcd4ecb2116a7b" title="X86InterruptState::\lgetStackPointer" alt="" coords="185,37,317,79"/>
+<area shape="rect" id="node5" href="$classX86InterruptState.html#a239fe687b6d3c940fe9d3f249b59c745" title="X86InterruptState::\lsetStackPointer" alt="" coords="185,103,317,144"/>
+<area shape="rect" id="node3" href="$classX86InterruptState.html#a668282d096f79e5ce8509681b6abf15a" title="X86InterruptState::\lgetRegister" alt="" coords="371,5,503,47"/>
+<area shape="rect" id="node4" href="$classX86ProcessorState.html#a7e36325c93efb0508a76c16dab1f601a" title="X86ProcessorState::\loperator=" alt="" coords="365,71,508,112"/>
+</map>

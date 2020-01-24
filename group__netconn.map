@@ -1,0 +1,6 @@
+<map id="Netconn API" name="Netconn API">
+<area shape="rect" id="node1" href="$group__netbuf.html" title="Network buffers" alt="" coords="159,5,274,32"/>
+<area shape="rect" id="node2" href="$group__netconn__tcp.html" title="TCP only" alt="" coords="178,56,255,83"/>
+<area shape="rect" id="node4" href="$group__netconn__udp.html" title="UDP only" alt="" coords="177,107,256,133"/>
+<area shape="rect" id="node5" href="$group__netconn__common.html" title="Common functions" alt="" coords="151,157,283,184"/>
+</map>

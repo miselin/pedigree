@@ -1,0 +1,6 @@
+<map id="Directory::remove" name="Directory::remove">
+<area shape="rect" id="node2" href="$classFilesystem.html#aea07db34eb728503a50ad5fea9a53e78" title="Filesystem::remove" alt="" coords="199,29,336,56"/>
+<area shape="rect" id="node5" href="$classUnixSocket.html#a4158645e201be3e343ce927d776a9867" title="UnixSocket::~UnixSocket" alt="" coords="180,80,355,107"/>
+<area shape="rect" id="node3" href="$classDirectory.html#a2c415a2870e506317333c666ec013aa5" title="Directory::empty" alt="" coords="403,29,521,56"/>
+<area shape="rect" id="node4" href="$classVFS.html#abd14dce0f5f6258cab5750724f1942cf" title="VFS::remove" alt="" coords="413,80,511,107"/>
+</map>

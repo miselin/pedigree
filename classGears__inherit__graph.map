@@ -1,0 +1,3 @@
+<map id="Gears" name="Gears">
+<area shape="rect" id="node2" href="$classWidget.html" title="{Widget\n|&#45; m_bConstructed\l&#45; m_pFramebuffer\l&#45; m_Handle\l&#45; m_EventCallback\l&#45; m_Socket\l&#45; m_SharedFramebuffer\l&#45; s_KnownWidgets\l&#45; s_PendingMessages\l&#45; s_NumWidgets\l|+ Widget()\l+ ~Widget()\l+ getHandle()\l+ construct()\l+ setTitle()\l+ render()\l+ redraw()\l+ visibility()\l+ destroy()\l+ getRawFramebuffer()\l+ getSocket()\l+ checkForEvents()\l&#45; getCallback()\l&#45; checkForMessage()\l&#45; handleMessage()\l&#45; handlePendingMessages()\l}" alt="" coords="5,5,188,420"/>
+</map>

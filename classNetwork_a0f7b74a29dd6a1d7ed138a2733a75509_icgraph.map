@@ -1,0 +1,5 @@
+<map id="Network::getType" name="Network::getType">
+<area shape="rect" id="node2" href="$classUnixSocketSyscalls.html#a4baea46f8944d4b959bcf46b99e9472e" title="UnixSocketSyscalls\l::connect" alt="" coords="180,5,320,47"/>
+<area shape="rect" id="node3" href="$classUnixSocketSyscalls.html#a64e2af1b10415a75defc26c2294adb16" title="UnixSocketSyscalls\l::pairWith" alt="" coords="180,71,320,112"/>
+<area shape="rect" id="node4" href="$classUnixSocketSyscalls.html#a894d6c12d21ffc3588847ecbed648fcc" title="UnixSocketSyscalls\l::sendto_msg" alt="" coords="180,136,320,177"/>
+</map>

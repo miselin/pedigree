@@ -1,0 +1,5 @@
+<map id="X86Serial" name="X86Serial">
+<area shape="rect" id="node2" href="$classSerial.html" title="{Serial\n||+ ~Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ write()\l}" alt="" coords="5,447,129,598"/>
+<area shape="rect" id="node3" href="$classIoPort.html" title="I/O port range. " alt="" coords="154,381,253,664"/>
+<area shape="rect" id="node4" href="$classIoBase.html" title="Abstrace base class for hardware I/O capabilities. " alt="" coords="135,5,272,332"/>
+</map>

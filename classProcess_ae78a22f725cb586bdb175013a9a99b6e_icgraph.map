@@ -1,0 +1,5 @@
+<map id="Process::setUser" name="Process::setUser">
+<area shape="rect" id="node2" href="$classUserManager.html#acab086b1cd71e0fd5a1d08b80fb24c57" title="UserManager::initialise" alt="" coords="177,29,332,56"/>
+<area shape="rect" id="node3" href="$classUser.html#a20ce13e1eb305510f6a704e0a49e681e" title="User::login" alt="" coords="212,80,297,107"/>
+<area shape="rect" id="node4" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="380,80,547,107"/>
+</map>

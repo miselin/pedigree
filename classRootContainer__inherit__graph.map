@@ -1,0 +1,4 @@
+<map id="RootContainer" name="RootContainer">
+<area shape="rect" id="node2" href="$classContainer.html" title="{Container\n|# m_Children\l&#45; m_pParent\l&#45; m_Layout\l&#45; m_pFocusWindow\l|+ Container()\l+ ~Container()\l+ getType()\l+ getLayout()\l+ setLayout()\l+ getFocusWindow()\l+ setFocusWindow()\l+ addChild()\l+ replaceChild()\l+ insertChild()\land 17 more...\l# Container()\l}" alt="" coords="14,321,157,604"/>
+<area shape="rect" id="node3" href="$classWObject.html" title="{WObject\n|&#45; m_Dimensions\l|+ WObject()\l+ ~WObject()\l+ getType()\l+ resize()\l+ reposition()\l+ bump()\l+ resized()\l+ getCopyDimensions()\l+ norefresh()\l+ yesrefresh()\l+ render()\l# setDimensions()\l# getDimensions()\l# refreshContext()\l}" alt="" coords="5,5,165,273"/>
+</map>

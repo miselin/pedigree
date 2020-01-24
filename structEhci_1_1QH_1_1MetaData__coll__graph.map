@@ -1,0 +1,4 @@
+<map id="Ehci::QH::MetaData" name="Ehci::QH::MetaData">
+<area shape="rect" id="node3" href="$structEhci_1_1QH.html" title="{Ehci::QH\n|+ bNextInvalid\l+ nNextType\l+ res0\l+ pNext\l+ nAddress\l+ bInactiveNext\l+ nEndpoint\l+ nSpeed\l+ bDataToggleSrc\l+ hrcl\land 10 more...\l|}" alt="" coords="64,520,192,744"/>
+<area shape="rect" id="node2" href="$structEhci_1_1qTD.html" title="{Ehci::qTD\n|+ bNextInvalid\l+ res0\l+ pNext\l+ bAltNextInvalid\l+ res1\l+ pAltNext\l+ nStatus\l+ nPid\l+ nErr\l+ nPage\land 19 more...\l|+ getError()\l}" alt="" coords="80,5,203,229"/>
+</map>

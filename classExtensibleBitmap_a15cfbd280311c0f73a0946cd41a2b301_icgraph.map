@@ -1,0 +1,18 @@
+<map id="ExtensibleBitmap::test" name="ExtensibleBitmap::test">
+<area shape="rect" id="node2" href="$classExtensibleBitmap.html#aa3c0efbbb323836a50933b6bed82731b" title="ExtensibleBitmap::clear" alt="" coords="208,183,368,209"/>
+<area shape="rect" id="node15" href="$classPosixSubsystem.html#a5a62f6e4c75ca0d2a0f55952aef284ce" title="PosixSubsystem::getFd" alt="" coords="444,411,607,437"/>
+<area shape="rect" id="node16" href="$classExtensibleBitmap.html#abddd442c02652eea0d0e53f4fc67c391" title="ExtensibleBitmap::set" alt="" coords="213,309,363,336"/>
+<area shape="rect" id="node3" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="436,309,615,336"/>
+<area shape="rect" id="node5" href="$classUsbHub.html#a67da0a92407a7677e2693dc1246316a3" title="Called when a device is disconnected from a port on the hub. " alt="" coords="427,107,623,133"/>
+<area shape="rect" id="node6" href="$classPosixSubsystem.html#a84b925eaca9513c11c19a0d25d00b66e" title="PosixSubsystem::freeFd" alt="" coords="442,157,609,184"/>
+<area shape="rect" id="node8" href="$classPosixSubsystem.html#ab036c1a2edb91e183e080015a3c56f0f" title="PosixSubsystem::freeMultipleFds" alt="" coords="416,56,635,83"/>
+<area shape="rect" id="node14" href="$classThread.html#ad4c8a76165f162c321393651dc05e048" title="Thread::inhibitEvent" alt="" coords="456,208,595,235"/>
+<area shape="rect" id="node4" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="717,294,884,335"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem.html#ac2d6e4d427bc8c967ca42577f202c6ee" title="PosixSubsystem::addFileDescriptor" alt="" coords="685,360,916,387"/>
+<area shape="rect" id="node9" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="683,5,919,32"/>
+<area shape="rect" id="node10" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="725,56,876,83"/>
+<area shape="rect" id="node12" href="$classPosixSubsystem.html#a51aa70c0374ef76adf8528118742d56f" title="PosixSubsystem::copyDescriptors" alt="" coords="689,200,913,227"/>
+<area shape="rect" id="node13" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="717,107,884,133"/>
+<area shape="rect" id="node11" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="967,56,1133,83"/>
+<area shape="rect" id="node17" href="$classPosixSubsystem.html#a4ae2de7057684dd68de428eb829659f1" title="PosixSubsystem::allocateFd" alt="" coords="431,360,620,387"/>
+</map>

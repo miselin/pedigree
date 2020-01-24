@@ -1,0 +1,5 @@
+<map id="GPTimer" name="GPTimer">
+<area shape="rect" id="node2" href="$classTimer.html" title="{Timer\n||+ getYear()\l+ getMonth()\l+ getDayOfMonth()\l+ getDayOfWeek()\l+ getHour()\l+ getMinute()\l+ getSecond()\l+ getNanosecond()\l+ getTickCount()\l+ getTickCountNano()\land 7 more...\l# Timer()\l# ~Timer()\l&#45; Timer()\l&#45; operator=()\l}" alt="" coords="5,5,156,288"/>
+<area shape="rect" id="node3" href="$classSchedulerTimer.html" title="{SchedulerTimer\n||+ registerHandler()\l# SchedulerTimer()\l# ~SchedulerTimer()\l&#45; SchedulerTimer()\l&#45; operator=()\l}" alt="" coords="180,79,320,215"/>
+<area shape="rect" id="node4" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="344,101,487,193"/>
+</map>

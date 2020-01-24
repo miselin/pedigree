@@ -1,0 +1,20 @@
+<map id="sockets.h" name="sockets.h">
+<area shape="rect" id="node2" href="$init_8c.html" title="init.c" alt="" coords="847,80,897,107"/>
+<area shape="rect" id="node3" href="$memp_8c.html" title="memp.c" alt="" coords="921,80,991,107"/>
+<area shape="rect" id="node4" href="$socket_8h.html" title="socket.h" alt="" coords="1015,80,1087,107"/>
+<area shape="rect" id="node5" href="$net-syscalls_8h_source.html" title="net&#45;syscalls.h" alt="" coords="541,229,643,256"/>
+<area shape="rect" id="node8" href="$net-syscalls_8cc_source.html" title="net&#45;syscalls.cc" alt="" coords="857,304,967,331"/>
+<area shape="rect" id="node13" href="$glue_8c_source.html" title="glue.c" alt="" coords="975,155,1033,181"/>
+<area shape="rect" id="node14" href="$UnixFilesystem_8h_source.html" title="UnixFilesystem.h" alt="" coords="722,155,846,181"/>
+<area shape="rect" id="node16" href="$net-test_8c_source.html" title="net&#45;test.c" alt="" coords="1057,155,1135,181"/>
+<area shape="rect" id="node17" href="$objects_8cc_source.html" title="objects.cc" alt="" coords="1159,155,1241,181"/>
+<area shape="rect" id="node18" href="$winman_8cc_source.html" title="winman.cc" alt="" coords="1265,155,1351,181"/>
+<area shape="rect" id="node19" href="$Widget_8cc_source.html" title="Widget.cc" alt="" coords="1375,155,1457,181"/>
+<area shape="rect" id="node6" href="$file-syscalls_8cc_source.html" title="file&#45;syscalls.cc" alt="" coords="483,304,592,331"/>
+<area shape="rect" id="node7" href="$FileDescriptor_8cc_source.html" title="FileDescriptor.cc" alt="" coords="617,304,738,331"/>
+<area shape="rect" id="node9" href="$poll-syscalls_8cc_source.html" title="poll&#45;syscalls.cc" alt="" coords="5,304,117,331"/>
+<area shape="rect" id="node10" href="$posix_8cc_source.html" title="posix.cc" alt="" coords="762,304,833,331"/>
+<area shape="rect" id="node11" href="$PosixSyscallManager_8cc_source.html" title="PosixSyscallManager.cc" alt="" coords="141,304,307,331"/>
+<area shape="rect" id="node12" href="$select-syscalls_8cc_source.html" title="select&#45;syscalls.cc" alt="" coords="331,304,458,331"/>
+<area shape="rect" id="node15" href="$UnixFilesystem_8cc_source.html" title="UnixFilesystem.cc" alt="" coords="719,229,849,256"/>
+</map>

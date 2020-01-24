@@ -1,0 +1,5 @@
+<map id="WObject" name="WObject">
+<area shape="rect" id="node2" href="$classContainer.html" title="{Container\n|# m_Children\l&#45; m_pParent\l&#45; m_Layout\l&#45; m_pFocusWindow\l|+ Container()\l+ ~Container()\l+ getType()\l+ getLayout()\l+ setLayout()\l+ getFocusWindow()\l+ setFocusWindow()\l+ addChild()\l+ replaceChild()\l+ insertChild()\land 17 more...\l# Container()\l}" alt="" coords="5,387,148,670"/>
+<area shape="rect" id="node4" href="$classWindow.html" title="{Window\n|&#45; m_Handle\l&#45; m_pParent\l&#45; m_Framebuffer\l&#45; m_sWindowTitle\l&#45; m_Dirty\l&#45; m_bPendingDecoration\l&#45; m_bFocus\l&#45; m_bRefresh\l&#45; m_nRegionWidth\l&#45; m_nRegionHeight\l&#45; m_Socket\l&#45; m_Sa\l&#45; m_SaLen\l|+ Window()\l+ Window()\l+ ~Window()\l+ getType()\l+ setTitle()\l+ render()\l+ resize()\l+ focus()\l+ nofocus()\l+ norefresh()\land 10 more...\l&#45; isClientDirty()\l}" alt="" coords="173,321,338,736"/>
+<area shape="rect" id="node3" href="$classRootContainer.html" title="{RootContainer\n||+ RootContainer()\l+ getType()\l+ resize()\l}" alt="" coords="13,784,140,891"/>
+</map>

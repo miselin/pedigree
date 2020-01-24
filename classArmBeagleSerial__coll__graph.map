@@ -1,0 +1,5 @@
+<map id="ArmBeagleSerial" name="ArmBeagleSerial">
+<area shape="rect" id="node2" href="$classSerial.html" title="{Serial\n||+ ~Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ write()\l}" alt="" coords="5,115,129,266"/>
+<area shape="rect" id="node3" href="$classInterruptHandler.html" title="Abstract base class for interrupt&#45;handlers. " alt="" coords="153,145,296,237"/>
+<area shape="rect" id="node4" href="$classMemoryRegion.html" title="Special memory entity in the kernel&#39;s virtual address space. " alt="" coords="321,5,497,376"/>
+</map>

@@ -1,0 +1,3 @@
+<map id="SignalEvent" name="SignalEvent">
+<area shape="rect" id="node2" href="$classEvent.html" title="{Event\n|# m_HandlerAddress\l# m_bIsDeletable\l# m_NestingLevel\l# m_Magic\l# m_Threads\l# m_Lock\l|+ Event()\l+ ~Event()\l+ isDeletable()\l+ serialize()\l+ getHandlerAddress()\l+ getSpecificNestingLevel()\l+ getNumber()\l+ Event()\l+ operator=()\l+ registerThread()\l+ deregisterThread()\l+ pendingCount()\l+ waitForDeliveries()\l+ getTrampoline()\l+ getSecondaryTrampoline()\l+ getHandlerBuffer()\l+ getLastHandlerBuffer()\l+ unserialize()\l+ getEventType()\l}" alt="" coords="5,5,192,420"/>
+</map>

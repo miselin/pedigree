@@ -1,0 +1,4 @@
+<map id="ZombieObject" name="ZombieObject">
+<area shape="rect" id="node2" href="$classZombiePipe.html" title="{ZombiePipe\n|&#45; m_pPipe\l|+ ZombiePipe()\l+ ~ZombiePipe()\l}" alt="" coords="5,131,124,223"/>
+<area shape="rect" id="node3" href="$classZombieProcess.html" title="Special wrapper object for Process. " alt="" coords="147,131,289,223"/>
+</map>

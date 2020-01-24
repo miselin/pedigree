@@ -1,0 +1,10 @@
+<map id="SymbolTable::preallocateAdditional" name="SymbolTable::preallocateAdditional">
+<area shape="rect" id="node2" href="$classElf.html#aa7cb80b7bbdb030759b184766133f984" title="Elf::preallocateSymbols" alt="" coords="223,23,383,49"/>
+<area shape="rect" id="node3" href="$classElf.html#aa7c6020a756cfdc503a2c62c8f032ffb" title="Elf::allocate" alt="" coords="471,73,561,100"/>
+<area shape="rect" id="node4" href="$classElf.html#a9f301088b6d4d8a07e5ac3dca8bfca19" title="Elf::loadModule" alt="" coords="683,23,795,49"/>
+<area shape="rect" id="node9" href="$classElf.html#a2f6b07c31f79f025df893df1a690e263" title="Elf::populateSymbolTable" alt="" coords="431,23,601,49"/>
+<area shape="rect" id="node7" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="649,73,828,100"/>
+<area shape="rect" id="node8" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="876,99,1067,125"/>
+<area shape="rect" id="node5" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="897,23,1046,49"/>
+<area shape="rect" id="node6" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="1115,23,1293,49"/>
+</map>

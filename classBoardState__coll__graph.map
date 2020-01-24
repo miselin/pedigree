@@ -1,0 +1,4 @@
+<map id="BoardState" name="BoardState">
+<area shape="rect" id="node2" href="$classSideState.html" title="{SideState\n|+ rooksMoved\l+ kingMoved\l+ hasCastled\l+ nextPiece\l|+ SideState()\l+ ~SideState()\l+ friendlyMove()\l+ enemyMove()\l+ isLegal()\l+ isCastle()\l+ isAttacking()\l+ heuristic()\l+ firstPawn()\l+ firstRook()\l+ firstKnight()\l+ firstBishop()\l+ firstQueen()\l+ firstKing()\l+ next()\l}" alt="" coords="45,439,161,765"/>
+<area shape="rect" id="node3" href="$classBitboard.html" title="{Bitboard\n|+ i\l+ c\l&#45; member\l|+ Bitboard()\l+ Bitboard()\l+ Bitboard()\l+ ~Bitboard()\l+ getRank()\l+ setRank()\l+ test()\l+ clear()\l+ set()\l+ clear()\land 15 more...\l}" alt="" coords="50,5,157,259"/>
+</map>

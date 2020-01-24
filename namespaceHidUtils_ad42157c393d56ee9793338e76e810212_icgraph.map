@@ -1,0 +1,5 @@
+<map id="HidUtils::fixNegativeValue" name="HidUtils::fixNegativeValue">
+<area shape="rect" id="node2" href="$structHidReport_1_1InputBlock.html#a51f3e1ba798499107d0e3858746ceac6" title="Feeds input to this block. " alt="" coords="229,29,380,71"/>
+<area shape="rect" id="node3" href="$structHidReport_1_1Collection.html#aa51b9fc0689ad9d4cd37afd7656c0b3e" title="HidReport::Collection\l::feedInput" alt="" coords="428,29,575,71"/>
+<area shape="rect" id="node4" href="$classHidReport.html#a77c2765a52344f56da7c1e20deeba1be" title="Feeds the input interpreter with a new input buffer. " alt="" coords="623,37,765,63"/>
+</map>

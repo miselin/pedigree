@@ -1,0 +1,7 @@
+<map id="Pit" name="Pit">
+<area shape="rect" id="node2" href="$classSchedulerTimer.html" title="{SchedulerTimer\n||+ registerHandler()\l# SchedulerTimer()\l# ~SchedulerTimer()\l&#45; SchedulerTimer()\l&#45; operator=()\l}" alt="" coords="5,455,145,591"/>
+<area shape="rect" id="node3" href="$classIrqHandler.html" title="{IrqHandler\n||+ IrqHandler()\l+ irq()\l# ~IrqHandler()\l}" alt="" coords="170,469,279,576"/>
+<area shape="rect" id="node4" href="$classIoPort.html" title="I/O port range. " alt="" coords="303,381,402,664"/>
+<area shape="rect" id="node5" href="$classIoBase.html" title="Abstrace base class for hardware I/O capabilities. " alt="" coords="284,5,421,332"/>
+<area shape="rect" id="node6" href="$classTimerHandler.html" title="{TimerHandler\n||+ timer()\l# ~TimerHandler()\l}" alt="" coords="427,477,553,569"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="FatFilesystem::setClusterEntry" name="FatFilesystem::setClusterEntry">
+<area shape="rect" id="node2" href="$classFatDirectory.html#afb7cb216b03b7bdff0b7da5db5594734" title="FatDirectory::addEntry" alt="" coords="227,56,381,83"/>
+<area shape="rect" id="node3" href="$classFatFilesystem.html#aef1ad9be6b6a15e9b2994cbf5d1e7cf7" title="FatFilesystem::createFile" alt="" coords="442,5,613,32"/>
+<area shape="rect" id="node4" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="429,56,625,83"/>
+<area shape="rect" id="node5" href="$classFatDirectory.html#ab16902f9839db9c4f9820f4784c5022d" title="FatDirectory::truncate" alt="" coords="453,107,602,133"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="ScsiCommands::Read16" name="ScsiCommands::Read16">
+<area shape="rect" id="node2" href="$classScsiCommand.html" title="{ScsiCommand\n||+ ScsiCommand()\l+ ~ScsiCommand()\l+ serialise()\l}" alt="" coords="5,64,141,171"/>
+<area shape="rect" id="node3" href="$structScsiCommands_1_1Read16_1_1command.html" title="{ScsiCommands::Read16\l::command\n|+ nOpCode\l+ bRelAddr\l+ res0\l+ bFUA\l+ bDPO\l+ res1\l+ nLba\l+ nSectors\l+ res2\l+ nControl\l|}" alt="" coords="165,5,333,229"/>
+</map>

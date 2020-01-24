@@ -1,0 +1,8 @@
+<map id="SerialLogger" name="SerialLogger">
+<area shape="rect" id="node2" href="$classLog_1_1LogCallback.html" title="{Log::LogCallback\n||+ callback()\l+ ~LogCallback()\l}" alt="" coords="5,410,128,502"/>
+<area shape="rect" id="node3" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="153,285,301,627"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="96,145,229,223"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="169,5,311,83"/>
+<area shape="rect" id="node6" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="254,145,365,223"/>
+<area shape="rect" id="node7" href="$classSerial.html" title="{Serial\n||+ ~Serial()\l+ setBase()\l+ read()\l+ readNonBlock()\l+ write()\l+ write()\l}" alt="" coords="325,381,449,531"/>
+</map>

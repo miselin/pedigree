@@ -1,0 +1,8 @@
+<map id="RequestQueue::halt" name="RequestQueue::halt">
+<area shape="rect" id="node2" href="$classRequestQueue.html#a626fae68426621ecaf91e3970e852768" title="RequestQueue::destroy" alt="" coords="192,23,352,49"/>
+<area shape="rect" id="node4" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="209,107,335,133"/>
+<area shape="rect" id="node3" href="$classRequestQueue.html#a5f2f469937c7769d19158c7771b4a676" title="RequestQueue::RequestQueue" alt="" coords="400,5,604,32"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="423,57,581,98"/>
+<area shape="rect" id="node6" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="435,123,569,149"/>
+<area shape="rect" id="node7" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="443,173,561,200"/>
+</map>

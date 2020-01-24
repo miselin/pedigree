@@ -1,0 +1,5 @@
+<map id="Nic3C90x::readEeprom" name="Nic3C90x::readEeprom">
+<area shape="rect" id="node2" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="424,5,565,32"/>
+<area shape="rect" id="node3" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="421,68,568,95"/>
+<area shape="rect" id="node4" href="$classNic3C90x.html#ab1f5e18fc465119371525acc1c50dbd0" title="Nic3C90x::writeEeprom" alt="" coords="212,31,373,57"/>
+</map>

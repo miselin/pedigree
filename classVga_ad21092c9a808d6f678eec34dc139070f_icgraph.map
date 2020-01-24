@@ -1,0 +1,5 @@
+<map id="Vga::setMode" name="Vga::setMode">
+<area shape="rect" id="node2" href="$classFramebufferFile.html#a6394c053b50f045b8f8c4cff7d6c26ed" title="FramebufferFile::command" alt="" coords="177,5,356,32"/>
+<area shape="rect" id="node3" href="$classVbeDisplay.html#ade3f4466a4d380c97c023c71555d2c38" title="VbeDisplay::setScreenMode" alt="" coords="173,56,361,83"/>
+<area shape="rect" id="node4" href="$classVmwareGraphics.html#a302605a525bb24ea476cfc036ddc171f" title="VmwareGraphics::setScreenMode" alt="" coords="156,107,377,133"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="ScsiCommands::Write12" name="ScsiCommands::Write12">
+<area shape="rect" id="node2" href="$classScsiCommand.html" title="{ScsiCommand\n||+ ScsiCommand()\l+ ~ScsiCommand()\l+ serialise()\l}" alt="" coords="5,71,141,178"/>
+<area shape="rect" id="node3" href="$structScsiCommands_1_1Write12_1_1command.html" title="{ScsiCommands::Write12\l::command\n|+ nOpCode\l+ obs\l+ bFUA_NV\l+ res1\l+ bFUA\l+ bDPO\l+ nWrProtect\l+ nLba\l+ nSectors\l+ res2\l+ nControl\l|}" alt="" coords="165,5,333,244"/>
+</map>

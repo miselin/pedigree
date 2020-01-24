@@ -1,0 +1,6 @@
+<map id="Vga::moveCursor" name="Vga::moveCursor">
+<area shape="rect" id="node2" href="$classLocalIO.html#a91393062ea209c685788ea528a11140b" title="LocalIO::moveCursor" alt="" coords="177,56,324,83"/>
+<area shape="rect" id="node3" href="$classLocalIO.html#ac11d89c02a54cbd665f7e7afa84fac8e" title="LocalIO::drawString" alt="" coords="390,5,527,32"/>
+<area shape="rect" id="node4" href="$classLocalIO.html#a799a987bd069cb0139f84b24a961e4b8" title="LocalIO::enableRefreshes" alt="" coords="372,56,545,83"/>
+<area shape="rect" id="node5" href="$classLocalIO.html#aac4194b23c317201924975a3bfacaff4" title="LocalIO::getWidth" alt="" coords="593,81,720,108"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="MemoryPool::allocate" name="MemoryPool::allocate">
+<area shape="rect" id="node2" href="$classDm9601.html#a65c4e34f17e515047194505d9b2ed73e" title="Dm9601::send" alt="" coords="201,5,308,32"/>
+<area shape="rect" id="node4" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="210,56,299,83"/>
+<area shape="rect" id="node3" href="$classDm9601.html#aefea1f377dc27553fa5c64223eaf434c" title="Dm9601::getName" alt="" coords="360,5,492,32"/>
+<area shape="rect" id="node5" href="$classNe2k.html#afb3182a707c388a10b732a5d879d4450" title="Ne2k::getName" alt="" coords="369,56,483,83"/>
+<area shape="rect" id="node6" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="356,107,496,149"/>
+</map>

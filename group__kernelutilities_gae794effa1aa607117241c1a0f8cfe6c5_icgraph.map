@@ -1,0 +1,51 @@
+<map id="Vector::count" name="Vector::count">
+<area shape="rect" id="node2" href="$classExt2Directory.html#a5b7ecbd5ee2645c044f465037da6f25a" title="Ext2Directory::addEntry" alt="" coords="433,71,596,98"/>
+<area shape="rect" id="node5" href="$classIoPortManager.html#a5b5171672ac3c94bea19957c5042bce5" title="IoPortManager::allocateIo\lPortList" alt="" coords="174,443,345,484"/>
+<area shape="rect" id="node7" href="$classPhysicalMemoryManager.html#a68a4a8dd795e37f16c6122b81809e7d6" title="PhysicalMemoryManager\l::allocateMemoryRegionList" alt="" coords="167,325,351,367"/>
+<area shape="rect" id="node8" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="167,508,351,549"/>
+<area shape="rect" id="node9" href="$group__kernelutilities.html#ga24fa32004a576758e88d550c5aa4fc86" title="Vector::assign" alt="" coords="206,574,313,601"/>
+<area shape="rect" id="node12" href="$classExt2Directory.html#a077f08fd2241930e541d98035a1e108c" title="Ext2Directory::cacheDirectory\lContents" alt="" coords="160,5,359,47"/>
+<area shape="rect" id="node13" href="$classDevice.html#aaa405b5d06277752c2f05e2f1cbc895a" title="Device::Device" alt="" coords="203,625,315,651"/>
+<area shape="rect" id="node14" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="170,675,349,702"/>
+<area shape="rect" id="node16" href="$classUsbHub.html#a67da0a92407a7677e2693dc1246316a3" title="Called when a device is disconnected from a port on the hub. " alt="" coords="161,726,357,753"/>
+<area shape="rect" id="node17" href="$group__kernelutilities.html#ga7ef53a835474c36ab5a82e03777ad094" title="RadixTree::Node::doNext" alt="" coords="174,777,345,803"/>
+<area shape="rect" id="node18" href="$classRangeList.html#aa4290e22063db6d59c14963d747a8ccd" title="RangeList::dump" alt="" coords="199,827,320,854"/>
+<area shape="rect" id="node19" href="$classExt2Node.html#a454662b976bc75f9d02406f42fe35b71" title="Ext2Node::ensureLargeEnough" alt="" coords="413,173,616,199"/>
+<area shape="rect" id="node21" href="$classExt2Node.html#a0aa5536e1ea4d363001ce32c147be342" title="Ext2Node::wipe" alt="" coords="701,223,815,250"/>
+<area shape="rect" id="node22" href="$classExt2Directory.html#a2fdfeb17dba27bef1d3108f81f0eb21a" title="Ext2Directory::removeEntry" alt="" coords="900,223,1084,250"/>
+<area shape="rect" id="node23" href="$classKernelElf.html#a35d15ecd4ac32c5bcd5864d3f7201653" title="KernelElf::executeModules" alt="" coords="425,843,604,870"/>
+<area shape="rect" id="node24" href="$classExt2Node.html#a7408e80b9ef789d60b3c7ede8174e938" title="Ext2Node::fileAttributeChanged" alt="" coords="156,122,363,149"/>
+<area shape="rect" id="node25" href="$classIoPortManager.html#a5ef2a48ef3f0098e80a67cb80eb7002b" title="IoPortManager::freeIoPortList" alt="" coords="163,391,356,418"/>
+<area shape="rect" id="node26" href="$classPhysicalMemoryManager.html#a31f2033c670730386cd7fb01d6f23cb5" title="PhysicalMemoryManager\l::freeMemoryRegionList" alt="" coords="175,980,344,1021"/>
+<area shape="rect" id="node27" href="$classDevice.html#a08125eed19086d54ee226ff9fec29203" title="Device::getNumChildren" alt="" coords="177,1046,342,1073"/>
+<area shape="rect" id="node35" href="$classNetworkStack.html#aa2d67d4fd0884f63f69270f61e064b08" title="NetworkStack::getNumDevices" alt="" coords="156,1097,363,1123"/>
+<area shape="rect" id="node36" href="$classProcess.html#a6c78e751335de3a9199568c2def2fca9" title="Process::getNumThreads" alt="" coords="174,1147,345,1174"/>
+<area shape="rect" id="node37" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="431,1265,598,1291"/>
+<area shape="rect" id="node38" href="$classProcess.html#a1252e76a44d1d7da581224c8064b294c" title="Process::getThread" alt="" coords="191,1299,327,1326"/>
+<area shape="rect" id="node39" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="431,1345,598,1371"/>
+<area shape="rect" id="node40" href="$structHidReport_1_1LocalState.html#abce260458f6763e5dac4ef9b17375f4a" title="Returns the usage number represented by the given index. " alt="" coords="184,1401,335,1443"/>
+<area shape="rect" id="node41" href="$classKernelElf.html#abe6544ea7cb41fdee25f10a0fc211638" title="KernelElf::loadModule" alt="" coords="185,878,334,905"/>
+<area shape="rect" id="node42" href="$classConsoleManager.html#af5aa5a854663859bf97874653083c92e" title="ConsoleManager::newConsole" alt="" coords="159,1467,359,1494"/>
+<area shape="rect" id="node43" href="$classPosixSubsystem.html#a5bbd21893924596a4ef7fcb134d94e33" title="PosixSubsystem::parseShebang" alt="" coords="153,1198,365,1225"/>
+<area shape="rect" id="node44" href="$group__kernelutilities.html#ga1da20db739437803d52cdfcf3a0b14bc" title="RadixTree::remove" alt="" coords="193,1518,326,1545"/>
+<area shape="rect" id="node45" href="$classRangeList.html#a4305a1cd68e6dd28f64365248378c704" title="RangeList::sweep" alt="" coords="196,1569,323,1595"/>
+<area shape="rect" id="node46" href="$classExt2Node.html#a98e874870339004f52de0561b5b0afbf" title="Ext2Node::updateMetadata" alt="" coords="169,1619,350,1646"/>
+<area shape="rect" id="node47" href="$classKernelElf.html#a3a0c1fd2b8a645e23b82ecae22f58a72" title="KernelElf::waitForModules\lToLoad" alt="" coords="172,1671,347,1712"/>
+<area shape="rect" id="node48" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="172,1736,347,1777"/>
+<area shape="rect" id="node49" href="$classExt2Node.html#af83583ded224e0e1c2589274daf80f48" title="Ext2Node::~Ext2Node" alt="" coords="182,1802,337,1829"/>
+<area shape="rect" id="node50" href="$classRangeList.html#aaa2b6be84967af4ab24a8d492fbb1227" title="RangeList::~RangeList" alt="" coords="181,1853,337,1879"/>
+<area shape="rect" id="node3" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="1132,71,1289,98"/>
+<area shape="rect" id="node4" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="664,122,852,149"/>
+<area shape="rect" id="node6" href="$classIoCommand.html#a1d1dd9333d28553c1dee07db7c5a5341" title="IoCommand::execute" alt="" coords="441,391,588,418"/>
+<area shape="rect" id="node10" href="$group__kernelutilities.html#ga16cf2eddb61bf017e9a761c8eeb561c6" title="Vector::operator=" alt="" coords="453,595,576,622"/>
+<area shape="rect" id="node11" href="$group__kernelutilities.html#ga0d7a70dfd5fb3b6762e840e18306d9c6" title="Vector::Vector" alt="" coords="461,545,568,571"/>
+<area shape="rect" id="node15" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="431,668,598,709"/>
+<area shape="rect" id="node20" href="$classExt2File.html#a00ff4cb549c9d8378e7d375d08a54648" title="Ext2File::preallocate" alt="" coords="687,173,829,199"/>
+<area shape="rect" id="node28" href="$classAtaController.html#a62eacd994bb3866967534fcfce2ac70f" title="AtaController::irq" alt="" coords="455,1147,575,1174"/>
+<area shape="rect" id="node29" href="$classDevice.html#ad1eb151a044263eb721a4a4256b6e87f" title="Device::searchByVendorId\lInternal" alt="" coords="425,1199,604,1240"/>
+<area shape="rect" id="node30" href="$classDevicesCommand.html#a8593a51f257aa8b09e8c76dcdb744c7c" title="DevicesCommand::execute" alt="" coords="423,894,607,921"/>
+<area shape="rect" id="node31" href="$classHeathrow.html#a873945938f70f52c5d3601863da32f9d" title="Heathrow::unregisterHandler" alt="" coords="421,945,609,971"/>
+<area shape="rect" id="node32" href="$classOpenPic.html#a5fb453c744fa02e05203a0867d7a4414" title="OpenPic::unregisterHandler" alt="" coords="423,995,606,1022"/>
+<area shape="rect" id="node33" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="676,1064,840,1105"/>
+<area shape="rect" id="node34" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="445,1046,584,1073"/>
+</map>

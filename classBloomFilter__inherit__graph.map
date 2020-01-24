@@ -1,0 +1,3 @@
+<map id="BloomFilter&lt; T &gt;" name="BloomFilter&lt; T &gt;">
+<area shape="rect" id="node2" href="$classBloomFilter.html" title="{BloomFilter\&lt; uintptr_t \&gt;\n|&#45; m_Bitmap\l&#45; m_nLength\l&#45; m_nHashCount\l|+ BloomFilter()\l+ ~BloomFilter()\l+ add()\l+ add()\l+ contains()\l+ contains()\l+ clear()\l}" alt="" coords="5,263,164,457"/>
+</map>

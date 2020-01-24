@@ -1,0 +1,8 @@
+<map id="SlamAllocator" name="SlamAllocator">
+<area shape="rect" id="node6" href="$classSlamCache.html" title="{SlamCache\n|&#45; m_ObjectSize\l&#45; m_SlabSize\l&#45; m_FirstSlab\l|+ __attribute__()\l+ SlamCache()\l+ ~SlamCache()\l+ initialise()\l+ allocate()\l+ free()\l+ recovery()\l+ isPointerValid()\l+ objectSize()\l+ slabSize()\l&#45; SlamCache()\l&#45; operator=()\l&#45; pop()\l&#45; push()\l&#45; getSlab()\l&#45; freeSlab()\l&#45; initialiseSlab()\l}" alt="" coords="244,1123,367,1464"/>
+<area shape="rect" id="node2" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="181,285,329,627"/>
+<area shape="rect" id="node3" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="124,145,257,223"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="197,5,339,83"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="282,145,393,223"/>
+<area shape="rect" id="node7" href="$structSlamCache_1_1Node.html" title="{SlamCache::Node\n|+ magic\l|}" alt="" coords="487,829,617,906"/>
+</map>

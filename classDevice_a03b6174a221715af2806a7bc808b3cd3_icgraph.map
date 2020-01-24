@@ -1,0 +1,12 @@
+<map id="Device::getParent" name="Device::getParent">
+<area shape="rect" id="node2" href="$classUsbHub.html#a5d3f5c4813bd258cc18b26e2c713b971" title="Called when a device is connected to a port on the hub. " alt="" coords="189,13,367,39"/>
+<area shape="rect" id="node4" href="$classUsbHub.html#a67da0a92407a7677e2693dc1246316a3" title="Called when a device is disconnected from a port on the hub. " alt="" coords="180,63,376,90"/>
+<area shape="rect" id="node5" href="$classDevicesCommand.html#a8593a51f257aa8b09e8c76dcdb744c7c" title="DevicesCommand::execute" alt="" coords="186,114,370,141"/>
+<area shape="rect" id="node6" href="$classPartition.html#a149406cfb81b15cdaacae810d4f4a356" title="Gets the block size of the disk. " alt="" coords="201,165,355,191"/>
+<area shape="rect" id="node7" href="$classDm9601.html#a4b6f4fac5d984ba6874e948269c2491e" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="197,215,359,242"/>
+<area shape="rect" id="node8" href="$classNe2k.html#a7a21a7e54926ef73242b3706ecfe251d" title="Ne2k::Ne2k" alt="" coords="232,266,324,293"/>
+<area shape="rect" id="node9" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="205,317,351,343"/>
+<area shape="rect" id="node10" href="$classPartition.html#a433d8226ab863f5e3a0064fde84a5957" title="Partition::read" alt="" coords="227,367,329,394"/>
+<area shape="rect" id="node11" href="$classPartition.html#afecaf343ff3d38848845fb0d852b028c" title="Partition::write" alt="" coords="225,418,331,445"/>
+<area shape="rect" id="node3" href="$classUsbHubDevice.html#ad562c128a0a86d329eb472ab0b3b8105" title="Implemented by the driver class, initialises driver&#45;specific stuff. " alt="" coords="424,5,591,47"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="Multiprocessor" name="Multiprocessor">
+<area shape="rect" id="node2" href="$classSpinlock.html" title="{Spinlock\n|+ allow_recursion\l&#45; m_bInterrupts\l&#45; m_Sentinel\l&#45; m_Magic\l&#45; m_MagicAlign\l&#45; m_pOwner\l&#45; m_Level\l&#45; m_OwnedProcessor\l&#45; m_Ra\l&#45; m_bAvoidTracking\l&#45; m_bOwned\l|+ Spinlock()\l+ Spinlock()\l+ acquire()\l+ exit()\l+ release()\l+ acquired()\l+ interrupts()\l&#45; unwind()\l&#45; trackRelease()\l}" alt="" coords="62,285,210,627"/>
+<area shape="rect" id="node3" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="5,145,139,223"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; T, bAllow \&gt;\n||}" alt="" coords="78,5,221,83"/>
+<area shape="rect" id="node5" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="163,145,274,223"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="Terminal::initialise" name="Terminal::initialise">
+<area shape="rect" id="node2" href="$classTui.html#a21e37ee87f01e9aaff20a6e2b5397a1c" title="(Re&#45;)initialise the terminal " alt="" coords="190,17,285,43"/>
+<area shape="rect" id="node4" href="$classTextIO.html#a49c5564ff82cf9a087c7e89493dddd35" title="TextIO::writeStr" alt="" coords="180,71,295,98"/>
+<area shape="rect" id="node3" href="$classPedigreeTerminalEmulator.html#aead62bb553957f36b0984edd27b41deb" title="PedigreeTerminalEmulator\l::render" alt="" coords="343,5,517,47"/>
+<area shape="rect" id="node5" href="$classVirtualTerminalManager.html#a72fcf824eefa7ee5fb8099de36ed0cb1" title="VirtualTerminalManager\l::openInactive" alt="" coords="351,71,509,112"/>
+</map>

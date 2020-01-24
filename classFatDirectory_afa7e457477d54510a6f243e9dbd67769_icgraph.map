@@ -1,0 +1,5 @@
+<map id="FatDirectory::setInode" name="FatDirectory::setInode">
+<area shape="rect" id="node2" href="$classFatFilesystem.html#a19979882ad945a91047e88aed324eb28" title="FatFilesystem::createDirectory" alt="" coords="205,5,408,32"/>
+<area shape="rect" id="node3" href="$classFatDirectory.html#a5036adf5e5ecef1b7f7c523955d67f44" title="FatDirectory::FatDirectory" alt="" coords="219,56,394,83"/>
+<area shape="rect" id="node4" href="$classFatDirectory.html#ab16902f9839db9c4f9820f4784c5022d" title="FatDirectory::truncate" alt="" coords="232,107,381,133"/>
+</map>

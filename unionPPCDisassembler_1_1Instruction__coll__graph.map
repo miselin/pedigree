@@ -1,0 +1,12 @@
+<map id="PPCDisassembler::Instruction" name="PPCDisassembler::Instruction">
+<area shape="rect" id="node2" href="$structPPCDisassembler_1_1InstructionFormB.html" title="{PPCDisassembler::Instruction\lFormB\n|+ opcode\l+ bo\l+ bi\l+ bd\l+ aa\l+ lk\l|}" alt="" coords="5,13,204,178"/>
+<area shape="rect" id="node3" href="$structPPCDisassembler_1_1InstructionFormXL.html" title="{PPCDisassembler::Instruction\lFormXL\n|+ opcode\l+ bo\l+ bi\l+ crbB\l+ xo\l+ lk\l|}" alt="" coords="228,13,427,178"/>
+<area shape="rect" id="node4" href="$structPPCDisassembler_1_1InstructionFormSC.html" title="{PPCDisassembler::Instruction\lFormSC\n|+ opcode\l+ zero\l+ one\l+ zero2\l|}" alt="" coords="451,27,649,163"/>
+<area shape="rect" id="node5" href="$structPPCDisassembler_1_1InstructionFormD.html" title="{PPCDisassembler::Instruction\lFormD\n|+ opcode\l+ d\l+ a\l+ imm\l|}" alt="" coords="673,27,872,163"/>
+<area shape="rect" id="node6" href="$structPPCDisassembler_1_1InstructionFormDS.html" title="{PPCDisassembler::Instruction\lFormDS\n|+ opcode\l+ d\l+ a\l+ ds\l+ xo\l|}" alt="" coords="896,20,1095,171"/>
+<area shape="rect" id="node7" href="$structPPCDisassembler_1_1InstructionFormXO.html" title="{PPCDisassembler::Instruction\lFormXO\n|+ opcode\l+ d\l+ a\l+ b\l+ oe\l+ xo\l+ rc\l|}" alt="" coords="1119,5,1317,185"/>
+<area shape="rect" id="node8" href="$structPPCDisassembler_1_1InstructionFormXFX.html" title="{PPCDisassembler::Instruction\lFormXFX\n|+ opcode\l+ d\l+ spr\l+ xo\l+ zero\l|}" alt="" coords="1341,20,1540,171"/>
+<area shape="rect" id="node9" href="$structPPCDisassembler_1_1InstructionFormX.html" title="{PPCDisassembler::Instruction\lFormX\n|+ opcode\l+ d\l+ s\l+ b\l+ xo\l+ rc\l|}" alt="" coords="1564,13,1763,178"/>
+<area shape="rect" id="node10" href="$structPPCDisassembler_1_1InstructionFormI.html" title="{PPCDisassembler::Instruction\lFormI\n|+ opcode\l+ li\l+ aa\l+ lk\l|}" alt="" coords="1787,27,1985,163"/>
+<area shape="rect" id="node11" href="$structPPCDisassembler_1_1InstructionFormM.html" title="{PPCDisassembler::Instruction\lFormM\n|+ opcode\l+ s\l+ a\l+ sh\l+ mb\l+ me\l+ rc\l|}" alt="" coords="2009,5,2208,185"/>
+</map>

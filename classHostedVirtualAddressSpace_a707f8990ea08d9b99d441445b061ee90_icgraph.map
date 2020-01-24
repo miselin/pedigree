@@ -1,0 +1,15 @@
+<map id="HostedVirtualAddressSpace::isMapped" name="HostedVirtualAddressSpace::isMapped">
+<area shape="rect" id="node2" href="$classHostedVirtualAddressSpace.html#a56e88cf071da0c2b571e318a4550125e" title="HostedVirtualAddressSpace\l::switchAddressSpace" alt="" coords="240,165,427,207"/>
+<area shape="rect" id="node3" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="495,143,641,170"/>
+<area shape="rect" id="node14" href="$classHostedVirtualAddressSpace.html#aa3c4dbc66332d02b04b6a49dacea5b78" title="HostedVirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="475,195,661,236"/>
+<area shape="rect" id="node4" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="713,71,872,112"/>
+<area shape="rect" id="node10" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="713,136,872,177"/>
+<area shape="rect" id="node13" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="709,202,876,229"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="931,71,1089,112"/>
+<area shape="rect" id="node8" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="1144,5,1303,47"/>
+<area shape="rect" id="node6" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="1144,136,1303,177"/>
+<area shape="rect" id="node9" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="1144,71,1303,112"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1351,136,1509,177"/>
+<area shape="rect" id="node11" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="924,195,1096,236"/>
+<area shape="rect" id="node12" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="1168,202,1279,229"/>
+</map>

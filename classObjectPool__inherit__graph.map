@@ -1,0 +1,5 @@
+<map id="ObjectPool&lt; T, poolSize &gt;" name="ObjectPool&lt; T, poolSize &gt;">
+<area shape="rect" id="node2" href="$classObjectPool.html" title="{ObjectPool\&lt; RadixTree\l::Node \&gt;\n|&#45; m_Pool\l&#45; m_Spinlock\l|+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="5,204,164,355"/>
+<area shape="rect" id="node3" href="$classObjectPool.html" title="{ObjectPool\&lt; _ListNode\l_t, nodePoolSize \&gt;\n|&#45; m_Pool\l&#45; m_Spinlock\l|+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="189,204,346,355"/>
+<area shape="rect" id="node4" href="$classObjectPool.html" title="{ObjectPool\&lt; _ListNode\l_t, 16 \&gt;\n|&#45; m_Pool\l&#45; m_Spinlock\l|+ ObjectPool()\l+ ~ObjectPool()\l+ allocate()\l+ deallocate()\l}" alt="" coords="406,204,563,355"/>
+</map>

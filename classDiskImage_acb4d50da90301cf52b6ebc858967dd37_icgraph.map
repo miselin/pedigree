@@ -1,0 +1,5 @@
+<map id="DiskImage::unpin" name="DiskImage::unpin">
+<area shape="rect" id="node2" href="$classDiskImage.html#ad164622638c31b85dbe30a05f01326f8" title="Gets the block size of the disk. " alt="" coords="177,5,348,32"/>
+<area shape="rect" id="node3" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="396,5,515,32"/>
+<area shape="rect" id="node4" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="563,5,688,32"/>
+</map>

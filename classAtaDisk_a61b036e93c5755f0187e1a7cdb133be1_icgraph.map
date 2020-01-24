@@ -1,0 +1,7 @@
+<map id="AtaDisk::doWrite" name="AtaDisk::doWrite">
+<area shape="rect" id="node2" href="$classIsaAtaController.html#aac26e07eb5047145cd9e9b46596f22be" title="IsaAtaController::execute\lRequest" alt="" coords="176,5,347,47"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a8f305fb6613b0e87274a1b273fce3d68" title="PciAtaController::execute\lRequest" alt="" coords="176,71,347,112"/>
+<area shape="rect" id="node6" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="196,137,327,163"/>
+<area shape="rect" id="node3" href="$classIsaAtaController.html#acc1f8486eb5de23b6a1ebd3f602868b6" title="IsaAtaController::getName" alt="" coords="395,13,573,39"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="395,78,573,105"/>
+</map>

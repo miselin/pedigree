@@ -1,0 +1,9 @@
+<map id="ScsiDisk::doRead" name="ScsiDisk::doRead">
+<area shape="rect" id="node2" href="$classAtaDisk.html#a931998a76f0ddabb606e5b2bf25054bf" title="AtaDisk::doRead" alt="" coords="223,78,346,105"/>
+<area shape="rect" id="node8" href="$classScsiController.html#ac25f5a1547d70af2c1a3c00e07c20b4b" title="ScsiController::executeRequest" alt="" coords="181,129,388,155"/>
+<area shape="rect" id="node3" href="$classIsaAtaController.html#aac26e07eb5047145cd9e9b46596f22be" title="IsaAtaController::execute\lRequest" alt="" coords="436,5,607,47"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a8f305fb6613b0e87274a1b273fce3d68" title="PciAtaController::execute\lRequest" alt="" coords="436,71,607,112"/>
+<area shape="rect" id="node7" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="456,137,587,163"/>
+<area shape="rect" id="node4" href="$classIsaAtaController.html#acc1f8486eb5de23b6a1ebd3f602868b6" title="IsaAtaController::getName" alt="" coords="655,13,833,39"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="655,78,833,105"/>
+</map>

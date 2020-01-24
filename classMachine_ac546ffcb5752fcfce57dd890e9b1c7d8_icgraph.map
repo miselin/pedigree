@@ -1,0 +1,27 @@
+<map id="Machine::getTimer" name="Machine::getTimer">
+<area shape="rect" id="node2" href="$classSemaphore.html#a408d218d5e8497c4dfa7b3e31f8daaac" title="Semaphore::acquireWithResult" alt="" coords="184,5,387,32"/>
+<area shape="rect" id="node3" href="$classRequestQueue.html#a626fae68426621ecaf91e3970e852768" title="RequestQueue::destroy" alt="" coords="205,56,365,83"/>
+<area shape="rect" id="node5" href="$classCacheManager.html#a411b65fac6ab596f1b2359d7e0c59b6b" title="CacheManager::initialise" alt="" coords="454,99,619,125"/>
+<area shape="rect" id="node6" href="$classRequestQueue.html#aa87ccddad577b380a648dd744e4f7d11" title="RequestQueue::initialise" alt="" coords="203,157,367,184"/>
+<area shape="rect" id="node14" href="$classIntervalTimer.html#a06ca60432dd14e479e75b66a68518daa" title="IntervalTimer::IntervalTimer" alt="" coords="194,208,377,235"/>
+<area shape="rect" id="node15" href="$classHidInputManager.html#a86c6c600c705cfc5cc83d5dc9a9b3dcc" title="Called when a key transitions to the &quot;down&quot; state. " alt="" coords="193,259,377,285"/>
+<area shape="rect" id="node21" href="$structLog_1_1LogEntry.html#aa1721c53018bd169ff9240dc587de523" title="Log::LogEntry::operator\&lt;\&lt;" alt="" coords="198,309,373,336"/>
+<area shape="rect" id="node22" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="202,384,369,411"/>
+<area shape="rect" id="node23" href="$classTimeoutGuard.html#a1dbe83b7b59819c4e9287e2c8473883d" title="TimeoutGuard::TimeoutGuard" alt="" coords="188,435,383,461"/>
+<area shape="rect" id="node24" href="$classHidInputManager.html#a8c200ef0915c486e17428098415914bd" title="HidInputManager::timer" alt="" coords="206,485,365,512"/>
+<area shape="rect" id="node25" href="$classUptimeFile.html#a44c671daa7f4a46bc976fa1dc8759fb2" title="UptimeFile::writeBytewise" alt="" coords="198,536,373,563"/>
+<area shape="rect" id="node26" href="$classTimeoutGuard.html#ad4235dba01e8af54aa9c8722af18206b" title="TimeoutGuard::~TimeoutGuard" alt="" coords="184,587,387,613"/>
+<area shape="rect" id="node4" href="$classRequestQueue.html#a5f2f469937c7769d19158c7771b4a676" title="RequestQueue::RequestQueue" alt="" coords="435,48,639,75"/>
+<area shape="rect" id="node7" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="455,150,619,191"/>
+<area shape="rect" id="node9" href="$classRequestQueue.html#a5575e3c80ca571cc2c75226f24f82d32" title="RequestQueue::resume" alt="" coords="457,216,617,243"/>
+<area shape="rect" id="node8" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="687,157,865,184"/>
+<area shape="rect" id="node10" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="713,208,839,235"/>
+<area shape="rect" id="node11" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="913,117,1072,158"/>
+<area shape="rect" id="node12" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="925,183,1060,209"/>
+<area shape="rect" id="node13" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="933,233,1052,260"/>
+<area shape="rect" id="node16" href="$namespaceHidUtils.html#a61723805418c7b34c156f9f6f78e30a5" title="Sends the input to the right handler in HidInputManager or InputManager. " alt="" coords="437,267,636,293"/>
+<area shape="rect" id="node20" href="$classX86Keyboard.html#adb114f4c9dd97405675f675ab4ce572e" title="X86Keyboard::setLedState" alt="" coords="447,317,626,344"/>
+<area shape="rect" id="node17" href="$structHidReport_1_1InputBlock.html#a51f3e1ba798499107d0e3858746ceac6" title="Feeds input to this block. " alt="" coords="701,271,851,313"/>
+<area shape="rect" id="node18" href="$structHidReport_1_1Collection.html#aa51b9fc0689ad9d4cd37afd7656c0b3e" title="HidReport::Collection\l::feedInput" alt="" coords="919,309,1066,350"/>
+<area shape="rect" id="node19" href="$classHidReport.html#a77c2765a52344f56da7c1e20deeba1be" title="Feeds the input interpreter with a new input buffer. " alt="" coords="1120,316,1263,343"/>
+</map>

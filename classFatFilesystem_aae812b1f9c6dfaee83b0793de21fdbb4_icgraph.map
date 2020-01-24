@@ -1,0 +1,8 @@
+<map id="FatFilesystem::eofValue" name="FatFilesystem::eofValue">
+<area shape="rect" id="node2" href="$classFatDirectory.html#afb7cb216b03b7bdff0b7da5db5594734" title="FatDirectory::addEntry" alt="" coords="426,53,581,80"/>
+<area shape="rect" id="node6" href="$classFatFilesystem.html#a6f1450fa02ff9798a8c98797145a4cb9" title="FatFilesystem::isEof" alt="" coords="217,104,360,131"/>
+<area shape="rect" id="node3" href="$classFatFilesystem.html#aef1ad9be6b6a15e9b2994cbf5d1e7cf7" title="FatFilesystem::createFile" alt="" coords="659,5,830,32"/>
+<area shape="rect" id="node4" href="$classFatFilesystem.html#a302aa4ab6a7cf1be10758d424de2b367" title="FatFilesystem::createSymlink" alt="" coords="647,56,843,83"/>
+<area shape="rect" id="node5" href="$classFatDirectory.html#ab16902f9839db9c4f9820f4784c5022d" title="FatDirectory::truncate" alt="" coords="670,108,819,135"/>
+<area shape="rect" id="node7" href="$classFatDirectory.html#a3c97dc214fe16d9509c5f85ad5e59753" title="FatDirectory::cacheDirectory\lContents" alt="" coords="408,105,599,146"/>
+</map>

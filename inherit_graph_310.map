@@ -1,0 +1,9 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classKeyboard.html" title="Keyboard" alt="" coords="5,132,83,159"/>
+<area shape="rect" id="node2" href="$classArmBeagleKeyboard.html" title="ArmBeagleKeyboard" alt="" coords="136,5,277,32"/>
+<area shape="rect" id="node3" href="$classArmVersatileKeyboard.html" title="ArmVersatileKeyboard" alt="" coords="131,56,283,83"/>
+<area shape="rect" id="node4" href="$classHostedKeyboard.html" title="HostedKeyboard" alt="" coords="147,107,266,133"/>
+<area shape="rect" id="node5" href="$classMaltaKeyboard.html" title="MaltaKeyboard" alt="" coords="152,157,261,184"/>
+<area shape="rect" id="node6" href="$classPPCKeyboard.html" title="PPCKeyboard" alt="" coords="154,208,259,235"/>
+<area shape="rect" id="node7" href="$classX86Keyboard.html" title="X86Keyboard" alt="" coords="157,259,257,285"/>
+</map>

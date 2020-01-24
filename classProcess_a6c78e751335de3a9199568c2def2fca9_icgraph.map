@@ -1,0 +1,4 @@
+<map id="Process::getNumThreads" name="Process::getNumThreads">
+<area shape="rect" id="node2" href="$classThreadsCommand.html#aeb715a33d855b2699437f75f79cb7f21" title="ThreadsCommand::execute" alt="" coords="224,5,407,32"/>
+<area shape="rect" id="node3" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="232,56,399,83"/>
+</map>

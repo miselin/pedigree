@@ -1,0 +1,5 @@
+<map id="sqlite3_index_info" name="sqlite3_index_info">
+<area shape="rect" id="node2" href="$structsqlite3__index__info_1_1sqlite3__index__orderby.html" title="{sqlite3_index_info\l::sqlite3_index_orderby\n|+ iColumn\l+ desc\l|}" alt="" coords="5,20,161,127"/>
+<area shape="rect" id="node3" href="$structsqlite3__index__info_1_1sqlite3__index__constraint__usage.html" title="{sqlite3_index_info\l::sqlite3_index_constraint_usage\n|+ argvIndex\l+ omit\l|}" alt="" coords="185,20,397,127"/>
+<area shape="rect" id="node4" href="$structsqlite3__index__info_1_1sqlite3__index__constraint.html" title="{sqlite3_index_info\l::sqlite3_index_constraint\n|+ iColumn\l+ op\l+ usable\l+ iTermOffset\l|}" alt="" coords="422,5,593,141"/>
+</map>

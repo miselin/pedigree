@@ -1,0 +1,16 @@
+<map id="ConditionVariable::wait" name="ConditionVariable::wait">
+<area shape="rect" id="node2" href="$classProducerConsumer.html#a13404fb2d405ccfe688058bab5a7a8c2" title="ProducerConsumer::consumer\lThread" alt="" coords="209,29,408,71"/>
+<area shape="rect" id="node3" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="229,95,388,136"/>
+<area shape="rect" id="node5" href="$classRequestQueue.html#a5313c0734674cc9644f6365e9fdcab11" title="RequestQueue::work" alt="" coords="236,161,381,187"/>
+<area shape="rect" id="node4" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="465,95,624,136"/>
+<area shape="rect" id="node6" href="$classRequestQueue.html#ada7823ce253c561696e67c183fdf0ec6" title="RequestQueue::trampoline" alt="" coords="456,161,633,187"/>
+<area shape="rect" id="node7" href="$classRequestQueue.html#aa87ccddad577b380a648dd744e4f7d11" title="RequestQueue::initialise" alt="" coords="681,161,845,187"/>
+<area shape="rect" id="node8" href="$classCacheManager.html#a411b65fac6ab596f1b2359d7e0c59b6b" title="CacheManager::initialise" alt="" coords="893,102,1059,129"/>
+<area shape="rect" id="node9" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="894,153,1058,195"/>
+<area shape="rect" id="node11" href="$classRequestQueue.html#a5575e3c80ca571cc2c75226f24f82d32" title="RequestQueue::resume" alt="" coords="896,219,1056,246"/>
+<area shape="rect" id="node10" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="1107,161,1285,187"/>
+<area shape="rect" id="node12" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="1133,219,1259,246"/>
+<area shape="rect" id="node13" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="1333,153,1492,195"/>
+<area shape="rect" id="node14" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="1345,219,1480,246"/>
+<area shape="rect" id="node15" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="1353,270,1472,297"/>
+</map>

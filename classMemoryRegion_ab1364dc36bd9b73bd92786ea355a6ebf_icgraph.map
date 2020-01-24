@@ -1,0 +1,24 @@
+<map id="MemoryRegion::physicalAddress" name="MemoryRegion::physicalAddress">
+<area shape="rect" id="node2" href="$classIpc_1_1IpcMessage.html#a14b0a09c91c9c350697d24799c08df4a" title="Constructor for regions &gt; 4 KB in size. " alt="" coords="291,5,490,32"/>
+<area shape="rect" id="node3" href="$classCdiIrqHandler.html#aab63cb6479375e8ae49952395f61de90" title="CdiIrqHandler::irq" alt="" coords="329,56,453,83"/>
+<area shape="rect" id="node4" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="317,107,464,133"/>
+<area shape="rect" id="node5" href="$classHostedPhysicalMemoryManager.html#a891dd47fb0a9ce05f5869d299305a851" title="HostedPhysicalMemoryManager\l::unmapRegion" alt="" coords="285,158,496,199"/>
+<area shape="rect" id="node22" href="$classX86CommonPhysicalMemoryManager.html#a6a84e68afeff519cbcb3c12e290c118a" title="X86CommonPhysicalMemoryManager\l::unmapRegion" alt="" coords="268,223,513,265"/>
+<area shape="rect" id="node6" href="$classHostedPhysicalMemoryManager.html#abd61babab9fbff26538f61ec9b4eee0c" title="HostedPhysicalMemoryManager\l::instance" alt="" coords="579,158,789,199"/>
+<area shape="rect" id="node7" href="$classProcessor.html#a2da3d5f8b642203eb82aa9a183e00aa9" title="Processor::initialisationDone" alt="" coords="870,115,1058,141"/>
+<area shape="rect" id="node8" href="$classHostedVirtualAddressSpace.html#a1bc2a2b1d3fbdcfde297c576f7b452cb" title="HostedVirtualAddressSpace::map" alt="" coords="855,165,1073,192"/>
+<area shape="rect" id="node9" href="$classHostedVirtualAddressSpace.html#a56e88cf071da0c2b571e318a4550125e" title="HostedVirtualAddressSpace\l::switchAddressSpace" alt="" coords="871,217,1057,258"/>
+<area shape="rect" id="node10" href="$classHostedVirtualAddressSpace.html#aa3c4dbc66332d02b04b6a49dacea5b78" title="HostedVirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="1121,187,1308,229"/>
+<area shape="rect" id="node11" href="$classProcessor.html#a77e30abbc37c39644b9ba8734375819d" title="Processor::jumpUser" alt="" coords="1142,253,1287,280"/>
+<area shape="rect" id="node12" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="1360,181,1519,222"/>
+<area shape="rect" id="node18" href="$classPerProcessorScheduler.html#aac23c54ffedb9b29f3d790a93d2d53ee" title="PerProcessorScheduler\l::addThread" alt="" coords="1360,246,1519,287"/>
+<area shape="rect" id="node21" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="1356,312,1523,339"/>
+<area shape="rect" id="node13" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="1577,181,1736,222"/>
+<area shape="rect" id="node16" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="1791,115,1949,157"/>
+<area shape="rect" id="node14" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="1791,246,1949,287"/>
+<area shape="rect" id="node17" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="1791,181,1949,222"/>
+<area shape="rect" id="node15" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="1997,246,2156,287"/>
+<area shape="rect" id="node19" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="1571,305,1743,346"/>
+<area shape="rect" id="node20" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="1815,312,1925,339"/>
+<area shape="rect" id="node23" href="$classX86CommonPhysicalMemoryManager.html#aec6d29daffe674227805940438a7ba30" title="X86CommonPhysicalMemoryManager\l::instance" alt="" coords="561,223,807,265"/>
+</map>

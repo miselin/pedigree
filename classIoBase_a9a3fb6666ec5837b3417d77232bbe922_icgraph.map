@@ -1,0 +1,26 @@
+<map id="IoBase::write8" name="IoBase::write8">
+<area shape="rect" id="node2" href="$classAtaDisk.html#a931998a76f0ddabb606e5b2bf25054bf" title="AtaDisk::doRead" alt="" coords="181,79,304,106"/>
+<area shape="rect" id="node8" href="$classAtaDisk.html#a61b036e93c5755f0187e1a7cdb133be1" title="AtaDisk::doWrite" alt="" coords="181,134,304,161"/>
+<area shape="rect" id="node9" href="$classAtaDisk.html#a7669522ad06e41f75f4557fd4e517687" title="AtaDisk::initialise" alt="" coords="181,186,305,213"/>
+<area shape="rect" id="node11" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="407,389,510,415"/>
+<area shape="rect" id="node13" href="$classNe2k.html#a9f3b84c8016fd90e7b13b447edb82f0e" title="Ne2k::irq" alt="" coords="205,541,280,567"/>
+<area shape="rect" id="node15" href="$classNe2k.html#a7a21a7e54926ef73242b3706ecfe251d" title="Ne2k::Ne2k" alt="" coords="197,642,289,669"/>
+<area shape="rect" id="node16" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="385,490,532,517"/>
+<area shape="rect" id="node17" href="$classNic3C90x.html#a45bed301275ea48ff6f92137a7ec24e5" title="Nic3C90x::reset" alt="" coords="184,439,301,466"/>
+<area shape="rect" id="node18" href="$classNe2k.html#a3b16bc2a820434bf3a234def08f9d8fd" title="Ne2k::send" alt="" coords="198,591,287,618"/>
+<area shape="rect" id="node20" href="$classAtaDisk.html#a8c2e3645e12cd322748f79e73de6b368" title="AtaDisk::sendCommand" alt="" coords="160,237,325,263"/>
+<area shape="rect" id="node23" href="$classAtaDisk.html#a7551171e6225cbe853dedae1879c2adc" title="AtaDisk::setFeatures" alt="" coords="169,693,316,719"/>
+<area shape="rect" id="node24" href="$classAtaDisk.html#a52d0c29b51510b22c0bc43edb63bc37e" title="AtaDisk::setupLBA28" alt="" coords="169,338,317,365"/>
+<area shape="rect" id="node25" href="$classAtaDisk.html#a8b2169e4f46dd6242abd6c31f269892a" title="AtaDisk::setupLBA48" alt="" coords="169,287,317,314"/>
+<area shape="rect" id="node3" href="$classIsaAtaController.html#aac26e07eb5047145cd9e9b46596f22be" title="IsaAtaController::execute\lRequest" alt="" coords="373,71,544,112"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a8f305fb6613b0e87274a1b273fce3d68" title="PciAtaController::execute\lRequest" alt="" coords="373,5,544,47"/>
+<area shape="rect" id="node7" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="393,137,524,163"/>
+<area shape="rect" id="node4" href="$classIsaAtaController.html#acc1f8486eb5de23b6a1ebd3f602868b6" title="IsaAtaController::getName" alt="" coords="592,78,769,105"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="1029,230,1208,257"/>
+<area shape="rect" id="node10" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="817,223,981,264"/>
+<area shape="rect" id="node12" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="610,414,751,441"/>
+<area shape="rect" id="node14" href="$classNe2k.html#afb3182a707c388a10b732a5d879d4450" title="Ne2k::getName" alt="" coords="401,541,516,567"/>
+<area shape="rect" id="node19" href="$classLwipSocketSyscalls.html#a0853b04eb073ce2663e6a392c0e22f1d" title="LwipSocketSyscalls\l::netconnCallback" alt="" coords="389,592,529,633"/>
+<area shape="rect" id="node21" href="$classAtaDisk.html#aa5876dc6733efa665b6759e6cf6026bd" title="AtaDisk::getBusMaster" alt="" coords="379,289,538,315"/>
+<area shape="rect" id="node22" href="$classPciAtaController.html#ab8e5bcf18c8f248b9ff9eb298a22add6" title="PciAtaController::irq" alt="" coords="611,289,750,315"/>
+</map>

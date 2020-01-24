@@ -1,0 +1,4 @@
+<map id="InputManager::mainThread" name="InputManager::mainThread">
+<area shape="rect" id="node2" href="$classInputManager.html#ab95f98b88ce1a36f3dd73cfba6a9d778" title="Thread trampoline. " alt="" coords="231,5,400,32"/>
+<area shape="rect" id="node3" href="$classInputManager.html#ae1501d90868ca315ad9c31ccda62a450" title="Begins the worker thread. " alt="" coords="448,5,604,32"/>
+</map>

@@ -1,0 +1,13 @@
+<map id="MemoryMappedObject::clone" name="MemoryMappedObject::clone">
+<area shape="rect" id="node2" href="$classMemoryMapManager.html#ac9990e2b9ece285851cf4ad18ae6b8d5" title="MemoryMapManager::clone" alt="" coords="216,107,399,133"/>
+<area shape="rect" id="node3" href="$classMemoryMapManager.html#ab1ff259d9432ba44bc34a12789b84dc3" title="MemoryMapManager::instance" alt="" coords="207,157,408,184"/>
+<area shape="rect" id="node12" href="$classMemoryMappedObject.html#aa2894d0a2d7e66fef8cf12020ff24f72" title="MemoryMappedObject\l::MemoryMappedObject" alt="" coords="227,209,388,250"/>
+<area shape="rect" id="node4" href="$classPosixSubsystem.html#aebeb7194a0d4fd8f83c444427648deb8" title="PosixSubsystem::checkAddress" alt="" coords="468,5,680,32"/>
+<area shape="rect" id="node6" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="499,56,649,83"/>
+<area shape="rect" id="node7" href="$classPosixSubsystem.html#a0f81eb461d078c36950283ce71a45e05" title="PosixSubsystem::invoke" alt="" coords="752,145,919,172"/>
+<area shape="rect" id="node8" href="$classPosixSubsystem.html#af6864cdcf0fe3bfe665349c05c522183" title="PosixSubsystem::loadElf" alt="" coords="489,157,659,184"/>
+<area shape="rect" id="node9" href="$classDynamicLinker.html#ac8aab74d6c4372aad00c284bb856eb74" title="DynamicLinker::loadObject" alt="" coords="485,208,663,235"/>
+<area shape="rect" id="node10" href="$classDynamicLinker.html#af5e6e154fa49c7345305b66f31300c87" title="DynamicLinker::loadProgram" alt="" coords="740,221,931,248"/>
+<area shape="rect" id="node11" href="$classPosixSubsystem.html#a36cc1a08370b8c19e31e8d0b2adce3c5" title="PosixSubsystem::~PosixSubsystem" alt="" coords="456,309,692,336"/>
+<area shape="rect" id="node5" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="752,31,919,57"/>
+</map>

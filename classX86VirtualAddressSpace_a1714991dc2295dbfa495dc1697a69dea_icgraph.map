@@ -1,0 +1,7 @@
+<map id="X86VirtualAddressSpace::map" name="X86VirtualAddressSpace::map">
+<area shape="rect" id="node2" href="$classX86VirtualAddressSpace.html#a743db585c56a0f7a1d953efe5da11e49" title="X86VirtualAddressSpace\l::beginCrossSpace" alt="" coords="253,6,420,48"/>
+<area shape="rect" id="node5" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="683,108,857,149"/>
+<area shape="rect" id="node6" href="$classX86VirtualAddressSpace.html#a91c505c9ce7b052f30c7971a15c9f421" title="X86VirtualAddressSpace\l::mapCrossSpace" alt="" coords="253,72,420,113"/>
+<area shape="rect" id="node3" href="$classX86VirtualAddressSpace.html#ad968d7983e79cfc6c7435eda43f61daa" title="X86VirtualAddressSpace\l::fromFlags" alt="" coords="468,21,635,62"/>
+<area shape="rect" id="node4" href="$classX86VirtualAddressSpace.html#a555823e58574cf7509b1fb7831005c5c" title="X86VirtualAddressSpace\l::getKernelHeapEnd" alt="" coords="687,21,853,62"/>
+</map>

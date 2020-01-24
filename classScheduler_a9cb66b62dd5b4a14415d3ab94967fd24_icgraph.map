@@ -1,0 +1,51 @@
+<map id="Scheduler::instance" name="Scheduler::instance">
+<area shape="rect" id="node2" href="$classRequestQueue.html#af8a30850de31f65681d837f0a8795080" title="RequestQueue::addAsyncRequest" alt="" coords="191,128,415,155"/>
+<area shape="rect" id="node8" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="217,251,389,293"/>
+<area shape="rect" id="node9" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="504,259,615,285"/>
+<area shape="rect" id="node10" href="$classMemoryPressureProcessKiller.html#a5e5bcf598d21cc42fa06a2b713f47295" title="MemoryPressureProcessKiller\l::compact" alt="" coords="203,317,402,358"/>
+<area shape="rect" id="node11" href="$classFile.html#ad1493c9998a2c86d78848d9df0b95116" title="File::dataChanged" alt="" coords="495,363,623,389"/>
+<area shape="rect" id="node16" href="$classThreadsCommand.html#aeb715a33d855b2699437f75f79cb7f21" title="ThreadsCommand::execute" alt="" coords="211,737,394,764"/>
+<area shape="rect" id="node17" href="$classCacheManager.html#aee44abeaf9f1cf4f62c95485ee879844" title="CacheManager::executeRequest" alt="" coords="196,788,409,815"/>
+<area shape="rect" id="node18" href="$classFatFilesystem.html#a8928635b8e4aca73a53db496342cbd1c" title="FatFilesystem::getCluster\lEntry" alt="" coords="216,839,389,881"/>
+<area shape="rect" id="node21" href="$classRequestQueue.html#aa87ccddad577b380a648dd744e4f7d11" title="RequestQueue::initialise" alt="" coords="221,905,385,932"/>
+<area shape="rect" id="node25" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="725,1007,852,1033"/>
+<area shape="rect" id="node26" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="921,981,1056,1008"/>
+<area shape="rect" id="node27" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="929,1096,1048,1123"/>
+<area shape="rect" id="node28" href="$classRtc.html#a6317e6af2113d58242222378c8b90a0a" title="Rtc::irq" alt="" coords="527,417,592,444"/>
+<area shape="rect" id="node30" href="$classProcess.html#ac99a764d539353fb4bbffd0c00231ca8" title="Process::kill" alt="" coords="255,1260,350,1287"/>
+<area shape="rect" id="node32" href="$classWaitCleanup.html#a3435e4cc89bb7ea624d3d23f101496e0" title="WaitCleanup::terminated" alt="" coords="705,1272,872,1299"/>
+<area shape="rect" id="node34" href="$classPosixSubsystem.html#aa8ee8389b87d74875f36e3de50108ae7" title="PosixSubsystem::kill" alt="" coords="487,468,632,495"/>
+<area shape="rect" id="node35" href="$classInputManager.html#adfff346563bcb1ffc32f36365d43a3aa" title="Main worker thread. " alt="" coords="471,519,648,545"/>
+<area shape="rect" id="node37" href="$classX64VirtualAddressSpace.html#add398c3f401ddbb77c958855e13f2ee4" title="X64VirtualAddressSpace\l::mapUnlocked" alt="" coords="219,1311,386,1353"/>
+<area shape="rect" id="node40" href="$classProcess.html#a9f4553eac74c657bb451f390c17d6bea" title="Process::Process" alt="" coords="239,1377,366,1404"/>
+<area shape="rect" id="node41" href="$classLwipSocketSyscalls.html#acdaa7809c465a4ac9694426f2092d68f" title="LwipSocketSyscalls\l::recvfrom_msg" alt="" coords="233,1429,373,1470"/>
+<area shape="rect" id="node42" href="$classSemaphore.html#a608f82c98ce38a1ab8f93ae5d458fe1f" title="Semaphore::release" alt="" coords="233,1057,372,1084"/>
+<area shape="rect" id="node44" href="$classThread.html#ad1455ad5719b52f45993565b28e649ba" title="Thread::sendEvent" alt="" coords="237,535,369,561"/>
+<area shape="rect" id="node45" href="$classConsoleFile.html#aac447d3311b51f75d2f0e27d24d91a9e" title="Triggers our event. " alt="" coords="475,569,644,596"/>
+<area shape="rect" id="node46" href="$classPosixSubsystem.html#a08d789cb3282e51cd86d21cc8439a08d" title="PosixSubsystem::sendSignal" alt="" coords="463,620,656,647"/>
+<area shape="rect" id="node47" href="$classPosixSyscallManager.html#a5a9837e08124ed0937bb7142721ee594" title="PosixSyscallManager\l::syscall" alt="" coords="229,1494,377,1535"/>
+<area shape="rect" id="node48" href="$classKernelCoreSyscallManager.html#a49ffa0e0968a4c2735d5eff1fcd44497" title="KernelCoreSyscallManager\l::syscall" alt="" coords="213,1559,393,1601"/>
+<area shape="rect" id="node49" href="$classEvent.html#a5eded26f3623c8a06f80cda4c139eb95" title="Event::waitForDeliveries" alt="" coords="220,1625,385,1652"/>
+<area shape="rect" id="node50" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="215,1677,390,1718"/>
+<area shape="rect" id="node3" href="$classScsiDisk.html#a3f3bb7aea858a2aecd991e53a1f1d3ca" title="ScsiDisk::read" alt="" coords="505,56,613,83"/>
+<area shape="rect" id="node4" href="$classCache.html#a3a4f0916381ef6f3cd5ae0a1139e80d1" title="Cache::release" alt="" coords="504,107,615,133"/>
+<area shape="rect" id="node5" href="$classCache.html#a49319c0bbb177eb08db38a2958bf5611" title="Cache::sync" alt="" coords="511,157,607,184"/>
+<area shape="rect" id="node6" href="$classCache.html#a5e2cbc66e8c1d8709ea556ab2c973e36" title="Cache::timer" alt="" coords="511,208,608,235"/>
+<area shape="rect" id="node7" href="$classScsiDisk.html#a35c2d6efbc45c8d5862f81b36956558c" title="ScsiDisk::write" alt="" coords="504,5,615,32"/>
+<area shape="rect" id="node12" href="$classPipe.html#abd738aac7fba239dc4484b3ff4122294" title="Pipe::decreaseRefCount" alt="" coords="706,359,871,385"/>
+<area shape="rect" id="node13" href="$classConsolePhysicalFile.html#a4f695f81b228e74ea5b66e26fc1037a4" title="ConsolePhysicalFile\l::performInject" alt="" coords="718,410,859,451"/>
+<area shape="rect" id="node14" href="$classPsAuxFile.html#a77ffc0514a328caabd759cc26d50fb2e" title="PsAuxFile::select" alt="" coords="726,257,851,284"/>
+<area shape="rect" id="node15" href="$classPipe.html#aee78ee01fe1fca9ec56ea81a34a73af8" title="Pipe::writeBytewise" alt="" coords="719,308,858,335"/>
+<area shape="rect" id="node19" href="$classFatDirectory.html#afb7cb216b03b7bdff0b7da5db5594734" title="FatDirectory::addEntry" alt="" coords="482,737,637,764"/>
+<area shape="rect" id="node20" href="$classFatDirectory.html#a3c97dc214fe16d9509c5f85ad5e59753" title="FatDirectory::cacheDirectory\lContents" alt="" coords="464,671,655,713"/>
+<area shape="rect" id="node22" href="$classCacheManager.html#a411b65fac6ab596f1b2359d7e0c59b6b" title="CacheManager::initialise" alt="" coords="477,788,642,815"/>
+<area shape="rect" id="node23" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="477,839,641,881"/>
+<area shape="rect" id="node24" href="$classRequestQueue.html#a5575e3c80ca571cc2c75226f24f82d32" title="RequestQueue::resume" alt="" coords="479,905,639,932"/>
+<area shape="rect" id="node29" href="$classRtc.html#af2ed5da60eba0329240777d5f144b7e5" title="Rtc::~Rtc" alt="" coords="749,476,829,503"/>
+<area shape="rect" id="node31" href="$classPosixSubsystem.html#abffdb6b1780b2cc27d7b20e7355aa000" title="PosixSubsystem::exit" alt="" coords="484,1311,635,1337"/>
+<area shape="rect" id="node33" href="$classSubsystem.html#aa7e06b70da371a07c3a942eda94431d3" title="Subsystem::Subsystem" alt="" coords="478,1260,641,1287"/>
+<area shape="rect" id="node36" href="$classInputManager.html#ab95f98b88ce1a36f3dd73cfba6a9d778" title="Thread trampoline. " alt="" coords="704,527,873,553"/>
+<area shape="rect" id="node38" href="$classX64VirtualAddressSpace.html#a90c94c03e1163511566d1d25e6360693" title="X64VirtualAddressSpace\l::clone" alt="" coords="476,1427,643,1469"/>
+<area shape="rect" id="node39" href="$classX64VirtualAddressSpace.html#a76df9f784135b53177d5270b81b1c7bd" title="X64VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="476,1362,643,1403"/>
+<area shape="rect" id="node43" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="508,1108,611,1135"/>
+</map>

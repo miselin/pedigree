@@ -1,0 +1,4 @@
+<map id="HashedPageTable" name="HashedPageTable">
+<area shape="rect" id="node2" href="$structHashedPageTable_1_1PTEG.html" title="{HashedPageTable::PTEG\n||}" alt="" coords="5,336,179,413"/>
+<area shape="rect" id="node3" href="$structHashedPageTable_1_1PTE.html" title="{HashedPageTable::PTE\n|+ v\l+ vsid\l+ h\l+ api\l+ rpn\l+ reserved1\l+ r\l+ c\l+ w\l+ i\l+ m\l+ g\l+ reserved2\l+ pp\l|}" alt="" coords="11,5,173,273"/>
+</map>

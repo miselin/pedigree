@@ -1,0 +1,6 @@
+<map id="Translations::getTranslation" name="Translations::getTranslation">
+<area shape="rect" id="node2" href="$classHashedPageTable.html#a20d472881b91f0c51371c9fd4f606d65" title="HashedPageTable::initialise" alt="" coords="275,5,459,32"/>
+<area shape="rect" id="node3" href="$classPPC32VirtualAddressSpace.html#aed4a8f1cacfb2e1e55b089c73e91289d" title="PPC32VirtualAddressSpace\l::initialRoster" alt="" coords="273,57,460,98"/>
+<area shape="rect" id="node4" href="$classPpcCommonPhysicalMemoryManager.html#a0b386cf75adacf213c4151816bb3252c" title="PpcCommonPhysicalMemoryManager\l::~PpcCommonPhysicalMemoryManager" alt="" coords="236,122,497,163"/>
+<area shape="rect" id="node5" href="$classPpcCommonPhysicalMemoryManager.html#afd0c4003a4de06f8e4e458810fe301f9" title="PpcCommonPhysicalMemoryManager\l::instance" alt="" coords="545,122,791,163"/>
+</map>

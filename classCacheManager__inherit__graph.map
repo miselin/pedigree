@@ -1,0 +1,4 @@
+<map id="CacheManager" name="CacheManager">
+<area shape="rect" id="node2" href="$classTimerHandler.html" title="{TimerHandler\n||+ timer()\l# ~TimerHandler()\l}" alt="" coords="5,211,132,303"/>
+<area shape="rect" id="node3" href="$classRequestQueue.html" title="{RequestQueue\n|# m_pRequestQueue\l# m_Stop\l# m_RequestQueueMutex\l# m_RequestQueueCondition\l# m_AsyncRequestQueueCondition\l# m_pThread\l# m_Halted\l# m_HaltAcknowledged\l# m_OverrunChecker\l# m_nMaxAsyncRequests\l# m_nAsyncRequests\l# m_nTotalRequests\l# m_Name\l|+ RequestQueue()\l+ ~RequestQueue()\l+ initialise()\l+ destroy()\l+ addRequest()\l+ addRequest()\l+ addAsyncRequest()\l+ halt()\l+ resume()\l# executeRequest()\l# RequestQueue()\l# operator=()\l# compareRequests()\l# isRequestValid()\l# work()\l# getNextRequest()\l# trampoline()\l# doAsync()\l}" alt="" coords="156,5,387,508"/>
+</map>

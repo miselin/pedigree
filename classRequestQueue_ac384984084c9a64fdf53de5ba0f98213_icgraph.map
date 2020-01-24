@@ -1,0 +1,17 @@
+<map id="RequestQueue::addRequest" name="RequestQueue::addRequest">
+<area shape="rect" id="node2" href="$classRequestQueue.html#af8a30850de31f65681d837f0a8795080" title="RequestQueue::addAsyncRequest" alt="" coords="456,107,680,133"/>
+<area shape="rect" id="node3" href="$classScsiDisk.html#a3f3bb7aea858a2aecd991e53a1f1d3ca" title="ScsiDisk::read" alt="" coords="729,5,837,32"/>
+<area shape="rect" id="node11" href="$classCache.html#a49319c0bbb177eb08db38a2958bf5611" title="Cache::sync" alt="" coords="735,208,831,235"/>
+<area shape="rect" id="node15" href="$classRequestQueue.html#a2a7db8cb1e3c484909270954adee35f7" title="RequestQueue::doAsync" alt="" coords="240,157,408,184"/>
+<area shape="rect" id="node16" href="$classScsiDisk.html#a2aa1b3adfc0a6c0d98b8adffdd26a5ff" title="Flush a cached page to disk. " alt="" coords="269,259,379,285"/>
+<area shape="rect" id="node4" href="$classCache.html#a3a4f0916381ef6f3cd5ae0a1139e80d1" title="Cache::release" alt="" coords="728,56,839,83"/>
+<area shape="rect" id="node13" href="$classCache.html#a5e2cbc66e8c1d8709ea556ab2c973e36" title="Cache::timer" alt="" coords="735,107,832,133"/>
+<area shape="rect" id="node14" href="$classScsiDisk.html#a35c2d6efbc45c8d5862f81b36956558c" title="ScsiDisk::write" alt="" coords="728,157,839,184"/>
+<area shape="rect" id="node5" href="$classFile.html#adf3b7b34a5a5e63a99da4d9a719a7a2d" title="File::returnPhysicalPage" alt="" coords="887,5,1051,32"/>
+<area shape="rect" id="node6" href="$classDiskImage.html#acb4d50da90301cf52b6ebc858967dd37" title="DiskImage::unpin" alt="" coords="907,56,1031,83"/>
+<area shape="rect" id="node10" href="$classFatFile.html#ad6d4ab615702c95fe1f90bed713faae4" title="FatFile::unpinBlock" alt="" coords="901,107,1036,133"/>
+<area shape="rect" id="node7" href="$classDiskImage.html#ad164622638c31b85dbe30a05f01326f8" title="Gets the block size of the disk. " alt="" coords="1099,56,1269,83"/>
+<area shape="rect" id="node8" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="1317,56,1436,83"/>
+<area shape="rect" id="node9" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="1484,56,1609,83"/>
+<area shape="rect" id="node12" href="$classFatFile.html#a8a6df02c9ef7a04ecd85b616513cac5a" title="FatFile::sync" alt="" coords="919,208,1018,235"/>
+</map>

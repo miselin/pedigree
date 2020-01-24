@@ -1,0 +1,6 @@
+<map id="MipsCommonPhysicalMemoryManager" name="MipsCommonPhysicalMemoryManager">
+<area shape="rect" id="node2" href="$classPhysicalMemoryManager.html" title="{PhysicalMemoryManager\n|+ continuous\l+ nonRamMemory\l+ force\l+ virtualOnly\l+ below1MB\l+ below16MB\l+ below4GB\l+ below64GB\l+ addressConstraints\l+ anonymous\l|+ allocatePage()\l+ freePage()\l+ pin()\l+ allocateRegion()\l+ allocateMemoryRegionList()\l+ freeMemoryRegionList()\l+ freePageCount()\l+ instance()\l+ getPageSize()\l# PhysicalMemoryManager()\l# ~PhysicalMemoryManager()\l&#45; PhysicalMemoryManager()\l&#45; operator=()\l&#45; freePageUnlocked()\l&#45; unmapRegion()\l}" alt="" coords="61,924,257,1339"/>
+<area shape="rect" id="node3" href="$classVector.html" title="{Vector\&lt; MemoryRegion * \&gt;\n|&#45; m_Size\l&#45; m_Count\l&#45; m_Start\l&#45; m_ReserveFactor\l|+ Vector()\l+ Vector()\l+ Vector()\l+ ~Vector()\l+ operator=()\l+ operator[]()\l+ size()\l+ count()\l+ pushBack()\l+ popBack()\land 19 more...\l&#45; reserve()\l}" alt="" coords="68,579,249,861"/>
+<area shape="rect" id="node4" href="$classMemoryRegion.html" title="Special memory entity in the kernel&#39;s virtual address space. " alt="" coords="5,145,181,516"/>
+<area shape="rect" id="node5" href="$classVector.html" title="A vector / dynamic array. " alt="" coords="206,189,341,472"/>
+</map>

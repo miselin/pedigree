@@ -1,0 +1,5 @@
+<map id="AtaDisk::initialise" name="AtaDisk::initialise">
+<area shape="rect" id="node2" href="$classAtaDisk.html#aa2bf8ca3d9e39d8fd58a77974f1c7154" title="AtaDisk::getName" alt="" coords="194,5,325,32"/>
+<area shape="rect" id="node3" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="177,57,341,98"/>
+<area shape="rect" id="node4" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="389,64,568,91"/>
+</map>

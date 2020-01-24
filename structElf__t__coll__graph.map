@@ -1,0 +1,5 @@
+<map id="Elf_t" name="Elf_t">
+<area shape="rect" id="node2" href="$structElfSectionHeader__t.html" title="{ElfSectionHeader_t\n|+ name\l+ type\l+ flags\l+ addr\l+ offset\l+ size\l+ link\l+ info\l+ addralign\l+ entsize\l|}" alt="" coords="5,35,140,244"/>
+<area shape="rect" id="node3" href="$structElfSymbol__t.html" title="{ElfSymbol_t\n|+ name\l+ value\l+ size\l+ info\l+ other\l+ shndx\l|}" alt="" coords="165,64,258,215"/>
+<area shape="rect" id="node4" href="$structElfHeader__t.html" title="{ElfHeader_t\n|+ ident\l+ type\l+ machine\l+ version\l+ entry\l+ phoff\l+ shoff\l+ flags\l+ ehsize\l+ phentsize\l+ phnum\l+ shentsize\l+ shnum\l+ shstrndx\l|}" alt="" coords="282,5,373,273"/>
+</map>

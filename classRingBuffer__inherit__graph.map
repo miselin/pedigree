@@ -1,0 +1,4 @@
+<map id="RingBuffer&lt; T &gt;" name="RingBuffer&lt; T &gt;">
+<area shape="rect" id="node2" href="$classRingBuffer.html" title="{RingBuffer\&lt; struct\l UnixSocket::buf * \&gt;\n|&#45; m_RingSize\l&#45; m_WriteCondition\l&#45; m_ReadCondition\l&#45; m_Ring\l&#45; m_Lock\l&#45; m_MonitorTargets\l|+ RingBuffer()\l+ RingBuffer()\l+ ~RingBuffer()\l+ write()\l+ write()\l+ write()\l+ write()\l+ read()\l+ read()\l+ read()\land 7 more...\l&#45; notifyMonitors()\l}" alt="" coords="5,395,147,721"/>
+<area shape="rect" id="node3" href="$classRingBuffer.html" title="{RingBuffer\&lt; void * \&gt;\n|&#45; m_RingSize\l&#45; m_WriteCondition\l&#45; m_ReadCondition\l&#45; m_Ring\l&#45; m_Lock\l&#45; m_MonitorTargets\l|+ RingBuffer()\l+ RingBuffer()\l+ ~RingBuffer()\l+ write()\l+ write()\l+ write()\l+ write()\l+ read()\l+ read()\l+ read()\land 7 more...\l&#45; notifyMonitors()\l}" alt="" coords="171,402,312,714"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="OS abstraction layer" name="OS abstraction layer">
+<area shape="rect" id="node1" href="$group__sys__mbox.html" title="Mailboxes" alt="" coords="432,5,513,32"/>
+<area shape="rect" id="node2" href="$group__sys__mutex.html" title="Mutexes" alt="" coords="437,56,509,83"/>
+<area shape="rect" id="node3" href="$group__sys__layer.html" title="Porting (system abstraction\l layer)" alt="" coords="5,74,188,115"/>
+<area shape="rect" id="node5" href="$group__sys__sem.html" title="Semaphores" alt="" coords="425,107,520,133"/>
+<area shape="rect" id="node6" href="$group__sys__misc.html" title="Misc" alt="" coords="447,157,498,184"/>
+</map>

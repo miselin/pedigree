@@ -1,0 +1,13 @@
+<map id="PhysicalMemoryManager::pin" name="PhysicalMemoryManager::pin">
+<area shape="rect" id="node2" href="$classHostedVirtualAddressSpace.html#aaa3563efbe7ac3d6881c2065b7cae215" title="HostedVirtualAddressSpace\l::clone" alt="" coords="248,5,435,47"/>
+<area shape="rect" id="node3" href="$classX64VirtualAddressSpace.html#a90c94c03e1163511566d1d25e6360693" title="X64VirtualAddressSpace\l::clone" alt="" coords="258,71,425,112"/>
+<area shape="rect" id="node4" href="$classHostedVirtualAddressSpace.html#a0eb99f55303a016298f2cdfefa729598" title="HostedVirtualAddressSpace\l::doAllocateStack" alt="" coords="248,136,435,177"/>
+<area shape="rect" id="node6" href="$classX64VirtualAddressSpace.html#ab44a58d10ca864a99ae857a02c2bbaf0" title="X64VirtualAddressSpace\l::doAllocateStack" alt="" coords="258,201,425,243"/>
+<area shape="rect" id="node8" href="$classVirtualAddressSpace.html#aeedec40a4721469948a66cd23c01c38c" title="VirtualAddressSpace\l::expandHeap" alt="" coords="269,267,413,308"/>
+<area shape="rect" id="node9" href="$classX86VirtualAddressSpace.html#ad968d7983e79cfc6c7435eda43f61daa" title="X86VirtualAddressSpace\l::fromFlags" alt="" coords="258,332,425,373"/>
+<area shape="rect" id="node12" href="$classAnonymousMemoryMap.html#a81be7a75b2cb34b1730f1b9794b030ce" title="AnonymousMemoryMap\l::trap" alt="" coords="260,397,423,439"/>
+<area shape="rect" id="node5" href="$classHostedVirtualAddressSpace.html#aa3c4dbc66332d02b04b6a49dacea5b78" title="HostedVirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="483,136,669,177"/>
+<area shape="rect" id="node7" href="$classX64VirtualAddressSpace.html#a76df9f784135b53177d5270b81b1c7bd" title="X64VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="493,201,659,243"/>
+<area shape="rect" id="node10" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="489,300,663,341"/>
+<area shape="rect" id="node11" href="$classX86VirtualAddressSpace.html#a555823e58574cf7509b1fb7831005c5c" title="X86VirtualAddressSpace\l::getKernelHeapEnd" alt="" coords="493,365,659,407"/>
+</map>

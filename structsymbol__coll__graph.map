@@ -1,0 +1,4 @@
+<map id="symbol" name="symbol">
+<area shape="rect" id="node2" href="$classStaticString.html" title="{StaticString\&lt; 128 \&gt;\n|&#45; m_pData\l&#45; m_Length\l&#45; m_Hash\l&#45; m_AllowHashes\l|+ StaticString()\l+ StaticString()\l+ StaticString()\l+ StaticString()\l+ operator const char *()\l+ operator+=()\l+ operator+=()\l+ clear()\l+ assign()\l+ assign()\land 34 more...\l&#45; updateHash()\l&#45; check()\l&#45; canAppend()\l&#45; contains()\l}" alt="" coords="5,395,168,721"/>
+<area shape="rect" id="node3" href="$classStaticString.html" title="{StaticString\&lt; N \&gt;\n|&#45; m_pData\l&#45; m_Length\l&#45; m_Hash\l&#45; m_AllowHashes\l|+ StaticString()\l+ StaticString()\l+ StaticString()\l+ StaticString()\l+ operator const char *()\l+ operator+=()\l+ operator+=()\l+ clear()\l+ assign()\l+ assign()\land 34 more...\l&#45; updateHash()\l&#45; check()\l&#45; canAppend()\l&#45; contains()\l}" alt="" coords="5,5,168,332"/>
+</map>

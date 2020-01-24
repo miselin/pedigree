@@ -1,0 +1,3 @@
+<map id="ThreadToCoreAllocationAlgorithm" name="ThreadToCoreAllocationAlgorithm">
+<area shape="rect" id="node2" href="$classRoundRobinCoreAllocator.html" title="{RoundRobinCoreAllocator\n|&#45; m_ProcMap\l&#45; m_pNext\l|+ RoundRobinCoreAllocator()\l+ ~RoundRobinCoreAllocator()\l+ initialise()\l+ allocateThread()\l}" alt="" coords="27,189,229,325"/>
+</map>

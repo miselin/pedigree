@@ -1,0 +1,12 @@
+<map id="atag" name="atag">
+<area shape="rect" id="node2" href="$structatag__initrd2.html" title="{atag_initrd2\n|+ start\l+ size\l|}" alt="" coords="5,93,95,185"/>
+<area shape="rect" id="node3" href="$structatag__core.html" title="{atag_core\n|+ flags\l+ pagesize\l+ rootdev\l|}" alt="" coords="119,86,205,193"/>
+<area shape="rect" id="node4" href="$structatag__header.html" title="{atag_header\n|+ size\l+ tag\l|}" alt="" coords="230,93,323,185"/>
+<area shape="rect" id="node5" href="$structatag__ramdisk.html" title="{atag_ramdisk\n|+ flags\l+ size\l+ start\l|}" alt="" coords="348,86,448,193"/>
+<area shape="rect" id="node6" href="$structatag__videotext.html" title="{atag_videotext\n|+ x\l+ y\l+ video_page\l+ video_mode\l+ video_cols\l+ video_ega_bx\l+ video_lines\l+ video_isvga\l+ video_points\l|}" alt="" coords="473,42,587,237"/>
+<area shape="rect" id="node7" href="$structatag__cmdline.html" title="{atag_cmdline\n|+ cmdline\l|}" alt="" coords="611,101,710,178"/>
+<area shape="rect" id="node8" href="$structatag__mem.html" title="{atag_mem\n|+ size\l+ start\l|}" alt="" coords="734,93,817,185"/>
+<area shape="rect" id="node9" href="$structatag__videolfb.html" title="{atag_videolfb\n|+ lfb_width\l+ lfb_height\l+ lfb_depth\l+ lfb_linelength\l+ lfb_base\l+ lfb_size\l+ red_size\l+ red_pos\l+ green_size\l+ green_pos\l+ blue_size\l+ blue_pos\l+ rsvd_size\l+ rsvd_pos\l|}" alt="" coords="841,5,952,273"/>
+<area shape="rect" id="node10" href="$structatag__revision.html" title="{atag_revision\n|+ rev\l|}" alt="" coords="977,101,1075,178"/>
+<area shape="rect" id="node11" href="$structatag__serialnr.html" title="{atag_serialnr\n|+ low\l+ high\l|}" alt="" coords="1099,93,1195,185"/>
+</map>

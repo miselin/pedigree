@@ -1,0 +1,4 @@
+<map id="Log::LogCallback" name="Log::LogCallback">
+<area shape="rect" id="node2" href="$classSerialLogger.html" title="{SerialLogger\n|&#45; m_pSerial\l&#45; m_bInitialised\l&#45; m_Lock\l|+ SerialLogger()\l+ ~SerialLogger()\l+ callback()\l}" alt="" coords="5,145,128,281"/>
+<area shape="rect" id="node3" href="$classStreamingScreenLogger.html" title="{StreamingScreenLogger\n||+ ~StreamingScreenLogger()\l+ callback()\l}" alt="" coords="152,167,341,259"/>
+</map>

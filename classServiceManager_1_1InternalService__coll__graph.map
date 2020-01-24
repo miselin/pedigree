@@ -1,0 +1,4 @@
+<map id="ServiceManager::InternalService" name="ServiceManager::InternalService">
+<area shape="rect" id="node2" href="$classServiceFeatures.html" title="{ServiceFeatures\n|&#45; m_OpEnum\l|+ ServiceFeatures()\l+ ~ServiceFeatures()\l+ provides()\l+ add()\l+ remove()\l}" alt="" coords="5,5,151,141"/>
+<area shape="rect" id="node3" href="$classService.html" title="{Service\n||+ Service()\l+ ~Service()\l+ serve()\l}" alt="" coords="175,20,269,127"/>
+</map>

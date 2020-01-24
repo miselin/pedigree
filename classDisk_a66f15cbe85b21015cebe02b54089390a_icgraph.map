@@ -1,0 +1,12 @@
+<map id="Disk::read" name="Disk::read">
+<area shape="rect" id="node2" href="$classIso9660Directory.html#a2c43fbab4ae28f00333c9ee38a07fe67" title="Iso9660Directory::cacheDirectory\lContents" alt="" coords="136,5,353,47"/>
+<area shape="rect" id="node3" href="$classFileDisk.html#a1016f922087800e7cd80f082bfb91584" title="FileDisk::getName" alt="" coords="179,71,310,98"/>
+<area shape="rect" id="node4" href="$classFatFilesystem.html#a5d9618ef5ae2a1924be229e13306e8be" title="FatFilesystem::initialise" alt="" coords="165,146,325,173"/>
+<area shape="rect" id="node6" href="$msdos_8h.html#a278a4cbf8e5e3a310ce76d1d893af337" title="msdosProbeDisk" alt="" coords="429,222,552,249"/>
+<area shape="rect" id="node7" href="$msdos_8h.html#a7524df33228199e5e1c34a716730b18b" title="msdosReadTable" alt="" coords="183,247,307,274"/>
+<area shape="rect" id="node8" href="$classPartition.html#a433d8226ab863f5e3a0064fde84a5957" title="Partition::read" alt="" coords="193,298,296,325"/>
+<area shape="rect" id="node9" href="$classRawFsFile.html#aeb327f109d3e94fcdbc49fcdca3842fd" title="RawFsFile::readBlock" alt="" coords="169,349,320,375"/>
+<area shape="rect" id="node10" href="$classFatFilesystem.html#a9cfe1a2c660334ed0a5fd3533065f993" title="FatFilesystem::readSector\lBlock" alt="" coords="157,400,333,441"/>
+<area shape="rect" id="node11" href="$classFatFilesystem.html#a392bd9e44754c57058573bb515d32464" title="FatFilesystem::writeSector\lBlock" alt="" coords="155,465,334,507"/>
+<area shape="rect" id="node5" href="$classFatSymlink.html#a3041d9a475ace5bb55714a89d9364df4" title="FatSymlink::writeBytewise" alt="" coords="401,146,580,173"/>
+</map>

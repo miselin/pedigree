@@ -1,0 +1,9 @@
+<map id="X86EMU_regs" name="X86EMU_regs">
+<area shape="rect" id="node2" href="$structi386__general__regs.html" title="{i386_general_regs\n||}" alt="" coords="5,395,132,473"/>
+<area shape="rect" id="node3" href="$unioni386__general__register.html" title="{i386_general_register\n||}" alt="" coords="83,160,228,237"/>
+<area shape="rect" id="node8" href="$structi386__special__regs.html" title="{i386_special_regs\n|+ FLAGS\l|}" alt="" coords="156,395,283,473"/>
+<area shape="rect" id="node4" href="$structI32__reg__t.html" title="{I32_reg_t\n|+ e_reg\l|}" alt="" coords="17,13,93,90"/>
+<area shape="rect" id="node5" href="$structI16__reg__t.html" title="{I16_reg_t\n|+ x_reg\l|}" alt="" coords="117,13,193,90"/>
+<area shape="rect" id="node6" href="$structI8__reg__t.html" title="{I8_reg_t\n|+ l_reg\l+ h_reg\l|}" alt="" coords="218,5,287,97"/>
+<area shape="rect" id="node7" href="$structi386__segment__regs.html" title="{i386_segment_regs\n|+ CS\l+ DS\l+ SS\l+ ES\l+ FS\l+ GS\l|}" alt="" coords="307,359,441,509"/>
+</map>

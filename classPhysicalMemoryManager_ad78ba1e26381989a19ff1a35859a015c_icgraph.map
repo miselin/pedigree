@@ -1,0 +1,12 @@
+<map id="PhysicalMemoryManager::allocateRegion" name="PhysicalMemoryManager::allocateRegion">
+<area shape="rect" id="node2" href="$classPPCVga.html#a99248961cc4536d151e37c4a0acf9b80" title="PPCVga::initialise" alt="" coords="254,5,382,32"/>
+<area shape="rect" id="node3" href="$classMemoryPool.html#aec1407f210e2eb290906fad520f9bd2c" title="MemoryPool::initialise" alt="" coords="243,56,393,83"/>
+<area shape="rect" id="node4" href="$classBusMasterIde.html#a8e60e26858013365de9b0bba6bbe7284" title="Initialises DMA for a specific channel. " alt="" coords="239,107,397,133"/>
+<area shape="rect" id="node7" href="$classKernelElf.html#afb3a9a11f7c20cb84b7ae18b0d0e94a2" title="KernelElf::initialise" alt="" coords="253,157,383,184"/>
+<area shape="rect" id="node8" href="$classDevice_1_1Address.html#a44498b70d4356e480382f0e7bd57523c" title="Device::Address::map" alt="" coords="242,208,394,235"/>
+<area shape="rect" id="node9" href="$classX86Vga.html#a7d6711ae47f9f2a5b9fd7c2d7e92d2dd" title="X86Vga::moveCursor" alt="" coords="245,259,391,285"/>
+<area shape="rect" id="node11" href="$classFramebuffer.html#a6a7fda43d9b792b66d56818b9888d023" title="Framebuffer::swCreateBuffer" alt="" coords="223,309,413,336"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="461,99,625,141"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="673,107,852,133"/>
+<area shape="rect" id="node10" href="$classX86Vga.html#aabca82365c5d094d0aa496dfaf09784b" title="X86Vga::getNumRows" alt="" coords="465,259,621,285"/>
+</map>

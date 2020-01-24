@@ -1,0 +1,4 @@
+<map id="Disk::getBlockSize" name="Disk::getBlockSize">
+<area shape="rect" id="node2" href="$classRawFsFile.html#a862c80dbc95287f5720d2b63f5421f2a" title="RawFsFile::getBlockSize" alt="" coords="188,5,359,32"/>
+<area shape="rect" id="node3" href="$classPartition.html#a149406cfb81b15cdaacae810d4f4a356" title="Gets the block size of the disk. " alt="" coords="196,56,351,83"/>
+</map>

@@ -1,0 +1,14 @@
+<map id="RequestQueue::addAsyncRequest" name="RequestQueue::addAsyncRequest">
+<area shape="rect" id="node2" href="$classScsiDisk.html#a3f3bb7aea858a2aecd991e53a1f1d3ca" title="ScsiDisk::read" alt="" coords="279,31,387,57"/>
+<area shape="rect" id="node3" href="$classCache.html#a3a4f0916381ef6f3cd5ae0a1139e80d1" title="Cache::release" alt="" coords="277,81,388,108"/>
+<area shape="rect" id="node10" href="$classCache.html#a49319c0bbb177eb08db38a2958bf5611" title="Cache::sync" alt="" coords="285,132,381,159"/>
+<area shape="rect" id="node12" href="$classCache.html#a5e2cbc66e8c1d8709ea556ab2c973e36" title="Cache::timer" alt="" coords="284,183,381,209"/>
+<area shape="rect" id="node13" href="$classScsiDisk.html#a35c2d6efbc45c8d5862f81b36956558c" title="ScsiDisk::write" alt="" coords="277,233,388,260"/>
+<area shape="rect" id="node4" href="$classFile.html#adf3b7b34a5a5e63a99da4d9a719a7a2d" title="File::returnPhysicalPage" alt="" coords="436,5,600,32"/>
+<area shape="rect" id="node5" href="$classDiskImage.html#acb4d50da90301cf52b6ebc858967dd37" title="DiskImage::unpin" alt="" coords="456,56,580,83"/>
+<area shape="rect" id="node9" href="$classFatFile.html#ad6d4ab615702c95fe1f90bed713faae4" title="FatFile::unpinBlock" alt="" coords="451,107,585,133"/>
+<area shape="rect" id="node6" href="$classDiskImage.html#ad164622638c31b85dbe30a05f01326f8" title="Gets the block size of the disk. " alt="" coords="648,56,819,83"/>
+<area shape="rect" id="node7" href="$classDiskImage.html#a42765c496a07295a42a12e9db4e747e7" title="DiskImage::read" alt="" coords="867,56,985,83"/>
+<area shape="rect" id="node8" href="$classDiskImage.html#aca6bbf631caaaa94d8d6ca53f5261250" title="DiskImage::dump" alt="" coords="1033,56,1159,83"/>
+<area shape="rect" id="node11" href="$classFatFile.html#a8a6df02c9ef7a04ecd85b616513cac5a" title="FatFile::sync" alt="" coords="469,157,567,184"/>
+</map>

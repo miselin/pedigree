@@ -1,0 +1,7 @@
+<map id="kernel" name="kernel">
+<area shape="rect" id="node1" href="$group__kernelmachine.html" title="machine&#45;specific kernel interface " alt="" coords="115,5,271,32"/>
+<area shape="rect" id="node3" href="$group__kerneldebugger.html" title="the kernel debugger " alt="" coords="155,56,230,83"/>
+<area shape="rect" id="node4" href="$group__kernelutilities.html" title="Utilities. " alt="" coords="161,107,224,133"/>
+<area shape="rect" id="node5" href="$group__kernelprocessor.html" title="processor&#45;specific kernel interface " alt="" coords="111,157,275,184"/>
+<area shape="rect" id="node6" href="$group__kernellinker.html" title="the kernel linker " alt="" coords="166,208,219,235"/>
+</map>

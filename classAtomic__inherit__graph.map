@@ -1,0 +1,8 @@
+<map id="Atomic&lt; T, bAllow &gt;" name="Atomic&lt; T, bAllow &gt;">
+<area shape="rect" id="node2" href="$classAtomic.html" title="{Atomic\&lt; ssize_t \&gt;\n||}" alt="" coords="5,145,135,223"/>
+<area shape="rect" id="node3" href="$classAtomic.html" title="{Atomic\&lt; uint8_t \&gt;\n||}" alt="" coords="159,145,285,223"/>
+<area shape="rect" id="node4" href="$classAtomic.html" title="{Atomic\&lt; size_t \&gt;\n||}" alt="" coords="310,145,433,223"/>
+<area shape="rect" id="node6" href="$classAtomic.html" title="{Atomic\&lt; bool \&gt;\n||}" alt="" coords="457,145,568,223"/>
+<area shape="rect" id="node7" href="$classAtomic.html" title="{Atomic\&lt; uint64_t \&gt;\n||}" alt="" coords="593,145,726,223"/>
+<area shape="rect" id="node5" href="$classAtomic_3_01bool_00_01true_01_4.html" title="{Atomic\&lt; bool, true \&gt;\n||+ Atomic()\l+ Atomic()\l+ operator=()\l+ ~Atomic()\l+ operator\|=()\l+ operator&amp;=()\l+ operator^=()\l+ compareAndSwap()\l+ operator bool()\l}" alt="" coords="297,272,445,467"/>
+</map>

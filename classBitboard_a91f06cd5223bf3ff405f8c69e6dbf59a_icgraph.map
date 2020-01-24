@@ -1,0 +1,7 @@
+<map id="Bitboard::set" name="Bitboard::set">
+<area shape="rect" id="node2" href="$classBoardState.html#a7a4e08fd598a90fa025b1f14023a0e3b" title="BoardState::dump" alt="" coords="167,5,293,32"/>
+<area shape="rect" id="node3" href="$classSideState.html#a65dc2ab0ce98fb4961bc10fa85268626" title="SideState::friendlyMove" alt="" coords="149,56,311,83"/>
+<area shape="rect" id="node6" href="$classSideState.html#a9ca468b573e7b0e75a29676d22000532" title="SideState::isAttacking" alt="" coords="359,107,511,133"/>
+<area shape="rect" id="node4" href="$classBoardState.html#ac8698c815b4ad8542ccb84be7f268323" title="BoardState::move" alt="" coords="371,56,498,83"/>
+<area shape="rect" id="node5" href="$classBoardState.html#aa779e34cbb859e0882154839cbd4810f" title="BoardState::isLegal" alt="" coords="559,81,695,108"/>
+</map>

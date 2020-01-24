@@ -1,0 +1,12 @@
+<map id="Device::addresses" name="Device::addresses">
+<area shape="rect" id="node2" href="$classArmBeagle.html#a7154c38061a8c632ed1332b1fb376125" title="ArmBeagle::initialiseDeviceTree" alt="" coords="184,5,392,32"/>
+<area shape="rect" id="node4" href="$classPc.html#a4cd2394bef38d81afa9d27913222ce45" title="Pc::initialiseDeviceTree" alt="" coords="208,56,368,83"/>
+<area shape="rect" id="node5" href="$classPciAtaController.html#a4ecebbc1ccbe372364d5931c892229d2" title="PciAtaController::PciAta\lController" alt="" coords="206,107,370,149"/>
+<area shape="rect" id="node7" href="$classHeathrow.html#a873945938f70f52c5d3601863da32f9d" title="Heathrow::unregisterHandler" alt="" coords="194,173,382,200"/>
+<area shape="rect" id="node10" href="$classOpenPic.html#a5fb453c744fa02e05203a0867d7a4414" title="OpenPic::unregisterHandler" alt="" coords="197,224,379,251"/>
+<area shape="rect" id="node3" href="$classArmBeagle.html#aed2e8f5d001bbcfe4c6a54d8fdb5265e" title="ArmBeagle::setKeyboard" alt="" coords="446,5,613,32"/>
+<area shape="rect" id="node6" href="$classPciAtaController.html#a4da01de55ebe791ef17246472620ec7e" title="PciAtaController::getName" alt="" coords="440,115,619,141"/>
+<area shape="rect" id="node8" href="$classHeathrow.html#a94a2ac17443bf7525b74ddd851a7f333" title="Heathrow::instance" alt="" coords="462,173,597,200"/>
+<area shape="rect" id="node9" href="$classMac.html#adc59251940a11bb19e8d868960e2694d" title="Mac::initialiseDeviceTree" alt="" coords="667,199,836,225"/>
+<area shape="rect" id="node11" href="$classOpenPic.html#aed4e3d404be358d005c71395a30c29c6" title="OpenPic::instance" alt="" coords="465,224,594,251"/>
+</map>

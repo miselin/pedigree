@@ -1,0 +1,4 @@
+<map id="StationInfo" name="StationInfo">
+<area shape="rect" id="node2" href="$classMacAddress.html" title="{MacAddress\n|&#45; m_Mac\l&#45; m_Valid\l|+ MacAddress()\l+ MacAddress()\l+ valid()\l+ setMac()\l+ setMac()\l+ setMac()\l+ getMac()\l+ getMac()\l+ operator[]()\l+ operator=()\l+ operator=()\l+ operator const uint16_t *()\l+ toString()\l}" alt="" coords="5,13,189,281"/>
+<area shape="rect" id="node3" href="$classIpAddress.html" title="{IpAddress\n|&#45; m_Type\l&#45; m_Ipv4\l&#45; m_Ipv6\l&#45; m_bSet\l&#45; m_Ipv6Prefix\l|+ IpAddress()\l+ IpAddress()\l+ IpAddress()\l+ IpAddress()\l+ IpAddress()\l+ setIp()\l+ setIp()\l+ getIp()\l+ getIp()\l+ getType()\land 14 more...\l}" alt="" coords="213,5,320,288"/>
+</map>

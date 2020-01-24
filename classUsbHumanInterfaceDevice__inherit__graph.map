@@ -1,0 +1,3 @@
+<map id="UsbHumanInterfaceDevice" name="UsbHumanInterfaceDevice">
+<area shape="rect" id="node2" href="$classUsbDevice.html" title="{UsbDevice\n|+ PACKED\l+ PACKED\l# m_nAddress\l# m_nPort\l# m_Speed\l# m_UsbState\l# m_pDescriptor\l# m_pConfiguration\l# m_pInterface\l# m_pHub\l# m_pContainer\l|+ UsbDevice()\l+ UsbDevice()\l+ ~UsbDevice()\l+ initialise()\l+ initialiseDriver()\l+ getUsbDeviceName()\l+ getAddress()\l+ getPort()\l+ getSpeed()\l+ getUsbState()\land 8 more...\l# doSync()\l# syncIn()\l# syncOut()\l# addInterruptInHandler()\l# controlRequest()\l# getStatus()\l# clearEndpointHalt()\l# getDescriptor()\l# getDescriptorLength()\l# getString()\l&#45; UsbDevice()\l&#45; operator=()\l}" alt="" coords="26,5,193,552"/>
+</map>

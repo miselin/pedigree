@@ -1,0 +1,5 @@
+<map id="Widget" name="Widget">
+<area shape="rect" id="node2" href="$classGears.html" title="{Gears\n|&#45; fb\l&#45; m_bGlInit\l&#45; m_bContextValid\l&#45; gl_ctx\l&#45; m_nWidth\l&#45; m_nHeight\l|+ Gears()\l+ ~Gears()\l+ initOpenGL()\l+ deinitOpenGL()\l+ reposition()\l+ render()\l&#45; glResize()\l}" alt="" coords="5,468,136,707"/>
+<area shape="rect" id="node3" href="$classPedigreeTerminalEmulator.html" title="{PedigreeTerminalEmulator\n|&#45; m_nWidth\l&#45; m_nHeight\l|+ PedigreeTerminalEmulator()\l+ ~PedigreeTerminalEmulator()\l+ render()\l+ handleReposition()\l+ getWidth()\l+ getHeight()\l}" alt="" coords="160,505,363,670"/>
+<area shape="rect" id="node4" href="$classTestWidget.html" title="{TestWidget\n|&#45; m_Rgb\l|+ TestWidget()\l+ ~TestWidget()\l+ render()\l}" alt="" coords="387,534,504,641"/>
+</map>

@@ -1,0 +1,6 @@
+<map id="IPv4" name="IPv4">
+<area shape="rect" id="node1" href="$group__igmp.html" title="IGMP" alt="" coords="199,5,255,32"/>
+<area shape="rect" id="node2" href="$group__dhcp4.html" title="DHCPv4" alt="" coords="189,56,264,83"/>
+<area shape="rect" id="node5" href="$group__autoip.html" title="AUTOIP" alt="" coords="191,107,263,133"/>
+<area shape="rect" id="node4" href="$group__ip.html" title="IP" alt="" coords="5,56,44,83"/>
+</map>

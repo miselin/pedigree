@@ -1,0 +1,7 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="node1" href="$classSyscallHandler.html" title="SyscallHandler" alt="" coords="5,81,116,108"/>
+<area shape="rect" id="node2" href="$classKernelCoreSyscallManager.html" title="KernelCoreSyscallManager" alt="" coords="164,5,344,32"/>
+<area shape="rect" id="node3" href="$classNativeSyscallManager.html" title="NativeSyscallManager" alt="" coords="177,56,331,83"/>
+<area shape="rect" id="node4" href="$classPedigreeCSyscallManager.html" title="PedigreeCSyscallManager" alt="" coords="166,107,342,133"/>
+<area shape="rect" id="node5" href="$classPosixSyscallManager.html" title="PosixSyscallManager" alt="" coords="180,157,328,184"/>
+</map>

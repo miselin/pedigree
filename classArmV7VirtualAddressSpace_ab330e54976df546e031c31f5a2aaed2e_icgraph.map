@@ -1,0 +1,8 @@
+<map id="ArmV7VirtualAddressSpace::toFlags" name="ArmV7VirtualAddressSpace::toFlags">
+<area shape="rect" id="node2" href="$classArmV7VirtualAddressSpace.html#a07e6c8c44e0870e1567bf1eb2e0cc8f4" title="ArmV7VirtualAddressSpace\l::doMap" alt="" coords="237,64,421,105"/>
+<area shape="rect" id="node3" href="$classArmV7VirtualAddressSpace.html#a85e65925277c2279e399d4513e78b9a2" title="ArmV7VirtualAddressSpace\l::getKernelModulesEnd" alt="" coords="486,5,670,47"/>
+<area shape="rect" id="node4" href="$classArmV7VirtualAddressSpace.html#a0e43fc21db8ee34c7341c78bb31d9534" title="ArmV7VirtualAddressSpace::map" alt="" coords="469,71,687,98"/>
+<area shape="rect" id="node7" href="$classArmV7KernelVirtualAddressSpace.html#adb4346d7b8484be0cd3794d716454d78" title="ArmV7KernelVirtualAddress\lSpace::map" alt="" coords="486,123,670,164"/>
+<area shape="rect" id="node5" href="$classArmV7VirtualAddressSpace.html#a989b8d36a8465d1dd8c2241daf628ad6" title="ArmV7VirtualAddressSpace\l::allocateStack" alt="" coords="747,31,931,72"/>
+<area shape="rect" id="node6" href="$classArmV7PhysicalMemoryManager_1_1PageStack.html#af076a194a03945ae46ad62757614e857" title="ArmV7PhysicalMemoryManager\l::PageStack::free" alt="" coords="735,96,944,137"/>
+</map>

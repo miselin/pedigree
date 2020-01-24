@@ -1,0 +1,25 @@
+<map id="UnlikelyLock.h" name="UnlikelyLock.h">
+<area shape="rect" id="node2" href="$system_2include_2pedigree_2kernel_2compiler_8h_source.html" title="pedigree/kernel/compiler.h" alt="" coords="1173,891,1347,918"/>
+<area shape="rect" id="node4" href="$ConditionVariable_8h_source.html" title="pedigree/kernel/process\l/ConditionVariable.h" alt="" coords="581,259,741,300"/>
+<area shape="rect" id="node7" href="$system_2include_2pedigree_2kernel_2processor_2types_8h_source.html" title="pedigree/kernel/processor\l/types.h" alt="" coords="199,884,369,925"/>
+<area shape="rect" id="node24" href="$Mutex_8h_source.html" title="pedigree/kernel/process\l/Mutex.h" alt="" coords="699,80,859,121"/>
+<area shape="rect" id="node3" href="$threadsafety_8h_source.html" title="pedigree/kernel/utilities\l/threadsafety.h" alt="" coords="1183,973,1337,1015"/>
+<area shape="rect" id="node5" href="$Spinlock_8h_source.html" title="pedigree/kernel/Spinlock.h" alt="" coords="347,534,522,561"/>
+<area shape="rect" id="node13" href="$Time_8h_source.html" title="pedigree/kernel/time\l/Time.h" alt="" coords="347,795,485,836"/>
+<area shape="rect" id="node14" href="$List_8h_source.html" title="pedigree/kernel/utilities\l/List.h" alt="" coords="728,348,883,389"/>
+<area shape="rect" id="node22" href="$Result_8h_source.html" title="pedigree/kernel/utilities\l/Result.h" alt="" coords="549,437,704,479"/>
+<area shape="rect" id="node6" href="$Atomic_8h_source.html" title="pedigree/kernel/Atomic.h" alt="" coords="321,623,487,650"/>
+<area shape="rect" id="node9" href="$utility_8h_source.html" title="pedigree/kernel/utilities\l/utility.h" alt="" coords="711,705,865,747"/>
+<area shape="rect" id="node8" href="$system_2include_2pedigree_2kernel_2processor_2x64_2types_8h_source.html" title="pedigree/kernel/processor\l/x64/types.h" alt="" coords="199,973,369,1015"/>
+<area shape="rect" id="node10" href="$cpp_8h_source.html" title="pedigree/kernel/utilities\l/cpp.h" alt="" coords="992,795,1147,836"/>
+<area shape="rect" id="node11" href="$lib_8h_source.html" title="pedigree/kernel/utilities\l/lib.h" alt="" coords="661,795,816,836"/>
+<area shape="rect" id="node15" href="$Iterator_8h_source.html" title="pedigree/kernel/utilities\l/Iterator.h" alt="" coords="1008,437,1163,479"/>
+<area shape="rect" id="node17" href="$ObjectPool_8h_source.html" title="pedigree/kernel/utilities\l/ObjectPool.h" alt="" coords="728,437,883,479"/>
+<area shape="rect" id="node20" href="$assert_8h_source.html" title="pedigree/kernel/utilities\l/assert.h" alt="" coords="728,527,883,568"/>
+<area shape="rect" id="node16" href="$template_8h_source.html" title="pedigree/kernel/utilities\l/template.h" alt="" coords="1109,527,1264,568"/>
+<area shape="rect" id="node18" href="$LockGuard_8h_source.html" title="pedigree/kernel/LockGuard.h" alt="" coords="1110,713,1298,739"/>
+<area shape="rect" id="node19" href="$Vector_8h_source.html" title="pedigree/kernel/utilities\l/Vector.h" alt="" coords="715,616,869,657"/>
+<area shape="rect" id="node21" href="$stdint_8h_source.html" title="stdint.h" alt="" coords="497,713,562,739"/>
+<area shape="rect" id="node25" href="$Semaphore_8h_source.html" title="pedigree/kernel/process\l/Semaphore.h" alt="" coords="396,169,556,211"/>
+<area shape="rect" id="node26" href="$Event_8h_source.html" title="pedigree/kernel/process\l/Event.h" alt="" coords="279,259,439,300"/>
+</map>

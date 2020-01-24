@@ -1,0 +1,9 @@
+<map id="Nic3C90x::setWindow" name="Nic3C90x::setWindow">
+<area shape="rect" id="node2" href="$classNic3C90x.html#aa566a63f9d7fb155073133f104748b73" title="Nic3C90x::getName" alt="" coords="659,110,800,136"/>
+<area shape="rect" id="node3" href="$classNic3C90x.html#ad7c687a4a4012d63e581b316b067e8d2" title="Nic3C90x::Nic3C90x" alt="" coords="656,312,803,339"/>
+<area shape="rect" id="node4" href="$classNic3C90x.html#ac98938f6a75f2e4887f534f16b132140" title="Nic3C90x::readEeprom" alt="" coords="223,262,382,288"/>
+<area shape="rect" id="node6" href="$classNic3C90x.html#a45bed301275ea48ff6f92137a7ec24e5" title="Nic3C90x::reset" alt="" coords="244,34,361,60"/>
+<area shape="rect" id="node8" href="$classNic3C90x.html#a2a6077410f555f003bc59c8425301c32" title="Nic3C90x::writeEepromWord" alt="" coords="207,160,399,187"/>
+<area shape="rect" id="node5" href="$classNic3C90x.html#ab1f5e18fc465119371525acc1c50dbd0" title="Nic3C90x::writeEeprom" alt="" coords="447,287,608,314"/>
+<area shape="rect" id="node7" href="$classNic3C90x.html#a1505f662a766b5969bd185a4418f674f" title="Nic3C90x::irq" alt="" coords="476,34,579,60"/>
+</map>

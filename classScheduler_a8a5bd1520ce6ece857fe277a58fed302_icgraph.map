@@ -1,0 +1,8 @@
+<map id="Scheduler::addThread" name="Scheduler::addThread">
+<area shape="rect" id="node2" href="$classProcessorThreadAllocator.html#a301931270752ef88d0dc88cc89d25824" title="ProcessorThreadAllocator\l::addThread" alt="" coords="203,5,375,47"/>
+<area shape="rect" id="node3" href="$classThread.html#af94043dd630c2aefca22ef3d2922091e" title="Thread::Thread" alt="" coords="447,13,557,39"/>
+<area shape="rect" id="node4" href="$classThread.html#a4b9ca8bc69c36ab5c19fa99972ba2c2e" title="Thread::shutdown" alt="" coords="225,126,352,153"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#ad892612e1049b0b6ae06eaf610550cba" title="PerProcessorScheduler\l::killCurrentThread" alt="" coords="423,64,581,105"/>
+<area shape="rect" id="node6" href="$classProcess.html#a990776d181dbbde7ff8ac12713d814b3" title="Process::~Process" alt="" coords="435,130,569,157"/>
+<area shape="rect" id="node7" href="$classThread.html#a37d9edd3a1a776cbc27dedff949c9726" title="Thread::~Thread" alt="" coords="443,181,561,207"/>
+</map>

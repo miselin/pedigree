@@ -1,0 +1,4 @@
+<map id="SorterFile" name="SorterFile">
+<area shape="rect" id="node2" href="$structsqlite3__file.html" title="{sqlite3_file\n||}" alt="" coords="45,292,129,369"/>
+<area shape="rect" id="node3" href="$structsqlite3__io__methods.html" title="{sqlite3_io_methods\n|+ iVersion\l+ xClose\l+ xRead\l+ xWrite\l+ xTruncate\l+ xSync\l+ xFileSize\l+ xLock\l+ xUnlock\l+ xCheckReservedLock\land 9 more...\l|}" alt="" coords="5,5,168,229"/>
+</map>

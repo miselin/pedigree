@@ -1,0 +1,8 @@
+<map id="Window" name="Window">
+<area shape="rect" id="node8" href="$classContainer.html" title="{Container\n|# m_Children\l&#45; m_Layout\l|+ Container()\l+ ~Container()\l+ getType()\l+ getLayout()\l+ setLayout()\l+ getFocusWindow()\l+ setFocusWindow()\l+ addChild()\l+ replaceChild()\l+ insertChild()\land 17 more...\l# Container()\l}" alt="" coords="75,1241,218,1495"/>
+<area shape="rect" id="node2" href="$classWObject.html" title="{WObject\n||+ WObject()\l+ ~WObject()\l+ getType()\l+ resize()\l+ reposition()\l+ bump()\l+ resized()\l+ getCopyDimensions()\l+ norefresh()\l+ yesrefresh()\l+ render()\l# setDimensions()\l# getDimensions()\l# refreshContext()\l}" alt="" coords="14,492,174,760"/>
+<area shape="rect" id="node3" href="$classPedigreeGraphics_1_1Rect.html" title="{PedigreeGraphics::Rect\n|&#45; x\l&#45; y\l&#45; w\l&#45; h\l|+ Rect()\l+ Rect()\l+ ~Rect()\l+ update()\l+ getX()\l+ getY()\l+ getW()\l+ getH()\l}" alt="" coords="83,205,244,429"/>
+<area shape="rect" id="node5" href="$classSharedBuffer.html" title="Abstracts a buffer shared between multiple processes. " alt="" coords="391,558,518,694"/>
+<area shape="rect" id="node6" href="$classPedigreeIpc_1_1SharedIpcMessage.html" title="{PedigreeIpc::SharedIpcMessage\n|&#45; m_nBytes\l&#45; m_pHandle\l|+ SharedIpcMessage()\l+ ~SharedIpcMessage()\l+ initialise()\l+ getHandle()\l+ getSize()\l}" alt="" coords="349,242,560,393"/>
+<area shape="rect" id="node7" href="$classPedigreeIpc_1_1StandardIpcMessage.html" title="A standard IPC message that is less than 4 KB in size. " alt="" coords="368,5,541,156"/>
+</map>

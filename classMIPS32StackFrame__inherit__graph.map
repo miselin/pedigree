@@ -1,0 +1,3 @@
+<map id="MIPS32StackFrame" name="MIPS32StackFrame">
+<area shape="rect" id="node2" href="$classStackFrameBase.html" title="{StackFrameBase\n|# m_Symbol\l# m_State\l# m_BasePointer\l|+ prettyPrint()\l+ StackFrameBase()\l+ ~StackFrameBase()\l+ construct()\l&#45; getParameter()\l&#45; isClassMember()\l&#45; format()\l}" alt="" coords="14,5,165,200"/>
+</map>

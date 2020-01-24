@@ -1,0 +1,5 @@
+<map id="X86IsaDma" name="X86IsaDma">
+<area shape="rect" id="node2" href="$classIsaDma.html" title="{IsaDma\n||+ IsaDma()\l+ ~IsaDma()\l+ initTransfer()\l+ instance()\l}" alt="" coords="5,462,112,583"/>
+<area shape="rect" id="node3" href="$classIoPort.html" title="I/O port range. " alt="" coords="136,381,235,664"/>
+<area shape="rect" id="node4" href="$classIoBase.html" title="Abstrace base class for hardware I/O capabilities. " alt="" coords="117,5,254,332"/>
+</map>

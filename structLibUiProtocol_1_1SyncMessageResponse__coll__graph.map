@@ -1,0 +1,4 @@
+<map id="LibUiProtocol::SyncMessageResponse" name="LibUiProtocol::SyncMessageResponse">
+<area shape="rect" id="node2" href="$structPedigreeGraphics_1_1GraphicsProvider.html" title="{PedigreeGraphics::Graphics\lProvider\n|+ pDisplay\l+ bHardwareAccel\l+ maxWidth\l+ maxHeight\l+ maxDepth\l+ bReserved1\l+ contextId\l|}" alt="" coords="124,5,309,185"/>
+<area shape="rect" id="node3" href="$classPedigreeGraphics_1_1Framebuffer.html" title="{PedigreeGraphics::Framebuffer\n|&#45; m_bProviderValid\l&#45; m_bIsChild\l|+ Framebuffer()\l+ ~Framebuffer()\l+ getWidth()\l+ getHeight()\l+ getFormat()\l+ getBytesPerPixel()\l+ setPalette()\l+ getRawBuffer()\l+ createChild()\l+ convertPixel()\land 11 more...\l}" alt="" coords="221,248,423,487"/>
+</map>

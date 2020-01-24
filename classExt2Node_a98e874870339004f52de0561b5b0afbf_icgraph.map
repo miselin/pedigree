@@ -1,0 +1,8 @@
+<map id="Ext2Node::updateMetadata" name="Ext2Node::updateMetadata">
+<area shape="rect" id="node2" href="$classExt2File.html#ad9c5e6aad322be8d64e2044bcea7d7db" title="Ext2File::fileAttributeChanged" alt="" coords="235,5,431,32"/>
+<area shape="rect" id="node3" href="$classExt2Symlink.html#a034a3ce857e52b16e509e04144e307eb" title="Ext2Symlink::fileAttribute\lChanged" alt="" coords="247,57,418,98"/>
+<area shape="rect" id="node4" href="$classExt2Directory.html#a84943adbcb11e2faacee1dcbc7339480" title="Ext2Directory::fileAttribute\lChanged" alt="" coords="245,122,421,163"/>
+<area shape="rect" id="node5" href="$classExt2Directory.html#a5b7ecbd5ee2645c044f465037da6f25a" title="Ext2Directory::addEntry" alt="" coords="479,104,641,131"/>
+<area shape="rect" id="node7" href="$classExt2Directory.html#a03b43f935227831aaa388847e19846b6" title="Ext2Directory::truncate" alt="" coords="705,155,862,181"/>
+<area shape="rect" id="node6" href="$classExt2Filesystem.html#a01ee85a4315570e134649db8862790c9" title="Ext2Filesystem::createNode" alt="" coords="689,104,877,131"/>
+</map>

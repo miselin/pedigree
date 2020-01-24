@@ -1,0 +1,3 @@
+<map id="Mutex" name="Mutex">
+<area shape="rect" id="node2" href="$classSemaphore.html" title="{Semaphore\n|&#45; magic\l&#45; m_Counter\l&#45; m_BeingModified\l&#45; m_Queue\l&#45; m_bCanInterrupt\l|+ Semaphore()\l+ ~Semaphore()\l+ acquireWithResult()\l+ acquire()\l+ tryAcquire()\l+ release()\l+ getValue()\l&#45; Semaphore()\l&#45; operator=()\l&#45; removeThread()\l}" alt="" coords="5,5,155,273"/>
+</map>

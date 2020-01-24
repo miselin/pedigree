@@ -1,0 +1,19 @@
+<map id="Thread::getId" name="Thread::getId">
+<area shape="rect" id="node2" href="$classPerProcessorScheduler.html#a89f2b84d3179c6dc2a9169ad0706355b" title="PerProcessorScheduler\l::checkEventState" alt="" coords="169,133,328,175"/>
+<area shape="rect" id="node8" href="$classThreadsCommand.html#aeb715a33d855b2699437f75f79cb7f21" title="ThreadsCommand::execute" alt="" coords="157,199,340,226"/>
+<area shape="rect" id="node9" href="$classX64InterruptManager.html#a4a8f6a6ce39a3df3a2a99130e933999e" title="X64InterruptManager\l::interrupt" alt="" coords="177,251,320,292"/>
+<area shape="rect" id="node11" href="$classPosixSubsystem.html#a08d789cb3282e51cd86d21cc8439a08d" title="PosixSubsystem::sendSignal" alt="" coords="152,317,345,343"/>
+<area shape="rect" id="node18" href="$classPosixSubsystem.html#a96fe232872c2f519284ac03ab65cde0e" title="PosixSubsystem::threadException" alt="" coords="393,426,616,453"/>
+<area shape="rect" id="node3" href="$classPerProcessorScheduler.html#acd5f137c094335dbdac786a6bd52ae2c" title="PerProcessorScheduler\l::schedule" alt="" coords="425,72,584,113"/>
+<area shape="rect" id="node6" href="$classPerProcessorScheduler.html#a00ad3abf1fae587a987168d3b484f3e1" title="PerProcessorScheduler\l::sleep" alt="" coords="672,136,831,177"/>
+<area shape="rect" id="node4" href="$classPerProcessorScheduler.html#ad75ba94db5d0e4ff311fc1577b662472" title="PerProcessorScheduler\l::processorAddThread" alt="" coords="672,5,831,47"/>
+<area shape="rect" id="node7" href="$classPerProcessorScheduler.html#a56778f4da3bad5f9578f74fc1248f923" title="PerProcessorScheduler\l::timer" alt="" coords="672,71,831,112"/>
+<area shape="rect" id="node5" href="$classPerProcessorScheduler.html#aac3d905c9c05f7b116e05e89cdcdaefc" title="PerProcessorScheduler\l::initialise" alt="" coords="897,5,1056,47"/>
+<area shape="rect" id="node10" href="$classX64InterruptManager.html#a79ca4aed2cc2f849fe96d52f6f3d437e" title="X64InterruptManager\l::instance" alt="" coords="433,192,576,233"/>
+<area shape="rect" id="node12" href="$classIoEvent.html#a61d6d932713bcb9999341f777fee4106" title="IoEvent::IoEvent" alt="" coords="445,258,565,285"/>
+<area shape="rect" id="node13" href="$classVirtualTerminalManager.html#a1b146be19b417290c7d060628bd8d2da" title="VirtualTerminalManager\l::setTerminalMode" alt="" coords="425,309,584,351"/>
+<area shape="rect" id="node14" href="$classIntervalTimer.html#a5a21987eed6d4003dfecc1e1350ea5f8" title="IntervalTimer::signal" alt="" coords="435,375,575,402"/>
+<area shape="rect" id="node15" href="$classIntervalTimer.html#af375a008d4893671ef06236a13ae08dc" title="Adjust the current value directly. " alt="" coords="664,350,839,377"/>
+<area shape="rect" id="node17" href="$classIntervalTimer.html#a96be127d902d9bf9abb7c02ced975c87" title="IntervalTimer::timer" alt="" coords="684,401,819,427"/>
+<area shape="rect" id="node16" href="$classPosixProcess.html#a25790b0b8ed035584827320e04219438" title="PosixProcess::reportTimes\lUpdated" alt="" coords="887,343,1067,384"/>
+</map>

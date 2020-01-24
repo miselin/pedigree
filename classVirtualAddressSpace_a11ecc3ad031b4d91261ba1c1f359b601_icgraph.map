@@ -1,0 +1,9 @@
+<map id="VirtualAddressSpace::create" name="VirtualAddressSpace::create">
+<area shape="rect" id="node2" href="$classVirtualAddressSpace.html#aca486db09d4336c50ae57ecb7d38daa1" title="VirtualAddressSpace\l::allocateStack" alt="" coords="219,5,363,47"/>
+<area shape="rect" id="node3" href="$classPPC32VirtualAddressSpace.html#a7d60c6be12c1291d73f92ad2f75884c4" title="PPC32VirtualAddressSpace\l::clone" alt="" coords="197,71,384,112"/>
+<area shape="rect" id="node4" href="$classHostedVirtualAddressSpace.html#aaa3563efbe7ac3d6881c2065b7cae215" title="HostedVirtualAddressSpace\l::clone" alt="" coords="197,136,384,177"/>
+<area shape="rect" id="node5" href="$classX64VirtualAddressSpace.html#a90c94c03e1163511566d1d25e6360693" title="X64VirtualAddressSpace\l::clone" alt="" coords="207,201,374,243"/>
+<area shape="rect" id="node6" href="$classX86VirtualAddressSpace.html#ad968d7983e79cfc6c7435eda43f61daa" title="X86VirtualAddressSpace\l::fromFlags" alt="" coords="207,267,374,308"/>
+<area shape="rect" id="node7" href="$classX86VirtualAddressSpace.html#afd08976ecbb5a18fffe411a294dfe2c9" title="X86VirtualAddressSpace\l::X86VirtualAddressSpace" alt="" coords="432,233,607,275"/>
+<area shape="rect" id="node8" href="$classX86VirtualAddressSpace.html#a555823e58574cf7509b1fb7831005c5c" title="X86VirtualAddressSpace\l::getKernelHeapEnd" alt="" coords="436,299,603,340"/>
+</map>
