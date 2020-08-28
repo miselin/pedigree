@@ -294,6 +294,7 @@ long posix_clone(
         // delayed-start so we can ensure the new thread ID gets written to the
         // right places in memory.
         Thread *pThread = new Thread(pParentProcess, clonedState, true);
+        pThread->setName("posix clone() thread");
         pThread->setTlsBase(newtls);
         pThread->detach();
 
@@ -417,6 +418,7 @@ long posix_clone(
 
     // Create a new thread for the new process.
     Thread *pThread = new Thread(pProcess, clonedState);
+    pThread->setName("posix clone() forked thread");
     pThread->detach();
 
     // Fix up the main thread in the child.

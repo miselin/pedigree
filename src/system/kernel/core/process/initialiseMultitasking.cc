@@ -40,6 +40,7 @@ void initialiseMultitasking()
 
     // Create the main kernel thread.
     Thread *pThread = new Thread(pProcess);
+    pThread->setName("core kernel thread");
     pThread->detach();
 
     // Initialise the scheduler.
@@ -66,6 +67,7 @@ void initialiseMultitaskingPerProcessor()
 
     // Create the kernel idle thread.
     Thread *pThread = new Thread(pProcess);
+    pThread->setName("idle thread (ap)");
     pThread->detach();
     Processor::information().getScheduler().initialise(pThread);
 }

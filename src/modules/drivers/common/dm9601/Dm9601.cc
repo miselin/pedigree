@@ -130,10 +130,12 @@ void Dm9601::initialiseDriver()
     Thread *pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), trampoline,
         this);
+    pThread->setName("DM9601 RX worker");
     pThread->detach();
     pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(),
         recvTrampoline, this);
+    pThread->setName("DM9601 RX loop");
     pThread->detach();
 
     NetworkStack::instance().registerDevice(this);

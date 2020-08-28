@@ -141,6 +141,7 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     Thread *pAddThread = new Thread(
         pThread->getParent(), processorAddThread,
         reinterpret_cast<void *>(this), 0, false, true);
+    pAddThread->setName("PerProcessorScheduler thread add worker");
     pAddThread->detach();
 }
 

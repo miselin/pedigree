@@ -47,6 +47,7 @@ MeminfoFile::MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent)
     m_bRunning = true;
     m_pUpdateThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), run, this);
+    m_pUpdateThread->setName("MeminfoFile updater thread");
 }
 
 MeminfoFile::~MeminfoFile()

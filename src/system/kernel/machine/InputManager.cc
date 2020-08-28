@@ -88,6 +88,7 @@ void InputManager::initialise()
     m_pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), &trampoline,
         reinterpret_cast<void *>(this));
+    m_pThread->setName("InputManager worker thread");
 #else
     WARNING("InputManager: No thread support, no worker thread will be active");
 #endif

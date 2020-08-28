@@ -440,6 +440,22 @@ class EXPORTED_PUBLIC Thread
     /** Gets the per-processor scheduler for this Thread. */
     class PerProcessorScheduler *getScheduler() const;
 
+    const String &getName() const
+    {
+        return m_Name;
+    }
+
+    void setName(const String &name)
+    {
+        m_Name = name;
+    }
+
+    template <size_t N>
+    void setName(const char (&name)[N])
+    {
+        m_Name.assign(name, N);
+    }
+
   protected:
     /** Sets the scheduler for the Thread. */
     void setScheduler(class PerProcessorScheduler *pScheduler);
@@ -492,6 +508,9 @@ class EXPORTED_PUBLIC Thread
 
         Thread *m_pBlockingThread;
     };
+
+    /** An optional name for the thread for debugging. */
+    String m_Name;
 
     /** The current index into m_States (head of the state stack). */
     size_t m_nStateLevel = 0;

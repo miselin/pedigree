@@ -69,6 +69,7 @@ void RequestQueue::initialise()
     m_Stop = false;
     m_pThread =
         new Thread(pProcess, &trampoline, reinterpret_cast<void *>(this));
+    m_pThread->setName("RequestQueue worker");
     m_Halted = false;
 
     // Add our timer so we can figure out if we're not keeping up with
@@ -325,6 +326,7 @@ uint64_t RequestQueue::addAsyncRequest(
     Process *pProcess = Scheduler::instance().getKernelProcess();
     Thread *pThread =
         new Thread(pProcess, &doAsync, reinterpret_cast<void *>(pReq));
+    pThread->setName("RequestQueue async request");
     pThread->detach();
 #endif
 

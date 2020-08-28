@@ -1773,6 +1773,7 @@ bool PosixSubsystem::invoke(
             pProcess,
             reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint), 0,
             loaderStack);
+        pNewThread->setName("ld.so thread");
         pNewThread->detach();
 
         return true;

@@ -445,6 +445,7 @@ static bool init()
     g_pServerThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), mainThread,
         nullptr);
+    g_pServerThread->setName("Status Server main thread");
     return true;
 }
 

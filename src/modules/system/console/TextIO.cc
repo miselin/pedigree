@@ -168,6 +168,7 @@ bool TextIO::initialise(bool bClear)
         Process *parent =
             Processor::information().getCurrentThread()->getParent();
         m_pFlipThread = new Thread(parent, startFlipThread, this);
+        m_pFlipThread->setName("TextIO flip thread");
         m_pFlipThread->detach();
     }
 

@@ -32,6 +32,7 @@ void runConcurrently(int (*func)(void *), void *param)
 #if THREADS
     Process *parent = Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(parent, func, param);
+    pThread->setName("runConcurrently thread");
     pThread->detach();
 #else
     func(param);
@@ -43,6 +44,7 @@ void *runConcurrentlyAttached(int (*func)(void *), void *param)
 #if THREADS
     Process *parent = Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(parent, func, param);
+    pThread->setName("runConcurrentlyAttached thread");
     return pThread;
 #else
     int result = func(param);

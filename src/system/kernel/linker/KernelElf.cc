@@ -991,6 +991,7 @@ bool KernelElf::executeModule(Module *module)
     {
         Process *me = Processor::information().getCurrentThread()->getParent();
         Thread *pThread = new Thread(me, executeModuleThread, module);
+        pThread->setName("KernelElf module execution thread");
         pThread->detach();
     }
     else

@@ -93,6 +93,7 @@ void CacheManager::initialise()
     Process *pParent = Processor::information().getCurrentThread()->getParent();
     m_bActive = true;
     m_pTrimThread = new Thread(pParent, trimTrampoline, 0);
+    m_pTrimThread->setName("CacheManager trim thread");
 #endif
 }
 
