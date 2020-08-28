@@ -33,7 +33,8 @@ class Ext2Tests(unittest.TestCase):
             os.unlink('big.dat')
 
 
-def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None):
+def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None,
+                      blocksz=None, verifies=None):
     """Generate a test that runs ext2img to complete."""
     def _setup(self):
         # Pre-test: create the image.
@@ -45,14 +46,17 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None):
                 # Avoid tri-indirect addressing for now (not yet implemented).
                 if sz * 0.7 < 0x1000000:
                     f.write('x' * int(sz * 0.7))
-        subprocess.check_call(['mke2fs', '-q', '-O', '^dir_index', '-I',
-                               '128', '-F', '-L', 'pedigree', '_t.img'],
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        args = ['mke2fs', '-q', '-O', '^dir_index', '-I', '128', '-F',
+                '-L', 'pedigree']
+        if blocksz is not None:
+            args.extend(['-b', str(blocksz)])
+        args.append('_t.img')
+        subprocess.check_call(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     def call(self, wrapper=None):
         try:
             _setup(self)
-        except:
+        except subprocess.CalledProcessError:
             self.skipTest('cannot create image for test, skipping')
 
         args = [ext2img, '-c', script, '-f', '_t.img']
@@ -61,8 +65,10 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None):
         result = subprocess.Popen(args, stdout=subprocess.PIPE,
                                   stderr=subprocess.STDOUT)
 
-        run_result = result.wait()
         run_output, _ = result.communicate()
+        run_result = result.returncode
+
+        run_output = run_output.decode('utf-8')
 
         if should_pass:
             self.assertEqual(run_result, 0, 'exit status %d != 0\n'
@@ -81,6 +87,19 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None):
                                  'ext2img output:\n%s\n' % (fsck_result,
                                                             fsck_output,
                                                             run_output))
+
+            if verifies is not None:
+                for imgfile, localfile in verifies:
+                    # Pull out the file from the image for testing
+                    args = ['debugfs', '-R', 'dump %s _f' % (imgfile,), '_t.img']
+                    subprocess.check_call(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+                    # Do the files match?
+                    args = ['cmp', localfile, '_f']
+                    try:
+                        subprocess.check_call(args)
+                    except subprocess.CalledProcessError:
+                        self.fail('The file "%s" in the image does not match with the local file "%s".' % (imgfile, localfile))
         else:
             self.assertNotEqual(run_result, 0, 'exit status %d == 0\n'
                                 'ext2img output:\n%s\n' % (run_result,
@@ -103,7 +122,7 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None):
 
     returns = (
         test_doer,
-        test_memcheck_doer,
+        # test_memcheck_doer,
         # test_sgcheck_doer,
     )
 
@@ -128,17 +147,35 @@ def find_pedigree_tests():
         if not f.endswith('.test'):
             continue
 
+        blocksz = None
+        verifies = []
         with open(f) as f_:
-            start = f_.read(64).splitlines()[0]
+            header = f_.read(128).splitlines()
+            start = header[0]
             should_pass = 'pass' in start.lower()
 
             # Allow temporary disables for tests
             if 'disable' in start.lower():
                 continue
 
+            # Test mode for big blocks
+            if 'bigblocks' in start.lower():
+                blocksz = 16384
+
+            # Look for a verify
+            try:
+                nextline = header[1]
+            except IndexError:
+                continue
+
+            if 'verify:' in nextline.lower():
+                x = nextline.split(' ')
+                verifies.append((x[-2], x[-1]))
+
         for sz in (0x100000 * 16, 0x100000 * 256, 0x100000 * 512):
             tests = generate_new_test(ext2img_bin, f, should_pass, sz=sz,
-                                      suffix='%dMB' % (sz / 0x100000,))
+                                      suffix='%dMB' % (sz / 0x100000,),
+                                      blocksz=blocksz, verifies=verifies)
             for test in tests:
                 setattr(Ext2Tests, test.__name__, test)
 
