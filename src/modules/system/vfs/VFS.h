@@ -154,6 +154,24 @@ class EXPORTED_PUBLIC VFS
         return "»";
     }
 
+    /** \brief Track a File object that exists.
+     * It is necessary to keep track of File objects, or at least those that
+     * are stored in Directory caches and Filesystem objects, such that they
+     * can be correctly tidied up when no more usages exist.
+     *
+     * It is almost never safe to directly delete a File pointer so this helps
+     * maintain that safety.
+     */
+    void trackFile(File *pFile);
+
+    /**
+     * Stop tracking a File object, destroying by default if it is no longer
+     * tracked by any other owners.
+     * \return true if the File object was deleted (or would have been,
+     *        if destroy == false)
+     */
+    bool untrackFile(File *pFile, bool destroy=true);
+
   private:
     ssize_t findColon(const String &path);
 
@@ -171,6 +189,8 @@ class EXPORTED_PUBLIC VFS
 
     LruCache<String, Filesystem *> m_AliasCache;
     LruCache<String, File *> m_FindCache;
+
+    Tree<File *, size_t> m_TrackedFiles;
 };
 
 #endif

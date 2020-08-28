@@ -99,7 +99,7 @@ bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
             {
                 alias = pFs->getVolumeLabel();
             }
-            alias = pedigree_std::move(getUniqueAlias(alias));
+            alias = getUniqueAlias(alias);
             addAlias(pFs, alias);
 
             if (m_Mounts.lookup(pFs) == 0)
@@ -543,6 +543,33 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 
     return true;
 #endif
+}
+
+void VFS::trackFile(File *pFile)
+{
+    size_t n = m_TrackedFiles.lookup(pFile);
+    ++n;
+    m_TrackedFiles.insert(pFile, n);
+}
+
+bool VFS::untrackFile(File *pFile, bool destroy)
+{
+    size_t n = m_TrackedFiles.lookup(pFile);
+    if ((n == 0) || ((n - 1) == 0))
+    {
+        m_TrackedFiles.remove(pFile);
+        if (destroy)
+        {
+            delete pFile;
+        }
+        return true;
+    }
+    else
+    {
+        m_TrackedFiles.insert(pFile, n - 1);
+    }
+
+    return false;
 }
 
 ssize_t VFS::findColon(const String &path)

@@ -19,6 +19,7 @@
 
 #include "Directory.h"
 #include "Filesystem.h"
+#include "VFS.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/Pair.h"
 #include "pedigree/kernel/utilities/Result.h"
@@ -44,12 +45,7 @@ Directory::Directory(
 
 Directory::~Directory()
 {
-    for (auto it : m_Cache)
-    {
-        delete it;
-    }
-
-    m_Cache.clear();
+    emptyCache();
 }
 
 File *Directory::getChild(size_t n)
@@ -113,6 +109,8 @@ void Directory::remove(const HashedStringView &s)
 
 void Directory::addDirectoryEntry(const String &name, File *pTarget)
 {
+    assert(pTarget != nullptr);
+
     DirectoryEntry *entry = new DirectoryEntry(pTarget);
 
     if (!m_Cache.insert(name, entry))
@@ -124,6 +122,9 @@ void Directory::addDirectoryEntry(const String &name, File *pTarget)
     }
     else
     {
+        // Track eagerly added file object
+        VFS::instance().trackFile(pTarget);
+
         m_bCachePopulated = true;
     }
 }
@@ -158,6 +159,8 @@ void Directory::setReparsePoint(Directory *pTarget)
 
 bool Directory::addEphemeralFile(File *pFile)
 {
+    assert(pFile != nullptr);
+
     if (UNLIKELY(!m_bCachePopulated))
     {
         cacheDirectoryContents();
@@ -174,6 +177,8 @@ bool Directory::addEphemeralFile(File *pFile)
     DirectoryEntry *entry = new DirectoryEntry(pFile);
     m_Cache.insert(pFile->getName(), entry);
 
+    VFS::instance().trackFile(pFile);
+
     return true;
 }
 
@@ -181,9 +186,11 @@ bool Directory::empty()
 {
     // Need to make sure we can safely remove all nodes regardless of what
     // happens to the directory cache while we empty
+    Vector<DirectoryEntry *> dentries;
     Vector<File *> entries;
     for (auto it = m_Cache.begin(); it != m_Cache.end(); ++it)
     {
+        dentries.pushBack(*it);
         entries.pushBack((*it)->get());
     }
 
@@ -199,7 +206,31 @@ bool Directory::empty()
 
     m_Cache.clear();
 
+    for (auto it : dentries)
+    {
+        delete it;
+    }
+
     return true;
+}
+
+void Directory::emptyCache()
+{
+    Vector<DirectoryEntry *> entries;
+    for (auto it : m_Cache)
+    {
+        entries.pushBack(it);
+    }
+
+    m_Cache.clear();
+    m_bCachePopulated = false;
+
+    // Now that the hashtable is flattened into this vector, it's safe to
+    // delete without worrying about our deletion modifying the table.
+    for (auto it : entries)
+    {
+        delete it;
+    }
 }
 
 File *Directory::evaluateEntry(const DirectoryEntryMetadata &meta)
@@ -208,15 +239,17 @@ File *Directory::evaluateEntry(const DirectoryEntryMetadata &meta)
     {
         return nullptr;
     }
-    return meta.pDirectory->convertToFile(meta);
+    File *newFile = meta.pDirectory->convertToFile(meta);
+
+    // Track this lazy-loaded directory entry.
+    VFS::instance().trackFile(newFile);
+
+    return newFile;
 }
 
 void Directory::destroyEntry(File *file)
 {
-    /// \todo figure out how to destroy File objects!
-    // Thinking maybe something on VFS that tracks File objects and once they
-    // hit zero references, they get culled (i.e. once no more file descriptors
-    // etc are present)
+    VFS::instance().untrackFile(file);
 }
 
 File *Directory::convertToFile(const DirectoryEntryMetadata &meta)

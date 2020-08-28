@@ -125,6 +125,11 @@ class EXPORTED_PUBLIC Directory : public File
      */
     bool empty();
 
+    /**
+     * Empty the entire directory cache.
+     */
+    void emptyCache();
+
   protected:
     struct DirectoryEntryMetadata
     {

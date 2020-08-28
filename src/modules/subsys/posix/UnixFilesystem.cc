@@ -485,6 +485,7 @@ UnixFilesystem::UnixFilesystem() : Filesystem(), m_pRoot(0)
     pRoot->addEntry(String(".."), pRoot);
 
     m_pRoot = pRoot;
+    VFS::instance().trackFile(m_pRoot);
 
     // allow owner/group rwx but others only r-x on the filesystem root
     m_pRoot->setPermissions(
@@ -494,7 +495,11 @@ UnixFilesystem::UnixFilesystem() : Filesystem(), m_pRoot(0)
 
 UnixFilesystem::~UnixFilesystem()
 {
-    delete m_pRoot;
+    Directory::fromFile(m_pRoot)->emptyCache();
+    if (!VFS::instance().untrackFile(m_pRoot))
+    {
+        ERROR("UnixFilesystem::~UnixFilesystem: root didn't get destroyed");
+    }
 }
 
 bool UnixFilesystem::createFile(
