@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/new"
 #include "pedigree/kernel/process/Thread.h"
 
@@ -58,6 +59,20 @@ template <class T>
 class EXPORTED_PUBLIC RingBuffer
 {
   public:
+    enum Error
+    {
+        NoError,
+
+        // RingBuffer is empty and a zero timeout was specified
+        Empty,
+
+        // ConditionVariable failure modes
+        TimedOut,
+        ThreadTerminating,
+    };
+
+    typedef Result<T, Error> ReadResult;
+
     RingBuffer();  // Not implemented, use RingBuffer(size_t)
 
     /// Constructor - pass in the desired size of the ring buffer.
@@ -73,7 +88,7 @@ class EXPORTED_PUBLIC RingBuffer
     }
 
     /// write - write a byte to the ring buffer.
-    void write(const T &obj, Time::Timestamp &timeout)
+    Error write(const T &obj, Time::Timestamp &timeout)
     {
         m_Lock.acquire();
         while (true)
@@ -85,8 +100,7 @@ class EXPORTED_PUBLIC RingBuffer
                     m_WriteCondition.wait(m_Lock, timeout);
                 if (result.hasError())
                 {
-                    /// \todo oh dear, writes are always assumed to succeed
-                    return;
+                    return errorFromConditionVariable(result.error());
                 }
 
                 continue;
@@ -102,12 +116,14 @@ class EXPORTED_PUBLIC RingBuffer
 
         // Signal readers waiting for objects to read.
         m_ReadCondition.signal();
+
+        return NoError;
     }
 
-    void write(const T &obj)
+    Error write(const T &obj)
     {
         Time::Timestamp timeout = Time::Infinity;
-        write(obj, timeout);
+        return write(obj, timeout);
     }
 
     /// write - write the given number of objects to the ring buffer.
@@ -117,9 +133,13 @@ class EXPORTED_PUBLIC RingBuffer
             n = m_RingSize;
 
         size_t i;
-        for (i = 0; i < n && timeout > 0; ++i)
+        for (i = 0; i < n; ++i)
         {
-            write(obj[i], timeout);
+            if (write(obj[i], timeout) != NoError)
+            {
+                /// \todo this hides the error from a caller
+                break;
+            }
         }
 
         return i;  // return actual count written
@@ -132,13 +152,22 @@ class EXPORTED_PUBLIC RingBuffer
     }
 
     /// read - read a byte from the ring buffer.
-    T read(Time::Timestamp &timeout)
+    ReadResult read(Time::Timestamp &timeout)
     {
         T ret = T();
 
         Time::Timestamp origTimeout = timeout;
 
         m_Lock.acquire();
+        if (timeout == 0)
+        {
+            if (!m_Ring.count())
+            {
+                m_Lock.release();
+                return ReadResult::withError(Empty);
+            }
+        }
+
         while (true)
         {
             // Wait for room in the buffer if we're full.
@@ -148,8 +177,7 @@ class EXPORTED_PUBLIC RingBuffer
                     m_ReadCondition.wait(m_Lock, timeout);
                 if (result.hasError())
                 {
-                    /// \todo need to allow read() to fail - use Result<>
-                    return ret;
+                    return ReadResult::withError(errorFromConditionVariable(result.error()));
                 }
 
                 continue;
@@ -166,10 +194,10 @@ class EXPORTED_PUBLIC RingBuffer
         // Signal writers that may be waiting for buffer space.
         m_WriteCondition.signal();
 
-        return ret;
+        return ReadResult::withValue(ret);
     }
 
-    T read()
+    ReadResult read()
     {
         Time::Timestamp timeout = 0;
         return read(timeout);
@@ -184,7 +212,13 @@ class EXPORTED_PUBLIC RingBuffer
         size_t i;
         for (i = 0; i < n && timeout > 0; ++i)
         {
-            out[i] = read(timeout);
+            ReadResult result = read(timeout);
+            if (result.hasError())
+            {
+                return i;
+            }
+
+            out[i] = result.value();
         }
 
         return i;
@@ -322,6 +356,21 @@ class EXPORTED_PUBLIC RingBuffer
         }
         m_MonitorTargets.clear();
         m_Lock.release();
+    }
+
+    Error errorFromConditionVariable(ConditionVariable::Error err)
+    {
+        switch(err)
+        {
+            case ConditionVariable::TimedOut:
+                return TimedOut;
+            case ConditionVariable::ThreadTerminating:
+                return ThreadTerminating;
+            default:
+                FATAL("invalid ConditionVariable::Error enum value for RingBuffer");
+        }
+
+        return NoError;
     }
 
     size_t m_RingSize;

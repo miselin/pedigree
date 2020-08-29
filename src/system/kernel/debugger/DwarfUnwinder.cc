@@ -236,7 +236,19 @@ void extractDwarfState(const DwarfState *endState, const DwarfState &startState,
 }
 
 template <>
+void extractDwarfState(const DwarfState *endState, const DwarfState &startState, HostedProcessorState &outState, uint32_t nReturnAddressRegister)
+{
+    /// \todo
+}
+
+template <>
 void fillDwarfState(DwarfState &outState, const ARMV7ProcessorState &inState)
+{
+    /// \todo
+}
+
+template <>
+void fillDwarfState(DwarfState &outState, const HostedProcessorState &inState)
 {
     /// \todo
 }

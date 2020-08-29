@@ -21,6 +21,10 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Process.h"
 
 HostedSyscallManager HostedSyscallManager::m_Instance;
 

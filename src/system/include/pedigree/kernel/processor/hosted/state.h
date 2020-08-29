@@ -261,6 +261,17 @@ class HostedSchedulerState
 {
   public:
     uint64_t state[128];
+
+    uint64_t stackBase;
+    size_t stackSize;
+
+    HostedSchedulerState();
+
+    inline uintptr_t getInstructionPointer() const
+    {
+        /// \todo implement this somehow?
+        return 0;
+    }
 };
 
 /** @} */

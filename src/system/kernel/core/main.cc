@@ -150,6 +150,9 @@ EXPORTED_PUBLIC BootIO bootIO;
 /** Global copy of the bootstrap information. */
 BootstrapStruct_t *g_pBootstrapInfo;
 
+/** Do we need to shutdown? */
+static bool g_NeedsShutdown = false;
+
 /** Handles doing recovery on SLAM if memory pressure is encountered. */
 class SlamRecovery : public MemoryPressureHandler
 {
@@ -185,18 +188,16 @@ void apMain()
 }
 #endif
 
+ModuleInfo *g_StaticDrivers[128];
+size_t g_StaticDriverN = 0;
+
 /** Loads all kernel modules */
 static int loadModules(void *inf)
 {
     EMIT_IF(STATIC_DRIVERS)
     {
-        extern uintptr_t start_modinfo;
-        extern uintptr_t end_modinfo;
         extern uintptr_t start_module_ctors;
         extern uintptr_t end_module_ctors;
-
-        ModuleInfo *tags = reinterpret_cast<ModuleInfo *>(&start_modinfo);
-        ModuleInfo *lasttag = reinterpret_cast<ModuleInfo *>(&end_modinfo);
 
         // Call static constructors before we start. If we don't... there won't be
         // any properly initialised ModuleInfo structures :)
@@ -210,21 +211,10 @@ static int loadModules(void *inf)
             iterator++;
         }
 
-        NOTICE("Tags: " << tags << " => " << lasttag);
-
-        // Run through all the modules
-        while (tags < lasttag)
+        for (size_t i = 0; i < g_StaticDriverN; ++i)
         {
-            if (tags->tag == MODULE_TAG)
-            {
-                KernelElf::instance().loadModule(tags);
-            }
-            else
-            {
-                NOTICE("Unknown modinfo tag " << tags->tag);
-            }
-
-            tags++;
+            assert(g_StaticDrivers[i]->tag == MODULE_TAG);
+            KernelElf::instance().loadModule(g_StaticDrivers[i]);
         }
 
         KernelElf::instance().executeModules();
@@ -233,7 +223,7 @@ static int loadModules(void *inf)
     {
         BootstrapStruct_t *bsInf = static_cast<BootstrapStruct_t *>(inf);
 
-        NOTICE("initrd @ " << Hex << bsInf->getInitrdAddress() << ", " << Dec << bsInf->getInitrdSize() << " bytes");
+        NOTICE("initrd @ " << Hex << bsInf->getInitrdAddress() << " -> " << (bsInf->getInitrdAddress() + bsInf->getInitrdSize()) << ", " << Dec << bsInf->getInitrdSize() << " bytes");
 
         /// \note We have to do this before we call Processor::initialisationDone()
         /// otherwise the
@@ -280,14 +270,21 @@ static int loadModules(void *inf)
     fprintf(stderr, "Pedigree has started: all modules have been loaded.\n");
 #endif
 
+    NOTICE("module load thread is terminating");
     return 0;
 }
 
 #include <pedigree/kernel/machine/Serial.h>
 
 /** Kernel entry point. */
-extern "C" void _main(BootstrapStruct_t &bsInf) USED NORETURN;
+extern "C" void _main(BootstrapStruct_t &bsInf) USED;
+void _cxx_main(BootstrapStruct_t &bsInf);
 extern "C" void _main(BootstrapStruct_t &bsInf)
+{
+    _cxx_main(bsInf);
+}
+
+void _cxx_main(BootstrapStruct_t &bsInf)
 {
     TRACE("constructors");
 
@@ -328,9 +325,6 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     TRACE("Machine init2");
 
     machine.initialise2();
-
-#undef TRACE
-#define TRACE(...) Machine::instance().getSerial(0)->write("TRACE: " __VA_ARGS__ "\r\n")
 
     TRACE("Log init2");
 
@@ -483,6 +477,7 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
         Thread *pThread = new Thread(
             Processor::information().getCurrentThread()->getParent(), &loadModules,
             static_cast<void *>(&bsInf), 0);
+        pThread->setName("module load thread");
         pThread->detach();
     }
     else
@@ -505,7 +500,7 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
     }
 
     // This will run when nothing else is available to run
-    for (;;)
+    while (!g_NeedsShutdown)
     {
         // Always enable interrupts in the idle thread, and halt. There is no
         // point yielding as if this code is running, no other thread is ready
@@ -516,11 +511,14 @@ extern "C" void _main(BootstrapStruct_t &bsInf)
         // Give up our timeslice (needed especially for no-tick scheduling)
         Scheduler::instance().yield();
     }
-}
 
-void EXPORTED_PUBLIC system_reset() NORETURN;
-void system_reset()
-{
+    EMIT_IF(THREADS)
+    {
+        // Shut down is beginning - we no longer have a valid idle thread as this
+        // is where we will manage the remainder of the shutdown from.
+        Processor::information().getScheduler().setIdle(nullptr);
+    }
+
     NOTICE("Resetting...");
 
     EMIT_IF(MULTIPROCESSOR)
@@ -528,11 +526,14 @@ void system_reset()
         Machine::instance().stopAllOtherProcessors();
     }
 
+    // Clean up all loaded modules (unmounts filesystems and the like).
+    KernelElf::instance().unloadModules();
+
     // No need for user input anymore.
     InputManager::instance().shutdown();
 
-    // Clean up all loaded modules (unmounts filesystems and the like).
-    KernelElf::instance().unloadModules();
+    // Clean up the Cache subsystem
+    CacheManager::destroyInstance();
 
     NOTICE("All modules unloaded. Running destructors and terminating...");
     runKernelDestructors();
@@ -546,10 +547,16 @@ void system_reset()
     // Shut down the various pieces created by Processor
     Processor::deinitialise();
 
-    // Reset.
-    Processor::reset();
-    while (1)
-        ;
+    // Done - return to caller.
+    // Boot code needs to handle this by resetting (or whatever makes sense)
+    TRACE("kernel main() terminating");
+}
+
+void EXPORTED_PUBLIC system_reset();
+void system_reset()
+{
+    // Close out the main thread.
+    g_NeedsShutdown = true;
 }
 
 const String SlamRecovery::getMemoryPressureDescription()

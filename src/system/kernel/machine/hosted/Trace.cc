@@ -17,36 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef KERNEL_MACHINE_SCHEDULERTIMER_H
-#define KERNEL_MACHINE_SCHEDULERTIMER_H
+#include "pedigree/kernel/machine/Trace.h"
+#include <stdio.h>
 
-class TimerHandler;
-
-/** @addtogroup kernelmachine
- * @{ */
-
-/** Timer for scheduling */
-class SchedulerTimer
+namespace pedigree_trace
 {
-  public:
-    virtual bool registerHandler(TimerHandler *handler) = 0;
-    virtual void removeHandler(TimerHandler *handler) = 0;
-
-  protected:
-    /** The default constructor */
-    SchedulerTimer();
-    /** The destructor */
-    virtual ~SchedulerTimer();
-
-  private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    SchedulerTimer(const SchedulerTimer &);
-    /** The assignment operator
-     *\note NOT implemented */
-    SchedulerTimer &operator=(const SchedulerTimer &);
-};
-
-/** @} */
-
-#endif
+void trace(const char *msg)
+{
+    fprintf(stderr, "trace: %s\n", msg);
+}
+}  // namespace pedigree_trace

@@ -60,6 +60,8 @@ ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
     Thread *me = Processor::information().getCurrentThread();
 
     m_Lock.acquire();
+    bool bWasInterrupts = m_Lock.interrupts();
+
     m_Waiters.pushBack(me);
 
     void *alarmHandle = nullptr;
@@ -86,6 +88,8 @@ ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
     }
 
     me->setInterrupted(false);
+
+    Processor::setInterrupts(bWasInterrupts);
 
     Error err = NoError;
 

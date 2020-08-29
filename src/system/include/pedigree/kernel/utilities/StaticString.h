@@ -231,7 +231,7 @@ class EXPORTED_PUBLIC StaticString
 
     int intValue(int nBase = 0) const
     {
-        const char *pEnd;
+        char *pEnd;
         int ret = StringToUnsignedLong(m_pData, &pEnd, nBase);
         if (pEnd == m_pData)
             return -1;  // Failed to find anything.
@@ -241,7 +241,7 @@ class EXPORTED_PUBLIC StaticString
 
     uintptr_t uintptrValue(int nBase = 0) const
     {
-        const char *pEnd;
+        char *pEnd;
         uintptr_t ret = StringToUnsignedLong(m_pData, &pEnd, nBase);
         if (pEnd == m_pData)
             return ~0UL;  // Failed to find anything.

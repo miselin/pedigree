@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -58,7 +59,7 @@ PhysicalMemoryManager &PhysicalMemoryManager::instance()
     return HostedPhysicalMemoryManager::instance();
 }
 
-physical_uintptr_t HostedPhysicalMemoryManager::allocatePage()
+physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
     static bool bDidHitWatermark = false;
     static bool bHandlingPressure = false;
@@ -142,18 +143,25 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
               "acquired lock");
 
     // Check for pinned page.
-    size_t index = page >> 12;
-    if (m_PageMetadata && m_PageMetadata[index].active)
+    PageHashable index(page);
+    MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
+    if (result.hasValue())
     {
-        if (--m_PageMetadata[index].refcount)
+        struct page p = result.value();
+        if (p.active)
         {
-            // Still references.
-            return;
-        }
-        else
-        {
-            // No more references.
-            m_PageMetadata[index].active = false;
+            if (--p.refcount)
+            {
+                // Still references.
+                m_PageMetadata.update(index, p);
+                return;
+            }
+            else
+            {
+                // No more references, stop tracking page.
+                p.active = false;
+                m_PageMetadata.update(index, p);
+            }
         }
     }
 
@@ -170,28 +178,28 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
     g_PageBitmap[idx] &= ~(1 << bit);
 #endif
 
-    m_PageStack.free(page);
+    m_PageStack.free(page, 0x1000);
 }
 
 void HostedPhysicalMemoryManager::pin(physical_uintptr_t page)
 {
     RecursingLockGuard<Spinlock> guard(m_Lock);
 
-    if (!m_PageMetadata)
+    PageHashable index(page);
+    MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
+    if (result.hasValue())
     {
-        // No page metadata to speak of.
-        return;
-    }
-
-    size_t index = page >> 12;
-    if (m_PageMetadata[index].active)
-    {
-        ++m_PageMetadata[index].refcount;
+        struct page p = result.value();
+        ++p.refcount;
+        p.active = true;
+        m_PageMetadata.update(index, p);
     }
     else
     {
-        m_PageMetadata[index].refcount = 1;
-        m_PageMetadata[index].active = true;
+        struct page p;
+        p.refcount = 1;
+        p.active = true;
+        m_PageMetadata.insert(index, p);
     }
 }
 
@@ -313,15 +321,19 @@ bool HostedPhysicalMemoryManager::allocateRegion(
 
 void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
 {
+    TRACE("Hosted PMM: init");
+
     NOTICE("memory-map:");
 
+    size_t pageSize = getPageSize();
+
     // Free pages into the page stack first.
-    for (physical_uintptr_t p = 0; p < HOSTED_PHYSICAL_MEMORY_SIZE;
-         p += getPageSize())
-    {
-        m_PageStack.free(p);
-    }
-    m_PageMetadata = new struct page[HOSTED_PHYSICAL_MEMORY_SIZE >> 12];
+    m_PageStack.increaseCapacity((HOSTED_PHYSICAL_MEMORY_SIZE / pageSize) + 1);
+    m_PageStack.free(0, HOSTED_PHYSICAL_MEMORY_SIZE);
+    m_PageStack.markBelow4GReady();
+    TRACE("Hosted PMM: page stack done");
+
+    m_PageMetadata.reserve(HOSTED_PHYSICAL_MEMORY_SIZE >> 12);
 
     // Initialise the free physical ranges
     m_PhysicalRanges.free(0, 0x100000000ULL);
@@ -352,19 +364,19 @@ void HostedPhysicalMemoryManager::initialisationDone()
 
 HostedPhysicalMemoryManager::HostedPhysicalMemoryManager()
     : m_PhysicalRanges(), m_MemoryRegions(), m_Lock(false, true),
-      m_RegionLock(false, true), m_PageMetadata(0), m_BackingFile(-1)
+      m_RegionLock(false, true), m_PageMetadata(), m_BackingFile(-1)
 {
     // Create our backing memory file.
+    // This lseek/write creates a sparse file on disk.
     m_BackingFile = open("physical.bin", O_RDWR | O_CREAT, 0644);
-    ftruncate(m_BackingFile, HOSTED_PHYSICAL_MEMORY_SIZE);
+    lseek(m_BackingFile, HOSTED_PHYSICAL_MEMORY_SIZE - 1, SEEK_SET);
+    write(m_BackingFile, "\0", 1);
     lseek(m_BackingFile, 0, SEEK_SET);
 }
 
 HostedPhysicalMemoryManager::~HostedPhysicalMemoryManager()
 {
     PhysicalMemoryManager::m_MemoryRegions.clear();
-    delete[] m_PageMetadata;
-    m_PageMetadata = 0;
 
     close(m_BackingFile);
     m_BackingFile = -1;
@@ -408,7 +420,7 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
                 virtualAddressSpace.getMapping(vAddr, pAddr, flags);
 
                 if (!pRegion->getNonRamMemory() && pAddr > 0x1000000)
-                    m_PageStack.free(pAddr);
+                    m_PageStack.free(pAddr, 0x1000);
 
                 virtualAddressSpace.unmap(vAddr);
             }
@@ -417,88 +429,4 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
             break;
         }
     }
-}
-
-size_t g_FreePages = 0;
-size_t g_AllocedPages = 0;
-physical_uintptr_t
-HostedPhysicalMemoryManager::PageStack::allocate(size_t constraints)
-{
-    size_t index = 0;
-
-    physical_uintptr_t result = 0;
-    if ((m_StackMax[index] != m_StackSize[index]) && m_StackSize[index])
-    {
-        if (index == 0)
-        {
-            m_StackSize[0] -= 4;
-            result = *(
-                reinterpret_cast<uint32_t *>(m_Stack[0]) + m_StackSize[0] / 4);
-        }
-        else
-        {
-            m_StackSize[index] -= 8;
-            result =
-                *(reinterpret_cast<uint64_t *>(m_Stack[index]) +
-                  m_StackSize[index] / 8);
-        }
-    }
-
-    if (result)
-    {
-        /// \note Testing.
-        if (g_FreePages)
-            g_FreePages--;
-        g_AllocedPages++;
-
-        if (m_FreePages)
-            --m_FreePages;
-    }
-    return result;
-}
-
-void HostedPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress)
-{
-    // Don't attempt to map address zero.
-    if (!m_Stack[0])
-        return;
-
-    // Expand the stack if necessary
-    if (m_StackMax[0] == m_StackSize[0])
-    {
-        // Map the next increment of the stack to the page we are freeing.
-        // The next free will actually move StackMax, and write to the newly
-        // allocated page.
-        if (VirtualAddressSpace::getKernelAddressSpace().map(
-                physicalAddress, adjust_pointer(m_Stack[0], m_StackMax[0]),
-                VirtualAddressSpace::Write))
-        {
-            return;
-        }
-        m_StackMax[0] += getPageSize();
-    }
-
-    *(reinterpret_cast<uint32_t *>(m_Stack[0]) + m_StackSize[0] / 4) =
-        static_cast<uint32_t>(physicalAddress);
-    m_StackSize[0] += 4;
-
-    /// \note Testing.
-    g_FreePages++;
-    if (g_AllocedPages > 0)
-        g_AllocedPages--;
-
-    ++m_FreePages;
-}
-
-HostedPhysicalMemoryManager::PageStack::PageStack()
-{
-    for (size_t i = 0; i < StackCount; i++)
-    {
-        m_StackMax[i] = 0;
-        m_StackSize[i] = 0;
-    }
-
-    // Set the locations for the page stacks in the virtual address space
-    m_Stack[0] = KERNEL_VIRTUAL_PAGESTACK_4GB;
-    m_FreePages = 0;
 }

@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/RangeList.h"
+#include "../x86_common/PhysicalMemoryManager.h"
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -52,7 +53,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     //
     // PhysicalMemoryManager Interface
     //
-    virtual physical_uintptr_t allocatePage();
+    virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
     virtual void freePage(physical_uintptr_t page);
     virtual bool allocateRegion(
         MemoryRegion &Region, size_t cPages, size_t pageConstraints,
@@ -67,12 +68,10 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     /** Unmap & free the .init section */
     void initialisationDone();
 
-#if ACPI
-    inline const RangeList<uint64_t> &getAcpiRanges() const
+    const RangeList<uint64_t> &getAcpiRanges() const
     {
         return m_AcpiRanges;
     }
-#endif
 
   protected:
     /** The constructor */
@@ -99,53 +98,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
      * unlocked. \note Use in the wrong place and you die. */
     virtual void freePageUnlocked(physical_uintptr_t page);
 
-    /** The actual page stack contains is a Stack of the pages with the
-     *constraints below4GB and below64GB and those pages without address size
-     *constraints. \brief The Stack of pages (below4GB, below64GB, no
-     *constraint). */
-    class PageStack
-    {
-      public:
-        /** Default constructor does nothing */
-        PageStack() INITIALISATION_ONLY;
-        /** Allocate a page with certain constraints
-         *\param[in] constraints either below4GB or below64GB or 0
-         *\return The physical address of the allocated page or 0 */
-        physical_uintptr_t allocate(size_t constraints);
-        /** Free a physical page
-         *\param[in] physicalAddress physical address of the page */
-        void free(uint64_t physicalAddress);
-        /** The destructor does nothing */
-        inline ~PageStack()
-        {
-        }
-
-        inline size_t freePages() const
-        {
-            return m_FreePages;
-        }
-
-      private:
-        /** The copy-constructor
-         *\note Not implemented */
-        PageStack(const PageStack &);
-        /** The copy-constructor
-         *\note Not implemented */
-        PageStack &operator=(const PageStack &);
-
-        /** The number of Stacks */
-        static const size_t StackCount = 1;
-
-        /** Pointer to the base address of the stack. The stack grows upwards.
-         */
-        void *m_Stack[StackCount];
-        /** Size of the currently mapped stack */
-        size_t m_StackMax[StackCount];
-        /** Currently used size of the stack */
-        size_t m_StackSize[StackCount];
-        /** Current pages available. */
-        size_t m_FreePages;
-    };
+    using PageStack = X86CommonPhysicalMemoryManager::PageStack;
 
     /** The page stack */
     PageStack m_PageStack;
@@ -157,6 +110,8 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
      *\todo rename this member (conflicts with
      *PhysicalMemoryManager::m_MemoryRegions) */
     RangeList<uintptr_t> m_MemoryRegions;
+
+    RangeList<uint64_t> m_AcpiRanges;
 
     /** To guard against multiprocessor reentrancy. */
     Spinlock m_Lock, m_RegionLock;
@@ -202,8 +157,10 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
         size_t refcount;
     };
 
+    typedef HashTable<PageHashable, struct page> MetadataTable;
+
     /** Page metadata table */
-    struct page *m_PageMetadata;
+    HashTable<PageHashable, struct page> m_PageMetadata;
 
     /** Hosted: backing file for physical memory. */
     int m_BackingFile;

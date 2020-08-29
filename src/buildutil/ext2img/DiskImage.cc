@@ -140,6 +140,7 @@ uintptr_t DiskImage::read(uint64_t location)
         mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, location);
     if (p == MAP_FAILED)
     {
+        fprintf(stderr, "DiskImage::read: mmap failed (%s)\n", strerror(errno));
         return ~0;
     }
 

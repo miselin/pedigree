@@ -48,7 +48,7 @@ MemoryAllocator Cache::m_Allocator(true);
 Spinlock Cache::m_AllocatorLock;
 static bool g_AllocatorInited = false;
 
-CacheManager CacheManager::m_Instance;
+CacheManager *CacheManager::m_Instance = nullptr;
 
 #if THREADS
 static int trimTrampoline(void *p)
@@ -72,6 +72,14 @@ CacheManager::~CacheManager()
     m_bActive = false;
 #if THREADS
     m_pTrimThread->join();
+#endif
+
+#if !STANDALONE_CACHE
+    Timer *t = Machine::instance().getTimer();
+    if (t)
+    {
+        t->unregisterHandler(this);
+    }
 #endif
 }
 
@@ -187,7 +195,9 @@ void CacheManager::trimThread()
             trimAll(trimCount);
         }
         else
+        {
             Scheduler::instance().yield();
+        }
     }
 }
 #endif

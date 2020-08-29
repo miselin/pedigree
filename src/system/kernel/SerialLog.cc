@@ -29,7 +29,7 @@ class SerialLogger : public Log::LogCallback
     SerialLogger();
     virtual ~SerialLogger();
 
-    virtual void callback(const LogCord &cord);
+    virtual void callback(const LogCord &cord, bool locked = true);
 
   private:
     Serial *m_pSerial;
@@ -50,7 +50,7 @@ SerialLogger::SerialLogger()
 }
 SerialLogger::~SerialLogger() = default;
 
-void SerialLogger::callback(const LogCord &cord)
+void SerialLogger::callback(const LogCord &cord, bool locked)
 {
     if (!m_bInitialised)
     {
@@ -65,11 +65,11 @@ void SerialLogger::callback(const LogCord &cord)
         }
     }
 
-    m_Lock.acquire();
-    for (auto it : cord)
+    if (LIKELY(locked))
     {
-        m_pSerial->write(it);
+        m_Lock.acquire();
     }
+    m_pSerial->write_str(cord);
 #if !SERIAL_IS_FILE
     // Handle carriage return if we're writing to a real terminal
     // Technically this will create a \n\r, but it will do the same
@@ -77,5 +77,8 @@ void SerialLogger::callback(const LogCord &cord)
     // sorry imho.
     m_pSerial->write('\r');
 #endif
-    m_Lock.release();
+    if (LIKELY(locked))
+    {
+        m_Lock.release();
+    }
 }

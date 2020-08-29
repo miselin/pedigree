@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 
 using namespace __pedigree_hosted;
 
@@ -30,6 +31,11 @@ using namespace __pedigree_hosted;
 
 HostedSchedulerTimer HostedSchedulerTimer::m_Instance;
 
+HostedSchedulerTimer::~HostedSchedulerTimer()
+{
+    uninitialise();
+}
+
 bool HostedSchedulerTimer::registerHandler(TimerHandler *handler)
 {
     if (UNLIKELY(handler == 0 && m_Handler != 0))
@@ -37,6 +43,14 @@ bool HostedSchedulerTimer::registerHandler(TimerHandler *handler)
 
     m_Handler = handler;
     return true;
+}
+
+void HostedSchedulerTimer::removeHandler(TimerHandler *handler)
+{
+    if (m_Handler == handler)
+    {
+        m_Handler = nullptr;
+    }
 }
 
 bool HostedSchedulerTimer::initialise()

@@ -95,6 +95,10 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
 
 TextIO::~TextIO()
 {
+    // Join to the flip thread now that we're terminating.
+    m_bInitialised = false;
+    m_pFlipThread->join();
+
     m_pBackbuffer = 0;
     m_Backbuffer.free();
 
@@ -104,6 +108,12 @@ TextIO::~TextIO()
 bool TextIO::initialise(bool bClear)
 {
     LockGuard<Mutex> guard(m_Lock);
+
+    if (m_bInitialised)
+    {
+        m_bInitialised = false;
+        m_pFlipThread->join();
+    }
 
     // Move into not-initialised mode, reset any held state.
     m_bInitialised = false;
@@ -169,7 +179,6 @@ bool TextIO::initialise(bool bClear)
             Processor::information().getCurrentThread()->getParent();
         m_pFlipThread = new Thread(parent, startFlipThread, this);
         m_pFlipThread->setName("TextIO flip thread");
-        m_pFlipThread->detach();
     }
 
     return m_bInitialised;

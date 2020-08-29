@@ -22,9 +22,15 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
+#if HOSTED
+#define PEDIGREE_NOEXCEPT
+#else
+#define PEDIGREE_NOEXCEPT noexcept
+#endif
+
 // Conventional new
-void *operator new (size_t size) noexcept;
-void *operator new[] (size_t size) noexcept;
+void *operator new (size_t size) PEDIGREE_NOEXCEPT;
+void *operator new[] (size_t size) PEDIGREE_NOEXCEPT;
 void operator delete (void * p) noexcept;
 void operator delete[] (void * p) noexcept;
 
@@ -35,6 +41,8 @@ void  operator delete  (void*, void*) noexcept;
 void  operator delete  (void *p, size_t) noexcept;
 void  operator delete[](void*, void*) noexcept;
 void  operator delete[](void *p, size_t) noexcept;
+
+#undef PEDIGREE_NOEXCEPT
 
 #else
 #include <new>  // IWYU pragma: export

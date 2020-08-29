@@ -147,7 +147,7 @@ bool SlamCommand::execute(
         }
         else if (c == 'd')
         {
-            Machine::instance().getSerial(0)->write("AllocDump {\n");
+            Machine::instance().getSerial(0)->write_str("AllocDump {\n");
             for (m_It = m_Tree.begin(); m_It != m_Tree.end(); m_It++)
             {
                 SlamAllocation *pA = m_It.value();
@@ -178,9 +178,9 @@ bool SlamCommand::execute(
                 str += "\nSz ";
                 str += pA->size;
                 str += "\n}\n";
-                Machine::instance().getSerial(0)->write(str);
+                Machine::instance().getSerial(0)->write_str(str);
             }
-            Machine::instance().getSerial(0)->write("}\n");
+            Machine::instance().getSerial(0)->write_str("}\n");
         }
         else if (c == 'q')
             bStop = true;

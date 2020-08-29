@@ -234,6 +234,24 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
                KERNEL_VIRTUAL_MODULE_SIZE;
     }
 
+    /** Gets address of the physical page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestack() const
+    {
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_PAGESTACK_4GB);
+    }
+
+    /** Gets address of the first additional page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestackAdd1() const
+    {
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_PAGESTACK_ABV4GB1);
+    }
+
+    /** Gets address of the second additional page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestackAdd2() const
+    {
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_PAGESTACK_ABV4GB2);
+    }
+
   private:
     /** The default constructor */
     X64VirtualAddressSpace();

@@ -23,8 +23,13 @@
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/machine/Serial.h"
 
 #include "pedigree/kernel/core/SlamAllocator.h"
+
+#include <stdio.h>
+#include <errno.h>
 
 // Millisecond interval (tick every ms)
 #define INTERVAL 1000000
@@ -39,22 +44,30 @@ HostedTimer HostedTimer::m_Instance;
 
 uint8_t daysPerMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+HostedTimer::~HostedTimer()
+{
+    uninitialise();
+}
+
 void HostedTimer::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 {
+    LockGuard<Spinlock> guard(m_AlarmLock);
     Alarm *pAlarm = new Alarm(
-        pEvent, alarmSecs * 1000000 + alarmUsecs + getTickCount(),
+        pEvent, (alarmSecs * Time::Multiplier::Second) + (alarmUsecs * Time::Multiplier::Microsecond) + getTickCount(),
         Processor::information().getCurrentThread());
     m_Alarms.pushBack(pAlarm);
 }
 
 void HostedTimer::removeAlarm(Event *pEvent)
 {
+    LockGuard<Spinlock> guard(m_AlarmLock);
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
-         it++)
+         ++it)
     {
         if ((*it)->m_pEvent == pEvent)
         {
             m_Alarms.erase(it);
+            delete *it;
             return;
         }
     }
@@ -65,7 +78,7 @@ size_t HostedTimer::removeAlarm(class Event *pEvent, bool bRetZero)
     size_t currTime = getTickCount();
 
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
-         it++)
+         ++it)
     {
         if ((*it)->m_pEvent == pEvent)
         {
@@ -85,6 +98,7 @@ size_t HostedTimer::removeAlarm(class Event *pEvent, bool bRetZero)
             }
 
             m_Alarms.erase(it);
+            delete *it;
             return ret;
         }
     }
@@ -227,7 +241,9 @@ void HostedTimer::synchronise(bool tohw)
 
     struct timespec tv;
     clock_gettime(CLOCK_REALTIME, &tv);
-    struct tm *t = gmtime(&tv.tv_sec);
+    struct tm conv;
+    struct tm *t = gmtime_r(&tv.tv_sec, &conv);
+    assert (t != NULL);
 
     m_Nanosecond = tv.tv_nsec;
     m_Second = t->tm_sec;
@@ -248,12 +264,21 @@ void HostedTimer::uninitialise()
     // Unregister the irq
     IrqManager &irqManager = *Machine::instance().getIrqManager();
     irqManager.unregisterHandler(m_IrqId, this);
+
+    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
+         ++it)
+    {
+        delete *it;
+    }
+    m_Alarms.clear();
+
+    ByteSet(m_Handlers, 0, sizeof(TimerHandler *) * MAX_TIMER_HANDLERS);
 }
 
 HostedTimer::HostedTimer()
     : m_Year(0), m_Month(0), m_DayOfMonth(0), m_DayOfWeek(0), m_Hour(0),
       m_Minute(0), m_Second(0), m_Nanosecond(0), m_IrqId(0), m_Handlers(),
-      m_Alarms()
+      m_Alarms(), m_AlarmLock(false)
 {
 }
 
@@ -273,6 +298,8 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
     m_Nanosecond += delta;
 
     // Check for alarms.
+    m_AlarmLock.acquire();
+    uint64_t tickCount = getTickCountNano();
     while (true)
     {
         bool bDispatched = false;
@@ -280,10 +307,13 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
              it != m_Alarms.end(); it++)
         {
             Alarm *pA = *it;
-            if (pA->m_Time <= getTickCount())
+            if (pA->m_Time <= tickCount)
             {
-                pA->m_pThread->sendEvent(pA->m_pEvent);
                 m_Alarms.erase(it);
+                m_AlarmLock.release();
+                pA->m_pThread->sendEvent(pA->m_pEvent);
+                delete pA;
+                m_AlarmLock.acquire();
                 bDispatched = true;
                 break;
             }
@@ -291,6 +321,7 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
         if (!bDispatched)
             break;
     }
+    m_AlarmLock.release();
 
     if (UNLIKELY(m_Nanosecond >= 1000000ULL))
     {
@@ -315,7 +346,7 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
         str += (g_FreePages * 4096) / 1024;
         str += "K\n";
 
-        pSerial->write(str);
+        pSerial->write_str(str);
 #endif
 
         if (UNLIKELY(m_Second == 60))

@@ -28,7 +28,7 @@
 class StringLogger : public Log::LogCallback
 {
   public:
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
         String str = cord.toString();
         m_Messages += std::string(str.cstr(), str.length());

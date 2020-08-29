@@ -68,7 +68,17 @@ class CacheManager :
 
     static CacheManager &instance()
     {
-        return m_Instance;
+        if (!m_Instance)
+        {
+            m_Instance = new CacheManager;
+        }
+        return *m_Instance;
+    }
+
+    static void destroyInstance()
+    {
+        delete m_Instance;
+        m_Instance = nullptr;
     }
 
     void initialise();
@@ -107,7 +117,7 @@ class CacheManager :
         return (a.p2 == b.p2) && (a.p3 == b.p3);
     }
 
-    static CacheManager m_Instance;
+    static CacheManager *m_Instance;
 
     List<Cache *> m_Caches;
 

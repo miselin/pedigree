@@ -42,7 +42,7 @@ UnixFilesystem *g_pUnixFilesystem = 0;
 class StreamingStderrLogger : public Log::LogCallback
 {
   public:
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
         for (size_t i = 0; i < cord.length(); ++i)
         {

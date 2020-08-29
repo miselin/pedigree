@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/utilities/List.h"
 
@@ -44,7 +45,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual irq_id_t
     registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
     virtual irq_id_t
-    registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
+    registerPciIrqHandler(IrqHandler *handler, class Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
     virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
 

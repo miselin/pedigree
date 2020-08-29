@@ -37,6 +37,8 @@ class HostedSerial : public Serial
     virtual char read();
     virtual char readNonBlock();
     virtual void write(char c);
+    virtual void write_str(const char *c);
+    virtual void write_str(const char *c, size_t len);
 
   private:
     bool isConnected();

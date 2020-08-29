@@ -24,6 +24,8 @@ find_package(FLEX)
 find_package(PythonInterp)
 find_program(MKISOFS NAMES mkisofs genisoimage xorriso)
 
+find_library(LIBRT rt)
+
 # No rpath for anything.
 set(CMAKE_SKIP_RPATH TRUE)
 
@@ -116,7 +118,8 @@ else ()
 endif ()
 
 # Set up warning flags for the full build.
-set(GENERIC_WARNING_FLAGS "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings" "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter" "-Wuninitialized" "-Wstrict-aliasing" "-Wfloat-equal" "-Wundef" "-Wcast-qual" "-Wdisabled-optimization" ${COMPILER_SPECIFIC_WARNINGS})
+# TODO: add "-Wundef" back in
+set(GENERIC_WARNING_FLAGS "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings" "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter" "-Wuninitialized" "-Wstrict-aliasing" "-Wfloat-equal" "-Wcast-qual" "-Wdisabled-optimization" ${COMPILER_SPECIFIC_WARNINGS})
 set(GENERIC_WARNING_CFLAGS "-Wnested-externs" "-Wbad-function-cast" ${COMPILER_SPECIFIC_WARNINGS_C})
 set(GENERIC_WARNING_CXXFLAGS "-Wsign-promo" "-Woverloaded-virtual" "-Wnon-virtual-dtor" "-Wctor-dtor-privacy" "-Wabi" ${COMPILER_SPECIFIC_WARNINGS_CXX})
 set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable" "-Wno-conversion" "-Wno-format" "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations" "-Wno-abi" ${COMPILER_SPECIFIC_WARNING_DISABLES})
@@ -193,6 +196,8 @@ if(CMAKE_CROSSCOMPILING)
 
         # Need static drivers for ARM
         set(PEDIGREE_STATIC_DRIVERS TRUE)
+    elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+        set(PEDIGREE_STATIC_DRIVERS TRUE)
     endif ()
 
     # Copy over all our definitions.
@@ -201,7 +206,7 @@ if(CMAKE_CROSSCOMPILING)
         ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
     # Include the definitions file in every translation unit
-    add_definitions(-include ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+    add_definitions("--include=${CMAKE_CURRENT_BINARY_DIR}/config.h")
 
     # cross-compiled variant is definitely not running on a linux host
     add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
@@ -235,10 +240,19 @@ if(CMAKE_CROSSCOMPILING)
 
     add_subdirectory(src/modules)
     add_subdirectory(src/system/kernel)
-    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "arm")
+    add_subdirectory(src/po)
+
+    # Build everything else with the target compiler rather than the host compiler
+    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+        set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
+        set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
+        set(CMAKE_LINKER ${PEDIGREE_CXX_COMPILER})
+        set(CMAKE_SYSROOT "${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+    endif ()
+
+    if (PEDIGREE_BUILD_USER_DIR)
         add_subdirectory(src/user)
     endif ()
-    add_subdirectory(src/po)
 
     if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
         add_subdirectory(src/system/boot/arm)

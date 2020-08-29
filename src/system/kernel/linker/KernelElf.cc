@@ -35,7 +35,7 @@
 KernelElf KernelElf::m_Instance;
 
 // Define to dump each module's dependencies in the serial log.
-#define DUMP_DEPENDENCIES 0
+#define DUMP_DEPENDENCIES 1
 
 // Define to 1 to load modules using threads.
 #define THREADED_MODULE_LOADING 0
@@ -491,7 +491,7 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     // Look up the module's name and entry/exit functions, and dependency list.
     const char **pName = reinterpret_cast<const char **>(
         module->elf->lookupSymbol("g_pModuleName"));
-    if (!pName)
+    if ((!pName) || (!*pName))
     {
         ERROR("KERNELELF: Hit an invalid module, ignoring");
         return 0;
@@ -872,6 +872,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
             {
                 if (!attempted)
                 {
+                    WARNING("KernelElf: optional dependency '" << depname << "' (wanted by '" << module->name << "') hasn't been tried yet.");
                     // optional dependency hasn't yet been tried
                     return false;
                 }
@@ -905,6 +906,7 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
             {
                 if (!mod->isActive())
                 {
+                    WARNING("KernelElf: dependency '" << depname << "' (wanted by '" << module->name << "') isn't active yet.");
                     // module dependency is not yet active
                     return false;
                 }

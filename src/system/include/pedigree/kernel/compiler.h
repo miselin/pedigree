@@ -78,6 +78,13 @@
 #else
 #define FALLSTHROUGH
 #endif
+/** The function is malloc-like, i.e. doesn't return an aliased pointer, memory
+ * is uninitialized, and so on. */
+#define MALLOC __attribute__((malloc))
+/** Hint for the size of an allocation. */
+#define ALLOC_SIZE(...) __attribute__((alloc_size(__VA_ARGS__)))
+/** C function cannot throw an exception. */
+#define C_NOTHROW __attribute__((nothrow))
 /** Macros to wrap things in compile-times conditions. */
 #define EMIT_IF(...) if constexpr (__VA_ARGS__)
 

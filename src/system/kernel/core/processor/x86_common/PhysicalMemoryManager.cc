@@ -64,10 +64,12 @@ static void trackPages(ssize_t v, ssize_t p, ssize_t s)
     }
 }
 
+#if !HOSTED
 PhysicalMemoryManager &PhysicalMemoryManager::instance()
 {
     return X86CommonPhysicalMemoryManager::instance();
 }
+#endif
 
 size_t X86CommonPhysicalMemoryManager::freePageCount() const
 {
@@ -573,16 +575,19 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     }
 
     // Remove the pages used by the kernel from the range-list (below 16MB)
-    extern void *kernel_start;
-    extern void *kernel_end;
-    if (m_RangeBelow16MB.allocateSpecific(
-            reinterpret_cast<uintptr_t>(&kernel_start) -
-                reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
-            reinterpret_cast<uintptr_t>(&kernel_end) -
-                reinterpret_cast<uintptr_t>(&kernel_start)) == false)
+    EMIT_IF(!HOSTED)
     {
-        panic("PhysicalMemoryManager: could not remove the kernel image from "
-              "the range-list");
+        extern void *kernel_start;
+        extern void *kernel_end;
+        if (m_RangeBelow16MB.allocateSpecific(
+                reinterpret_cast<uintptr_t>(&kernel_start) -
+                    reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
+                reinterpret_cast<uintptr_t>(&kernel_end) -
+                    reinterpret_cast<uintptr_t>(&kernel_start)) == false)
+        {
+            panic("PhysicalMemoryManager: could not remove the kernel image from "
+                  "the range-list");
+        }
     }
 
     // Print the ranges
@@ -779,41 +784,44 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
 
 void X86CommonPhysicalMemoryManager::initialisationDone()
 {
-    extern void *kernel_init;
-    extern void *kernel_init_end;
-
-    NOTICE("PhysicalMemoryManager: kernel initialisation complete, cleaning "
-           "up...");
-
-    // Unmap & free the .init section
-    VirtualAddressSpace &kernelSpace =
-        VirtualAddressSpace::getKernelAddressSpace();
-    size_t count = (reinterpret_cast<uintptr_t>(&kernel_init_end) -
-                    reinterpret_cast<uintptr_t>(&kernel_init)) /
-                   getPageSize();
-    for (size_t i = 0; i < count; i++)
+    EMIT_IF(!HOSTED)
     {
-        void *vAddress = adjust_pointer(
-            reinterpret_cast<void *>(&kernel_init), i * getPageSize());
+        extern void *kernel_init;
+        extern void *kernel_init_end;
 
-        // Get the physical address
-        size_t flags;
-        physical_uintptr_t pAddress;
-        kernelSpace.getMapping(vAddress, pAddress, flags);
+        NOTICE("PhysicalMemoryManager: kernel initialisation complete, cleaning "
+               "up...");
 
-        // Unmap the page
-        kernelSpace.unmap(vAddress);
+        // Unmap & free the .init section
+        VirtualAddressSpace &kernelSpace =
+            VirtualAddressSpace::getKernelAddressSpace();
+        size_t count = (reinterpret_cast<uintptr_t>(&kernel_init_end) -
+                        reinterpret_cast<uintptr_t>(&kernel_init)) /
+                       getPageSize();
+        for (size_t i = 0; i < count; i++)
+        {
+            void *vAddress = adjust_pointer(
+                reinterpret_cast<void *>(&kernel_init), i * getPageSize());
+
+            // Get the physical address
+            size_t flags;
+            physical_uintptr_t pAddress;
+            kernelSpace.getMapping(vAddress, pAddress, flags);
+
+            // Unmap the page
+            kernelSpace.unmap(vAddress);
+        }
+
+        // Free the physical pages
+        m_RangeBelow16MB.free(
+            reinterpret_cast<uintptr_t>(&kernel_init) -
+                reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
+            count * getPageSize());
+
+        NOTICE(
+            "PhysicalMemoryManager: cleaned up " << Dec << (count * 4) << Hex
+                                                 << "KB of init-only code.");
     }
-
-    // Free the physical pages
-    m_RangeBelow16MB.free(
-        reinterpret_cast<uintptr_t>(&kernel_init) -
-            reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
-        count * getPageSize());
-
-    NOTICE(
-        "PhysicalMemoryManager: cleaned up " << Dec << (count * 4) << Hex
-                                             << "KB of init-only code.");
 }
 
 X86CommonPhysicalMemoryManager::X86CommonPhysicalMemoryManager()
@@ -901,6 +909,8 @@ void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 physical_uintptr_t
 X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints)
 {
+    initialise();
+
     size_t index = 0;
     if (constraints == X86CommonPhysicalMemoryManager::below4GB)
         index = 0;
@@ -986,6 +996,8 @@ performPush(T *stack, size_t &stackSize, uint64_t physicalAddress, size_t count)
 void X86CommonPhysicalMemoryManager::PageStack::free(
     uint64_t physicalAddress, size_t length)
 {
+    initialise();
+
     // Select the right stack
     /// \todo make sure callers split any regions that cross over before calling
     size_t index = 0;
@@ -1062,12 +1074,31 @@ X86CommonPhysicalMemoryManager::PageStack::PageStack()
         m_StackReady[i] = false;
     }
 
+    /*
+    VirtualAddressSpace &AddressSpace = VirtualAddressSpace::getKernelAddressSpace();
+
     // Set the locations for the page stacks in the virtual address space
-    m_Stack[0] = KERNEL_VIRTUAL_PAGESTACK_4GB;
-    m_Stack[1] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB1;
-    m_Stack[2] = KERNEL_VIRTUAL_PAGESTACK_ABV4GB2;
+    m_Stack[0] = reinterpret_cast<void *>(AddressSpace.getKernelVirtualPagestack());
+    m_Stack[1] = reinterpret_cast<void *>(AddressSpace.getKernelVirtualPagestackAdd1());
+    m_Stack[2] = reinterpret_cast<void *>(AddressSpace.getKernelVirtualPagestackAdd2());
+    */
 
     m_FreePages = 0;
+}
+
+void X86CommonPhysicalMemoryManager::PageStack::initialise()
+{
+    if (LIKELY(m_Stack[0] != nullptr))
+    {
+        return;
+    }
+
+    VirtualAddressSpace &AddressSpace = VirtualAddressSpace::getKernelAddressSpace();
+
+    // Set the locations for the page stacks in the virtual address space
+    m_Stack[0] = reinterpret_cast<void *>(AddressSpace.getKernelVirtualPagestack());
+    m_Stack[1] = reinterpret_cast<void *>(AddressSpace.getKernelVirtualPagestackAdd1());
+    m_Stack[2] = reinterpret_cast<void *>(AddressSpace.getKernelVirtualPagestackAdd2());
 }
 
 void X86CommonPhysicalMemoryManager::PageStack::markAbove4GReady()
@@ -1096,29 +1127,41 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(
         return false;
     }
 
-    // Get the kernel virtual address-space
-    X64VirtualAddressSpace &AddressSpace =
-        static_cast<X64VirtualAddressSpace &>(
-            VirtualAddressSpace::getKernelAddressSpace());
+    VirtualAddressSpace &AddressSpace = VirtualAddressSpace::getKernelAddressSpace();
 
-    if (!index)
+    EMIT_IF(HOSTED)
     {
-        if (AddressSpace.mapPageStructures(
-                physicalAddress, virtualAddress,
-                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
-            true)
+        if(AddressSpace.map(physicalAddress, virtualAddress, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write))
         {
             mapped = true;
         }
     }
     else
     {
-        if (AddressSpace.mapPageStructuresAbove4GB(
-                physicalAddress, virtualAddress,
-                VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
-            true)
+        // Get the kernel virtual address-space
+        X64VirtualAddressSpace &X64AddressSpace =
+            static_cast<X64VirtualAddressSpace &>(
+                VirtualAddressSpace::getKernelAddressSpace());
+
+        if (!index)
         {
-            mapped = true;
+            if (X64AddressSpace.mapPageStructures(
+                    physicalAddress, virtualAddress,
+                    VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
+                true)
+            {
+                mapped = true;
+            }
+        }
+        else
+        {
+            if (X64AddressSpace.mapPageStructuresAbove4GB(
+                    physicalAddress, virtualAddress,
+                    VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) ==
+                true)
+            {
+                mapped = true;
+            }
         }
     }
 

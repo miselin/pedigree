@@ -204,6 +204,9 @@ class EXPORTED_PUBLIC Thread
     /** Retrieves a pointer to the top of the Thread's kernel stack. */
     void *getKernelStack();
 
+    /** Retrieves a pointer to the bottom of the Thread's kernel stack, and its size. */
+    void *getKernelStackBase(size_t *size) const;
+
     /** Returns the Thread's ID. */
     size_t getId()
     {

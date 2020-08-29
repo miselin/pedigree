@@ -302,11 +302,11 @@ void Ext2Directory::cacheDirectoryContents()
 
         // Grab the block and pin it while we parse it.
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        uintptr_t endOfBlock = buffer + m_pExt2Fs->m_BlockSize;
         assert(buffer);  /// \todo need to handle short/failed reads better
         pDir = reinterpret_cast<Dir *>(buffer);
 
-        while (reinterpret_cast<uintptr_t>(pDir) <
-               buffer + m_pExt2Fs->m_BlockSize)
+        while (reinterpret_cast<uintptr_t>(pDir) < endOfBlock)
         {
             size_t reclen = LITTLE_TO_HOST16(pDir->d_reclen);
 
@@ -320,6 +320,14 @@ void Ext2Directory::cacheDirectoryContents()
                 }
 
                 // Oops, not a valid entry (possibly deleted file). Skip.
+                pDir = pNextDir;
+                continue;
+            }
+            else if (pNextDir >= reinterpret_cast<Dir *>(endOfBlock))
+            {
+                // TODO: this naive approach breaks both sides of the boundary
+                // as the next entry likely starts offset into the block
+                ERROR("EXT2: Directory entry straddles a block boundary");
                 pDir = pNextDir;
                 continue;
             }
@@ -340,6 +348,7 @@ void Ext2Directory::cacheDirectoryContents()
             bool ok = true;
             if (m_pExt2Fs->checkRequiredFeature(2))
             {
+                // Yep! Use that here.
                 fileType = pDir->d_file_type;
                 switch (fileType)
                 {
@@ -357,6 +366,7 @@ void Ext2Directory::cacheDirectoryContents()
             }
             else
             {
+                // No! Need to read the inode.
                 uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
                 Inode *inode = m_pExt2Fs->getInode(inodeNum);
 

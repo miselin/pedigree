@@ -132,6 +132,12 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
     virtual bool registerHandler(TimerHandler *handler);
     virtual bool unregisterHandler(TimerHandler *handler);
 
+    // SchedulerTimer interface
+    virtual void removeHandler(TimerHandler *handler)
+    {
+        unregisterHandler(handler);
+    }
+
     /** Dispatches the Event \p pEvent to the current thread in \p alarmSecs
      *time. \param pEvent Event to dispatch. \param alarmSecs Number of seconds
      *to wait.

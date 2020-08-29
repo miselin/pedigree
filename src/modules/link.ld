@@ -3,35 +3,32 @@
 
 SECTIONS
 {
-  /DISCARD/ : {
-    *(.text.crt0*);
-  }
-
   . = SIZEOF_HEADERS;
 
-  .dynamic :
+  .note :
   {
-    *(.dynamic)
-  } :text :dynamic
+    *(.note*)
+  }
+
+  . = ALIGN(4096);
+  .text :
+  {
+    *(.init*)
+    *(.plt*)
+    *(.plt.got*)
+    *(.text*)
+    *(.fini*)
+  } :text
 
   .dynsym :
   {
     *(.dynsym)
-  } :text
+  } :rodata
 
   .dynstr :
   {
     *(.dynstr)
-  }
-
-  . = ALIGN(0x100);
-  .text :
-  {
-    *(.init*)
-    *(.fini*)
-
-    *(.text*)
-  } :text
+  } :rodata
 
   . = ALIGN(4096);
   .modinfo :
@@ -46,40 +43,68 @@ SECTIONS
   } :rodata
 
   . = ALIGN(4096);
-  .cdtors :
+  .init_array :
   {
     HIDDEN(start_ctors = .);
     *(.init_array*)
     *(.ctors*)
     HIDDEN(end_ctors = .);
+  }
 
+  .fini_array :
+  {
     HIDDEN(start_dtors = .);
     *(.fini_array*)
     *(.dtors*)
     HIDDEN(end_dtors = .);
-  } :rodata
+  } :data
 
-  . = ALIGN(4096);
-  .rwdata :
+  .dynamic :
+  {
+    *(.dynamic)
+  } :data
+
+  .got :
+  {
+    *(.got)
+  } :data
+
+  .got.plt :
+  {
+    *(.got.plt)
+  } :data
+
+  .data :
   {
     *(.data*)
     *(.sdata*)
-
-    *(.got.plt) *(.got)
   } :data
 
+  .comment :
+  {
+    *(.comment)
+  }
+
+  .gnu_debuglink :
+  {
+    *(.gnu_debuglink)
+  }
+
+  /DISCARD/ : {
+    *(.text.crt0*);
+  }
+
+  . = ALIGN(4096);
   .bss :
   {
-    *(COMMON)
     *(.bss*)
-    *(.dynbss)
   } :data
 }
 
 PHDRS
 {
   text PT_LOAD FLAGS(5) FILEHDR PHDRS; /* r-x */
-  rodata PT_LOAD FLAGS(4); /* rw- */
+  rodata PT_LOAD FLAGS(4); /* r-- */
   data PT_LOAD FLAGS(6); /* rw- */
   dynamic PT_DYNAMIC FLAGS(4); /* r-- */
 }

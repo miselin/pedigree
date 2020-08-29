@@ -21,8 +21,11 @@
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/utilities/List.h"
 
 namespace __pedigree_hosted
 {
@@ -75,9 +78,7 @@ class HostedTimer : public Timer, private IrqHandler
     /** The default constructor */
     HostedTimer() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~HostedTimer()
-    {
-    }
+    virtual ~HostedTimer();
 
   private:
     /** The copy-constructor
@@ -140,6 +141,9 @@ class HostedTimer : public Timer, private IrqHandler
 
     /** List of alarms. */
     List<Alarm *> m_Alarms;
+
+    /** Alarm modification lock. */
+    Spinlock m_AlarmLock;
 };
 
 /** @} */

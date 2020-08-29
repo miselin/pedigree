@@ -46,6 +46,7 @@ class Pit : public SchedulerTimer, private IrqHandler
     // SchedulerTimer interface
     //
     virtual bool registerHandler(TimerHandler *handler);
+    virtual void removeHandler(TimerHandler *handler);
 
     /** Initialises the class
      *\return true, if successful, false otherwise */

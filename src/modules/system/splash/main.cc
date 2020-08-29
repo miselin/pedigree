@@ -218,14 +218,21 @@ class StreamingScreenLogger : public Log::LogCallback
 
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
         EMIT_IF(DEBUGGER)
         {
             if (g_LogMode)
             {
-                LockGuard<Mutex> guard(g_PrintLock);
+                if (locked)
+                {
+                    g_PrintLock.acquire();
+                }
                 printString(cord);
+                if (locked)
+                {
+                    g_PrintLock.release();
+                }
             }
         }
     }

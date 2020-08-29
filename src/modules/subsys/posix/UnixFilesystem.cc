@@ -19,6 +19,7 @@
 
 #include "UnixFilesystem.h"
 #include "modules/subsys/posix/logging.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Process.h"
@@ -73,6 +74,7 @@ UnixSocket::~UnixSocket()
     {
         Directory *parent = Directory::fromFile(getParent());
         parent->remove(getName());
+
     }
 }
 
@@ -158,7 +160,13 @@ uint64_t UnixSocket::recvfrom(
         return 0;
     }
 
-    struct buf *b = m_Datagrams.read();
+    DatagramBuffer::ReadResult result = m_Datagrams.read();
+    if (result.hasError())
+    {
+        // TODO: set an error
+        return 0;
+    }
+    struct buf *b = result.value();
     if (size > b->len)
         size = b->len;
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);

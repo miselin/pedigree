@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Event.h"
@@ -38,6 +39,8 @@
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 
+#define VERBOSE_SCHEDULER 0
+
 PerProcessorScheduler::PerProcessorScheduler()
     : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false),
       m_NewThreadDataCondition(), m_NewThreadData(), m_pIdleThread(0)
@@ -50,6 +53,12 @@ PerProcessorScheduler::PerProcessorScheduler()
 
 PerProcessorScheduler::~PerProcessorScheduler()
 {
+    SchedulerTimer *pTimer = Machine::instance().getSchedulerTimer();
+    if (!pTimer)
+    {
+        panic("No scheduler timer present.");
+    }
+    Machine::instance().getSchedulerTimer()->removeHandler(this);
 }
 
 struct newThreadData
@@ -168,42 +177,24 @@ void PerProcessorScheduler::schedule(
         pNextThread = m_pSchedulingAlgorithm->getNext(pCurrentThread);
         if (pNextThread == 0)
         {
-            bool needsIdle = false;
-
-            // If we're supposed to be sleeping, this isn't a good place to be
-            if (nextStatus != Thread::Ready)
+            // No other thread in the scheduler - take a round trip through the
+            // idle thread before we schedule back to the yielding thread.
+            // In most cases a thread is yielding either because it needs to
+            // sleep to wait for something or because it has no work currently,
+            // so simply switching back to it makes no sense (and causes us to
+            // spin tightly rather than halting for an interrupt or other event)
+            if (m_pIdleThread == 0)
             {
-                needsIdle = true;
+                // Ok, in this case we have no new thread to switch to and no
+                // idle thread yet, so we must return to the caller and accept
+                // the spinning here.
+                pCurrentThread->getLock().release();
+                Processor::setInterrupts(bWasInterrupts);
+                return;
             }
             else
             {
-                if (pCurrentThread->getScheduler() == this)
-                {
-                    // Nothing to switch to, but we aren't sleeping. Just
-                    // return.
-                    pCurrentThread->getLock().release();
-                    Processor::setInterrupts(bWasInterrupts);
-                    return;
-                }
-                else
-                {
-                    // Current thread is switching cores, and no other thread
-                    // was available. So we have to go idle.
-                    needsIdle = true;
-                }
-            }
-
-            if (needsIdle)
-            {
-                if (m_pIdleThread == 0)
-                {
-                    FATAL("No idle thread available, and the current thread is "
-                          "leaving the ready state!");
-                }
-                else
-                {
-                    pNextThread = m_pIdleThread;
-                }
+                pNextThread = m_pIdleThread;
             }
         }
     }
@@ -213,10 +204,16 @@ void PerProcessorScheduler::schedule(
     }
 
     if (pNextThread == pNewThread)
+    {
         WARNING("scheduler: next thread IS new thread");
+    }
 
     if (pNextThread != pCurrentThread)
         pNextThread->getLock().acquire();
+
+#if VERBOSE_SCHEDULER
+    NOTICE_NOLOCK("schedule: " << pCurrentThread << " -> " << pNextThread << " -- " << pCurrentThread->getName() << " -> " << pNextThread->getName());
+#endif
 
     // Now neither thread can be moved, we're safe to switch.
     if (pCurrentThread != m_pIdleThread)
@@ -348,63 +345,73 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
     // Simple heuristic for whether to launch the event handler in kernel or
     // user mode - is the handler address mapped kernel or user mode?
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if (!va.isMapped(reinterpret_cast<void *>(handlerAddress)))
+    EMIT_IF(!HOSTED)
     {
-        ERROR_NOLOCK(
-            "checkEventState: Handler address " << handlerAddress
-                                                << " not mapped!");
-        if (pEvent->isDeletable())
-            delete pEvent;
-        Processor::setInterrupts(bWasInterrupts);
-        return;
+        if (!va.isMapped(reinterpret_cast<void *>(handlerAddress)))
+        {
+            ERROR_NOLOCK(
+                "checkEventState: Handler address " << Hex << handlerAddress
+                                                    << " not mapped!");
+            if (pEvent->isDeletable())
+                delete pEvent;
+            Processor::setInterrupts(bWasInterrupts);
+            return;
+        }
     }
 
     SchedulerState &oldState = pThread->pushState();
 
     physical_uintptr_t page;
     size_t flags;
-    va.getMapping(reinterpret_cast<void *>(handlerAddress), page, flags);
-    if (!(flags & VirtualAddressSpace::KernelMode))
+    EMIT_IF(HOSTED)
     {
-        if (userStack != 0)
-            va.getMapping(
-                reinterpret_cast<void *>(userStack - pageSz), page, flags);
-        if (userStack == 0 || (flags & VirtualAddressSpace::KernelMode))
+        flags = VirtualAddressSpace::KernelMode;
+    }
+    else
+    {
+        va.getMapping(reinterpret_cast<void *>(handlerAddress), page, flags);
+        if (!(flags & VirtualAddressSpace::KernelMode))
         {
-            VirtualAddressSpace::Stack *stateStack =
-                pThread->getStateUserStack();
-            if (!stateStack)
+            if (userStack != 0)
+                va.getMapping(
+                    reinterpret_cast<void *>(userStack - pageSz), page, flags);
+            if (userStack == 0 || (flags & VirtualAddressSpace::KernelMode))
             {
-                stateStack = va.allocateStack();
-                pThread->setStateUserStack(stateStack);
-            }
-            else
-            {
-                // Verify that the stack is mapped
-                if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz)))
+                VirtualAddressSpace::Stack *stateStack =
+                    pThread->getStateUserStack();
+                if (!stateStack)
                 {
-                    /// \todo This is a quickfix for a bigger problem. I imagine
-                    ///       it has something to do with calling execve
-                    ///       directly without fork, meaning the memory is
-                    ///       cleaned up but the state level stack information
-                    ///       is *not*.
                     stateStack = va.allocateStack();
                     pThread->setStateUserStack(stateStack);
                 }
-            }
+                else
+                {
+                    // Verify that the stack is mapped
+                    if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz)))
+                    {
+                        /// \todo This is a quickfix for a bigger problem. I imagine
+                        ///       it has something to do with calling execve
+                        ///       directly without fork, meaning the memory is
+                        ///       cleaned up but the state level stack information
+                        ///       is *not*.
+                        stateStack = va.allocateStack();
+                        pThread->setStateUserStack(stateStack);
+                    }
+                }
 
-            userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
-        }
-        else
-        {
-            va.getMapping(reinterpret_cast<void *>(userStack), page, flags);
-            if (flags & VirtualAddressSpace::KernelMode)
+                userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
+            }
+            else
             {
-                NOTICE_NOLOCK(
-                    "User stack for event in checkEventState is the kernel's!");
-                pThread->sendEvent(pEvent);
-                Processor::setInterrupts(bWasInterrupts);
-                return;
+                va.getMapping(reinterpret_cast<void *>(userStack), page, flags);
+                if (flags & VirtualAddressSpace::KernelMode)
+                {
+                    NOTICE_NOLOCK(
+                        "User stack for event in checkEventState is the kernel's!");
+                    pThread->sendEvent(pEvent);
+                    Processor::setInterrupts(bWasInterrupts);
+                    return;
+                }
             }
         }
     }

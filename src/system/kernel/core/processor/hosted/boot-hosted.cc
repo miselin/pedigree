@@ -32,6 +32,13 @@
 
 extern "C" void _main(BootstrapStruct_t &bs);
 
+static void *add_ptr(void *ptr, size_t addend)
+{
+    uintptr_t ptr_u = (uintptr_t) ptr;
+    ptr_u += addend;
+    return (void *) ptr_u;
+}
+
 extern "C" int main(int argc, char *argv[])
 {
     struct stat st;
@@ -115,7 +122,7 @@ extern "C" int main(int argc, char *argv[])
         fprintf(stderr, "Can't map config database: %s\n", strerror(errno));
         goto fail;
     }
-    fprintf(stderr, "configuration database is at %p\n", configdb_mapping);
+    fprintf(stderr, "configuration database is at %p (%d bytes)\n", configdb_mapping, configdb_length);
 
     r = fstat(kernel, &st);
     if (r != 0)
@@ -211,9 +218,18 @@ extern "C" int main(int argc, char *argv[])
             shdrs[i].sh_offset + reinterpret_cast<uintptr_t>(kernel_mapping);
     }
 
+    fprintf(stderr, "Running main(), with mappings:\n");
+    fprintf(stderr, " kernel: %p -> %p\n", kernel_mapping, add_ptr(kernel_mapping, kernel_length));
+    fprintf(stderr, " diskimage: %p -> %p\n", diskimage_mapping, add_ptr(diskimage_mapping, diskimage_length));
+    fprintf(stderr, " modules: %p -> %p\n", module_region, add_ptr(module_region, 0x1000));
+    fprintf(stderr, " configdb: %p -> %p\n", configdb_mapping, add_ptr(configdb_mapping, configdb_length));
+    fprintf(stderr, " initrd: %p -> %p\n", initrd_mapping, add_ptr(initrd_mapping, initrd_length));
+
     // Kernel uses flags to know what it can and can't use.
     bs.flags |= MULTIBOOT_FLAG_MODS | MULTIBOOT_FLAG_ELF;
     _main(bs);
+
+    fprintf(stderr, "main() returned, cleaning up...\n");
 
     goto cleanup;
 fail:
@@ -226,7 +242,7 @@ cleanup:
     if (kernel_mapping != MAP_FAILED)
         munmap(kernel_mapping, kernel_length);
     if (configdb_mapping != MAP_FAILED)
-        munmap(configdb_mapping, kernel_length);
+        munmap(configdb_mapping, configdb_length);
     if (initrd_mapping != MAP_FAILED)
         munmap(initrd_mapping, initrd_length);
     close(diskimage);

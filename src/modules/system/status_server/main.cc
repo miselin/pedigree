@@ -413,6 +413,10 @@ static int mainThread(void *)
 {
     struct netconn *server = netconn_new(NETCONN_TCP);
 
+    // Don't block for more than ~500 ms so we can shut down the server when
+    // this module is unloaded.
+    netconn_set_recvtimeout(server, 500);
+
     ip_addr_t ipaddr;
     ByteSet(&ipaddr, 0, sizeof(ipaddr));
 
@@ -423,7 +427,6 @@ static int mainThread(void *)
     g_Running = true;
     while (g_Running)
     {
-        /// \todo need to abort accept() somehow to cancel this thread
         struct netconn *connection;
         if (netconn_accept(server, &connection) == ERR_OK)
         {
@@ -459,5 +462,5 @@ static void destroy()
     }
 }
 
-MODULE_INFO("Status Server", &init, &destroy, "config", "lwip");
+MODULE_INFO("Status Server", &init, &destroy, "config", "lwip", "network-stack");
 MODULE_OPTIONAL_DEPENDS("confignics");

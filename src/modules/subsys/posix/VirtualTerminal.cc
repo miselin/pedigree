@@ -88,7 +88,7 @@ bool VirtualTerminalManager::initialise()
         {
             ConsolePhysicalFile *file =
                 new ConsolePhysicalFile(i + 1, tio, ttyname, g_pDevFs);
-            m_ParentDir->addEntry(tio->getName(), file);
+            m_ParentDir->addEntry(ttyname, file);
 
             m_Terminals[i].textio = tio;
             m_Terminals[i].file = file;

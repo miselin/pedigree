@@ -58,12 +58,12 @@ String::String(const StringView &x) : String()
     assign(x.str(), x.length(), true);
 }
 
-String::String(String &&x)
+String::String(String &&x) : String()
 {
     move(pedigree_std::move(x));
 }
 
-String::String(const Cord &x)
+String::String(const Cord &x) : String()
 {
     assign(x);
 }
@@ -75,11 +75,13 @@ String::~String()
 
 void String::move(String &&other)
 {
+    clear();
+
     // take ownership of the object
-    m_Data = pedigree_std::move(other.m_Data);
-    m_Length = pedigree_std::move(other.m_Length);
-    m_Size = pedigree_std::move(other.m_Size);
-    m_Hash = pedigree_std::move(other.m_Hash);
+    m_Data = other.m_Data;
+    m_Length = other.m_Length;
+    m_Size = other.m_Size;
+    m_Hash = other.m_Hash;
 
     // free other string but don't destroy the heap pointer if we had one
     // as it is now owned by this new instance
@@ -338,7 +340,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
         // parameter (otherwise we think we have a giant string).
         if (!unsafe)
         {
-            size_t trueLength = StringLength(s);
+            size_t trueLength = BoundedStringLength(s, len);
             if (trueLength < len)
             {
                 len = trueLength;

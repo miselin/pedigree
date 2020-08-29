@@ -72,9 +72,19 @@ VirtualAddressSpace *VirtualAddressSpace::create()
 
 bool HostedVirtualAddressSpace::memIsInHeap(void *pMem)
 {
-    if (pMem < KERNEL_VIRTUAL_HEAP)
+    if (pMem < m_Heap)
         return false;
     else if (pMem >= getEndOfHeap())
+        return false;
+    else
+        return true;
+}
+
+bool HostedVirtualAddressSpace::memIsInKernelHeap(void *pMem)
+{
+    if (pMem < KERNEL_VIRTUAL_HEAP)
+        return false;
+    else if (pMem >= adjust_pointer(KERNEL_VIRTUAL_HEAP, KERNEL_VIRTUAL_HEAP_SIZE))
         return false;
     else
         return true;
@@ -313,7 +323,7 @@ void HostedVirtualAddressSpace::unmap(void *virtualAddress)
     munmap(virtualAddress, PhysicalMemoryManager::getPageSize());
 }
 
-VirtualAddressSpace *HostedVirtualAddressSpace::clone()
+VirtualAddressSpace *HostedVirtualAddressSpace::clone(bool copyOnWrite)
 {
     HostedVirtualAddressSpace *pNew =
         static_cast<HostedVirtualAddressSpace *>(VirtualAddressSpace::create());

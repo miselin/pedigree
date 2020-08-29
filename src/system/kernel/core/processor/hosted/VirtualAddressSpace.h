@@ -68,7 +68,8 @@
 class HostedVirtualAddressSpace : public VirtualAddressSpace
 {
     /** Processor::switchAddressSpace() needs access to m_PhysicalPML4 */
-    friend class Processor;
+    friend class HostedProcessor;
+    friend class ProcessorBase;
     /** Multiprocessor::initialise() needs access to m_PhysicalPML4 */
     friend class Multiprocessor;
     /** VirtualAddressSpace::getKernelAddressSpace() needs access to
@@ -96,6 +97,8 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
 
     virtual bool memIsInHeap(void *pMem);
     virtual void *getEndOfHeap();
+
+    virtual bool memIsInKernelHeap(void *pMem);
 
     virtual VirtualAddressSpace *clone(bool copyOnWrite = true);
     virtual void revertToKernelAddressSpace();
@@ -182,6 +185,12 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace
     {
         return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_MODULE_BASE) +
                KERNEL_VIRTUAL_MODULE_SIZE;
+    }
+
+    /** Gets address of the physical page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestack() const
+    {
+        return reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_PAGESTACK_4GB);
     }
 
   private:

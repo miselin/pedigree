@@ -24,11 +24,17 @@
 
 #undef memcpy
 
+#if HAS_ADDRESS_SANITIZER
+// memcpy etc
+#include <string.h>
+#endif
+
 #define WITH_SSE 0
 #define SSE_THRESHOLD 1024
 #define STOSB_THRESHOLD 64
 
 #if HOSTED_X64
+#undef X64
 #define X64 1
 #endif
 
@@ -46,19 +52,18 @@
 extern void memzero_xmm_aligned(void *, size_t);
 extern void memzero_xmm(void *, size_t);
 
-EXPORT int memcmp(const void *p1, const void *p2, size_t len) PURE;
-EXPORT void *memset(void *buf, int c, size_t n);
 void *WordSet(void *buf, int c, size_t n);
 void *DoubleWordSet(void *buf, unsigned int c, size_t n);
 void *QuadWordSet(void *buf, unsigned long long c, size_t n);
 
+EXPORT int memcmp(const void *p1, const void *p2, size_t len) PURE;
+EXPORT void *memset(void *buf, int c, size_t n);
 EXPORT void *memcpy(void *restrict s1, const void *restrict s2, size_t n);
 EXPORT void *memmove(void *s1, const void *s2, size_t n);
 
 // asan provides a memcpy/memset/etc that we care about more than our custom
 // ones, in general.
 #if !HAS_ADDRESS_SANITIZER
-
 EXPORT int memcmp(const void *p1, const void *p2, size_t len)
 {
     const char *a = (const char *) p1;

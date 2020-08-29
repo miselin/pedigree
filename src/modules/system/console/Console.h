@@ -168,7 +168,7 @@ class ConsoleFile : public File
 
   private:
     size_t m_ConsoleNumber;
-    String m_Name;
+    String m_ConsoleName;
 
     /**
      * Event to fire when an event takes place that needs action. For

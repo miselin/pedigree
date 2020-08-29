@@ -111,6 +111,11 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
         return false;
     }
 
+    virtual void removeHandler(TimerHandler *handler)
+    {
+        m_Handlers.remove(Processor::id());
+    }
+
     void ack();
 
   private:

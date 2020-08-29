@@ -182,6 +182,12 @@ class EXPORTED_PUBLIC String
 
     void Format(const char *format, ...) FORMAT(printf, 2, 3);
 
+    template<size_t N>
+    void assign(const char (&s)[N])
+    {
+        assign(s, N, true);
+    }
+
     void assign(const String &x);
     void assign(const Cord &x);
     /** Assign a buffer to this string.

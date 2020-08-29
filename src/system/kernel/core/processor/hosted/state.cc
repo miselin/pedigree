@@ -19,6 +19,8 @@
 
 #include "pedigree/kernel/processor/state.h"
 
+#include <ucontext.h>
+
 const char *HostedInterruptStateRegisterName[3] = {
     "state",
     "extra",
@@ -71,4 +73,13 @@ HostedInterruptState *
 HostedInterruptState::construct(HostedProcessorState &state, bool userMode)
 {
     return 0;
+}
+
+HostedSchedulerState::HostedSchedulerState()
+{
+    stackBase = 0;
+    stackSize = 0;
+
+    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(state);
+    getcontext(ctx);
 }

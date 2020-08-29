@@ -230,7 +230,10 @@ void sys_mbox_free(sys_mbox_t *mbox)
 
 void sys_mbox_post(sys_mbox_t *mbox, void *msg)
 {
-    (*mbox)->buffer.write(msg);
+    if ((*mbox)->buffer.write(msg) != RingBuffer<void *>::NoError)
+    {
+        FATAL("sys_mbox_post failed");
+    }
 }
 
 u32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)
@@ -240,7 +243,15 @@ u32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)
         return SYS_MBOX_EMPTY;
     }
 
-    *msg = (*mbox)->buffer.read();
+    RingBuffer<void *>::ReadResult result = (*mbox)->buffer.read();
+    if (result.hasError())
+    {
+        // TODO: what error?
+        ERROR("sys_arch_mbox_tryfetch: read() failed after dataReady() returned true");
+        return SYS_MBOX_EMPTY;
+    }
+
+    *msg = result.value();
     return 0;
 }
 
@@ -258,11 +269,14 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
         timeoutMs = timeout * Time::Multiplier::Millisecond;
     }
 
-    *msg = (*mbox)->buffer.read(timeoutMs);
-    if (*msg == NULL)
+    RingBuffer<void *>::ReadResult result = (*mbox)->buffer.read(timeoutMs);
+    if (result.hasError())
     {
+        // TODO: check the specific error
         return SYS_ARCH_TIMEOUT;
     }
+
+    *msg = result.value();
 
     Time::Timestamp end = Time::getTimeNanoseconds();
     return (end - begin) / Time::Multiplier::Millisecond;
@@ -275,7 +289,11 @@ err_t sys_mbox_trypost(sys_mbox_t *mbox, void *msg)
         return ERR_WOULDBLOCK;
     }
 
-    (*mbox)->buffer.write(msg);
+    RingBuffer<void *>::Error err = (*mbox)->buffer.write(msg);
+    if (err != RingBuffer<void *>::NoError)
+    {
+        return ERR_BUF;
+    }
 
     return ERR_OK;
 }

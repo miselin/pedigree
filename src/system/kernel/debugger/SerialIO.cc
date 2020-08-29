@@ -39,7 +39,7 @@ SerialIO::~SerialIO()
 void SerialIO::initialise()
 {
     // Save cursor and attributes.
-    //   m_pSerial->write("\033[s");
+    //   m_pSerial->write_str("\033[s");
 
 #if !SERIAL_IS_FILE
     // Read cursor location.
@@ -51,28 +51,28 @@ void SerialIO::initialise()
 #endif
 
     // Push screen contents.
-    m_pSerial->write("\033[?1049h");
+    m_pSerial->write_str("\033[?1049h");
 
     // Move the cursor back to the top left.
-    //   m_pSerial->write("\033[0;0H");
+    //   m_pSerial->write_str("\033[0;0H");
 
     // Enable line wrapping.
-    m_pSerial->write("\033[7h");
+    m_pSerial->write_str("\033[7h");
 }
 
 void SerialIO::destroy()
 {
     // Pop screen contents.
-    m_pSerial->write("\033[?1049l");
+    m_pSerial->write_str("\033[?1049l");
 
     // Disable scrolling.
-    m_pSerial->write("\033[0;0r");
+    m_pSerial->write_str("\033[0;0r");
 
     // Load cursor and attributes.
-    //   m_pSerial->write("\033[u");
+    //   m_pSerial->write_str("\033[u");
 
     // Just reset the terminal.
-    //   m_pSerial->write("\033c");
+    //   m_pSerial->write_str("\033c");
 
     // Set the cursor
     TinyStaticString str;
@@ -81,7 +81,7 @@ void SerialIO::destroy()
     str += ";";
     str += m_nOldCursorX;
     str += "H";
-    m_pSerial->write(str);
+    m_pSerial->write_str(str);
 }
 
 void SerialIO::setCliUpperLimit(size_t nlines)
@@ -101,7 +101,7 @@ void SerialIO::setCliLowerLimit(size_t nlines)
 void SerialIO::enableCli()
 {
     // Clear the screen.
-    m_pSerial->write("\033[2J");
+    m_pSerial->write_str("\033[2J");
 
     // Set the scrollable region.
     TinyStaticString str("\033[");
@@ -109,13 +109,13 @@ void SerialIO::enableCli()
     str += ';';
     str += m_nHeight - m_LowerCliLimit;
     str += 'r';
-    m_pSerial->write(str);
+    m_pSerial->write_str(str);
 
     //   Set the cursor to just below the upper limit.
     str = "\033[";
     str += (m_UpperCliLimit + 1);
     str += ";0H";
-    m_pSerial->write(str);
+    m_pSerial->write_str(str);
     m_pCommand[0] = '\0';
 
     m_bCli = true;
@@ -124,13 +124,13 @@ void SerialIO::enableCli()
 void SerialIO::disableCli()
 {
     // Clear the screen.
-    m_pSerial->write("\033[2J");
+    m_pSerial->write_str("\033[2J");
 
     // Disable scrolling.
-    m_pSerial->write("\033[0;0r");
+    m_pSerial->write_str("\033[0;0r");
 
     // Reposition the cursor.
-    //   m_pSerial->write("\033[0;0H");
+    //   m_pSerial->write_str("\033[0;0H");
 
     m_bCli = false;
 }
@@ -187,10 +187,10 @@ void SerialIO::drawHorizontalLine(
         cmd += ';';
         cmd += (colStart + 1);
         cmd += 'H';
-        m_pSerial->write(cmd);
+        m_pSerial->write_str(cmd);
 
         // Erase to the end of line.
-        m_pSerial->write("\033[K");
+        m_pSerial->write_str("\033[K");
     }
     else if (colStart == 0 && c == ' ')
     {
@@ -200,10 +200,10 @@ void SerialIO::drawHorizontalLine(
         cmd += ';';
         cmd += (colEnd + 1);
         cmd += 'H';
-        m_pSerial->write(cmd);
+        m_pSerial->write_str(cmd);
 
         // Erase backwards to the start of line.
-        m_pSerial->write("\033[1K");
+        m_pSerial->write_str("\033[1K");
     }
     else
     {
@@ -213,7 +213,7 @@ void SerialIO::drawHorizontalLine(
         cmd += ';';
         cmd += (colStart + 1);
         cmd += 'H';
-        m_pSerial->write(cmd);
+        m_pSerial->write_str(cmd);
 
         // Write each character seperately.
         for (size_t i = colStart; i <= colEnd; i++)
@@ -263,11 +263,11 @@ void SerialIO::drawString(
     cmd += ';';
     cmd += (col + 1);
     cmd += 'H';
-    m_pSerial->write(cmd);
+    m_pSerial->write_str(cmd);
 
     startColour(foreColour, backColour);
 
-    m_pSerial->write(str);
+    m_pSerial->write_str(str);
     endColour();
     unsaveCursor();
 }
@@ -293,7 +293,7 @@ void SerialIO::moveCursor()
 void SerialIO::cls()
 {
     // Clear the screen.
-    m_pSerial->write("\033[2J");
+    m_pSerial->write_str("\033[2J");
 }
 
 void SerialIO::putChar(
@@ -328,7 +328,7 @@ void SerialIO::putChar(
         //     {
         //       readCursor();
         //       if (m_nCursorX == m_nWidth)
-        //         m_pSerial->write("\n\r");
+        //         m_pSerial->write_str("\n\r");
         //     }
         if (c == '\n')  // Newline - output a '\r' as well.
             m_pSerial->write('\r');
@@ -350,80 +350,80 @@ void SerialIO::startColour(
     m_ForeColour = foreColour;
     m_BackColour = backColour;
 
-    m_pSerial->write("\033[");
+    m_pSerial->write_str("\033[");
     switch (foreColour)
     {
         case DebuggerIO::Black:
-            m_pSerial->write("30");
+            m_pSerial->write_str("30");
             break;
         case DebuggerIO::Red:
-            m_pSerial->write("31");
+            m_pSerial->write_str("31");
             break;
         case DebuggerIO::Green:
-            m_pSerial->write("32");
+            m_pSerial->write_str("32");
             break;
         case DebuggerIO::Yellow:
-            m_pSerial->write("1;33");
+            m_pSerial->write_str("1;33");
             break;  // It's actually brown.
         case DebuggerIO::Blue:
-            m_pSerial->write("34");
+            m_pSerial->write_str("34");
             break;
         case DebuggerIO::Magenta:
-            m_pSerial->write("35");
+            m_pSerial->write_str("35");
             break;
         case DebuggerIO::Cyan:
-            m_pSerial->write("36");
+            m_pSerial->write_str("36");
             break;
         case DebuggerIO::White:
-            m_pSerial->write("37");
+            m_pSerial->write_str("37");
             break;
         case DebuggerIO::DarkGrey:
-            m_pSerial->write("1;30");
+            m_pSerial->write_str("1;30");
             break;
         case DebuggerIO::LightRed:
-            m_pSerial->write("1;31");
+            m_pSerial->write_str("1;31");
             break;
         case DebuggerIO::LightGreen:
-            m_pSerial->write("1;32");
+            m_pSerial->write_str("1;32");
             break;
         case DebuggerIO::LightBlue:
-            m_pSerial->write("1;34");
+            m_pSerial->write_str("1;34");
             break;
         case DebuggerIO::LightMagenta:
-            m_pSerial->write("1;35");
+            m_pSerial->write_str("1;35");
             break;
         case DebuggerIO::LightCyan:
-            m_pSerial->write("1;36");
+            m_pSerial->write_str("1;36");
             break;
         default:
             m_pSerial->write('1');
     }
-    m_pSerial->write(";");
+    m_pSerial->write_str(";");
     switch (backColour)
     {
         case DebuggerIO::Black:
-            m_pSerial->write("40");
+            m_pSerial->write_str("40");
             break;
         case DebuggerIO::Red:
-            m_pSerial->write("41");
+            m_pSerial->write_str("41");
             break;
         case DebuggerIO::Green:
-            m_pSerial->write("42");
+            m_pSerial->write_str("42");
             break;
         case DebuggerIO::DarkGrey:
-            m_pSerial->write("43");
+            m_pSerial->write_str("43");
             break;  // It's actually brown.
         case DebuggerIO::Blue:
-            m_pSerial->write("44");
+            m_pSerial->write_str("44");
             break;
         case DebuggerIO::Magenta:
-            m_pSerial->write("45");
+            m_pSerial->write_str("45");
             break;
         case DebuggerIO::Cyan:
-            m_pSerial->write("46");
+            m_pSerial->write_str("46");
             break;
         case DebuggerIO::White:
-            m_pSerial->write("47");
+            m_pSerial->write_str("47");
             break;
         default:
             m_pSerial->write('1');
@@ -438,13 +438,13 @@ char SerialIO::getCharNonBlock()
 
 void SerialIO::endColour()
 {
-    m_pSerial->write("\033[0m");
+    m_pSerial->write_str("\033[0m");
 }
 
 void SerialIO::readCursor()
 {
     // Ask the device wherethe cursor is.
-    m_pSerial->write("\033[6n");
+    m_pSerial->write_str("\033[6n");
 
     // Expect a string of the form "\033[%d;%dR"
     char c = m_pSerial->read();
@@ -498,19 +498,19 @@ void SerialIO::setCursor()
     str += ";";
     str += m_nCursorX;
     str += "H";
-    m_pSerial->write(str);
+    m_pSerial->write_str(str);
 }
 
 void SerialIO::saveCursor()
 {
     //   readCursor();
-    m_pSerial->write("\033[s");
+    m_pSerial->write_str("\033[s");
 }
 
 void SerialIO::unsaveCursor()
 {
     //   setCursor();
-    m_pSerial->write("\033[u");
+    m_pSerial->write_str("\033[u");
 }
 
 void SerialIO::readDimensions()
@@ -531,5 +531,5 @@ void SerialIO::readDimensions()
     m_nHeight = m_nCursorY;
 
     // Move the cursor back to the top left.
-    m_pSerial->write("\033[0;0H");
+    m_pSerial->write_str("\033[0;0H");
 }

@@ -56,6 +56,7 @@ typedef StaticCord<8> LogCord;
         Log::LogEntry __log_macro_logentry;                   \
         FILE_LOG(__log_macro_logentry, level);                \
         __log_macro_logentry << level << text;                \
+        if (!lock) __log_macro_logentry << Unlocked;          \
         Log::instance().addEntry(__log_macro_logentry, lock); \
     } while (0)
 
@@ -151,7 +152,14 @@ enum NumberType
 enum Modifier
 {
     /** Flush this log entry */
-    Flush
+    Flush,
+};
+
+/** Modifiers for LogEntry */
+enum LogEntryModifier
+{
+    /** This log entry should be pushed to log targets without locking. */
+    Unlocked
 };
 
 // Function pointer to update boot progress -
@@ -179,7 +187,7 @@ class Log
     class EXPORTED_PUBLIC LogCallback
     {
       public:
-        virtual void callback(const LogCord &cord) = 0;
+        virtual void callback(const LogCord &cord, bool locked = true) = 0;
         virtual ~LogCallback();
     };
 
@@ -250,6 +258,8 @@ class Log
         StaticString<LOG_LENGTH> str;
         /** The number type mode that we are in. */
         NumberType numberType;
+        /** Was this created in a lock-free context? */
+        bool lockfree = false;
 
         /** Adds an entry to the log.
          *\param[in] str the null-terminated ASCII string that should be added
@@ -301,6 +311,7 @@ class Log
         LogEntry &operator<<(SeverityLevel level);
         /** Changes the number type between hex and decimal. */
         LogEntry &operator<<(NumberType type);
+        LogEntry &operator<<(LogEntryModifier modifier);
     };
 
     /** Type of a static log entry (no memory-management involved) */

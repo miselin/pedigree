@@ -2,19 +2,26 @@
 set(PEDIGREE_VERBOSE_KERNEL FALSE CACHE BOOL "Enable verbose logging throughout the kernel.")
 set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocator which never re-uses allocations (it is highly recommended to only use this on 64-bit targets).")
 
-# TODO: x64-specific
 set(GENERIC_KERNEL_FLAGS
-    "-fno-builtin" "-nostdlib" "-ffreestanding" "-fno-common" "-fno-omit-frame-pointer"
-    "-ggdb" "-g3" "-gdwarf-2" "--sysroot=${CMAKE_SYSROOT}")
+    "-fno-common" "-fno-omit-frame-pointer" "-ggdb" "-g3" "-gdwarf-2")
 set(GENERIC_KERNEL_CFLAGS "")
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
     "-fno-use-cxa-atexit")
 set(GENERIC_KERNEL_LINKFLAGS
-    "-nostdlib" "-nostartfiles" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
+    "-Wl,--discard-all" "-static-libgcc")
 set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
-    set(ARCH_KERNEL_LINKSCRIPT "-T${PEDIGREE_LINKERSCRIPT}")
+    set(ARCH_KERNEL_LINKSCRIPT "-Wl,-T${PEDIGREE_LINKERSCRIPT}")
+endif ()
+
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    set(GENERIC_KERNEL_FLAGS ${GENERIC_KERNEL_FLAGS}
+        "-fno-builtin" "-nostdlib" "-ffreestanding"  "--sysroot=${CMAKE_SYSROOT}")
+    set(GENERIC_KERNEL_CFLAGS ${GENERIC_KERNEL_CFLAGS})
+    set(GENERIC_KERNEL_CXXFLAGS ${GENERIC_KERNEL_CXXFLAGS})
+    set(GENERIC_KERNEL_LINKFLAGS ${GENERIC_KERNEL_LINKFLAGS}
+        "-nostdlib" "-nostartfiles" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
@@ -24,6 +31,9 @@ elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
     # TODO: for non-v7 targets we need to adjust this
     set(ARCH_KERNEL_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
     set(ARCH_KERNEL_LINKFLAGS "")
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-Wno-unused-command-line-argument" "-fsanitize=address")
+    set(ARCH_KERNEL_LINKFLAGS "-m64" "-Wno-unused-command-line-argument" "-fsanitize=address")
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the kernel CMakeLists.txt")
 endif ()
@@ -113,6 +123,33 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "armv7")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Disassembler.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Processor.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/ProcessorInformation.cc)
+elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
+    set(PROCESSOR_UNSHARED_SRCS "")
+
+    set(PROCESSOR_SRCS
+        # /core/processor/hosted/
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/boot-hosted.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Elf.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/InterruptManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PageFaultHandler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PhysicalMemoryManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Processor.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/ProcessorInformation.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/StackFrame.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/state.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/SyscallManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/VirtualAddressSpace.cc
+        # common implementations from x86_common
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Disassembler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/PhysicalMemoryManager.cc
+        # /core/processor/hosted/asm/
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Processor.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Scheduler.s)
+
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Processor.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Scheduler.s
+        PROPERTIES LANGUAGE ASM_NASM)
 else ()
     set(PROCESSOR_SRCS "")
     set(PROCESSOR_UNSHARED_SRCS "")
@@ -162,6 +199,20 @@ elseif (PEDIGREE_MACHDIR STREQUAL "arm_beagle")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Prcm.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Serial.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Vga.cc)
+
+    set(X86EMU_SRCS "")
+    set(WITH_X86EMU FALSE)
+elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
+    set(MACHINE_SRCS
+        # /machine/hosted/
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Keyboard.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Machine.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/SchedulerTimer.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Serial.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Timer.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Trace.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Vga.cc)
 
     set(X86EMU_SRCS "")
     set(WITH_X86EMU FALSE)
@@ -419,6 +470,9 @@ if (PEDIGREE_STATIC_DRIVERS)
 endif ()
 if (PEDIGREE_LINKERSCRIPT)
     set_target_properties(kernel PROPERTIES LINK_DEPENDS ${PEDIGREE_LINKERSCRIPT})
+endif ()
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    target_link_libraries(kernel PRIVATE ${LIBRT} ${CMAKE_DL_LIBS})
 endif ()
 # link libgcc last so everything before it in the command line can reference its symbols
 target_link_libraries(kernel PRIVATE gcc)

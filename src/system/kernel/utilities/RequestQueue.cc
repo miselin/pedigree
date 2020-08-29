@@ -419,6 +419,7 @@ int RequestQueue::work()
         // Do we need to stop?
         if (m_Stop)
         {
+            NOTICE("RequestQueue is terminating!");
             m_RequestQueueMutex.release();
             return 0;
         }

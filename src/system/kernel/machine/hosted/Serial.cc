@@ -67,6 +67,25 @@ void HostedSerial::write(char c)
 {
     char buf[2] = {c, 0};
     ::write(m_File, buf, 1);
+    ::fsync(m_File);
+    ::write(2, buf, 1);
+    ::fsync(2);
+}
+
+void HostedSerial::write_str(const char *c)
+{
+    ::write(m_File, c, StringLength(c));
+    ::fsync(m_File);
+    ::write(2, c, StringLength(c));
+    ::fsync(2);
+}
+
+void HostedSerial::write_str(const char *c, size_t len)
+{
+    ::write(m_File, c, len);
+    ::fsync(m_File);
+    ::write(2, c, len);
+    ::fsync(2);
 }
 
 bool HostedSerial::isConnected()

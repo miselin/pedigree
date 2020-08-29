@@ -133,11 +133,7 @@ class EXPORTED_PUBLIC ProcessorBase
         \param[out] state SchedulerState to save into.
         \return False if the save saved the state. True if a restoreState
        occurs. */
-    static bool saveState(SchedulerState &state)
-#if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-        DEPRECATED
-#endif
-        ;
+    static bool saveState(SchedulerState &state);
     /** Restore a previous scheduler state.
         \param[in] state The state to restore.
         \param[out] pLock Optional lock to release. */

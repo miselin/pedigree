@@ -27,7 +27,7 @@ add_definitions(
     -DSTANDALONE_MEMPOOL=1 -DDEVICE_IGNORE_ADDRESSES=1 -DBITS_64=1 -DLITTLE_ENDIAN=1
     -DVFS_NOMMU=1 -DVFS_STANDALONE=1 -DEXT2_STANDALONE=1)
 
-set(BUILDUTIL_FLAGS -ggdb -gdwarf-2)
+set(BUILDUTIL_FLAGS -ggdb -gdwarf-2 -fno-omit-frame-pointer)
 set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
 set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
 set(BUILDUTIL_LINKFLAGS "")
@@ -210,6 +210,7 @@ set(TESTSUITE_SRCS
     testsuite/test-List.cc
     testsuite/test-SharedPointer.cc
     testsuite/test-UniquePointer.cc
+    testsuite/test-RingBuffer.cc
     testsuite/test-Buffer.cc
     testsuite/test-stringlib.cc
     testsuite/test-ExtensibleBitmap.cc
@@ -251,7 +252,7 @@ export(
 )
 
 if (BENCHMARK_LIBRARY)
-    add_executable(benchmarker
+    set(BENCHMARK_SRCS
         testsuite/bench-BloomFilter.cc
         testsuite/bench-Cord.cc
         testsuite/bench-ExtensibleBitmap.cc
@@ -272,12 +273,19 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-Tree.cc
         testsuite/bench-VFS.cc
         testsuite/bench-LruCache.cc
-        testsuite/bench-Log.cc
-    )
+        testsuite/bench-Log.cc)
+    add_executable(benchmarker ${BENCHMARK_SRCS})
     target_link_libraries(benchmarker PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
     target_compile_options(benchmarker PRIVATE "-Os" "-march=k8" "-mtune=k8" "-mno-sse" "-mno-mmx" "-mno-red-zone" "-fno-omit-frame-pointer")
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
+
+    add_executable(benchmarker-native ${BENCHMARK_SRCS})
+    target_link_libraries(benchmarker-native PRIVATE
+        ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
+    target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native")
+    target_compile_definitions(benchmarker-native PRIVATE -DTESTSUITE)
+
 
     export(
         TARGETS benchmarker

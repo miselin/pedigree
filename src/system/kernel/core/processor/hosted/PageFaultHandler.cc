@@ -23,17 +23,30 @@
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+
+#include "InterruptManager.h"
 
 namespace __pedigree_hosted
 {
 };
 using namespace __pedigree_hosted;
 
+#if HAS_ADDRESS_SANITIZER
+extern "C" void __asan_report_error(void *pc, void *bp, void *sp,
+                                    void *addr, int is_write, size_t access_size);
+#endif
+
 #include <signal.h>
 #include <ucontext.h>
 
-#define SUPERDEBUG
+#undef SUPERDEBUG
+#define SUPERDEBUG 1
 
 PageFaultHandler PageFaultHandler::m_Instance;
 
@@ -85,7 +98,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                     phys, reinterpret_cast<void *>(tempAddr),
                     VirtualAddressSpace::KernelMode))
             {
-                FATAL("PageFaultHandler: CoW temporary map() failed");
+                FATAL_NOLOCK("PageFaultHandler: CoW temporary map() failed");
                 return;
             }
 
@@ -98,7 +111,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                 PhysicalMemoryManager::instance().allocatePage();
             if (!p)
             {
-                FATAL("PageFaultHandler: CoW OOM'd!");
+                FATAL_NOLOCK("PageFaultHandler: CoW OOM'd!");
                 return;
             }
 
@@ -107,7 +120,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             flags &= ~VirtualAddressSpace::CopyOnWrite;
             if (!va.map(p, reinterpret_cast<void *>(page), flags))
             {
-                FATAL("PageFaultHandler: CoW new map() failed.");
+                FATAL_NOLOCK("PageFaultHandler: CoW new map() failed.");
                 return;
             }
 
@@ -133,17 +146,34 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
              it != m_Handlers.end(); it++)
         {
-            if ((*it)->trap(page, code == SEGV_ACCERR))
+            if ((*it)->trap(state, page, code == SEGV_ACCERR))
             {
                 return;
             }
         }
     }
 
-    // Extra information comes from the ucontext_t structure passed to the
-    // signal handler (SIGSEGV).
     uintptr_t ucontext_loc = state.getRegister(2);
     ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
+
+#if HAS_ADDRESS_SANITIZER
+    // Escalate to the original signal handler - this is a real error, and in
+    // asan we get asan-based analysis in the asan segv handler.
+    struct sigaction oact = static_cast<HostedInterruptManager &>(InterruptManager::instance()).getOriginalSigaction(info->si_signo);
+    if (oact.sa_flags | SA_SIGINFO)
+    {
+        oact.sa_sigaction(info->si_signo, info, ctx);
+    }
+    else
+    {
+        oact.sa_handler(info->si_signo);
+    }
+
+    return;
+#endif
+
+    // Extra information comes from the ucontext_t structure passed to the
+    // signal handler (SIGSEGV).
     state.setInstructionPointer(ctx->uc_mcontext.gregs[REG_RIP]);
     state.setStackPointer(ctx->uc_mcontext.gregs[REG_RSP]);
     state.setBasePointer(ctx->uc_mcontext.gregs[REG_RBP]);
@@ -169,6 +199,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     if (code == SEGV_MAPERR)
         sCode.append("NOT ");
     sCode.append("PRESENT | ");
+    if (code == SEGV_ACCERR)
+        sCode.append("ACCESS ERROR");
 
     ERROR(static_cast<const char *>(sError));
     ERROR(static_cast<const char *>(sCode));

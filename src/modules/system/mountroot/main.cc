@@ -145,7 +145,10 @@ static bool init()
     if (VFS::instance().find(String("root»/.pedigree-root")) == 0)
     {
         error("No root disk on this system (no root»/.pedigree-root found).");
-        return false;
+        if (!HOSTED)  // hosted builds don't mount disks
+        {
+            return false;
+        }
     }
 
     // All done, nothing more to do here.
@@ -176,7 +179,7 @@ static void destroy()
     NOTICE("Unmounting all filesystems has completed.");
 }
 
-MODULE_INFO("mountroot", &init, &destroy, "vfs", "partition");
+MODULE_INFO("mountroot", &init, &destroy, "vfs", "partition", "rawfs");
 
 // We expect the filesystems metamodule to fail, but by the time it does and
 // we are allowed to continue, all the filesystems are loaded.

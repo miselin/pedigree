@@ -234,7 +234,8 @@ class UnixSocket : public File
     // Note: "servers" own the actual UNIX socket address, while clients get a
     // virtual address to track their existence (or are bound to a specific
     // name themselves).
-    RingBuffer<struct buf *> m_Datagrams;
+    typedef RingBuffer<struct buf *> DatagramBuffer;
+    DatagramBuffer m_Datagrams;
 
     // For stream sockets.
 

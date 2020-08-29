@@ -21,8 +21,22 @@
 
 Serial::~Serial() = default;
 
-void Serial::write(const char *c)
+void Serial::write_str(const char *c)
 {
     while (*c)
         write(*c++);
+}
+
+void Serial::write_str(const char *c, size_t len)
+{
+    while (len--)
+        write(*c++);
+}
+
+void Serial::write_str(const Cord &cord)
+{
+    for (auto it = cord.segbegin(); it != cord.segend(); ++it)
+    {
+        write_str(it.ptr(), it.length());
+    }
 }

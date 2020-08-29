@@ -31,7 +31,7 @@ class DiscardLogger : public Log::LogCallback
   public:
     DiscardLogger() : m_Length(0) {}
 
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
         // discard but keep length
         m_Length += cord.length();

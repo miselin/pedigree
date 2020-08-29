@@ -30,7 +30,7 @@ ConsoleManager ConsoleManager::m_Instance;
 
 void ConsoleManager::newConsole(char c, size_t i)
 {
-    newConsole(c, i);
+    newConsole(c, i, true);
 }
 
 void ConsoleManager::newConsole(char c, size_t i, bool lock)
@@ -94,7 +94,7 @@ File *ConsoleManager::getConsole(String consoleName)
     for (size_t i = 0; i < m_Consoles.count(); i++)
     {
         ConsoleFile *pC = m_Consoles[i];
-        if (pC->m_Name == consoleName)
+        if (pC->m_ConsoleName == consoleName)
         {
             return pC;
         }

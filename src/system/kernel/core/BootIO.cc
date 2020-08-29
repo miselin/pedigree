@@ -25,7 +25,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
-BootIO::BootIO() : m_CursorX(0), m_CursorY(0)
+BootIO::BootIO() NOTHROW : m_CursorX(0), m_CursorY(0)
 {
 }
 
@@ -156,83 +156,83 @@ void BootIO::putCharVga(const char c, Colour foreColour, Colour backColour)
 
 void BootIO::startColour(Serial *pSerial, Colour foreColour, Colour backColour)
 {
-    pSerial->write("\033[");
+    pSerial->write_str("\033[");
     switch (foreColour)
     {
         case Black:
-            pSerial->write("30");
+            pSerial->write_str("30");
             break;
         case Red:
-            pSerial->write("31");
+            pSerial->write_str("31");
             break;
         case Green:
-            pSerial->write("32");
+            pSerial->write_str("32");
             break;
         case Yellow:
-            pSerial->write("1;33");
+            pSerial->write_str("1;33");
             break;  // It's actually brown.
         case Blue:
-            pSerial->write("34");
+            pSerial->write_str("34");
             break;
         case Magenta:
-            pSerial->write("35");
+            pSerial->write_str("35");
             break;
         case Cyan:
-            pSerial->write("36");
+            pSerial->write_str("36");
             break;
         case LightGrey:
-            pSerial->write("0;37");
+            pSerial->write_str("0;37");
             break;
         case DarkGrey:
-            pSerial->write("1;30");
+            pSerial->write_str("1;30");
             break;
         case LightRed:
-            pSerial->write("1;31");
+            pSerial->write_str("1;31");
             break;
         case LightGreen:
-            pSerial->write("1;32");
+            pSerial->write_str("1;32");
             break;
         case LightBlue:
-            pSerial->write("1;34");
+            pSerial->write_str("1;34");
             break;
         case LightMagenta:
-            pSerial->write("1;35");
+            pSerial->write_str("1;35");
             break;
         case LightCyan:
-            pSerial->write("1;36");
+            pSerial->write_str("1;36");
             break;
         case White:
-            pSerial->write("1;37");
+            pSerial->write_str("1;37");
             break;
         default:
             pSerial->write('1');
     }
-    pSerial->write(";");
+    pSerial->write_str(";");
     switch (backColour)
     {
         case Black:
-            pSerial->write("40");
+            pSerial->write_str("40");
             break;
         case Red:
-            pSerial->write("41");
+            pSerial->write_str("41");
             break;
         case Green:
-            pSerial->write("42");
+            pSerial->write_str("42");
             break;
         case DarkGrey:
-            pSerial->write("43");
+            pSerial->write_str("43");
             break;  // It's actually brown.
         case Blue:
-            pSerial->write("44");
+            pSerial->write_str("44");
             break;
         case Magenta:
-            pSerial->write("45");
+            pSerial->write_str("45");
             break;
         case Cyan:
-            pSerial->write("46");
+            pSerial->write_str("46");
             break;
         case White:
-            pSerial->write("47");
+            pSerial->write_str("47");
             break;
         default:
             pSerial->write('1');

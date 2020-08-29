@@ -100,10 +100,15 @@ static bool init()
 
 static void destroy()
 {
-    VFS::instance().removeAllAliases(g_pProcFs);
-    VFS::instance().removeAllAliases(g_pDevFs);
-    VFS::instance().removeAllAliases(g_pUnixFilesystem);
-    VFS::instance().removeAllAliases(g_pRunFilesystem);
+    VFS::instance().removeAllAliases(g_pProcFs, false);
+    VFS::instance().removeAllAliases(g_pDevFs, false);
+    VFS::instance().removeAllAliases(g_pUnixFilesystem, false);
+    VFS::instance().removeAllAliases(g_pRunFilesystem, false);
+
+    delete g_pRunFilesystem;
+    delete g_pUnixFilesystem;
+    delete g_pProcFs;
+    delete g_pDevFs;
 }
 
 #if ARM_COMMON

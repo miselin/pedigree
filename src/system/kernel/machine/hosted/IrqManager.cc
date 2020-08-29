@@ -22,6 +22,8 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 
 namespace __pedigree_hosted
 {

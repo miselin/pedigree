@@ -109,21 +109,35 @@ struct ModuleInfo
 
 #if STATIC_DRIVERS
 
-// Need a way to have a way to manage the optional-ness of optional
-// dependencies without using a local section or similar.
-// _OPTIONAL_DEPENDS tends to be run after the MODULE_INFO macro
+extern ModuleInfo *g_StaticDrivers[128];
+extern size_t g_StaticDriverN;
+
+class StaticDriverModule
+{
+    public:
+        StaticDriverModule(const char *name, ModuleEntry entry, ModuleExit exit, const char **deps, const char **opt_deps = nullptr)
+        {
+            info.tag = MODULE_TAG;
+            info.name = name;
+            info.entry = entry;
+            info.exit = exit;
+            info.dependencies = deps;
+            info.opt_dependencies = opt_deps;
+            g_StaticDrivers[g_StaticDriverN++] = &info;
+        }
+
+        ModuleInfo info;
+};
 
 #define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \
-    static ModuleInfo __module SECTION(".modinfo") USED = \
-        {MODULE_TAG, name, entry, exit, __mod_deps, 0};
+    static StaticDriverModule __module(name, entry, exit, __mod_deps);
 
 #define MODULE_OPTIONAL_DEPENDS(...)                        \
     static const char *__mod_opt_deps[] = {__VA_ARGS__, 0}; \
     static void CONSTRUCTOR __add_optional_deps() {         \
-        __module.opt_dependencies = __mod_opt_deps;         \
+        __module.info.opt_dependencies = __mod_opt_deps;    \
     }
-
 
 #else
 

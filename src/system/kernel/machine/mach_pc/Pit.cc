@@ -42,6 +42,14 @@ bool Pit::registerHandler(TimerHandler *handler)
     return true;
 }
 
+void Pit::removeHandler(TimerHandler *handler)
+{
+    if (m_Handler == handler)
+    {
+        m_Handler = nullptr;
+    }
+}
+
 bool Pit::initialise()
 {
     // Allocate the PIT I/O range

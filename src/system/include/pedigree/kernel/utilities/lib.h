@@ -46,8 +46,18 @@ extern "C" {
 #define StringLength(x) \
     (IS_CONSTANT(x) ? __builtin_strlen((x)) : _StringLength(x))
 
+// Bounded version of StringLength that avoids reading past the given
+// maximum length. Useful for buffers that might have a much smaller string in
+// them but doesn't overflow a buffer that doesn't have a null character at the
+// end of it.
+#define BoundedStringLength(x, y) \
+    (IS_CONSTANT(x) ? __builtin_strlen((x)) : _BoundedStringLength(x, y))
+
+#define ConstStringLength(x) static_assert(IS_CONSTANT((x))), __builtin_strlen((x))
+
 // String functions.
 EXPORTED_PUBLIC size_t _StringLength(const char *buf) PURE;
+EXPORTED_PUBLIC size_t _BoundedStringLength(const char *buf, size_t maxlen) PURE;
 EXPORTED_PUBLIC char *StringCopy(char *dest, const char *src);
 EXPORTED_PUBLIC char *StringCopyN(char *dest, const char *src, size_t len);
 EXPORTED_PUBLIC int StringCompare(const char *p1, const char *p2) PURE;
@@ -66,7 +76,7 @@ EXPORTED_PUBLIC int VStringFormat(char *buf, const char *fmt, va_list arg);
 EXPORTED_PUBLIC int StringFormat(char *buf, const char *fmt, ...)
     FORMAT(printf, 2, 3);
 EXPORTED_PUBLIC unsigned long
-StringToUnsignedLong(const char *nptr, char const **endptr, int base);
+StringToUnsignedLong(const char *nptr, char **endptr, int base);
 
 // These work similarly to StringCompare, but only return 0 for match and -1
 // for a failed match (rather than returning the sign of the non-matching
@@ -131,11 +141,11 @@ EXPORTED_PUBLIC int max(size_t a, size_t b) PURE;
 EXPORTED_PUBLIC int min(size_t a, size_t b) PURE;
 
 // Memory allocation for C code
-#if !UTILITY_LINUX
-EXPORTED_PUBLIC void *malloc(size_t);
-EXPORTED_PUBLIC void *calloc(size_t, size_t);
-EXPORTED_PUBLIC void *realloc(void *, size_t);
-EXPORTED_PUBLIC void free(void *);
+#if !(UTILITY_LINUX || HOSTED)
+EXPORTED_PUBLIC void *malloc(size_t) MALLOC ALLOC_SIZE(1) C_NOTHROW MUST_USE_RESULT;
+EXPORTED_PUBLIC void *calloc(size_t, size_t) MALLOC ALLOC_SIZE(1, 2) C_NOTHROW MUST_USE_RESULT;
+EXPORTED_PUBLIC void *realloc(void *, size_t) ALLOC_SIZE(2) C_NOTHROW MUST_USE_RESULT;
+EXPORTED_PUBLIC void free(void *) C_NOTHROW;
 #endif
 
 EXPORTED_PUBLIC size_t nextCharacter(const char *s, size_t i);

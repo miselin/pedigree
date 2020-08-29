@@ -21,6 +21,8 @@
 #define KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelprocessor
@@ -223,6 +225,24 @@ class VirtualAddressSpace
     /** Gets address of the end of the kernel's module region. */
     virtual uintptr_t getKernelModulesEnd() const = 0;
 
+    /** Gets address of the physical page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestack() const
+    {
+        return 0;
+    }
+
+    /** Gets address of the first additional page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestackAdd1() const
+    {
+        return 0;
+    }
+
+    /** Gets address of the second additional page stack, if one exists. */
+    virtual uintptr_t getKernelVirtualPagestackAdd2() const
+    {
+        return 0;
+    }
+
     /**
      * Gets address of the start of the dynamic memory mapping area.
      * This is an area in which memory mappings can be created for userspace
@@ -264,6 +284,18 @@ class VirtualAddressSpace
         void *getTop() const
         {
             return m_Top;
+        }
+
+        void *getBase() const
+        {
+            if (m_Top)
+            {
+                return adjust_pointer(m_Top, -m_Size);
+            }
+            else
+            {
+                return nullptr;
+            }
         }
 
         size_t getSize() const

@@ -83,6 +83,8 @@ void MeminfoFile::updateThread()
 
         Time::delay(1 * Time::Multiplier::Second);
     }
+
+    NOTICE("MeminfoFile::updateThread completed");
 }
 
 uint64_t MeminfoFile::readBytewise(

@@ -45,6 +45,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     friend class CacheManager;
     friend class Cache;
 
+#if HOSTED
+    friend class HostedPhysicalMemoryManager;
+#endif
+
   public:
     /** Get the X86CommonPhysicalMemoryManager instance
      *\return instance of the X86CommonPhysicalMemoryManager */
@@ -115,6 +119,9 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     class PageStack
     {
         friend class X86CommonPhysicalMemoryManager;
+#if HOSTED
+        friend class HostedPhysicalMemoryManager;
+#endif
 
       public:
         /** Default constructor does nothing */
@@ -160,6 +167,15 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         /** The copy-constructor
          *\note Not implemented */
         PageStack &operator=(const PageStack &);
+
+        /**
+         * Initialize the stacks if needed.
+         * This is needed to avoid a dependency on the order of construction of
+         * VirtualAddressSpace objects for the kernel address space. Otherwise
+         * we can try to get page stack addresses from an unconstructed
+         * VirtualAddressSpace object.
+         */
+        void initialise();
 
         /**
          * Potentially use the given page to map paging structures for future

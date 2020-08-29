@@ -26,6 +26,8 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/Log.h"
 
 namespace __pedigree_hosted
 {
@@ -34,17 +36,34 @@ using namespace __pedigree_hosted;
 
 #include <setjmp.h>
 #include <signal.h>
+#include <ucontext.h>
 
-bool Processor::m_bInterrupts;
+bool ProcessorBase::m_bInterrupts;
+
+#if HAS_SANITIZERS
+// We are basically using fibers as we do scheduling ourselves. So we need to
+// make sure we are annotating these correctly.
+extern "C"
+{
+// TODO: to use these we need to know the full stack size, but that's not
+// available to us in the switch functions. Need to change Scheduler?
+void __sanitizer_start_switch_fiber(void** fake_stack_save,
+                                    const void* bottom, size_t size);
+
+void __sanitizer_finish_switch_fiber(void* fake_stack_save,
+                                     const void** bottom_old,
+                                     size_t* size_old);
+}
+#endif
 
 typedef void (*jump_func_t)(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 
-void Processor::initialisationDone()
+void ProcessorBase::initialisationDone()
 {
     HostedPhysicalMemoryManager::instance().initialisationDone();
 }
 
-void Processor::initialise1(const BootstrapStruct_t &Info)
+void ProcessorBase::initialise1(const BootstrapStruct_t &Info)
 {
     HostedInterruptManager::initialiseProcessor();
     PageFaultHandler::instance().initialise();
@@ -54,61 +73,56 @@ void Processor::initialise1(const BootstrapStruct_t &Info)
     m_Initialised = 1;
 }
 
-void Processor::initialise2(const BootstrapStruct_t &Info)
+void ProcessorBase::initialise2(const BootstrapStruct_t &Info)
 {
     initialiseMultitasking();
     m_Initialised = 2;
 }
 
-void Processor::deinitialise()
+void ProcessorBase::deinitialise()
 {
 }
 
-void Processor::identify(HugeStaticString &str)
+void ProcessorBase::identify(HugeStaticString &str)
 {
     str.clear();
     str.append("Hosted Processor");
 }
 
-uintptr_t Processor::getInstructionPointer()
+uintptr_t ProcessorBase::getInstructionPointer()
 {
     return reinterpret_cast<uintptr_t>(__builtin_return_address(0));
 }
 
-uintptr_t Processor::getStackPointer()
+uintptr_t ProcessorBase::getStackPointer()
 {
     return 0;
 }
 
-uintptr_t Processor::getBasePointer()
+uintptr_t ProcessorBase::getBasePointer()
 {
     return reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
 }
 
-bool Processor::saveState(SchedulerState &state)
+bool ProcessorBase::saveState(SchedulerState &state)
 {
-    ERROR("Processor::saveState is NOT safe on HOSTED builds.");
-
-    sigjmp_buf _state;
-    if (sigsetjmp(_state, 0) == 1)
-        return true;
-
-    MemoryCopy(state.state, _state, sizeof(_state));
+    FATAL("ProcessorBase::saveState is NOT safe on HOSTED builds.");
     return false;
 }
 
-void Processor::restoreState(SchedulerState &state, volatile uintptr_t *pLock)
+void ProcessorBase::restoreState(SchedulerState &state, volatile uintptr_t *pLock)
 {
-    NOTICE("hallo");
-    sigjmp_buf _state;
     if (pLock)
         *pLock = 1;
-    MemoryCopy(_state, state.state, sizeof(_state));
-    siglongjmp(_state, 1);
+
+    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(state.state);
+    __sanitizer_start_switch_fiber(nullptr, ctx->uc_stack.ss_sp, ctx->uc_stack.ss_size);
+    setcontext(reinterpret_cast<ucontext_t *>(state.state));
+    FATAL("Hosted: setcontext failed in Processor::restoreState");
     // Does not return.
 }
 
-void Processor::jumpUser(
+void ProcessorBase::jumpUser(
     volatile uintptr_t *pLock, uintptr_t address, uintptr_t stack, uintptr_t p1,
     uintptr_t p2, uintptr_t p3, uintptr_t p4)
 {
@@ -117,56 +131,93 @@ void Processor::jumpUser(
 }
 
 #if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-void Processor::switchState(
+void ProcessorBase::switchState(
     bool bInterrupts, SchedulerState &a, SchedulerState &b,
     volatile uintptr_t *pLock)
 {
-    sigjmp_buf _state;
-    if (sigsetjmp(_state, 0) == 1)
-    {
-        if (bInterrupts)
-            Processor::setInterrupts(true);
-        return;
-    }
+    void *fake_stack_save = nullptr;
 
-    MemoryCopy(a.state, _state, sizeof(_state));
-    restoreState(b, pLock);
+    ucontext_t *a_ctx = reinterpret_cast<ucontext_t *>(a.state);
+    ucontext_t *b_ctx = reinterpret_cast<ucontext_t *>(b.state);
+
+    if (pLock)
+        *pLock = 1;
+#if HAS_SANITIZERS
+    //NOTICE("sp [switchState] A: " << a_ctx->uc_stack.ss_sp << " B: " << b_ctx->uc_stack.ss_sp);
+    //NOTICE("  -> " << a_ctx << " / " << b_ctx);
+    //assert(adjust_pointer(b_ctx->uc_stack.ss_sp, b_ctx->uc_stack.ss_size) != nullptr);
+    __sanitizer_start_switch_fiber(&fake_stack_save, b_ctx->uc_stack.ss_sp, b_ctx->uc_stack.ss_size);
+#endif
+    swapcontext(a_ctx, b_ctx);
+#if HAS_SANITIZERS
+    __sanitizer_finish_switch_fiber(fake_stack_save, nullptr, nullptr);
+#endif
+    if (bInterrupts)
+        Processor::setInterrupts(true);
 }
 
-void Processor::switchState(
+void ProcessorBase::switchState(
     bool bInterrupts, SchedulerState &a, SyscallState &b,
     volatile uintptr_t *pLock)
 {
-    sigjmp_buf _state;
-    if (sigsetjmp(_state, 0) == 1)
-    {
-        if (bInterrupts)
-            Processor::setInterrupts(true);
-        return;
-    }
-
-    MemoryCopy(a.state, _state, sizeof(_state));
-    Processor::restoreState(b, pLock);
+    FATAL("switchState with a SyscallState is not implemented for the HOSTED cpu");
 }
 
-void Processor::saveAndJumpKernel(
+static void threadWrapper(uintptr_t func, volatile uintptr_t *pLock, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
+{
+#if HAS_SANITIZERS
+    __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+#endif
+
+    if (pLock)
+    {
+        // unlock other thread now that we are on the new stack
+        *pLock = 1;
+    }
+    auto entry = reinterpret_cast<void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t)>(func);
+    entry(p1, p2, p3, p4);
+    Thread::threadExited();
+}
+
+void ProcessorBase::jumpKernel(
+    volatile uintptr_t *pLock, uintptr_t address, uintptr_t stack,
+    uintptr_t p1, uintptr_t p2, uintptr_t p3,
+    uintptr_t p4)
+{
+    FATAL("Hosted: jumpKernel() is not supported - an atomic context switch is needed");
+}
+
+void ProcessorBase::saveAndJumpKernel(
     bool bInterrupts, SchedulerState &s, volatile uintptr_t *pLock,
     uintptr_t address, uintptr_t stack, uintptr_t p1, uintptr_t p2,
     uintptr_t p3, uintptr_t p4)
 {
-    sigjmp_buf _state;
-    if (sigsetjmp(_state, 0) == 1)
-    {
-        if (bInterrupts)
-            Processor::setInterrupts(true);
-        return;
-    }
+    assert(stack);
 
-    MemoryCopy(s.state, _state, sizeof(_state));
-    Processor::jumpKernel(pLock, address, stack, p1, p2, p3, p4);
+    uintptr_t stackBottom = stack - KERNEL_STACK_SIZE;
+
+    ucontext_t new_context;
+    getcontext(&new_context);
+    new_context.uc_stack.ss_sp = adjust_pointer(reinterpret_cast<void *>(stack), -KERNEL_STACK_SIZE);
+    new_context.uc_stack.ss_size = KERNEL_STACK_SIZE;
+    new_context.uc_link = NULL;
+    makecontext(&new_context, reinterpret_cast<void (*)()>(threadWrapper), 6, address, reinterpret_cast<uintptr_t>(pLock), p1, p2, p3, p4);
+
+#if HAS_SANITIZERS
+    void *fake_stack_save = nullptr;
+    //NOTICE("make sp [saveAndJumpKernel]: " << new_context.uc_stack.ss_sp);
+    //NOTICE(" old -> " << reinterpret_cast<ucontext_t *>(s.state) << " / sp=" << reinterpret_cast<ucontext_t *>(s.state)->uc_stack.ss_sp);
+    __sanitizer_start_switch_fiber(&fake_stack_save, new_context.uc_stack.ss_sp, new_context.uc_stack.ss_size);
+#endif
+    swapcontext(reinterpret_cast<ucontext_t *>(s.state), &new_context);
+#if HAS_SANITIZERS
+    __sanitizer_finish_switch_fiber(fake_stack_save, nullptr, nullptr);
+#endif
+    if (bInterrupts)
+        Processor::setInterrupts(true);
 }
 
-void Processor::saveAndJumpUser(
+void ProcessorBase::saveAndJumpUser(
     bool bInterrupts, SchedulerState &s, volatile uintptr_t *pLock,
     uintptr_t address, uintptr_t stack, uintptr_t p1, uintptr_t p2,
     uintptr_t p3, uintptr_t p4)
@@ -176,7 +227,7 @@ void Processor::saveAndJumpUser(
 }
 #endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 
-void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
+void ProcessorBase::switchAddressSpace(VirtualAddressSpace &AddressSpace)
 {
     ProcessorInformation &info = Processor::information();
     if (&info.getVirtualAddressSpace() != &AddressSpace)
@@ -187,16 +238,16 @@ void Processor::switchAddressSpace(VirtualAddressSpace &AddressSpace)
     }
 }
 
-void Processor::setTlsBase(uintptr_t newBase)
+void ProcessorBase::setTlsBase(uintptr_t newBase)
 {
 }
 
-size_t Processor::getDebugBreakpointCount()
+size_t ProcessorBase::getDebugBreakpointCount()
 {
     return 0;
 }
 
-uintptr_t Processor::getDebugBreakpoint(
+uintptr_t ProcessorBase::getDebugBreakpoint(
     size_t nBpNumber, DebugFlags::FaultType &nFaultType, size_t &nLength,
     bool &bEnabled)
 {
@@ -204,19 +255,19 @@ uintptr_t Processor::getDebugBreakpoint(
     return 0;
 }
 
-void Processor::enableDebugBreakpoint(
+void ProcessorBase::enableDebugBreakpoint(
     size_t nBpNumber, uintptr_t nLinearAddress,
     DebugFlags::FaultType nFaultType, size_t nLength)
 {
     // no-op on hosted
 }
 
-void Processor::disableDebugBreakpoint(size_t nBpNumber)
+void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber)
 {
     // no-op on hosted
 }
 
-void Processor::setInterrupts(bool bEnable)
+void ProcessorBase::setInterrupts(bool bEnable)
 {
     // Block signals to toggle "interrupts".
     sigset_t set;
@@ -244,7 +295,7 @@ void Processor::setInterrupts(bool bEnable)
     int r = sigprocmask(SIG_SETMASK, &set, 0);
     if (r != 0)
     {
-        ERROR("Processor::setInterrupts failed to set new mask");
+        ERROR("ProcessorBase::setInterrupts failed to set new mask");
     }
 
     // We can only mark interrupts disabled after masking signals as during the
@@ -256,32 +307,41 @@ void Processor::setInterrupts(bool bEnable)
     }
 }
 
-bool Processor::getInterrupts()
+bool ProcessorBase::getInterrupts()
 {
     return m_bInterrupts;
 }
 
-void Processor::setSingleStep(bool bEnable, InterruptState &state)
+void ProcessorBase::setSingleStep(bool bEnable, InterruptState &state)
 {
     // no-op on hosted
 }
 
-void Processor::invalidate(void *pAddress)
+void ProcessorBase::invalidate(void *pAddress)
 {
     // no-op on hosted
 }
 
-namespace __processor_cc_hosted
+ProcessorId ProcessorBase::id()
 {
+    return 0;
+}
+
+ProcessorInformation &ProcessorBase::information()
+{
+    return m_SafeBspProcessorInformation;
+}
+
+size_t ProcessorBase::getCount()
+{
+    return 1;
+}
+
 #include <sched.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
-}  // namespace __processor_cc_hosted
 
-using namespace __processor_cc_hosted;
-
-void Processor::_breakpoint()
+void ProcessorBase::_breakpoint()
 {
     sigset_t set;
     sigset_t oset;
@@ -293,44 +353,64 @@ void Processor::_breakpoint()
     sigprocmask(SIG_SETMASK, &oset, 0);
 }
 
-void Processor::_reset()
+void ProcessorBase::_reset()
 {
     // Just exit.
     exit(0);
 }
 
-void Processor::_haltUntilInterrupt()
+void ProcessorBase::_haltUntilInterrupt()
 {
-    bool bOld = m_bInterrupts;
-    Processor::setInterrupts(true);
     sigset_t set;
     sigemptyset(&set);
     sigsuspend(&set);
-    Processor::setInterrupts(bOld);
 }
 
-void Processor::breakpoint()
+void ProcessorBase::breakpoint()
 {
     Processor::_breakpoint();
 }
 
-void Processor::halt()
+void ProcessorBase::halt()
 {
     // Abnormal exit.
     __builtin_trap();
 }
 
-void Processor::pause()
+void ProcessorBase::pause()
 {
     asm volatile("pause");
 }
 
-void Processor::reset()
+void ProcessorBase::reset()
 {
     Processor::_reset();
 }
 
-void Processor::haltUntilInterrupt()
+void ProcessorBase::haltUntilInterrupt()
 {
     Processor::_haltUntilInterrupt();
+}
+
+void ProcessorBase::invalidateICache(uintptr_t nAddr)
+{
+    __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+}
+
+void ProcessorBase::invalidateDCache(uintptr_t nAddr)
+{
+    __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+}
+
+void ProcessorBase::flushDCache(uintptr_t nAddr)
+{
+    __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+}
+
+void ProcessorBase::flushDCacheAndInvalidateICache(uintptr_t startAddr, uintptr_t endAddr)
+{
+    for (size_t i = 0; i < endAddr; ++i)
+    {
+        __asm__ __volatile__ ("clflush (%0)" :: "a" (startAddr + i));
+    }
 }

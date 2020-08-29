@@ -26,11 +26,7 @@
 
 /** @addtogroup kerneldebugger
  * @{ */
-#if PPC_COMMON
 #define DWARF_MAX_REGISTERS 66
-#else
-#define DWARF_MAX_REGISTERS 50
-#endif
 
 // X86
 #define DWARF_REG_EAX 0

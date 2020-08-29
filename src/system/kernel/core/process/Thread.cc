@@ -437,6 +437,7 @@ SchedulerState &Thread::pushState()
     // NOTICE("New state level: " << m_nStateLevel << "...");
     m_StateLevels[m_nStateLevel].m_InhibitMask =
         m_StateLevels[m_nStateLevel - 1].m_InhibitMask;
+
     allocateStackAtLevel(m_nStateLevel);
 
     setKernelStack();
@@ -503,6 +504,24 @@ void *Thread::getKernelStack()
     }
     else
     {
+        return 0;
+    }
+}
+
+void *Thread::getKernelStackBase(size_t *size) const
+{
+    if (m_nStateLevel >= MAX_NESTED_EVENTS)
+        FATAL("m_nStateLevel > MAX_NESTED_EVENTS: " << m_nStateLevel << "...");
+    if (m_StateLevels[m_nStateLevel].m_pKernelStack != 0)
+    {
+        auto stack = m_StateLevels[m_nStateLevel].m_pKernelStack;
+        *size = stack->getSize();
+        return stack->getBase();
+    }
+    else
+    {
+        ERROR("No kernel stack at this level!");
+        *size = 0;
         return 0;
     }
 }

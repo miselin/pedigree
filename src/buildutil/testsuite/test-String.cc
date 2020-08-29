@@ -709,3 +709,11 @@ TEST(PedigreeString, DirectCompare)
     EXPECT_FALSE(s1.compare("hello", 5));  // length mismatch
     EXPECT_FALSE(s1.compare("hello", 6));  // null mismatch
 }
+
+TEST(PedigreeString, ConstAssign)
+{
+    String s1;
+    s1.assign("hello world");
+    EXPECT_EQ(s1.length(), 11);
+    EXPECT_STREQ(s1.cstr(), "hello world");
+}

@@ -585,10 +585,11 @@ bool Elf::loadModule(
                 {
                     physical_uintptr_t phys =
                         PhysicalMemoryManager::instance().allocatePage();
-                    va.map(
-                        phys, virt,
-                        VirtualAddressSpace::Write |
-                            VirtualAddressSpace::KernelMode);
+                    if (!va.map(phys, virt, VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode))
+                    {
+                        ERROR("mapping " << Hex << virt << " to " << phys << " failed...");
+                        return false;
+                    }
                 }
             }
 

@@ -24,6 +24,12 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/state_forward.h"
+
+namespace __pedigree_hosted
+{
+#include <signal.h>
+}  // namespace __pedigree_hosted
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -58,6 +64,9 @@ class HostedInterruptManager : public ::InterruptManager
 
     /** Signal handling shim for InterruptState protected access. */
     void signalShim(int which, void *siginfo, void *meta);
+
+    /** Get the original sigaction for an interrupt handler. */
+    struct __pedigree_hosted::sigaction getOriginalSigaction(int which) const;
 
   private:
     /** Called when an interrupt was triggered
@@ -96,6 +105,9 @@ class HostedInterruptManager : public ::InterruptManager
     /** The debugger interrupt handlers */
     InterruptHandler *m_pDbgHandler[MAX_SIGNAL];
 #endif
+
+    /** Original sigaction structs after we install our custom handlers. */
+    static struct __pedigree_hosted::sigaction m_OriginalActions[MAX_SIGNAL];
 
     /** The instance of the interrupt manager  */
     static HostedInterruptManager m_Instance;

@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/state_forward.h"
 
 /** @addtogroup kernelprocessorhosted
  * @{ */

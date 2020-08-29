@@ -56,9 +56,6 @@ typedef HOSTEDuint16_t HOSTEDio_port_t;
 /** Define the size of one physical page */
 #define PAGE_SIZE 4096
 
-/** No port I/O on hosted systems. */
-#define KERNEL_PROCESSOR_NO_PORT_IO 1
-
 /** @} */
 
 #endif

@@ -24,6 +24,8 @@
 #if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
+#include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 #if THREADS
 #include "pedigree/kernel/Subsystem.h"
@@ -32,12 +34,11 @@
 
 namespace __pedigree_hosted
 {
-};
-using namespace __pedigree_hosted;
-
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+};
+using namespace __pedigree_hosted;
 
 namespace __pedigree_interrupt_manager_cc
 {
@@ -45,6 +46,8 @@ namespace __pedigree_interrupt_manager_cc
 }
 
 HostedInterruptManager HostedInterruptManager::m_Instance;
+
+struct sigaction HostedInterruptManager::m_OriginalActions[MAX_SIGNAL];
 
 InterruptManager &InterruptManager::instance()
 {
@@ -148,6 +151,27 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
         panic("shutdown failed");
     }
 
+#if HAS_ADDRESS_SANITIZER
+    // If we're running with sanitizers, just raise the signal to them.
+    siginfo_t *info = reinterpret_cast<siginfo_t *>(interruptState.getRegister(1));
+    uintptr_t ucontext_loc = interruptState.getRegister(2);
+    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
+
+    // Escalate to the original signal handler - this is a real error, and in
+    // asan we get asan-based analysis in the asan segv handler.
+    struct sigaction oact = static_cast<HostedInterruptManager &>(InterruptManager::instance()).getOriginalSigaction(info->si_signo);
+    if (oact.sa_flags | SA_SIGINFO)
+    {
+        oact.sa_sigaction(info->si_signo, info, ctx);
+    }
+    else
+    {
+        oact.sa_handler(info->si_signo);
+    }
+
+    return;
+#endif
+
 // Were we running in the kernel, or user space?
 // User space processes have a subsystem, kernel ones do not.
 #if THREADS
@@ -222,18 +246,25 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
     sigprocmask(0, 0, &ctx->uc_sigmask);
 }
 
+struct sigaction HostedInterruptManager::getOriginalSigaction(int which) const
+{
+    return m_OriginalActions[which];
+}
+
 void HostedInterruptManager::initialiseProcessor()
 {
     // Set up our handler for every signal we want to trap.
     for (int i = 1; i < MAX_SIGNAL; ++i)
     {
-        struct sigaction act;
+        struct sigaction act, oact;
         ByteSet(&act, 0, sizeof(act));
         act.sa_sigaction = handler;
         sigemptyset(&act.sa_mask);
         act.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
 
-        sigaction(i, &act, 0);
+        sigaction(i, &act, &oact);
+
+        m_OriginalActions[i] = oact;
     }
 }
 

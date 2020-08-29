@@ -34,6 +34,11 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#if HOSTED
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+
 static size_t newlineCount(const char *pString)
 {
     size_t nNewlines = 0;
@@ -121,6 +126,11 @@ static void _panic(const char *msg, DebuggerIO *pScreen)
 void panic(const char *msg)
 {
     static String graphicsService("graphics");
+
+#if HOSTED
+    fprintf(stderr, "panic: %s\n", msg);
+    abort();
+#endif
 
     Processor::setInterrupts(false);
 

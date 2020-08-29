@@ -338,11 +338,19 @@ SYMLINKS:
 
 print "Complete; linking crt*.o...\n";
 
+# compiler-specific dir
 `ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt1.o`;
 `ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/rcrt1.o`;
 `ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/Scrt1.o`;
 `ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
 `ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
+# sysroot
+`ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/$target/lib/crt1.o`;
+`ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/$target/lib/rcrt1.o`;
+`ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/$target/lib/Scrt1.o`;
+`ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/$target/lib/crti.o`;
+`ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/$target/lib/crtn.o`;
+# header path
 `ln -sf $prefix/build/musl/include ./compilers/dir/$target/`;
 
 # include-fixed is NOT necessary

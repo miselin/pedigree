@@ -21,7 +21,8 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
-#include <processor/hosted/VirtualAddressSpace.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "VirtualAddressSpace.h"
 
 namespace __pedigree_hosted
 {
@@ -40,12 +41,10 @@ HostedProcessorInformation::HostedProcessorInformation(
       m_pCurrentThread(0), m_Scheduler(0),
       m_KernelStack(0)
 {
-    m_Scheduler = new PerProcessorScheduler();
 }
 
 HostedProcessorInformation::~HostedProcessorInformation()
 {
-    delete m_Scheduler;
 }
 
 VirtualAddressSpace &HostedProcessorInformation::getVirtualAddressSpace() const
@@ -74,6 +73,10 @@ void HostedProcessorInformation::setCurrentThread(Thread *pThread)
 
 PerProcessorScheduler &HostedProcessorInformation::getScheduler()
 {
+    if (m_Scheduler == nullptr)
+    {
+        m_Scheduler = new PerProcessorScheduler();
+    }
     return *m_Scheduler;
 }
 

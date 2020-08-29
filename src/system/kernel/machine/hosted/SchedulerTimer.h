@@ -21,6 +21,7 @@
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state.h"
@@ -48,6 +49,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     //
     virtual bool registerHandler(TimerHandler *handler);
 
+    virtual void removeHandler(TimerHandler *handler);
+
     /** Initialises the class
      *\return true, if successful, false otherwise */
     bool initialise() INITIALISATION_ONLY;
@@ -58,9 +61,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     /** The default constructor */
     HostedSchedulerTimer() INITIALISATION_ONLY;
     /** The destructor */
-    inline virtual ~HostedSchedulerTimer()
-    {
-    }
+    virtual ~HostedSchedulerTimer();
 
   private:
     /** The copy-constructor

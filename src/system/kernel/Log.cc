@@ -193,11 +193,12 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
             }
             msg.append(m_StaticLog[entry].str, m_StaticLog[entry].str.length());
             msg.append(m_LineEnding, m_LineEnding.length());
+            bool locked = !m_StaticLog[entry].lockfree;
 
             /// \note This could send a massive batch of log entries on the
             ///       callback. If the callback isn't designed to handle big
             ///       buffers this may fail.
-            pCallback->callback(msg);
+            pCallback->callback(msg, locked);
         }
 
         entry = (entry + 1) % LOG_ENTRIES;
@@ -361,6 +362,15 @@ Log::LogEntry &Log::LogEntry::operator<<(SeverityLevel level)
     return *this;
 }
 
+Log::LogEntry &Log::LogEntry::operator<<(LogEntryModifier modifier)
+{
+    if (modifier == Unlocked)
+    {
+        lockfree = true;
+    }
+    return *this;
+}
+
 // NOTE: Make sure that the templated << operator gets only instantiated for
 //       integer types.
 template Log::LogEntry &Log::LogEntry::operator<<(char);
@@ -409,6 +419,7 @@ void Log::flushEntry(bool lock)
     static bool handlingFatal = false;
 
     LogCord msg;
+    TinyStaticString repeated;
     msg.clear();
 
     if (lock)
@@ -472,7 +483,6 @@ void Log::flushEntry(bool lock)
             }
             else
             {
-                TinyStaticString repeated;
                 repeated.append(repeatedTimes);
                 msg.append(repeated, repeated.length());
             }
@@ -492,12 +502,13 @@ void Log::flushEntry(bool lock)
         }
         msg.append(m_Buffer.str, m_Buffer.str.length());
         msg.append(m_LineEnding, m_LineEnding.length());
+        bool locked = !m_Buffer.lockfree;
 
         for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
         {
             if (m_OutputCallbacks[i] != nullptr)
             {
-                m_OutputCallbacks[i]->callback(msg);
+                m_OutputCallbacks[i]->callback(msg, locked);
             }
         }
     }

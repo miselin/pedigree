@@ -41,7 +41,7 @@ ConsoleFile::ConsoleFile(
       m_Flags(DEFAULT_FLAGS), m_Rows(25), m_Cols(80), m_LineBuffer(),
       m_LineBufferSize(0), m_LineBufferFirstNewline(~0), m_Last(0),
       m_Buffer(PTY_BUFFER_SIZE), m_ConsoleNumber(consoleNumber),
-      m_Name(consoleName), m_pEvent(0), m_EventTrigger(true)
+      m_ConsoleName(consoleName), m_pEvent(0), m_EventTrigger(true)
 {
     MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
 

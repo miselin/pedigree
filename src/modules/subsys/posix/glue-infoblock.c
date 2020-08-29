@@ -32,6 +32,8 @@ static struct InfoBlock *infoBlock = (struct InfoBlock *) 0xFFFFFFFF8FFF0000;
 #elif ARMV7
 /// \todo set this to something sane
 static struct InfoBlock *infoBlock = (struct InfoBlock *) 0xF0000000;
+#elif HOSTED
+static struct InfoBlock *infoBlock = (struct InfoBlock *) 0x0000710000000000;
 #else
 #error no infoblock address configured for this platform
 #endif

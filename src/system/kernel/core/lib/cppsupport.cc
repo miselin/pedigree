@@ -31,8 +31,16 @@
 /// mode.
 #define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS 1
 
+#if HOSTED
+#define PEDIGREE_NOEXCEPT
+#else
+#define PEDIGREE_NOEXCEPT noexcept
+#endif
+
 // We need to use __builtin_frame_* with non-zero arguments in some cases here.
+#if __GNUC__ && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wframe-address"
+#endif
 
 // Required for G++ to link static init/destructors.
 #if !HOSTED
@@ -224,37 +232,37 @@ void __cxa_guard_release()
 
 #if HOSTED_SYSTEM_MALLOC
 // already using the system malloc so just define our versions as hosted_*
-#define MALLOC hosted_malloc
-#define CALLOC hosted_calloc 
-#define FREE hosted_free
-#define REALLOC hosted_realloc
+#define INDIR_MALLOC hosted_malloc
+#define INDIR_CALLOC hosted_calloc 
+#define INDIR_FREE hosted_free
+#define INDIR_REALLOC hosted_realloc
 #else
-#define MALLOC _malloc
-#define CALLOC _calloc 
-#define FREE _free
-#define REALLOC _realloc
+#define INDIR_MALLOC _malloc
+#define INDIR_CALLOC _calloc 
+#define INDIR_FREE _free
+#define INDIR_REALLOC _realloc
 #endif  // HOSTED_SYSTEM_MALLOC != 0
 
 #else
-#define MALLOC malloc
-#define CALLOC calloc
-#define FREE free
-#define REALLOC realloc
+#define INDIR_MALLOC malloc
+#define INDIR_CALLOC calloc
+#define INDIR_FREE free
+#define INDIR_REALLOC realloc
 #endif  // HOSTED
 
-extern "C" void *MALLOC(size_t sz)
+extern "C" void *INDIR_MALLOC(size_t sz)
 {
     return reinterpret_cast<void *>(new uint8_t[sz]);
 }
 
-extern "C" void *CALLOC(size_t num, size_t sz)
+extern "C" void *INDIR_CALLOC(size_t num, size_t sz)
 {
     void *result = reinterpret_cast<void *>(new uint8_t[num * sz]);
     ByteSet(result, 0, num * sz);
     return result;
 }
 
-extern "C" void FREE(void *p)
+extern "C" void INDIR_FREE(void *p)
 {
     if (p == 0)
         return;
@@ -262,13 +270,13 @@ extern "C" void FREE(void *p)
     delete[] reinterpret_cast<uint8_t *>(p);
 }
 
-extern "C" void *REALLOC(void *p, size_t sz)
+extern "C" void *INDIR_REALLOC(void *p, size_t sz)
 {
     if (p == 0)
-        return MALLOC(sz);
+        return INDIR_MALLOC(sz);
     if (sz == 0)
     {
-        FREE(p);
+        INDIR_FREE(p);
         return 0;
     }
 
@@ -280,9 +288,9 @@ extern "C" void *REALLOC(void *p, size_t sz)
         copySz = sz;
 
     /// \note If sz > p's original size, this may fail.
-    void *tmp = MALLOC(sz);
+    void *tmp = INDIR_MALLOC(sz);
     MemoryCopy(tmp, p, copySz);
-    FREE(p);
+    INDIR_FREE(p);
 
     return tmp;
 }
@@ -293,13 +301,13 @@ namespace std
     enum class align_val_t : size_t {};
 }
 
-void *operator new(size_t size) noexcept
+void *operator new(size_t size) PEDIGREE_NOEXCEPT
 {
     void *ret =
         reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
     return ret;
 }
-void *operator new[](size_t size) noexcept
+void *operator new[](size_t size) PEDIGREE_NOEXCEPT
 {
     void *ret =
         reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
@@ -379,23 +387,23 @@ void operator delete[](void *p, void *q) noexcept
 {
     // no-op
 }
-#endif
+#endif  //!HOSTED_SYSTEM_MALLOC
 
-#if HOSTED
+#if HOSTED && !HOSTED_SYSTEM_MALLOC
 extern "C" {
 void *__wrap_malloc(size_t sz)
 {
-    return _malloc(sz);
+    return INDIR_MALLOC(sz);
 }
 
 void *__wrap_realloc(void *p, size_t sz)
 {
-    return _realloc(p, sz);
+    return INDIR_REALLOC(p, sz);
 }
 
 void __wrap_free(void *p)
 {
-    return _free(p);
+    return INDIR_FREE(p);
 }
 }
 #endif

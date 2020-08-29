@@ -1154,6 +1154,11 @@ size_t SlamAllocator::recovery(size_t maxSlabs)
 
 uintptr_t SlamAllocator::allocate(size_t nBytes)
 {
+    EMIT_IF(HOSTED_SYSTEM_MALLOC)
+    {
+        FATAL_NOLOCK("SlamAllocator::allocate() called when HOSTED_SYSTEM_MALLOC == 1");
+    }
+
     EMIT_IF(DEBUGGING_SLAB_ALLOCATOR)
     {
         NOTICE_NOLOCK("SlabAllocator::allocate(" << Dec << nBytes << Hex << ")");

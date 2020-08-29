@@ -16,11 +16,11 @@
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&)
-global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR20HostedSchedulerState
+global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR20HostedSchedulerStatePVm
 ; syscall entry method (at syscall entry address)
 global syscall_enter
 ; void Processor::restoreState(volatile uintptr_t *, SyscallState &)
-global _ZN9Processor12restoreStateER18HostedSyscallStatePVm
+global _ZN13ProcessorBase12restoreStateER18HostedSyscallStatePVm
 
 ; HostedProcessorInformation::getKernelStack() const
 extern _ZNK26HostedProcessorInformation14getKernelStackEv
@@ -28,12 +28,16 @@ extern _ZNK26HostedProcessorInformation14getKernelStackEv
 ; void PerProcessorScheduler::deleteThread(Thread *)
 extern _ZN21PerProcessorScheduler12deleteThreadEP6Thread
 ; void Processor::restoreState(SchedulerState &, volatile uintptr_t *)
-extern _ZN9Processor12restoreStateER20HostedSchedulerStatePVm
+extern _ZN13ProcessorBase12restoreStateER20HostedSchedulerStatePVm
 
 ; void HostedSyscallManager::syscall(SyscallState &syscallState)
 extern _ZN20HostedSyscallManager7syscallER18HostedSyscallState
 ; Processor::m_ProcessorInformation
-extern _ZN9Processor22m_ProcessorInformationE
+extern _ZN13ProcessorBase22m_ProcessorInformationE
+
+; void __sanitizer_start_switch_fiber(void** fake_stack_save,
+;                                     const void* bottom, size_t size);
+extern __sanitizer_start_switch_fiber
 
 ; void *safe_stack_top
 global safe_stack_top
@@ -41,34 +45,39 @@ global safe_stack_top
 [bits 64]
 [section .text]
 
-_ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR20HostedSchedulerState:
+_ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR20HostedSchedulerStatePVm:
     ; Load the state pointer
     mov rcx, rsi
 
-    ; Load the Thread* pointer
-    mov rsi, rdi
+    ; Thread* already in rdi will be passed to PerProcessorScheduler::deleteThread(Thread *)
 
     ; We need to get OFF the current stack as it may get unmapped by the
     ; Thread deletion coming. We will use a temporary stack for the frame.
     ; TODO: this will break if we have multiprocessing.
+    xor rbp, rbp
     mov rsp, safe_stack_top
     sub rsp, 8  ; Align as needed for SSE et al.
 
     ; Ready to go.
     push rcx
-    call _ZN21PerProcessorScheduler12deleteThreadEP6Thread
+    call _ZN21PerProcessorScheduler12deleteThreadEP6Thread WRT ..plt
     pop rcx
 
-    sub rsp, 8  ; Align for SSE et al.
+    mov rdi, 0  ; fake_stack
+    mov rsi, safe_stack
+    mov rdx, 0x1000
+    push rcx
+    ; call __sanitizer_start_switch_fiber WRT ..plt
+    pop rcx
 
     ; Get out of here (no need to pass a lock).
     mov rdi, rcx
     xor rsi, rsi
-    jmp _ZN9Processor12restoreStateER20HostedSchedulerStatePVm
+    jmp _ZN13ProcessorBase12restoreStateER20HostedSchedulerStatePVm WRT ..plt
 
 ; [rsi] Lock
 ; [rdi] State pointer.
-_ZN9Processor12restoreStateER18HostedSyscallStatePVm:
+_ZN13ProcessorBase12restoreStateER18HostedSyscallStatePVm:
     ; The state pointer is on the current thread kernel stack, so change to it.
     mov     rsp, rdi
 
@@ -107,7 +116,7 @@ syscall_enter:
 
     ; Switch stacks (MUST be a kernel stack).
     push rdi
-    mov rdi, _ZN9Processor22m_ProcessorInformationE
+    mov rdi, _ZN13ProcessorBase22m_ProcessorInformationE
     call _ZNK26HostedProcessorInformation14getKernelStackEv
     pop rdi
     mov rsp, rax

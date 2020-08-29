@@ -23,6 +23,8 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#define UNROLLED_STRLEN 1
+
 extern void *malloc(size_t);
 extern void free(void *);
 
@@ -36,7 +38,7 @@ char *strncat(char *dest, const char *src, size_t n);
 char *strchr(const char *str, int target);
 char *strrchr(const char *str, int target);
 int vsprintf(char *buf, const char *fmt, va_list arg);
-unsigned long strtoul(const char *nptr, char const **endptr, int base);
+unsigned long strtoul(const char *nptr, char **endptr, int base);
 
 #define ULONG_MAX -1
 
@@ -68,46 +70,65 @@ int min(size_t a, size_t b)
 
 WEAK size_t _StringLength(const char *src)
 {
+    if(!UNROLLED_STRLEN)
+    {
+        if (UNLIKELY(!src))
+        {
+            return 0;
+        }
+
+        size_t n = 0;
+        while (*src++)
+        {
+            ++n;
+        }
+
+        return n;
+    }
+    else
+    {
+        if (!src)
+        {
+            return 0;
+        }
+
+        // Unrolled loop that still avoids reading past the end of src (instead of
+        // e.g. doing bitmasks with 64-bit views of src).
+        const char *orig = src;
+        size_t result = 0;
+        while (1)
+        {
+#define UNROLL(n)        \
+        if (!*(src + n)) \
+            return (src + n) - orig;
+            UNROLL(0);
+            UNROLL(1);
+            UNROLL(2);
+            UNROLL(3);
+            UNROLL(4);
+            UNROLL(5);
+            UNROLL(6);
+            UNROLL(7);
+#undef UNROLL
+            src += 8;
+        }
+    }
+}
+
+WEAK size_t _BoundedStringLength(const char *src, size_t maxlen)
+{
     if (UNLIKELY(!src))
     {
         return 0;
     }
 
     size_t n = 0;
-    while (*src++)
+    while (*src++ && (n < maxlen))
     {
         ++n;
     }
 
     return n;
-
-    /*
-    if (!src)
-    {
-        return 0;
-    }
-
-    // Unrolled loop that still avoids reading past the end of src (instead of
-    // e.g. doing bitmasks with 64-bit views of src).
-    const char *orig = src;
-    size_t result = 0;
-    while (1)
-    {
-#define UNROLL(n)    \
-    if (!*(src + n)) \
-        return (src + n) - orig;
-        UNROLL(0);
-        UNROLL(1);
-        UNROLL(2);
-        UNROLL(3);
-        UNROLL(4);
-        UNROLL(5);
-        UNROLL(6);
-        UNROLL(7);
-#undef UNROLL
-        src += 8;
-    }
-    */
 }
 
 char *StringCopy(char *dest, const char *src)
@@ -253,7 +274,7 @@ WEAK int StringMatchN(const char *restrict p1, const char *restrict p2, size_t n
     }
 
     size_t i;
-    char c1 = 0, c2 = 0;
+    unsigned c1 = 0, c2 = 0;
     for (i = 0; i < n; ++i)
     {
         c1 = p1[i];
@@ -328,8 +349,12 @@ int isalpha(int c)
     return isupper(c) || islower(c) || isdigit(c);
 }
 
+// Intentionally casting const char * to char * in these functions, don't warn
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
+
 unsigned long
-StringToUnsignedLong(const char *nptr, char const **endptr, int base)
+StringToUnsignedLong(const char *nptr, char **endptr, int base)
 {
     register const char *s = nptr;
     register unsigned long acc;
@@ -387,14 +412,10 @@ StringToUnsignedLong(const char *nptr, char const **endptr, int base)
     else if (neg)
         acc = -acc;
     if (endptr != 0)
-        *endptr = (const char *) (any ? s - 1 : nptr);
+        *endptr = (char *) (any ? s - 1 : nptr);
 
     return (acc);
 }
-
-// Intentionally casting const char * to char * in these functions, don't warn
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wcast-qual"
 
 char *StringFind(const char *str, int target)
 {
@@ -715,7 +736,7 @@ int vsprintf(char *buf, const char *fmt, va_list arg)
     return VStringFormat(buf, fmt, arg);
 }
 
-unsigned long strtoul(const char *nptr, char const **endptr, int base)
+unsigned long strtoul(const char *nptr, char **endptr, int base)
 {
     return StringToUnsignedLong(nptr, endptr, base);
 }

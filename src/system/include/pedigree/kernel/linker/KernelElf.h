@@ -115,7 +115,7 @@ class Module
 
 class EXPORTED_PUBLIC KernelElf : public Elf
 {
-    friend void system_reset();
+    friend void _cxx_main(class BootstrapStruct_t &);
 
   public:
     /** Get the class instance

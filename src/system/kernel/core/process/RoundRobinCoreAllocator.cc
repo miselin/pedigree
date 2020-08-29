@@ -43,7 +43,7 @@ bool RoundRobinCoreAllocator::initialise(
     // 1 CPU?
     if (it == procList.end())
     {
-        NOTICE("Quitting, only one CPU was present.");
+        NOTICE("RoundRobinCoreAllocator: quitting, only one CPU was present.");
         m_ProcMap.insert(pFirst, pFirst);
         return true;
     }

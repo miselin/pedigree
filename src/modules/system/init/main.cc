@@ -18,6 +18,7 @@
  */
 
 #include "modules/Module.h"
+#include "pedigree/kernel/compiler.h"
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
@@ -39,6 +40,8 @@ class File;
 
 static Mutex g_Started(false);
 
+static Thread *g_pStage2Thread = 0;
+
 static void error(const char *s)
 {
     extern BootIO bootIO;
@@ -55,14 +58,15 @@ static int init_stage2(void *param)
     extern void system_reset();
     NOTICE("Note: ASAN build, so triggering a restart now.");
     system_reset();
-    return;
+    return 0;
 #endif
 
     bool tryingLinux = false;
 
     File *file = 0;
 
-    String init_path("root»/applications/init");
+    String init_path;
+    init_path.assign("root»/applications/init");
     NOTICE("Searching for init program at " << init_path);
     file = VFS::instance().find(init_path);
     if (!file)
@@ -70,7 +74,7 @@ static int init_stage2(void *param)
         WARNING(
             "Did not find " << init_path
                             << ", trying for a Linux userspace...");
-        init_path = "root»/sbin/init";
+        init_path.assign("root»/sbin/init");
         tryingLinux = true;
 
         NOTICE("Searching for Linux init at " << init_path);
@@ -143,8 +147,8 @@ static bool init()
     pSubsystem->addFileDescriptor(0, stdinDescriptor);
     pSubsystem->addFileDescriptor(1, stdoutDescriptor);
 
-    Thread *pThread = new Thread(pProcess, init_stage2, 0);
-    pThread->detach();
+    g_pStage2Thread = new Thread(pProcess, init_stage2, 0);
+    g_pStage2Thread->setName("init");
 
     // wait for the other process to start before we move on with startup
     g_Started.acquire();
@@ -155,6 +159,7 @@ static bool init()
 
 static void destroy()
 {
+    g_pStage2Thread->join();
 }
 
 #if X86_COMMON

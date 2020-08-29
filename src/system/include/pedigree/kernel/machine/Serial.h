@@ -22,6 +22,9 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cord.h"
+#include "pedigree/kernel/utilities/StaticCord.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 /**
  * Serial device abstraction.
@@ -36,7 +39,31 @@ class EXPORTED_PUBLIC Serial
     virtual char read() = 0;
     virtual char readNonBlock() = 0;
     virtual void write(char c) = 0;
-    void write(const char *c);
+    virtual void write_str(const char *c);
+    virtual void write_str(const char *c, size_t len);
+    virtual void write_str(const Cord &cord);
+
+    template<unsigned int N>
+    void write_str(const StaticCord<N> &cord)
+    {
+        for (auto it = cord.segbegin(); it != cord.segend(); ++it)
+        {
+            write_str(it.ptr(), it.length());
+        }
+    }
+
+    // Const string overload (so no strlen needed)
+    template<unsigned int N>
+    void write_str(const char (&c)[N])
+    {
+        write_str(c, N);
+    }
+
+    template<unsigned int N>
+    void write_str(const StaticString<N> (&c))
+    {
+        write_str(static_cast<const char *>(c), N);
+    }
 };
 
 #endif

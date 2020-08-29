@@ -21,9 +21,18 @@ set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
-    set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64"
-        "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
+if (NOT PEDIGREE_OVERRIDE_CXX_COMPILER_VERSION)
+    set(PEDIGREE_OVERRIDE_CXX_COMPILER_VERSION ${CMAKE_CXX_COMPILER_VERSION})
+endif ()
+
+set(GENERIC_MODULE_FLAGS "-fno-common" "-ggdb" "-g3" "-gdwarf-2")
+set(GENERIC_MODULE_CFLAGS "")
+# NOTE: userspace code is allowed to use exceptions, so we only add -fno-exceptions
+# for the module-specific build flags rather than these generic flags.
+set(GENERIC_MODULE_CXXFLAGS "-fno-rtti" "-fno-asynchronous-unwind-tables")
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-mcmodel=kernel")
     set(ARCH_MODULE_LINKFLAGS "-m64")
 
     add_definitions(-DUSE_PIC_SYSCALLS)
@@ -39,15 +48,29 @@ else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the modules CMakeLists.txt")
 endif ()
 
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree" "-fsanitize=address")
+    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+endif ()
+
+set(MODULE_C_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
+set(MODULE_ASM_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
+set(MODULE_CXX_FLAGS ${GENERIC_MODULE_FLAGS} ${GENERIC_MODULE_CXXFLAGS} ${ARCH_MODULE_FLAGS})
+
+add_compile_options(
+    "$<$<COMPILE_LANGUAGE:C>:${MODULE_C_FLAGS}>"
+    "$<$<COMPILE_LANGUAGE:ASM>:${MODULE_ASM_FLAGS}>"
+    "$<$<COMPILE_LANGUAGE:CXX>:${MODULE_CXX_FLAGS}>")
+
 set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link.ld")
 set(PEDIGREE_MODULE_STATICLINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link_static.ld")
-set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} ${ARCH_MODULE_FLAGS} "-fPIC" "-nostdlib" )
+set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} ${ARCH_MODULE_FLAGS} "-nostdlib")
 set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
-set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit")
+set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit" "-fno-exceptions")
 set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" ${ARCH_MODULE_LINKFLAGS})
 if (PEDIGREE_STATIC_DRIVERS)
     # No special flags f-or shared objects in static driver builds
-    set(CMAKE_SHARED_LINKER_FLAGS "-r -nostdlib -T ${PEDIGREE_MODULE_STATICLINKSCRIPT}")
+    set(CMAKE_SHARED_LINKER_FLAGS "-r -nostdlib")
     string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS}")
     string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS}")
 else ()
@@ -229,12 +252,17 @@ pedigree_module(iso9660 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/iso9660/Iso9660File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/iso9660/Iso9660Filesystem.cc)
 
+set (LINKER_ASM "${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/asm-${PEDIGREE_LINKERDIR}.s")
+if (NOT EXISTS ${LINKER_ASM})
+    set (LINKER_ASM "")
+endif ()
+
 pedigree_module(linker "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/DynamicLinker.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/DynamicLinker.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/asm-${PEDIGREE_LINKERDIR}.s)
+    ${LINKER_ASM})
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/asm-${PEDIGREE_LINKERDIR}.s
         PROPERTIES LANGUAGE ASM_NASM)
@@ -482,7 +510,7 @@ endif ()
 add_library(vdso SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld)
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     target_compile_options(vdso PRIVATE "-mcmodel=small")
 endif ()
 target_link_libraries(vdso PRIVATE gcc
@@ -529,7 +557,7 @@ target_include_directories(posix PRIVATE
 target_compile_definitions(posix PRIVATE
     -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600)
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
@@ -547,22 +575,24 @@ target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/include)
 add_dependencies(native libc)
 
-add_library(native-user SHARED
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/Object.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/cppsupport.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/demo.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/native-protocol.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/config/Config.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/graphics/Graphics.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/input/Input.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/ipc/Ipc.cc)
-target_include_directories(native-user PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include
-    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
-    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
-target_link_libraries(native-user PRIVATE -nostdlib gcc)
-set_target_properties(native-user PROPERTIES OUTPUT_NAME "pedigree")
-add_dependencies(native-user libc)
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    add_library(native-user SHARED
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/Object.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/cppsupport.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/demo.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/native-protocol.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/config/Config.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/graphics/Graphics.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/input/Input.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/ipc/Ipc.cc)
+    target_include_directories(native-user PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include
+        ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
+        ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
+    target_link_libraries(native-user PRIVATE -nostdlib gcc)
+    set_target_properties(native-user PROPERTIES OUTPUT_NAME "pedigree")
+    add_dependencies(native-user libc)
+endif ()
 
 pedigree_module(pedigree-c "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/PedigreeCSyscallManager.cc
@@ -571,12 +601,18 @@ pedigree_module(pedigree-c "" ""
 target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c)
 
-add_library(pedigree-c-user SHARED
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
-set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
-add_dependencies(pedigree-c-user libc)
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    add_library(pedigree-c-user SHARED
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
+    set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
+    add_dependencies(pedigree-c-user libc)
+endif ()
 
-set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> $<TARGET_FILE:pedigree-c-user> PARENT_SCOPE)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    set(PEDIGREE_SUBSYSTEM_LIBS)
+else ()
+    set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> $<TARGET_FILE:pedigree-c-user> PARENT_SCOPE)
+endif ()
 
 if (PEDIGREE_STATIC_DRIVERS)
     add_library(staticmodules OBJECT Module.cc)
@@ -584,7 +620,10 @@ else ()
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
         COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
         DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
-    add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar)
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp
+        COMMAND ${CMAKE_COMMAND} -E tar "-cPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp -- ${PEDIGREE_KERNEL_MODULES}
+        DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
+    add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp)
 endif ()
 
 file(DOWNLOAD "https://www.musl-libc.org/releases/${MUSL_FILENAME}" ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
@@ -617,11 +656,11 @@ add_custom_command(
     ${CMAKE_BINARY_DIR}/musl/lib/libxnet.a
     COMMAND
     ${CMAKE_COMMAND} -E env
-    CC=${CMAKE_C_COMPILER} LD=${CMAKE_C_COMPILER}
+    CC=${PEDIGREE_C_COMPILER} LD=${CMAKE_C_COMPILER}
     COMPILER_TARGET=${PEDIGREE_COMPILER_TARGET}
     SRCDIR=${CMAKE_SOURCE_DIR}
     TARGETDIR=${CMAKE_BINARY_DIR}/musl
-    ARCH_TARGET=${PEDIGREE_ARCH_TARGET}
+    ARCH_TARGET=${PEDIGREE_MUSL_ARCH_TARGET}
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     DEPENDS
     ${CMAKE_SOURCE_DIR}/compilers/pedigree-musl.patch
