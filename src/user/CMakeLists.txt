@@ -95,22 +95,22 @@ pedigree_lib(ui "native-user"
 
 set(PANGO_LIBS "pangocairo-1.0;pangoft2-1.0;pango-1.0;harfbuzz;fontconfig;gobject-2.0;glib-2.0;ffi")
 
-pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
-pedigree_app(apptest ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/apptest/main.cc)
+pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
+pedigree_app(apptest ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/apptest/main.cc)
 pedigree_app(cdhelp ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/cdhelp/main.c)
-pedigree_app(config ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/config/main.cc)
+pedigree_app(config ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/config/main.cc)
 pedigree_app(crashtest ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/crashtest/main.c)
 pedigree_app(display ON OFF OFF-mode "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/display-mode/main.c)
 # pedigree_app(fire ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/fire/fire.c)
-pedigree_app(gears ON ON OFF "libui;OSMesa" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gears/gears.cc)
-pedigree_app(gfxcon ON ON OFF "libui;libfb;libtui;cairo;${PANGO_LIBS};freetype" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gfxcon/main.cc)
+pedigree_app(gears ON ON OFF "libui;OSMesa;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gears/gears.cc)
+pedigree_app(gfxcon ON ON OFF "libui;libfb;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gfxcon/main.cc)
 pedigree_app(init ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/init/main.c)
-pedigree_app(ipc-test-client ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-client/main.cc)
-pedigree_app(ipc-test-server ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-server/main.cc)
+pedigree_app(ipc-test-client ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-client/main.cc)
+pedigree_app(ipc-test-server ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-server/main.cc)
 pedigree_app(keymap ON OFF ON ""
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c)
 target_link_libraries(app-keymap PRIVATE libkeymap)
-pedigree_app(live ON OFF ON "intl;dialog" ${CMAKE_CURRENT_SOURCE_DIR}/applications/live/live.cc)
+pedigree_app(live ON OFF ON "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/live/live.cc)
 pedigree_app(login ON OFF ON "intl" ${CMAKE_CURRENT_SOURCE_DIR}/applications/login/login.c)
 pedigree_app(modlist ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/modlist/main.c)
 pedigree_app(modload ON OFF ON ""
@@ -128,16 +128,16 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mprotect.c)
-pedigree_app(thread-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
-pedigree_app(tour ON OFF OFF "intl;dialog" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
-pedigree_app(ttyterm ON ON OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
-pedigree_app(uitest ON ON OFF "libui" ${CMAKE_CURRENT_SOURCE_DIR}/applications/uitest/main.cc)
-pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype"
+pedigree_app(thread-test ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
+pedigree_app(tour ON OFF OFF "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
+pedigree_app(ttyterm ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
+pedigree_app(uitest ON ON OFF "libui;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/uitest/main.cc)
+pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype;stdc++"
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/Png.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/objects.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
-pedigree_app(which ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
+pedigree_app(which ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
 
 pedigree_keymap(KeymapDeDe ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapDeDe)
 pedigree_keymap(KeymapEnUk ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUk)

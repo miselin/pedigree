@@ -6,4 +6,4 @@ localdb=/support/pup/db
 arch=amd64
 
 [remotes]
-server=http://pup.pedigree-project.org
+server=https://pup.pedigree-project.org

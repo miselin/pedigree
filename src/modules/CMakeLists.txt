@@ -32,7 +32,7 @@ set(GENERIC_MODULE_CFLAGS "")
 set(GENERIC_MODULE_CXXFLAGS "-fno-rtti" "-fno-asynchronous-unwind-tables")
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-mcmodel=kernel")
+    set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fPIC")
     set(ARCH_MODULE_LINKFLAGS "-m64")
 
     add_definitions(-DUSE_PIC_SYSCALLS)
@@ -56,11 +56,6 @@ endif ()
 set(MODULE_C_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
 set(MODULE_ASM_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
 set(MODULE_CXX_FLAGS ${GENERIC_MODULE_FLAGS} ${GENERIC_MODULE_CXXFLAGS} ${ARCH_MODULE_FLAGS})
-
-add_compile_options(
-    "$<$<COMPILE_LANGUAGE:C>:${MODULE_C_FLAGS}>"
-    "$<$<COMPILE_LANGUAGE:ASM>:${MODULE_ASM_FLAGS}>"
-    "$<$<COMPILE_LANGUAGE:CXX>:${MODULE_CXX_FLAGS}>")
 
 set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link.ld")
 set(PEDIGREE_MODULE_STATICLINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link_static.ld")
@@ -450,19 +445,19 @@ pedigree_module(usb-mass-storage "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/main.cc)
 
 if (PEDIGREE_DRIVERDIR STREQUAL "x86")
-    pedigree_module(cdi "" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/compat.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/dma.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/lists.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/misc.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/net.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/pci.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/storage.cc)
-    target_include_directories(cdi PRIVATE ${CDI_INCLUDE_DIRS})
+    # pedigree_module(cdi "" ""
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/compat.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/dma.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/lists.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/misc.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/net.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/pci.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/storage.cc)
+    # target_include_directories(cdi PRIVATE ${CDI_INCLUDE_DIRS})
 
     # pedigree_module(e1000 "-w" ""
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
