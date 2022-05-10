@@ -108,7 +108,7 @@ TEST(PedigreeSharedPointer, Allocated)
 TEST(PedigreeSharedPointer, Refcount)
 {
     SharedPointer<int> p;
-    EXPECT_EQ(p.refcount(), 0);
+    EXPECT_EQ(p.refcount(), 0U);
     p.reset(new int);
-    EXPECT_EQ(p.refcount(), 1);
+    EXPECT_EQ(p.refcount(), 1U);
 }

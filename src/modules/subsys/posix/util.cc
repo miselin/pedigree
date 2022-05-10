@@ -29,7 +29,7 @@ std::vector<FileDescriptor *> g_Descriptors;
 
 FileDescriptor *getDescriptor(int fd)
 {
-    if (fd >= g_Descriptors.size())
+    if ((size_t)fd >= g_Descriptors.size())
     {
         return nullptr;
     }
@@ -45,7 +45,7 @@ void addDescriptor(int fd, FileDescriptor *f)
         delete old;
     }
 
-    if (fd > g_Descriptors.capacity())
+    if ((size_t)fd > g_Descriptors.capacity())
     {
         g_Descriptors.reserve(fd + 1);
     }

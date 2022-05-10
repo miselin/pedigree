@@ -13,6 +13,7 @@ COMPILER_DIR=$script_dir/pedigree-compiler
 . $script_dir/build-etc/travis.sh
 
 set -e
+set -v
 
 . $script_dir/scripts/easy_build_deps.sh
 

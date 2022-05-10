@@ -28,16 +28,16 @@
 TEST(PedigreeVector, Construction)
 {
     Vector<int> x;
-    EXPECT_EQ(x.size(), 0);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.size(), 0U);
+    EXPECT_EQ(x.count(), 0U);
     EXPECT_EQ(x.begin(), x.end());
 }
 
 TEST(PedigreeVector, ConstructionReserve)
 {
     Vector<int> x(5);
-    EXPECT_EQ(x.size(), 5);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.size(), 5U);
+    EXPECT_EQ(x.count(), 0U);
     EXPECT_EQ(x.begin(), x.end());
 }
 
@@ -269,9 +269,9 @@ TEST(PedigreeVector, Clear)
     x.pushBack(1);
     x.pushBack(2);
     x.pushBack(3);
-    EXPECT_EQ(x.count(), 3);
+    EXPECT_EQ(x.count(), 3U);
     x.clear();
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeVector, ForwardIterate)
@@ -315,7 +315,7 @@ TEST(PedigreeVector, PopBack)
     EXPECT_EQ(x.popBack(), 3);
     EXPECT_EQ(x.popBack(), 2);
     EXPECT_EQ(x.popBack(), 1);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeVector, Erase)
@@ -333,7 +333,7 @@ TEST(PedigreeVector, Erase)
 
     EXPECT_EQ(x[0], 1);
     EXPECT_EQ(x[1], 3);
-    EXPECT_EQ(x.count(), 2);
+    EXPECT_EQ(x.count(), 2U);
 }
 
 TEST(PedigreeVector, EraseAtEnd)
@@ -365,7 +365,7 @@ TEST(PedigreeVector, EraseReversed)
 
     EXPECT_EQ(x[0], 1);
     EXPECT_EQ(x[1], 3);
-    EXPECT_EQ(x.count(), 2);
+    EXPECT_EQ(x.count(), 2U);
 }
 
 TEST(PedigreeVector, ReducedCopiesWithErase)
@@ -378,7 +378,7 @@ TEST(PedigreeVector, ReducedCopiesWithErase)
 
     x.erase(static_cast<size_t>(0));
 
-    EXPECT_EQ(x.count(), 1);
+    EXPECT_EQ(x.count(), 1U);
     EXPECT_EQ(x[0], 3);
 }
 
@@ -490,7 +490,7 @@ TEST(PedigreeVector, PopFrontWorks)
     EXPECT_EQ(x.popFront(), 2);
     EXPECT_EQ(x.popFront(), 3);
     EXPECT_EQ(x.popFront(), 4);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeVector, CreateBack)

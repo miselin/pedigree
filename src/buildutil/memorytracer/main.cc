@@ -466,6 +466,7 @@ int main(int argc, char *argv[])
             case ':':
                 std::cerr << "At least one required option was missing."
                           << std::endl;
+                [[fallthrough]];
             case 'h':
                 usage();
                 return 0;

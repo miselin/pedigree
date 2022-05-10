@@ -28,9 +28,9 @@ TEST(PedigreeExtensibleBitmap, InitialState)
     ExtensibleBitmap bitmap;
 
     EXPECT_EQ(bitmap.getFirstSet(), ~0U);
-    EXPECT_EQ(bitmap.getFirstClear(), 0);
+    EXPECT_EQ(bitmap.getFirstClear(), 0U);
     EXPECT_EQ(bitmap.getLastSet(), ~0U);
-    EXPECT_EQ(bitmap.getLastClear(), 0);
+    EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
 TEST(PedigreeExtensibleBitmap, CopyConstruct)
@@ -68,10 +68,10 @@ TEST(PedigreeExtensibleBitmap, SetOne)
 
     EXPECT_TRUE(bitmap.test(0));
     EXPECT_FALSE(bitmap.test(1));
-    EXPECT_EQ(bitmap.getFirstSet(), 0);
-    EXPECT_EQ(bitmap.getFirstClear(), 1);
-    EXPECT_EQ(bitmap.getLastSet(), 0);
-    EXPECT_EQ(bitmap.getLastClear(), 0);
+    EXPECT_EQ(bitmap.getFirstSet(), 0U);
+    EXPECT_EQ(bitmap.getFirstClear(), 1U);
+    EXPECT_EQ(bitmap.getLastSet(), 0U);
+    EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
 TEST(PedigreeExtensibleBitmap, SetThenClear)
@@ -84,9 +84,9 @@ TEST(PedigreeExtensibleBitmap, SetThenClear)
     EXPECT_FALSE(bitmap.test(0));
     EXPECT_FALSE(bitmap.test(1));
     EXPECT_EQ(bitmap.getFirstSet(), ~0U);
-    EXPECT_EQ(bitmap.getFirstClear(), 0);
+    EXPECT_EQ(bitmap.getFirstClear(), 0U);
     EXPECT_EQ(bitmap.getLastSet(), ~0U);
-    EXPECT_EQ(bitmap.getLastClear(), 0);
+    EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
 TEST(PedigreeExtensibleBitmap, SetMultiple)
@@ -104,10 +104,10 @@ TEST(PedigreeExtensibleBitmap, SetMultiple)
     EXPECT_TRUE(bitmap.test(3));
     EXPECT_TRUE(bitmap.test(4));
     EXPECT_FALSE(bitmap.test(5));
-    EXPECT_EQ(bitmap.getFirstSet(), 0);
-    EXPECT_EQ(bitmap.getFirstClear(), 5);
-    EXPECT_EQ(bitmap.getLastSet(), 4);
-    EXPECT_EQ(bitmap.getLastClear(), 0);
+    EXPECT_EQ(bitmap.getFirstSet(), 0U);
+    EXPECT_EQ(bitmap.getFirstClear(), 5U);
+    EXPECT_EQ(bitmap.getLastSet(), 4U);
+    EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
 TEST(PedigreeExtensibleBitmap, SetDynamic)
@@ -125,10 +125,10 @@ TEST(PedigreeExtensibleBitmap, SetDynamic)
     EXPECT_FALSE(bitmap.test(0));
     EXPECT_FALSE(bitmap.test(127));
     EXPECT_FALSE(bitmap.test(129));
-    EXPECT_EQ(bitmap.getFirstSet(), 128);
-    EXPECT_EQ(bitmap.getFirstClear(), 0);
-    EXPECT_EQ(bitmap.getLastSet(), 256);
-    EXPECT_EQ(bitmap.getLastClear(), 0);
+    EXPECT_EQ(bitmap.getFirstSet(), 128U);
+    EXPECT_EQ(bitmap.getFirstClear(), 0U);
+    EXPECT_EQ(bitmap.getLastSet(), 256U);
+    EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
 TEST(PedigreeExtensibleBitmap, ClearDynamic)

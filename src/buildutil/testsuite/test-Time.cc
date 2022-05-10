@@ -28,7 +28,7 @@
 TEST(PedigreeTime, ToUnixConversion)
 {
     // UNIX epoch.
-    EXPECT_EQ(Time::Conversion::toUnix(0, 0, 0, 1, 1, 1970), 0);
+    EXPECT_EQ(Time::Conversion::toUnix(0, 0, 0, 1, 1, 1970), 0U);
 }
 
 TEST(PedigreeTime, Over32bit)

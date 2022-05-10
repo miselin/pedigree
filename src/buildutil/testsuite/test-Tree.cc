@@ -27,7 +27,7 @@
 TEST(PedigreeTree, Construction)
 {
     Tree<int, int> x;
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), (size_t)0);
     EXPECT_EQ(x.begin(), x.end());
 }
 
@@ -76,9 +76,9 @@ TEST(PedigreeTree, Clear)
     {
         x.insert(i, 1234);
     }
-    EXPECT_EQ(x.count(), 1024);
+    EXPECT_EQ(x.count(), (size_t) 1024);
     x.clear();
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), (size_t) 0);
 }
 
 TEST(PedigreeTree, Removal)
@@ -87,7 +87,7 @@ TEST(PedigreeTree, Removal)
     x.insert(1, 1);
     x.insert(2, 2);
     x.remove(1);
-    EXPECT_EQ(x.count(), 1);
+    EXPECT_EQ(x.count(), (size_t) 1);
 
     EXPECT_EQ(x.lookup(2), 2);
 }
@@ -99,7 +99,7 @@ TEST(PedigreeTree, RootRemoval)
     x.insert(2, 2);  // should become the root of the tree
     x.insert(3, 3);
     x.remove(2);
-    EXPECT_EQ(x.count(), 2);
+    EXPECT_EQ(x.count(), (size_t) 2);
 
     EXPECT_EQ(x.lookup(1), 1);
     EXPECT_EQ(x.lookup(2), 0);
@@ -113,7 +113,7 @@ TEST(PedigreeTree, LeftRemoval)
     x.insert(2, 2);  // should become the root of the tree
     x.insert(3, 3);
     x.remove(1);
-    EXPECT_EQ(x.count(), 2);
+    EXPECT_EQ(x.count(), (size_t) 2);
 
     EXPECT_EQ(x.lookup(1), 0);
     EXPECT_EQ(x.lookup(2), 2);
@@ -127,7 +127,7 @@ TEST(PedigreeTree, RightRemoval)
     x.insert(2, 2);  // should become the root of the tree
     x.insert(3, 3);
     x.remove(3);
-    EXPECT_EQ(x.count(), 2);
+    EXPECT_EQ(x.count(), (size_t) 2);
 
     EXPECT_EQ(x.lookup(1), 1);
     EXPECT_EQ(x.lookup(2), 2);

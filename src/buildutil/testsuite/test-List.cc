@@ -40,8 +40,8 @@ struct Foo
 TEST(PedigreeList, Construction)
 {
     List<int> x;
-    EXPECT_EQ(x.size(), 0);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.size(), 0U);
+    EXPECT_EQ(x.count(), 0U);
     EXPECT_EQ(x.begin(), x.end());
 }
 
@@ -62,8 +62,8 @@ TEST(PedigreeList, AddItems)
     x.pushBack(1);
     x.pushBack(5);
     x.pushBack(10);
-    EXPECT_EQ(x.size(), 3);
-    EXPECT_EQ(x.count(), 3);
+    EXPECT_EQ(x.size(), 3U);
+    EXPECT_EQ(x.count(), 3U);
     auto it = x.begin();
     EXPECT_EQ(*it, 1);
     ++it;
@@ -83,7 +83,7 @@ TEST(PedigreeList, AddRemoveItems)
     EXPECT_EQ(x.popFront(), 5);
     EXPECT_EQ(x.popFront(), 10);
     EXPECT_EQ(x.popFront(), 0);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, AddRemoveItemsReverse)
@@ -97,7 +97,7 @@ TEST(PedigreeList, AddRemoveItemsReverse)
     EXPECT_EQ(x.popFront(), 5);
     EXPECT_EQ(x.popFront(), 1);
     EXPECT_EQ(x.popFront(), 0);
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, PopBack)
@@ -107,7 +107,7 @@ TEST(PedigreeList, PopBack)
 
     EXPECT_EQ(x.popBack(), 1);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, PopEmpty)
@@ -117,7 +117,7 @@ TEST(PedigreeList, PopEmpty)
     EXPECT_EQ(x.popFront(), 0);
     EXPECT_EQ(x.popBack(), 0);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, Falseish)
@@ -127,7 +127,7 @@ TEST(PedigreeList, Falseish)
 
     EXPECT_EQ(x.popFront(), 0);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, CleanupWorks)
@@ -140,7 +140,7 @@ TEST(PedigreeList, CleanupWorks)
 
     EXPECT_EQ(x.popBack(), 4);
 
-    EXPECT_EQ(x.count(), 1);
+    EXPECT_EQ(x.count(), 1U);
 }
 
 TEST(PedigreeList, ErasingBegin)
@@ -155,7 +155,7 @@ TEST(PedigreeList, ErasingBegin)
     EXPECT_EQ(*it, 4);
     x.erase(it);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, ErasingMiddle)
@@ -175,7 +175,7 @@ TEST(PedigreeList, ErasingMiddle)
     EXPECT_EQ(x.popFront(), 2);
     EXPECT_EQ(x.popFront(), 8);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, ErasingEnd)
@@ -196,7 +196,7 @@ TEST(PedigreeList, ErasingEnd)
     EXPECT_EQ(x.popFront(), 4);
     EXPECT_EQ(x.popFront(), 6);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, ErasingAll)
@@ -212,7 +212,7 @@ TEST(PedigreeList, ErasingAll)
         it = x.erase(it);
     }
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 TEST(PedigreeList, ErasingSome)
 {
@@ -234,7 +234,7 @@ TEST(PedigreeList, ErasingSome)
         }
     }
 
-    EXPECT_EQ(x.count(), 2);
+    EXPECT_EQ(x.count(), 2U);
 }
 
 TEST(PedigreeList, ErasingReverse)
@@ -256,7 +256,7 @@ TEST(PedigreeList, ErasingReverse)
     EXPECT_EQ(x.popFront(), 4);
     EXPECT_EQ(x.popFront(), 8);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, Assign)
@@ -275,7 +275,7 @@ TEST(PedigreeList, Assign)
     EXPECT_EQ(x.popFront(), y.popFront());
 
     EXPECT_EQ(x.count(), y.count());
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, NonZeroableType)
@@ -292,7 +292,7 @@ TEST(PedigreeList, NonZeroableType)
     EXPECT_EQ(x.popFront().x, 6);
     EXPECT_EQ(x.popFront().x, -1);
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeList, IterateReverse)
@@ -358,7 +358,7 @@ TEST(PedigreeList, PointerRotatePop)
     x.pushBack(p);
     p_ = x.popFront();
 
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
     EXPECT_EQ(x.popFront(), reinterpret_cast<void *>(0));
     EXPECT_EQ(p, p_);
 }

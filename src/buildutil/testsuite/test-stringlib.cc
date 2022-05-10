@@ -25,8 +25,8 @@
 
 TEST(PedigreeStringLibrary, StringLength)
 {
-    EXPECT_EQ(StringLength("hello"), 5);
-    EXPECT_EQ(StringLength(""), 0);
+    EXPECT_EQ(StringLength("hello"), 5U);
+    EXPECT_EQ(StringLength(""), 0U);
 }
 
 TEST(PedigreeStringLibrary, BasicStrcpy)
@@ -178,14 +178,14 @@ TEST(PedigreeStringLibrary, CompareCaseEmpty)
 {
     size_t off = 0;
     EXPECT_EQ(StringCompareCase("", "", false, 1, &off), 0);
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
 }
 
 TEST(PedigreeStringLibrary, CompareCaseOneEmpty)
 {
     size_t off = 0;
     EXPECT_EQ(StringCompareCase("abc", "", false, 3, &off), 'a');
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
 }
 
 TEST(PedigreeStringLibrary, CompareCaseOtherEmpty)
@@ -193,7 +193,7 @@ TEST(PedigreeStringLibrary, CompareCaseOtherEmpty)
     // 'a' > '\0'
     size_t off = 0;
     EXPECT_EQ(StringCompareCase("", "abc", false, 3, &off), -'a');
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
 }
 
 TEST(PedigreeStringLibrary, CompareCaseSame)
@@ -204,23 +204,23 @@ TEST(PedigreeStringLibrary, CompareCaseSame)
 
     size_t off = 0;
     EXPECT_EQ(StringCompareCase(str_lower, str_lower, false, 3, &off), 0);
-    EXPECT_EQ(off, 3);
+    EXPECT_EQ(off, 3U);
     EXPECT_EQ(StringCompareCase(str_upper, str_upper, true, 3, &off), 0);
-    EXPECT_EQ(off, 3);
+    EXPECT_EQ(off, 3U);
     EXPECT_EQ(
         StringCompareCase(str_upper, str_lower, true, 3, &off), 'A' - 'a');
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
 }
 
 TEST(PedigreeStringLibrary, CompareCaseLess)
 {
     size_t off = 0;
     EXPECT_EQ(StringCompareCase("abc", "bcd", false, 3, &off), 'a' - 'b');
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
     EXPECT_EQ(StringCompareCase("ABC", "bcd", false, 3, &off), 'A' - 'b');
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
     EXPECT_EQ(StringCompareCase("ABC", "bcd", true, 3, &off), 'A' - 'b');
-    EXPECT_EQ(off, 0);
+    EXPECT_EQ(off, 0U);
 }
 
 TEST(PedigreeStringLibrary, BasicStrcat)

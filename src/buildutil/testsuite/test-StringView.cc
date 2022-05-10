@@ -31,14 +31,14 @@ TEST(PedigreeStringView, ExplicitConstruction)
 {
     StringView view("Hello world", 11);
 
-    EXPECT_EQ(view.length(), 11);
+    EXPECT_EQ(view.length(), 11U);
 }
 
 TEST(PedigreeStringView, ImplicitConstruction)
 {
     StringView view("Hello world");
 
-    EXPECT_EQ(view.length(), 11);
+    EXPECT_EQ(view.length(), 11U);
 }
 
 TEST(PedigreeStringView, EqualityCString)

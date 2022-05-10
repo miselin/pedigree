@@ -99,37 +99,37 @@ void SpookyHash::Short(
     switch (remainder)
     {
     case 15:
-    d += ((uint64)u.p8[14]) << 48;
+    d += ((uint64)u.p8[14]) << 48; [[fallthrough]];
     case 14:
-        d += ((uint64)u.p8[13]) << 40;
+        d += ((uint64)u.p8[13]) << 40; [[fallthrough]];
     case 13:
-        d += ((uint64)u.p8[12]) << 32;
+        d += ((uint64)u.p8[12]) << 32; [[fallthrough]];
     case 12:
         d += u.p32[2];
         c += u.p64[0];
         break;
     case 11:
-        d += ((uint64)u.p8[10]) << 16;
+        d += ((uint64)u.p8[10]) << 16; [[fallthrough]];
     case 10:
-        d += ((uint64)u.p8[9]) << 8;
+        d += ((uint64)u.p8[9]) << 8; [[fallthrough]];
     case 9:
-        d += (uint64)u.p8[8];
+        d += (uint64)u.p8[8]; [[fallthrough]];
     case 8:
         c += u.p64[0];
         break;
     case 7:
-        c += ((uint64)u.p8[6]) << 48;
+        c += ((uint64)u.p8[6]) << 48; [[fallthrough]];
     case 6:
-        c += ((uint64)u.p8[5]) << 40;
+        c += ((uint64)u.p8[5]) << 40; [[fallthrough]];
     case 5:
-        c += ((uint64)u.p8[4]) << 32;
+        c += ((uint64)u.p8[4]) << 32; [[fallthrough]];
     case 4:
         c += u.p32[0];
         break;
     case 3:
-        c += ((uint64)u.p8[2]) << 16;
+        c += ((uint64)u.p8[2]) << 16; [[fallthrough]];
     case 2:
-        c += ((uint64)u.p8[1]) << 8;
+        c += ((uint64)u.p8[1]) << 8; [[fallthrough]];
     case 1:
         c += (uint64)u.p8[0];
         break;
@@ -335,7 +335,7 @@ void SpookyHash::Final(uint64 *hash1, uint64 *hash2)
         return;
     }
     
-    const uint64 *data = (const uint64 *)m_data;
+    uint64 *data = (uint64 *)m_data;
     uint8 remainder = m_remainder;
     
     uint64 h0 = m_state[0];

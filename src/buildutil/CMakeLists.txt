@@ -28,8 +28,8 @@ add_definitions(
     -DVFS_NOMMU=1 -DVFS_STANDALONE=1 -DEXT2_STANDALONE=1)
 
 set(BUILDUTIL_FLAGS -ggdb -gdwarf-2 -fno-omit-frame-pointer)
-set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
-set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
+set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_CFLAGS})
+set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_CXXFLAGS})
 set(BUILDUTIL_LINKFLAGS "")
 
 if (PEDIGREE_BUILDUTILS_ASAN AND HAVE_ASAN)
@@ -167,6 +167,7 @@ target_compile_definitions(debugger PRIVATE -DTESTSUITE)
 add_library(config
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/Config.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/sqlite3/sqlite3.c)
+target_compile_options(config PRIVATE -Wno-implicit-fallthrough -Wno-cast-qual -Wno-error)
 
 add_library(posix
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/IoEvent.cc)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 '''
 Copyright (c) 2008-2014, Pedigree Developers
 
@@ -52,7 +52,7 @@ def main():
     with open(pupConfig, 'w') as f:
         cfg.write(f)
 
-    print "Configuration file '%s' updated." % (pupConfig)
+    print("Configuration file '%s' updated." % (pupConfig))
 
 
 if __name__ == '__main__':

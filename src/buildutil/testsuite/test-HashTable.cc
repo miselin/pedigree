@@ -182,13 +182,13 @@ TEST(PedigreeHashTable, InsertionNoChains)
 {
     HashTable<HashableInteger, int> hashtable;
 
-    for (size_t i = 0; i < 10; ++i)
+    for (int i = 0; i < 10; ++i)
     {
         HashableInteger key(i);
         hashtable.insert(key, 5 + i);
     }
 
-    for (size_t i = 0; i < 10; ++i)
+    for (int i = 0; i < 10; ++i)
     {
         HashableInteger key(i);
         EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
@@ -199,13 +199,13 @@ TEST(PedigreeHashTable, InsertionWithChains)
 {
     HashTable<ModuloTenHashableInteger, int> hashtable;
 
-    for (size_t i = 0; i < 20; ++i)
+    for (int i = 0; i < 20; ++i)
     {
         ModuloTenHashableInteger key(i);
         EXPECT_TRUE(hashtable.insert(key, 5 + i));
     }
 
-    for (size_t i = 0; i < 20; ++i)
+    for (int i = 0; i < 20; ++i)
     {
         ModuloTenHashableInteger key(i);
         EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);

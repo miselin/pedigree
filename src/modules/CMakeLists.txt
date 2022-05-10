@@ -205,6 +205,7 @@ target_compile_definitions(config PUBLIC
     -DSQLITE_OMIT_SCHEMA_VERSION_PRAGMAS=1 -DSQLITE_OMIT_TCL_VARIABLE=1
     -DSQLITE_OMIT_TEMPDB=1 -DSQLITE_OMIT_TRACE=1 -DSQLITE_OMIT_UTF16=1
     -DSQLITE_OMIT_WAL=1)
+target_compile_options(config PRIVATE -Wno-implicit-fallthrough)
 add_dependencies(config libc)  # TODO: this shouldn't need headers.
 if (PEDIGREE_STATIC_DRIVERS)
     add_dependencies(config embedconfigdb)
@@ -463,27 +464,27 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/storage.cc)
     target_include_directories(cdi PRIVATE ${CDI_INCLUDE_DIRS})
 
-    pedigree_module(e1000 "-w" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/main.c)
-    target_include_directories(e1000 PRIVATE ${CDI_INCLUDE_DIRS})
+    # pedigree_module(e1000 "-w" ""
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/main.c)
+    # target_include_directories(e1000 PRIVATE ${CDI_INCLUDE_DIRS})
 
-    pedigree_module(pcnet "-w" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/pcnet.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/main.c)
-    target_include_directories(pcnet PRIVATE ${CDI_INCLUDE_DIRS})
+    # pedigree_module(pcnet "-w" ""
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/pcnet.c
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/main.c)
+    # target_include_directories(pcnet PRIVATE ${CDI_INCLUDE_DIRS})
 
-    pedigree_module(rtl8139 "-w" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/rtl8139.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/main.c)
-    target_include_directories(rtl8139 PRIVATE ${CDI_INCLUDE_DIRS})
+    # pedigree_module(rtl8139 "-w" ""
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/rtl8139.c
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/main.c)
+    # target_include_directories(rtl8139 PRIVATE ${CDI_INCLUDE_DIRS})
 
-    pedigree_module(sis900 "-w" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/device.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/eeprom.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/main.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/sis900_io.c)
-    target_include_directories(sis900 PRIVATE ${CDI_INCLUDE_DIRS})
+    # pedigree_module(sis900 "-w" ""
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/device.c
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/eeprom.c
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/main.c
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/sis900_io.c)
+    # target_include_directories(sis900 PRIVATE ${CDI_INCLUDE_DIRS})
 
     pedigree_module(ib700_wdt "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ib700_wdt/main.cc)

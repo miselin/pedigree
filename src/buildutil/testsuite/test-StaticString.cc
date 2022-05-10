@@ -51,21 +51,21 @@ TEST(PedigreeStaticString, ConstructionFromString)
 {
     StaticString<64> s("hello");
     EXPECT_STREQ(s, "hello");
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
 }
 
 TEST(PedigreeStaticString, ConstructionFromStringWithLength)
 {
     StaticString<64> s("hello", 3);
     EXPECT_STREQ(s, "hel");
-    EXPECT_EQ(s.length(), 3);
+    EXPECT_EQ(s.length(), 3U);
 }
 
 TEST(PedigreeStaticString, ConstructionFromTooLongString)
 {
     StaticString<3> s("hello");
     EXPECT_STREQ(s, "he");
-    EXPECT_EQ(s.length(), 2);
+    EXPECT_EQ(s.length(), 2U);
 }
 
 TEST(PedigreeStaticString, ConstructionFromStaticString)
@@ -73,7 +73,7 @@ TEST(PedigreeStaticString, ConstructionFromStaticString)
     StaticString<64> other("hello");
     StaticString<64> s(other);
     EXPECT_STREQ(s, "hello");
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
 }
 
 TEST(PedigreeStaticString, ConstructionFromTooLongStaticString)
@@ -81,7 +81,7 @@ TEST(PedigreeStaticString, ConstructionFromTooLongStaticString)
     StaticString<64> other("hello");
     StaticString<3> s(other);
     EXPECT_STREQ(s, "he");
-    EXPECT_EQ(s.length(), 2);
+    EXPECT_EQ(s.length(), 2U);
 }
 
 TEST(PedigreeStaticString, AppendOperator)
@@ -181,7 +181,7 @@ TEST(PedigreeStaticString, BadIntValue)
 TEST(PedigreeStaticString, IntPtrValue)
 {
     StaticString<64> s("1234");
-    EXPECT_EQ(s.uintptrValue(10), 1234);
+    EXPECT_EQ(s.uintptrValue(10), 1234U);
 }
 
 TEST(PedigreeStaticString, BadIntPtrValue)
@@ -337,7 +337,7 @@ TEST(PedigreeStaticString, TooMuchAppending)
     {
         s.append(' ');
     }
-    EXPECT_EQ(s.length(), 63);
+    EXPECT_EQ(s.length(), 63U);
 }
 
 TEST(PedigreeStaticString, AssignThenAppend)
@@ -346,7 +346,7 @@ TEST(PedigreeStaticString, AssignThenAppend)
     s = "hello";
     s.append(" world");
     EXPECT_STREQ(s, "hello world");
-    EXPECT_EQ(s.length(), 11);
+    EXPECT_EQ(s.length(), 11U);
 }
 
 TEST(PedigreeStaticString, AssignThenAppendStaticString)
@@ -356,12 +356,12 @@ TEST(PedigreeStaticString, AssignThenAppendStaticString)
     s = "hello";
     s += s2;
     EXPECT_STREQ(s, "hello world");
-    EXPECT_EQ(s.length(), 11);
+    EXPECT_EQ(s.length(), 11U);
 }
 
 TEST(PedigreeStaticString, HashWorks)
 {
     StaticString<64> s("hello world");
     s.allowHashing(true);
-    EXPECT_NE(s.hash(), 0);
+    EXPECT_NE(s.hash(), 0U);
 }

@@ -27,7 +27,7 @@ TEST(PedigreeSlamAllocator, DISABLE_EmptyStartup)
 {
     SlamAllocator::instance().initialise();
 
-    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 0);
+    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), (size_t) 0);
 }
 
 TEST(PedigreeSlamAllocator, DISABLE_Allocation)
@@ -36,7 +36,7 @@ TEST(PedigreeSlamAllocator, DISABLE_Allocation)
 
     uintptr_t alloc = SlamAllocator::instance().allocate(4);
 
-    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 1);
+    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), (size_t) 1);
 
     SlamAllocator::instance().free(alloc);
 }
@@ -48,7 +48,7 @@ TEST(PedigreeSlamAllocator, DISABLE_Deallocate)
     uintptr_t alloc = SlamAllocator::instance().allocate(4);
     SlamAllocator::instance().free(alloc);
 
-    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 1);
+    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), (size_t) 1);
 }
 
 TEST(PedigreeSlamAllocator, DISABLE_Recovery)
@@ -58,10 +58,10 @@ TEST(PedigreeSlamAllocator, DISABLE_Recovery)
     uintptr_t alloc = SlamAllocator::instance().allocate(4);
     SlamAllocator::instance().free(alloc);
 
-    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 1);
+    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), (size_t) 1);
 
     SlamAllocator::instance().recovery();
-    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), 0);
+    EXPECT_EQ(SlamAllocator::instance().heapPageCount(), (size_t) 0);
 }
 
 TEST(PedigreeSlamAllocator, DISABLE_Alignment)
@@ -69,6 +69,6 @@ TEST(PedigreeSlamAllocator, DISABLE_Alignment)
     SlamAllocator::instance().initialise();
 
     uintptr_t alloc = SlamAllocator::instance().allocate(4);
-    EXPECT_EQ(alloc & 15, 0);
+    EXPECT_EQ(alloc & 15, (uintptr_t) 0);
     SlamAllocator::instance().free(alloc);
 }

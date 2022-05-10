@@ -65,18 +65,18 @@ TEST(PedigreeString, BigStringStaticCast)
 TEST(PedigreeString, Length)
 {
     String s("hello");
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), (size_t) 5);
 }
 
 TEST(PedigreeString, Size)
 {
     // 64-byte static strings
     String s("hello");
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), (size_t) 64);
 
     // Dynamic strings are >64 bytes.
     String s2(bigstring());
-    EXPECT_EQ(s2.size(), 128);
+    EXPECT_EQ(s2.size(), (size_t) 128);
 }
 
 TEST(PedigreeString, Chomp)
@@ -98,8 +98,8 @@ TEST(PedigreeString, ChompDynamicToStatic)
     String s(
         "hello                                                           ");
     s.chomp();
-    EXPECT_EQ(s.length(), 63);
-    EXPECT_EQ(s.size(), 65);
+    EXPECT_EQ(s.length(), (size_t) 63);
+    EXPECT_EQ(s.size(), (size_t) 65);
 }
 
 TEST(PedigreeString, LChompDynamicToStatic)
@@ -107,8 +107,8 @@ TEST(PedigreeString, LChompDynamicToStatic)
     String s(
         "hello                                                           ");
     s.lchomp();
-    EXPECT_EQ(s.length(), 63);
-    EXPECT_EQ(s.size(), 65);
+    EXPECT_EQ(s.length(), (size_t) 63);
+    EXPECT_EQ(s.size(), (size_t) 65);
 }
 
 TEST(PedigreeString, Strip)
@@ -145,8 +145,8 @@ TEST(PedigreeString, LstripSwitchesToStatic)
         "                                                            hello");
     s.lstrip();
     EXPECT_EQ(s, "hello");
-    EXPECT_EQ(s.size(), 66);
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.size(), (size_t) 66);
+    EXPECT_EQ(s.length(), (size_t) 5);
 }
 
 TEST(PedigreeString, UnneededRstrip)
@@ -162,8 +162,8 @@ TEST(PedigreeString, RstripSwitchesToStatic)
         "hello                                                            ");
     s.rstrip();
     EXPECT_EQ(s, "hello");
-    EXPECT_EQ(s.size(), 66);
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.size(), (size_t) 66);
+    EXPECT_EQ(s.length(), (size_t) 5);
 }
 
 TEST(PedigreeString, Split)
@@ -196,7 +196,7 @@ TEST(PedigreeString, EmptyTokenise)
 {
     String s("  a  ");
     Vector<String> result = s.tokenise(' ');
-    EXPECT_EQ(result.count(), 1);
+    EXPECT_EQ(result.count(), (size_t) 1);
     EXPECT_STREQ(result[0].cstr(), "a");
 }
 
@@ -204,7 +204,7 @@ TEST(PedigreeString, Tokenise)
 {
     String s("hello world, this is a testcase that exercises tokenise");
     Vector<String> result = s.tokenise(' ');
-    EXPECT_EQ(result.count(), 9);
+    EXPECT_EQ(result.count(), (size_t) 9);
     EXPECT_STREQ(result.popFront().cstr(), "hello");
     EXPECT_STREQ(result.popFront().cstr(), "world,");
     EXPECT_STREQ(result.popFront().cstr(), "this");
@@ -214,7 +214,7 @@ TEST(PedigreeString, Tokenise)
     EXPECT_STREQ(result.popFront().cstr(), "that");
     EXPECT_STREQ(result.popFront().cstr(), "exercises");
     EXPECT_STREQ(result.popFront().cstr(), "tokenise");
-    EXPECT_EQ(result.count(), 0);  // no more tokens
+    EXPECT_EQ(result.count(), (size_t) 0);  // no more tokens
 }
 
 TEST(PedigreeString, TokeniseWithViews)
@@ -222,7 +222,7 @@ TEST(PedigreeString, TokeniseWithViews)
     String s("hello world, this is a testcase that exercises tokenise");
     Vector<StringView> result;
     s.tokenise(' ', result);
-    EXPECT_EQ(result.count(), 9);
+    EXPECT_EQ(result.count(), (size_t) 9);
     EXPECT_EQ(result.popFront(), "hello");
     EXPECT_EQ(result.popFront(), "world,");
     EXPECT_EQ(result.popFront(), "this");
@@ -232,50 +232,50 @@ TEST(PedigreeString, TokeniseWithViews)
     EXPECT_EQ(result.popFront(), "that");
     EXPECT_EQ(result.popFront(), "exercises");
     EXPECT_EQ(result.popFront(), "tokenise");
-    EXPECT_EQ(result.count(), 0);  // no more tokens
+    EXPECT_EQ(result.count(), (size_t) 0);  // no more tokens
 }
 
 TEST(PedigreeString, TokeniseLength)
 {
     String s("hello world");
     Vector<String> result = s.tokenise(' ');
-    EXPECT_EQ(result.popFront().length(), 5);
-    EXPECT_EQ(result.popFront().length(), 5);
+    EXPECT_EQ(result.popFront().length(), (size_t) 5);
+    EXPECT_EQ(result.popFront().length(), (size_t) 5);
 }
 
 TEST(PedigreeString, NextCharacter)
 {
     String s("hello");
-    EXPECT_EQ(s.nextCharacter(0), 1);
-    EXPECT_EQ(s.nextCharacter(1), 2);
-    EXPECT_EQ(s.nextCharacter(2), 3);
+    EXPECT_EQ(s.nextCharacter(0), 1U);
+    EXPECT_EQ(s.nextCharacter(1), 2U);
+    EXPECT_EQ(s.nextCharacter(2), 3U);
 }
 
 TEST(PedigreeString, NextCharacterUnicode2Byte)
 {
     // 2-byte UTF-8 in the middle of two single-byte characters.
     String s("h»b");
-    EXPECT_EQ(s.nextCharacter(0), 1);
-    EXPECT_EQ(s.nextCharacter(1), 3);
-    EXPECT_EQ(s.nextCharacter(3), 4);
+    EXPECT_EQ(s.nextCharacter(0), 1U);
+    EXPECT_EQ(s.nextCharacter(1), 3U);
+    EXPECT_EQ(s.nextCharacter(3), 4U);
 }
 
 TEST(PedigreeString, NextCharacterUnicode3Byte)
 {
     // 3-byte UTF-8 in the middle of two single-byte characters.
     String s("h€b");
-    EXPECT_EQ(s.nextCharacter(0), 1);
-    EXPECT_EQ(s.nextCharacter(1), 4);
-    EXPECT_EQ(s.nextCharacter(4), 5);
+    EXPECT_EQ(s.nextCharacter(0), 1U);
+    EXPECT_EQ(s.nextCharacter(1), 4U);
+    EXPECT_EQ(s.nextCharacter(4), 5U);
 }
 
 TEST(PedigreeString, NextCharacterUnicode4Byte)
 {
     // 4-byte UTF-8 in the middle of two single-byte characters.
     String s("h𐍈b");
-    EXPECT_EQ(s.nextCharacter(0), 1);
-    EXPECT_EQ(s.nextCharacter(1), 5);
-    EXPECT_EQ(s.nextCharacter(5), 6);
+    EXPECT_EQ(s.nextCharacter(0), 1U);
+    EXPECT_EQ(s.nextCharacter(1), 5U);
+    EXPECT_EQ(s.nextCharacter(5), 6U);
 }
 
 TEST(PedigreeString, Equality)
@@ -347,10 +347,10 @@ TEST(PedigreeString, AssignBigEmpty)
 {
     String s;
     s.assign("a", 1025);
-    EXPECT_EQ(s.size(), 1025);
+    EXPECT_EQ(s.size(), (size_t) 1025);
     EXPECT_EQ(s, "a");
     s.downsize();
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), (size_t) 64);
 }
 
 TEST(PedigreeString, AssignAnother)
@@ -366,23 +366,23 @@ TEST(PedigreeString, ReduceReserve)
     // This should also not leak.
     String s;
     s.reserve(1024);
-    EXPECT_EQ(s.size(), 1024);
+    EXPECT_EQ(s.size(), (size_t) 1024);
     s.downsize();
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), (size_t) 64);
 }
 
 TEST(PedigreeString, ReserveBoundary)
 {
     String s;
     s.reserve(64);
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), (size_t) 64);
 }
 
 TEST(PedigreeString, ReserveWithContent)
 {
     String s("hello");
     s.reserve(64);
-    EXPECT_EQ(s.size(), 64);
+    EXPECT_EQ(s.size(), (size_t) 64);
     EXPECT_EQ(s, "hello");
 }
 
@@ -390,7 +390,7 @@ TEST(PedigreeString, ReserveWithHugeContent)
 {
     String s(bigstring());
     s.reserve(1024);
-    EXPECT_EQ(s.size(), 1024);
+    EXPECT_EQ(s.size(), (size_t) 1024);
 }
 
 TEST(PedigreeString, SplitHuge)
@@ -398,8 +398,8 @@ TEST(PedigreeString, SplitHuge)
     String s(bigstring());
     String right = s.split(32);
 
-    EXPECT_EQ(s.length(), 32);
-    EXPECT_EQ(right.length(), 128 - 32 - 1);
+    EXPECT_EQ(s.length(), (size_t) 32);
+    EXPECT_EQ(right.length(), (size_t) (128 - 32 - 1));
 }
 
 TEST(PedigreeString, Sprintf)
@@ -414,8 +414,8 @@ TEST(PedigreeString, Free)
     String s("hello");
     s.clear();
     EXPECT_EQ(s, "");
-    EXPECT_EQ(s.length(), 0);
-    EXPECT_EQ(s.size(), 0);
+    EXPECT_EQ(s.length(), (size_t) 0);
+    EXPECT_EQ(s.size(), (size_t) 0);
 }
 
 TEST(PedigreeString, FreeComparison)
@@ -714,6 +714,6 @@ TEST(PedigreeString, ConstAssign)
 {
     String s1;
     s1.assign("hello world");
-    EXPECT_EQ(s1.length(), 11);
+    EXPECT_EQ(s1.length(), (size_t) 11);
     EXPECT_STREQ(s1.cstr(), "hello world");
 }

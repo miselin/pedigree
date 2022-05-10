@@ -65,7 +65,7 @@ TEST(PedigreeRingBuffer, Overflow)
 
     // Overflow truncates.
     Time::Timestamp zero = 0;
-    EXPECT_EQ(buffer.write(buf, 16, zero), 8);
+    EXPECT_EQ(buffer.write(buf, 16, zero), 8U);
 
     for (size_t i = 0; i < 8; ++i)
     {

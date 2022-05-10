@@ -48,13 +48,14 @@ if [ ! -e $script_dir/.easy_os ]; then
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
                 libmpc-dev libgmp3-dev sqlite3 texinfo scons genisoimage \
-                u-boot-tools nasm python-requests
+                u-boot-tools nasm python3-requests
             ;;
         ubuntu)
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
                 libmpc-dev libgmp3-dev sqlite3 texinfo scons genisoimage \
-                e2fsprogs u-boot-tools nasm python-requests
+                e2fsprogs u-boot-tools nasm python3-requests autoconf cmake \
+                bison flex lcov
             ;;
         opensuse)
             echo "Installing packages with zypper, please wait..."

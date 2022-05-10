@@ -32,5 +32,5 @@ fi
 
 set -e
 
-python "$PUP/pedigree_updater" --config="$DIR/scripts/pup/pup.conf" $*
+python3 "$PUP/pedigree_updater" --config="$DIR/scripts/pup/pup.conf" $*
 

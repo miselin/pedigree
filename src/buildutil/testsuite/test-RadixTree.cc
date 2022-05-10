@@ -26,7 +26,7 @@
 TEST(PedigreeRadixTree, Construction)
 {
     RadixTree<int> x;
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
     EXPECT_EQ(x.begin(), x.end());
 }
 
@@ -95,7 +95,7 @@ TEST(PedigreeRadixTree, Clear)
     x.insert(String("foo"), 1);
     x.insert(String("bar"), 2);
     x.clear();
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeRadixTree, EmptyLookup)
@@ -109,14 +109,14 @@ TEST(PedigreeRadixTree, EmptyRemove)
 {
     RadixTree<int> x;
     x.remove(String("foo"));
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeRadixTree, EmptyKeyRemove)
 {
     RadixTree<int> x;
     x.remove(String());
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeRadixTree, PartialMatchMiss)
@@ -134,7 +134,7 @@ TEST(PedigreeRadixTree, Removal)
     x.insert(String("foo"), 1);
     x.insert(String("bar"), 2);
     x.remove(String("foo"));
-    EXPECT_EQ(x.count(), 1);
+    EXPECT_EQ(x.count(), 1U);
 
     RadixTree<int>::LookupType result = x.lookup(String("foo"));
     EXPECT_TRUE(result.hasError());
@@ -152,7 +152,7 @@ TEST(PedigreeRadixTree, RemovalBigRoot)
     x.insert(String("fooqux"), 4);
     x.insert(String("fooabc"), 5);
     x.remove(String("foo"));
-    EXPECT_EQ(x.count(), 4);
+    EXPECT_EQ(x.count(), 4U);
 }
 
 TEST(PedigreeRadixTree, Prefixes)
@@ -343,7 +343,7 @@ TEST(PedigreeRadixTree, Erase)
     EXPECT_EQ(*it++, 2);
     it = x.erase(it);
     EXPECT_EQ(*it++, 4);
-    EXPECT_EQ(x.count(), 3);
+    EXPECT_EQ(x.count(), 3U);
 }
 
 TEST(PedigreeRadixTree, SplitThis)

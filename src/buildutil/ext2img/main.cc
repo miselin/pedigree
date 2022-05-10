@@ -99,7 +99,7 @@ extern bool appleProbeDisk(Disk *pDisk);
 class StreamingStderrLogger : public Log::LogCallback
 {
   public:
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
         for (size_t i = 0; i < cord.length(); ++i)
         {

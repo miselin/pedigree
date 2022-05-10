@@ -35,7 +35,7 @@ TEST(PedigreeCord, ToString)
     Cord s;
     s.append(a);
     s.append(b);
-    EXPECT_EQ(s.length(), 12);
+    EXPECT_EQ(s.length(), 12U);
 
     String str = s.toString();
 
@@ -52,7 +52,7 @@ TEST(PedigreeCord, Append)
     s.append(a);
     s.append(b);
     s.append(c);
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
 
     String str = s.toString();
     EXPECT_STREQ(str.cstr(), "a b c");
@@ -68,7 +68,7 @@ TEST(PedigreeCord, Prepend)
     s.prepend(c);
     s.prepend(b);
     s.prepend(a);
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
 
     String str = s.toString();
     EXPECT_STREQ(str.cstr(), "a b c");
@@ -85,7 +85,7 @@ TEST(PedigreeCord, Indexing)
     s.append(b);
     s.append(c);
 
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
     EXPECT_EQ(s[0], 'a');
     EXPECT_EQ(s[1], ' ');
     EXPECT_EQ(s[2], 'b');
@@ -107,7 +107,7 @@ TEST(PedigreeCord, Iteration)
 
     auto it = s.begin();
 
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
     EXPECT_EQ(it, s.begin());
     EXPECT_EQ(*it++, 'a');
     EXPECT_EQ(*it++, ' ');
@@ -127,7 +127,7 @@ TEST(PedigreeCord, StaticAppend)
     s.append(a);
     s.append(b);
     s.append(c);
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
 
     String str = s.toString();
     EXPECT_STREQ(str.cstr(), "a b c");
@@ -144,7 +144,7 @@ TEST(PedigreeCord, StaticIndexing)
     s.append(b);
     s.append(c);
 
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
     EXPECT_EQ(s[0], 'a');
     EXPECT_EQ(s[1], ' ');
     EXPECT_EQ(s[2], 'b');
@@ -166,7 +166,7 @@ TEST(PedigreeCord, StaticIteration)
 
     auto it = s.begin();
 
-    EXPECT_EQ(s.length(), 5);
+    EXPECT_EQ(s.length(), 5U);
     EXPECT_EQ(it, s.begin());
     EXPECT_EQ(*it++, 'a');
     EXPECT_EQ(*it++, ' ');
