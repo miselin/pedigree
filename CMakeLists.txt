@@ -198,6 +198,7 @@ if(CMAKE_CROSSCOMPILING)
         # Need static drivers for ARM
         set(PEDIGREE_STATIC_DRIVERS TRUE)
     elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+        set(PEDIGREE_HOSTED TRUE)
         set(PEDIGREE_STATIC_DRIVERS TRUE)
     endif ()
 

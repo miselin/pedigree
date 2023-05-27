@@ -1,3 +1,6 @@
+# Use the Pedigree compiler regardless of the system target
+set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
+set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
 
 link_directories(
     ${CMAKE_BINARY_DIR}/musl/lib

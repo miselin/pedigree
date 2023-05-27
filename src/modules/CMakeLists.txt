@@ -1,3 +1,6 @@
+# Use the Pedigree compiler regardless of the system target
+set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
+set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
 
 # Preserve original linker flags
 set(PRESERVED_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS})

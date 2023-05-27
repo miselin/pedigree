@@ -169,6 +169,21 @@ struct EXPORTED_PUBLIC BootstrapStruct_t
         return initrd_end - initrd_start;
     }
 
+    bool isDatabaseLoaded() const
+    {
+        return false;
+    }
+
+    uint8_t *getDatabaseAddress() const
+    {
+        return nullptr;
+    }
+
+    size_t getDatabaseSize() const
+    {
+        return 0;
+    }
+
     char *getCommandLine() const
     {
         static char buf[1] = {0};

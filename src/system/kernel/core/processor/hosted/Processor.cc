@@ -22,12 +22,13 @@
 #include "PhysicalMemoryManager.h"
 #include "SyscallManager.h"
 #include "VirtualAddressSpace.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/state.h"
-#include "pedigree/kernel/Log.h"
 
 namespace __pedigree_hosted
 {
@@ -115,8 +116,11 @@ void ProcessorBase::restoreState(SchedulerState &state, volatile uintptr_t *pLoc
     if (pLock)
         *pLock = 1;
 
+#if HAS_SANITIZERS
     ucontext_t *ctx = reinterpret_cast<ucontext_t *>(state.state);
     __sanitizer_start_switch_fiber(nullptr, ctx->uc_stack.ss_sp, ctx->uc_stack.ss_size);
+#endif
+
     setcontext(reinterpret_cast<ucontext_t *>(state.state));
     FATAL("Hosted: setcontext failed in Processor::restoreState");
     // Does not return.

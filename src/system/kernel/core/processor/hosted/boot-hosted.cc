@@ -60,7 +60,6 @@ extern "C" int main(int argc, char *argv[])
     Elf64_Ehdr *ehdr = 0;
     Elf64_Shdr *shdrs = 0;
     BootstrapStruct_t bs;
-    memset(&bs, 0, sizeof(bs));
 
     if (argc < 3)
     {

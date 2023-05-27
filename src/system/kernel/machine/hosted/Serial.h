@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cord.h"
 
 /**
  * Serial device abstraction.
@@ -39,6 +40,7 @@ class HostedSerial : public Serial
     virtual void write(char c);
     virtual void write_str(const char *c);
     virtual void write_str(const char *c, size_t len);
+    virtual void write_str(const Cord &cord);
 
   private:
     bool isConnected();
