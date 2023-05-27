@@ -108,7 +108,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     else
     {
         // Grab the subsystem for this process
-        Thread *pThread = Processor::information().getCurrentThread();
+        pThread = Processor::information().getCurrentThread();
         Process *pProcess = pThread->getParent();
         PosixSubsystem *pSubsystem =
             static_cast<PosixSubsystem *>(pProcess->getSubsystem());
