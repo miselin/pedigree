@@ -51,7 +51,7 @@ SECTIONS
     *(.init_array*)
     *(.ctors*)
     HIDDEN(end_ctors = .);
-  }
+  } :data
 
   .fini_array :
   {

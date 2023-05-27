@@ -194,6 +194,8 @@ size_t g_StaticDriverN = 0;
 /** Loads all kernel modules */
 static int loadModules(void *inf)
 {
+    Archive *initrd = nullptr;
+
     EMIT_IF(STATIC_DRIVERS)
     {
         extern uintptr_t start_module_ctors;
@@ -228,10 +230,10 @@ static int loadModules(void *inf)
         /// \note We have to do this before we call Processor::initialisationDone()
         /// otherwise the
         ///       BootstrapStruct_t might already be unmapped
-        Archive initrd(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
+        initrd = new Archive(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
         bsInf = nullptr;
 
-        size_t nFiles = initrd.getNumFiles();
+        size_t nFiles = initrd->getNumFiles();
         NOTICE("there are " << nFiles << " files");
         g_BootProgressTotal =
             nFiles * 2;  // Each file has to be preloaded and executed.
@@ -240,8 +242,8 @@ static int loadModules(void *inf)
             NOTICE("loading module #" << i << "...");
             Processor::setInterrupts(true);
             KernelElf::instance().loadModule(
-                reinterpret_cast<uint8_t *>(initrd.getFile(i)),
-                initrd.getFileSize(i));
+                reinterpret_cast<uint8_t *>(initrd->getFile(i)),
+                initrd->getFileSize(i));
             if (!Processor::getInterrupts())
                 WARNING("A loaded module disabled interrupts.");
         }
@@ -264,6 +266,12 @@ static int loadModules(void *inf)
     if (KernelElf::instance().hasPendingModules())
     {
         FATAL("At least one module's dependencies were never met.");
+    }
+
+    // It's now safe to clean up the initrd archive
+    if (initrd)
+    {
+        delete initrd;
     }
 
 #if HOSTED

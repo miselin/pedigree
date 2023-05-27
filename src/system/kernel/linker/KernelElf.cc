@@ -929,7 +929,7 @@ static int executeModuleThread(void *mod)
     Module *module = reinterpret_cast<Module *>(mod);
     module->status = Module::Executing;
 
-    NOTICE("running " << module->name);
+    NOTICE("running module: " << module->name);
 
     if (module->buffer)
     {

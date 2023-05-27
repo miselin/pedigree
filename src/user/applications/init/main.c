@@ -181,13 +181,16 @@ int main(int argc, char **argv)
     // Prepare signals.
     signal(SIGTERM, sigterm);
 
-#ifdef HOSTED
-    // Reboot the system instead of starting up.
-    klog(LOG_INFO, "init: hosted build, triggering a reboot");
-    pedigree_reboot();
-#else
-    runScripts();
-#endif
+    if (HOSTED)
+    {
+        // Reboot the system instead of starting up.
+        klog(LOG_INFO, "init: hosted build, triggering a reboot");
+        pedigree_reboot();
+    }
+    else
+    {
+        runScripts();
+    }
 
     // Done, enter PID reaping loop.
     klog(LOG_INFO, "init: complete!");

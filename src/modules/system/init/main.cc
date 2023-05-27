@@ -96,6 +96,7 @@ static int init_stage2(void *param)
         argv.pushBack(String("5"));
     }
 
+    NOTICE("invoking init...");
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env))

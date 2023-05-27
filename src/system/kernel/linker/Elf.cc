@@ -1319,7 +1319,6 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
         // How about a relocation with addend?
         else if (pSh->type == SHT_RELA)
         {
-            // For each relocation entry...
             for (ElfRela_t *pRel =
                      reinterpret_cast<ElfRela_t *>(&pBuffer[pSh->offset]);
                  pRel < reinterpret_cast<ElfRela_t *>(
