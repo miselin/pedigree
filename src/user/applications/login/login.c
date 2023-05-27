@@ -38,11 +38,9 @@
 #include <utmp.h>
 #include <utmpx.h>
 
-// Force immediate login if we're running a live CD.
-#ifdef LIVECD
+// Immediate login credentials if we're running a live CD.
 #define FORCE_LOGIN_USER "root"
 #define FORCE_LOGIN_PASS "root"
-#endif
 
 // PID of the process we're running
 int g_RunningPid = -1;
@@ -90,10 +88,11 @@ int main(int argc, char **argv)
     return 0;
 #endif
 
-// Are we on Travis-CI?
-#ifdef TRAVIS
-    klog(LOG_INFO, "-- Hello, Travis! --");
-#endif
+    // Are we on Travis-CI?
+    if (TRAVIS)
+    {
+        klog(LOG_INFO, "-- Hello, Travis! --");
+    }
 
     // New process group for job control. We'll ignore SIGINT for now.
     signal(SIGINT, sigint);
@@ -157,26 +156,31 @@ int main(int argc, char **argv)
         // Get username
         printf(gettext("Username: "));
 
-#ifdef FORCE_LOGIN_USER
-        const char *username = FORCE_LOGIN_USER;
-        printf("%s\n", username);
-#else
-        fflush(stdout);
-
         char buffer[256];
-        char *username = fgets(buffer, 256, stdin);
-        if (!username)
-        {
-            continue;
-        }
+        char *username = NULL;
 
-        // Knock off the newline character
-        username[strlen(username) - 1] = '\0';
-        if (!strlen(username))
+        if (LIVECD)
         {
-            continue;
+            username = FORCE_LOGIN_USER;
+            printf("%s\n", username);
         }
-#endif
+        else
+        {
+            fflush(stdout);
+
+            username = fgets(buffer, 256, stdin);
+            if (!username)
+            {
+                continue;
+            }
+
+            // Knock off the newline character
+            username[strlen(username) - 1] = '\0';
+            if (!strlen(username))
+            {
+                continue;
+            }
+        }
 
         struct passwd *pw = getpwnam(username);
         if (!pw)
@@ -187,48 +191,55 @@ int main(int argc, char **argv)
 
         // Get password
         printf(gettext("Password: "));
-#ifdef FORCE_LOGIN_PASS
-        const char *password = FORCE_LOGIN_PASS;
-        printf(gettext("(forced)\n"));
-#else
-        // Use own way - display *
-        fflush(stdout);
-        char password[256], c;
-        int i = 0;
 
-        tcgetattr(0, &curt);
-        curt.c_lflag &= ~(ECHO | ICANON);
-        tcsetattr(0, TCSANOW, &curt);
-        while (i < 256 && (c = getchar()) != '\n')
+        char *password = NULL;
+
+        if (LIVECD)
         {
-            if (!c)
+            const char *password = FORCE_LOGIN_PASS;
+            printf(gettext("(forced)\n"));
+        }
+        else
+        {
+            // Use own way - display *
+            fflush(stdout);
+            char c;
+            int i = 0;
+
+            tcgetattr(0, &curt);
+            curt.c_lflag &= ~(ECHO | ICANON);
+            tcsetattr(0, TCSANOW, &curt);
+            while (i < 256 && (c = getchar()) != '\n')
             {
-                continue;
-            }
-            else if (c == '\b')
-            {
-                if (i > 0)
+                if (!c)
                 {
-                    password[--i] = '\0';
-                    printf("\b \b");
+                    continue;
+                }
+                else if (c == '\b')
+                {
+                    if (i > 0)
+                    {
+                        buffer[--i] = '\0';
+                        printf("\b \b");
+                    }
+                }
+                else if (c != '\033')
+                {
+                    buffer[i++] = c;
+                    if (!strcmp(TERM, "xterm"))
+                        printf("•");
+                    else
+                        printf("*");
                 }
             }
-            else if (c != '\033')
-            {
-                password[i++] = c;
-                if (!strcmp(TERM, "xterm"))
-                    printf("•");
-                else
-                    printf("*");
-            }
-        }
-        tcgetattr(0, &curt);
-        curt.c_lflag |= (ECHO | ICANON);
-        tcsetattr(0, TCSANOW, &curt);
-        printf("\n");
+            tcgetattr(0, &curt);
+            curt.c_lflag |= (ECHO | ICANON);
+            tcsetattr(0, TCSANOW, &curt);
+            printf("\n");
 
-        password[i] = '\0';
-#endif
+            buffer[i] = '\0';
+            password = buffer;
+        }
 
         // Perform login - this function is in glue.c.
         if (pedigree_login(pw->pw_uid, password) != 0)
