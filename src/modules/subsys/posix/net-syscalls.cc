@@ -975,7 +975,7 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
 
     if (NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP)
     {
-        for (int i = 0; i < msghdr->msg_iovlen; ++i)
+        for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
         {
             void *buffer = msghdr->msg_iov[i].iov_base;
             size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -997,7 +997,7 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
     else
     {
         struct netbuf *buf = netbuf_new();
-        for (int i = 0; i < msghdr->msg_iovlen; ++i)
+        for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
         {
             netbuf_ref(
                 buf, msghdr->msg_iov[i].iov_base, msghdr->msg_iov[i].iov_len);
@@ -1088,7 +1088,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
     }
 
     size_t totalLen = 0;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
     {
         void *buffer = msghdr->msg_iov[i].iov_base;
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -1658,7 +1658,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
     N_NOTICE(" -> transmitting!");
 
     uint64_t numWritten = 0;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
     {
         void *buffer = msghdr->msg_iov[i].iov_base;
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -1694,7 +1694,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
 {
     String remote;
     uint64_t numRead = 0;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
     {
         void *buffer = msghdr->msg_iov[i].iov_base;
         size_t bufferlen = msghdr->msg_iov[i].iov_len;

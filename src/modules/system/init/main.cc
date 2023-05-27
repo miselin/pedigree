@@ -38,8 +38,6 @@
 
 class File;
 
-static Mutex g_Started(false);
-
 static Thread *g_pStage2Thread = 0;
 
 static void error(const char *s)
@@ -96,17 +94,14 @@ static int init_stage2(void *param)
         argv.pushBack(String("5"));
     }
 
-    NOTICE("invoking init...");
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
+    Process::setInit(pProcess);
+
     if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env))
     {
         error("failed to load init program");
     }
-
-    Process::setInit(pProcess);
-
-    g_Started.release();
 
     return 0;
 }
@@ -114,8 +109,6 @@ static int init_stage2(void *param)
 static bool init()
 {
 #if THREADS
-    g_Started.acquire();
-
     // Create a new process for the init process.
     PosixProcess *pProcess = new PosixProcess(
         Processor::information().getCurrentThread()->getParent());
@@ -152,7 +145,7 @@ static bool init()
     g_pStage2Thread->setName("init");
 
     // wait for the other process to start before we move on with startup
-    g_Started.acquire();
+    g_pStage2Thread->join();
 #endif
 
     return true;
@@ -160,7 +153,6 @@ static bool init()
 
 static void destroy()
 {
-    g_pStage2Thread->join();
 }
 
 #if X86_COMMON

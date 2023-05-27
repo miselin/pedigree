@@ -149,6 +149,9 @@ class EXPORTED_PUBLIC File
     /** Obtains the full path of the File. */
     virtual void getFullPath(String &result, bool bWithLabel = true);
 
+    /** Obtains the full path of the File and returns it. */
+    virtual String getFullPath(bool bWithLabel = true);
+
     /** Delete all data from the file. */
     virtual void truncate();
 

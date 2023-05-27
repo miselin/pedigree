@@ -36,7 +36,7 @@
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
 /** Maximum number of repeated log messages to de-dupe. */
-#define LOG_MAX_DEDUPE_MESSAGES     20
+#define LOG_MAX_DEDUPE_MESSAGES 20
 
 /** Show log timestamps in nanoseconds. */
 #define LOG_TIMESTAMPS_IN_NANOS     0

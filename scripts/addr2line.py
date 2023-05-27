@@ -28,7 +28,7 @@ import sys
 
 
 def parse_serial(path):
-    with open(path) as f:
+    with open(path, encoding='ascii', errors='replace') as f:
         lines = f.readlines()
 
     # Extract modules

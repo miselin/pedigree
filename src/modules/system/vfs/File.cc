@@ -747,6 +747,13 @@ void File::getFullPath(String &result, bool bWithLabel)
     result.assign(str, str.length());
 }
 
+String File::getFullPath(bool bWithLabel)
+{
+    String path;
+    getFullPath(path, bWithLabel);
+    return path;
+}
+
 uintptr_t File::getCachedPage(size_t block, bool locked)
 {
     LockGuard<Mutex> guard(m_Lock, locked);

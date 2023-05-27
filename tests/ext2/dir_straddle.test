@@ -1,0 +1,11 @@
+# PASS: all files should be accessible.
+# VERIFY: /subdir/99_ttyerm.sh /etc/lsb-release
+# This repros a real bug.
+
+mkdir /subdir
+
+write /etc/lsb-release /subdir/10_preloadd.sh
+write /etc/lsb-release /subdir/99_ttyerm.sh
+
+verify /etc/lsb-release /subdir/10_preloadd.sh
+verify /etc/lsb-release /subdir/99_ttyerm.sh

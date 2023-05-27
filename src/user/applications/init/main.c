@@ -104,6 +104,7 @@ static void runScripts()
     }
     else
     {
+        klog(LOG_INFO, "init: %d init script entries found", count);
         for (int i = 0; i < count; ++i)
         {
             char script[PATH_MAX];

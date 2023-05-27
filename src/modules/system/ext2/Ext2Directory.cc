@@ -296,6 +296,7 @@ void Ext2Directory::cacheDirectoryContents()
 
     uint32_t i;
     Dir *pDir;
+    size_t blockOffset = 0;
     for (i = 0; i < m_Blocks.count(); i++)
     {
         ensureBlockLoaded(i);
@@ -304,7 +305,16 @@ void Ext2Directory::cacheDirectoryContents()
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
         uintptr_t endOfBlock = buffer + m_pExt2Fs->m_BlockSize;
         assert(buffer);  /// \todo need to handle short/failed reads better
-        pDir = reinterpret_cast<Dir *>(buffer);
+
+        // add offset in case we crossed a block boundary previously
+        pDir = reinterpret_cast<Dir *>(buffer + blockOffset);
+        if (blockOffset > 0)
+        {
+            blockOffset = 0;
+        }
+
+        // if true, the
+        bool dirStraddles = false;
 
         while (reinterpret_cast<uintptr_t>(pDir) < endOfBlock)
         {
@@ -323,13 +333,28 @@ void Ext2Directory::cacheDirectoryContents()
                 pDir = pNextDir;
                 continue;
             }
-            else if (pNextDir >= reinterpret_cast<Dir *>(endOfBlock))
+            else if (pNextDir > reinterpret_cast<Dir *>(endOfBlock))
             {
-                // TODO: this naive approach breaks both sides of the boundary
-                // as the next entry likely starts offset into the block
-                ERROR("EXT2: Directory entry straddles a block boundary");
-                pDir = pNextDir;
-                continue;
+                // If the directory entry crosses a block boundary, we need to
+                // do a bit of surgery to create a contiguous Dir object
+
+                blockOffset =
+                    pointer_diff(reinterpret_cast<Dir *>(endOfBlock), pNextDir);
+
+                size_t bytesThisBlock =
+                    pointer_diff(pDir, reinterpret_cast<Dir *>(endOfBlock));
+
+                char *rec = new char[reclen];
+                MemoryCopy(rec, pDir, bytesThisBlock);
+
+                uintptr_t nextBlock = m_pExt2Fs->readBlock(m_Blocks[i + 1]);
+                MemoryCopy(
+                    rec + bytesThisBlock,
+                    reinterpret_cast<const void *>(nextBlock),
+                    reclen - bytesThisBlock);
+
+                pDir = reinterpret_cast<Dir *>(rec);
+                dirStraddles = true;
             }
 
             // we only need inode + file type fields, to save memory
@@ -396,6 +421,14 @@ void Ext2Directory::cacheDirectoryContents()
                 String filename(pDir->d_name, namelen);
                 meta.filename = filename;  // copy into the metadata structure
                 addDirectoryEntry(filename, pedigree_std::move(meta));
+            }
+
+            // If we're crossing a block boundary, we created a temporary Dir.
+            // Clean it up now.
+            if (dirStraddles)
+            {
+                dirStraddles = false;
+                delete[] reinterpret_cast<char *>(pDir);
             }
 
             // Next.
