@@ -125,13 +125,12 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
 
     Spinlock reentrancyLock;
-    Semaphore *pSem = nullptr;
+    SharedPointer<Semaphore> pSem = nullptr;
 
     EMIT_IF(THREADS)
     {
         // Can be interrupted while waiting for sem - EINTR.
-        Semaphore sem(0, true);
-        pSem = &sem;
+        pSem.reset(new Semaphore(0, true));
     }
 
     for (unsigned int i = 0; i < nfds; i++)
@@ -185,7 +184,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         {
                             // Need to set up a PollEvent.
                             PollEvent *pEvent =
-                                new PollEvent(pSem, me, event, pFd->file);
+                                new PollEvent(pSem.get(), me, event, pFd->file);
                             pFd->file->monitor(pThread, pEvent);
 
                             reentrancyLock.acquire();
@@ -223,7 +222,8 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         bool extraCheckingError = checkingError;
 
                         bool pollResult = pFd->networkImpl->poll(
-                            checkingRead, checkingWrite, checkingError, pSem);
+                            checkingRead, checkingWrite, checkingError,
+                            pSem.get());
                         if (pollResult)
                         {
                             bWillReturnImmediately = pollResult;
@@ -431,7 +431,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 
         if (pFd->networkImpl && pFd->networkImpl->canPoll())
         {
-            pFd->networkImpl->unPoll(pSem);
+            pFd->networkImpl->unPoll(pSem.get());
         }
     }
 

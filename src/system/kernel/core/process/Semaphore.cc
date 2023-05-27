@@ -97,7 +97,7 @@ Semaphore::acquireWithResult(size_t n, size_t timeoutSecs, size_t timeoutUsecs)
 {
     if (magic != 0xdeadbaba)
     {
-        NOTICE(magic);
+        NOTICE(Hex << magic);
         assert(false);
     }
 

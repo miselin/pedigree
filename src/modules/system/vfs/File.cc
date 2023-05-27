@@ -670,6 +670,9 @@ void File::dataChanged()
 
 void File::monitor(Thread *pThread, Event *pEvent)
 {
+    assert(pThread);
+    assert(pEvent);
+
     EMIT_IF(THREADS)
     {
         LockGuard<Mutex> guard(m_Lock);
