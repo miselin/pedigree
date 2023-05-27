@@ -147,6 +147,8 @@ bool Elf::applyRelocation(
         if (S == 0)
         {
             // Failed to find - fall back to kernel symbol table.
+            VERBOSE_NOTICE(
+                "Falling back to kernel symbol table for '" << pStr << "'");
             S = KernelElf::instance().getSymbolTable()->lookup(
                 String(pStr), this, policy);
         }

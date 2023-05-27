@@ -15,4 +15,4 @@ fi
 qemu-system-x86_64 \
     -drive file=./build/hdd.img,if=ide,media=disk,cache=writeback,aio=$AIO,index=0,format=raw \
     -drive file=./build/pedigree.iso,if=ide,media=cdrom,cache=writeback,aio=$AIO,index=2,format=raw \
-    -boot d -vga std $SERIAL_PORTS -rtc base=utc $*
+    -boot d -vga cirrus -monitor stdio $SERIAL_PORTS -rtc base=utc -netdev user,id=net0 -device ne2k_pci,netdev=net0 $*

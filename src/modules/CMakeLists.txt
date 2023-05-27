@@ -64,7 +64,7 @@ set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
 set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit" "-fno-exceptions")
 set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" ${ARCH_MODULE_LINKFLAGS})
 if (PEDIGREE_STATIC_DRIVERS)
-    # No special flags f-or shared objects in static driver builds
+    # No special flags or shared objects in static driver builds
     set(CMAKE_SHARED_LINKER_FLAGS "-r -nostdlib")
     string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS}")
     string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS}")
@@ -614,10 +614,10 @@ if (PEDIGREE_STATIC_DRIVERS)
     add_library(staticmodules OBJECT Module.cc)
 else ()
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
-        COMMAND ${CMAKE_COMMAND} -E tar "-czPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
+        COMMAND ${CMAKE_COMMAND} -E tar "czf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
         DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp
-        COMMAND ${CMAKE_COMMAND} -E tar "-cPf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp -- ${PEDIGREE_KERNEL_MODULES}
+        COMMAND ${CMAKE_COMMAND} -E tar "cf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp -- ${PEDIGREE_KERNEL_MODULES}
         DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
     add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp)
 endif ()

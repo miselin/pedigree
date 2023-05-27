@@ -31,6 +31,14 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#define VERBOSE_ELF 1
+
+#if VERBOSE_ELF
+#define VERBOSE_NOTICE(x) NOTICE(x)
+#else
+#define VERBOSE_NOTICE(x)
+#endif
+
 static void resolveNeeded()
 {
     FATAL("ELF: resolveNeeded() called but binary should have been fully "
@@ -60,7 +68,8 @@ T *Elf::elfCopy(
         if ((ph.vaddr <= reinterpret_cast<uintptr_t>(pCurrent)) &&
             (reinterpret_cast<uintptr_t>(pCurrent) < ph.vaddr + ph.filesz))
         {
-            uintptr_t loc = reinterpret_cast<uintptr_t>(pCurrent) - ph.vaddr;
+            uintptr_t loc =
+                (reinterpret_cast<uintptr_t>(pCurrent) - ph.vaddr) + ph.offset;
             pCurrent = new T[size / sizeof(T)];
             MemoryCopy(
                 reinterpret_cast<uint8_t *>(pCurrent), &pBuffer[loc], size);
@@ -404,45 +413,63 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
                     switch (pDyn->tag)
                     {
                         case DT_NEEDED:
+                            VERBOSE_NOTICE("DT_NEEDED");
                             m_NeededLibraries.pushBack(
                                 reinterpret_cast<char *>(pDyn->un.ptr));
                             break;
                         case DT_SYMTAB:
+                            VERBOSE_NOTICE("DT_SYMTAB");
                             m_pDynamicSymbolTable =
                                 reinterpret_cast<ElfSymbol_t *>(pDyn->un.ptr);
+                            VERBOSE_NOTICE(
+                                " -> " << reinterpret_cast<void *>(
+                                    m_pDynamicSymbolTable));
                             break;
                         case DT_STRTAB:
+                            VERBOSE_NOTICE("DT_STRTAB");
                             m_pDynamicStringTable =
                                 reinterpret_cast<char *>(pDyn->un.ptr);
+                            VERBOSE_NOTICE(
+                                " -> " << reinterpret_cast<void *>(
+                                    m_pDynamicStringTable));
                             break;
                         case DT_SYMENT:
+                            VERBOSE_NOTICE("DT_SYMENT");
                             // This gives the size of *each entity*, not the
                             // table as a whole.
                             // m_nDynamicSymbolTableSize = pDyn->un.val;
                             break;
                         case DT_STRSZ:
+                            VERBOSE_NOTICE("DT_STRSZ");
                             m_nDynamicStringTableSize = pDyn->un.val;
                             break;
                         case DT_RELA:
+                            VERBOSE_NOTICE("DT_RELA");
                             m_pRelaTable =
                                 reinterpret_cast<ElfRela_t *>(pDyn->un.ptr);
                             break;
                         case DT_REL:
+                            VERBOSE_NOTICE("DT_REL");
                             m_pRelTable =
                                 reinterpret_cast<ElfRel_t *>(pDyn->un.ptr);
                             break;
                         case DT_RELSZ:
+                            VERBOSE_NOTICE("DT_RELSZ");
                             m_nRelTableSize = pDyn->un.val;
                             break;
                         case DT_RELASZ:
+                            VERBOSE_NOTICE("DT_RELASZ");
                             m_nRelaTableSize = pDyn->un.val;
                             break;
                         case DT_PLTGOT:
+                            VERBOSE_NOTICE("DT_PLTGOT");
+                            VERBOSE_NOTICE("GOT A GOT");
                             m_pGotTable =
                                 reinterpret_cast<uintptr_t *>(pDyn->un.ptr);
                             break;
                         case DT_JMPREL:
                         {
+                            VERBOSE_NOTICE("DT_JMPREL");
                             if (m_bUsesRela)
                                 m_pPltRelaTable =
                                     reinterpret_cast<ElfRela_t *>(pDyn->un.ptr);
@@ -453,6 +480,7 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
                         }
                         case DT_PLTREL:
                         {
+                            VERBOSE_NOTICE("DT_PLTREL");
                             if (pDyn->un.val == DT_RELA)
                             {
                                 m_bUsesRela = true;
@@ -460,14 +488,19 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
                             break;
                         }
                         case DT_PLTRELSZ:
+                            VERBOSE_NOTICE("DT_PLTRELSZ");
                             m_nPltSize = pDyn->un.val;
                             break;
                         case DT_INIT:
+                            VERBOSE_NOTICE("DT_INIT");
                             m_InitFunc = pDyn->un.val;
                             break;
                         case DT_FINI:
+                            VERBOSE_NOTICE("DT_FINI");
                             m_FiniFunc = pDyn->un.val;
                             break;
+                        default:
+                            ERROR("Unhandled ELF DT_: " << pDyn->tag);
                     }
 
                     pDyn++;
@@ -490,9 +523,11 @@ bool Elf::create(uint8_t *pBuffer, size_t length)
         // If we found a dynamic symbol table, string table and Rel(a) table,
         // attempt to find the segment they reside in and copy them locally.
         if (m_pDynamicSymbolTable)
+        {
             m_pDynamicSymbolTable = elfCopy(
                 pBuffer, m_pProgramHeaders, m_nProgramHeaders,
                 m_pDynamicSymbolTable, m_nDynamicSymbolTableSize);
+        }
         if (m_pDynamicStringTable)
         {
             m_pDynamicStringTable = elfCopy(
@@ -546,6 +581,22 @@ bool Elf::loadModule(
         if (m_pProgramHeaders[i].type == PT_LOAD)
         {
             loadSize += m_pProgramHeaders[i].vaddr + m_pProgramHeaders[i].memsz;
+        }
+    }
+    if (!loadSize)
+    {
+        // fall back to section headers
+        for (size_t i = 0; i < m_nSectionHeaders; i++)
+        {
+            if (m_pSectionHeaders[i].flags & SHF_ALLOC)
+            {
+                loadSize += m_pSectionHeaders[i]
+                                .addr;  // If .addr is set, add it as an offset.
+                // Ensure the alignment is as required.
+                while ((loadSize % m_pSectionHeaders[i].addralign) != 0)
+                    loadSize++;
+                loadSize += m_pSectionHeaders[i].size;
+            }
         }
     }
     if (loadSize & pageSzMask)
@@ -797,6 +848,11 @@ bool Elf::finaliseModule(uint8_t *pBuffer, size_t length)
     const size_t pageSz = PhysicalMemoryManager::getPageSize();
     const size_t pageSzMask = PhysicalMemoryManager::getPageSize() - 1;
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+
+    if (m_nProgramHeaders == 0)
+    {
+        ERROR("TODO: need to do section headers insetad");
+    }
 
     for (size_t i = 0; i < m_nProgramHeaders; ++i)
     {

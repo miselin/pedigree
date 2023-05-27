@@ -274,8 +274,6 @@ static int loadModules(void *inf)
     return 0;
 }
 
-#include <pedigree/kernel/machine/Serial.h>
-
 /** Kernel entry point. */
 extern "C" void _main(BootstrapStruct_t &bsInf) USED;
 void _cxx_main(BootstrapStruct_t &bsInf);

@@ -20,11 +20,13 @@ SECTIONS
     *(.fini*)
   } :text
 
+  . = ALIGN(4096);
   .dynsym :
   {
     *(.dynsym)
   } :rodata
 
+  . = ALIGN(4096);
   .dynstr :
   {
     *(.dynstr)
@@ -59,21 +61,25 @@ SECTIONS
     HIDDEN(end_dtors = .);
   } :data
 
+  . = ALIGN(4096);
   .dynamic :
   {
     *(.dynamic)
-  } :data
+  } :data :dynamic
 
+  . = ALIGN(4096);
   .got :
   {
     *(.got)
   } :data
 
+  . = ALIGN(4096);
   .got.plt :
   {
     *(.got.plt)
   } :data
 
+  . = ALIGN(4096);
   .data :
   {
     *(.data*)

@@ -338,14 +338,21 @@ void String::assign(const char *s, size_t len, bool unsafe)
     {
         // Fix up length if the passed string is much smaller than the 'len'
         // parameter (otherwise we think we have a giant string).
-        if (!unsafe)
+        size_t trueLength = 0;
+        if (unsafe)
         {
-            size_t trueLength = BoundedStringLength(s, len);
-            if (trueLength < len)
-            {
-                len = trueLength;
-            }
+            trueLength = BoundedStringLength(s, len);
         }
+        else
+        {
+            trueLength = StringLength(s);
+        }
+
+        if (trueLength < len)
+        {
+            len = trueLength;
+        }
+
         m_Length = len;
         copyLength = len;
     }

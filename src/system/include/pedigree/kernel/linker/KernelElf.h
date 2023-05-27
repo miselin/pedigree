@@ -20,17 +20,17 @@
 #ifndef KERNEL_LINKER_KERNELELF_H
 #define KERNEL_LINKER_KERNELELF_H
 
+#include "modules/Module.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
-#include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#include "modules/Module.h"
 
 class BootstrapStruct_t;
 class String;
@@ -212,6 +212,16 @@ class EXPORTED_PUBLIC KernelElf : public Elf
         {
             return ptr;
         }
+
+        uintptr_t value = reinterpret_cast<uintptr_t>(ptr);
+
+        // Don't rebase pointers that are already rebased
+        if (module->loadBase <= value &&
+            value <= (module->loadBase + module->loadSize))
+        {
+            return ptr;
+        }
+
         return adjust_pointer(ptr, module->loadBase);
     }
 

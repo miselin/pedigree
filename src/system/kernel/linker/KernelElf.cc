@@ -529,20 +529,22 @@ Module *KernelElf::loadModule(uint8_t *pModule, size_t len, bool silent)
     EMIT_IF(DUMP_DEPENDENCIES)
     {
         size_t i = 0;
-        while (module->depends_opt && rebase(module, module->depends_opt[i]))
+        while (module->depends_opt && rebase(module, module->depends_opt)[i])
         {
             DEBUG_LOG(
-                "KERNELELF: Module " << module->name << " optdepends on "
-                                     << rebase(module, module->depends_opt[i]));
+                "KERNELELF: Module "
+                << module->name << " optdepends on "
+                << rebase(module, rebase(module, module->depends_opt)[i]));
             ++i;
         }
 
         i = 0;
-        while (module->depends && rebase(module, module->depends[i]))
+        while (module->depends && rebase(module, module->depends)[i])
         {
             DEBUG_LOG(
-                "KERNELELF: Module " << module->name << " depends on "
-                                     << rebase(module, module->depends[i]));
+                "KERNELELF: Module "
+                << module->name << " depends on "
+                << rebase(module, rebase(module, module->depends)[i]));
             ++i;
         }
     }
@@ -625,20 +627,22 @@ Module *KernelElf::loadModule(struct ModuleInfo *info, bool silent)
     EMIT_IF(DUMP_DEPENDENCIES)
     {
         size_t i = 0;
-        while (module->depends_opt && rebase(module, module->depends_opt[i]))
+        while (module->depends_opt && rebase(module, module->depends_opt)[i])
         {
             DEBUG_LOG(
-                "KERNELELF: Module " << module->name << " optdepends on "
-                                     << rebase(module, module->depends_opt[i]));
+                "KERNELELF: Module "
+                << module->name << " optdepends on "
+                << rebase(module, rebase(module, module->depends_opt)[i]));
             ++i;
         }
 
         i = 0;
-        while (module->depends && rebase(module, module->depends[i]))
+        while (module->depends && rebase(module, module->depends)[i])
         {
             DEBUG_LOG(
-                "KERNELELF: Module " << module->name << " depends on "
-                                     << rebase(module, module->depends[i]));
+                "KERNELELF: Module "
+                << module->name << " depends on "
+                << rebase(module, rebase(module, module->depends)[i]));
             ++i;
         }
     }
@@ -830,9 +834,10 @@ char *KernelElf::getDependingModule(char *name)
         }
 
         size_t i = 0;
-        while (module->depends[i])
+        while (rebase(module, module->depends)[i])
         {
-            const char *rebased = rebase(module, module->depends[i]);
+            const char *rebased =
+                rebase(module, rebase(module, module->depends)[i]);
             if (!StringCompare(rebased, name))
             {
                 return const_cast<char *>(static_cast<const char *>(module->name));
@@ -852,9 +857,10 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
     // First pass: optional dependencies.
     if (module->depends_opt)
     {
-        while (module->depends_opt[i])
+        while (rebase(module, module->depends_opt)[i])
         {
-            String depname(rebase(module, module->depends_opt[i]));
+            String depname(
+                rebase(module, rebase(module, module->depends_opt)[i]));
 
             bool exists = false;
             bool attempted = false;
@@ -896,9 +902,9 @@ bool KernelElf::moduleDependenciesSatisfied(Module *module)
         return true;
     }
 
-    while (module->depends[i])
+    while (rebase(module, module->depends)[i])
     {
-        String depname(rebase(module, module->depends[i]));
+        String depname(rebase(module, rebase(module, module->depends)[i]));
 
         for (auto mod : m_Modules)
         {
@@ -922,6 +928,8 @@ static int executeModuleThread(void *mod)
 {
     Module *module = reinterpret_cast<Module *>(mod);
     module->status = Module::Executing;
+
+    NOTICE("running " << module->name);
 
     if (module->buffer)
     {
