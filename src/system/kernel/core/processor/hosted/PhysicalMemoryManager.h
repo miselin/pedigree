@@ -45,10 +45,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
   public:
     /** Get the HostedPhysicalMemoryManager instance
      *\return instance of the HostedPhysicalMemoryManager */
-    inline static HostedPhysicalMemoryManager &instance()
-    {
-        return m_Instance;
-    }
+    static HostedPhysicalMemoryManager &instance();
 
     //
     // PhysicalMemoryManager Interface
@@ -166,7 +163,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager
     int m_BackingFile;
 
     /** Static instance. */
-    static HostedPhysicalMemoryManager m_Instance;
+    static HostedPhysicalMemoryManager *m_Instance;
 };
 
 /** @} */

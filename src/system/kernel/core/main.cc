@@ -96,9 +96,9 @@
 #include "pedigree/kernel/Archive.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/core/cppsupport.h"
@@ -115,6 +115,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
@@ -204,11 +205,9 @@ static int loadModules(void *inf)
         // Call static constructors before we start. If we don't... there won't be
         // any properly initialised ModuleInfo structures :)
         uintptr_t *iterator = &start_module_ctors;
-        NOTICE("ctors: " << &start_module_ctors << " => " << &end_module_ctors);
         while (iterator < &end_module_ctors)
         {
             void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-            NOTICE("Calling ctor " << (void*)fp);
             fp();
             iterator++;
         }
@@ -535,11 +534,28 @@ void _cxx_main(BootstrapStruct_t &bsInf)
     // Clean up all loaded modules (unmounts filesystems and the like).
     KernelElf::instance().unloadModules();
 
+    EMIT_IF(STATIC_DRIVERS)
+    {
+        extern uintptr_t start_module_dtors;
+        extern uintptr_t end_module_dtors;
+
+        // Call all the module destructors now
+        uintptr_t *iterator = &start_module_dtors;
+        while (iterator < &end_module_dtors)
+        {
+            void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+            fp();
+            iterator++;
+        }
+    }
+
     // No need for user input anymore.
     InputManager::instance().shutdown();
 
     // Clean up the Cache subsystem
     CacheManager::destroyInstance();
+
+    Processor::setInterrupts(false);
 
     NOTICE("All modules unloaded. Running destructors and terminating...");
     runKernelDestructors();

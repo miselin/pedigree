@@ -48,7 +48,11 @@ SerialLogger::SerialLogger()
     : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false)
 {
 }
-SerialLogger::~SerialLogger() = default;
+
+SerialLogger::~SerialLogger()
+{
+    Log::instance().removeCallback(this);
+}
 
 void SerialLogger::callback(const LogCord &cord, bool locked)
 {

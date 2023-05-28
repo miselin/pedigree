@@ -196,6 +196,10 @@ uint64_t HostedTimer::getTickCountNano()
 
 bool HostedTimer::initialise()
 {
+    assert(!m_bInitialized);
+
+    m_bInitialized = true;
+
     synchronise();
 
     ByteSet(m_Handlers, 0, sizeof(TimerHandler *) * MAX_TIMER_HANDLERS);
@@ -257,6 +261,11 @@ void HostedTimer::synchronise(bool tohw)
 
 void HostedTimer::uninitialise()
 {
+    if (!m_bInitialized)
+    {
+        return;
+    }
+
     synchronise();
 
     timer_delete(m_Timer);
@@ -273,6 +282,8 @@ void HostedTimer::uninitialise()
     m_Alarms.clear();
 
     ByteSet(m_Handlers, 0, sizeof(TimerHandler *) * MAX_TIMER_HANDLERS);
+
+    m_bInitialized = false;
 }
 
 HostedTimer::HostedTimer()

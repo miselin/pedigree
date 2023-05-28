@@ -52,11 +52,23 @@ using namespace __pedigree_hosted;
 uint32_t g_PageBitmap[16384] = {0};
 #endif
 
-HostedPhysicalMemoryManager HostedPhysicalMemoryManager::m_Instance;
+HostedPhysicalMemoryManager *HostedPhysicalMemoryManager::m_Instance = nullptr;
+
+static char instanceStorage[sizeof(HostedPhysicalMemoryManager)] = {0};
 
 PhysicalMemoryManager &PhysicalMemoryManager::instance()
 {
     return HostedPhysicalMemoryManager::instance();
+}
+
+HostedPhysicalMemoryManager &HostedPhysicalMemoryManager::instance()
+{
+    if (!m_Instance)
+    {
+        m_Instance = new (reinterpret_cast<void *>(instanceStorage))
+            HostedPhysicalMemoryManager();
+    }
+    return *m_Instance;
 }
 
 physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
@@ -376,6 +388,8 @@ HostedPhysicalMemoryManager::HostedPhysicalMemoryManager()
 
 HostedPhysicalMemoryManager::~HostedPhysicalMemoryManager()
 {
+    return;
+
     PhysicalMemoryManager::m_MemoryRegions.clear();
 
     close(m_BackingFile);

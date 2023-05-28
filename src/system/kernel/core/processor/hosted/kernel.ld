@@ -25,6 +25,10 @@ SECTIONS
         PROVIDE(start_module_ctors = .);
         *(.module_ctors)
         PROVIDE(end_module_ctors = .);
+
+        PROVIDE(start_module_dtors = .);
+        *(.module_dtors)
+        PROVIDE(end_module_dtors = .);
     }
 }
 

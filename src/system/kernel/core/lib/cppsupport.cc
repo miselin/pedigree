@@ -74,6 +74,13 @@ void runKernelDestructors()
     uintptr_t *iterator = &start_kernel_dtors;
     while (iterator < &end_kernel_dtors)
     {
+        NOTICE("kernel dtor: " << reinterpret_cast<void *>(*iterator));
+        ++iterator;
+    }
+
+    iterator = &start_kernel_dtors;
+    while (iterator < &end_kernel_dtors)
+    {
         void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
         fp();
         iterator++;
@@ -206,6 +213,12 @@ void __cxa_pure_virtual()
 {
     /// \todo if FATAL etc don't work we need to still make this evident
     TRACE("Pure virtual function call made");
+
+    EMIT_IF(HOSTED)
+    {
+        asm volatile("int $3");
+    }
+
     FATAL_NOLOCK("Pure virtual function call made");
 }
 

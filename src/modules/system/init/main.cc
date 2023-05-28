@@ -18,7 +18,6 @@
  */
 
 #include "modules/Module.h"
-#include "pedigree/kernel/compiler.h"
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
@@ -52,12 +51,13 @@ static void error(const char *s)
 
 static int init_stage2(void *param)
 {
-#if HOSTED && HAS_ADDRESS_SANITIZER
-    extern void system_reset();
-    NOTICE("Note: ASAN build, so triggering a restart now.");
-    system_reset();
-    return 0;
-#endif
+    EMIT_IF(HOSTED)  // && HAS_ADDRESS_SANITIZER)
+    {
+        extern void system_reset();
+        NOTICE("Note: ASAN build, so triggering a restart now.");
+        system_reset();
+        return 0;
+    }
 
     bool tryingLinux = false;
 

@@ -262,6 +262,12 @@ class SlamAllocator
     uintptr_t getSlab(size_t fullSize);
     void freeSlab(uintptr_t address, size_t length);
 
+  private:
+    /** Variant of freeSlab that does not take the lock first. Dangerous if
+     * misused. */
+    void freeSlabUnlocked(uintptr_t address, size_t length);
+
+  public:
     size_t headerSize() const
     {
         return sizeof(AllocHeader);

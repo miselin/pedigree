@@ -144,6 +144,9 @@ class HostedTimer : public Timer, private IrqHandler
 
     /** Alarm modification lock. */
     Spinlock m_AlarmLock;
+
+    /** Are we init-ed? */
+    bool m_bInitialized = false;
 };
 
 /** @} */

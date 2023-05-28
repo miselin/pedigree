@@ -804,7 +804,7 @@ SlamAllocator::~SlamAllocator()
 {
     if (m_bInitialised)
     {
-        wipe();
+        // wipe();
     }
 }
 
@@ -910,7 +910,7 @@ void SlamAllocator::wipe()
             }
 
             uintptr_t slab = m_Base + (((entry * 64) + bit) * getPageSize());
-            freeSlab(slab, getPageSize());
+            freeSlabUnlocked(slab, getPageSize());
         }
     }
 
@@ -1088,13 +1088,18 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
 
 void SlamAllocator::freeSlab(uintptr_t address, size_t length)
 {
+    ConstexprLockGuard<Spinlock, THREADS> guard(m_SlabRegionLock);
+
+    freeSlabUnlocked(address, length);
+}
+
+void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length)
+{
     size_t nPages = length / getPageSize();
     if (!nPages)
     {
         panic("Attempted to free a slab smaller than the native page size.");
     }
-
-    ConstexprLockGuard<Spinlock, THREADS> guard(m_SlabRegionLock);
 
     // Perform unmapping first (so we can just modify 'address').
     pocketknife::VirtualAddressSpaceSwitch vaswitch;

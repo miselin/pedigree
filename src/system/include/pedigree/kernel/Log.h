@@ -159,7 +159,9 @@ enum Modifier
 enum LogEntryModifier
 {
     /** This log entry should be pushed to log targets without locking. */
-    Unlocked
+    Unlocked,
+    /** Don't add a timestamp to this log message. */
+    NoTimestamp,
 };
 
 // Function pointer to update boot progress -
@@ -260,6 +262,8 @@ class Log
         NumberType numberType;
         /** Was this created in a lock-free context? */
         bool lockfree = false;
+        /** Should we show the timestamp? */
+        bool showTimestamp = true;
 
         /** Adds an entry to the log.
          *\param[in] str the null-terminated ASCII string that should be added

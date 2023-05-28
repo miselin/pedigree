@@ -127,18 +127,20 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
     set(PROCESSOR_UNSHARED_SRCS "")
 
     set(PROCESSOR_SRCS
+        # NOTE: these are ordered to properly order the invocation of static destructors!
+        # Sorting by name or other sort keys will break shutdown.
         # /core/processor/hosted/
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/boot-hosted.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Elf.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/InterruptManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PageFaultHandler.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PhysicalMemoryManager.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Processor.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/ProcessorInformation.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/StackFrame.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/state.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/SyscallManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/VirtualAddressSpace.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PhysicalMemoryManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/ProcessorInformation.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Processor.cc
         # common implementations from x86_common
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Disassembler.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/PhysicalMemoryManager.cc
@@ -205,14 +207,14 @@ elseif (PEDIGREE_MACHDIR STREQUAL "arm_beagle")
 elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
     set(MACHINE_SRCS
         # /machine/hosted/
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Keyboard.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Machine.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/SchedulerTimer.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Serial.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Timer.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Trace.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Vga.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Vga.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Machine.cc)
 
     set(X86EMU_SRCS "")
     set(WITH_X86EMU FALSE)
@@ -243,13 +245,15 @@ set(HASH_SRCS
     # /utilities/spooky/
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/spooky/spooky.cc)
 
+set(SLAM_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamAllocator.cc)
+
 set(KERNEL_SRCS
     # /
     ${CMAKE_CURRENT_BINARY_DIR}/Version.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/Archive.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/Atomic.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/LockGuard.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/Log.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/SerialLog.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/Service.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/ServiceFeatures.cc
@@ -312,7 +316,6 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/instrument.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/memory.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/random.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamAllocator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/string.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/vsprintf.c
     # /debugger/
@@ -419,10 +422,14 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Vector.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ZombieQueue.cc)
 
+# We put Log at the very end of the source list so its constructors run last.
+set(LOG_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/Log.cc)
+
 # TODO: no-debugger builds need to not pull in quite as much debugger stuff
 
 add_library(kernel_shared SHARED
-    ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
+    ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
 target_compile_options(kernel_shared PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
     $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
@@ -442,6 +449,8 @@ target_include_directories(machine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(processor STATIC ${PROCESSOR_SRCS} ${PROCESSOR_UNSHARED_SRCS})
+add_library(log STATIC ${LOG_SRCS})
+add_library(slam STATIC ${SLAM_SRCS})
 # TODO: remove dependencies on this if possible
 target_include_directories(processor PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR})
@@ -463,7 +472,7 @@ target_compile_options(hash PRIVATE -w)
 add_executable(kernel ${KERNEL_SRCS})
 target_link_libraries(kernel PRIVATE 
     ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    machine processor hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 -Wl,--no-whole-archive)
+    hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 machine processor slam log -Wl,--no-whole-archive)
 if (PEDIGREE_STATIC_DRIVERS)
     target_link_libraries(kernel PRIVATE ${PEDIGREE_KERNEL_MODULE_TARGETS})
     target_sources(kernel PRIVATE $<TARGET_OBJECTS:staticmodules>)

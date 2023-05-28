@@ -53,7 +53,7 @@ endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree" "-fsanitize=address")
-    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree" "-fsanitize=address")
 endif ()
 
 set(MODULE_C_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
@@ -67,10 +67,14 @@ set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
 set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit" "-fno-exceptions")
 set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" ${ARCH_MODULE_LINKFLAGS})
 if (PEDIGREE_STATIC_DRIVERS)
-    # No special flags or shared objects in static driver builds
     set(CMAKE_SHARED_LINKER_FLAGS "-r -nostdlib")
     string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_C_FLAGS}")
     string(REPLACE "-shared" "" CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS "${CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS}")
+
+    # This linker script moves .init_array and .ctors to their own .module_ctors section, as
+    # they need to be linked into the kernel and module constructors cannot run at the same
+    # time as the kernel's constructors.
+    set(PEDIGREE_MODULE_LINKFLAGS "${PEDIGREE_MODULE_LINKFLAGS}" "-Wl,-T,${PEDIGREE_MODULE_STATICLINKSCRIPT}")
 else ()
     set(PEDIGREE_MODULE_LINKFLAGS "${PEDIGREE_MODULE_LINKFLAGS}" "-Wl,-shared" "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
 endif ()

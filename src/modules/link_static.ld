@@ -21,6 +21,12 @@ SECTIONS
     *(.ctors*)
   }
 
+  .module_dtors :
+  {
+    *(.fini_array*)
+    *(.dtors*)
+  }
+
   .modinfo :
   {
     *(.modinfo*)

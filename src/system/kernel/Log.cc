@@ -95,8 +95,10 @@ Log::Log()
 
 Log::~Log()
 {
+    // can't render a timestamp, by the time we're shutting down here the
+    // machine instance is gone
     LogEntry entry;
-    entry << Notice << "-- Log Terminating --";
+    entry << NoTimestamp << Notice << "-- Log Terminating --";
     addEntry(entry);
 }
 
@@ -347,16 +349,19 @@ Log::LogEntry &Log::LogEntry::operator<<(SeverityLevel level)
     str.clear();
     severity = level;
 
+    timestamp = 0;
+
     EMIT_IF(!UTILITY_LINUX)
     {
-        Machine &machine = Machine::instance();
-        if (machine.isInitialised() == true && machine.getTimer() != 0)
+        if (showTimestamp)
         {
-            Timer &timer = *machine.getTimer();
-            timestamp = timer.getTickCount();
+            Machine &machine = Machine::instance();
+            if (machine.isInitialised() == true && machine.getTimer() != 0)
+            {
+                Timer &timer = *machine.getTimer();
+                timestamp = timer.getTickCount();
+            }
         }
-        else
-            timestamp = 0;
     }
 
     return *this;
@@ -367,6 +372,10 @@ Log::LogEntry &Log::LogEntry::operator<<(LogEntryModifier modifier)
     if (modifier == Unlocked)
     {
         lockfree = true;
+    }
+    else if (modifier == NoTimestamp)
+    {
+        showTimestamp = false;
     }
     return *this;
 }
