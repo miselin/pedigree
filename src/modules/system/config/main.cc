@@ -432,7 +432,9 @@ static bool init()
                     region,
                     (sSize + PhysicalMemoryManager::getPageSize() - 1) /
                         PhysicalMemoryManager::getPageSize(),
-                    PhysicalMemoryManager::continuous, VirtualAddressSpace::KernelMode,
+                    PhysicalMemoryManager::continuous,
+                    VirtualAddressSpace::KernelMode |
+                        VirtualAddressSpace::Write,
                     reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
             {
                 ERROR("Config: allocateRegion failed.");
