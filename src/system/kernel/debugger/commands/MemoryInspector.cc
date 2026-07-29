@@ -140,8 +140,7 @@ const char *MemoryInspector::getLine2(
     colOffset = sizeof(uintptr_t) * 2 + 1;
     // Get the line we want.
     uintptr_t nLine = index * m_nCharsPerLine;
-// Is it paged in?
-#if !MIPS_COMMON && !ARM_COMMON
+    // Is it paged in?
     if (!Processor::information().getVirtualAddressSpace().isMapped(
             reinterpret_cast<void *>(nLine)))
     {
@@ -150,7 +149,6 @@ const char *MemoryInspector::getLine2(
     }
     else
     {
-#endif
         uint8_t *pLine = reinterpret_cast<uint8_t *>(nLine);
         static LargeStaticString str;
         str.clear();
@@ -172,11 +170,7 @@ const char *MemoryInspector::getLine2(
         }
 
         return str;
-#if !MIPS_COMMON && !ARM_COMMON
     }
-#else
-    return 0;
-#endif
 }
 
 size_t MemoryInspector::getLineCount()

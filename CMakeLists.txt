@@ -195,13 +195,7 @@ if(CMAKE_CROSSCOMPILING)
         set(GENERIC_COMPILE_FLAGS ${GENERIC_COMPILE_FLAGS} -O0)
     endif ()
 
-    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
-        # No multiprocessor support for ARM
-        set(PEDIGREE_MULTIPROCESSOR FALSE)
-
-        # Need static drivers for ARM
-        set(PEDIGREE_STATIC_DRIVERS TRUE)
-    elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         set(PEDIGREE_HOSTED TRUE)
         set(PEDIGREE_STATIC_DRIVERS TRUE)
     endif ()
@@ -250,10 +244,6 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_BUILD_USER_DIR)
         add_subdirectory(src/user)
-    endif ()
-
-    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
-        add_subdirectory(src/system/boot/arm)
     endif ()
 
     # Build hard disk image ready for a live CD or imaging.

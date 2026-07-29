@@ -39,9 +39,6 @@ Device Device::m_Root;
 
 Device::Device()
     : m_Addresses(), m_Children(), m_pParent(0),
-#ifdef OPENFIRMWARE
-      m_OfHandle(0),
-#endif
       m_InterruptNumber(0), m_SpecificType(), m_ConfigHeader(), m_ClassCode(0),
       m_SubclassCode(0), m_VendorId(0), m_DeviceId(0), m_ProgInterface(0),
       m_PciBusPos(0), m_PciDevicePos(0), m_PciFunctionNum(0)
@@ -51,9 +48,6 @@ Device::Device()
 Device::Device(Device *p)
     : m_Addresses(), m_Children(), m_pParent(0),
       m_InterruptNumber(p->m_InterruptNumber),
-#ifdef OPENFIRMWARE
-      m_OfHandle(0),
-#endif
       m_SpecificType(p->m_SpecificType), m_ConfigHeader(p->m_ConfigHeader),
       m_ClassCode(p->m_ClassCode), m_SubclassCode(p->m_SubclassCode),
       m_VendorId(p->m_VendorId), m_DeviceId(p->m_DeviceId),

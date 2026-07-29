@@ -111,9 +111,5 @@ static void destroy()
     delete g_pDevFs;
 }
 
-#if ARM_COMMON
-MODULE_INFO("posix", &init, &destroy, "console");
-#else
 MODULE_INFO(
     "posix", &init, &destroy, "console", "network-stack", "mountroot", "lwip");
-#endif

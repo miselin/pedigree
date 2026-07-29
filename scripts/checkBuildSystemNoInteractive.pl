@@ -118,7 +118,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --enable-lto",
                  'make' => "all-gcc all-target-libgcc",
                  'install' => "install-gcc install-target-libgcc",
-                 'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
+                 'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree i686-elf amd64-elf',
                  'test' => './bin/!TARGET-gcc',
                  'clean' => $gcc_libcpp_make eq "",
                  'version' => './bin/!TARGET-gcc -dumpversion',
@@ -129,15 +129,8 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --without-newlib --disable-libstdcxx-pch --enable-shared --enable-lto",
                  'make' => "$gcc_libcpp_make",
                  'install' => "$gcc_libcpp_install",
-                 'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
-                 'test' => './!TARGET/lib/libstdc++.a'},
-                {'dir' => "gcc-$gcc_version",
-                 'name' => "Gcc (mips)",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --with-llsc=yes",
-                 'make' => "all-gcc all-target-libgcc",
-                 'install' => "install-gcc install-target-libgcc",
-                 'arch' => 'mips64el-elf',
-                 'test' => './bin/!TARGET-gcc'} );
+                 'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree i686-elf amd64-elf',
+                 'test' => './!TARGET/lib/libstdc++.a'} );
 
 ###################################################################################
 # Script start.
@@ -165,7 +158,7 @@ elsif ($sysroot_build_dir !~ m{^/})
     $sysroot_build_dir = "$prefix/$sysroot_build_dir";
 }
 
-die "Please use target '[arch]-pedigree'." unless $target =~ /(i686|x86_64|arm|amd64|mips64el|powerpc)/; # '*-pedigree';
+die "Please use target '[arch]-pedigree'." unless $target =~ /(i686|x86_64|amd64)/; # '*-pedigree';
 
 # Firstly, find out where to store the compilers.
 unless (-l "./compilers/dir") {

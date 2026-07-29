@@ -19,17 +19,6 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
     ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
-    # TODO: for non-v7 targets we need to adjust this
-    # Make sure we're targeting the right CPU and ABI
-    set(ARM_COMPILE_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
-
-    add_compile_options(
-        "$<$<COMPILE_LANGUAGE:C>:${ARM_COMPILE_FLAGS}>"
-        "$<$<COMPILE_LANGUAGE:ASM>:${ARM_COMPILE_FLAGS}>"
-        "$<$<COMPILE_LANGUAGE:CXX>:${ARM_COMPILE_FLAGS}>")
-endif ()
-
 function(pedigree_app name posix native pedigreec libs)
     add_executable(app-${name} ${ARGN})
     set_target_properties(app-${name} PROPERTIES OUTPUT_NAME "${name}")

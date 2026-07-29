@@ -274,8 +274,6 @@ const char *DevicesCommand::DeviceInfo::getLine1(
         case 3:
             return "Interrupt";
         case 4:
-            return "Openfirmware Handle";
-        case 5:
             return "Addresses";
         default:
             return "";
@@ -308,17 +306,9 @@ const char *DevicesCommand::DeviceInfo::getLine2(
         case 3:
             str += m_pDev->getInterruptNumber();
             break;
-        case 4:
-#ifdef OPENFIRMWARE
-            str.append(reinterpret_cast<uintptr_t>(m_pDev->getOFHandle()), 16);
-            break;
-#else
-            str += "Not applicable";
-            break;
-#endif
         default:
         {
-            unsigned int i = index - 5;
+            unsigned int i = index - 4;
             if (i >= m_pDev->addresses().count())
                 break;
             Device::Address *address = m_pDev->addresses()[i];
@@ -339,7 +329,7 @@ const char *DevicesCommand::DeviceInfo::getLine2(
 size_t DevicesCommand::DeviceInfo::getLineCount()
 {
     if (m_pDev)
-        return 5 + m_pDev->addresses().count();
+        return 4 + m_pDev->addresses().count();
     else
-        return 5;
+        return 4;
 }

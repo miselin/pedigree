@@ -157,26 +157,6 @@
 #define X64 0
 #endif
 
-#ifndef MIPS32
-#define MIPS32 0
-#endif
-
-#ifndef MIPS64
-#define MIPS64 0
-#endif
-
-#ifndef ARM926E
-#define ARM926E 0
-#endif
-
-#ifndef PPC32
-#define PPC32 0
-#endif
-
-#ifndef ARMV7
-#define ARMV7 0
-#endif
-
 #ifndef HOSTED
 #define HOSTED 0
 #endif
@@ -191,22 +171,6 @@
 
 #ifndef HOSTED_X86_COMMON
 #define HOSTED_X86_COMMON 0
-#endif
-
-#ifndef ARM_COMMON
-#define ARM_COMMON 0
-#endif
-
-#ifndef ARM_BEAGLE
-#define ARM_BEAGLE 0
-#endif
-
-#ifndef MIPS_COMMON
-#define MIPS_COMMON 0
-#endif
-
-#ifndef PPC_COMMON
-#define PPC_COMMON 0
 #endif
 
 #ifndef UTILITY_LINUX_COVERAGE

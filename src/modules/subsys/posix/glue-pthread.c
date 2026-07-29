@@ -145,10 +145,6 @@ pthread_t pthread_self()
     asm volatile("mov %%fs:0, %0" : "=r"(result.__internal.kthread));
 #endif
 
-#if ARMV7
-    asm volatile("mrc p15,0,%0,c13,c0,3" : "=r"(result.__internal.kthread));
-#endif
-
     return &result;
 }
 

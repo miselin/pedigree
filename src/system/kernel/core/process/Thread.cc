@@ -65,8 +65,7 @@ Thread::Thread(
         VirtualAddressSpace::Stack *kernelStack =
             m_StateLevels[0].m_pAuxillaryStack =
                 m_StateLevels[0].m_pKernelStack;
-        m_StateLevels[0].m_pKernelStack =
-            0;  // No kernel stack if kernel mode thread - causes bug on PPC
+        m_StateLevels[0].m_pKernelStack = 0;
 
         if (kernelStack)
             pStack = kernelStack->getTop();
@@ -123,9 +122,7 @@ Thread::Thread(Process *pParent)
     m_Id = m_pParent->addThread(this);
 
     // Initialise our kernel stack.
-    // NO! No kernel stack for kernel-mode threads. On PPC, causes bug!
-    // m_pKernelStack =
-    // VirtualAddressSpace::getKernelAddressSpace().allocateStack();
+    // Kernel-mode threads use the auxiliary stack allocated above.
 
     // Still add the idle thread to the Scheduler for things like
     // threadInSchedule

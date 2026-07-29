@@ -60,14 +60,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'configure' => "--target=\$TARGET --prefix=\$PREFIX --disable-nls --disable-werror --enable-languages=c,c++ --without-headers --without-newlib",
                  'make' => "all-gcc all-target-libgcc",
                  'install' => "install-gcc install-target-libgcc",
-                 'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
-                 'test' => './bin/!TARGET-gcc'},
-                {'dir' => "gcc-$gcc_version",
-                 'name' => "Gcc (mips)",
-                 'configure' => "--target=\$TARGET --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --with-llsc=yes",
-                 'make' => "all-gcc all-target-libgcc",
-                 'install' => "install-gcc install-target-libgcc",
-                 'arch' => 'mips64el-elf',
+                 'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree i686-elf amd64-elf',
                  'test' => './bin/!TARGET-gcc'} );
 
 ###################################################################################
@@ -88,7 +81,7 @@ $ENV{ASFLAGS} = "";
 my $prefix = `pwd`;
 chomp $prefix;
 
-die "Please use target '[arch]-pedigree'." unless $target =~ /(i686|x86_64|arm|amd64|mips64el|powerpc)/; # '*-pedigree';
+die "Please use target '[arch]-pedigree'." unless $target =~ /(i686|x86_64|amd64)/; # '*-pedigree';
 
 # Firstly, find out where to store the compilers.
 unless (-l "./compilers/dir") {

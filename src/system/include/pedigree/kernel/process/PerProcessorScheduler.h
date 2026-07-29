@@ -127,10 +127,6 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
     static int processorAddThread(void *instance) NORETURN;
 
     Thread *m_pIdleThread;
-
-#if ARM_BEAGLE
-    size_t m_TickCount;
-#endif
 };
 
 #endif

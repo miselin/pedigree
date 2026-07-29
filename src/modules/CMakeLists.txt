@@ -41,12 +41,6 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
     add_definitions(-DUSE_PIC_SYSCALLS)
 
     set(MUSL_LIBNAME ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-x86_64.so.1)
-elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
-    # TODO: for non-v7 targets we need to adjust this
-    set(ARCH_MODULE_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
-    set(ARCH_MODULE_LINKFLAGS "")
-
-    set(MUSL_LIBNAME ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-arm.so.1)
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the modules CMakeLists.txt")
 endif ()

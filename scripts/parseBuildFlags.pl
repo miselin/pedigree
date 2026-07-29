@@ -182,13 +182,6 @@ print $w "set(EMUL invalid)\n";
 print $w "if(X86_COMMON)\n";
 print $w "  set(EMUL qemu)\n";
 print $w "endif(X86_COMMON)\n";
-print $w "if(MIPS_COMMON)\n";
-print $w "  set(EMUL qemu-mipsel)\n";
-print $w "endif(MIPS_COMMON)\n";
-print $w "if(ARM_COMMON)\n";
-print $w "  set(EMUL qemu-arm)\n";
-print $w "endif(ARM_COMMON)\n";
-
 foreach my $test (keys %tests) {
 print $w "if(";
 foreach (split(/ +/, $tests{$test})) {

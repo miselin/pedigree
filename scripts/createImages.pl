@@ -62,46 +62,4 @@ if ($compiler =~ m/(i686|amd64)-elf/) {
   }
 }
 
-# How about a mips target?
-if ($compiler =~ m/mips64el-elf/) {
-  `../compilers/dir/mips64el-elf/bin/objcopy src/system/boot/mips/bootloader -O srec ./bootloader.srec`;
-  `cp src/system/boot/mips/bootloader ./bootloader`;
-}
-
-# How about an arm target?
-if ($compiler =~ m/arm-elf/) {
-  `cp src/system/boot/arm/bootloader ./bootloader`;
-}
-
-# PPC?
-if ($compiler =~ m/ppc/) {
-  `cp src/system/boot/ppc/bootloader ./bootloader`;
-  # HFS image.
-  unless (-f "hdd_ppc_16h_63spt_100c.img") {
-    `cp ../images/hdd_ppc_16h_63spt_100c.img .`;
-  }
-  `hmount hdd_ppc_16h_63spt_100c.img`;
-  `hcopy ./bootloader :pedigree`;
-  `humount`;
-
-  # EXT2 image.
-#  unless (-f "hdd_16h_63spt_100c.img") {
-    `cp ../images/hdd_16h_63spt_100c.img .`;
-#  }
-  `mkdir -p /tmp/pedigree-image`;
-  `sudo /sbin/losetup -o 32256 /dev/loop0 ./hdd_16h_63spt_100c.img`;
-  `sudo mount -t ext2 /dev/loop0 /tmp/pedigree-image`;
-  `sudo mkdir -p /tmp/pedigree-image/applications`;
-  `sudo mkdir -p /tmp/pedigree-image/libraries`;
-  foreach my $file (@hdd_files) {
-      my ($binary) = ($file =~ m/([^\/]+)$/);
-      `sudo cp src/user/$file/$binary /tmp/pedigree-image/$file`;
-  }
-  `sudo cp libc.so /tmp/pedigree-image/libraries/libc.so`;
-  `sudo cp libm.so /tmp/pedigree-image/libraries/libm.so`;
-  `sudo cp /home/james/bash-3.2/build-ppc/bash /tmp/pedigree-image/bash`;
-  `sudo umount /dev/loop0`;
-  `sudo /sbin/losetup -d /dev/loop0`;
-}
-
 exit 0;

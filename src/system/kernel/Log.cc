@@ -109,7 +109,6 @@ Log &Log::instance()
 
 void Log::initialise1()
 {
-#if !ARM_COMMON
     char *cmdline = g_pBootstrapInfo->getCommandLine();
     if (cmdline)
     {
@@ -129,7 +128,6 @@ void Log::initialise1()
             }
         }
     }
-#endif
 }
 
 void Log::initialise2()
@@ -390,12 +388,8 @@ template Log::LogEntry &Log::LogEntry::operator<<(int);
 template Log::LogEntry &Log::LogEntry::operator<<(unsigned int);
 template Log::LogEntry &Log::LogEntry::operator<<(long);
 template Log::LogEntry &Log::LogEntry::operator<<(unsigned long);
-// NOTE: Instantiating these for MIPS32 requires __udiv3di, but we only have
-//       __udiv3ti (??) in libgcc.a for mips.
-#if !MIPS32
 template Log::LogEntry &Log::LogEntry::operator<<(long long);
 template Log::LogEntry &Log::LogEntry::operator<<(unsigned long long);
-#endif
 
 Log &Log::operator<<(const LogEntry &entry)
 {

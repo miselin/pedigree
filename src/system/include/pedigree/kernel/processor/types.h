@@ -26,18 +26,6 @@
 #elif X64
 #include "pedigree/kernel/processor/x64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
-#elif MIPS32
-#include "pedigree/kernel/processor/mips32/types.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
-#elif MIPS64
-#include "pedigree/kernel/processor/mips64/types.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
-#elif ARM_COMMON
-#include "pedigree/kernel/processor/arm_common/types.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) ARM##x
-#elif PPC32
-#include "pedigree/kernel/processor/ppc32/types.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
 #elif HOSTED
 #include "pedigree/kernel/processor/hosted/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x

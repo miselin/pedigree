@@ -44,10 +44,6 @@
 PerProcessorScheduler::PerProcessorScheduler()
     : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false),
       m_NewThreadDataCondition(), m_NewThreadData(), m_pIdleThread(0)
-#if ARM_BEAGLE
-      ,
-      m_TickCount(0)
-#endif
 {
 }
 
@@ -833,20 +829,12 @@ void PerProcessorScheduler::sleep(Spinlock *pLock)
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
 {
-#if ARM_BEAGLE  // Timer at 1 tick per ms, we want to run every 100 ms
-    m_TickCount++;
-    if ((m_TickCount % 100) == 0)
-    {
-#endif
-        schedule();
+    schedule();
 
-        // Check if the thread should exit.
-        Thread *pThread = Processor::information().getCurrentThread();
-        if (pThread->getUnwindState() == Thread::Exit)
-            pThread->getParent()->getSubsystem()->exit(0);
-#if ARM_BEAGLE
-    }
-#endif
+    // Check if the thread should exit.
+    Thread *pThread = Processor::information().getCurrentThread();
+    if (pThread->getUnwindState() == Thread::Exit)
+        pThread->getParent()->getSubsystem()->exit(0);
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread *pThread)

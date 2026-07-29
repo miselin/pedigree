@@ -78,9 +78,6 @@ class Backtrace
      */
   public:
     void performBpBacktrace(uintptr_t base, uintptr_t instruction);
-#if ARM_COMMON
-    void performArmBacktrace(uintptr_t base, uintptr_t instruction);
-#endif
   private:
     /**
      * The return addresses.

@@ -23,25 +23,10 @@
 #include "pedigree/kernel/processor/StackFrameBase.h"  // IWYU pragma: export
 
 #include "pedigree/kernel/processor/x64/StackFrame.h"  // IWYU pragma: export
-#include "pedigree/kernel/processor/mips32/StackFrame.h"  // IWYU pragma: export
-#include "pedigree/kernel/processor/mips64/StackFrame.h"  // IWYU pragma: export
-#include "pedigree/kernel/processor/arm_926e/StackFrame.h"  // IWYU pragma: export
-#include "pedigree/kernel/processor/ppc32/StackFrame.h"  // IWYU pragma: export
-#include "pedigree/kernel/processor/armv7/StackFrame.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/hosted/StackFrame.h"  // IWYU pragma: export
 
 #if X64
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
-#elif MIPS32
-#define PROCESSOR_SPECIFIC_NAME(x) MIPS32##x
-#elif MIPS64
-#define PROCESSOR_SPECIFIC_NAME(x) MIPS64##x
-#elif ARM926E
-#define PROCESSOR_SPECIFIC_NAME(x) ARM926E##x
-#elif PPC32
-#define PROCESSOR_SPECIFIC_NAME(x) PPC32##x
-#elif ARMV7
-#define PROCESSOR_SPECIFIC_NAME(x) ARMV7##x
 #elif HOSTED
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif

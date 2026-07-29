@@ -28,9 +28,6 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #endif
-#ifdef OPENFIRMWARE
-#include "pedigree/kernel/machine/openfirmware/OpenFirmware.h"
-#endif
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -309,18 +306,6 @@ class EXPORTED_PUBLIC Device
         uint16_t classCode, uint16_t subclassCode, uint8_t progInterface,
         void (*callback)(Device *), Device *root = 0);
 
-#ifdef OPENFIRMWARE
-    /** Gets the device's OpenFirmware handle. */
-    OFHandle getOFHandle()
-    {
-        return m_OfHandle;
-    }
-    /** Sets the device's OpenFirmware handle. */
-    void setOFHandle(OFHandle h)
-    {
-        m_OfHandle = h;
-    }
-#endif
   private:
     /** Actual do-er for foreach (does not take lock). */
     static void foreachInternal(Callback callback, Device *root);
@@ -370,10 +355,6 @@ class EXPORTED_PUBLIC Device
     uintptr_t m_InterruptNumber;
     /** The specific device type */
     String m_SpecificType;
-#ifdef OPENFIRMWARE
-    /** OpenFirmware device handle. */
-    OFHandle m_OfHandle;
-#endif
     /** PCI config header. */
     PciBus::ConfigSpace m_ConfigHeader;
     /** PCI Device class */

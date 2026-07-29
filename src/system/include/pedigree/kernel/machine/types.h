@@ -24,19 +24,6 @@
 #include "pedigree/kernel/machine/x86_common/types.h"
 #define MACHINE_SPECIFIC_NAME(x) X86Common##x
 #endif
-#if MIPS_COMMON
-#include "pedigree/kernel/machine/mips_common/types.h"
-#define MACHINE_SPECIFIC_NAME(x) MIPSCommon##x
-#endif
-#if ARM_COMMON
-#include "pedigree/kernel/machine/arm_common/types.h"
-#define MACHINE_SPECIFIC_NAME(x) ARMCommon##x
-#endif
-#if PPC_COMMON
-#include "pedigree/kernel/machine/ppc_common/types.h"
-#define MACHINE_SPECIFIC_NAME(x) PPCCommon##x
-#endif
-
 #if HOSTED
 #include "pedigree/kernel/machine/hosted/types.h"
 #ifndef MACHINE_SPECIFIC_NAME

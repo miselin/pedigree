@@ -36,10 +36,6 @@ class EXPORTED_PUBLIC MemoryRegion
 {
     /** X86CommonPhysicalMemoryManager needs access to MemoryRegion's members */
     friend class X86CommonPhysicalMemoryManager;
-    /** As does PpcCommonPhysicalMemoryManager. */
-    friend class PpcCommonPhysicalMemoryManager;
-    /** As does ArmV7PhysicalMemoryManager. */
-    friend class ArmV7PhysicalMemoryManager;
     /** As does HostedPhysicalMemoryManager. */
     friend class HostedPhysicalMemoryManager;
 

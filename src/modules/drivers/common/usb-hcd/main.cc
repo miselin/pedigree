@@ -127,9 +127,5 @@ static void exit()
 #if X86_COMMON
 MODULE_INFO("usb-hcd", &entry, &exit, "pci", "usb");
 #else
-#if ARM_COMMON
-MODULE_INFO("usb-hcd", &entry, &exit, "usb-glue", "usb");
-#else
 MODULE_INFO("usb-hcd", &entry, &exit, "usb");
-#endif
 #endif

@@ -39,7 +39,6 @@ Just run `./easy_build_[target].sh` to build Pedigree. Valid options for
 `target` include:
 
 * x64
-* arm
 * hosted (for a version of the kernel that runs on Linux)
 
 Dependencies and a cross-compiler will be installed and/or created, allowing
@@ -70,13 +69,12 @@ parameter to the script.
 Valid targets include:
 
 * `x86_64`
-* `armv7`
 
 ### Step 2: Pedigree Base
 
 Configure the Pedigree UPdater (pup) to start:
 
-`$ ./setup_pup.py amd64  # (or arm) && ./run_pup.sh sync`
+`$ ./setup_pup.py amd64 && ./run_pup.sh sync`
 
 You'll need at least Pedigree's `libtool` to continue:
 

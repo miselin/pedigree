@@ -50,11 +50,6 @@
  * The OS currently supports the following architectures in various degrees;
  *
  * - x64 / x86-64 (x86/IA32 support has been deprecated)
- * - MIPS - Little endian, 32-bit, release 1, processors R4000 and later,
- *   specifically the Malta and Malta/CoreBonito64 development boards.
- * - ARM - Version 9, specifically the versatile and integrator boards emulated
- *   by QEMU.
- * - PowerPC - Runs on Apple iBooks, G4 towers etc.
  *
  * \section main_docs This Documentation
  *
@@ -127,10 +122,6 @@
 #if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
-#endif
-
-#ifdef OPENFIRMWARE
-#include "pedigree/kernel/machine/openfirmware/Device.h"
 #endif
 
 #if THREADS

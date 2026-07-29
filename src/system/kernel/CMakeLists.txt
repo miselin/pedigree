@@ -27,10 +27,6 @@ endif ()
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
     set(ARCH_KERNEL_LINKFLAGS "-m64")
-elseif (PEDIGREE_ARCH_TARGET STREQUAL "arm")
-    # TODO: for non-v7 targets we need to adjust this
-    set(ARCH_KERNEL_FLAGS "-mabi=aapcs" "-mapcs-frame" "-mcpu=cortex-a8" "-mtune=cortex-a8" "-mfpu=vfp")
-    set(ARCH_KERNEL_LINKFLAGS "")
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-Wno-unused-command-line-argument" "-fsanitize=address")
     set(ARCH_KERNEL_LINKFLAGS "-m64" "-Wno-unused-command-line-argument" "-fsanitize=address")
@@ -102,27 +98,6 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s
         PROPERTIES LANGUAGE ASM_NASM)
-elseif (PEDIGREE_ARCHDIR STREQUAL "armv7")
-    set(PROCESSOR_UNSHARED_SRCS "")
-
-    set(PROCESSOR_SRCS
-        # /core/processor/armv7/
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/Elf32.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/InterruptManager.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/PageFaultHandler.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/PhysicalMemoryManager.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/Processor.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/StackFrame.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/state.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/VirtualAddressSpace.cc
-        # /core/processor/armv7/asm/
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/asm/InterruptManager.S
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/asm/Processor.S
-        # /core/processor/arm_common/
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/boot-arm.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Disassembler.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/Processor.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm_common/ProcessorInformation.cc)
 elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
     set(PROCESSOR_UNSHARED_SRCS "")
 
@@ -190,20 +165,6 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c)
 
     set(WITH_X86EMU TRUE)
-elseif (PEDIGREE_MACHDIR STREQUAL "arm_beagle")
-    set(MACHINE_SRCS
-        # /machine/arm_beagle/
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Beagle.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Gpio.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/GPTimer.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/I2C.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Keyboard.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Prcm.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Serial.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/arm_beagle/Vga.cc)
-
-    set(X86EMU_SRCS "")
-    set(WITH_X86EMU FALSE)
 elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
     set(MACHINE_SRCS
         # /machine/hosted/

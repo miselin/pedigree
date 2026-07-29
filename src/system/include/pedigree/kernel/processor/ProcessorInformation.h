@@ -35,15 +35,6 @@ typedef size_t ProcessorId;
 #if X86_COMMON
 #include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X86Common##x
-#elif MIPS_COMMON
-#include "pedigree/kernel/processor/mips_common/ProcessorInformation.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) MIPSCommon##x
-#elif ARM_COMMON
-#include "pedigree/kernel/processor/arm_common/ProcessorInformation.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) ArmCommon##x
-#elif PPC_COMMON
-#include "pedigree/kernel/processor/ppc_common/ProcessorInformation.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) PPCCommon##x
 #elif HOSTED
 #include "pedigree/kernel/processor/hosted/ProcessorInformation.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x

@@ -25,10 +25,6 @@
 #if X86_COMMON
 #define __MOD_DEPS 0
 #define __MOD_DEPS_OPT "vbe", "vmware-gfx"
-#elif PPC_COMMON
-#define __MOD_DEPS 0
-#elif ARM_COMMON
-#define __MOD_DEPS 0
 #elif HOSTED
 /// \todo probably want some sort of SDL thing here.
 #define __MOD_DEPS 0

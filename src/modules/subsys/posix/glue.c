@@ -330,12 +330,10 @@ int stat(const char *file, struct stat *st)
     return (long) syscall2(POSIX_STAT, (long) file, (long) st);
 }
 
-#if !PPC_COMMON
 clock_t times(struct tms *buf)
 {
     return syscall1(POSIX_TIMES, (long) buf);
 }
-#endif
 
 int utimes(const char *filename, const struct timeval times[2])
 {

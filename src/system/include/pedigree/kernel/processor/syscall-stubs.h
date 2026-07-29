@@ -48,11 +48,6 @@
 #define SYSCALL_TARGET_FOUND
 #endif
 
-#if ARM_COMMON && !defined(SYSCALL_TARGET_FOUND)
-#include "pedigree/kernel/processor/armv7/syscall-stubs.h"
-#define SYSCALL_TARGET_FOUND
-#endif
-
 #ifndef SYSCALL_TARGET_FOUND
 #error Syscall target not found!
 #endif

@@ -67,12 +67,6 @@ void BootIO::write(T &str, Colour foreColour, Colour backColour)
 #endif
     }
 
-#if PPC_COMMON
-    // For PPC: causes the graphics framebuffer to be updated from the text one.
-    Vga *pVga = Machine::instance().getVga(0);
-    uint16_t *pFramebuffer = *pVga;
-    pVga->pokeBuffer(reinterpret_cast<uint8_t *>(pFramebuffer), 0);
-#endif
 }
 
 void BootIO::putCharVga(const char c, Colour foreColour, Colour backColour)

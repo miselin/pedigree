@@ -60,7 +60,6 @@ if which losetup >/dev/null 2>&1; then
 
   sudo cp -a $SRCDIR/../images/x86/. $MOUNTPT/
 #  sudo svn export --force $SRCDIR/../images/x86 $MOUNTPT/
-#  sudo svn export --force $SRCDIR/../images/ppc-elf $MOUNTPT/
 
   # Create required directories.
   sudo mkdir -p $MOUNTPT/applications
@@ -112,7 +111,6 @@ if which losetup >/dev/null 2>&1; then
   #tar -xf tmp.tar $MOUNTPT
   #sudo cp -r $SRCDIR/../images/x86 $MOUNTPT
 #  sudo svn export --force $SRCDIR/../images/x86 $MOUNTPT/
-#  sudo svn export --force $SRCDIR/../images/ppc-elf $MOUNTPT/
 
   # Create required directories.
   sudo mkdir -p $MOUNTPT/applications
