@@ -123,7 +123,7 @@ WEAK size_t _BoundedStringLength(const char *src, size_t maxlen)
     }
 
     size_t n = 0;
-    while (*src++ && (n < maxlen))
+    while ((n < maxlen) && *src++)
     {
         ++n;
     }

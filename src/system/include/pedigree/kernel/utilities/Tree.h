@@ -130,7 +130,7 @@ class EXPORTED_PUBLIC Tree
         E, IteratorNode, &IteratorNode::previous, &IteratorNode::next, K>
         Iterator;
     /** Constant random-access iterator for the Tree */
-    typedef E const *ConstIterator;
+    typedef typename Iterator::Const ConstIterator;
 
     /** The default constructor, does nothing */
     Tree() : root(0), nItems(0), m_Begin(0)
@@ -155,6 +155,9 @@ class EXPORTED_PUBLIC Tree
      *\param[in] x the object that should be copied */
     Tree &operator=(const Tree &x)
     {
+        if (this == &x)
+            return *this;
+
         copyFrom(x);
 
         return *this;
@@ -172,9 +175,11 @@ class EXPORTED_PUBLIC Tree
      *\param[in] value the element */
     void insert(const K &key, const E &value)
     {
-        Node *insertionNode = createInsertionNode(key);
+        bool inserted = false;
+        Node *insertionNode = createInsertionNode(key, inserted);
         insertionNode->element = value;
-        ++nItems;
+        if (inserted)
+            ++nItems;
     }
 
     /** Move an element into the Tree.
@@ -182,9 +187,11 @@ class EXPORTED_PUBLIC Tree
      *\param[in] value the element */
     void insert(const K &key, E &&value)
     {
-        Node *insertionNode = createInsertionNode(key);
+        bool inserted = false;
+        Node *insertionNode = createInsertionNode(key, inserted);
         insertionNode->element = pedigree_std::move(value);
-        ++nItems;
+        if (inserted)
+            ++nItems;
     }
 
     /** Attempts to find an element with the given key.
@@ -341,7 +348,12 @@ class EXPORTED_PUBLIC Tree
      *\return constant iterator pointing to the beginning of the Vector */
     ConstIterator begin() const
     {
-        return 0;
+        if (!m_Begin)
+            m_Begin = new IteratorNode(root, 0, nItems);
+        else
+            m_Begin->reset(root, 0, nItems);
+
+        return ConstIterator(m_Begin);
     }
     /** Get an iterator pointing to the last element + 1
      *\return iterator pointing to the last element + 1 */
@@ -353,7 +365,7 @@ class EXPORTED_PUBLIC Tree
      *\return constant iterator pointing to the last element + 1 */
     ConstIterator end() const
     {
-        return 0;
+        return ConstIterator(0);
     }
 
   private:
@@ -512,9 +524,10 @@ class EXPORTED_PUBLIC Tree
         delete n;
     }
 
-    Node *createInsertionNode(const K &key)
+    Node *createInsertionNode(const K &key, bool &inserted)
     {
         Node *insertionNode = nullptr;
+        inserted = false;
 
         if (root == 0)
         {
@@ -522,6 +535,7 @@ class EXPORTED_PUBLIC Tree
             insertionNode->key = key;
 
             root = insertionNode;  // We are the root node.
+            inserted = true;
 
             if (m_Begin)
             {
@@ -534,8 +548,8 @@ class EXPORTED_PUBLIC Tree
             // Traverse the tree.
             Node *currentNode = root;
 
-            bool inserted = false;
-            while (!inserted)
+            bool foundPosition = false;
+            while (!foundPosition)
             {
                 if (key > currentNode->key)
                 {
@@ -547,6 +561,7 @@ class EXPORTED_PUBLIC Tree
                         insertionNode->parent = currentNode;
                         currentNode->rightChild = insertionNode;
                         inserted = true;
+                        foundPosition = true;
                     }
                     else
                     {
@@ -557,7 +572,7 @@ class EXPORTED_PUBLIC Tree
                 {
                     // overwrite existing value
                     insertionNode = currentNode;
-                    inserted = true;
+                    foundPosition = true;
                 }
                 else
                 {
@@ -569,6 +584,7 @@ class EXPORTED_PUBLIC Tree
                         insertionNode->parent = currentNode;
                         currentNode->leftChild = insertionNode;
                         inserted = true;
+                        foundPosition = true;
                     }
                     else
                     {
@@ -596,7 +612,7 @@ class EXPORTED_PUBLIC Tree
     Node *root;
     size_t nItems;
 
-    IteratorNode *m_Begin;
+    mutable IteratorNode *m_Begin;
 };
 
 // External specializations.

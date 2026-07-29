@@ -343,6 +343,9 @@ typename List<T, nodePoolSize>::Iterator
 List<T, nodePoolSize>::erase(Iterator &Iter)
 {
     node_t *Node = Iter.__getNode();
+    if (!Node)
+        return end();
+
     if (Node->m_Previous == 0)
         m_First = Node->m_Next;
     else
@@ -356,7 +359,7 @@ List<T, nodePoolSize>::erase(Iterator &Iter)
     node_t *pNext = Node->m_Next;
     // If pNext is NULL, this will be the same as 'end()'.
     Iterator tmp(pNext);
-    delete Node;
+    m_NodePool.deallocate(Node);
     return tmp;
 }
 
@@ -365,20 +368,23 @@ typename List<T, nodePoolSize>::ReverseIterator
 List<T, nodePoolSize>::erase(ReverseIterator &Iter)
 {
     node_t *Node = Iter.__getNode();
-    if (Node->m_Next == 0)
-        m_First = Node->m_Previous;
-    else
-        Node->m_Next->m_Previous = Node->m_Previous;
+    if (!Node)
+        return rend();
+
     if (Node->m_Previous == 0)
-        m_Last = Node->m_Next;
+        m_First = Node->m_Next;
     else
         Node->m_Previous->m_Next = Node->m_Next;
+    if (Node->m_Next == 0)
+        m_Last = Node->m_Previous;
+    else
+        Node->m_Next->m_Previous = Node->m_Previous;
     --m_Count;
 
     node_t *pNext = Node->m_Previous;
     // If pNext is NULL, this will be the same as 'rend()'.
     ReverseIterator tmp(pNext);
-    delete Node;
+    m_NodePool.deallocate(Node);
     return tmp;
 }
 
@@ -390,7 +396,7 @@ void List<T, nodePoolSize>::clear()
     {
         node_t *tmp = cur;
         cur = cur->m_Next;
-        delete tmp;
+        m_NodePool.deallocate(tmp);
     }
 
     m_Count = 0;
@@ -400,6 +406,9 @@ void List<T, nodePoolSize>::clear()
 template <typename T, size_t nodePoolSize>
 void List<T, nodePoolSize>::assign(const List &x)
 {
+    if (this == &x)
+        return;
+
     if (m_Count != 0)
         clear();
 

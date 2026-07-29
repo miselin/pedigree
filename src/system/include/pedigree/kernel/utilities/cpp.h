@@ -254,7 +254,9 @@ template <class T>
 typename enable_if<!is_trivially_copyable<T>::value>::type *
 copy(T *dest, const T *src, size_t count)
 {
-    if (overlaps(dest, src, count * sizeof(T)))
+    const uintptr_t destAddress = reinterpret_cast<uintptr_t>(dest);
+    const uintptr_t srcAddress = reinterpret_cast<uintptr_t>(src);
+    if (overlaps(dest, src, count * sizeof(T)) && (destAddress > srcAddress))
     {
         for (ssize_t i = count - 1; i >= 0; --i)
         {

@@ -140,6 +140,20 @@ TEST(PedigreeTree, DoubleInsertionValueChanged)
     x.insert(1, 1);
     x.insert(1, 2);
     EXPECT_EQ(x.lookup(1), 2);
+    EXPECT_EQ(x.count(), 1U);
+}
+
+TEST(PedigreeTree, SelfAssignmentPreservesItems)
+{
+    Tree<int, int> x;
+    x.insert(1, 10);
+    x.insert(2, 20);
+
+    const Tree<int, int> &same = x;
+    x = same;
+    EXPECT_EQ(x.count(), 2U);
+    EXPECT_EQ(x.lookup(1), 10);
+    EXPECT_EQ(x.lookup(2), 20);
 }
 
 TEST(PedigreeTree, SortedInsertion)
@@ -197,6 +211,23 @@ TEST(PedigreeTree, Iteration)
     EXPECT_EQ(it.value(), 5);
     ++it;
     EXPECT_EQ(it, x.end());
+}
+
+TEST(PedigreeTree, ConstIteration)
+{
+    Tree<int, int> x;
+    x.insert(1, 10);
+    x.insert(2, 20);
+
+    const Tree<int, int> &readOnly = x;
+    auto it = readOnly.begin();
+    EXPECT_EQ(it.key(), 1);
+    EXPECT_EQ(it.value(), 10);
+    ++it;
+    EXPECT_EQ(it.key(), 2);
+    EXPECT_EQ(it.value(), 20);
+    ++it;
+    EXPECT_EQ(it, readOnly.end());
 }
 
 TEST(PedigreeTree, InsertMove)

@@ -281,6 +281,7 @@ class EXPORTED_PUBLIC RadixTree
         if (RADIX_TREE_USE_POOLED_NODES)
         {
             Node *p = m_NodePool.allocate(m_bCaseSensitive);
+            p->m_pParent = 0;
             p->m_pParentTree = this;
             return p;
         }
@@ -294,9 +295,11 @@ class EXPORTED_PUBLIC RadixTree
     {
         if (RADIX_TREE_USE_POOLED_NODES && p)
         {
+            p->returnAllChildren();
             // wipe out info that shouldn't go back to the pool
             p->m_Key.clear();
             p->value = T();
+            p->m_pParent = 0;
             p->m_bHasValue = false;
             m_NodePool.deallocate(p);
         }
@@ -350,6 +353,9 @@ RadixTree<T>::RadixTree(const RadixTree &x)
 template <class T>
 RadixTree<T> &RadixTree<T>::operator=(const RadixTree &x)
 {
+    if (this == &x)
+        return *this;
+
     clear();
     returnNode(m_pRoot);
     m_pRoot = cloneNode(x.m_pRoot, 0);
@@ -373,6 +379,14 @@ void RadixTree<T>::insert(const String &key, const T &value)
         // (zero-length key). This removes the need for most special cases.
         m_pRoot = getNewNode();
         m_pRoot->setKey(0);
+    }
+
+    if (!key.length())
+    {
+        if (!m_pRoot->hasValue())
+            ++m_nItems;
+        m_pRoot->setValue(value);
+        return;
     }
 
     Node *pNode = m_pRoot;
@@ -482,6 +496,13 @@ Result<T, bool> RadixTree<T>::lookup(const String &key) const
         return LookupType::withError(true);
     }
 
+    if (!key.length())
+    {
+        if (m_pRoot->hasValue())
+            return LookupType::withValue(m_pRoot->getValue());
+        return LookupType::withError(true);
+    }
+
     Node *pNode = m_pRoot;
 
     const char *cpKey = static_cast<const char *>(key);
@@ -542,7 +563,11 @@ void RadixTree<T>::remove(const String &key)
     // special case here so it doesn't get deleted.
     if (!cpKey || (*cpKey == 0))
     {
-        m_pRoot->removeValue();
+        if (m_pRoot->hasValue())
+        {
+            m_pRoot->removeValue();
+            --m_nItems;
+        }
         return;
     }
 
@@ -553,6 +578,9 @@ void RadixTree<T>::remove(const String &key)
         {
             case Node::ExactMatch:
             {
+                if (!pNode->hasValue())
+                    return;
+
                 // Delete this node. If we set the value to zero, it is
                 // effectively removed from the map. There are only certain
                 // cases in which we can delete the node completely, however.
@@ -658,14 +686,15 @@ typename RadixTree<T>::Node *RadixTree<T>::cloneNode(Node *pNode, Node *pParent)
 
     Node *n = getNewNode();
     n->setKey(pNode->m_Key);
-    n->setValue(pNode->value);
+    if (pNode->hasValue())
+        n->setValue(pNode->value);
     n->setParent(pParent);
 
     for (typename RadixTree<T>::Node::childlist_t::Iterator it =
              pNode->m_Children.begin();
          it != pNode->m_Children.end(); ++it)
     {
-        n->addChild(cloneNode((*it), pParent));
+        n->addChild(cloneNode((*it), n));
     }
 
     return n;
@@ -674,9 +703,14 @@ typename RadixTree<T>::Node *RadixTree<T>::cloneNode(Node *pNode, Node *pParent)
 template <class T>
 void RadixTree<T>::clear()
 {
-    returnNode(m_pRoot);
-    m_pRoot = getNewNode();
+    if (!m_pRoot)
+        m_pRoot = getNewNode();
+    else
+        m_pRoot->returnAllChildren();
+
     m_pRoot->setKey(0);
+    m_pRoot->removeValue();
+    m_pRoot->setParent(0);
     m_nItems = 0;
 }
 
@@ -843,7 +877,7 @@ typename RadixTree<T>::Node *RadixTree<T>::Node::doNext() const
 {
     // pNode needs to be settable, but not what it points to!
     Node const *pNode = this;
-    while ((pNode == this) || (pNode && (!pNode->value)))
+    while ((pNode == this) || (pNode && !pNode->hasValue()))
     {
         Node const *tmp;
         if (pNode->m_Children.count())

@@ -151,7 +151,9 @@ class HashTable
     {
         delete[] m_Buckets;
         m_Buckets = nullptr;
+        m_nBuckets = 0;
         m_nItems = 0;
+        m_nMask = 0;
     }
 
     ~HashTable()
@@ -476,19 +478,28 @@ class HashTable
      */
     void copyFrom(const SelfType &other)
     {
+        if (this == &other)
+            return;
+
         clear();
 
         m_Default = other.m_Default;
         m_nBuckets = other.m_nBuckets;
         m_nItems = other.m_nItems;
         m_nMask = other.m_nMask;
-        m_Buckets = new bucket[m_nBuckets];
-        pedigree_std::copy(m_Buckets, other.m_Buckets, m_nBuckets);
-        resetParents();
+        if (m_nBuckets)
+        {
+            m_Buckets = new bucket[m_nBuckets];
+            pedigree_std::copy(m_Buckets, other.m_Buckets, m_nBuckets);
+            resetParents();
+        }
     }
 
     SelfType &operator=(SelfType &&p)
     {
+        if (this == &p)
+            return *this;
+
         clear();
 
         m_Default = pedigree_std::move(p.m_Default);

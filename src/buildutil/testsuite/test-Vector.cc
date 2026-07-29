@@ -25,6 +25,41 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/String.h"
 
+struct VectorConstructionTracker
+{
+    VectorConstructionTracker() : value(0)
+    {
+        ++live;
+    }
+
+    explicit VectorConstructionTracker(int value) : value(value)
+    {
+        ++live;
+    }
+
+    VectorConstructionTracker(const VectorConstructionTracker &other)
+        : value(other.value)
+    {
+        ++live;
+    }
+
+    ~VectorConstructionTracker()
+    {
+        --live;
+    }
+
+    VectorConstructionTracker &operator=(const VectorConstructionTracker &other)
+    {
+        value = other.value;
+        return *this;
+    }
+
+    int value;
+    static int live;
+};
+
+int VectorConstructionTracker::live = 0;
+
 TEST(PedigreeVector, Construction)
 {
     Vector<int> x;
@@ -61,6 +96,47 @@ TEST(PedigreeVector, AssignmentOperator)
     EXPECT_EQ(x.popFront(), y.popFront());
 }
 
+TEST(PedigreeVector, CopyAfterPopFrontPreservesLiveRange)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+    EXPECT_EQ(x.popFront(), 1);
+
+    Vector<int> y(x);
+    ASSERT_EQ(y.count(), 2U);
+    EXPECT_EQ(y[0], 2);
+    EXPECT_EQ(y[1], 3);
+}
+
+TEST(PedigreeVector, ReserveAfterPopFrontPreservesLiveRange)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.pushBack(3);
+    EXPECT_EQ(x.popFront(), 1);
+
+    x.reserve(32, true);
+    ASSERT_EQ(x.count(), 2U);
+    EXPECT_EQ(x[0], 2);
+    EXPECT_EQ(x[1], 3);
+}
+
+TEST(PedigreeVector, SelfAssignmentPreservesItems)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+    x.popFront();
+
+    const Vector<int> &same = x;
+    x = same;
+    ASSERT_EQ(x.count(), 1U);
+    EXPECT_EQ(x[0], 2);
+}
+
 TEST(PedigreeVector, Indexing)
 {
     Vector<int> x;
@@ -70,6 +146,18 @@ TEST(PedigreeVector, Indexing)
     EXPECT_EQ(x[0], 1);
     EXPECT_EQ(x[1], 2);
     EXPECT_EQ(x[2], 3);
+}
+
+TEST(PedigreeVector, ConstIndexingReturnsConstReference)
+{
+    Vector<int> x;
+    x.pushBack(1);
+    const Vector<int> &readOnly = x;
+
+    static_assert(
+        pedigree_std::is_same<decltype(readOnly[0]), const int &>::value,
+        "const Vector indexing must not allow mutation");
+    EXPECT_EQ(readOnly[0], 1);
 }
 
 TEST(PedigreeVector, IndexingTooFar)
@@ -318,6 +406,14 @@ TEST(PedigreeVector, PopBack)
     EXPECT_EQ(x.count(), 0U);
 }
 
+TEST(PedigreeVector, EmptyPopReturnsDefault)
+{
+    Vector<int> x;
+    EXPECT_EQ(x.popFront(), 0);
+    EXPECT_EQ(x.popBack(), 0);
+    EXPECT_EQ(x.count(), 0U);
+}
+
 TEST(PedigreeVector, Erase)
 {
     Vector<int> x;
@@ -513,4 +609,16 @@ TEST(PedigreeVector, CreateBackComplex)
     EXPECT_TRUE(x[0].compare("foo"));
     EXPECT_TRUE(x[1].compare("bar"));
     EXPECT_TRUE(x[2].compare("baz"));
+}
+
+TEST(PedigreeVector, CreateBackDoesNotDoubleConstructStorage)
+{
+    const int initialLive = VectorConstructionTracker::live;
+    {
+        Vector<VectorConstructionTracker> x;
+        x.createBack(42);
+        ASSERT_EQ(x.count(), 1U);
+        EXPECT_EQ(x.begin()->value, 42);
+    }
+    EXPECT_EQ(VectorConstructionTracker::live, initialLive);
 }

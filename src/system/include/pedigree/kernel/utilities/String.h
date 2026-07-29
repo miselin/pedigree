@@ -272,7 +272,7 @@ class ConstantString : public String
     public:
         ConstantString(const char str[N])
         {
-            setLength(N);
+            setLength(N - 1);
             setSize(N);
             MemoryCopy(m_Data, str, N);
             computeHash();

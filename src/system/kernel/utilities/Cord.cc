@@ -48,6 +48,9 @@ void Cord::reserve(size_t segments)
 
 void Cord::assign(const Cord &other)
 {
+    if (this == &other)
+        return;
+
     clear();
 
     m_Segments.reserve(other.m_Segments.count(), false);
@@ -62,6 +65,7 @@ void Cord::assign(const Cord &other)
 void Cord::clear()
 {
     m_Segments.clear(false);
+    m_Length = 0;
 }
 
 size_t Cord::length() const
@@ -110,6 +114,9 @@ void Cord::append(const char *s, size_t len)
         len = StringLength(s);
     }
 
+    if (!len)
+        return;
+
     m_Segments.pushBack(CordSegment(s, len));
     m_Length += len;
 }
@@ -120,6 +127,9 @@ void Cord::prepend(const char *s, size_t len)
     {
         len = StringLength(s);
     }
+
+    if (!len)
+        return;
 
     m_Segments.pushFront(CordSegment(s, len));
     m_Length += len;
@@ -157,7 +167,7 @@ Cord::CordSegmentIterator Cord::segend() const
 
 Cord::CordIterator::CordIterator(const Cord &owner) : cord(owner), segment(0), index(0)
 {
-    segptr = &cord.m_Segments[segment];
+    segptr = cord.m_Segments.count() ? &cord.m_Segments[segment] : nullptr;
 }
 
 Cord::CordIterator::CordIterator(const Cord &owner, bool end) : cord(owner), segment(0), index(0)
@@ -170,19 +180,18 @@ Cord::CordIterator::~CordIterator() = default;
 
 Cord::CordIterator &Cord::CordIterator::operator++()
 {
+    if (!segptr)
+        return *this;
+
     ++index;
     if (index >= segptr->length)
     {
         index = 0;
         ++segment;
 
-        segptr = &cord.m_Segments[segment];
-    }
-
-    if (segment > cord.m_Segments.count())
-    {
-        segment = cord.m_Segments.count();
-        index = 0;
+        segptr = segment < cord.m_Segments.count()
+                     ? &cord.m_Segments[segment]
+                     : nullptr;
     }
 
     return *this;
@@ -198,7 +207,7 @@ Cord::CordIterator &Cord::CordIterator::operator--()
     {
         --segment;
         segptr = &cord.m_Segments[segment];
-        index = segptr->length;
+        index = segptr->length - 1;
     }
 
     return *this;

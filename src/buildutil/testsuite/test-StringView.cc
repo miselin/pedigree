@@ -63,6 +63,24 @@ TEST(PedigreeStringView, EqualityStringView)
     EXPECT_EQ(view1, view2);
 }
 
+TEST(PedigreeStringView, EmptyViewsCompareEqual)
+{
+    StringView view1;
+    StringView view2;
+
+    EXPECT_EQ(view1, view2);
+    EXPECT_EQ(view1, "");
+}
+
+TEST(PedigreeStringView, EmptyStringProducesEmptyView)
+{
+    String str;
+    StringView view = str.view();
+
+    EXPECT_EQ(view, "");
+    EXPECT_EQ(view.length(), 0U);
+}
+
 TEST(PedigreeStringView, EqualityCxxString)
 {
     StringView view("Hello world", 11);

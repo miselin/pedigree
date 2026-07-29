@@ -50,6 +50,11 @@ class EXPORTED_PUBLIC StaticCord
 
             CordIterator &operator++()
             {
+                if (segment >= cord.m_NumSegments)
+                {
+                    return *this;
+                }
+
                 ++index;
                 if (index >= cord.m_Segments[segment].length)
                 {
@@ -57,7 +62,7 @@ class EXPORTED_PUBLIC StaticCord
                     ++segment;
                 }
 
-                if (segment > cord.m_NumSegments)
+                if (segment >= cord.m_NumSegments)
                 {
                     segment = cord.m_NumSegments;
                     index = 0;
@@ -75,7 +80,7 @@ class EXPORTED_PUBLIC StaticCord
                 else if (segment)
                 {
                     --segment;
-                    index = cord.m_Segments[segment].length;
+                    index = cord.m_Segments[segment].length - 1;
                 }
 
                 return *this;
@@ -248,6 +253,9 @@ class EXPORTED_PUBLIC StaticCord
         {
             len = StringLength(s);
         }
+
+        if (!len)
+            return;
 
         m_Segments[m_NumSegments++] = CordSegment(s, len);
         m_Length += len;

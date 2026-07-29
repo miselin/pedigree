@@ -93,7 +93,7 @@ bool StringView::operator==(const StringView &s) const
     }
     else if (!(m_Length && s.m_Length))
     {
-        return false;
+        return true;
     }
     else if (!compareHash(s))
     {
@@ -107,7 +107,7 @@ bool StringView::compare(const char *s, size_t length) const
 {
     if (UNLIKELY(!m_Length))
     {
-        if (!*s)
+        if (!s || !*s)
         {
             // empty strings match
             return true;
@@ -116,6 +116,10 @@ bool StringView::compare(const char *s, size_t length) const
     }
 
     if (length != m_Length)
+    {
+        return false;
+    }
+    else if (!s)
     {
         return false;
     }
@@ -132,7 +136,8 @@ StringView StringView::substring(size_t start, size_t end, bool hashed) const
 {
     if (start == 0 && end == m_Length)
     {
-        return StringView(m_String, m_Length, m_Hash, m_HashingEnabled);
+        return StringView(
+            m_String, m_Length, hashed ? hash() : 0, hashed);
     }
 
     if (end > m_Length)
@@ -145,7 +150,9 @@ StringView StringView::substring(size_t start, size_t end, bool hashed) const
         return StringView();
     }
 
-    return StringView(m_String + start, end - start);
+    StringView result(m_String + start, end - start);
+    result.setHashingEnable(hashed);
+    return result;
 }
 
 String StringView::toString() const

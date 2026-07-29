@@ -308,6 +308,12 @@ TEST(PedigreeString, EqualityRawCharBuffer)
     EXPECT_NE(a, "hello");
 }
 
+TEST(PedigreeString, CStringEqualityRequiresEqualLength)
+{
+    String a("hello");
+    EXPECT_NE(a, "hello world");
+}
+
 TEST(PedigreeString, AssignCString)
 {
     String s;
@@ -384,6 +390,15 @@ TEST(PedigreeString, ReduceReserve)
     EXPECT_EQ(s.size(), (size_t) 1024);
     s.downsize();
     EXPECT_EQ(s.size(), (size_t) 64);
+}
+
+TEST(PedigreeString, DownsizeEmptyStringIsSafe)
+{
+    String s;
+    s.downsize();
+    EXPECT_EQ(s.length(), 0U);
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_EQ(s.cstr(), nullptr);
 }
 
 TEST(PedigreeString, ReserveBoundary)
@@ -649,6 +664,24 @@ TEST(PedigreeString, MoveConstruct)
     EXPECT_STREQ(s2.cstr(), "hello");
 }
 
+TEST(PedigreeString, SelfAssignmentPreservesValue)
+{
+    String s("hello");
+    const String &same = s;
+    s = same;
+    EXPECT_EQ(s, "hello");
+}
+
+TEST(PedigreeString, AppendAliasedCStringAcrossReallocation)
+{
+    String s(bigstring());
+    const char *sameBuffer = s.cstr();
+    s += sameBuffer;
+    EXPECT_EQ(s.length(), 2 * StringLength(bigstring()));
+    EXPECT_TRUE(s.startswith(bigstring()));
+    EXPECT_TRUE(s.endswith(bigstring()));
+}
+
 TEST(PedigreeString, AppendOtherString)
 {
     String s1("hello");
@@ -710,10 +743,36 @@ TEST(PedigreeString, RTrim)
     EXPECT_STREQ(s1.cstr(), "hello");
 }
 
+TEST(PedigreeString, TrimmingInvalidatesCachedHash)
+{
+    String left("hello world");
+    left.hash();
+    left.ltrim(6);
+    EXPECT_EQ(left, String("world"));
+    EXPECT_EQ(left.hash(), String("world").hash());
+
+    String right("hello world");
+    right.hash();
+    right.rtrim(6);
+    EXPECT_EQ(right, String("hello"));
+    EXPECT_EQ(right.hash(), String("hello").hash());
+}
+
+TEST(PedigreeString, ChompOnEmptyStringIsNoOp)
+{
+    String s;
+    s.chomp();
+    s.lchomp();
+    EXPECT_EQ(s.length(), 0U);
+    EXPECT_EQ(s.cstr(), nullptr);
+}
+
 TEST(PedigreeString, ConstantCompare)
 {
     auto s1 = MakeConstantString("hello world");
     EXPECT_STREQ(s1.cstr(), "hello world");
+    EXPECT_EQ(s1.length(), 11U);
+    EXPECT_EQ(s1, String("hello world"));
 }
 
 TEST(PedigreeString, DirectCompare)

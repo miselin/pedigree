@@ -61,7 +61,7 @@ class EXPORTED_PUBLIC Cord
             size_t segment;
             size_t index;
 
-            Cord::CordSegment *segptr;
+            const Cord::CordSegment *segptr;
     };
     class CordSegmentIterator
     {

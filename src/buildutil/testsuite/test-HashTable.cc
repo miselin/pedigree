@@ -368,6 +368,18 @@ TEST(PedigreeHashTable, Copy)
     }
 }
 
+TEST(PedigreeHashTable, SelfCopyPreservesItems)
+{
+    HashTable<HashableInteger, int> hashtable;
+    hashtable.insert(HashableInteger(1), 10);
+    hashtable.insert(HashableInteger(2), 20);
+
+    hashtable.copyFrom(hashtable);
+    EXPECT_EQ(hashtable.count(), 2U);
+    EXPECT_EQ(hashtable.lookup(HashableInteger(1)).value(), 10);
+    EXPECT_EQ(hashtable.lookup(HashableInteger(2)).value(), 20);
+}
+
 TEST(PedigreeHashTable, SiblingKeys)
 {
     String key("key");

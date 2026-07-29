@@ -102,7 +102,8 @@ class EXPORTED_PUBLIC Vector
     /** The [] operator
      *\param[in] index the index of the element that should be returned
      *\return the element at index index */
-    T &operator[](size_t index) const;
+    T &operator[](size_t index);
+    const T &operator[](size_t index) const;
 
     /** Get the number of elements that we have reserved space for
      *\return the number of elements that we have reserved space for */
@@ -127,8 +128,7 @@ class EXPORTED_PUBLIC Vector
             m_Start = 0;
         }
 
-        T *loc = &m_Data[m_Start + m_Count++];
-        new (loc) T(pedigree_std::forward<Args>(args)...);
+        m_Data[m_Start + m_Count++] = T(pedigree_std::forward<Args>(args)...);
     }
     /** Move a value to the end of the Vector
      *\param[in] value the value that should be added */
@@ -269,10 +269,19 @@ Vector<T> &Vector<T>::operator=(const Vector &x)
 }
 
 template <class T>
-T &Vector<T>::operator[](size_t index) const
+T &Vector<T>::operator[](size_t index)
 {
     static T outofbounds = T();
-    if (index > m_Count)
+    if (index >= m_Count)
+        return outofbounds;
+    return m_Data[m_Start + index];
+}
+
+template <class T>
+const T &Vector<T>::operator[](size_t index) const
+{
+    static const T outofbounds = T();
+    if (index >= m_Count)
         return outofbounds;
     return m_Data[m_Start + index];
 }
@@ -324,6 +333,11 @@ void Vector<T>::pushBack(T &&value)
 template <class T>
 T Vector<T>::popBack()
 {
+    if (!m_Count)
+    {
+        return T();
+    }
+
     m_Count--;
     return m_Data[m_Start + m_Count];
 }
@@ -342,8 +356,7 @@ void Vector<T>::pushFront(const T &value)
     }
     else
     {
-        // We have a bigger buffer, copy items from the old buffer now.
-        pedigree_std::copy(&m_Data[1], oldData, m_Count);
+        pedigree_std::copy(&m_Data[1], m_Data, m_Count);
         m_Data[0] = value;
     }
 
@@ -370,8 +383,7 @@ void Vector<T>::pushFront(T &&value)
     }
     else
     {
-        // We have a bigger buffer, copy items from the old buffer now.
-        pedigree_std::copy(&m_Data[1], oldData, m_Count);
+        pedigree_std::copy(&m_Data[1], m_Data, m_Count);
         m_Data[0] = pedigree_std::move(value);
     }
 
@@ -387,9 +399,18 @@ void Vector<T>::pushFront(T &&value)
 template <class T>
 T Vector<T>::popFront()
 {
-    const T &ret = m_Data[m_Start];
+    if (!m_Count)
+    {
+        return T();
+    }
+
+    T ret = m_Data[m_Start];
     m_Count--;
     m_Start++;
+    if (!m_Count)
+    {
+        m_Start = 0;
+    }
     return ret;
 }
 
@@ -447,10 +468,15 @@ typename Vector<T>::ReverseIterator Vector<T>::erase(ReverseIterator iter)
 template <class T>
 void Vector<T>::assign(const Vector &x)
 {
+    if (this == &x)
+    {
+        return;
+    }
+
     reserve(x.size(), false);
-    pedigree_std::copy(m_Data, x.m_Data, x.m_Count);
+    pedigree_std::copy(m_Data, x.begin(), x.m_Count);
     m_Count = x.count();
-    m_Start = x.m_Start;
+    m_Start = 0;
 }
 
 template <class T>
@@ -478,7 +504,7 @@ void Vector<T>::reserve(size_t size, bool copy, bool free)
     {
         if ((copy == true) && m_Count)
         {
-            pedigree_std::copy(m_Data, tmp + m_Start, m_Count - m_Start);
+            pedigree_std::copy(m_Data, tmp + m_Start, m_Count);
             m_Start = 0;
         }
         if (free)

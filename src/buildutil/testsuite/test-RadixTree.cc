@@ -46,6 +46,21 @@ TEST(PedigreeRadixTree, CopyConstruction)
     EXPECT_EQ(result.value(), 1);
 }
 
+TEST(PedigreeRadixTree, CopyPreservesStructuralNodes)
+{
+    RadixTree<int> x;
+    x.insert(String("foobar"), 1);
+    x.insert(String("foobaz"), 2);
+
+    RadixTree<int> y(x);
+    EXPECT_TRUE(y.lookup(String("fooba")).hasError());
+
+    y.remove(String("foobar"));
+    EXPECT_EQ(y.count(), 1U);
+    EXPECT_TRUE(y.lookup(String("foobar")).hasError());
+    EXPECT_EQ(y.lookup(String("foobaz")).value(), 2);
+}
+
 TEST(PedigreeRadixTree, Assignment)
 {
     RadixTree<int> x, y;
@@ -60,6 +75,19 @@ TEST(PedigreeRadixTree, Assignment)
     result = y.lookup(String("foo"));
     EXPECT_FALSE(result.hasError());
     EXPECT_EQ(result.value(), 1);
+}
+
+TEST(PedigreeRadixTree, SelfAssignmentPreservesItems)
+{
+    RadixTree<int> x;
+    x.insert(String("foo"), 1);
+    x.insert(String("foobar"), 2);
+
+    const RadixTree<int> &same = x;
+    x = same;
+    EXPECT_EQ(x.count(), 2U);
+    EXPECT_EQ(x.lookup(String("foo")).value(), 1);
+    EXPECT_EQ(x.lookup(String("foobar")).value(), 2);
 }
 
 TEST(PedigreeRadixTree, CaseSensitive)
@@ -96,6 +124,8 @@ TEST(PedigreeRadixTree, Clear)
     x.insert(String("bar"), 2);
     x.clear();
     EXPECT_EQ(x.count(), 0U);
+    EXPECT_TRUE(x.lookup(String("foo")).hasError());
+    EXPECT_TRUE(x.lookup(String("bar")).hasError());
 }
 
 TEST(PedigreeRadixTree, EmptyLookup)
@@ -119,6 +149,18 @@ TEST(PedigreeRadixTree, EmptyKeyRemove)
     EXPECT_EQ(x.count(), 0U);
 }
 
+TEST(PedigreeRadixTree, EmptyKeyRemovalUpdatesCount)
+{
+    RadixTree<int> x;
+    x.insert(String(), 7);
+    ASSERT_EQ(x.count(), 1U);
+    ASSERT_EQ(x.lookup(String()).value(), 7);
+
+    x.remove(String());
+    EXPECT_EQ(x.count(), 0U);
+    EXPECT_TRUE(x.lookup(String()).hasError());
+}
+
 TEST(PedigreeRadixTree, PartialMatchMiss)
 {
     RadixTree<int> x;
@@ -126,6 +168,19 @@ TEST(PedigreeRadixTree, PartialMatchMiss)
 
     RadixTree<int>::LookupType result = x.lookup(String("foo"));
     EXPECT_TRUE(result.hasError());
+}
+
+TEST(PedigreeRadixTree, RemovingStructuralPrefixDoesNotChangeCount)
+{
+    RadixTree<int> x;
+    x.insert(String("foobar"), 1);
+    x.insert(String("foobaz"), 2);
+    ASSERT_TRUE(x.lookup(String("fooba")).hasError());
+
+    x.remove(String("fooba"));
+    EXPECT_EQ(x.count(), 2U);
+    EXPECT_EQ(x.lookup(String("foobar")).value(), 1);
+    EXPECT_EQ(x.lookup(String("foobaz")).value(), 2);
 }
 
 TEST(PedigreeRadixTree, Removal)
@@ -328,6 +383,24 @@ TEST(PedigreeRadixTree, Iteration)
     EXPECT_EQ(*it++, 2);
     EXPECT_EQ(*it++, 3);
     EXPECT_EQ(*it++, 4);
+}
+
+TEST(PedigreeRadixTree, IterationIncludesZeroValues)
+{
+    RadixTree<int> x;
+    x.insert(String("zero"), 0);
+    x.insert(String("one"), 1);
+
+    size_t seen = 0;
+    bool sawZero = false;
+    for (auto it = x.begin(); it != x.end(); ++it)
+    {
+        sawZero |= (*it == 0);
+        ++seen;
+    }
+
+    EXPECT_EQ(seen, 2U);
+    EXPECT_TRUE(sawZero);
 }
 
 TEST(PedigreeRadixTree, Erase)

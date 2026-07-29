@@ -119,6 +119,12 @@ String &String::operator+=(const String &x)
 {
     assert(assignable());
 
+    if (this == &x)
+    {
+        String copy(x);
+        return *this += copy;
+    }
+
     size_t newLength = x.length() + m_Length;
 
     reserve(newLength + 1);
@@ -140,6 +146,18 @@ String &String::operator+=(const String &x)
 String &String::operator+=(const char *s)
 {
     assert(assignable());
+
+    const char *current = extract();
+    if (s && current)
+    {
+        const uintptr_t address = reinterpret_cast<uintptr_t>(s);
+        const uintptr_t begin = reinterpret_cast<uintptr_t>(current);
+        if ((address >= begin) && (address < (begin + m_Size)))
+        {
+            String copy(s);
+            return *this += copy;
+        }
+    }
 
     size_t slen = StringLength(s);
     size_t newLength = slen + m_Length;
@@ -205,6 +223,10 @@ bool String::operator==(const char *s) const
     else if ((!m_Length) && *s)
     {
         // Quick check when we're zero-length.
+        return false;
+    }
+    else if (StringLength(s) != m_Length)
+    {
         return false;
     }
     else
@@ -280,6 +302,9 @@ void String::assign(const String &x)
 {
     assert(assignable());
 
+    if (this == &x)
+        return;
+
     if (extract() && x.extract())
     {
         assert(extract() != x.extract());
@@ -327,6 +352,19 @@ void String::assign(const Cord &x)
 void String::assign(const char *s, size_t len, bool unsafe)
 {
     assert(assignable());
+
+    const char *current = extract();
+    if (s && current)
+    {
+        const uintptr_t address = reinterpret_cast<uintptr_t>(s);
+        const uintptr_t begin = reinterpret_cast<uintptr_t>(current);
+        if ((address >= begin) && (address < (begin + m_Size)))
+        {
+            String copy(s, len, unsafe);
+            assign(copy);
+            return;
+        }
+    }
 
     // Trying to assign self to self?
     assert((m_Data == nullptr) || (m_Data && (m_Data != s)));
@@ -426,10 +464,13 @@ void String::downsize()
 
     size_t newSize = pedigree_std::max(m_Length + 1, STRING_MINIMUM_ALLOCATION_SIZE);
 
+    if (!m_Data || (newSize >= m_Size))
+        return;
+
     char *oldData = m_Data;
 
     m_Data = new char[newSize];
-    MemoryCopy(m_Data, oldData, newSize);
+    MemoryCopy(m_Data, oldData, m_Length + 1);
 
     delete [] oldData;
 
@@ -463,6 +504,11 @@ void String::ltrim(size_t n)
     MemoryCopy(m_Data, &m_Data[n], m_Length - n);
     m_Length -= n;
     m_Data[m_Length] = 0;
+
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
+    computeHash();
+#endif
 }
 
 void String::rtrim(size_t n)
@@ -477,6 +523,11 @@ void String::rtrim(size_t n)
 
     m_Data[m_Length - n] = 0;
     m_Length -= n;
+
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
+    computeHash();
+#endif
 }
 
 String String::split(size_t offset)
@@ -682,6 +733,9 @@ void String::lchomp()
 {
     assert(assignable());
 
+    if (!m_Length)
+        return;
+
     char *buf = extract();
 
     StringCopy(buf, &buf[1]);
@@ -696,6 +750,9 @@ void String::lchomp()
 void String::chomp()
 {
     assert(assignable());
+
+    if (!m_Length)
+        return;
 
     char *buf = extract();
 
@@ -884,7 +941,6 @@ StringView String::view() const
 {
     // hash already calculated, enable hashing
     const char *buf = extract();
-    assert(buf);
     return StringView(buf, m_Length, m_Hash, true);
 }
 

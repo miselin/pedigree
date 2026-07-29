@@ -74,6 +74,29 @@ TEST(PedigreeCord, Prepend)
     EXPECT_STREQ(str.cstr(), "a b c");
 }
 
+TEST(PedigreeCord, ClearResetsLength)
+{
+    Cord s;
+    s.append("hello");
+    s.clear();
+
+    EXPECT_EQ(s.length(), 0U);
+    EXPECT_EQ(s.toString(), "");
+    EXPECT_EQ(s.begin(), s.end());
+}
+
+TEST(PedigreeCord, SelfAssignmentPreservesSegments)
+{
+    Cord s;
+    s.append("hello ");
+    s.append("world");
+
+    const Cord &same = s;
+    s = same;
+    EXPECT_EQ(s.length(), 11U);
+    EXPECT_EQ(s.toString(), "hello world");
+}
+
 TEST(PedigreeCord, Indexing)
 {
     const char *a = "a ";
@@ -115,6 +138,19 @@ TEST(PedigreeCord, Iteration)
     EXPECT_EQ(*it++, ' ');
     EXPECT_EQ(*it++, 'c');
     EXPECT_EQ(it, s.end());
+}
+
+TEST(PedigreeCord, ReverseIteration)
+{
+    Cord s;
+    s.append("ab");
+    s.append("cd");
+
+    auto it = s.end();
+    EXPECT_EQ(*--it, 'd');
+    EXPECT_EQ(*--it, 'c');
+    EXPECT_EQ(*--it, 'b');
+    EXPECT_EQ(*--it, 'a');
 }
 
 TEST(PedigreeCord, StaticAppend)
@@ -174,4 +210,17 @@ TEST(PedigreeCord, StaticIteration)
     EXPECT_EQ(*it++, ' ');
     EXPECT_EQ(*it++, 'c');
     EXPECT_EQ(it, s.end());
+}
+
+TEST(PedigreeCord, StaticReverseIteration)
+{
+    StaticCord<8> s;
+    s.append("ab");
+    s.append("cd");
+
+    auto it = s.end();
+    EXPECT_EQ(*--it, 'd');
+    EXPECT_EQ(*--it, 'c');
+    EXPECT_EQ(*--it, 'b');
+    EXPECT_EQ(*--it, 'a');
 }

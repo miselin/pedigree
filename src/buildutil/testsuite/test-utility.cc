@@ -167,3 +167,20 @@ TEST(PedigreeUtility, NonTrivialCopies)
     EXPECT_EQ(a[2].get(), expect[2].get());
     EXPECT_EQ(a[3].get(), expect[3].get());
 }
+
+TEST(PedigreeUtility, NonTrivialOverlappingCopyToLowerAddress)
+{
+    typedef SharedPointer<int> sharedintptr_t;
+
+    sharedintptr_t ptr1 = sharedintptr_t::allocate(1);
+    sharedintptr_t ptr2 = sharedintptr_t::allocate(2);
+    sharedintptr_t ptr3 = sharedintptr_t::allocate(3);
+    sharedintptr_t ptr4 = sharedintptr_t::allocate(4);
+
+    sharedintptr_t values[] = {ptr1, ptr2, ptr3, ptr4};
+    pedigree_std::copy(values, values + 1, 3);
+
+    EXPECT_EQ(values[0].get(), ptr2.get());
+    EXPECT_EQ(values[1].get(), ptr3.get());
+    EXPECT_EQ(values[2].get(), ptr4.get());
+}

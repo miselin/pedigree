@@ -56,6 +56,19 @@ TEST(PedigreeList, Assignment)
     EXPECT_EQ(x.popFront(), y.popFront());
 }
 
+TEST(PedigreeList, SelfAssignmentPreservesItems)
+{
+    List<int> x;
+    x.pushBack(1);
+    x.pushBack(2);
+
+    const List<int> &same = x;
+    x = same;
+    ASSERT_EQ(x.count(), 2U);
+    EXPECT_EQ(x.popFront(), 1);
+    EXPECT_EQ(x.popFront(), 2);
+}
+
 TEST(PedigreeList, AddItems)
 {
     List<int> x;
@@ -256,6 +269,38 @@ TEST(PedigreeList, ErasingReverse)
     EXPECT_EQ(x.popFront(), 4);
     EXPECT_EQ(x.popFront(), 8);
 
+    EXPECT_EQ(x.count(), 0U);
+}
+
+TEST(PedigreeList, ErasingLastInReverseMaintainsBoundaries)
+{
+    List<int> x;
+    x.pushBack(2);
+    x.pushBack(4);
+
+    auto it = x.rbegin();
+    it = x.erase(it);
+
+    ASSERT_NE(it, x.rend());
+    EXPECT_EQ(*it, 2);
+    EXPECT_EQ(*x.rbegin(), 2);
+    EXPECT_EQ(x.popFront(), 2);
+    EXPECT_EQ(x.count(), 0U);
+}
+
+TEST(PedigreeList, ErasingFirstInReverseMaintainsBoundaries)
+{
+    List<int> x;
+    x.pushBack(2);
+    x.pushBack(4);
+
+    auto it = x.rbegin();
+    ++it;
+    it = x.erase(it);
+
+    EXPECT_EQ(it, x.rend());
+    EXPECT_EQ(*x.begin(), 4);
+    EXPECT_EQ(x.popBack(), 4);
     EXPECT_EQ(x.count(), 0U);
 }
 

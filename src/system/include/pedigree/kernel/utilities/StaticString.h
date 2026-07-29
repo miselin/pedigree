@@ -63,7 +63,8 @@ class EXPORTED_PUBLIC StaticString
      * This creates a new copy of pSrc - pSrc can be safely
      * deallocated afterwards.
      */
-    explicit StaticString(const char *pSrc) : m_Length(StringLength(pSrc)), m_Hash(0), m_AllowHashes(false)
+    explicit StaticString(const char *pSrc)
+        : m_Length(0), m_Hash(0), m_AllowHashes(false)
     {
         assign(pSrc);
     }
@@ -80,6 +81,7 @@ class EXPORTED_PUBLIC StaticString
 
     /** Creates a StaticString from a String object. */
     StaticString(const String &str)
+        : m_Length(0), m_Hash(0), m_AllowHashes(false)
     {
         assign(str.cstr(), str.length());
     }
@@ -126,6 +128,12 @@ class EXPORTED_PUBLIC StaticString
 
     void assign(const char *str, size_t len=0)
     {
+        if (!str)
+        {
+            clear();
+            return;
+        }
+
         if (!len)
         {
             len = min(N - 1, StringLength(str));
@@ -135,8 +143,7 @@ class EXPORTED_PUBLIC StaticString
             len = min(len, N - 1);
         }
 
-        /// \note not using memmove - don't assign() a StaticString to itself
-        ForwardMemoryCopy(m_pData, str, len);
+        MemoryCopy(m_pData, str, len);
 
         m_Length = len;
         m_pData[len] = 0;
@@ -308,7 +315,10 @@ class EXPORTED_PUBLIC StaticString
         if (nInt < 0)
         {
             append("-");
-            nInt = -nInt;
+            unsigned short magnitude =
+                static_cast<unsigned short>(-(nInt + 1));
+            append(++magnitude, nRadix, nLen, c);
+            return;
         }
         append(static_cast<unsigned short>(nInt), nRadix, nLen, c);
     }
@@ -318,7 +328,9 @@ class EXPORTED_PUBLIC StaticString
         if (nInt < 0)
         {
             append("-");
-            nInt = -nInt;
+            unsigned int magnitude = static_cast<unsigned int>(-(nInt + 1));
+            append(++magnitude, nRadix, nLen, c);
+            return;
         }
         append(static_cast<unsigned int>(nInt), nRadix, nLen, c);
     }
@@ -328,7 +340,10 @@ class EXPORTED_PUBLIC StaticString
         if (nInt < 0)
         {
             append("-");
-            nInt = -nInt;
+            unsigned long magnitude =
+                static_cast<unsigned long>(-(nInt + 1));
+            append(++magnitude, nRadix, nLen, c);
+            return;
         }
         append(static_cast<unsigned long>(nInt), nRadix, nLen, c);
     }
@@ -339,7 +354,10 @@ class EXPORTED_PUBLIC StaticString
         if (nInt < 0)
         {
             append("-");
-            nInt = -nInt;
+            unsigned long long magnitude =
+                static_cast<unsigned long long>(-(nInt + 1));
+            append(++magnitude, nRadix, nLen, c);
+            return;
         }
         append(static_cast<unsigned long long>(nInt), nRadix, nLen, c);
     }
@@ -378,7 +396,7 @@ class EXPORTED_PUBLIC StaticString
     template <unsigned int size, typename T>
     void appendInteger(T nInt, size_t nRadix, size_t nLen, char c)
     {
-        if (!canAppend())
+        if (!canAppend() || (nRadix < 2) || (nRadix > 36))
         {
             // cannot append any longer
             return;
@@ -410,65 +428,28 @@ class EXPORTED_PUBLIC StaticString
 
     void append(const char *str, size_t nLen = 0, char c = ' ')
     {
-        if (!canAppend())
+        if (!str || !canAppend())
         {
-            // cannot append any longer
             return;
         }
 
-        if (nLen == 0 && length() == 0)
+        const size_t available = (N - 1) - m_Length;
+        size_t stringLength = nLen ? BoundedStringLength(str, nLen)
+                                   : StringLength(str);
+        size_t padding = nLen > stringLength ? nLen - stringLength : 0;
+        padding = min(padding, available);
+
+        if (padding)
         {
-            assign(str);
-            return;
+            ByteSet(m_pData + m_Length, c, padding);
+            m_Length += padding;
         }
 
-        // Only need to add padding if nLen > 0, as if it's zero we are not
-        // trying to fill a particular width with the appended string.
-        if (nLen)
-        {
-            /// \todo this is unsafe - StringLength is unconstrained.
-            size_t length2 = min(nLen, StringLength(str));
-
-            if (nLen > length2)
-            {
-                // need padding
-                size_t i;
-                for (i = 0; i < nLen - length2; i++)
-                {
-                    m_pData[i + length()] = c;
-                }
-                m_pData[i + length()] = '\0';
-                m_Length += nLen - length2;
-
-                nLen = length2;
-            }
-        }
-
-        // Append.
-        size_t i = m_Length;
-        size_t appended = 0;
-        // NOTE: we split here so we aren't checking if(nLen) every iteration
-        if (nLen)
-        {
-            while ((i <= N) && (appended++ < nLen) && *str)
-            {
-                m_pData[i++] = *str++;
-            }
-
-            m_Length = i;
-            m_pData[i] = 0;
-        }
-        else
-        {
-            size_t otherLen = StringLength(str);
-            size_t copyLen = min(N - length(), otherLen);
-
-            // not allowing memmove here - append by definition won't overlap
-            ForwardMemoryCopy(m_pData + length(), str, copyLen);
-
-            m_Length += copyLen;
-            m_pData[m_Length] = 0;
-        }
+        const size_t remaining = (N - 1) - m_Length;
+        const size_t copyLength = min(stringLength, remaining);
+        MemoryCopy(m_pData + m_Length, str, copyLength);
+        m_Length += copyLength;
+        m_pData[m_Length] = 0;
 
         check();
 
@@ -500,7 +481,9 @@ class EXPORTED_PUBLIC StaticString
             {
                 // render \xXX formatted character code instead of raw character
                 append("\\x");
-                append(static_cast<unsigned int>(c), 16, 2);
+                append(static_cast<unsigned int>(
+                           static_cast<unsigned char>(c)),
+                       16, 2);
             }
         }
     }
@@ -514,28 +497,22 @@ class EXPORTED_PUBLIC StaticString
             return;
         }
 
-        if (nLen == 0 && length() == 0)
+        const size_t available = (N - 1) - m_Length;
+        const size_t stringLength =
+            nLen ? min(nLen, str.length()) : str.length();
+        size_t padding = nLen > stringLength ? nLen - stringLength : 0;
+        padding = min(padding, available);
+        if (padding)
         {
-            assign(str);
-            return;
+            ByteSet(m_pData + m_Length, c, padding);
+            m_Length += padding;
         }
 
-        // Pad, if needed
-        if (nLen > str.length())
-        {
-            size_t i;
-            for (i = 0; i < nLen - str.length(); i++)
-            {
-                m_pData[i + length()] = c;
-            }
-            m_pData[i + length()] = '\0';
-            m_Length += nLen - str.length();
-        }
-
-        // Add the string
-        // note: not allowing memmove here - append by definition won't overlap
-        ForwardMemoryCopy(m_pData + length(), str, N - length());
-        m_Length += str.length();
+        const size_t remaining = (N - 1) - m_Length;
+        const size_t copyLength = min(stringLength, remaining);
+        MemoryCopy(
+            m_pData + m_Length, static_cast<const char *>(str), copyLength);
+        m_Length += copyLength;
         m_pData[m_Length] = 0;
 
         check();
@@ -554,13 +531,10 @@ class EXPORTED_PUBLIC StaticString
         // Pad, if needed
         if (nLen > length())
         {
-            size_t i;
-            for (i = 0; i < nLen - length(); i++)
-            {
-                m_pData[i + length()] = c;
-            }
-            m_pData[i + length()] = '\0';
-            m_Length += nLen - length();
+            const size_t newLength = min(nLen, static_cast<size_t>(N - 1));
+            ByteSet(m_pData + m_Length, c, newLength - m_Length);
+            m_Length = newLength;
+            m_pData[m_Length] = '\0';
         }
 
         updateHash();

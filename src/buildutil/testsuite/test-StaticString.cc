@@ -19,6 +19,8 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include <limits.h>
+
 #include <gtest/gtest.h>
 
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -283,6 +285,25 @@ TEST(PedigreeStaticString, AppendStaticStringTooLong)
     EXPECT_STREQ(s, "hello");
 }
 
+TEST(PedigreeStaticString, AppendTruncatesToRemainingCapacity)
+{
+    StaticString<6> s("1234");
+    StaticString<64> other("56789");
+    s.append(other);
+
+    EXPECT_STREQ(s, "12345");
+    EXPECT_EQ(s.length(), 5U);
+}
+
+TEST(PedigreeStaticString, PaddingTruncatesToCapacity)
+{
+    StaticString<6> s("1");
+    s.pad(20, 'x');
+
+    EXPECT_STREQ(s, "1xxxx");
+    EXPECT_EQ(s.length(), 5U);
+}
+
 TYPED_TEST(PedigreeStaticStringSignedTypes, AppendSignedIntegers)
 {
     StaticString<64> s("hello");
@@ -290,6 +311,13 @@ TYPED_TEST(PedigreeStaticStringSignedTypes, AppendSignedIntegers)
     EXPECT_STREQ(s, "hello50");
     s.append(static_cast<TypeParam>(-5));
     EXPECT_STREQ(s, "hello50-5");
+}
+
+TEST(PedigreeStaticString, AppendMinimumSignedInteger)
+{
+    StaticString<64> s;
+    s.append(INT_MIN);
+    EXPECT_STREQ(s, "-2147483648");
 }
 
 TYPED_TEST(PedigreeStaticStringUnsignedTypes, AppendUnsignedIntegers)
