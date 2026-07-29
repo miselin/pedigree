@@ -25,14 +25,17 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include <stdarg.h>
+#if UTILITY_LINUX && defined(__APPLE__)
+#include <ctype.h>
+#endif
 
-// Condense X86-ish systems into one define for utilities.
-/// \note this will break testsuite/hosted builds on non-x86 hosts.
-#if X86_COMMON || HOSTED_X86_COMMON || UTILITY_LINUX
+// Host utilities can run on architectures other than the Pedigree target.
+#if X86_COMMON || HOSTED_X86_COMMON || \
+    (UTILITY_LINUX && (defined(__i386__) || defined(__x86_64__)))
 #define TARGET_IS_X86
 #endif
 
-#ifdef __cplusplus
+#if defined(__cplusplus) && !defined(__APPLE__)
 #define NOTHROW noexcept
 #else
 #define NOTHROW
@@ -125,11 +128,13 @@ EXPORTED_PUBLIC const char *DirectoryName(const char *path) PURE;
 EXPORTED_PUBLIC const char *BaseName(const char *path) PURE;
 
 // Character checks.
+#if !(UTILITY_LINUX && defined(__APPLE__))
 EXPORTED_PUBLIC int isspace(int c) NOTHROW;
 EXPORTED_PUBLIC int isupper(int c) NOTHROW;
 EXPORTED_PUBLIC int islower(int c) NOTHROW;
 EXPORTED_PUBLIC int isdigit(int c) NOTHROW;
 EXPORTED_PUBLIC int isalpha(int c) NOTHROW;
+#endif
 
 // Built-in PRNG.
 void random_seed(uint64_t seed);

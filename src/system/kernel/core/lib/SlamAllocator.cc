@@ -95,7 +95,11 @@ inline T *touch_tag(T *p)
 inline void spin_pause()
 {
 #if PEDIGREE_BENCHMARK
+#if defined(__i386__) || defined(__x86_64__)
     asm("pause");
+#elif defined(__aarch64__)
+    asm("yield");
+#endif
 #else
     Processor::pause();
 #endif

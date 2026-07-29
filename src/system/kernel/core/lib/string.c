@@ -324,6 +324,7 @@ char *StringConcatN(char *dest, const char *src, size_t n)
     return origDest;
 }
 
+#if !(UTILITY_LINUX && defined(__APPLE__))
 int isspace(int c)
 {
     return (c == ' ' || c == '\n' || c == '\r' || c == '\t');
@@ -348,6 +349,7 @@ int isalpha(int c)
 {
     return isupper(c) || islower(c) || isdigit(c);
 }
+#endif
 
 // Intentionally casting const char * to char * in these functions, don't warn
 #pragma GCC diagnostic push

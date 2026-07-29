@@ -1,3 +1,7 @@
+cmake_minimum_required(VERSION 3.10)
+# The bundled GoogleTest release still declares compatibility with CMake 2.6.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 # Add our internal CMake modules path before project() to enable our custom platform
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
@@ -7,7 +11,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(Pedigree)
-cmake_minimum_required(VERSION 3.3)
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # TODO: keep this up to date with checkBuildSystemNoInteractive.pl
@@ -72,6 +75,7 @@ set(PEDIGREE_TRAVIS FALSE CACHE BOOL "Enable to report this build is happening o
 set(PEDIGREE_OPTIMIZE TRUE CACHE BOOL "Build an optimized kernel and modules.")
 set(PEDIGREE_OPTIMIZE_SIZE TRUE CACHE BOOL "If building an optimized kernel, optimize for size.")
 set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
+set(PEDIGREE_COVERAGE FALSE CACHE BOOL "Build utilities with coverage instrumentation and reporting.")
 
 # Build artifact controls.
 set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, which includes a hard disk image and relevant customizations.")
@@ -243,14 +247,6 @@ if(CMAKE_CROSSCOMPILING)
     add_subdirectory(src/modules)
     add_subdirectory(src/system/kernel)
     add_subdirectory(src/po)
-
-    # Build everything else with the target compiler rather than the host compiler
-    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-        set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
-        set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
-        set(CMAKE_LINKER ${PEDIGREE_CXX_COMPILER})
-        set(CMAKE_SYSROOT "${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
-    endif ()
 
     if (PEDIGREE_BUILD_USER_DIR)
         add_subdirectory(src/user)

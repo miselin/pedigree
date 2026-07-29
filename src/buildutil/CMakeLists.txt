@@ -2,7 +2,9 @@
 set(PEDIGREE_BUILDUTILS_ASAN OFF CACHE BOOL "Build build utilities with the address sanitizer enabled.")
 
 include(CheckCCompilerFlag)
-include(CodeCoverage)
+if (PEDIGREE_COVERAGE)
+    include(CodeCoverage)
+endif ()
 
 find_package(OpenSSL)
 find_package(Threads REQUIRED)
@@ -15,10 +17,6 @@ set(CMAKE_REQUIRED_FLAGS "-fsanitize=address")
 check_c_compiler_flag("-fsanitize=address" HAVE_ASAN)
 
 unset(CMAKE_REQUIRED_FLAGS)
-
-if (BENCHMARK_INCLUDE_DIR)
-    include_directories(${BENCHMARK_INCLUDE_DIR})
-endif ()
 
 # TODO: should detect a few of these things
 add_definitions(
@@ -62,13 +60,16 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Event.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Semaphore.cc)
 add_library(kernel ${KERNEL_SRCS})
-add_library(kernel_coverage ${KERNEL_SRCS})
 target_compile_options(kernel PRIVATE ${NONCOVERAGE_FLAGS})
-# NOTE: using 'PUBLIC' here means anything using kernel_coverage will also get
-# these flags.
-target_compile_options(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
-target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
-target_compile_definitions(kernel_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
+set(TEST_KERNEL_TARGET kernel)
+if (PEDIGREE_COVERAGE)
+    add_library(kernel_coverage ${KERNEL_SRCS})
+    # Tests need the same coverage flags as the instrumented libraries.
+    target_compile_options(kernel_coverage PUBLIC ${COVERAGE_FLAGS})
+    target_link_libraries(kernel_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+    target_compile_definitions(kernel_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
+    set(TEST_KERNEL_TARGET kernel_coverage)
+endif ()
 
 set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
@@ -121,16 +122,25 @@ set(UTILITY_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/shim.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/pocketknife.cc)
 
+if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i.86)$")
+    list(REMOVE_ITEM UTILITY_SRCS
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/x64/fastmemory.s)
+endif ()
+
 set_source_files_properties(
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/x64/fastmemory.s
     PROPERTIES LANGUAGE ASM_NASM)
 
 add_library(utility ${UTILITY_SRCS})
-add_library(utility_coverage ${UTILITY_SRCS})
 target_compile_options(utility PRIVATE ${NONCOVERAGE_FLAGS})
-target_compile_options(utility_coverage PUBLIC ${COVERAGE_FLAGS})
-target_link_libraries(utility_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
-target_compile_definitions(utility_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
+set(TEST_UTILITY_TARGET utility)
+if (PEDIGREE_COVERAGE)
+    add_library(utility_coverage ${UTILITY_SRCS})
+    target_compile_options(utility_coverage PUBLIC ${COVERAGE_FLAGS})
+    target_link_libraries(utility_coverage PUBLIC ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+    target_compile_definitions(utility_coverage PUBLIC -DUTILITY_LINUX_COVERAGE)
+    set(TEST_UTILITY_TARGET utility_coverage)
+endif ()
 
 add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Directory.cc
@@ -185,7 +195,7 @@ add_executable(ext2img
     ext2img/stubs.cc)
 target_link_libraries(ext2img PRIVATE
     ext2 vfs partition utility kernel
-    $<$<BOOL:OPENSSL_FOUND>:${OPENSSL_CRYPTO_LIBRARY}> Threads::Threads)
+    $<$<BOOL:OPENSSL_FOUND>:OpenSSL::Crypto> Threads::Threads)
 
 add_executable(instrument instrument/main.cc)
 target_include_directories(instrument PRIVATE
@@ -230,19 +240,27 @@ set(TESTSUITE_SRCS
 # non-ASAN testsuite
 add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
-    debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
+    debugger vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+    Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
-target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
-target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+if (PEDIGREE_COVERAGE)
+    target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
+    target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+endif ()
 
 # ASAN testsuite
 if (HAVE_ASAN)
     add_executable(testsuite-asan ${TESTSUITE_SRCS})
     target_link_libraries(testsuite-asan PRIVATE
-        debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
+        debugger vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+        Threads::Threads gtest gtest_main)
     target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
-    target_compile_options(testsuite-asan PRIVATE ${COVERAGE_FLAGS} "-fsanitize=address")
-    target_link_libraries(testsuite-asan PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS} "-fsanitize=address")
+    target_compile_options(testsuite-asan PRIVATE "-fsanitize=address")
+    target_link_libraries(testsuite-asan PRIVATE "-fsanitize=address")
+    if (PEDIGREE_COVERAGE)
+        target_compile_options(testsuite-asan PRIVATE ${COVERAGE_FLAGS})
+        target_link_libraries(testsuite-asan PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+    endif ()
 endif ()
 
 add_executable(headerify headerify/main.cc)
@@ -276,12 +294,14 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-LruCache.cc
         testsuite/bench-Log.cc)
     add_executable(benchmarker ${BENCHMARK_SRCS})
+    target_include_directories(benchmarker PRIVATE ${BENCHMARK_INCLUDE_DIR})
     target_link_libraries(benchmarker PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
     target_compile_options(benchmarker PRIVATE "-Os" "-march=k8" "-mtune=k8" "-mno-sse" "-mno-mmx" "-mno-red-zone" "-fno-omit-frame-pointer")
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 
     add_executable(benchmarker-native ${BENCHMARK_SRCS})
+    target_include_directories(benchmarker-native PRIVATE ${BENCHMARK_INCLUDE_DIR})
     target_link_libraries(benchmarker-native PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
     target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native")
@@ -356,9 +376,11 @@ add_executable(unixsockets
 target_link_libraries(unixsockets PRIVATE
     lwip posix vfs utility kernel Threads::Threads)
 
-SETUP_TARGET_FOR_COVERAGE(
-    NAME testsuite_coverage
-    EXECUTABLE $<TARGET_FILE:testsuite>
-    DEPENDENCIES testsuite)
+if (PEDIGREE_COVERAGE)
+    SETUP_TARGET_FOR_COVERAGE(
+        NAME testsuite_coverage
+        EXECUTABLE $<TARGET_FILE:testsuite>
+        DEPENDENCIES testsuite)
+endif ()
 
 add_test(NAME testsuite COMMAND $<TARGET_FILE:testsuite>)

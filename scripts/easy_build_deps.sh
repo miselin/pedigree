@@ -7,26 +7,59 @@
 set -e
 
 echo "Pedigree Easy Build script"
-echo "This script will ask a couple questions and then automatically install"
-echo "dependencies and compile Pedigree for you."
+echo "This script will automatically install dependencies and compile Pedigree"
+echo "for you."
 echo
 
 compiler_build_options=""
 
-if [ -d "$script_dir/build-host/src/buildutil/ext2img" ]; then
-    rm -rf "$script_dir/build-host/src/buildutil/ext2img"
-fi
-
 real_os=""
 nosudo=0
-if [ ! -e $script_dir/.easy_os ]; then
-
-    echo "Checking for dependencies... Which operating system are you running on?"
-    echo "Cygwin, Debian/Ubuntu, OpenSuSE, Fedora, OSX, Arch, or some other system?"
+if [ ! -e "$script_dir/.easy_os" ]; then
 
     confirm=""
     if [ $# == 0 ]; then
-        read os
+        case "$(uname -s)" in
+            Darwin)
+                os="osx"
+                ;;
+            Linux)
+                os=""
+                if [ -r /etc/os-release ]; then
+                    . /etc/os-release
+                    case "${ID:-} ${ID_LIKE:-}" in
+                        *ubuntu*)
+                            os="ubuntu"
+                            ;;
+                        *debian*)
+                            os="debian"
+                            ;;
+                        *suse*)
+                            os="opensuse"
+                            ;;
+                        *fedora*|*rhel*)
+                            os="fedora"
+                            ;;
+                        *arch*)
+                            os="arch"
+                            ;;
+                    esac
+                    [ -n "$os" ] || os="${ID:-linux}"
+                else
+                    os="linux"
+                fi
+                ;;
+            OpenBSD)
+                os="openbsd"
+                ;;
+            CYGWIN*|MINGW*|MSYS*)
+                os="cygwin"
+                ;;
+            *)
+                os="$(uname -s)"
+                ;;
+        esac
+        echo "Detected host operating system: $os"
     else
         os=$1
         if [ "$os" = "nosudo" ]; then
@@ -47,38 +80,40 @@ if [ ! -e $script_dir/.easy_os ]; then
             # TODO: Not sure if the package list is any different for debian vs ubuntu?
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
-                libmpc-dev libgmp3-dev sqlite3 texinfo scons genisoimage \
-                u-boot-tools nasm python3-requests
+                libmpc-dev libgmp-dev sqlite3 texinfo genisoimage u-boot-tools \
+                nasm python3-requests autoconf automake cmake bison flex lcov
             ;;
         ubuntu)
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
-                libmpc-dev libgmp3-dev sqlite3 texinfo scons genisoimage \
-                e2fsprogs u-boot-tools nasm python3-requests autoconf cmake \
+                libmpc-dev libgmp-dev sqlite3 texinfo genisoimage e2fsprogs \
+                u-boot-tools nasm python3-requests autoconf automake cmake \
                 bison flex lcov
             ;;
         opensuse)
             echo "Installing packages with zypper, please wait..."
             set +e
             sudo zypper install mpfr-devel mpc-devel gmp3-devel sqlite3 \
-                texinfo scons genisoimage
+                texinfo cmake bison flex autoconf automake nasm genisoimage
             set -e
             ;;
         fedora|redhat|centos|rhel)
             echo "Installing packages with YUM, please wait..."
             sudo yum install $confirm mpfr-devel gmp-devel libmpc-devel \
-                sqlite texinfo scons genisoimage
+                sqlite texinfo cmake bison flex autoconf automake nasm genisoimage
             ;;
         osx|mac)
             if type port >/dev/null 2>&1; then
                 echo "Installing packages with macports, please wait..."
 
                 sudo port install mpfr libmpc gmp libiconv sqlite3 texinfo \
-                    scons cdrtools wget mtools gnutar nasm
+                    cmake bison flex cdrtools wget mtools gnutar nasm
             elif type brew >/dev/null 2>&1; then
                 echo "Installing packages with Homebrew, please wait..."
 
-                brew list scons &>/dev/null || brew install scons
+                brew list cmake &>/dev/null || brew install cmake
+                brew list bison &>/dev/null || brew install bison
+                brew list flex &>/dev/null || brew install flex
                 brew list gnu-tar &>/dev/null || brew install gnu-tar
                 brew list wget &>/dev/null || brew install wget
                 brew list xorriso &>/dev/null || brew install xorriso
@@ -103,7 +138,8 @@ if [ ! -e $script_dir/.easy_os ]; then
             ;;
         openbsd)
             echo "Installing packages with pkg_add, please wait..."
-            sudo pkg_add scons mtools sqlite cdrtools gmp mpfr libmpc wget sed
+            sudo pkg_add cmake bison flex mtools sqlite cdrtools gmp mpfr \
+                libmpc wget nasm
             ;;
         cygwin|windows|mingw)
             echo "Please ensure you use Cygwin's 'setup.exe', or some other method, to install the following:"
@@ -116,13 +152,15 @@ if [ ! -e $script_dir/.easy_os ]; then
             echo " - GNU make"
             echo "You will need to find alternative sources for the following:"
             echo " - mtools"
-            echo " - scons"
+            echo " - CMake"
+            echo " - Bison and Flex"
 
             real_os="cygwin"
             ;;
         arch)
             echo "Installing packages with pacman, please wait..."
-            sudo pacman -S gcc binutils gmp libmpc mpfr sqlite texinfo scons wget cdrtools mtools tar
+            sudo pacman -S gcc binutils gmp libmpc mpfr sqlite texinfo cmake \
+                bison flex autoconf automake nasm wget cdrtools mtools tar
             ;;
         *)
             echo "Operating system '$os' is not supported yet."
@@ -133,7 +171,8 @@ if [ ! -e $script_dir/.easy_os ]; then
             echo " - mkisofs/genisoimage"
             echo " - sqlite"
             echo " - mtools"
-            echo " - scons"
+            echo " - CMake"
+            echo " - Bison and Flex"
             echo " - wget"
             echo " - sed"
             echo
@@ -142,11 +181,11 @@ if [ ! -e $script_dir/.easy_os ]; then
     esac
 
     shopt -u nocasematch
-    
-    echo $real_os > $script_dir/.easy_os
+
+    echo "$real_os" > "$script_dir/.easy_os"
 
     echo
 
 else
-    real_os=`cat $script_dir/.easy_os`
+    real_os=$(cat "$script_dir/.easy_os")
 fi

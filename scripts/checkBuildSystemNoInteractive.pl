@@ -16,6 +16,7 @@ my $binutils_configure_special = " --disable-werror ";
 
 my $gcc_libcpp_make = "";
 my $gcc_libcpp_install = "";
+my $sysroot_build_dir = "";
 
 # Handle special arguments. These are given to change the behaviour of the script, or to
 # work around issues with specific operating systems.
@@ -36,9 +37,13 @@ for(my $i = 2; $i < @ARGV; $i++)
         $gcc_libcpp_make = "all-target-libstdc++-v3";
         $gcc_libcpp_install = "install-target-libstdc++-v3";
     }
+    elsif($ARGV[$i] =~ /^sysroot=(.+)$/)
+    {
+        $sysroot_build_dir = $1;
+    }
 }
 
-my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.xz",
+my @download = ( {'url' => "https://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.xz",
                   'name' => 'GCC',
                   'filename' => "gcc-$gcc_version.tar.xz",
                   'extract' => "tar -xf gcc-$gcc_version.tar.xz",
@@ -50,7 +55,7 @@ my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_
                   'extract' => "tar -xjf binutils-$binutils_version.tar.bz2",
                   'arch' => 'all',
                   'creates' => "binutils-$binutils_version"},
-                 {'url' => "http://www.nasm.us/pub/nasm/releasebuilds/$nasm_version/nasm-$nasm_version.tar.bz2",
+                 {'url' => "https://www.nasm.us/pub/nasm/releasebuilds/$nasm_version/nasm-$nasm_version.tar.bz2",
                   'name' => 'Nasm',
                   'filename' => "nasm-$nasm_version.tar.bz2",
                   'extract' => "tar -xjf nasm-$nasm_version.tar.bz2",
@@ -150,6 +155,15 @@ my $dir = $ARGV[1];
 
 my $prefix = `pwd`;
 chomp $prefix;
+
+if (!$sysroot_build_dir)
+{
+    $sysroot_build_dir = "$prefix/build/musl";
+}
+elsif ($sysroot_build_dir !~ m{^/})
+{
+    $sysroot_build_dir = "$prefix/$sysroot_build_dir";
+}
 
 die "Please use target '[arch]-pedigree'." unless $target =~ /(i686|x86_64|arm|amd64|mips64el|powerpc)/; # '*-pedigree';
 
@@ -339,19 +353,19 @@ SYMLINKS:
 print "Complete; linking crt*.o...\n";
 
 # compiler-specific dir
-`ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt1.o`;
-`ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/rcrt1.o`;
-`ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/Scrt1.o`;
-`ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
-`ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
+`ln -sf $sysroot_build_dir/lib/crt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt1.o`;
+`ln -sf $sysroot_build_dir/lib/rcrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/rcrt1.o`;
+`ln -sf $sysroot_build_dir/lib/Scrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/Scrt1.o`;
+`ln -sf $sysroot_build_dir/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
+`ln -sf $sysroot_build_dir/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
 # sysroot
-`ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/$target/lib/crt1.o`;
-`ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/$target/lib/rcrt1.o`;
-`ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/$target/lib/Scrt1.o`;
-`ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/$target/lib/crti.o`;
-`ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/$target/lib/crtn.o`;
+`ln -sf $sysroot_build_dir/lib/crt1.o ./compilers/dir/$target/lib/crt1.o`;
+`ln -sf $sysroot_build_dir/lib/rcrt1.o ./compilers/dir/$target/lib/rcrt1.o`;
+`ln -sf $sysroot_build_dir/lib/Scrt1.o ./compilers/dir/$target/lib/Scrt1.o`;
+`ln -sf $sysroot_build_dir/lib/crti.o ./compilers/dir/$target/lib/crti.o`;
+`ln -sf $sysroot_build_dir/lib/crtn.o ./compilers/dir/$target/lib/crtn.o`;
 # header path
-`ln -sf $prefix/build/musl/include ./compilers/dir/$target/`;
+`ln -sf $sysroot_build_dir/include ./compilers/dir/$target/`;
 
 # include-fixed is NOT necessary
 `rm -rf ./compilers/dir/lib/gcc/$target/$gcc_version/include-fixed`;

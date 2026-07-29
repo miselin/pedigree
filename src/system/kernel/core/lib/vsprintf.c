@@ -51,8 +51,7 @@ static int skip_atoi(const char **s)
 #define SPECIAL 32 /* 0x */
 #define SMALL 64   /* use 'abcdef' instead of 'ABCDEF' */
 
-/// \note this will break testsuite/hosted builds on non-x86 hosts.
-#if X86_COMMON || HOSTED_X86_COMMON || UTILITY_LINUX
+#ifdef TARGET_IS_X86
 #define do_div(n, base)                                                       \
     ({                                                                        \
         int __res;                                                            \
