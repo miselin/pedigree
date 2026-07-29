@@ -374,7 +374,7 @@ void String::assign(const char *s, size_t len, bool unsafe)
     }
     else
     {
-        reserve(copyLength + 1, false);
+        reserve(pedigree_std::max(origLength, copyLength + 1), false);
         MemoryCopy(m_Data, s, copyLength);
         m_Data[copyLength] = '\0';
     }

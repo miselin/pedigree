@@ -353,6 +353,21 @@ TEST(PedigreeString, AssignBigEmpty)
     EXPECT_EQ(s.size(), (size_t) 64);
 }
 
+TEST(PedigreeString, AssignUnterminatedBuffer)
+{
+    char buffer[64];
+    for (size_t i = 0; i < sizeof(buffer); ++i)
+    {
+        buffer[i] = 'a';
+    }
+
+    String s;
+    s.assign(buffer, sizeof(buffer), true);
+    EXPECT_EQ(s.length(), sizeof(buffer));
+    EXPECT_EQ(s.size(), sizeof(buffer) + 1);
+    EXPECT_EQ(s[sizeof(buffer)], '\0');
+}
+
 TEST(PedigreeString, AssignAnother)
 {
     String s;
