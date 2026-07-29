@@ -624,11 +624,14 @@ else ()
     add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp)
 endif ()
 
-file(DOWNLOAD "https://www.musl-libc.org/releases/${MUSL_FILENAME}" ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
+if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
+    file(DOWNLOAD "https://www.musl-libc.org/releases/${MUSL_FILENAME}" ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
+endif ()
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
     COMMAND ${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}
+    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}
 )
 add_custom_target(musl_extract ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure)

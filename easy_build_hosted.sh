@@ -78,6 +78,7 @@ echo "Configuring and building native utilities and tests."
 cmake -S "$script_dir" -B "$host_build_dir" "${cmake_options[@]}"
 cmake --build "$host_build_dir" --parallel \
     --target testsuite headerify ext2img keymap
+ctest --test-dir "$host_build_dir" --output-on-failure
 
 echo
 echo "Configuring and building the hosted kernel."
@@ -86,6 +87,9 @@ cmake -S "$script_dir" -B "$hosted_build_dir" \
     -DIMPORT_EXECUTABLES="$host_build_dir/HostUtilities.cmake" \
     "${cmake_options[@]}"
 cmake --build "$hosted_build_dir" --parallel --target kernelfinal
+"$script_dir/scripts/test-hosted-kernel.sh" \
+    "$hosted_build_dir/src/system/kernel/kernel" \
+    "$hosted_build_dir/config.db"
 
 cd "$old"
 
@@ -95,5 +99,5 @@ echo "Rebuild the utilities with:"
 echo "  cmake --build '$host_build_dir' --parallel --target testsuite headerify ext2img keymap"
 echo "Rebuild the hosted kernel with:"
 echo "  cmake --build '$hosted_build_dir' --parallel --target kernelfinal"
-echo "Run the native GoogleTest suite with:"
-echo "  ctest --test-dir '$host_build_dir' --output-on-failure"
+echo "Re-run the hosted kernel smoke test with:"
+echo "  '$script_dir/scripts/test-hosted-kernel.sh' '$hosted_build_dir/src/system/kernel/kernel' '$hosted_build_dir/config.db'"
