@@ -31,6 +31,26 @@
 // Pedigree function, from libpedigree-c
 extern int pedigree_login(int uid, char *password);
 
+static int wait_for_child(pid_t pid)
+{
+    int status;
+    while (waitpid(pid, &status, 0) == -1)
+    {
+        if (errno == EINTR)
+            continue;
+
+        fprintf(stderr, "sudo: couldn't wait for child: %s\n", strerror(errno));
+        return errno ? errno : EXIT_FAILURE;
+    }
+
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    if (WIFSIGNALED(status))
+        return 128 + WTERMSIG(status);
+
+    return EXIT_FAILURE;
+}
+
 int main(int argc, char *argv[])
 {
     int iRunShell = 0, error = 0, help = 0, nStart = 0, i = 0;
@@ -130,16 +150,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            // Wait for it to complete
-            int status;
-            waitpid(pid, &status, 0);
-
-            // Did it exit with a non-zero status?
-            if (status)
-            {
-                // Return error
-                exit(status);
-            }
+            return wait_for_child(pid);
         }
     }
     else
@@ -164,16 +175,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            // Wait for it to complete
-            int status;
-            waitpid(pid, &status, 0);
-
-            // Did it exit with a non-zero status?
-            if (status)
-            {
-                // Return error
-                exit(status);
-            }
+            return wait_for_child(pid);
         }
     }
 

@@ -1123,6 +1123,7 @@ bool KernelElf::hasPendingModules() const
         if (it->isPending())
         {
             NOTICE("Pending module: " << it->name);
+            hasPending = true;
         }
     }
     return hasPending;
