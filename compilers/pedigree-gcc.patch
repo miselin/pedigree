@@ -291,7 +291,139 @@ index 24d13f34409..c35bfa03ceb 100644
 +  fi
    _LT_CMD_STRIPLIB
  
-   # Report which library types will actually be built
+  # Report which library types will actually be built
+diff --git a/gcc/config.host b/gcc/config.host
+index bf24c888c1e..e178f021776 100644
+--- a/gcc/config.host
++++ b/gcc/config.host
+@@ -102 +102,2 @@ case ${host} in
+-  aarch64*-*-freebsd* | aarch64*-*-linux* | aarch64*-*-fuchsia*)
++  aarch64*-*-freebsd* | aarch64*-*-linux* | aarch64*-*-fuchsia* | \
++  aarch64*-*-darwin* | arm64*-*-darwin* | arm-*-darwin*)
+@@ -251,6 +252,10 @@ case ${host} in
+     host_extra_gcc_objs="${host_extra_gcc_objs} driver-mingw32.o"
+     host_lto_plugin_soname=liblto_plugin-0.dll
+     ;;
++  aarch64*-*-darwin* | arm64*-*-darwin* | arm-*-darwin*)
++    out_host_hook_obj="${out_host_hook_obj} host-aarch64-darwin.o"
++    host_xmake_file="${host_xmake_file} aarch64/x-darwin"
++    ;;
+   i[34567]86-*-darwin* | x86_64-*-darwin*)
+     out_host_hook_obj="${out_host_hook_obj} host-i386-darwin.o"
+     host_xmake_file="${host_xmake_file} i386/x-darwin"
+diff --git a/gcc/config/aarch64/host-aarch64-darwin.c b/gcc/config/aarch64/host-aarch64-darwin.c
+new file mode 100644
+index 00000000000..c4ba5bec20e
+--- /dev/null
++++ b/gcc/config/aarch64/host-aarch64-darwin.c
+@@ -0,0 +1,33 @@
++/* aarch64/arm64-darwin host-specific hook definitions.
++
++Copyright The GNU Toolchain Authors.
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify it under
++the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 3, or (at your option) any later
++version.
++
++GCC is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or
++FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++#define IN_TARGET_CODE 1
++
++#include "config.h"
++#include "system.h"
++#include "coretypes.h"
++#include "hosthooks.h"
++#include "hosthooks-def.h"
++#include "config/host-darwin.h"
++
++/* Darwin doesn't do anything special for arm64/aarch64 hosts; this file
++   exists just to include the generic config/host-darwin.h.  */
++
++const struct host_hooks host_hooks = HOST_HOOKS_INITIALIZER;
+diff --git a/gcc/config/aarch64/x-darwin b/gcc/config/aarch64/x-darwin
+new file mode 100644
+index 00000000000..6d788d5e89c
+--- /dev/null
++++ b/gcc/config/aarch64/x-darwin
+@@ -0,0 +1,3 @@
++host-aarch64-darwin.o : $(srcdir)/config/aarch64/host-aarch64-darwin.c
++	$(COMPILE) $<
++	$(POSTCOMPILE)
+diff --git a/gcc/system.h b/gcc/system.h
+index 8e9e68eb45d..c79a7646845 100644
+--- a/gcc/system.h
++++ b/gcc/system.h
+@@ -197,21 +197,2 @@
+-/* Include <string> before "safe-ctype.h" to avoid GCC poisoning
+-   the ctype macros through safe-ctype.h */
+-
+-#ifdef __cplusplus
+-#ifdef INCLUDE_STRING
+-# include <string>
+-#endif
+-#endif
+-
+-/* There are an extraordinary number of issues with <ctype.h>.
+-   The last straw is that it varies with the locale.  Use libiberty's
+-   replacement instead.  */
+-#include "safe-ctype.h"
+-
+-#include <sys/types.h>
+-
+-#include <errno.h>
+-
+-#if !defined (errno) && defined (HAVE_DECL_ERRNO) && !HAVE_DECL_ERRNO
+-extern int errno;
+-#endif
++/* Include C++ standard headers before "safe-ctype.h" to avoid GCC
++   poisoning the ctype macros through safe-ctype.h */
+@@ -229,6 +210,9 @@
+ #ifdef INCLUDE_SET
+ # include <set>
+ #endif
++#ifdef INCLUDE_STRING
++# include <string>
++#endif
+ #ifdef INCLUDE_VECTOR
+ # include <vector>
+ #endif
+@@ -235,6 +219,19 @@
+ # include <cstring>
+ # include <new>
+ # include <utility>
+ #endif
+-
++
++/* There are an extraordinary number of issues with <ctype.h>.
++   The last straw is that it varies with the locale.  Use libiberty's
++   replacement instead.  */
++#include "safe-ctype.h"
++
++#include <sys/types.h>
++
++#include <errno.h>
++
++#if !defined (errno) && defined (HAVE_DECL_ERRNO) && !HAVE_DECL_ERRNO
++extern int errno;
++#endif
++
+ /* Some of glibc's string inlines cause warnings.  Plus we'd rather
+diff --git a/gcc/config/host-darwin.c b/gcc/config/host-darwin.c
+index 1613c7535a8..0f4a26707f4 100644
+--- a/gcc/config/host-darwin.c
++++ b/gcc/config/host-darwin.c
+@@ -24 +24 @@
+-static char pch_address_space[1024*1024*1024] __attribute__((aligned (4096)));
++static char pch_address_space[1024*1024*1024] __attribute__((aligned (16384)));
 -- 
 2.21.0.593.g511ec345e18-goog
-

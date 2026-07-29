@@ -17,6 +17,8 @@ my $binutils_configure_special = " --disable-werror ";
 my $gcc_libcpp_make = "";
 my $gcc_libcpp_install = "";
 my $sysroot_build_dir = "";
+my $host_compiler_compat =
+    "CC='cc -std=gnu17' CXX='c++ -std=gnu++14'";
 
 # Handle special arguments. These are given to change the behaviour of the script, or to
 # work around issues with specific operating systems.
@@ -30,7 +32,8 @@ for(my $i = 2; $i < @ARGV; $i++)
             $brew_prefix = "/opt/local";
         }
         chomp $brew_prefix;
-        $gcc_configure_special .= " --with-gmp=$brew_prefix --with-libiconv-prefix=$brew_prefix ";
+        $gcc_configure_special .= " --with-gmp=$brew_prefix --with-libiconv-prefix=$brew_prefix --with-system-zlib ";
+        $binutils_configure_special .= " --with-system-zlib ";
     }
     elsif($ARGV[$i] eq "libcpp")
     {
@@ -62,13 +65,20 @@ my @download = ( {'url' => "https://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gc
                   'arch' => 'i686-pedigree x86_64-pedigree amd64-pedigree i686-elf amd64-elf',
                   'creates' => "nasm-$nasm_version"} );
 
+my $autoconf_version = `autoconf --version 2>/dev/null`;
+$autoconf_version =~ /(\d+\.\d+(?:\.\d+)?)/ or
+    die "Unable to determine the installed Autoconf version.";
+$autoconf_version = $1;
+my $autoconf_version_fix =
+    "sed -i.bak -E 's/(_GCC_AUTOCONF_VERSION\\], \\[)[0-9.]+/\\1$autoconf_version/' ./config/override.m4";
+
 my @command = ( {'cwd' => "gcc-$gcc_version",
                  'name' => "fixing autoconf version dependency (GCC)",
-                 'cmd' => "autoconf -V | grep autoconf | tr ' ' '\n' | tail -1 | xargs printf -- '-i.bak \"s/2.64/\%s/g\" ./config/override.m4' | xargs sed",
+                 'cmd' => $autoconf_version_fix,
                  'arch' => 'all'},
                  {'cwd' => "binutils-$binutils_version",
                  'name' => "fixing autoconf version dependency (Binutils)",
-                 'cmd' => "autoconf -V | grep autoconf | tr ' ' '\n' | tail -1 | xargs printf -- '-i.bak \"s/2.64/\%s/g\" ./config/override.m4' | xargs sed",
+                 'cmd' => $autoconf_version_fix,
                  'arch' => 'all'},
                 {'cwd' => "binutils-$binutils_version",
                  'name' => "Binutils autoconf",
@@ -106,7 +116,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'version_match' => "NASM version $nasm_version" },
                 {'dir' => "binutils-$binutils_version",
                  'name' => "Binutils",
-                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --enable-lto --disable-werror",
+                 'configure' => "$host_compiler_compat --target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --enable-lto --disable-werror",
                  'make' => "all",
                  'install' => "install",
                  'arch' => 'all',
@@ -115,7 +125,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'version_match' => "GNU objdump (GNU Binutils) $binutils_version"},
                 {'dir' => "gcc-$gcc_version",
                  'name' => "Gcc",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --enable-lto",
+                 'configure' => "$host_compiler_compat --target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --enable-lto",
                  'make' => "all-gcc all-target-libgcc",
                  'install' => "install-gcc install-target-libgcc",
                  'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree i686-elf amd64-elf',
@@ -143,6 +153,8 @@ $ENV{CFLAGS} = "";
 $ENV{CXXFLAGS} = "";
 $ENV{LDFLAGS} = "";
 $ENV{ASFLAGS} = "";
+# Autoconf 2.70+ otherwise opts these K&R-era sources into C23.
+$ENV{ac_cv_prog_cc_c23} = "no";
 
 my $dir = $ARGV[1];
 
@@ -225,10 +237,7 @@ foreach (@download) {
   if ($download{arch} =~ m/($target)|(all)/i) {
     # Download applies to us.
     if (-d "./compilers/dir/build_tmp/$download{creates}") {
-      # TODO: we can only do this if the patch is older than
-      # .patched - if the patch is newer we need to re-extract AND make sure
-      # any files created by the patch are gone!
-      # next;
+      next;
     }
 
     # Created directory doesn't exist, create it.
@@ -257,9 +266,7 @@ foreach (@patch) {
 
   if ($patch{arch} =~ m/($target)|(all)/i) {
     if (-f "./compilers/dir/build_tmp/$patch{cwd}/.patched") {
-      # TODO: we can only do this if the patch is older than
-      # .patched - if the patch is newer we need to redo this.
-      # next;
+      next;
     }
 
     print "$patch{name} ";
@@ -321,7 +328,7 @@ foreach (@compile) {
       exit 1;
     }
     print "Compiling ";
-    $stdout = `cd $build_dir; make $compile{make} 2>&1 & pid=\$!; while kill -0 \$pid >/dev/null 2>&1; do printf "." 1>&2; sleep 10; done`;
+    $stdout = `cd $build_dir; make $compile{make} 2>&1 & pid=\$!; while kill -0 \$pid >/dev/null 2>&1; do printf "." 1>&2; sleep 10; done; wait \$pid`;
     if ($? != 0) {
       print "Failed. Output: $stdout\n";
       exit 1;
