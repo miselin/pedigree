@@ -273,7 +273,8 @@ foreach (@patch) {
     my $stdout = `cd ./compilers/dir/build_tmp/$patch{cwd}; patch $patch{flags} < $prefix/compilers/$patch{input} 2>&1 && touch .patched`;
     if ($? != 0) {
       print "\nFailed - output:\n$stdout";
-      `rm -r ./compilers/dir/build_tmp/build`;
+      `rm -rf ./compilers/dir/build_tmp/$patch{cwd}`;
+      `rm -rf ./compilers/dir/build_tmp/build`;
       exit 1;
     }
   }

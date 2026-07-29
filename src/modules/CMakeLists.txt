@@ -1,4 +1,5 @@
-# Use the Pedigree compiler regardless of the system target
+# Modules use Pedigree's headers and syscall ABI even when linked statically
+# into the hosted kernel.
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
 set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
 

@@ -397,13 +397,12 @@ index 8e9e68eb45d..c79a7646845 100644
  #ifdef INCLUDE_VECTOR
  # include <vector>
  #endif
-@@ -235,6 +219,19 @@
+@@ -235,6 +219,18 @@
  # include <cstring>
  # include <new>
  # include <utility>
  #endif
 -
-+
 +/* There are an extraordinary number of issues with <ctype.h>.
 +   The last straw is that it varies with the locale.  Use libiberty's
 +   replacement instead.  */
