@@ -107,18 +107,46 @@ extern "C" void panic(const char *s)
 namespace SlamSupport
 {
 static const size_t heapSize = 0x40000000ULL;
-uintptr_t getHeapBase()
+static const size_t logicalPageSize = 0x1000;
+static void *heapBase = nullptr;
+static size_t hostPageSize = 0;
+static size_t *hostPageReferences = nullptr;
+static unsigned char *logicalPageMappings = nullptr;
+
+static void initialiseHostPages()
 {
-    static void *base = 0;
-    if (base)
+    long pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize < static_cast<long>(logicalPageSize) ||
+        (pageSize % logicalPageSize) != 0)
     {
-        return reinterpret_cast<uintptr_t>(base);
+        fprintf(stderr, "unsupported host page size: %ld\n", pageSize);
+        abort();
     }
 
-    base = mmap(
+    hostPageSize = static_cast<size_t>(pageSize);
+    hostPageReferences =
+        static_cast<size_t *>(calloc(heapSize / hostPageSize, sizeof(size_t)));
+    logicalPageMappings = static_cast<unsigned char *>(
+        calloc(heapSize / logicalPageSize, sizeof(unsigned char)));
+    if (!hostPageReferences || !logicalPageMappings)
+    {
+        fprintf(stderr, "cannot allocate SlamAllocator page metadata\n");
+        abort();
+    }
+}
+
+uintptr_t getHeapBase()
+{
+    if (heapBase)
+    {
+        return reinterpret_cast<uintptr_t>(heapBase);
+    }
+
+    initialiseHostPages();
+    heapBase = mmap(
         0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS, -1,
         0);
-    if (base == MAP_FAILED)
+    if (heapBase == MAP_FAILED)
     {
         fprintf(
             stderr, "cannot get a region of memory for SlamAllocator: %s\n",
@@ -126,7 +154,7 @@ uintptr_t getHeapBase()
         abort();
     }
 
-    return reinterpret_cast<uintptr_t>(base);
+    return reinterpret_cast<uintptr_t>(heapBase);
 }
 
 uintptr_t getHeapEnd()
@@ -136,24 +164,84 @@ uintptr_t getHeapEnd()
 
 void getPageAt(void *addr)
 {
-    void *r = mmap(
-        addr, 0x1000, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_FIXED | MAP_NORESERVE | MAP_ANONYMOUS, -1, 0);
-    if (r == MAP_FAILED)
+    uintptr_t address = reinterpret_cast<uintptr_t>(addr);
+    uintptr_t base = getHeapBase();
+    if ((address % logicalPageSize) != 0 || address < base ||
+        address >= (base + heapSize))
     {
-        fprintf(stderr, "map failed: %s\n", strerror(errno));
+        fprintf(stderr, "invalid SlamAllocator page address: %p\n", addr);
         abort();
     }
+
+    size_t offset = address - base;
+    size_t logicalPage = offset / logicalPageSize;
+    size_t hostPage = offset / hostPageSize;
+    uintptr_t hostAddress = base + (hostPage * hostPageSize);
+    if (!logicalPageMappings[logicalPage])
+    {
+        if (!hostPageReferences[hostPage] &&
+            mprotect(
+                reinterpret_cast<void *>(hostAddress), hostPageSize,
+                PROT_READ | PROT_WRITE) != 0)
+        {
+            fprintf(stderr, "map failed: %s\n", strerror(errno));
+            abort();
+        }
+
+        logicalPageMappings[logicalPage] = 1;
+        ++hostPageReferences[hostPage];
+    }
+
+    memset(addr, 0, logicalPageSize);
 }
 
 void unmapPage(void *page)
 {
-    munmap(page, 0x1000);
+    uintptr_t address = reinterpret_cast<uintptr_t>(page);
+    uintptr_t base = getHeapBase();
+    if ((address % logicalPageSize) != 0 || address < base ||
+        address >= (base + heapSize))
+    {
+        fprintf(stderr, "invalid SlamAllocator page address: %p\n", page);
+        abort();
+    }
+
+    size_t offset = address - base;
+    size_t logicalPage = offset / logicalPageSize;
+    size_t hostPage = offset / hostPageSize;
+    if (!logicalPageMappings[logicalPage])
+    {
+        fprintf(stderr, "SlamAllocator page is already unmapped: %p\n", page);
+        abort();
+    }
+
+    logicalPageMappings[logicalPage] = 0;
+    if (!--hostPageReferences[hostPage])
+    {
+        uintptr_t hostAddress = base + (hostPage * hostPageSize);
+        void *hostPageAddress = reinterpret_cast<void *>(hostAddress);
+        madvise(hostPageAddress, hostPageSize, MADV_DONTNEED);
+        if (mprotect(hostPageAddress, hostPageSize, PROT_NONE) != 0)
+        {
+            fprintf(stderr, "unmap failed: %s\n", strerror(errno));
+            abort();
+        }
+    }
 }
 
 void unmapAll()
 {
-    munmap((void *) getHeapBase(), heapSize);
+    if (heapBase)
+    {
+        munmap(heapBase, heapSize);
+        heapBase = nullptr;
+    }
+
+    free(hostPageReferences);
+    hostPageReferences = nullptr;
+    free(logicalPageMappings);
+    logicalPageMappings = nullptr;
+    hostPageSize = 0;
 }
 }  // namespace SlamSupport
 
