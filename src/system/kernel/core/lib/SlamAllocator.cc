@@ -38,14 +38,22 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #if MULTIPROCESSOR
-#define ATOMIC_MEMORY_ORDER __ATOMIC_RELEASE
+#define ATOMIC_POP_MEMORY_ORDER __ATOMIC_ACQUIRE
+#define ATOMIC_POP_FAILURE_MEMORY_ORDER __ATOMIC_ACQUIRE
+#define ATOMIC_PUSH_MEMORY_ORDER __ATOMIC_RELEASE
 #define ATOMIC_CAS_WEAK true
 #else
-#define ATOMIC_MEMORY_ORDER __ATOMIC_RELAXED
+#define ATOMIC_POP_MEMORY_ORDER __ATOMIC_RELAXED
+#define ATOMIC_POP_FAILURE_MEMORY_ORDER __ATOMIC_RELAXED
+#define ATOMIC_PUSH_MEMORY_ORDER __ATOMIC_RELAXED
 #define ATOMIC_CAS_WEAK true
 #endif
 
 SlamAllocator SlamAllocator::m_Instance;
+
+static constexpr uintptr_t POINTER_MASK = 0x0000FFFFFFFFFFFFULL;
+static constexpr uintptr_t POINTER_TAG_MASK = ~POINTER_MASK;
+static constexpr uintptr_t POINTER_TAG_INCREMENT = 0x0001000000000000ULL;
 
 template <typename T>
 inline T *untagged(T *p) PURE;
@@ -54,7 +62,7 @@ template <typename T>
 inline T *tagged(T *p) PURE;
 
 template <typename T>
-inline T *touch_tag(T *p) PURE;
+inline T *next_tag(T *p, T *currentHead) PURE;
 
 template <typename T>
 inline T *untagged(T *p)
@@ -64,12 +72,12 @@ inline T *untagged(T *p)
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
     EMIT_IF(PEDIGREE_BENCHMARK || HOSTED)
     {
-        // Top four bits available to us (addresses from 0 -> 0x00007FFFFFFFFFFF).
-        ptr &= ~0xFFFF000000000000ULL;
+        // The upper 16 bits are available for hosted userspace addresses.
+        ptr &= POINTER_MASK;
     }
     else
     {
-        // Top four bits make this a canonical address
+        // Restore the upper 16 bits to make this a canonical kernel address.
         ptr |= 0xFFFF000000000000ULL;
     }
     return reinterpret_cast<T *>(ptr);
@@ -79,17 +87,18 @@ template <typename T>
 inline T *tagged(T *p)
 {
     uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-    ptr &= 0xFFFFFFFFFFFFULL;
+    ptr &= POINTER_MASK;
     return reinterpret_cast<T *>(ptr);
 }
 
 template <typename T>
-inline T *touch_tag(T *p)
+inline T *next_tag(T *p, T *currentHead)
 {
-    // Add one to the tag.
-    uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
-    ptr += 0x1000000000000ULL;
-    return reinterpret_cast<T *>(ptr);
+    uintptr_t ptr = reinterpret_cast<uintptr_t>(p) & POINTER_MASK;
+    uintptr_t tag =
+        (reinterpret_cast<uintptr_t>(currentHead) + POINTER_TAG_INCREMENT) &
+        POINTER_TAG_MASK;
+    return reinterpret_cast<T *>(ptr | tag);
 }
 
 inline void spin_pause()
@@ -230,13 +239,7 @@ void SlamCache::initialise(SlamAllocator *parent, size_t objectSize)
     else
         m_SlabSize = SLAB_MINIMUM_SIZE;
 
-#if MULTIPROCESSOR
-    /// \todo number of CPUs here
-    size_t maxCpu = 255;
-#else
-    size_t maxCpu = 1;
-#endif
-    for (size_t i = 0; i < maxCpu; i++)
+    for (size_t i = 0; i < NUM_LISTS; i++)
         m_PartialLists[i] = tagged(&m_EmptyNode);
 
     // Make the empty node loop always, so it can be easily linked into place.
@@ -251,7 +254,7 @@ void SlamCache::initialise(SlamAllocator *parent, size_t objectSize)
 SlamCache::Node *SlamCache::pop(SlamCache::alignedNode *head)
 {
     Node *N = 0, *pNext = 0;
-    alignedNode currentHead = *head;
+    alignedNode currentHead = __atomic_load_n(head, ATOMIC_POP_MEMORY_ORDER);
     while (true)
     {
         // Grab result.
@@ -259,8 +262,10 @@ SlamCache::Node *SlamCache::pop(SlamCache::alignedNode *head)
         pNext = N->next;
 
         if (__atomic_compare_exchange_n(
-                head, &currentHead, touch_tag(pNext), ATOMIC_CAS_WEAK,
-                ATOMIC_MEMORY_ORDER, __ATOMIC_RELAXED))
+                head, &currentHead,
+                next_tag(pNext, const_cast<Node *>(currentHead)),
+                ATOMIC_CAS_WEAK, ATOMIC_POP_MEMORY_ORDER,
+                ATOMIC_POP_FAILURE_MEMORY_ORDER))
         {
             // Successful CAS, we have a node to use.
             break;
@@ -280,11 +285,18 @@ void SlamCache::push(
     if (!newHead)
         newHead = newTail;
 
-    newTail->next = const_cast<Node *>(*head);
-    while (!__atomic_compare_exchange_n(
-        head, const_cast<alignedNode *>(&newTail->next), touch_tag(newHead),
-        ATOMIC_CAS_WEAK, ATOMIC_MEMORY_ORDER, __ATOMIC_RELAXED))
+    alignedNode currentHead = __atomic_load_n(head, __ATOMIC_RELAXED);
+    while (true)
     {
+        newTail->next = const_cast<Node *>(currentHead);
+        if (__atomic_compare_exchange_n(
+                head, &currentHead,
+                next_tag(newHead, const_cast<Node *>(currentHead)),
+                ATOMIC_CAS_WEAK, ATOMIC_PUSH_MEMORY_ORDER, __ATOMIC_RELAXED))
+        {
+            break;
+        }
+
         spin_pause();
     }
 }
@@ -461,6 +473,17 @@ size_t SlamCache::recovery(size_t maxSlabs)
         }
     }
 
+    EMIT_IF(MULTIPROCESSOR)
+    {
+        if (m_ObjectSize < getPageSize())
+        {
+            // A sub-page slab's free objects can be spread across CPU-local
+            // lists. Reclaiming it without stopping the other CPUs would leave
+            // dangling free-list entries pointing into unmapped memory.
+            return 0;
+        }
+    }
+
     size_t thisCpu = 0;
     EMIT_IF(MULTIPROCESSOR)
     {
@@ -538,28 +561,25 @@ size_t SlamCache::recovery(size_t maxSlabs)
             // Unlink any of our items that exist in the free list.
             // Yes, this is slow, but we've already stopped the world.
             alignedNode head = untagged(m_PartialLists[thisCpu]);
-            alignedNode prev = head;
+            alignedNode prev = nullptr;
             while (head != &m_EmptyNode)
             {
                 bool overlaps =
-                    ((head >= reinterpret_cast<void *>(slab)) ||
-                     (head <= reinterpret_cast<void *>(slab + getPageSize())));
+                    ((head >= reinterpret_cast<void *>(slab)) &&
+                     (head < reinterpret_cast<void *>(slab + m_SlabSize)));
 
                 if (overlaps)
                 {
-                    // Update previous node to point past us.
-                    prev->next = touch_tag(head->next);
-
-                    // If we're pointing at the head of the list, we need to
-                    // update the head of the list too.
-                    if (prev == head)
+                    Node *next = untagged(head->next);
+                    if (prev)
                     {
-                        prev = untagged(head->next);
-                        m_PartialLists[thisCpu] = touch_tag(head->next);
+                        prev->next = tagged(next);
                     }
                     else
                     {
-                        prev = head;
+                        Node *oldHead =
+                            const_cast<Node *>(m_PartialLists[thisCpu]);
+                        m_PartialLists[thisCpu] = next_tag(next, oldHead);
                     }
                 }
                 else
@@ -800,7 +820,7 @@ void SlamCache::trackSlab(uintptr_t slab)
 SlamAllocator::SlamAllocator()
     : m_bInitialised(false), m_bVigilant(false), m_SlabRegionLock(false),
       m_HeapPageCount(0), m_SlabRegionBitmap(), m_SlabRegionBitmapEntries(0),
-      m_Base(0)
+      m_SlabRegionPages(0), m_Base(0)
 {
 }
 
@@ -825,10 +845,10 @@ void SlamAllocator::initialise()
     uintptr_t bitmapBase = getHeapBase();
     uintptr_t heapEnd = getHeapEnd();
     size_t heapSize = heapEnd - bitmapBase;
-    size_t bitmapBytes = (heapSize / getPageSize()) / 8;
+    size_t heapPages = heapSize / getPageSize();
+    size_t bitmapBytes = (heapPages + 7) / 8;
 
     m_SlabRegionBitmap = reinterpret_cast<uint64_t *>(bitmapBase);
-    m_SlabRegionBitmapEntries = bitmapBytes / sizeof(uint64_t);
 
     // Ensure the bitmap size is now page-aligned before we allocate it.
     if (bitmapBytes & (getPageSize() - 1))
@@ -838,6 +858,8 @@ void SlamAllocator::initialise()
     }
 
     m_Base = bitmapBase + bitmapBytes;
+    m_SlabRegionPages = (heapEnd - m_Base) / getPageSize();
+    m_SlabRegionBitmapEntries = (m_SlabRegionPages + 63) / 64;
 
     pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
@@ -847,7 +869,12 @@ void SlamAllocator::initialise()
     {
         // Don't CoW the first 32 pages so we have some slabs on hand for
         // startup before CoW is viable
-        allocateAndMapAt(reinterpret_cast<void *>(addr), numPages++ >= 32);
+        bool cowOk = numPages++ >= 32;
+        allocateAndMapAt(reinterpret_cast<void *>(addr), cowOk);
+        if (!cowOk)
+        {
+            ByteSet(reinterpret_cast<void *>(addr), 0, getPageSize());
+        }
     }
 
     vaswitch.restore();
@@ -921,6 +948,7 @@ void SlamAllocator::wipe()
     // about to destroy the bitmap mappings
     m_SlabRegionBitmap = nullptr;
     m_SlabRegionBitmapEntries = 0;
+    m_SlabRegionPages = 0;
 
     // Clean up the bitmap.
     for (uintptr_t addr = getHeapBase(); addr < m_Base; addr += getPageSize())
@@ -931,11 +959,11 @@ void SlamAllocator::wipe()
 
 uintptr_t SlamAllocator::getSlab(size_t fullSize)
 {
-    ssize_t nPages = fullSize / getPageSize();
-    if (!nPages)
+    if (fullSize < getPageSize() || (fullSize % getPageSize()))
     {
         panic("Attempted to get a slab smaller than the native page size.");
     }
+    size_t nPages = fullSize / getPageSize();
 
     EMIT_IF(THREADS)
     {
@@ -943,129 +971,72 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
     }
 
     // Try to find space for this allocation.
-    size_t entry = 0;
-    size_t bit = ~0UL;
-    if (nPages == 1)
+    size_t pageIndex = ~0UL;
+    size_t runStart = 0;
+    size_t runLength = 0;
+    for (size_t entry = 0; entry < m_SlabRegionBitmapEntries; ++entry)
     {
-        // Fantastic - easy search.
-        for (entry = 0; entry < m_SlabRegionBitmapEntries; ++entry)
+        const size_t entryBase = entry * 64;
+        const size_t bitsInEntry = pedigree_std::min(
+            static_cast<size_t>(64), m_SlabRegionPages - entryBase);
+        uint64_t bitmap = m_SlabRegionBitmap[entry];
+
+        if (!bitmap)
         {
-            if (!m_SlabRegionBitmap[entry])
+            if (!runLength)
             {
-                bit = 0;
+                runStart = entryBase;
+            }
+            runLength += bitsInEntry;
+            if (runLength >= nPages)
+            {
+                pageIndex = runStart;
                 break;
             }
-            else if (m_SlabRegionBitmap[entry] != 0xFFFFFFFFFFFFFFFFULL)
-            {
-                // First set of the INVERTED entry will be the first zero bit.
-                // Note - the check for this block ensures we always get a
-                // result from ffsll here.
-                bit = __builtin_ffsll(~m_SlabRegionBitmap[entry]) - 1;
-                break;
-            }
+            continue;
         }
-    }
-    else if (nPages > 64)
-    {
-        // This allocation does not fit within a single bitmap entry.
-        for (entry = 0; entry < m_SlabRegionBitmapEntries; ++entry)
+
+        for (size_t bit = 0; bit < bitsInEntry; ++bit)
         {
-            // If there are any bits set in this entry, we must disregard it.
-            if (m_SlabRegionBitmap[entry])
+            if (bitmap & (1ULL << bit))
+            {
+                runLength = 0;
                 continue;
-
-            // This entry has 64 free pages. Now we need to see if we can get
-            // contiguously free bitmap entries.
-            size_t needed = nPages - 64;
-            size_t checkEntry = entry + 1;
-            while (needed >= 64)
-            {
-                // If the entry has any set bits whatsoever, it's no good.
-                if (m_SlabRegionBitmap[checkEntry])
-                    break;
-
-                // Success.
-                ++checkEntry;
-                needed -= 64;
             }
 
-            // Check for the ideal case.
-            if (needed == 0)
+            if (!runLength)
             {
-                bit = 0;
+                runStart = entryBase + bit;
+            }
+            if (++runLength >= nPages)
+            {
+                pageIndex = runStart;
                 break;
             }
-            else if (needed < 64)
-            {
-                // Possible! Can we get enough trailing zeroes in the next entry
-                // to make this work?
-                size_t leading =
-                    __builtin_ctzll(m_SlabRegionBitmap[checkEntry]);
-                if (leading >= needed)
-                {
-                    bit = 0;
-                    break;
-                }
-            }
-
-            // Skip already-checked entries.
-            entry = checkEntry;
         }
-    }
-    else
-    {
-        // Have to search within entries.
-        uint64_t search = (1ULL << nPages) - 1;
-        size_t maxBit = 64 - nPages;
-        for (entry = 0; entry < m_SlabRegionBitmapEntries; ++entry)
+
+        if (pageIndex != ~0UL)
         {
-            if (m_SlabRegionBitmap[entry] == 0ULL)
-            {
-                bit = 0;
-                break;
-            }
-            else if (m_SlabRegionBitmap[entry] != ~0ULL)
-            {
-                // Try and see if we fit somewhere.
-                for (bit = 0; bit < maxBit; ++bit)
-                {
-                    if (m_SlabRegionBitmap[entry] & (search << bit))
-                        continue;
-
-                    break;
-                }
-
-                if (bit < maxBit)
-                    break;
-
-                bit = ~0UL;
-            }
+            break;
         }
     }
 
-    if (bit == ~0UL)
+    if (pageIndex == ~0UL)
     {
-        FATAL(
-            "SlamAllocator::getSlab cannot find a place to allocate this slab ("
-            << Dec << fullSize << Hex << " bytes) - consumed "
-            << m_HeapPageCount << " pages! "
-            << " --> " << this);
+        panic("SlamAllocator cannot find contiguous virtual heap space.");
     }
 
-    uintptr_t slab = m_Base + (((entry * 64) + bit) * getPageSize());
+    uintptr_t slab = m_Base + (pageIndex * getPageSize());
 
     // Map and mark as used.
-    for (ssize_t i = 0; i < nPages; ++i)
+    for (size_t i = 0; i < nPages; ++i)
     {
-        m_SlabRegionBitmap[entry] |= 1ULL << bit;
-
-        // Handle crossing a bitmap entry boundary.
-        if ((++bit) >= 64)
-        {
-            ++entry;
-            bit = 0;
-        }
+        size_t currentPage = pageIndex + i;
+        m_SlabRegionBitmap[currentPage / 64] |=
+            1ULL << (currentPage % 64);
     }
+
+    m_HeapPageCount += nPages;
 
     EMIT_IF(THREADS)
     {
@@ -1077,15 +1048,13 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize)
 
     // Map. This could break as we're allocating physical memory; though we are
     // free of the lock so that helps.
-    for (ssize_t i = 0; i < nPages; ++i)
+    for (size_t i = 0; i < nPages; ++i)
     {
         void *p = reinterpret_cast<void *>(slab + (i * getPageSize()));
         allocateAndMapAt(p);
     }
 
     vaswitch.restore();
-
-    m_HeapPageCount += fullSize / getPageSize();
 
     return slab;
 }
@@ -1099,10 +1068,29 @@ void SlamAllocator::freeSlab(uintptr_t address, size_t length)
 
 void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length)
 {
-    size_t nPages = length / getPageSize();
-    if (!nPages)
+    if (
+        length < getPageSize() || (length % getPageSize()) ||
+        (address % getPageSize()) || address < m_Base ||
+        address >= getHeapEnd() || length > (getHeapEnd() - address))
     {
-        panic("Attempted to free a slab smaller than the native page size.");
+        panic("Attempted to free an invalid slab.");
+    }
+    size_t nPages = length / getPageSize();
+    size_t firstPage = (address - m_Base) / getPageSize();
+    if (firstPage >= m_SlabRegionPages ||
+        nPages > (m_SlabRegionPages - firstPage))
+    {
+        panic("Attempted to free a slab outside the allocator bitmap.");
+    }
+
+    for (size_t i = 0; i < nPages; ++i)
+    {
+        size_t currentPage = firstPage + i;
+        if (!(m_SlabRegionBitmap[currentPage / 64] &
+              (1ULL << (currentPage % 64))))
+        {
+            panic("Attempted to free an unallocated slab.");
+        }
     }
 
     // Perform unmapping first (so we can just modify 'address').
@@ -1118,24 +1106,14 @@ void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length)
     vaswitch.restore();
 
     // Adjust bitmap.
-    address -= m_Base;
-    address /= getPageSize();
-    size_t entry = address / 64;
-    size_t bit = address % 64;
-
     for (size_t i = 0; i < nPages; ++i)
     {
-        m_SlabRegionBitmap[entry] &= ~(1ULL << bit);
-
-        // Handle overflow (eg, if we cross a bitmap entry.)
-        if ((++bit) >= 64)
-        {
-            ++entry;
-            bit = 0;
-        }
+        size_t currentPage = firstPage + i;
+        m_SlabRegionBitmap[currentPage / 64] &=
+            ~(1ULL << (currentPage % 64));
     }
 
-    m_HeapPageCount -= length / getPageSize();
+    m_HeapPageCount -= nPages;
 }
 
 size_t SlamAllocator::recovery(size_t maxSlabs)
@@ -1149,7 +1127,7 @@ size_t SlamAllocator::recovery(size_t maxSlabs)
         if (!m_Caches[i].slabSize())
             continue;
 
-        size_t thisSlabs = m_Caches[i].recovery(maxSlabs);
+        size_t thisSlabs = m_Caches[i].recovery(maxSlabs - nSlabs);
         nPages += (thisSlabs * m_Caches[i].slabSize()) / getPageSize();
         nSlabs += thisSlabs;
         if (nSlabs >= maxSlabs)
@@ -1194,17 +1172,17 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     // Return value.
     uintptr_t ret = 0;
 
-    // Add in room for the allocation footer
-    nBytes += sizeof(AllocHeader) + sizeof(AllocFooter);
-
     // Don't allow huge allocations.
     /// \note Even 2G is a stretch on most systems. Use some other allocator
     ///       to allocate such large buffers.
-    if (nBytes >= (1U << 31))
+    const size_t framing = sizeof(AllocHeader) + sizeof(AllocFooter);
+    if (nBytes >= (1ULL << 31) || nBytes > ((1ULL << 31) - 1 - framing))
     {
         ERROR("SlamAllocator: massive allocation: " << origSize);
+        panic("SlamAllocator allocation size is too large.");
     }
-    assert(nBytes < (1U << 31));
+
+    nBytes += framing;
 
     // Default to minimum object size if we must.
     size_t lg2 = 0;
@@ -1214,8 +1192,8 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     }
 
     // log2 of nBytes, where nBytes is rounded up to the next power-of-two.
-    lg2 = 32 - __builtin_clz(nBytes);
-    nBytes = 1U << lg2;  // Round up nBytes now.
+    lg2 = 32 - __builtin_clz(static_cast<unsigned int>(nBytes - 1));
+    nBytes = 1ULL << lg2;  // Round up nBytes now.
     ret = m_Caches[lg2].allocate();
 
     EMIT_IF(WARN_PAGE_SIZE_OR_LARGER)
@@ -1325,6 +1303,26 @@ size_t SlamAllocator::allocSize(uintptr_t mem)
     // but we return memory framed by headers and footers. So, the "true" size
     // of memory pointed to by 'mem' is not the true object size.
     return result - (sizeof(AllocHeader) + sizeof(AllocFooter));
+}
+
+bool SlamAllocator::isAllocatedPage(uintptr_t address) const
+{
+    if (
+        !m_bInitialised || !m_SlabRegionBitmap || address < m_Base ||
+        address >= getHeapEnd())
+    {
+        return false;
+    }
+
+    size_t page = (address - m_Base) / getPageSize();
+    if (page >= m_SlabRegionPages)
+    {
+        return false;
+    }
+
+    uint64_t bitmap = __atomic_load_n(
+        &m_SlabRegionBitmap[page / 64], __ATOMIC_ACQUIRE);
+    return bitmap & (1ULL << (page % 64));
 }
 
 SlamAllocator &SlamAllocator::instance()
@@ -1456,6 +1454,17 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     }
 #endif
 
+    if (mem < (m_Base + sizeof(AllocHeader)))
+    {
+        return false;
+    }
+
+    uintptr_t headerAddress = mem - sizeof(AllocHeader);
+    if (!isAllocatedPage(headerAddress))
+    {
+        return false;
+    }
+
 #if CRIPPLINGLY_VIGILANT
     if (m_bVigilant)
         for (int i = 0; i < 32; i++)
@@ -1463,8 +1472,7 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
 #endif
 
     // Grab the header
-    AllocHeader *head =
-        reinterpret_cast<AllocHeader *>(mem - sizeof(AllocHeader));
+    AllocHeader *head = reinterpret_cast<AllocHeader *>(headerAddress);
 
 #if OVERRUN_CHECK
     if (head->magic != VIGILANT_MAGIC)

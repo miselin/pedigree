@@ -190,7 +190,7 @@ class SlamCache
     SlamCache(const SlamCache &);
     const SlamCache &operator=(const SlamCache &);
 
-    static constexpr const int NUM_LISTS = MULTIPROCESSOR ? 255 : 1;
+    static constexpr const int NUM_LISTS = MULTIPROCESSOR ? 256 : 1;
 
     typedef volatile Node *alignedNode;
     alignedNode m_PartialLists[NUM_LISTS];
@@ -295,6 +295,8 @@ class SlamAllocator
     /** Wipe out all memory used by the allocator. */
     void wipe();
 
+    bool isAllocatedPage(uintptr_t address) const;
+
     SlamCache m_Caches[32];
 
   public:
@@ -337,6 +339,7 @@ class SlamAllocator
 
     uint64_t *m_SlabRegionBitmap;
     size_t m_SlabRegionBitmapEntries;
+    size_t m_SlabRegionPages;
 
     uintptr_t m_Base;
 

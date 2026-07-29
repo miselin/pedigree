@@ -295,8 +295,7 @@ extern "C" void *INDIR_REALLOC(void *p, size_t sz)
 
     // Don't attempt to read past the end of the source buffer if we can help it
     size_t copySz =
-        SlamAllocator::instance().allocSize(reinterpret_cast<uintptr_t>(p)) -
-        sizeof(SlamAllocator::AllocFooter);
+        SlamAllocator::instance().allocSize(reinterpret_cast<uintptr_t>(p));
     if (copySz > sz)
         copySz = sz;
 
