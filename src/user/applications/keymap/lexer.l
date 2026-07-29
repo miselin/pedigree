@@ -1,6 +1,7 @@
 %{
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include "cmd.h"
 #include "parser.h"
@@ -48,7 +49,12 @@ DEFINE                  {return DEFINE;}
 type_t text_var()
 {
     type_t toRet;
-    strncpy(toRet.str, yytext, yyleng);
+    if ((size_t) yyleng >= sizeof(toRet.str))
+    {
+        fprintf(stderr, "Keymap token is too long.\n");
+        exit(1);
+    }
+    memcpy(toRet.str, yytext, yyleng);
     toRet.str[yyleng] = '\0';
     return toRet;
 }
@@ -73,4 +79,3 @@ type_t hex_var()
     toRet.n = strtoul(yytext, 0, 16);
     return toRet;
 }
-

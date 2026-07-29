@@ -350,23 +350,23 @@ int main(int argc, char **argv)
                 // receive an event during this read, we'd deadlock in the
                 // kernel.
                 Input::inhibitEvents();
-                size_t len = read(g_MasterPty, buffer, maxBuffSize);
+                ssize_t len = read(g_MasterPty, buffer, maxBuffSize);
                 Input::uninhibitEvents();
-                buffer[len] = 0;
-                write(tty, buffer, len);
+                if (len > 0)
+                    write(tty, buffer, len);
             }
 
             // Handle incoming data from the TTY.
             if (FD_ISSET(tty, &fds))
             {
-                size_t len = read(tty, buffer, maxBuffSize);
-                buffer[len] = 0;
+                ssize_t len = read(tty, buffer, maxBuffSize);
 
                 // Same problem as above - if we are writing and then an event
                 // fires that triggers another write, we'll deadlock in the
                 // kernel.
                 Input::inhibitEvents();
-                write(g_MasterPty, buffer, len);
+                if (len > 0)
+                    write(g_MasterPty, buffer, len);
                 Input::uninhibitEvents();
             }
         }

@@ -63,8 +63,9 @@ int main(int argc, char *argv[])
     }
 
     // Request the root password
-    char password[256], c;
-    i = 0;
+    char password[256];
+    int c;
+    size_t passwordLength = 0;
 
     struct termios curt;
     tcgetattr(0, &curt);
@@ -74,19 +75,20 @@ int main(int argc, char *argv[])
     printf("[sudo] Enter password: ");
     fflush(stdout);
 
-    while (i < 256 && (c = getchar()) != '\n')
+    while ((c = getchar()) != '\n' && c != EOF)
     {
         if (c == '\b')
         {
-            if (i > 0)
+            if (passwordLength > 0)
             {
-                password[--i] = '\0';
+                password[--passwordLength] = '\0';
                 printf("\b \b");
             }
         }
-        else if (c != '\033')
+        else if (
+            c != '\033' && passwordLength < (sizeof(password) - 1))
         {
-            password[i++] = c;
+            password[passwordLength++] = c;
             printf("•");
         }
     }
@@ -95,7 +97,7 @@ int main(int argc, char *argv[])
     tcsetattr(0, TCSANOW, &curt);
     printf("\n");
 
-    password[i] = '\0';
+    password[passwordLength] = '\0';
 
     // Attempt to log in as that user
     if (pedigree_login(pw->pw_uid, password) != 0)

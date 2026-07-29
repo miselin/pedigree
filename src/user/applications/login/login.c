@@ -196,20 +196,20 @@ int main(int argc, char **argv)
 
         if (LIVECD)
         {
-            const char *password = FORCE_LOGIN_PASS;
+            password = FORCE_LOGIN_PASS;
             printf(gettext("(forced)\n"));
         }
         else
         {
             // Use own way - display *
             fflush(stdout);
-            char c;
-            int i = 0;
+            int c;
+            size_t i = 0;
 
             tcgetattr(0, &curt);
             curt.c_lflag &= ~(ECHO | ICANON);
             tcsetattr(0, TCSANOW, &curt);
-            while (i < 256 && (c = getchar()) != '\n')
+            while ((c = getchar()) != '\n' && c != EOF)
             {
                 if (!c)
                 {
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
                         printf("\b \b");
                     }
                 }
-                else if (c != '\033')
+                else if (c != '\033' && i < (sizeof(buffer) - 1))
                 {
                     buffer[i++] = c;
                     if (!strcmp(TERM, "xterm"))
@@ -295,18 +295,29 @@ int main(int argc, char **argv)
 
                 // Environment - only pass certain variables to the new process.
                 char *newenv[4];
-                newenv[0] = (char *) malloc(256);
-                newenv[1] = (char *) malloc(256);
-                newenv[2] = (char *) malloc(256);
+                size_t homeSize = strlen(pw->pw_dir) + sizeof("HOME=");
+                size_t termSize = strlen(TERM) + sizeof("TERM=");
+                size_t localeSize = strlen(envLcAll) + sizeof("LC_ALL=");
+
+                newenv[0] = (char *) malloc(homeSize);
+                newenv[1] = (char *) malloc(termSize);
+                newenv[2] = (char *) malloc(localeSize);
                 newenv[3] = 0;
 
-                sprintf(newenv[0], "HOME=%s", pw->pw_dir);
-                sprintf(newenv[1], "TERM=%s", TERM);
-                sprintf(newenv[2], "LC_ALL=%s", envLcAll);
-
                 // Make sure we're starting a login shell.
-                char *shell = (char *) malloc(strlen(pw->pw_shell) + 1);
-                sprintf(shell, "-%s", pw->pw_shell);
+                size_t shellSize = strlen(pw->pw_shell) + 2;
+                char *shell = (char *) malloc(shellSize);
+
+                if (!newenv[0] || !newenv[1] || !newenv[2] || !shell)
+                {
+                    perror("malloc");
+                    exit(1);
+                }
+
+                snprintf(newenv[0], homeSize, "HOME=%s", pw->pw_dir);
+                snprintf(newenv[1], termSize, "TERM=%s", TERM);
+                snprintf(newenv[2], localeSize, "LC_ALL=%s", envLcAll);
+                snprintf(shell, shellSize, "-%s", pw->pw_shell);
 
                 // Child.
                 execle(pw->pw_shell, shell, 0, newenv);

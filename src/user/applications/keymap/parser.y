@@ -18,6 +18,7 @@ struct cmd_list
 };
 
 char *quote_char(char c);
+void combine_strings(char *dest, const char *head, const char *tail);
 cmd_t *make_cmd(unsigned int scancode, unsigned int upoint, char *val);
 void set_cmds(unsigned int scancode, struct cmd_list *cl);
 struct cmd_list *add_to_cmd_list(struct cmd_list *cl, cmd_t *c);
@@ -95,8 +96,8 @@ string: QUOTE string_internal QUOTE {strcpy($$, $2);}
       ;
 
 string_internal: /* NULL */                   {strcpy($$, "");}
-               | STRING string_internal       {strcpy($$, $1); strcat($$, $2);}
-               | QUOTED_CHAR string_internal  {strcpy($$, quote_char($1)); strcat($$, $2);}
+               | STRING string_internal       {combine_strings($$, $1, $2);}
+               | QUOTED_CHAR string_internal  {combine_strings($$, quote_char($1), $2);}
                ;
 
 %%
@@ -110,6 +111,20 @@ char *quote_char(char c)
         default:
             return (char*)"?";
     }
+}
+
+void combine_strings(char *dest, const char *head, const char *tail)
+{
+    size_t head_len = strlen(head);
+    size_t tail_len = strlen(tail);
+    if (head_len >= 256 || tail_len >= (256 - head_len))
+    {
+        fprintf(stderr, "Keymap string is too long.\n");
+        exit(1);
+    }
+
+    memcpy(dest, head, head_len);
+    memcpy(dest + head_len, tail, tail_len + 1);
 }
 
 struct cmd_list *add_to_cmd_list(struct cmd_list *cl, cmd_t *c)
@@ -132,6 +147,17 @@ struct cmd_list *add_to_cmd_list(struct cmd_list *cl, cmd_t *c)
 
 cmd_t *make_cmd(unsigned int scancode, unsigned int unicode_point, char *val)
 {
+    if (n_cmds >= MAX_CMDS)
+    {
+        fprintf(stderr, "Too many keymap commands.\n");
+        exit(1);
+    }
+    if (val && strlen(val) > sizeof(unicode_point))
+    {
+        fprintf(stderr, "Special key values cannot exceed four bytes.\n");
+        exit(1);
+    }
+
     cmd_t *c = (cmd_t*)malloc(sizeof(cmd_t));
     c->scancode = scancode;
     c->unicode_point = unicode_point;
@@ -163,6 +189,17 @@ int ndefines = 0;
 
 void add_define(char *str, int n)
 {
+    if (ndefines >= (int) (sizeof(defines) / sizeof(defines[0])))
+    {
+        fprintf(stderr, "Too many keymap definitions.\n");
+        exit(1);
+    }
+    if (strlen(str) >= sizeof(defines[0].str))
+    {
+        fprintf(stderr, "Keymap definition name is too long.\n");
+        exit(1);
+    }
+
     memset(defines[ndefines].str, 0, 32);
     strcpy(defines[ndefines].str, str);
     defines[ndefines++].n = n;

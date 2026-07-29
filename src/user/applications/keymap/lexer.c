@@ -484,6 +484,7 @@ char *yytext;
 #include "cmd.h"
 #include "parser.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 typedef YYSTYPE type_t;
@@ -1967,7 +1968,12 @@ void yyfree(void *ptr)
 type_t text_var()
 {
     type_t toRet;
-    strncpy(toRet.str, yytext, yyleng);
+    if ((size_t) yyleng >= sizeof(toRet.str))
+    {
+        fprintf(stderr, "Keymap token is too long.\n");
+        exit(1);
+    }
+    memcpy(toRet.str, yytext, yyleng);
     toRet.str[yyleng] = '\0';
     return toRet;
 }

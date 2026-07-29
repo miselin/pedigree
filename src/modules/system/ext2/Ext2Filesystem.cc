@@ -189,8 +189,16 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
     uint32_t inodeCount = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_count);
     uint32_t inodesPerGroup =
         LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+    if (!inodeCount || !inodesPerGroup)
+    {
+        ERROR(
+            "Ext2: filesystem on device '" << devName
+                                           << "' has invalid inode geometry.");
+        return false;
+    }
     m_nGroupDescriptors =
-        (inodeCount / inodesPerGroup) + (inodeCount % inodesPerGroup);
+        (inodeCount / inodesPerGroup) +
+        ((inodeCount % inodesPerGroup) ? 1 : 0);
 
     // Add an entry to the group descriptor tree for each GD.
     m_pGroupDescriptors = new GroupDesc *[m_nGroupDescriptors];

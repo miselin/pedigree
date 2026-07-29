@@ -460,8 +460,6 @@ bool VFS::remove(const String &path, File *pStartNode)
 
 bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 {
-    return true;
-
 #ifdef VFS_STANDALONE
     // We don't check permissions on standalone builds of the VFS.
     return true;
@@ -492,46 +490,43 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 
     uint32_t check = 0;
     uint32_t permissions = pFile->getPermissions();
+    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) |
+                      (bExecute ? FILE_UX : 0);
 
-    if (fuid == processUid)
+    if (processUid == 0)
+    {
+        if (!bExecute ||
+            (permissions & (FILE_UX | FILE_GX | FILE_OX)))
+        {
+            return true;
+        }
+    }
+    else if (fuid == processUid)
     {
         check = (permissions >> FILE_UBITS) & 0x7;
     }
-    else if (fgid == processGid)
-    {
-        check = (permissions >> FILE_GBITS) & 0x7;
-    }
     else
     {
-        Vector<int64_t> supplementalGroups;
-        pProcess->getSupplementalGroupIds(supplementalGroups);
+        bool inFileGroup = fgid == processGid;
 
-        for (auto it : supplementalGroups)
+        if (!inFileGroup)
         {
-            if (it == fgid)
+            Vector<int64_t> supplementalGroups;
+            pProcess->getSupplementalGroupIds(supplementalGroups);
+
+            for (auto it : supplementalGroups)
             {
-                check = (permissions >> FILE_GBITS) & 0x7;
-                break;
+                if (it == fgid)
+                {
+                    inFileGroup = true;
+                    break;
+                }
             }
         }
 
-        if (!check)
-        {
-            check = (permissions >> FILE_OBITS) & 0x7;
-        }
+        check = (permissions >> (inFileGroup ? FILE_GBITS : FILE_OBITS)) & 0x7;
     }
 
-    if (!check)
-    {
-        NOTICE(
-            "no permissions? perms=" << Oct << permissions
-                                     << ", check=" << check);
-        return false;
-    }
-
-    // Needed permissions.
-    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) |
-                      (bExecute ? FILE_UX : 0);
     if ((check & needed) != needed)
     {
         NOTICE(
