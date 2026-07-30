@@ -1,8 +1,14 @@
 /*!
-  \page pedigree_porting Porting Pedigree to New Platforms
+  \page pedigree_porting Historical Porting Notes
 
-Pedigree can already run on multiple architectures and hardware platforms, and
-the work towards making this possible makes porting relatively simple.
+\warning This page is historical design reference. The maintained fork targets
+x86-64 PC and x86-64 Linux hosted only. It is not a current porting recipe.
+See `RESTORATION.md` at the repository root for the support contract and
+verified commands.
+
+Earlier Pedigree versions ran on multiple architectures and hardware platforms.
+The abstractions below show how that work was organized, but the ARM, MIPS, and
+PowerPC build paths have been retired from the active fork.
 
 Note: the assumption throughout this page is that you are porting to a new
 architecture and hardware platform at the same time. If you are porting to a
@@ -50,30 +56,21 @@ handler trampolines (needs 8K of memory)
 - Update src/modules/system/network-stack/NetworkStack.cc to size network
 memory pools sensibly for the typical target
 
-\section porting_subsys src/subsys
+\section porting_subsys src/modules/subsys
 
 - Each subsystem needs to have its relevant syscall headers updated.
 
-\section porting_build_system Build System
+\section porting_build_system Historical Build-System Responsibilities
 
-- Update `site_scons/defaults.py` to add a section for your architecture target
-- Update `src/system/kernel/SConscript` to add the necessary source files for
-your machine target
-- Potentially update `SConscript` in the root directory to add your target to
-the various `if` checks that enable builds in parts of the tree
-- More SConscript files may need to be updated depending on how many features
-you intend to enable for your target. In particular, SConscript files under
-`src/subsys` may need to be edited to enable syscalls for new targets
-- Create an `easy_build_[arch].sh` script and enable it via `.travis.yml` to
-enable continuous integration via Travis-CI (https://travis-ci.org); this will
-allow your new target to be built at every push and reveal breakage early
-- If your target can be trivially tested in QEMU, update `scripts/runtest.py`
-as well so the continuous integration build will also perform a runtime test
+A revived port would need a CMake toolchain file under `build-etc/cmake`, CMake
+source selection for its processor and machine, a maintained cross-toolchain,
+image targets, and a reproducible runtime test. It would also need a named lane
+in `verify.sh` before it could be called supported.
 
 \section porting_improvements Improvements
 
-The amount of changes needed to make a port is currently rather large and
-messy, and we want to reduce this to make porting significantly easier.
-See https://www.pedigree-project.org/issues/7 to track our progress on this.
+Reviving a retired port is a restoration project, not a small configuration
+change. Start by establishing a buildable toolchain and one saved-log boot
+checkpoint without weakening the verification contract for maintained targets.
 
 */

@@ -757,7 +757,6 @@ WARN_LOGFILE           =
 INPUT                  = src/modules \
                          src/system \
                          src/user \
-                         src/subsys \
                          docs/doxydocs
 
 # This tag can be used to specify the character encoding of the source files

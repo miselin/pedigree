@@ -82,10 +82,8 @@
  * - \ref pedigree_porting
  * - The main repository for Pedigree is at https://github.com/miselin/pedigree.
  *
- * - If you are interested in contributing, have found a bug, or have any other
- * queries, please open a ticket on the tracker at http://pedigree.plan.io.
- *
- * - You can also find us in \#pedigree on irc.freenode.net.
+ * - If you are interested in contributing or have found a bug, please open an
+ * issue at https://github.com/miselin/pedigree/issues.
  */
 
 #include "pedigree/kernel/Archive.h"

@@ -205,11 +205,9 @@ int main(int argc, char *argv[])
 
     dialog_msgbox(
         gettext("Pedigree Tour"),
-        gettext("The tour is now complete, and  you are now better-equipped to "
-                "handle Pedigree! "
-                "Join us in #pedigree on Freenode IRC, and raise any issues "
-                "you find "
-                "at https://pedigree-project.org.\n\n"
+        gettext("The tour is now complete, and you are now better-equipped to "
+                "handle Pedigree! Raise any issues you find at "
+                "https://github.com/miselin/pedigree/issues.\n\n"
                 "Thank you for trying out Pedigree!"),
         0, 0, 1);
 
