@@ -44,7 +44,7 @@ pid_t g_RunningPid = -1;
 // File descriptor for our PTY master.
 int g_MasterPty;
 
-#if defined(LIVECD) && !defined(TRAVIS)
+#if defined(LIVECD)
 #define FIRST_PROGRAM "/applications/live"
 #else
 #define FIRST_PROGRAM "/applications/login"

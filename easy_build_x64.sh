@@ -3,14 +3,14 @@
 # Script that can be run to set up a Pedigree repository for building with minimal
 # effort.
 
-# TODO: fix this up as it's currently in the middle of migrating from scons -> cmake
+# Historical full-system bootstrap helper. The maintained verification path is
+# ./verify.sh; see RESTORATION.md before relying on this script.
 
 old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && script_dir=$script_dir
 cd $old
 
 COMPILER_DIR=$script_dir/pedigree-compiler
-. $script_dir/build-etc/travis.sh
 
 set -e
 set -v
@@ -34,7 +34,7 @@ $script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_D
 old=$(pwd)
 
 # Fix up POSIX headers which sometimes get a recursive symlink.
-rm -f src/subsys/posix/include/include || true
+rm -f src/modules/subsys/posix/include/include || true
 
 set +e
 
@@ -65,12 +65,12 @@ $script_dir/run_pup.py install ncurses
 
 # Build Pedigree.
 mkdir -p build-host && cd build-host
-cmake $TRAVIS_OPTIONS ..
+cmake ..
 make
 cd ..
 
 mkdir -p build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake $TRAVIS_OPTIONS ..
+cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
 
 # Build libc/libm
 make libc
@@ -143,15 +143,12 @@ echo
 echo
 echo "Pedigree is now ready to be built without running this script."
 echo "To build in future, run the following command in the '$script_dir' directory:"
-echo "scons"
+echo "cmake --build build"
 echo
 echo "If you wish, you can continue to run this script. It won't ask questions"
 echo "anymore, unless you remove the '.easy_os' file in '$script_dir'."
 echo
-echo "You can also run scons --help for more information about options."
-echo
-echo "Patches should be posted in the issue tracker at http://pedigree-project.org/projects/pedigree/issues"
-echo "Support can be found in #pedigree on irc.freenode.net."
+echo "See README.md and RESTORATION.md for the maintained commands and current"
+echo "support status."
 echo
 echo "Have fun with Pedigree! :)"
-

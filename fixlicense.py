@@ -45,7 +45,7 @@ EXCLUDE = [
     './pedigree-compiler',
     './src/lgpl',
     './src/system/kernel/machine/x86_common/x86emu',
-    './src/subsys/posix/include',
+    './src/modules/subsys/posix/include',
     './src/modules/drivers/cdi',
     './src/user/applications/TUI/include',
 ]
@@ -464,5 +464,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 

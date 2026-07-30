@@ -88,12 +88,6 @@ int main(int argc, char **argv)
     return 0;
 #endif
 
-    // Are we on Travis-CI?
-    if (TRAVIS)
-    {
-        klog(LOG_INFO, "-- Hello, Travis! --");
-    }
-
     // New process group for job control. We'll ignore SIGINT for now.
     signal(SIGINT, sigint);
     setsid();
