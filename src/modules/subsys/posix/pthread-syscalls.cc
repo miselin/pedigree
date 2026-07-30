@@ -18,11 +18,13 @@
  */
 
 #include "PosixSubsystem.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/errors.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include <pthread-syscalls.h>
@@ -46,7 +48,47 @@ extern void pthread_stub();
 extern char pthread_stub_end;
 }
 
-static Tree<int *, List<Thread *> *> g_futexes;
+struct FutexKey
+{
+    FutexKey() : addressSpace(0), address(0)
+    {
+    }
+
+    FutexKey(Process *pProcess, int *pAddress)
+        : addressSpace(
+              reinterpret_cast<uintptr_t>(pProcess->getAddressSpace())),
+          address(reinterpret_cast<uintptr_t>(pAddress))
+    {
+    }
+
+    bool operator==(const FutexKey &other) const
+    {
+        return addressSpace == other.addressSpace && address == other.address;
+    }
+
+    bool operator>(const FutexKey &other) const
+    {
+        return addressSpace > other.addressSpace ||
+               (addressSpace == other.addressSpace && address > other.address);
+    }
+
+    uintptr_t addressSpace;
+    uintptr_t address;
+};
+
+typedef List<Thread *> FutexWaiters;
+
+static Spinlock g_futexLock(false);
+static Tree<FutexKey, FutexWaiters *> g_futexes;
+
+static void removeEmptyFutex(const FutexKey &key, FutexWaiters *pWaiters)
+{
+    if (!pWaiters->count())
+    {
+        g_futexes.remove(key);
+        delete pWaiters;
+    }
+}
 
 int posix_futex(
     int *uaddr, int futex_op, int val, const struct timespec *timeout)
@@ -67,20 +109,36 @@ int posix_futex(
 
     if (!(futex_op & FUTEX_PRIVATE))
     {
-        PT_NOTICE(" -> warning: public futexes are not yet supported");
+        PT_NOTICE(" -> public futexes are not yet supported");
+        SYSCALL_ERROR(Unimplemented);
+        return -1;
     }
 
     if (futex_op & FUTEX_CLOCK_REALTIME)
     {
-        PT_NOTICE(" -> warning: clock choice (monotonic vs realtime) is not "
-                  "yet supported");
-        futex_op &= ~FUTEX_CLOCK_REALTIME;
+        PT_NOTICE(" -> realtime futex waits are not yet supported");
+        SYSCALL_ERROR(Unimplemented);
+        return -1;
     }
 
     futex_op &= ~FUTEX_PRIVATE;
 
+    if (reinterpret_cast<uintptr_t>(uaddr) % alignof(int))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (
+        !PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(uaddr), sizeof(*uaddr),
+            PosixSubsystem::SafeRead))
+    {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
     int r = 0;
-    int supported = 0;
+    const FutexKey key(pProcess, uaddr);
 
     switch (futex_op)
     {
@@ -88,30 +146,119 @@ int posix_futex(
         {
             PT_NOTICE(" -> FUTEX_WAIT");
 
-            /// \todo this is not atomic at all
+            if (
+                timeout &&
+                !PosixSubsystem::checkAddress(
+                    reinterpret_cast<uintptr_t>(timeout), sizeof(*timeout),
+                    PosixSubsystem::SafeRead))
+            {
+                SYSCALL_ERROR(BadAddress);
+                return -1;
+            }
+
+            Time::Timestamp timeoutNanoseconds = Time::Infinity;
+            if (timeout)
+            {
+                if (
+                    timeout->tv_sec < 0 || timeout->tv_nsec < 0 ||
+                    timeout->tv_nsec >=
+                        static_cast<decltype(timeout->tv_nsec)>(
+                            Time::Multiplier::Second))
+                {
+                    SYSCALL_ERROR(InvalidArgument);
+                    return -1;
+                }
+
+                const Time::Timestamp nanoseconds =
+                    static_cast<Time::Timestamp>(timeout->tv_nsec);
+                const Time::Timestamp seconds =
+                    static_cast<Time::Timestamp>(timeout->tv_sec);
+                if (
+                    seconds >
+                    (Time::Infinity - nanoseconds) /
+                        Time::Multiplier::Second)
+                {
+                    SYSCALL_ERROR(InvalidArgument);
+                    return -1;
+                }
+
+                timeoutNanoseconds =
+                    seconds * Time::Multiplier::Second + nanoseconds;
+            }
+
+            g_futexLock.acquire();
+            bool bWasInterrupts = g_futexLock.interrupts();
+
             if (*uaddr != val)
             {
+                g_futexLock.release();
                 PT_NOTICE(" -> value changed");
                 SYSCALL_ERROR(NoMoreProcesses);  // EAGAIN
                 r = -1;
             }
             else
             {
-                bool newLock = false;
-
-                List<Thread *> *threads = g_futexes.lookup(uaddr);
-                if (!threads)
+                void *pAlarm = nullptr;
+                if (timeout)
                 {
-                    threads = new List<Thread *>;
-                    threads->pushBack(pThread);
-                    g_futexes.insert(uaddr, threads);
+                    pAlarm = Time::addAlarm(timeoutNanoseconds);
                 }
 
-                // good to go for sleeping
-                /// \todo timeout
+                FutexWaiters *pWaiters = g_futexes.lookup(key);
+                if (!pWaiters)
+                {
+                    pWaiters = new FutexWaiters;
+                    g_futexes.insert(key, pWaiters);
+                }
+                pWaiters->pushBack(pThread);
+
                 PT_NOTICE(" -> waiting...");
-                Processor::information().getScheduler().sleep();
+                // The scheduler releases this only after marking us Sleeping,
+                // so a concurrent wake cannot get lost after enrollment.
+                Processor::information().getScheduler().sleep(&g_futexLock);
                 PT_NOTICE(" -> waiting complete!");
+
+                const bool interrupted = pThread->wasInterrupted();
+                if (pAlarm)
+                {
+                    Time::removeAlarm(pAlarm);
+                }
+                pThread->setInterrupted(false);
+
+                Processor::setInterrupts(bWasInterrupts);
+
+                bool stillQueued = false;
+                g_futexLock.acquire();
+                pWaiters = g_futexes.lookup(key);
+                if (pWaiters)
+                {
+                    for (FutexWaiters::Iterator it = pWaiters->begin();
+                         it != pWaiters->end(); ++it)
+                    {
+                        if ((*it) == pThread)
+                        {
+                            pWaiters->erase(it);
+                            stillQueued = true;
+                            break;
+                        }
+                    }
+
+                    removeEmptyFutex(key, pWaiters);
+                }
+                g_futexLock.release();
+
+                if (stillQueued)
+                {
+                    if (timeout && interrupted)
+                    {
+                        SYSCALL_ERROR(TimedOut);
+                    }
+                    else
+                    {
+                        SYSCALL_ERROR(Interrupted);
+                    }
+                    r = -1;
+                }
             }
             break;
         }
@@ -120,13 +267,21 @@ int posix_futex(
         {
             PT_NOTICE(" -> FUTEX_WAKE");
 
-            List<Thread *> *threads = g_futexes.lookup(uaddr);
-            if (threads)
+            if (val < 0)
+            {
+                SYSCALL_ERROR(InvalidArgument);
+                r = -1;
+                break;
+            }
+
+            g_futexLock.acquire();
+            FutexWaiters *pWaiters = g_futexes.lookup(key);
+            if (pWaiters)
             {
                 int woken = 0;
-                for (int i = 0; i < val && threads->count() > 0; ++i)
+                for (int i = 0; i < val && pWaiters->count() > 0; ++i)
                 {
-                    Thread *pWakeThread = threads->popFront();
+                    Thread *pWakeThread = pWaiters->popFront();
                     PT_NOTICE(" -> waking " << pWakeThread);
                     pWakeThread->getLock().acquire();
                     pWakeThread->setStatus(Thread::Ready);
@@ -137,7 +292,9 @@ int posix_futex(
 
                 PT_NOTICE(" -> woke " << Dec << woken << " threads.");
                 r = woken;
+                removeEmptyFutex(key, pWaiters);
             }
+            g_futexLock.release();
             break;
         }
 
@@ -338,14 +495,7 @@ void posix_pedigree_destroy_waiter(void *waiter)
 
 pid_t posix_gettid()
 {
-    // Single-threaded process, gettid() returns the PID.
-    Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    if (pProcess->getNumThreads() == 1)
-    {
-        return pProcess->getId();
-    }
-
-    // Otherwise, we return the current thread's ID.
-    return pThread->getId();
+    // Go caches this value before creating another thread, so it must not
+    // change when the process transitions from one thread to several.
+    return Processor::information().getCurrentThread()->getId();
 }

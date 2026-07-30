@@ -220,7 +220,8 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         Process *pProcess = pThread->getParent();
         Subsystem *pSubsystem = pProcess->getSubsystem();
         if (pSubsystem && !state.kernelMode())
-            pSubsystem->threadException(pThread, Subsystem::PageFault);
+            pSubsystem->threadException(
+                pThread, Subsystem::PageFault, &state, cr2, code);
         else
         {
             pProcess->kill();

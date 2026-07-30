@@ -124,8 +124,16 @@ class EXPORTED_PUBLIC Subsystem
      */
     virtual bool kill(KillReason killReason, Thread *pThread = 0) = 0;
 
-    /** A thread has thrown an exception! */
-    virtual void threadException(Thread *pThread, ExceptionType eType);
+    /**
+     * A thread has thrown an exception.
+     *
+     * The interrupt state is borrowed for this call only. Architecture-neutral
+     * and synthetic exceptions may omit the optional machine context.
+     */
+    virtual void threadException(
+        Thread *pThread, ExceptionType eType,
+        InterruptState *pState = nullptr, uintptr_t faultAddress = 0,
+        uintptr_t errorCode = 0);
 
     /** Gets the type of this subsystem */
     SubsystemType getType()

@@ -26,7 +26,7 @@ global _ZN13ProcessorBase14getDebugStatusEv:function hidden
 ; void ProcessorBase::switchToUserMode()
 global _ZN13ProcessorBase16switchToUserModeEmm:function hidden
 ; void ProcessorBase::contextSwitch(InterruptState*)
-global _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:function hidden
+global _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:function
 
 ;##############################################################################
 ;### Code section #############################################################

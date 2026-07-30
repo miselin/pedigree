@@ -32,7 +32,8 @@ void Subsystem::release()
     // no-op
 }
 
-void Subsystem::threadException(Thread *pThread, ExceptionType eType)
+void Subsystem::threadException(
+    Thread *, ExceptionType, InterruptState *, uintptr_t, uintptr_t)
 {
     ERROR("Subsystem::threadException - not overridden");
 }

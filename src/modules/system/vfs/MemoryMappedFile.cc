@@ -1422,6 +1422,57 @@ bool MemoryMapManager::contains(uintptr_t base, size_t length)
     return false;
 }
 
+bool MemoryMapManager::allows(
+    uintptr_t base, size_t length,
+    MemoryMappedObject::Permissions permissions)
+{
+    if (!length || length > (~static_cast<uintptr_t>(0) - base))
+    {
+        return false;
+    }
+
+    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
+    uintptr_t end = base + length;
+
+    LockGuard<Spinlock> guard(m_Lock);
+
+    MmObjectList *pMmObjectList = m_MmObjectLists.lookup(&va);
+    if (!pMmObjectList)
+    {
+        return false;
+    }
+
+    uintptr_t cursor = base;
+    while (cursor < end)
+    {
+        uintptr_t coveredUntil = cursor;
+        for (List<MemoryMappedObject *>::Iterator it = pMmObjectList->begin();
+             it != pMmObjectList->end(); ++it)
+        {
+            MemoryMappedObject *pObject = *it;
+            if (
+                pObject->matches(cursor) &&
+                (pObject->permissions() & permissions) == permissions)
+            {
+                uintptr_t objectEnd =
+                    pObject->address() + pObject->length();
+                if (objectEnd > coveredUntil)
+                {
+                    coveredUntil = objectEnd;
+                }
+            }
+        }
+
+        if (coveredUntil == cursor)
+        {
+            return false;
+        }
+        cursor = coveredUntil < end ? coveredUntil : end;
+    }
+
+    return true;
+}
+
 void MemoryMapManager::op(
     MemoryMapManager::Ops what, uintptr_t base, size_t length, bool async)
 {

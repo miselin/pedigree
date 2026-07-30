@@ -46,6 +46,20 @@ class NMFaultHandler : private InterruptHandler
     /** Initialise the current processor's floating point state. */
     bool initialiseProcessor();
 
+    /**
+     * Save the current thread's legacy FXSAVE image. When requested, install
+     * the initial image for a signal handler without losing the saved image.
+     */
+    EXPORTED_PUBLIC static bool saveCurrentThreadFpuState(
+        void *buffer, bool resetForSignalHandler);
+
+    /** Restore the current thread's legacy FXSAVE image. */
+    EXPORTED_PUBLIC static bool
+    restoreCurrentThreadFpuState(const void *buffer);
+
+    /** Seed a new thread with the current thread's floating-point image. */
+    static bool inheritCurrentThreadFpuState(class Thread *thread);
+
     //
     // InterruptHandler interface.
     //

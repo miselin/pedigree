@@ -92,6 +92,12 @@ class X64InterruptState
     /** Get the interrupt number
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
+    /** Get the processor-supplied exception error code. */
+    inline uintptr_t getErrorCode() const;
+    /** Get the interrupted code-segment selector. */
+    inline uint16_t getCodeSegment() const;
+    /** Get the interrupted stack-segment selector. */
+    inline uint16_t getStackSegment() const;
 
     /** Get the flags register
      *\return the flags register */
@@ -419,6 +425,18 @@ bool X64InterruptState::kernelMode() const
 size_t X64InterruptState::getInterruptNumber() const
 {
     return m_IntNumber;
+}
+uintptr_t X64InterruptState::getErrorCode() const
+{
+    return m_Errorcode;
+}
+uint16_t X64InterruptState::getCodeSegment() const
+{
+    return static_cast<uint16_t>(m_Cs);
+}
+uint16_t X64InterruptState::getStackSegment() const
+{
+    return static_cast<uint16_t>(m_Ss);
 }
 
 uint64_t X64InterruptState::getFlags() const

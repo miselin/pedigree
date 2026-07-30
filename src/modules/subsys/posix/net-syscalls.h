@@ -71,7 +71,8 @@ class NetworkSyscalls
 
     virtual int listen(int backlog) = 0;
     virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen) = 0;
-    virtual int accept(struct sockaddr_storage *address, socklen_t *addrlen) = 0;
+    virtual int
+    accept(struct sockaddr_storage *address, socklen_t *addrlen, int flags) = 0;
 
     virtual int shutdown(int how);
 
@@ -116,7 +117,7 @@ class NetworkSyscalls
 
     bool isBlocking() const;
 
-    void setBlocking(bool blocking);
+    virtual void setBlocking(bool blocking);
 
   protected:
     int m_Domain;
@@ -143,7 +144,8 @@ class LwipSocketSyscalls : public NetworkSyscalls
 
     virtual int listen(int backlog);
     virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen);
-    virtual int accept(struct sockaddr_storage *address, socklen_t *addrlen);
+    virtual int
+    accept(struct sockaddr_storage *address, socklen_t *addrlen, int flags);
 
     virtual int shutdown(int how);
 
@@ -159,12 +161,16 @@ class LwipSocketSyscalls : public NetworkSyscalls
     virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
     virtual void unPoll(Semaphore *waiter);
 
+    virtual void setBlocking(bool blocking);
+
   private:
     static Tree<struct netconn *, LwipSocketSyscalls *> m_SyscallObjects;
+    static Mutex m_SyscallObjectsLock;
 
     static void
     netconnCallback(struct netconn *conn, enum netconn_evt evt, uint16_t len);
     static void lwipToSyscallError(err_t err);
+    void registerSocket();
 
     struct netconn *m_Socket;
 
@@ -174,7 +180,8 @@ class LwipSocketSyscalls : public NetworkSyscalls
 
         ssize_t recv;
         ssize_t send;
-        bool error;
+        err_t error;
+        bool closed;
 
         Mutex lock;
         List<Semaphore *> semaphores;
@@ -200,7 +207,8 @@ class UnixSocketSyscalls : public NetworkSyscalls
 
     virtual int listen(int backlog);
     virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen);
-    virtual int accept(struct sockaddr_storage *address, socklen_t *addrlen);
+    virtual int
+    accept(struct sockaddr_storage *address, socklen_t *addrlen, int flags);
 
     virtual int shutdown(int how);
 
@@ -233,6 +241,7 @@ class UnixSocketSyscalls : public NetworkSyscalls
 
     UnixSocket *m_Socket;
     UnixSocket *m_Remote;  // other side of the unix socket
+    bool m_RemoteTracked;
 
     String m_LocalPath;
     String m_RemotePath;
@@ -257,6 +266,8 @@ ssize_t posix_recvfrom(
 int posix_listen(int sock, int backlog);
 int posix_bind(int sock, const struct sockaddr_storage *address, socklen_t addrlen);
 int posix_accept(int sock, struct sockaddr_storage *address, socklen_t *addrlen);
+int posix_accept4(
+    int sock, struct sockaddr_storage *address, socklen_t *addrlen, int flags);
 
 int posix_shutdown(int socket, int how);
 

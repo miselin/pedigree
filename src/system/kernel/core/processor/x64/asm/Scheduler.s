@@ -60,13 +60,15 @@ _ZN13ProcessorBase9saveStateER17X64SchedulerState:
     mov     [rdi+80], rax
     mov     [rdi+88], rdx
 
-    ;; Save FPU data (if used)
-    mov byte[rdi+96], 0
+    ;; Save live FPU data before the task can migrate to another processor.
+    ;; All transfer paths either restore the incoming image or set TS, so TS
+    ;; clear means this state owns the hardware image at this point.
     mov     rdx, cr0
     and     rdx, 8
     cmp     rdx, 8
     je      .no_fpu
-    mov byte[rdi+96], 1
+    fxsave64 [rdi+112]
+    or      dword [rdi+96], 2
 
 .no_fpu:
 
@@ -77,18 +79,20 @@ _ZN13ProcessorBase9saveStateER17X64SchedulerState:
 ; [rsi] Lock.
 ; [rdi] State pointer.
 _ZN13ProcessorBase12restoreStateER17X64SchedulerStatePVm:
-    ;; Check for FPU use.
-    cmp byte [rdi+96], 1
-    je       .uses_fpu
-    mov      rdx, cr0
-    or       rdx, 8
-    mov      cr0, rdx
-    jmp      .fin_fpu
-.uses_fpu:
+    ;; Eagerly restore a valid image. This also preserves private scheduler
+    ;; snapshots such as TimeoutGuard's; brand-new states fault in lazily.
+    test     dword [rdi+96], 2
+    jz       .invalid_fpu
     mov      rdx, cr0
     and      rdx, 0xFFFFFFFFFFFFFFF7
     mov      cr0, rdx
-.fin_fpu:
+    fxrstor64 [rdi+112]
+    jmp      .fpu_done
+.invalid_fpu:
+    mov      rdx, cr0
+    or       rdx, 8
+    mov      cr0, rdx
+.fpu_done:
 
     ;; Reload all callee-save registers.
     mov     r8, [rdi+0]
@@ -122,6 +126,12 @@ _ZN13ProcessorBase12restoreStateER17X64SchedulerStatePVm:
 ; [rsi] Lock
 ; [rdi] State pointer.
 _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
+    ;; There is no SchedulerState in this return path. Force the new current
+    ;; thread to activate its own image before its first FPU instruction.
+    mov     rdx, cr0
+    or      rdx, 8
+    mov     cr0, rdx
+
     ;; The state pointer is on this thread's kernel stack, so change to it.
     mov     rsp, rdi
 
@@ -162,6 +172,12 @@ _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
 ; [rsi]    address
 ; [rdi]    Lock
 _ZN13ProcessorBase10jumpKernelEPVmmmmmmm:
+    ;; This path changes the current thread or nested state without passing
+    ;; through restoreState(SchedulerState).
+    mov     r11, cr0
+    or      r11, 8
+    mov     cr0, r11
+
     ;; Load the lock pointer, address and stack to scratch registers.
     mov     r10, rdi
     mov     rax, rsi
@@ -211,6 +227,12 @@ _ZN13ProcessorBase8jumpUserEPVmmmmmmm:
     ;; won't be mapped in another process's address space (which then #DF's
     ;; the scheduler when it attempts to load a new thread).
     cli
+
+    ;; This path changes the current thread or nested state without passing
+    ;; through restoreState(SchedulerState).
+    mov     r11, cr0
+    or      r11, 8
+    mov     cr0, r11
 
     ;; Load the lock pointer, address and stack to scratch registers.
     mov     r10, rdi
@@ -270,6 +292,21 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64Scheduler
     mov rax, _ZN21PerProcessorScheduler12deleteThreadEP6Thread
     call rax
     pop rcx
+
+    ;; The killed task's hardware image is disposable. Install the incoming
+    ;; task's exact image if it has one, otherwise activate it through #NM.
+    test dword [rcx+96], 2
+    jz .invalid_fpu
+    mov rax, cr0
+    and rax, 0xFFFFFFFFFFFFFFF7
+    mov cr0, rax
+    fxrstor64 [rcx+112]
+    jmp .fpu_done
+.invalid_fpu:
+    mov rax, cr0
+    or rax, 8
+    mov cr0, rax
+.fpu_done:
     
     ; Restore state
     mov r8, [rcx+0]

@@ -20,6 +20,7 @@
 // Contains implementations of syscalls that use global info blocks instead of
 // native syscalls proper.
 
+#include <errno.h>
 #include <stdint.h>
 #include <sys/select.h>
 #include <time.h>
@@ -44,9 +45,25 @@ time_t __vdso_time(time_t *tloc);
 
 int __vdso_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
-    // 'now' is in nanoseconds.
-    /// \todo only do this for CLOCK_MONOTONIC and CLOCK_REALTIME
-    uint64_t now = infoBlock->now;
+    if (!tp)
+    {
+        return -EFAULT;
+    }
+
+    uint64_t now;
+    if (clock_id == CLOCK_REALTIME)
+    {
+        now = infoBlock->now;
+    }
+    else if (clock_id == CLOCK_MONOTONIC)
+    {
+        now = infoBlock->monotonic;
+    }
+    else
+    {
+        return -EINVAL;
+    }
+
     tp->tv_sec = now / 1000000000U;
     tp->tv_nsec = now % 1000000000U;
 
@@ -60,7 +77,7 @@ int __vdso_gettimeofday(struct timeval *tv, void *tz)
         // 'now' is in nanoseconds.
         uint64_t now = infoBlock->now;
         tv->tv_sec = now / 1000000000U;
-        tv->tv_usec = now / 1000U;
+        tv->tv_usec = (now % 1000000000U) / 1000U;
     }
 
     /// \todo use tz

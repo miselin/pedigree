@@ -666,52 +666,118 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
     // need the
     //       memory-management
     size_t numPagesOver4G = 0;
-    uint64_t base = 0;
+    const uint64_t fourGiB = 0x100000000ULL;
+    const uint64_t sixtyFourGiB = 0x1000000000ULL;
+    const uint64_t pageSize = getPageSize();
+    uint64_t physicalRangeTop = fourGiB;
     void *MemoryMap = Info.getMemoryMap();
     while (MemoryMap)
     {
         uint64_t addr = Info.getMemoryMapEntryAddress(MemoryMap);
         uint64_t length = Info.getMemoryMapEntryLength(MemoryMap);
         uint32_t type = Info.getMemoryMapEntryType(MemoryMap);
+        uint64_t rangeTop = addr + length;
 
-        if (addr >= 0x100000000ULL)
+        if (rangeTop < addr)
         {
-            if (base == 0 || addr < base)
+            panic("PhysicalMemoryManager: memory-map entry overflow");
+        }
+
+        if (rangeTop > fourGiB)
+        {
+            uint64_t highAddr = addr < fourGiB ? fourGiB : addr;
+            if (rangeTop > physicalRangeTop)
             {
-                base = addr;
+                physicalRangeTop = rangeTop;
             }
 
             NOTICE(
-                " " << Hex << addr << " - " << (addr + length)
+                " " << Hex << highAddr << " - " << rangeTop
                     << ", type: " << type);
 
             if (type == 1)
             {
-                size_t numPages = length / getPageSize();
-                m_PageStack.increaseCapacity(numPages);
-                m_PageStack.free(addr, length);
+                uint64_t alignedHighAddr =
+                    (highAddr + pageSize - 1) & ~(pageSize - 1);
+                uint64_t alignedRangeTop = rangeTop & ~(pageSize - 1);
+                if (alignedHighAddr < alignedRangeTop)
+                {
+                    uint64_t highLength =
+                        alignedRangeTop - alignedHighAddr;
+                    size_t numPages = highLength / pageSize;
+                    m_PageStack.increaseCapacity(numPages);
+                    if (
+                        alignedHighAddr < sixtyFourGiB &&
+                        alignedRangeTop > sixtyFourGiB)
+                    {
+                        m_PageStack.free(
+                            alignedHighAddr,
+                            sixtyFourGiB - alignedHighAddr);
+                        m_PageStack.free(
+                            sixtyFourGiB,
+                            alignedRangeTop - sixtyFourGiB);
+                    }
+                    else
+                    {
+                        m_PageStack.free(alignedHighAddr, highLength);
+                    }
 
-                m_PhysicalRanges.free(addr, length);
-
-                numPagesOver4G += numPages;
+                    numPagesOver4G += numPages;
+                }
             }
         }
 
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }
 
-    // Map physical memory above 4G into the kernel address space.
-    // Everything below 4G is already mapped using 2MB pages.
-    /// \todo this will break if there's over 64 TiB of RAM on the machine.
+    // Direct-map every usable range independently. Aggregating their page
+    // counts would incorrectly map firmware holes as RAM.
     VirtualAddressSpace &kernelSpace =
         VirtualAddressSpace::getKernelAddressSpace();
-    bool ok = kernelSpace.mapHuge(
-        base, reinterpret_cast<void *>(0xFFFF800000000000 + base),
-        numPagesOver4G,
-        VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);
-    if (!ok)
+    MemoryMap = Info.getMemoryMap();
+    while (MemoryMap)
     {
-        FATAL("failed to map physical memory");
+        uint64_t addr = Info.getMemoryMapEntryAddress(MemoryMap);
+        uint64_t length = Info.getMemoryMapEntryLength(MemoryMap);
+        uint64_t rangeTop = addr + length;
+
+        if (rangeTop < addr)
+        {
+            panic("PhysicalMemoryManager: memory-map entry overflow");
+        }
+
+        if (Info.getMemoryMapEntryType(MemoryMap) == 1 &&
+            rangeTop > fourGiB)
+        {
+            uint64_t highAddr = addr < fourGiB ? fourGiB : addr;
+            uint64_t alignedHighAddr =
+                (highAddr + pageSize - 1) & ~(pageSize - 1);
+            uint64_t alignedRangeTop = rangeTop & ~(pageSize - 1);
+            if (alignedHighAddr < alignedRangeTop)
+            {
+                size_t numPages =
+                    (alignedRangeTop - alignedHighAddr) / pageSize;
+                if (!kernelSpace.mapHuge(
+                        alignedHighAddr,
+                        reinterpret_cast<void *>(
+                            0xFFFF800000000000ULL + alignedHighAddr),
+                        numPages,
+                        VirtualAddressSpace::Write |
+                            VirtualAddressSpace::KernelMode))
+                {
+                    FATAL("failed to map physical memory");
+                }
+            }
+        }
+
+        MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
+    }
+
+    // This range tracks addresses available for non-RAM mappings. Seed the
+    // whole firmware-described span before removing every described region.
+    if (physicalRangeTop > fourGiB)
+    {
+        m_PhysicalRanges.free(fourGiB, physicalRangeTop - fourGiB);
     }
 
     NOTICE(" --> " << numPagesOver4G << " pages exist above 4G!");
@@ -750,20 +816,31 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
     MemoryMap = Info.getMemoryMap();
     while (MemoryMap)
     {
-        // Only map if the variable fits into a uintptr_t - no overflow!
-        if ((Info.getMemoryMapEntryAddress(MemoryMap)) > ~0ULL)
+        uint64_t addr = Info.getMemoryMapEntryAddress(MemoryMap);
+        uint64_t length = Info.getMemoryMapEntryLength(MemoryMap);
+        uint64_t rangeTop = addr + length;
+
+        if (rangeTop < addr)
         {
-            WARNING(
-                "Memory region " << Info.getMemoryMapEntryAddress(MemoryMap)
-                                 << " not used.");
+            panic("PhysicalMemoryManager: memory-map entry overflow");
         }
-        else if (
-            (Info.getMemoryMapEntryAddress(MemoryMap) >= 0x100000000ULL) &&
-            (m_PhysicalRanges.allocateSpecific(
-                 Info.getMemoryMapEntryAddress(MemoryMap),
-                 Info.getMemoryMapEntryLength(MemoryMap)) == false))
-            panic("PhysicalMemoryManager: Failed to create the list of ranges "
-                  "of free physical space");
+
+        // Only map if the variable fits into a uintptr_t - no overflow!
+        if (addr > ~0ULL)
+        {
+            WARNING("Memory region " << addr << " not used.");
+        }
+        else if (rangeTop > fourGiB)
+        {
+            uint64_t highAddr = addr < fourGiB ? fourGiB : addr;
+            if (!m_PhysicalRanges.allocateSpecific(
+                    highAddr, rangeTop - highAddr))
+            {
+                panic(
+                    "PhysicalMemoryManager: Failed to create the list of "
+                    "ranges of free physical space");
+            }
+        }
 
         MemoryMap = Info.nextMemoryMapEntry(MemoryMap);
     }

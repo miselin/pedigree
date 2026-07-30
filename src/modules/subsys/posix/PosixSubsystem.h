@@ -47,6 +47,7 @@ class PosixSubsystem;
 extern PosixSubsystem *getSubsystem();
 extern FileDescriptor *getDescriptor(int fd);
 extern void addDescriptor(int fd, FileDescriptor *f);
+extern void removeDescriptor(int fd);
 extern size_t getAvailableDescriptor();
 
 // Grabs a subsystem for use.
@@ -121,7 +122,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     PosixSubsystem()
         : Subsystem(Posix), m_SignalHandlers(), m_SignalHandlersLock(),
           m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-          m_FreeCount(1), m_AltSigStack(), m_SyncObjects(), m_Threads(),
+          m_FreeCount(1), m_SyncObjects(), m_Threads(),
           m_ThreadWaiters(), m_NextThreadWaiter(0), m_Abi(PosixAbi),
           m_bAcquired(false), m_pAcquiredThread(nullptr)
     {
@@ -134,7 +135,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     PosixSubsystem(SubsystemType type)
         : Subsystem(type), m_SignalHandlers(), m_SignalHandlersLock(),
           m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-          m_FreeCount(1), m_AltSigStack(), m_SyncObjects(), m_Threads(),
+          m_FreeCount(1), m_SyncObjects(), m_Threads(),
           m_ThreadWaiters(), m_NextThreadWaiter(0), m_Abi(PosixAbi),
           m_bAcquired(false), m_pAcquiredThread(nullptr)
     {
@@ -169,58 +170,26 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     virtual bool kill(KillReason killReason, Thread *pThread);
 
     /** A thread has thrown an exception! */
-    virtual void threadException(Thread *pThread, ExceptionType eType);
+    virtual void threadException(
+        Thread *pThread, ExceptionType eType,
+        InterruptState *pState = nullptr, uintptr_t faultAddress = 0,
+        uintptr_t errorCode = 0);
 
     /** Send a POSIX signal to the given thread. */
     virtual void sendSignal(Thread *pThread, int signal, bool yield = true);
 
-    /** Alternate signal stack */
-    /// \todo Figure out how to make this work for more than just the current
-    /// process (ie, work
-    ///       with CheckEventState... Which requires exposing parts of the POSIX
-    ///       subsystem to the scheduler - not good!).
-    struct AlternateSignalStack
-    {
-        /// Default constructor
-        AlternateSignalStack() : base(0), size(0), inUse(false), enabled(false)
-        {
-        }
-
-        /// The location of this stack
-        uintptr_t base;
-
-        /// Size of the stack
-        size_t size;
-
-        /// Are we to use this alternate stack rather than a normal stack?
-        bool inUse;
-
-        /// Enabled?
-        bool enabled;
-    };
-
-    /** Grabs the alternate signal stack */
-    AlternateSignalStack &getAlternateSignalStack()
-    {
-        return m_AltSigStack;
-    }
-
-    /** Sets the alternate signal stack, if possible */
-    void setAlternateSignalStack(AlternateSignalStack &s)
-    {
-        m_AltSigStack = s;
-    }
-
     /** A signal handler */
     struct SignalHandler
     {
-        SignalHandler() : sig(255), pEvent(0), sigMask(), flags(0), type(0)
+        SignalHandler()
+            : sig(255), pEvent(0), sigMask(0), flags(0), restorer(0), type(0)
         {
         }
 
         SignalHandler(const SignalHandler &s)
             : sig(s.sig), pEvent(new SignalEvent(*(s.pEvent))),
-              sigMask(s.sigMask), flags(s.flags), type(s.type)
+              sigMask(s.sigMask), flags(s.flags), restorer(s.restorer),
+              type(s.type)
         {
         }
 
@@ -249,6 +218,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
             pEvent = new SignalEvent(*(s.pEvent));
             sigMask = s.sigMask;
             flags = s.flags;
+            restorer = s.restorer;
             type = s.type;
             return *this;
         }
@@ -260,17 +230,44 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         SignalEvent *pEvent;
 
         /// Signal mask to set when this signal handler is called
-        uint32_t sigMask;
+        uint64_t sigMask;
 
         /// Signal handler flags
         uint32_t flags;
+
+        /// Userspace restorer for Linux-compatible signal delivery
+        uintptr_t restorer;
 
         /// Type - 0 = normal, 1 = SIG_DFL, 2 = SIG_IGN
         int type;
     };
 
+    /** Stable, pointer-free view of a signal disposition. */
+    struct SignalDisposition
+    {
+        SignalDisposition()
+            : handler(0), signalMask(0), flags(0), restorer(0), type(1)
+        {
+        }
+
+        uintptr_t handler;
+        uint64_t signalMask;
+        uint32_t flags;
+        uintptr_t restorer;
+        int type;
+    };
+
     /** Sets a signal handler */
     void setSignalHandler(size_t sig, SignalHandler *handler);
+
+    /** Copies a signal disposition while holding the disposition table lock. */
+    bool getSignalDisposition(size_t sig, SignalDisposition &disposition);
+
+    /**
+     * Creates an independently owned event using the current disposition.
+     * The caller transfers ownership to Thread::sendEvent on success.
+     */
+    SignalEvent *createSignalDelivery(size_t sig, uint32_t *flags = nullptr);
 
     /** Gets a signal handler */
     SignalHandler *getSignalHandler(size_t sig)
@@ -569,14 +566,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
      * Number of times freed
      */
     int m_FreeCount;
-    /**
-     * Alternate signal stack - if defined, used instead of a system-defined
-     * stack
-     */
-    AlternateSignalStack m_AltSigStack;
-    /**
-     * Links some file descriptors to PosixSyncObjects.
-     */
+    /** Links some file descriptors to PosixSyncObjects. */
     Tree<size_t, PosixSyncObject *> m_SyncObjects;
     /**
      * Links some thread handles to Threads.

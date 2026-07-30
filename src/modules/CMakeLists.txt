@@ -542,6 +542,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/IoEvent.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/linux-amd64-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/net-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PollEvent.cc

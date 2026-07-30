@@ -60,8 +60,10 @@ enum PosixError
     Unimplemented = 38,          // ENOSYS
     NotEmpty = 39,               // ENOTEMPTY
     LoopExists = 40,             // ELOOP
+    ProtocolWrongType = 91,      // EPROTOTYPE
     ProtocolNotAvailable = 92,   // ENOPROTOOPT
     OperationNotSupported = 95,  // ENOTSUP
+    AddressInUse = 98,           // EADDRINUSE
     ConnectionAborted = 103,     // ECONNABORTED
     ConnectionReset = 104,       // ECONNRESET
     NoMoreBuffers = 105,         // ENOBUFS

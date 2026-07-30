@@ -144,6 +144,15 @@ class EXPORTED_PUBLIC ProcessorBase
         \param[in]  state Syscall state to restore. */
     static void
     restoreState(SyscallState &state, volatile uintptr_t *pLock = 0) NORETURN;
+#if X64
+    /**
+     * Restores a complete x64 interrupt frame through iretq.
+     *
+     * The pointed-to state must remain valid and contain a fully validated
+     * return context. This is declared for future signal-return plumbing.
+     */
+    static void contextSwitch(InterruptState *state) NORETURN;
+#endif
     /** Switch between two states, safely. */
     static void switchState(
         bool bInterrupts, SchedulerState &a, SchedulerState &b,

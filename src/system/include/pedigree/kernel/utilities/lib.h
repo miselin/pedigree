@@ -140,6 +140,10 @@ EXPORTED_PUBLIC int isalpha(int c) NOTHROW;
 void random_seed(uint64_t seed);
 EXPORTED_PUBLIC uint64_t random_next(void);
 
+// Hardware-backed random bytes. Returns the number of bytes produced and
+// returns zero when the active architecture has no usable hardware source.
+EXPORTED_PUBLIC size_t hardware_random_bytes(void *buffer, size_t length);
+
 EXPORTED_PUBLIC char toUpper(char c) PURE;
 EXPORTED_PUBLIC char toLower(char c) PURE;
 EXPORTED_PUBLIC int max(size_t a, size_t b) PURE;

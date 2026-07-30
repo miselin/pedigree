@@ -17,10 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef PIPE_SYSCALLS_H
-#define PIPE_SYSCALLS_H
+#ifndef POSIX_LINUX_AMD64_SIGNAL_H
+#define POSIX_LINUX_AMD64_SIGNAL_H
 
-int posix_pipe(int filedes[2]);
-int posix_pipe2(int filedes[2], int flags);
+#include "PosixSubsystem.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/state_forward.h"
+
+namespace LinuxAmd64Signal
+{
+enum DeliveryResult
+{
+    NotApplicable,
+    Delivered,
+    Failed
+};
+
+#if X64
+DeliveryResult deliverSynchronous(
+    Thread *thread, int signal,
+    const PosixSubsystem::SignalDisposition &disposition,
+    Subsystem::ExceptionType exception, InterruptState &state,
+    uintptr_t faultAddress, uintptr_t errorCode);
+
+void sigreturn(SyscallState &state) NORETURN;
+#endif
+}  // namespace LinuxAmd64Signal
 
 #endif

@@ -78,6 +78,9 @@ bool InfoBlockManager::initialise()
     StringCopy(m_pInfoBlock->version, g_pBuildRevision);
     /// \todo this isn't quite x86_64 or i686 or similar...
     StringCopy(m_pInfoBlock->machine, g_pBuildTarget);
+    m_pInfoBlock->now = Time::getTimeNanoseconds();
+    m_pInfoBlock->now_s = Time::getTime();
+    m_pInfoBlock->monotonic = Time::getTicks();
 
     // Register ourselves with the main timer.
     m_bInitialised = true;
@@ -89,6 +92,7 @@ void InfoBlockManager::timer(uint64_t, InterruptState &)
     // Update the timestamp in the info block.
     m_pInfoBlock->now = Time::getTimeNanoseconds();
     m_pInfoBlock->now_s = Time::getTime();
+    m_pInfoBlock->monotonic = Time::getTicks();
 }
 
 void InfoBlockManager::setPid(size_t value)

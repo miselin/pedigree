@@ -206,76 +206,52 @@ bool X64VirtualAddressSpace::mapHuge(
     physical_uintptr_t physAddress, void *virtualAddress, size_t count,
     size_t flags)
 {
-    uint32_t a, b, c, d;
-    Processor::cpuid(0x80000001UL, 0, a, b, c, d);
+    const size_t smallPageSize = PhysicalMemoryManager::getPageSize();
+    const size_t twoMiB = 1UL << 21UL;
+    const size_t pagesPerTwoMiB = twoMiB / smallPageSize;
+    const uintptr_t virtualValue =
+        reinterpret_cast<uintptr_t>(virtualAddress);
 
-    size_t numHugePages = 0;
-    bool hasHuge = d & (1 << 26);
-    if (hasHuge)
+    if (
+        count < pagesPerTwoMiB || (physAddress % twoMiB) ||
+        (virtualValue % twoMiB))
     {
-        // 1 GB pages are available.
-        // NOTE: we intentionally let this truncate to zero, which will fall
-        // back to 2MB pages for mappings that are less than 1GB big.
-        /// \todo this does not handle non-1G-aligned counts.
-        numHugePages = count / (1 << (30UL - 12UL));
-    }
-
-    if (numHugePages == 0)
-    {
-        // Fall back to 2 MB pages.
-        numHugePages = count / (1 << (21UL - 12UL));
-    }
-
-    if (numHugePages == 0)
-    {
-        // Just map the normal way - less than 2MB!
         return VirtualAddressSpace::mapHuge(
             physAddress, virtualAddress, count, flags);
     }
 
-    LockGuard<Spinlock> guard(m_Lock);
-
-    size_t smallPageSize = PhysicalMemoryManager::getPageSize();
-
-    // Clean up any existing mapping before we go ahead and map the huge pages
-    for (size_t i = 0; i < count; ++i)
+    // The page-table walkers only recognize the page-size bit at the page
+    // directory level. Keep this path at 2 MiB until every walker can safely
+    // stop at a 1 GiB page-directory-pointer entry.
+    const size_t numHugePages = count / pagesPerTwoMiB;
+    const size_t mappedPages = numHugePages * pagesPerTwoMiB;
     {
-        unmapUnlocked(adjust_pointer(virtualAddress, i * smallPageSize), false);
-    }
+        LockGuard<Spinlock> guard(m_Lock);
 
-    // Ensure correct page size for this mapping.
-    const size_t pageSize = hasHuge ? (1 << 30UL) : (1 << 21UL);
-
-    size_t Flags = toFlags(flags, true);
-    for (size_t i = 0; i < numHugePages; ++i)
-    {
-        size_t pml4Index = PML4_INDEX(virtualAddress);
-        uint64_t *pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
-
-        // Is a page directory pointer table present?
-        if (conditionalTableEntryAllocation(pml4Entry, flags) == false)
+        // Clean up existing mappings before installing the huge-page entries.
+        for (size_t i = 0; i < mappedPages; ++i)
         {
-            return false;
+            unmapUnlocked(
+                adjust_pointer(virtualAddress, i * smallPageSize), false);
         }
 
-        size_t pageDirectoryPointerIndex =
-            PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
-        uint64_t *pageDirectoryPointerEntry = TABLE_ENTRY(
-            PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), pageDirectoryPointerIndex);
-
-        /// \todo we should unmap everything in the region first, clean up
-        /// tables etc
-
-        if (hasHuge)
+        size_t Flags = toFlags(flags, true);
+        for (size_t i = 0; i < numHugePages; ++i)
         {
-            // 1G pages.
-            /// \todo change define to mean huge
-            /// \todo sanity check physical address?
-            *pageDirectoryPointerEntry = physAddress | PAGE_2MB | Flags;
-        }
-        else
-        {
-            // 2 MB pages.
+            size_t pml4Index = PML4_INDEX(virtualAddress);
+            uint64_t *pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
+
+            // Is a page directory pointer table present?
+            if (conditionalTableEntryAllocation(pml4Entry, flags) == false)
+            {
+                return false;
+            }
+
+            size_t pageDirectoryPointerIndex =
+                PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
+            uint64_t *pageDirectoryPointerEntry = TABLE_ENTRY(
+                PAGE_GET_PHYSICAL_ADDRESS(pml4Entry),
+                pageDirectoryPointerIndex);
 
             // Is a page directory present?
             if (conditionalTableEntryAllocation(
@@ -290,10 +266,16 @@ bool X64VirtualAddressSpace::mapHuge(
                 pageDirectoryIndex);
 
             *pageDirectoryEntry = physAddress | PAGE_2MB | Flags;
-        }
 
-        virtualAddress = adjust_pointer(virtualAddress, pageSize);
-        physAddress += pageSize;
+            virtualAddress = adjust_pointer(virtualAddress, twoMiB);
+            physAddress += twoMiB;
+        }
+    }
+
+    if (mappedPages < count)
+    {
+        return mapHuge(
+            physAddress, virtualAddress, count - mappedPages, flags);
     }
 
     return true;

@@ -53,6 +53,17 @@ void addDescriptor(int fd, FileDescriptor *f)
     g_Descriptors.insert(g_Descriptors.begin() + fd, f);
 }
 
+void removeDescriptor(int fd)
+{
+    if (fd < 0 || static_cast<size_t>(fd) >= g_Descriptors.size())
+    {
+        return;
+    }
+
+    delete g_Descriptors[fd];
+    g_Descriptors[fd] = nullptr;
+}
+
 size_t getAvailableDescriptor()
 {
     return g_Descriptors.size();
@@ -84,6 +95,15 @@ void addDescriptor(int fd, FileDescriptor *f)
 {
     PosixSubsystem *pSubsystem = getSubsystem();
     pSubsystem->addFileDescriptor(fd, f);
+}
+
+void removeDescriptor(int fd)
+{
+    PosixSubsystem *pSubsystem = getSubsystem();
+    if (pSubsystem)
+    {
+        pSubsystem->freeFd(fd);
+    }
 }
 
 size_t getAvailableDescriptor()

@@ -235,6 +235,12 @@ class MemoryMappedObject
         return m_Length;
     }
 
+    /** Permissions granted to this mapping. */
+    Permissions permissions() const
+    {
+        return m_Permissions;
+    }
+
   protected:
     /**
      * Is this a Copy-on-Write mapping?
@@ -453,6 +459,14 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler,
      * given, false otherwise.
      */
     bool contains(uintptr_t base, size_t length);
+
+    /**
+     * Returns true if memory-map objects cover the full range with all of the
+     * requested permissions.
+     */
+    bool allows(
+        uintptr_t base, size_t length,
+        MemoryMappedObject::Permissions permissions);
 
     /**
      * Syncs memory mapped objects within the given range back to

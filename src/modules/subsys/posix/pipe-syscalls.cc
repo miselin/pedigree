@@ -39,16 +39,27 @@ typedef Tree<size_t, FileDescriptor *> FdMap;
 
 int posix_pipe(int filedes[2])
 {
+    return posix_pipe2(filedes, 0);
+}
+
+int posix_pipe2(int filedes[2], int flags)
+{
+    if (flags & ~(O_CLOEXEC | O_NONBLOCK))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(filedes), sizeof(int) * 2,
             PosixSubsystem::SafeWrite))
     {
         F_NOTICE("pipe -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    F_NOTICE("pipe");
+    F_NOTICE("pipe2");
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -63,17 +74,23 @@ int posix_pipe(int filedes[2])
     size_t readFd = pSubsystem->getFd();
     size_t writeFd = pSubsystem->getFd();
 
-    filedes[0] = readFd;
-    filedes[1] = writeFd;
-
     File *p = new Pipe(String(""), 0, 0, 0, 0, 0, 0, 0, true);
 
     // Create the file descriptor for both
-    FileDescriptor *read = new FileDescriptor(p, 0, readFd, 0, O_RDONLY);
+    int descriptorFlags = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+    int statusFlags = flags & O_NONBLOCK;
+    FileDescriptor *read =
+        new FileDescriptor(
+            p, 0, readFd, descriptorFlags, O_RDONLY | statusFlags);
     pSubsystem->addFileDescriptor(readFd, read);
 
-    FileDescriptor *write = new FileDescriptor(p, 0, writeFd, 0, O_WRONLY);
+    FileDescriptor *write =
+        new FileDescriptor(
+            p, 0, writeFd, descriptorFlags, O_WRONLY | statusFlags);
     pSubsystem->addFileDescriptor(writeFd, write);
+
+    filedes[0] = readFd;
+    filedes[1] = writeFd;
 
     F_NOTICE("pipe: returning " << readFd << " and " << writeFd << ".");
 

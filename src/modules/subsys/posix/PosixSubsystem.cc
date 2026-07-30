@@ -36,9 +36,11 @@
 #include "pedigree/kernel/utilities/Tree.h"
 
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 #include "FileDescriptor.h"
 #include "PosixProcess.h"
+#include "linux-amd64-signal.h"
 #include "logging.h"
 
 #include "modules/system/linker/DynamicLinker.h"
@@ -50,6 +52,7 @@
 #include "pedigree/kernel/linker/Elf.h"
 
 #include "file-syscalls.h"
+#include "system-syscalls.h"
 
 #include <signal.h>
 
@@ -112,8 +115,8 @@ void ProcessGroupManager::returnGroupId(size_t gid)
 PosixSubsystem::PosixSubsystem(PosixSubsystem &s)
     : Subsystem(s), m_SignalHandlers(), m_SignalHandlersLock(), m_FdMap(),
       m_NextFd(s.m_NextFd), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-      m_FreeCount(s.m_FreeCount), m_AltSigStack(), m_SyncObjects(), m_Threads(),
-      m_ThreadWaiters(), m_NextThreadWaiter(1)
+      m_FreeCount(s.m_FreeCount), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
+      m_NextThreadWaiter(1)
 {
     while (!m_SignalHandlersLock.acquire())
         ;
@@ -342,9 +345,17 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
     PS_NOTICE(" -> ret: " << aa);
 #endif
 
-    // Check address range.
+    if (extent - 1 > (~static_cast<uintptr_t>(0) - addr))
+    {
+        return false;
+    }
+    uintptr_t end = addr + extent - 1;
+
+    // Check the complete address range.
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if ((addr < va.getUserStart()) || (addr >= va.getKernelStart()))
+    if (
+        (addr < va.getUserStart()) || (addr >= va.getKernelStart()) ||
+        (end >= va.getKernelStart()))
     {
 #if VERBOSE_KERNEL
         PS_NOTICE("  -> outside of user address area.");
@@ -352,8 +363,23 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         return false;
     }
 
-    // Short-circuit if this is a memory mapped region.
-    if (MemoryMapManager::instance().contains(addr, extent))
+    MemoryMappedObject::Permissions mmapPermissions =
+        MemoryMappedObject::None;
+    if (flags & SafeRead)
+    {
+        mmapPermissions |= MemoryMappedObject::Read;
+    }
+    if (flags & SafeWrite)
+    {
+        mmapPermissions |= MemoryMappedObject::Write;
+    }
+
+    // Demand-paged mappings may not have PTEs yet. Accept them only when
+    // objects cover the complete range with the requested permissions.
+    if (
+        mmapPermissions != MemoryMappedObject::None &&
+        MemoryMapManager::instance().allows(
+            addr, extent, mmapPermissions))
     {
 #if VERBOSE_KERNEL
         PS_NOTICE("  -> inside memory map.");
@@ -361,10 +387,14 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
         return true;
     }
 
-    // Check the range.
-    for (size_t i = 0; i < extent; i += PhysicalMemoryManager::getPageSize())
+    // Check each page touched by the range, including a short final page after
+    // an unaligned start.
+    size_t pageSize = PhysicalMemoryManager::getPageSize();
+    uintptr_t page = addr - (addr % pageSize);
+    uintptr_t finalPage = end - (end % pageSize);
+    while (true)
     {
-        void *pAddr = reinterpret_cast<void *>(addr + i);
+        void *pAddr = reinterpret_cast<void *>(page);
         if (!va.isMapped(pAddr))
         {
 #if VERBOSE_KERNEL
@@ -388,6 +418,12 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
                 return false;
             }
         }
+
+        if (page == finalPage)
+        {
+            break;
+        }
+        page += pageSize;
     }
 
 #if VERBOSE_KERNEL
@@ -520,30 +556,32 @@ bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
-    // Send SIGKILL. getSignalHandler handles all that locking shiz for us.
-    SignalHandler *sig = 0;
+    int signal = SIGKILL;
     switch (killReason)
     {
         case Interrupted:
-            sig = pSubsystem->getSignalHandler(2);
+            signal = SIGINT;
             break;
 
         case Terminated:
-            sig = pSubsystem->getSignalHandler(15);
+            signal = SIGTERM;
             break;
 
         default:
-            sig = pSubsystem->getSignalHandler(9);
             break;
     }
 
-    if (sig && sig->pEvent)
+    SignalEvent *event = pSubsystem->createSignalDelivery(signal);
+    if (event)
     {
         PS_NOTICE("PosixSubsystem - killing " << pThread->getParent()->getId());
 
         // Send the kill event
         /// \todo we probably want to avoid allocating a new stack..
-        pThread->sendEvent(sig->pEvent);
+        if (!pThread->sendEvent(event))
+        {
+            delete event;
+        }
 
         // Allow the event to run
         Processor::setInterrupts(true);
@@ -553,8 +591,15 @@ bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
     return true;
 }
 
-void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
+void PosixSubsystem::threadException(
+    Thread *pThread, ExceptionType eType, InterruptState *pState,
+    uintptr_t faultAddress, uintptr_t errorCode)
 {
+    // The native event path does not consume machine context yet.
+    (void) pState;
+    (void) faultAddress;
+    (void) errorCode;
+
     PS_NOTICE(
         "PosixSubsystem::threadException -> "
         << Dec << pThread->getParent()->getId() << ":" << pThread->getId());
@@ -642,6 +687,30 @@ void PosixSubsystem::threadException(Thread *pThread, ExceptionType eType)
             break;
     }
 
+#if X64
+    if (signal > 0 && pState && getAbi() == LinuxAbi)
+    {
+        SignalDisposition disposition;
+        if (
+            getSignalDisposition(signal, disposition) &&
+            disposition.type == 0)
+        {
+            LinuxAmd64Signal::DeliveryResult result =
+                LinuxAmd64Signal::deliverSynchronous(
+                    pThread, signal, disposition, eType, *pState,
+                    faultAddress, errorCode);
+            if (result == LinuxAmd64Signal::Delivered)
+            {
+                return;
+            }
+            if (result == LinuxAmd64Signal::Failed)
+            {
+                posix_exit(128 + SIGSEGV);
+            }
+        }
+    }
+#endif
+
     sendSignal(pThread, signal);
 }
 
@@ -662,42 +731,32 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
-    // What was the exception?
-    SignalHandler *sig = pSubsystem->getSignalHandler(signal);
-    if (!sig)
+    SignalEvent *event = pSubsystem->createSignalDelivery(signal);
+    if (!event)
     {
         ERROR("Unknown signal in sendSignal - POSIX subsystem");
     }
 
     // If we're good to go, send the signal.
-    if (sig && sig->pEvent)
+    if (event)
     {
-        // Is this process already pending a delivery of the given signal?
-        if (pThread->hasEvent(sig->pEvent))
+        if (!pThread->sendEvent(event))
         {
-            // yep! we need to drop this generated signal instead of sending it
-            // again to the target thread
-            WARNING("PosixSubsystem::sendSignal dropping signal as a previous "
-                    "generation has not delivered yet.");
+            delete event;
         }
-        else
+        else if (yield)
         {
-            pThread->sendEvent(sig->pEvent);
-
-            if (yield)
+            Thread *pCurrentThread =
+                Processor::information().getCurrentThread();
+            if (pCurrentThread == pThread)
             {
-                Thread *pCurrentThread =
-                    Processor::information().getCurrentThread();
-                if (pCurrentThread == pThread)
-                {
-                    // Attempt to execute the new event immediately.
-                    Processor::information().getScheduler().checkEventState(0);
-                }
-                else
-                {
-                    // Yield so the event can fire.
-                    Scheduler::instance().yield();
-                }
+                // Attempt to execute the new event immediately.
+                Processor::information().getScheduler().checkEventState(0);
+            }
+            else
+            {
+                // Yield so the event can fire.
+                Scheduler::instance().yield();
             }
         }
     }
@@ -742,6 +801,63 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler *handler)
     {
         delete removal;
     }
+}
+
+bool PosixSubsystem::getSignalDisposition(
+    size_t sig, SignalDisposition &disposition)
+{
+    if (sig >= 32)
+    {
+        return false;
+    }
+
+    while (!m_SignalHandlersLock.enter())
+        ;
+
+    SignalHandler *handler = m_SignalHandlers.lookup(sig);
+    if (handler)
+    {
+        disposition.handler =
+            handler->pEvent ? handler->pEvent->getHandlerAddress() : 0;
+        disposition.signalMask = handler->sigMask;
+        disposition.flags = handler->flags;
+        disposition.restorer = handler->restorer;
+        disposition.type = handler->type;
+    }
+
+    m_SignalHandlersLock.leave();
+    return handler != nullptr;
+}
+
+SignalEvent *PosixSubsystem::createSignalDelivery(
+    size_t sig, uint32_t *flags)
+{
+    if (flags)
+    {
+        *flags = 0;
+    }
+    if (sig >= 32)
+    {
+        return nullptr;
+    }
+
+    while (!m_SignalHandlersLock.enter())
+        ;
+
+    SignalHandler *handler = m_SignalHandlers.lookup(sig);
+    SignalEvent *delivery = nullptr;
+    if (handler && handler->pEvent)
+    {
+        delivery = static_cast<SignalEvent *>(
+            handler->pEvent->cloneForDelivery());
+        if (flags)
+        {
+            *flags = handler->flags;
+        }
+    }
+
+    m_SignalHandlersLock.leave();
+    return delivery;
 }
 
 /**
@@ -1395,6 +1511,21 @@ bool PosixSubsystem::invoke(
 {
     PS_NOTICE("PosixSubsystem::invoke(" << originalName << ")");
 
+    uint8_t execRandom[16];
+    ByteSet(execRandom, 0, sizeof(execRandom));
+#if X64 && !HOSTED
+    const bool hasExecRandom =
+        hardware_random_bytes(execRandom, sizeof(execRandom)) ==
+        sizeof(execRandom);
+    if (!hasExecRandom)
+    {
+        PS_NOTICE(
+            "PosixSubsystem::invoke: AT_RANDOM unavailable on this CPU");
+    }
+#else
+    const bool hasExecRandom = false;
+#endif
+
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
@@ -1486,9 +1617,9 @@ bool PosixSubsystem::invoke(
     }
     else
     {
-        // No interpreter, just invoke the binary directly.
-        /// \todo do we need to relocate at all?
-        interpreterFile = originalFile;
+        // Static binaries enter at their own entry point. Loading the target
+        // again as its own interpreter would reserve every PT_LOAD range twice.
+        interpreterFile = 0;
     }
 
     // No longer need the DynamicLinker instance.
@@ -1529,14 +1660,18 @@ bool PosixSubsystem::invoke(
         return false;
     }
 
-    MemoryMappedObject *pInterpreter = MemoryMapManager::instance().mapFile(
-        interpreterFile, interpreterBase, interpreterFile->getSize(), perms);
-    if (!pInterpreter)
+    MemoryMappedObject *pInterpreter = 0;
+    if (interpreterFile)
     {
-        PS_NOTICE("PosixSubsystem::invoke: failed to map interpreter");
-        MemoryMapManager::instance().unmap(pOriginal);
-        SYSCALL_ERROR(OutOfMemory);
-        return false;
+        pInterpreter = MemoryMapManager::instance().mapFile(
+            interpreterFile, interpreterBase, interpreterFile->getSize(), perms);
+        if (!pInterpreter)
+        {
+            PS_NOTICE("PosixSubsystem::invoke: failed to map interpreter");
+            MemoryMapManager::instance().unmap(pOriginal);
+            SYSCALL_ERROR(OutOfMemory);
+            return false;
+        }
     }
 
     // Load the target application first.
@@ -1557,7 +1692,8 @@ bool PosixSubsystem::invoke(
     uintptr_t interpreterLoadedAddress = 0;
     uintptr_t interpreterFinalAddress = 0;
     bool interpreterRelocated = false;
-    if (!loadElf(
+    if (interpreterFile &&
+        !loadElf(
             interpreterFile, interpreterBase, interpreterLoadedAddress,
             interpreterFinalAddress, interpreterRelocated))
     {
@@ -1572,9 +1708,12 @@ bool PosixSubsystem::invoke(
     Elf::extractEntryPoint(
         reinterpret_cast<uint8_t *>(originalBase), originalFile->getSize(),
         originalEntryPoint);
-    Elf::extractEntryPoint(
-        reinterpret_cast<uint8_t *>(interpreterBase),
-        interpreterFile->getSize(), interpreterEntryPoint);
+    if (interpreterFile)
+    {
+        Elf::extractEntryPoint(
+            reinterpret_cast<uint8_t *>(interpreterBase),
+            interpreterFile->getSize(), interpreterEntryPoint);
+    }
 
     if (originalRelocated)
     {
@@ -1583,6 +1722,10 @@ bool PosixSubsystem::invoke(
     if (interpreterRelocated)
     {
         interpreterEntryPoint += interpreterLoadedAddress;
+    }
+    if (!interpreterFile)
+    {
+        interpreterEntryPoint = originalEntryPoint;
     }
 
     // Pull out the ELF header information for the original image.
@@ -1698,8 +1841,7 @@ bool PosixSubsystem::invoke(
     // Align to 16 bytes to prepare for the auxv entries
     STACK_ALIGN(loaderStack, 16);
 
-    /// \todo 16 random bytes, not 16 zero bytes
-    STACK_PUSH_ZEROES(loaderStack, 16);
+    STACK_PUSH_COPY(loaderStack, execRandom, sizeof(execRandom));
     void *random = loaderStack;
 
     // Ensure argc aligns to 16 bytes.
@@ -1712,8 +1854,15 @@ bool PosixSubsystem::invoke(
     STACK_PUSH2(loaderStack, 0, 0);  // AT_NULL
     STACK_PUSH2(
         loaderStack, reinterpret_cast<uintptr_t>(platform), 15);  // AT_PLATFORM
-    STACK_PUSH2(
-        loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
+    if (hasExecRandom)
+    {
+        STACK_PUSH2(
+            loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
+    }
+    else
+    {
+        STACK_PUSH2(loaderStack, 0, 1);  // AT_IGNORE
+    }
     STACK_PUSH2(loaderStack, 0, 23);
     STACK_PUSH2(
         loaderStack, pProcess->getEffectiveGroupId(), 14);          // AT_EGID
@@ -1764,7 +1913,10 @@ bool PosixSubsystem::invoke(
 
     // We can now unmap both original objects as they've been loaded and
     // consumed.
-    MemoryMapManager::instance().unmap(pInterpreter);
+    if (pInterpreter)
+    {
+        MemoryMapManager::instance().unmap(pInterpreter);
+    }
     MemoryMapManager::instance().unmap(pOriginal);
     pInterpreter = pOriginal = 0;
 

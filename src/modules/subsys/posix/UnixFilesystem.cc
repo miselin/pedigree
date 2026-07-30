@@ -27,20 +27,32 @@
 #include "pedigree/kernel/processor/Processor.h"
 
 String UnixFilesystem::m_VolumeLabel("unix");
+Mutex UnixFilesystem::m_NamespaceLock(false);
+Mutex UnixSocket::m_ConnectionLock(false);
+
+UnixSocketConnection::UnixSocketConnection()
+    : m_FirstStream(MAX_UNIX_STREAM_QUEUE),
+      m_SecondStream(MAX_UNIX_STREAM_QUEUE), m_Active(false), m_Failed(false),
+      m_Closed{false, false}, m_Creds()
+{
+    for (size_t i = 0; i < 2; ++i)
+    {
+        m_Creds[i].uid = -1;
+        m_Creds[i].gid = -1;
+        m_Creds[i].pid = -1;
+    }
+}
 
 UnixSocket::UnixSocket(
     const String &name, Filesystem *pFs, File *pParent, UnixSocket *other,
     SocketType type)
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
-      m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other),
-      m_Stream(MAX_UNIX_STREAM_QUEUE), m_PendingSockets(), m_Mutex(false)
-#if THREADS
-      ,
-      m_AckWaiter(0)
-#endif
-      ,
+      m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_Stream(MAX_UNIX_STREAM_QUEUE),
+      m_Connection(), m_ConnectionSide(false), m_PendingSockets(),
       m_Creds()
 {
+    (void) other;
+
     if (m_Type == Datagram)
     {
         // Datagram sockets are always active, they don't bind to each other.
@@ -54,49 +66,46 @@ UnixSocket::UnixSocket(
 
 UnixSocket::~UnixSocket()
 {
-    // unbind from the other side of our connection if needed
-    if (m_Type == Streaming)
-    {
-        if (m_pOther)
-        {
-            LockGuard<Mutex> guard(m_pOther->m_Mutex);
-
-            /// \todo update read/write to handle the other socket going away
-            /// correctly
-            assert(m_pOther->m_pOther == this);
-            m_pOther->m_pOther = nullptr;
-            m_pOther->m_State = Inactive;
-        }
-    }
-
-    // remove name on disk that points to us
-    if (getName().length() > 0)
-    {
-        Directory *parent = Directory::fromFile(getParent());
-        parent->remove(getName());
-
-    }
+    unbind();
 }
 
 int UnixSocket::select(bool bWriting, int timeout)
 {
     if (m_Type == Streaming)
     {
-        if (m_State == Inactive || m_State == Connecting)
+        SharedPointer<UnixSocketConnection> connection;
+        SocketState state;
+        {
+            LockGuard<Mutex> guard(m_ConnectionLock);
+            state = getStateLocked();
+            connection = m_Connection;
+        }
+
+        if (state == Listening)
+        {
+            return !bWriting && m_Stream.canRead(timeout == 1);
+        }
+
+        if (state == Closed)
+        {
+            return !bWriting;
+        }
+
+        if (state != Active || !connection)
         {
             return false;
         }
 
         if (bWriting)
         {
-            if (m_pOther->m_Stream.canWrite(timeout == 1))
+            if (outgoingStream(connection)->canWrite(timeout == 1))
             {
                 return true;
             }
         }
         else
         {
-            if (m_Stream.canRead(timeout == 1))
+            if (incomingStream(connection)->canRead(timeout == 1))
             {
                 return true;
             }
@@ -106,6 +115,14 @@ int UnixSocket::select(bool bWriting, int timeout)
     }
     else
     {
+        {
+            LockGuard<Mutex> guard(m_ConnectionLock);
+            if (m_State == Closed)
+            {
+                return !bWriting;
+            }
+        }
+
         if (timeout)
         {
             return m_Datagrams.waitFor(
@@ -132,19 +149,33 @@ uint64_t UnixSocket::readBytewise(
 uint64_t UnixSocket::recvfrom(
     uint64_t size, uintptr_t buffer, bool bCanBlock, String &from)
 {
-    if (m_State != Active)
+    if (m_Type == Streaming)
     {
-        // attempt a read if at all possible to clear out remainder of socket
-        // but non-blocking so we return 0 on true EOF
-        N_NOTICE("UnixSocket::read => EOF (reading remainder of stream first)");
-        return m_Stream.read(reinterpret_cast<uint8_t *>(buffer), size, false);
+        SharedPointer<UnixSocketConnection> connection;
+        SocketState state;
+        {
+            LockGuard<Mutex> guard(m_ConnectionLock);
+            state = getStateLocked();
+            connection = m_Connection;
+        }
+
+        if (!connection || (state != Active && state != Closed))
+        {
+            return 0;
+        }
+
+        from = String();
+        return incomingStream(connection)->read(
+            reinterpret_cast<uint8_t *>(buffer), size,
+            state == Active && bCanBlock);
     }
 
-    if (m_pOther)
     {
-        from = String();
-        return m_Stream.read(
-            reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        if (m_State == Closed)
+        {
+            return 0;
+        }
     }
 
     if (bCanBlock)
@@ -184,16 +215,23 @@ uint64_t UnixSocket::recvfrom(
 uint64_t UnixSocket::writeBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    if (m_State != Active)
+    if (m_Type == Streaming)
     {
-        // other side has gone away, EOF
-        N_NOTICE("UnixSocket::write => EOF");
-        return 0;
-    }
+        SharedPointer<UnixSocketConnection> connection;
+        SocketState state;
+        {
+            LockGuard<Mutex> guard(m_ConnectionLock);
+            state = getStateLocked();
+            connection = m_Connection;
+        }
 
-    if (m_pOther)
-    {
-        return m_pOther->m_Stream.write(
+        if (!connection || state != Active)
+        {
+            N_NOTICE("UnixSocket::write => closed or not connected");
+            return 0;
+        }
+
+        return outgoingStream(connection)->write(
             reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
     }
 
@@ -230,151 +268,161 @@ uint64_t UnixSocket::writeBytewise(
 
 bool UnixSocket::bind(UnixSocket *other, bool block)
 {
-    if (other->m_pOther)
+    (void) block;
+
+    if (!other || m_Type != Streaming || other->m_Type != Streaming)
     {
-        ERROR("UnixSocket: trying to bind a socket that's already bound");
         return false;
     }
 
+    SharedPointer<UnixSocketConnection> connection(
+        new UnixSocketConnection());
     {
-        LockGuard<Mutex> guard1(m_Mutex);
-        if (m_State != Inactive)
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        if (
+            m_State != Inactive || other->m_State != Inactive ||
+            m_Connection || other->m_Connection)
         {
-            N_NOTICE("bind failed because this socket is already in a "
-                     "non-inactive state");
+            N_NOTICE("UnixSocket::bind endpoints are not inactive");
             return false;
         }
 
-        m_pOther = other;
-
-        LockGuard<Mutex> guard2(m_pOther->m_Mutex);
-        if (m_pOther->m_State != Inactive)
-        {
-            N_NOTICE("bind failed because other socket is already in a "
-                     "non-inactive state");
-            m_pOther = nullptr;
-            return false;
-        }
-
-        other->m_pOther = this;
-
+        m_Connection = connection;
+        m_ConnectionSide = false;
+        other->m_Connection = connection;
+        other->m_ConnectionSide = true;
         m_State = Connecting;
-        m_pOther->m_State = Connecting;
+        other->m_State = Connecting;
 
         setCreds();
+        connection->m_Creds[0] = m_Creds;
     }
-
-    if (!block)
-    {
-        N_NOTICE("bind is not blocking, use poll() etc");
-        return true;
-    }
-
-#if THREADS
-    N_NOTICE("bind is waiting for an ack");
-    m_AckWaiter.acquire();
-
-    if (m_State != Active)
-    {
-        N_NOTICE("got ack but we're inactive");
-        return false;
-    }
-
-    N_NOTICE("got ack and we're now active");
-#endif
 
     return true;
 }
 
 void UnixSocket::unbind()
 {
-    LockGuard<Mutex> guard1(m_Mutex);
-
-    if (!m_pOther)
+    SharedPointer<UnixSocketConnection> connection;
+    bool side = false;
+    List<UnixSocket *> pending;
     {
-        return;
-    }
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (connection)
+        {
+            side = m_ConnectionSide;
+            connection->m_Closed[side] = true;
+        }
 
-    LockGuard<Mutex> guard2(m_pOther->m_Mutex);
+        m_State = Closed;
+        while (m_PendingSockets.count())
+        {
+            pending.pushBack(m_PendingSockets.popFront());
+        }
+    }
 
     N_NOTICE("UnixSocket::unbind");
 
-    m_State = Closed;
-    m_pOther->m_State = Closed;
-
-#if THREADS
-    m_AckWaiter.release();
-    m_pOther->m_AckWaiter.release();
-#endif
-
-    if (m_Type == Streaming)
+    if (connection)
     {
-        N_NOTICE("streaming notify eof");
+        UnixSocketConnection::Stream *incoming =
+            side ? &connection->m_SecondStream : &connection->m_FirstStream;
+        UnixSocketConnection::Stream *outgoing =
+            side ? &connection->m_FirstStream : &connection->m_SecondStream;
+        incoming->disableReads();
+        outgoing->disableWrites();
+        incoming->notifyMonitors();
+        outgoing->notifyMonitors();
+    }
 
-        // notify anything waiting on this socket that we're shutting down
-        m_Stream.notifyMonitors();
-        m_pOther->m_Stream.notifyMonitors();
+    m_Stream.disableWrites();
+    m_Stream.disableReads();
+    m_Stream.notifyMonitors();
+
+    while (pending.count())
+    {
+        UnixSocket *socket = pending.popFront();
+        socket->failConnection();
+        delete socket;
     }
 }
 
 void UnixSocket::acknowledgeBind()
 {
-    LockGuard<Mutex> guard1(m_Mutex);
-
-    if (!m_pOther)
+    SharedPointer<UnixSocketConnection> connection;
     {
-        return;
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (
+            !connection || connection->m_Failed ||
+            connection->m_Closed[0] || connection->m_Closed[1] ||
+            connection->m_Active)
+        {
+            return;
+        }
+
+        N_NOTICE("acking bind");
+
+        connection->m_Active = true;
+        m_State = Active;
+
+        setCreds();
+        connection->m_Creds[m_ConnectionSide ? 1 : 0] = m_Creds;
     }
 
-    LockGuard<Mutex> guard2(m_pOther->m_Mutex);
-
-    if (m_State != Connecting || m_pOther->m_State != Connecting)
-    {
-        N_NOTICE("can't ack bind - one or both sockets are not connecting");
-        return;
-    }
-
-    N_NOTICE("acking bind");
-
-    m_State = Active;
-    m_pOther->m_State = Active;
-
-    setCreds();
-
-#if THREADS
-    m_AckWaiter.release();
-    m_pOther->m_AckWaiter.release();
-#endif
+    connection->m_FirstStream.notifyMonitors();
+    connection->m_SecondStream.notifyMonitors();
 }
 
-void UnixSocket::addSocket(UnixSocket *socket)
+bool UnixSocket::addSocket(UnixSocket *socket)
 {
-    LockGuard<Mutex> guard(m_Mutex);
-
-    if (m_State != Listening)
+    SharedPointer<UnixSocketConnection> connection;
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    if (
+        m_State != Listening || !socket || !socket->m_Connection ||
+        socket->m_Connection->m_Failed ||
+        socket->m_Connection->m_Closed[0] ||
+        socket->m_Connection->m_Closed[1])
     {
-        // not listening
-        return;
+        return false;
     }
 
+    connection = socket->m_Connection;
+    socket->m_Creds = m_Creds;
+    connection->m_Creds[socket->m_ConnectionSide ? 1 : 0] = m_Creds;
+    connection->m_Active = true;
+    socket->m_State = Active;
     m_PendingSockets.pushBack(socket);
 
     N_NOTICE("adding listening socket");
 
     // No data moving on listen sockets so we use the stream buffer as a
-    // signaling primitive.
+    // signaling primitive. Keep queue ownership and its signal atomic with
+    // listener teardown so a failed enqueue remains caller-owned.
     uint8_t c = 0;
-    m_Stream.write(&c, 1);
+    if (m_Stream.write(&c, 1, false) == 1)
+    {
+        connection->m_FirstStream.notifyMonitors();
+        connection->m_SecondStream.notifyMonitors();
+        return true;
+    }
+
+    for (
+        List<UnixSocket *>::Iterator it = m_PendingSockets.begin();
+        it != m_PendingSockets.end(); ++it)
+    {
+        if (*it == socket)
+        {
+            m_PendingSockets.erase(it);
+            break;
+        }
+    }
+    return false;
 }
 
 UnixSocket *UnixSocket::getSocket(bool block)
 {
-    if (m_State != Listening)
-    {
-        // not listening
-        return nullptr;
-    }
-
     uint8_t c = 0;
     if (m_Stream.read(&c, 1, block) != 1)
     {
@@ -383,53 +431,102 @@ UnixSocket *UnixSocket::getSocket(bool block)
 
     N_NOTICE("got a socket");
 
-    LockGuard<Mutex> guard(m_Mutex);
+    LockGuard<Mutex> guard(m_ConnectionLock);
 
-    N_NOTICE("popping & acking it");
+    if (m_State != Listening || !m_PendingSockets.count())
+    {
+        return nullptr;
+    }
 
-    UnixSocket *result = m_PendingSockets.popFront();
-    result->acknowledgeBind();
-    return result;
+    N_NOTICE("popping socket");
+    return m_PendingSockets.popFront();
 }
 
-void UnixSocket::addWaiter(Semaphore *waiter)
+void UnixSocket::addWaiter(Semaphore *waiter, bool read, bool write)
 {
-    m_Stream.monitor(waiter);
-    if (m_pOther)
+    SharedPointer<UnixSocketConnection> connection;
+    bool side = false;
     {
-        m_pOther->m_Stream.monitor(waiter);
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (!connection)
+        {
+            m_Stream.monitor(waiter);
+            return;
+        }
+        side = m_ConnectionSide;
+    }
+
+    UnixSocketConnection::Stream *incoming =
+        side ? &connection->m_SecondStream : &connection->m_FirstStream;
+    UnixSocketConnection::Stream *outgoing =
+        side ? &connection->m_FirstStream : &connection->m_SecondStream;
+
+    if (read || (!read && !write))
+    {
+        incoming->monitor(waiter);
+    }
+    if (write)
+    {
+        outgoing->monitor(waiter);
     }
 }
 
 void UnixSocket::removeWaiter(Semaphore *waiter)
 {
-    m_Stream.cullMonitorTargets(waiter);
-    if (m_pOther)
+    SharedPointer<UnixSocketConnection> connection;
     {
-        m_pOther->m_Stream.cullMonitorTargets(waiter);
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (!connection)
+        {
+            m_Stream.cullMonitorTargets(waiter);
+            return;
+        }
     }
+
+    connection->m_FirstStream.cullMonitorTargets(waiter);
+    connection->m_SecondStream.cullMonitorTargets(waiter);
 }
 
 void UnixSocket::addWaiter(Thread *thread, Event *event)
 {
-    m_Stream.monitor(thread, event);
-    if (m_pOther)
+    SharedPointer<UnixSocketConnection> connection;
     {
-        m_pOther->m_Stream.monitor(thread, event);
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (!connection)
+        {
+            m_Stream.monitor(thread, event);
+            return;
+        }
     }
+
+    connection->m_FirstStream.monitor(thread, event);
+    connection->m_SecondStream.monitor(thread, event);
 }
 
 void UnixSocket::removeWaiter(Event *event)
 {
-    m_Stream.cullMonitorTargets(event);
-    if (m_pOther)
+    SharedPointer<UnixSocketConnection> connection;
     {
-        m_pOther->m_Stream.cullMonitorTargets(event);
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (!connection)
+        {
+            m_Stream.cullMonitorTargets(event);
+            return;
+        }
     }
+
+    connection->m_FirstStream.cullMonitorTargets(event);
+    connection->m_SecondStream.cullMonitorTargets(event);
 }
 
 bool UnixSocket::markListening()
 {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+
     if (m_Type != Streaming)
     {
         // can't listen() on a non-streaming socket
@@ -442,8 +539,94 @@ bool UnixSocket::markListening()
         return false;
     }
 
+    setCreds();
     m_State = Listening;
     return true;
+}
+
+UnixSocket::SocketState UnixSocket::getState() const
+{
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    return getStateLocked();
+}
+
+UnixSocket::SocketState UnixSocket::getStateLocked() const
+{
+    if (m_Type != Streaming || !m_Connection)
+    {
+        return m_State;
+    }
+
+    if (
+        m_Connection->m_Failed ||
+        m_Connection->m_Closed[m_ConnectionSide ? 1 : 0] ||
+        m_Connection->m_Closed[m_ConnectionSide ? 0 : 1])
+    {
+        return Closed;
+    }
+
+    return m_Connection->m_Active ? Active : Connecting;
+}
+
+bool UnixSocket::wasConnected() const
+{
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    return m_Connection && m_Connection->m_Active && !m_Connection->m_Failed;
+}
+
+void UnixSocket::failConnection()
+{
+    SharedPointer<UnixSocketConnection> connection;
+    {
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        connection = m_Connection;
+        if (!connection)
+        {
+            m_State = Closed;
+            return;
+        }
+
+        connection->m_Failed = true;
+        connection->m_Closed[0] = true;
+        connection->m_Closed[1] = true;
+        m_State = Closed;
+    }
+
+    connection->m_FirstStream.disableWrites();
+    connection->m_FirstStream.disableReads();
+    connection->m_SecondStream.disableWrites();
+    connection->m_SecondStream.disableReads();
+    connection->m_FirstStream.notifyMonitors();
+    connection->m_SecondStream.notifyMonitors();
+}
+
+struct ucred UnixSocket::getPeerCredentials() const
+{
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    if (!m_Connection)
+    {
+        struct ucred empty;
+        empty.uid = -1;
+        empty.gid = -1;
+        empty.pid = -1;
+        return empty;
+    }
+
+    return m_Connection->m_Creds[m_ConnectionSide ? 0 : 1];
+}
+
+UnixSocketConnection::Stream *UnixSocket::incomingStream(
+    const SharedPointer<UnixSocketConnection> &connection) const
+{
+    return m_ConnectionSide ? &connection->m_SecondStream
+                            : &connection->m_FirstStream;
+}
+
+UnixSocketConnection::Stream *UnixSocket::outgoingStream(
+    const SharedPointer<UnixSocketConnection> &connection) const
+{
+    return m_ConnectionSide ? &connection->m_FirstStream
+                            : &connection->m_SecondStream;
 }
 
 void UnixSocket::setCreds()
@@ -508,6 +691,11 @@ UnixFilesystem::~UnixFilesystem()
     {
         ERROR("UnixFilesystem::~UnixFilesystem: root didn't get destroyed");
     }
+}
+
+Mutex &UnixFilesystem::namespaceLock()
+{
+    return m_NamespaceLock;
 }
 
 bool UnixFilesystem::createFile(

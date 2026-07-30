@@ -36,6 +36,8 @@
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 // <sys/fb.h> in userspace
@@ -61,44 +63,13 @@ static void terminalSwitchHandler(InputManager::InputNotification &in)
 uint64_t RandomFile::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
-    /// \todo Endianness issues?
-
-    size_t realSize = size;
-
-    if (size < sizeof(uint64_t))
+    const size_t produced =
+        hardware_random_bytes(reinterpret_cast<void *>(buffer), size);
+    if (size && !produced)
     {
-        uint64_t val = random_next();
-        char *pBuffer = reinterpret_cast<char *>(buffer);
-        while (size--)
-        {
-            *pBuffer++ = val & 0xFF;
-            val >>= 8;
-        }
+        SYSCALL_ERROR(NoMoreProcesses);
     }
-    else
-    {
-        // Align.
-        char *pBuffer = reinterpret_cast<char *>(buffer);
-        if (size % 8)
-        {
-            uint64_t align = random_next();
-            while (size % 8)
-            {
-                *pBuffer++ = align & 0xFF;
-                --size;
-                align >>= 8;
-            }
-        }
-
-        uint64_t *pBuffer64 = reinterpret_cast<uint64_t *>(buffer);
-        while (size)
-        {
-            *pBuffer64++ = random_next();
-            size -= 8;
-        }
-    }
-
-    return realSize - size;
+    return produced;
 }
 
 uint64_t RandomFile::writeBytewise(

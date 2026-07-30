@@ -26,13 +26,39 @@
 
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 
 #include <sys/socket.h>
 
 class Mutex;
+class UnixSocket;
 
 #define MAX_UNIX_DGRAM_BACKLOG 65536
 #define MAX_UNIX_STREAM_QUEUE 65536
+
+/**
+ * Shared storage for a connected streaming socket pair.
+ *
+ * Keeping the byte streams independent of either endpoint means a concurrent
+ * close cannot leave the surviving endpoint dereferencing a freed peer.
+ */
+class UnixSocketConnection
+{
+    friend class UnixSocket;
+
+  public:
+    UnixSocketConnection();
+
+  private:
+    typedef Buffer<uint8_t, true> Stream;
+
+    Stream m_FirstStream;
+    Stream m_SecondStream;
+    bool m_Active;
+    bool m_Failed;
+    bool m_Closed[2];
+    struct ucred m_Creds[2];
+};
 
 /**
  * UnixFilesystem: UNIX sockets.
@@ -60,6 +86,10 @@ class UnixFilesystem : public Filesystem
     {
         return m_VolumeLabel;
     }
+
+    // Serialises pathname lookup, binding, unlink, and descriptor teardown for
+    // the in-memory socket namespace.
+    static Mutex &namespaceLock();
 
     virtual void truncate(File *pFile)
     {
@@ -98,6 +128,7 @@ class UnixFilesystem : public Filesystem
     File *m_pRoot;
 
     static String m_VolumeLabel;
+    static Mutex m_NamespaceLock;
 
     virtual bool isBytewise() const
     {
@@ -148,11 +179,6 @@ class UnixSocket : public File
         return true;
     }
 
-    UnixSocket *getOther() const
-    {
-        return m_pOther;
-    }
-
     // Bind this socket to another socket.
     // The other socket should not already be bound.
     bool bind(UnixSocket *other, bool block = false);
@@ -164,13 +190,13 @@ class UnixSocket : public File
     void acknowledgeBind();
 
     // Add a new socket for a client/server connection (for accept())
-    void addSocket(UnixSocket *socket);
+    bool addSocket(UnixSocket *socket);
 
     // Get the next socket in the listening queue (for non-datagram sockets).
     UnixSocket *getSocket(bool block = false);
 
-    // Add a semaphore to be notified when the socket data changes.
-    void addWaiter(Semaphore *waiter);
+    // Add a semaphore for the requested readiness directions.
+    void addWaiter(Semaphore *waiter, bool read, bool write);
 
     // Remove a waiter semaphore.
     void removeWaiter(Semaphore *waiter);
@@ -188,10 +214,14 @@ class UnixSocket : public File
     }
 
     // Get this socket's state
-    SocketState getState() const
-    {
-        return m_State;
-    }
+    SocketState getState() const;
+
+    // Whether this endpoint completed a connection, including a peer that has
+    // since closed.
+    bool wasConnected() const;
+
+    // Mark a queued connection as failed and wake all poll/read/write waiters.
+    void failConnection();
 
     // Mark this socket a listening socket
     bool markListening();
@@ -203,15 +233,17 @@ class UnixSocket : public File
     }
 
     // Get the credentials of the other side.
-    struct ucred getPeerCredentials() const
-    {
-        return m_pOther->getCredentials();
-    }
+    struct ucred getPeerCredentials() const;
 
   private:
     typedef Buffer<uint8_t, true> UnixSocketStream;
 
     void setCreds();
+    SocketState getStateLocked() const;
+    UnixSocketConnection::Stream *incomingStream(
+        const SharedPointer<UnixSocketConnection> &connection) const;
+    UnixSocketConnection::Stream *outgoingStream(
+        const SharedPointer<UnixSocketConnection> &connection) const;
 
     virtual bool isBytewise() const
     {
@@ -239,25 +271,21 @@ class UnixSocket : public File
 
     // For stream sockets.
 
-    // Other side of the connection (for stream sockets).
-    UnixSocket *m_pOther;
-
-    // Data stream.
+    // Listener readiness queue. Connected stream data lives in m_Connection.
     UnixSocketStream m_Stream;
+
+    SharedPointer<UnixSocketConnection> m_Connection;
+    bool m_ConnectionSide;
 
     // List of sockets pending accept() on this socket.
     List<UnixSocket *> m_PendingSockets;
 
-    // Mutual exclusion for this socket.
-    Mutex m_Mutex;
-
-    // Ack waiter lock
-#if THREADS
-    Semaphore m_AckWaiter;
-#endif
-
     // Credentials associated at the time of bind()
     struct ucred m_Creds;
+
+    // Serialises endpoint state and connection ownership. Buffer operations
+    // use their own locks and are never performed while this is held.
+    static Mutex m_ConnectionLock;
 };
 
 /**

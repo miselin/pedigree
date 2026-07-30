@@ -36,12 +36,20 @@ typedef struct sigaltstack stack_t;
 
 typedef void (*_sig_func_ptr)(int);
 
+#if BITS_64
+struct LinuxAmd64KernelSigaction;
+int posix_linux_amd64_sigaction(
+    int sig, const LinuxAmd64KernelSigaction *act,
+    LinuxAmd64KernelSigaction *oact);
+#endif
+
 int posix_sigaction(
     int sig, const struct sigaction *act, struct sigaction *oact);
 uintptr_t posix_signal(int sig, void *func);
 int posix_raise(int sig, SyscallState &State);
 int posix_kill(int pid, int sig);
-int posix_sigprocmask(int how, const uint32_t *set, uint32_t *oset);
+int posix_sigprocmask(
+    int how, const void *set, void *oset, size_t sigsetSize, bool linuxCompat);
 void pedigree_unwind_signal();
 
 int posix_sigaltstack(const stack_t *stack, stack_t *oldstack);

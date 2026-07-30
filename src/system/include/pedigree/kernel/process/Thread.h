@@ -307,13 +307,40 @@ class EXPORTED_PUBLIC Thread
     /** Sends the asynchronous event pEvent to this thread.
 
         If the thread ID is greater than or equal to EVENT_TID_MAX, the event
-       will be ignored. */
+       will be ignored.
+
+       The event is not cloned. On success the thread owns a deletable event;
+       on failure ownership remains with the caller. */
     bool sendEvent(Event *pEvent);
 
     /** Sets the given event number as inhibited.
         \param bInhibit True if the event is to be inhibited, false if the event
        is to be allowed. */
     void inhibitEvent(size_t eventNumber, bool bInhibit);
+
+    /** Retrieves the POSIX signal mask for the current event nesting level. */
+    uint64_t getSignalMask();
+
+    /** Sets the POSIX signal mask for the current event nesting level. */
+    void setSignalMask(uint64_t mask);
+
+    struct AlternateSignalStack
+    {
+        AlternateSignalStack()
+            : base(0), size(0), enabled(false), inUse(false)
+        {
+        }
+
+        uintptr_t base;
+        size_t size;
+        bool enabled;
+        bool inUse;
+    };
+
+    AlternateSignalStack &getAlternateSignalStack()
+    {
+        return m_AlternateSignalStack;
+    }
 
     /** Walks the event queue, removing the event \p pEvent , if found. */
     void cullEvent(Event *pEvent);
@@ -496,6 +523,9 @@ class EXPORTED_PUBLIC Thread
     void reportWakeup(WakeReason reason);
     void reportWakeupUnlocked(WakeReason reason);
 
+    /** Checks for an event that can run while m_Lock is already held. */
+    bool hasEventsUnlocked();
+
     /** A level of thread state */
     struct StateLevel
     {
@@ -525,6 +555,9 @@ class EXPORTED_PUBLIC Thread
             \note A '1' here means the event is inhibited, '0' means it can be
            fired. */
         SharedPointer<ExtensibleBitmap> m_InhibitMask;
+
+        /** POSIX signals blocked at this event nesting level. */
+        uint64_t m_SignalMask;
 
         Thread *m_pBlockingThread;
     };
@@ -586,6 +619,9 @@ class EXPORTED_PUBLIC Thread
     List<WakeReason *> m_WakeWatchers;
 
     StateLevel m_StateLevels[MAX_NESTED_EVENTS];
+
+    /** Alternate signal stack configuration is per-thread. */
+    AlternateSignalStack m_AlternateSignalStack;
 
     /** Our current status. */
     volatile Status m_Status = Ready;

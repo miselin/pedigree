@@ -430,6 +430,7 @@ static struct Remapping
     {"/lib", "/libraries", nullptr, false, false},
     {"/etc", "/config", nullptr, false, false},
     {"/tmp", "scratch»", "tmpfs", true, false},
+    {"/run", "posix-runtime»", "tmpfs", true, false},
     {"/var/run", "posix-runtime»", "tmpfs", true, false},
     {nullptr, nullptr, nullptr, false, false},
 };
@@ -1910,8 +1911,9 @@ int posix_fcntl(int fd, int cmd, void *arg)
             return f->flflags;
         case F_SETFL:
             F_NOTICE("  -> set flags " << arg);
-            f->flflags = reinterpret_cast<size_t>(arg) &
-                         (O_APPEND | O_NONBLOCK | O_CLOEXEC);
+            f->setStatusFlags(
+                reinterpret_cast<size_t>(arg) &
+                (O_APPEND | O_NONBLOCK | O_CLOEXEC));
             F_NOTICE("  -> new flags " << f->flflags);
             return 0;
         case F_GETLK:   // Get record-locking information
@@ -2011,7 +2013,7 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 
     // Create permission set.
     MemoryMappedObject::Permissions perms;
-    if (prot & PROT_NONE)
+    if (prot == PROT_NONE)
     {
         perms = MemoryMappedObject::None;
     }
@@ -2167,7 +2169,7 @@ int posix_mprotect(void *p, size_t len, int prot)
 
     // Create permission set.
     MemoryMappedObject::Permissions perms;
-    if (prot & PROT_NONE)
+    if (prot == PROT_NONE)
     {
         perms = MemoryMappedObject::None;
     }
@@ -3176,6 +3178,7 @@ int posix_unlinkat(int dirfd, const char *pathname, int flags)
     String realPath;
     normalisePath(realPath, pathname);
 
+    LockGuard<Mutex> unixNamespaceGuard(UnixFilesystem::namespaceLock());
     File *pFile = findFileWithAbiFallbacks(realPath, cwd);
     if (!pFile)
     {

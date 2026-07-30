@@ -30,6 +30,7 @@
 #include "PosixSyscallManager.h"
 #include "console-syscalls.h"
 #include "file-syscalls.h"
+#include "linux-amd64-signal.h"
 #include "logging.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
@@ -215,6 +216,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_accept(
                 static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2),
                 reinterpret_cast<socklen_t *>(p3));
+        case POSIX_ACCEPT4:
+            return posix_accept4(
+                static_cast<int>(p1), reinterpret_cast<struct sockaddr_storage *>(p2),
+                reinterpret_cast<socklen_t *>(p3), static_cast<int>(p4));
         case POSIX_RECVFROM:
             return posix_recvfrom(
                 static_cast<int>(p1), reinterpret_cast<void *>(p2), p3,
@@ -248,6 +253,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 reinterpret_cast<void *>(p3));
         case POSIX_PIPE:
             return posix_pipe(reinterpret_cast<int *>(p1));
+        case POSIX_PIPE2:
+            return posix_pipe2(
+                reinterpret_cast<int *>(p1), static_cast<int>(p2));
         case POSIX_MKDIR:
             return posix_mkdir(
                 reinterpret_cast<const char *>(p1), static_cast<int>(p2));
@@ -267,6 +275,20 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_GETGID:
             return posix_getgid();
         case POSIX_SIGACTION:
+#if BITS_64
+            if (state.getSyscallService() == linuxCompat)
+            {
+                if (p4 != sizeof(uint64_t))
+                {
+                    SYSCALL_ERROR(InvalidArgument);
+                    return -1;
+                }
+                return posix_linux_amd64_sigaction(
+                    static_cast<int>(p1),
+                    reinterpret_cast<const LinuxAmd64KernelSigaction *>(p2),
+                    reinterpret_cast<LinuxAmd64KernelSigaction *>(p3));
+            }
+#endif
             return posix_sigaction(
                 static_cast<int>(p1),
                 reinterpret_cast<const struct sigaction *>(p2),
@@ -280,8 +302,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_kill(static_cast<int>(p1), static_cast<int>(p2));
         case POSIX_SIGPROCMASK:
             return posix_sigprocmask(
-                static_cast<int>(p1), reinterpret_cast<const uint32_t *>(p2),
-                reinterpret_cast<uint32_t *>(p3));
+                static_cast<int>(p1), reinterpret_cast<const void *>(p2),
+                reinterpret_cast<void *>(p3), p4,
+                state.getSyscallService() == linuxCompat);
         case POSIX_ALARM:
             return posix_alarm(p1);
         case POSIX_SLEEP:
@@ -351,6 +374,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
 
         // POSIX-specific Pedigree system calls
         case PEDIGREE_SIGRET:
+#if X64
+            if (state.getSyscallService() == linuxCompat)
+            {
+                LinuxAmd64Signal::sigreturn(state);
+            }
+#endif
             return pedigree_sigret();
         case PEDIGREE_INIT_SIGRET:
             WARNING("POSIX: The 'init sigret' system call is no longer valid.");
@@ -682,6 +711,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_prctl(p1, p2, p3, p4, p5);
         case POSIX_REBOOT:
             return pedigree_reboot();
+        case POSIX_GETRANDOM:
+            return posix_getrandom(
+                reinterpret_cast<void *>(p1), static_cast<size_t>(p2),
+                static_cast<unsigned int>(p3));
 
         default:
             ERROR(

@@ -29,8 +29,10 @@
 #include "pedigree/kernel/utilities/Tree.h"
 
 #include "modules/system/lwip/include/lwip/api.h"
+#include "modules/system/lwip/include/lwip/ip.h"
 #include "modules/system/lwip/include/lwip/ip_addr.h"
 #include "modules/system/lwip/include/lwip/tcp.h"
+#include "modules/system/lwip/include/lwip/tcpip.h"
 
 #include "pedigree/kernel/Subsystem.h"
 #include "modules/subsys/posix/FileDescriptor.h"
@@ -41,6 +43,7 @@
 #include "net-syscalls.h"
 
 #include <fcntl.h>
+#include <stddef.h>
 
 #ifndef UTILITY_LINUX
 #include <netdb.h>
@@ -56,8 +59,31 @@
 
 Tree<struct netconn *, LwipSocketSyscalls *>
     LwipSocketSyscalls::m_SyscallObjects;
+Mutex LwipSocketSyscalls::m_SyscallObjectsLock(false);
 
 extern UnixFilesystem *g_pUnixFilesystem;
+
+static File *findTrackedUnixSocket(const String &pathname)
+{
+    LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
+    File *file = VFS::instance().find(pathname);
+    if (file)
+    {
+        VFS::instance().trackFile(file);
+    }
+    return file;
+}
+
+static void releaseTrackedUnixSocket(File *file)
+{
+    if (!file)
+    {
+        return;
+    }
+
+    LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
+    VFS::instance().untrackFile(file);
+}
 
 /// Pass is_create = true to indicate that the operation is permitted to
 // operate if the socket does not yet have valid members (i.e. before a bind).
@@ -83,6 +109,94 @@ static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
     }
 
     return true;
+}
+
+static const int socketTypeMask = 0xF;
+static const int socketCreationFlags = SOCK_NONBLOCK | SOCK_CLOEXEC;
+static const int linuxTcpNoDelay = 1;
+
+static bool splitSocketType(int argument, int &type, int &flags)
+{
+    type = argument & socketTypeMask;
+    flags = argument & socketCreationFlags;
+    if (argument != (type | flags))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return false;
+    }
+
+    return true;
+}
+
+static void setSocketDescriptorFlags(FileDescriptor *descriptor, int flags)
+{
+    descriptor->setFlags((flags & SOCK_CLOEXEC) ? FD_CLOEXEC : 0);
+    descriptor->setStatusFlags(
+        (flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0);
+}
+
+static bool unixSocketPath(
+    const struct sockaddr_storage *address, socklen_t addressLength,
+    String &path, bool allowUnnamed)
+{
+    const size_t pathOffset = offsetof(struct sockaddr_un, sun_path);
+    if (
+        !address || addressLength < pathOffset ||
+        addressLength > sizeof(struct sockaddr_un))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return false;
+    }
+
+    const struct sockaddr_un *un =
+        reinterpret_cast<const struct sockaddr_un *>(address);
+    const size_t pathLength = addressLength - pathOffset;
+    if (!pathLength)
+    {
+        if (allowUnnamed)
+        {
+            path = String();
+            return true;
+        }
+
+        SYSCALL_ERROR(InvalidArgument);
+        return false;
+    }
+
+    // Linux abstract sockets have unrelated lifetime and namespace semantics.
+    // Keep the first Go milestone explicitly pathname-only.
+    if (!un->sun_path[0])
+    {
+        SYSCALL_ERROR(OperationNotSupported);
+        return false;
+    }
+
+    char boundedPath[sizeof(un->sun_path) + 1];
+    ByteSet(boundedPath, 0, sizeof(boundedPath));
+    MemoryCopy(boundedPath, un->sun_path, pathLength);
+    normalisePath(path, boundedPath);
+    return true;
+}
+
+static uint8_t lwipSocketOption(int option)
+{
+    switch (option)
+    {
+        case SO_REUSEADDR:
+            return SOF_REUSEADDR;
+        case SO_KEEPALIVE:
+            return SOF_KEEPALIVE;
+        case SO_BROADCAST:
+            return SOF_BROADCAST;
+        default:
+            return 0;
+    }
+}
+
+static int lwipErrorNumber(err_t error)
+{
+    const int result = err_to_errno(error);
+    return result < 0 ? Error::IoError : result;
 }
 
 static err_t sockaddrToIpaddr(
@@ -124,6 +238,13 @@ int posix_socket(int domain, int type, int protocol)
 {
     N_NOTICE("socket(" << domain << ", " << type << ", " << protocol << ")");
 
+    int socketType = 0;
+    int flags = 0;
+    if (!splitSocketType(type, socketType, flags))
+    {
+        return -1;
+    }
+
     size_t fd = getAvailableDescriptor();
 
     netconn_type connType = NETCONN_INVALID;
@@ -136,12 +257,17 @@ int posix_socket(int domain, int type, int protocol)
 
     if (domain == AF_UNIX)
     {
-        syscalls = new UnixSocketSyscalls(domain, type, protocol);
+        if (socketType != SOCK_STREAM && socketType != SOCK_DGRAM)
+        {
+            SYSCALL_ERROR(OperationNotSupported);
+            return -1;
+        }
+        syscalls = new UnixSocketSyscalls(domain, socketType, protocol);
     }
     else
     {
         /// \todo handle non-lwIP domains
-        syscalls = new LwipSocketSyscalls(domain, type, protocol);
+        syscalls = new LwipSocketSyscalls(domain, socketType, protocol);
     }
 
     if (!syscalls->create())
@@ -152,6 +278,7 @@ int posix_socket(int domain, int type, int protocol)
     FileDescriptor *f = new FileDescriptor;
     f->networkImpl = syscalls;
     f->fd = fd;
+    setSocketDescriptorFlags(f, flags);
     addDescriptor(fd, f);
     syscalls->associate(f);
 
@@ -179,8 +306,20 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2])
         return -1;
     }
 
+    int socketType = 0;
+    int flags = 0;
+    if (!splitSocketType(type, socketType, flags))
+    {
+        return -1;
+    }
+    if (socketType != SOCK_STREAM && socketType != SOCK_DGRAM)
+    {
+        SYSCALL_ERROR(OperationNotSupported);
+        return -1;
+    }
+
     UnixSocketSyscalls *syscallsA =
-        new UnixSocketSyscalls(domain, type, protocol);
+        new UnixSocketSyscalls(domain, socketType, protocol);
     if (!syscallsA->create())
     {
         delete syscallsA;
@@ -189,7 +328,7 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2])
     }
 
     UnixSocketSyscalls *syscallsB =
-        new UnixSocketSyscalls(domain, type, protocol);
+        new UnixSocketSyscalls(domain, socketType, protocol);
     if (!syscallsB->create())
     {
         delete syscallsA;
@@ -217,6 +356,9 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2])
     fB->networkImpl = syscallsB;
     fB->fd = fdB;
 
+    setSocketDescriptorFlags(fA, flags);
+    setSocketDescriptorFlags(fB, flags);
+
     addDescriptor(fdA, fA);
     addDescriptor(fdB, fB);
 
@@ -234,7 +376,9 @@ int posix_connect(int sock, const struct sockaddr_storage *address, socklen_t ad
 {
     N_NOTICE("connect");
 
-    if (!PosixSubsystem::checkAddress(
+    if (
+        !address || addrlen < sizeof(sa_family_t) ||
+        !PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(address), addrlen,
             PosixSubsystem::SafeRead))
     {
@@ -310,6 +454,17 @@ ssize_t posix_sendto(
             PosixSubsystem::SafeRead))
     {
         N_NOTICE("sendto -> invalid address for transmission buffer");
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (
+        address &&
+        (addrlen < sizeof(sa_family_t) ||
+         !PosixSubsystem::checkAddress(
+             reinterpret_cast<uintptr_t>(address), addrlen,
+             PosixSubsystem::SafeRead)))
+    {
+        N_NOTICE("sendto -> invalid destination address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
@@ -427,7 +582,9 @@ int posix_bind(int sock, const struct sockaddr_storage *address, socklen_t addrl
 {
     N_NOTICE("bind");
 
-    if (!PosixSubsystem::checkAddress(
+    if (
+        !address || addrlen < sizeof(sa_family_t) ||
+        !PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(address), addrlen,
             PosixSubsystem::SafeRead))
     {
@@ -474,21 +631,58 @@ int posix_listen(int sock, int backlog)
 
 int posix_accept(int sock, struct sockaddr_storage *address, socklen_t *addrlen)
 {
-    N_NOTICE("accept");
+    return posix_accept4(sock, address, addrlen, 0);
+}
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(address),
-              sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t),
-              PosixSubsystem::SafeWrite)))
+int posix_accept4(
+    int sock, struct sockaddr_storage *address, socklen_t *addrlen, int flags)
+{
+    N_NOTICE("accept4");
+
+    if (flags & ~socketCreationFlags)
     {
-        N_NOTICE("accept -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    N_NOTICE("accept(" << sock << ", " << address << ", " << addrlen << ")");
+    struct sockaddr_storage acceptedAddress;
+    ByteSet(&acceptedAddress, 0, sizeof(acceptedAddress));
+    socklen_t acceptedLength = sizeof(acceptedAddress);
+    socklen_t addressCapacity = 0;
+    const bool returnAddress = address != nullptr;
+    if (returnAddress)
+    {
+        if (
+            !addrlen ||
+            !PosixSubsystem::checkAddress(
+                reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t),
+                PosixSubsystem::SafeWrite))
+        {
+            N_NOTICE("accept4 -> invalid address length");
+            SYSCALL_ERROR(BadAddress);
+            return -1;
+        }
+
+        addressCapacity = *addrlen;
+        const size_t writableLength =
+            addressCapacity < sizeof(acceptedAddress)
+                ? static_cast<size_t>(addressCapacity)
+                : sizeof(acceptedAddress);
+        if (
+            writableLength &&
+            !PosixSubsystem::checkAddress(
+                reinterpret_cast<uintptr_t>(address), writableLength,
+                PosixSubsystem::SafeWrite))
+        {
+            N_NOTICE("accept4 -> invalid address");
+            SYSCALL_ERROR(BadAddress);
+            return -1;
+        }
+    }
+
+    N_NOTICE(
+        "accept4(" << sock << ", " << address << ", " << addrlen << ", "
+                   << flags << ")");
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -502,7 +696,20 @@ int posix_accept(int sock, struct sockaddr_storage *address, socklen_t *addrlen)
         return -1;
     }
 
-    int r = f->networkImpl->accept(address, addrlen);
+    int r =
+        f->networkImpl->accept(&acceptedAddress, &acceptedLength, flags);
+    if (r >= 0 && returnAddress)
+    {
+        const size_t copyLength =
+            addressCapacity < acceptedLength
+                ? static_cast<size_t>(addressCapacity)
+                : static_cast<size_t>(acceptedLength);
+        if (copyLength)
+        {
+            MemoryCopy(address, &acceptedAddress, copyLength);
+        }
+        *addrlen = acceptedLength;
+    }
     N_NOTICE(" -> " << Dec << r);
     return r;
 }
@@ -589,7 +796,7 @@ int posix_setsockopt(
 
     if (!(PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(optvalue), optlen,
-            PosixSubsystem::SafeWrite)))
+            PosixSubsystem::SafeRead)))
     {
         N_NOTICE("setsockopt -> invalid address");
         SYSCALL_ERROR(InvalidArgument);
@@ -794,6 +1001,7 @@ bool NetworkSyscalls::unmonitor(Event *pEvent)
 void NetworkSyscalls::associate(FileDescriptor *fd)
 {
     m_Fd = fd;
+    m_Blocking = !fd || !(fd->flflags & O_NONBLOCK);
 }
 
 bool NetworkSyscalls::isBlocking() const
@@ -815,11 +1023,46 @@ LwipSocketSyscalls::~LwipSocketSyscalls()
 {
     if (m_Socket)
     {
-        m_SyscallObjects.remove(m_Socket);
+        LOCK_TCPIP_CORE();
+        {
+            ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+            m_SyscallObjects.remove(m_Socket);
+        }
+        UNLOCK_TCPIP_CORE();
 
         netconn_delete(m_Socket);
         m_Socket = nullptr;
     }
+}
+
+void LwipSocketSyscalls::setBlocking(bool blocking)
+{
+    NetworkSyscalls::setBlocking(blocking);
+    if (m_Socket)
+    {
+        netconn_set_nonblocking(m_Socket, blocking ? 0 : 1);
+    }
+}
+
+void LwipSocketSyscalls::registerSocket()
+{
+    LOCK_TCPIP_CORE();
+    {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+        if (!m_SyscallObjects.lookup(m_Socket))
+        {
+            // lwIP counts receive events in socket while an accepted
+            // connection has no userspace descriptor. Transfer those events
+            // before exposing it so early request data remains readable.
+            if (m_Socket->socket < 0)
+            {
+                m_Metadata.recv += -1 - m_Socket->socket;
+                m_Socket->socket = 0;
+            }
+            m_SyscallObjects.insert(m_Socket, this);
+        }
+    }
+    UNLOCK_TCPIP_CORE();
 }
 
 bool LwipSocketSyscalls::create()
@@ -885,6 +1128,7 @@ bool LwipSocketSyscalls::create()
     // Socket already exists? No need to do the rest.
     if (m_Socket)
     {
+        registerSocket();
         return true;
     }
 
@@ -895,7 +1139,12 @@ bool LwipSocketSyscalls::create()
         return false;
     }
 
-    m_SyscallObjects.insert(m_Socket, this);
+    if (NETCONNTYPE_GROUP(m_Socket->type) != NETCONN_TCP)
+    {
+        m_Metadata.send = 1;
+    }
+
+    registerSocket();
 
     return true;
 }
@@ -903,19 +1152,11 @@ bool LwipSocketSyscalls::create()
 int LwipSocketSyscalls::connect(
     const struct sockaddr_storage *address, socklen_t addrlen)
 {
-    /// \todo need to track if we've already done a bind() and not bind if so
     ip_addr_t ipaddr;
     ByteSet(&ipaddr, 0, sizeof(ipaddr));
-    err_t err = netconn_bind(m_Socket, &ipaddr, 0);  // bind to any address
-    if (err != ERR_OK)
-    {
-        N_NOTICE(" -> lwip error when binding before connect");
-        lwipToSyscallError(err);
-        return -1;
-    }
-
     uint16_t port = 0;
-    if ((err = sockaddrToIpaddr(address, port, &ipaddr, false)) != ERR_OK)
+    err_t err = sockaddrToIpaddr(address, port, &ipaddr, false);
+    if (err != ERR_OK)
     {
         N_NOTICE("failed to convert sockaddr");
         lwipToSyscallError(err);
@@ -1040,7 +1281,17 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
     // No data to read right now.
     if (!isBlocking())
     {
-        if (!(m_Metadata.recv || m_Metadata.pb))
+        bool noData = false;
+        {
+            ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+            if (m_Metadata.closed)
+            {
+                return 0;
+            }
+            noData = !(m_Metadata.recv || m_Metadata.pb);
+        }
+
+        if (noData)
         {
             // If an app tightly calls recv() and keeps hitting here, it'll
             // burn a lot of cycles for no good reason. Instead, reschedule to
@@ -1072,6 +1323,13 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
 
         if (err != ERR_OK)
         {
+            if (err == ERR_CLSD)
+            {
+                ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+                m_Metadata.closed = true;
+                return 0;
+            }
+
             N_NOTICE(" -> lwIP error");
             lwipToSyscallError(err);
             return -1;
@@ -1080,6 +1338,11 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
         if (pb == nullptr && buf != nullptr)
         {
             pb = buf->p;
+        }
+        if (!pb)
+        {
+            SYSCALL_ERROR(IoError);
+            return -1;
         }
 
         m_Metadata.offset = 0;
@@ -1165,7 +1428,8 @@ int LwipSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t a
     return 0;
 }
 
-int LwipSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addrlen)
+int LwipSocketSyscalls::accept(
+    struct sockaddr_storage *address, socklen_t *addrlen, int flags)
 {
     struct netconn *new_conn;
     err_t err = netconn_accept(m_Socket, &new_conn);
@@ -1197,13 +1461,14 @@ int LwipSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addr
     LwipSocketSyscalls *obj =
         new LwipSocketSyscalls(m_Domain, m_Type, m_Protocol);
     obj->m_Socket = new_conn;
+    obj->m_Metadata.send = 1;
     obj->create();
-    m_SyscallObjects.insert(new_conn, obj);
 
     size_t fd = getAvailableDescriptor();
     FileDescriptor *desc = new FileDescriptor;
     desc->networkImpl = obj;
     desc->fd = fd;
+    setSocketDescriptorFlags(desc, flags);
 
     addDescriptor(fd, desc);
     obj->associate(desc);
@@ -1286,43 +1551,144 @@ int LwipSocketSyscalls::getsockname(
 int LwipSocketSyscalls::setsockopt(
     int level, int optname, const void *optvalue, socklen_t optlen)
 {
-    if (m_Protocol == IPPROTO_TCP && level == IPPROTO_TCP)
+    if (optlen < sizeof(int))
     {
-#ifdef TCP_NODELAY
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-        if (optname == TCP_NODELAY)
-        {
-            N_NOTICE(" -> TCP_NODELAY");
-            const uint32_t *val = reinterpret_cast<const uint32_t *>(optvalue);
-            N_NOTICE("  --> val=" << *val);
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
 
-            // TCP_NODELAY controls Nagle's algorithm usage
-            if (*val)
+    const int value = *reinterpret_cast<const int *>(optvalue);
+    if (level == SOL_SOCKET)
+    {
+        const uint8_t option = lwipSocketOption(optname);
+        if (option)
+        {
+            LOCK_TCPIP_CORE();
+            struct ip_pcb *pcb = m_Socket ? m_Socket->pcb.ip : nullptr;
+            if (!pcb)
             {
-                tcp_nagle_disable(m_Socket->pcb.tcp);
+                UNLOCK_TCPIP_CORE();
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
+            }
+
+            if (value)
+            {
+                ip_set_option(pcb, option);
             }
             else
             {
-                tcp_nagle_enable(m_Socket->pcb.tcp);
+                ip_reset_option(pcb, option);
+            }
+            UNLOCK_TCPIP_CORE();
+            return 0;
+        }
+    }
+
+    if (m_Protocol == IPPROTO_TCP && level == IPPROTO_TCP)
+    {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+        if (optname == linuxTcpNoDelay)
+        {
+            LOCK_TCPIP_CORE();
+            struct tcp_pcb *pcb = m_Socket ? m_Socket->pcb.tcp : nullptr;
+            if (!pcb)
+            {
+                UNLOCK_TCPIP_CORE();
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
             }
 
+            N_NOTICE(" -> TCP_NODELAY");
+            N_NOTICE("  --> val=" << value);
+
+            // TCP_NODELAY controls Nagle's algorithm usage
+            if (value)
+            {
+                tcp_nagle_disable(pcb);
+            }
+            else
+            {
+                tcp_nagle_enable(pcb);
+            }
+
+            UNLOCK_TCPIP_CORE();
             return 0;
         }
 #pragma GCC diagnostic pop
-#endif
     }
 
-    /// \todo implement with lwIP functionality
+    SYSCALL_ERROR(ProtocolNotAvailable);
     return -1;
 }
 
 int LwipSocketSyscalls::getsockopt(
     int level, int optname, void *optvalue, socklen_t *optlen)
 {
-    // SO_ERROR etc
-    /// \todo implement with lwIP functionality
-    return -1;
+    if (*optlen < sizeof(int))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    int value = 0;
+    if (level == SOL_SOCKET)
+    {
+        if (optname == SO_TYPE)
+        {
+            value = m_Type;
+        }
+        else if (optname == SO_ERROR)
+        {
+            ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+            value = lwipErrorNumber(m_Metadata.error);
+            m_Metadata.error = ERR_OK;
+        }
+        else
+        {
+            const uint8_t option = lwipSocketOption(optname);
+            if (!option)
+            {
+                SYSCALL_ERROR(ProtocolNotAvailable);
+                return -1;
+            }
+            LOCK_TCPIP_CORE();
+            struct ip_pcb *pcb = m_Socket ? m_Socket->pcb.ip : nullptr;
+            if (!pcb)
+            {
+                UNLOCK_TCPIP_CORE();
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
+            }
+            value = ip_get_option(pcb, option) ? 1 : 0;
+            UNLOCK_TCPIP_CORE();
+        }
+    }
+    else if (
+        m_Protocol == IPPROTO_TCP && level == IPPROTO_TCP &&
+        optname == linuxTcpNoDelay)
+    {
+        LOCK_TCPIP_CORE();
+        struct tcp_pcb *pcb = m_Socket ? m_Socket->pcb.tcp : nullptr;
+        if (!pcb)
+        {
+            UNLOCK_TCPIP_CORE();
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+        value = tcp_nagle_disabled(pcb) ? 1 : 0;
+        UNLOCK_TCPIP_CORE();
+    }
+    else
+    {
+        SYSCALL_ERROR(ProtocolNotAvailable);
+        return -1;
+    }
+
+    *reinterpret_cast<int *>(optvalue) = value;
+    *optlen = sizeof(int);
+    return 0;
 }
 
 bool LwipSocketSyscalls::canPoll() const
@@ -1351,13 +1717,13 @@ bool LwipSocketSyscalls::poll(
 
     if (read)
     {
-        read = m_Metadata.recv || m_Metadata.pb;
+        read = m_Metadata.recv || m_Metadata.pb || m_Metadata.closed;
         ok = ok || read;
     }
 
     if (error)
     {
-        error = m_Metadata.error;
+        error = m_Metadata.error != ERR_OK;
         ok = ok || error;
     }
 
@@ -1392,9 +1758,17 @@ void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 void LwipSocketSyscalls::netconnCallback(
     struct netconn *conn, enum netconn_evt evt, u16_t len)
 {
+    ConstexprLockGuard<Mutex, THREADS> objectsGuard(m_SyscallObjectsLock);
     LwipSocketSyscalls *obj = m_SyscallObjects.lookup(conn);
     if (!obj)
     {
+        // Accepted netconns can receive data before accept() has associated a
+        // Pedigree descriptor. lwIP initializes socket to -1 for this exact
+        // handoff and invokes this callback while holding its core lock.
+        if (conn && conn->socket < 0 && evt == NETCONN_EVT_RCVPLUS)
+        {
+            --conn->socket;
+        }
         return;
     }
 
@@ -1423,8 +1797,11 @@ void LwipSocketSyscalls::netconnCallback(
             break;
         case NETCONN_EVT_ERROR:
             N_NOTICE("ERR");
-            obj->m_Metadata.error =
-                true;  /// \todo figure out how to bubble errors
+            obj->m_Metadata.error = netconn_err(conn);
+            if (obj->m_Metadata.error == ERR_OK)
+            {
+                obj->m_Metadata.error = ERR_IF;
+            }
             break;
         default:
             N_NOTICE("Unknown netconn callback error.");
@@ -1445,82 +1822,56 @@ void LwipSocketSyscalls::lwipToSyscallError(err_t err)
     if (err != ERR_OK)
     {
         N_NOTICE(" -> lwip strerror gives '" << lwip_strerr(err) << "'");
-    }
-    // Based on lwIP's err_to_errno_table.
-    switch (err)
-    {
-        case ERR_OK:
-            break;
-        case ERR_MEM:
-            SYSCALL_ERROR(OutOfMemory);
-            break;
-        case ERR_BUF:
-            SYSCALL_ERROR(NoMoreBuffers);
-            break;
-        case ERR_TIMEOUT:
-            SYSCALL_ERROR(TimedOut);
-            break;
-        case ERR_RTE:
-            SYSCALL_ERROR(HostUnreachable);
-            break;
-        case ERR_INPROGRESS:
-            SYSCALL_ERROR(InProgress);
-            break;
-        case ERR_VAL:
-            SYSCALL_ERROR(InvalidArgument);
-            break;
-        case ERR_WOULDBLOCK:
-            SYSCALL_ERROR(NoMoreProcesses);
-            break;
-        case ERR_USE:
-            // address in use
-            SYSCALL_ERROR(InvalidArgument);
-            break;
-        case ERR_ALREADY:
-            SYSCALL_ERROR(Already);
-            break;
-        case ERR_ISCONN:
-            SYSCALL_ERROR(IsConnected);
-            break;
-        case ERR_CONN:
-            SYSCALL_ERROR(NotConnected);
-            break;
-        case ERR_IF:
-            // no error
-            break;
-        case ERR_ABRT:
-            SYSCALL_ERROR(ConnectionAborted);
-            break;
-        case ERR_RST:
-            SYSCALL_ERROR(ConnectionReset);
-            break;
-        case ERR_CLSD:
-            SYSCALL_ERROR(NotConnected);
-            break;
-        case ERR_ARG:
-            SYSCALL_ERROR(IoError);
-            break;
+        syscallError(lwipErrorNumber(err));
     }
 }
 
 LwipSocketSyscalls::LwipMetadata::LwipMetadata()
-    : recv(0), send(0), error(false), lock(false), semaphores(), offset(0),
-      pb(nullptr), buf(nullptr)
+    : recv(0), send(0), error(ERR_OK), closed(false), lock(false), semaphores(),
+      offset(0), pb(nullptr), buf(nullptr)
 {
 }
 
 UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol)
     : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr),
-      m_Remote(nullptr), m_LocalPath(), m_RemotePath()
+      m_Remote(nullptr), m_RemoteTracked(false), m_LocalPath(), m_RemotePath()
 {
 }
 
 UnixSocketSyscalls::~UnixSocketSyscalls()
 {
-    /// \todo should shutdown() which should wake up recv() or poll()
     N_NOTICE("UnixSocketSyscalls::~UnixSocketSyscalls");
-    m_Socket->unbind();
-    delete m_Socket;
+    if (m_Socket)
+    {
+        UnixSocket *socket = m_Socket;
+        m_Socket = nullptr;
+        socket->unbind();
+        if (m_LocalPath.length())
+        {
+            LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
+            if (socket->getName().length() && socket->getParent())
+            {
+                Directory *parent = Directory::fromFile(socket->getParent());
+                if (parent->lookup(socket->getName().view()) == socket)
+                {
+                    parent->remove(socket->getName().view());
+                }
+            }
+            VFS::instance().untrackFile(socket);
+        }
+        else
+        {
+            delete socket;
+        }
+    }
+
+    if (m_RemoteTracked)
+    {
+        UnixSocket *remote = m_Remote;
+        m_Remote = nullptr;
+        m_RemoteTracked = false;
+        releaseTrackedUnixSocket(remote);
+    }
 }
 
 bool UnixSocketSyscalls::create()
@@ -1540,15 +1891,15 @@ bool UnixSocketSyscalls::create()
 int UnixSocketSyscalls::connect(
     const struct sockaddr_storage *address, socklen_t addrlen)
 {
-    // Find the remote socket
-    const struct sockaddr_un *un =
-        reinterpret_cast<const struct sockaddr_un *>(address);
     String pathname;
-    normalisePath(pathname, un->sun_path);
+    if (!unixSocketPath(address, addrlen, pathname, false))
+    {
+        return -1;
+    }
 
     N_NOTICE(" -> unix connect: '" << pathname << "'");
 
-    File *file = VFS::instance().find(pathname);
+    File *file = findTrackedUnixSocket(pathname);
     if (!file)
     {
         SYSCALL_ERROR(DoesNotExist);
@@ -1561,37 +1912,75 @@ int UnixSocketSyscalls::connect(
         /// \todo wrong error
         SYSCALL_ERROR(DoesNotExist);
         N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
+        releaseTrackedUnixSocket(file);
         return -1;
     }
 
-    m_Remote = static_cast<UnixSocket *>(file);
+    UnixSocket *target = static_cast<UnixSocket *>(file);
 
     if (getType() == SOCK_STREAM)
     {
         N_NOTICE(" -> stream");
+        if (
+            target->getType() != UnixSocket::Streaming ||
+            target->getState() != UnixSocket::Listening)
+        {
+            SYSCALL_ERROR(ConnectionRefused);
+            releaseTrackedUnixSocket(target);
+            return -1;
+        }
 
         // Create the remote for accept() on the server side.
         UnixSocket *remote = new UnixSocket(
             String(), g_pUnixFilesystem, nullptr, nullptr,
             UnixSocket::Streaming);
-        m_Remote->addSocket(remote);
 
-        bool blocking =
-            !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
-
-        // Bind our local socket to the remote side
-        N_NOTICE(" -> stream is binding blocking=" << blocking);
-        m_Socket->bind(remote, blocking);
-        N_NOTICE(" -> stream bound!");
+        // Pair first so accept can never observe an endpoint before its peer
+        // exists. addSocket activates and queues the connection atomically;
+        // accept only transfers ownership of the queued endpoint.
+        if (!m_Socket->bind(remote, false))
+        {
+            delete remote;
+            SYSCALL_ERROR(IsConnected);
+            releaseTrackedUnixSocket(target);
+            return -1;
+        }
+        if (!target->addSocket(remote))
+        {
+            remote->failConnection();
+            delete remote;
+            SYSCALL_ERROR(ConnectionRefused);
+            releaseTrackedUnixSocket(target);
+            return -1;
+        }
+        N_NOTICE(" -> stream connected and queued");
     }
     else
     {
+        if (target->getType() != UnixSocket::Datagram)
+        {
+            SYSCALL_ERROR(ProtocolWrongType);
+            releaseTrackedUnixSocket(target);
+            return -1;
+        }
         N_NOTICE(" -> dgram");
     }
 
+    if (m_RemoteTracked)
+    {
+        releaseTrackedUnixSocket(m_Remote);
+    }
+    m_Remote = target;
+    m_RemoteTracked = true;
     m_RemotePath = pedigree_std::move(pathname);
 
     N_NOTICE(" -> remote is now " << m_RemotePath);
+
+    if (getType() == SOCK_STREAM && !isBlocking())
+    {
+        SYSCALL_ERROR(InProgress);
+        return -1;
+    }
 
     return 0;
 }
@@ -1601,42 +1990,37 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
     N_NOTICE("UnixSocketSyscalls::sendto_msg");
 
     UnixSocket *remote = getRemote();
+    UnixSocket *temporaryRemote = nullptr;
     if (getType() == SOCK_STREAM && !remote)
     {
-        /// \todo this doesn't handle a connection going away - only a
-        /// connection not being made in the first place (I think it's a
-        /// different errno)
-        N_NOTICE(" -> not connected");
-        SYSCALL_ERROR(NotConnected);
+        const bool closed =
+            m_Socket && m_Socket->getState() == UnixSocket::Closed;
+        N_NOTICE(" -> " << (closed ? "closed" : "not connected"));
+        syscallError(closed ? Error::BrokenPipe : Error::NotConnected);
         return -1;
     }
 
-    if (!m_Remote)
+    if (!m_Remote && getType() != SOCK_STREAM)
     {
-        if (getType() == SOCK_STREAM)
-        {
-            // sendto() can't be used for streaming sockets
-            /// \todo errno
-            N_NOTICE(
-                " -> sendto on streaming socket with no remote is invalid");
-            return -1;
-        }
-        else if (!msghdr->msg_name)
+        if (!msghdr->msg_name)
         {
             /// \todo needs some sort of errno here
             N_NOTICE(" -> sendto on unconnected socket with no address");
             return -1;
         }
 
-        // Find the remote socket
-        const struct sockaddr_un *un =
-            reinterpret_cast<const struct sockaddr_un *>(msghdr->msg_name);
         String pathname;
-        normalisePath(pathname, un->sun_path);
+        if (!unixSocketPath(
+                reinterpret_cast<const struct sockaddr_storage *>(
+                    msghdr->msg_name),
+                msghdr->msg_namelen, pathname, false))
+        {
+            return -1;
+        }
 
         N_NOTICE(" -> unix connect: '" << pathname << "'");
 
-        File *file = VFS::instance().find(pathname);
+        File *file = findTrackedUnixSocket(pathname);
         if (!file)
         {
             SYSCALL_ERROR(DoesNotExist);
@@ -1649,10 +2033,25 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
             /// \todo wrong error
             SYSCALL_ERROR(DoesNotExist);
             N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
+            releaseTrackedUnixSocket(file);
             return -1;
         }
 
         remote = static_cast<UnixSocket *>(file);
+        temporaryRemote = remote;
+    }
+
+    if (
+        getType() != SOCK_STREAM &&
+        (!remote || remote->getType() != UnixSocket::Datagram ||
+         remote->getState() == UnixSocket::Closed))
+    {
+        releaseTrackedUnixSocket(temporaryRemote);
+        syscallError(
+            remote && remote->getType() != UnixSocket::Datagram
+                ? Error::ProtocolWrongType
+                : Error::ConnectionRefused);
+        return -1;
     }
 
     N_NOTICE(" -> transmitting!");
@@ -1675,12 +2074,20 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
 
         numWritten += thisWrite;
     }
+    releaseTrackedUnixSocket(temporaryRemote);
     if (!numWritten)
     {
+        if (
+            getType() == SOCK_STREAM &&
+            m_Socket->getState() == UnixSocket::Closed)
+        {
+            SYSCALL_ERROR(BrokenPipe);
+            N_NOTICE(" -> -1 (EPIPE)");
+            return -1;
+        }
+
         if (!isBlocking())
         {
-            // NOT an EOF yet!
-            /// \todo except that it could be.. need to detect shutdown()
             SYSCALL_ERROR(NoMoreProcesses);
             N_NOTICE(" -> -1 (EAGAIN)");
             return -1;
@@ -1715,19 +2122,44 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
     {
         struct sockaddr_un *un =
             reinterpret_cast<struct sockaddr_un *>(msghdr->msg_name);
-        un->sun_family = AF_UNIX;
-        StringCopy(un->sun_path, remote.cstr());
-        msghdr->msg_namelen = sizeof(sa_family_t) + remote.length();
+        const size_t pathOffset = offsetof(struct sockaddr_un, sun_path);
+        const size_t capacity = msghdr->msg_namelen;
+        if (capacity >= sizeof(sa_family_t))
+        {
+            un->sun_family = AF_UNIX;
+        }
+        if (capacity > pathOffset)
+        {
+            const size_t available = capacity - pathOffset;
+            if (remote.length())
+            {
+                StringCopyN(un->sun_path, remote.cstr(), available);
+                un->sun_path[available - 1] = 0;
+            }
+            else
+            {
+                un->sun_path[0] = 0;
+            }
+        }
+        msghdr->msg_namelen =
+            sizeof(sa_family_t) + remote.length() +
+            (remote.length() ? 1 : 0);
     }
 
     /// \todo get info from the socket about things like truncated buffer
     msghdr->msg_flags = 0;
     if (!numRead)
     {
+        if (
+            getType() == SOCK_STREAM &&
+            m_Socket->getState() == UnixSocket::Closed)
+        {
+            N_NOTICE(" -> 0 (EOF)");
+            return 0;
+        }
+
         if (!isBlocking())
         {
-            // NOT an EOF yet!
-            /// \todo except that it could be.. need to detect shutdown()
             SYSCALL_ERROR(NoMoreProcesses);
             N_NOTICE(" -> -1 (EAGAIN)");
             return -1;
@@ -1739,15 +2171,22 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
 
 int UnixSocketSyscalls::listen(int backlog)
 {
+    (void) backlog;
+
     if (m_Socket->getType() != UnixSocket::Streaming)
     {
-        // EOPNOTSUPP
+        SYSCALL_ERROR(OperationNotSupported);
         return -1;
     }
 
     /// \todo bind to an unnamed socket if we aren't already bound
 
-    m_Socket->markListening();
+    if (!m_Socket->markListening())
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
     return 0;
 }
 
@@ -1755,18 +2194,16 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t a
 {
     /// \todo unbind existing socket if one exists.
 
-    // Valid state. But no socket, so do the magic here.
-    const struct sockaddr_un *un =
-        reinterpret_cast<const struct sockaddr_un *>(address);
-
-    if (SUN_LEN(un) == sizeof(sa_family_t))
+    String adjusted_pathname;
+    if (!unixSocketPath(address, addrlen, adjusted_pathname, true))
+    {
+        return -1;
+    }
+    if (!adjusted_pathname.length())
     {
         /// \todo re-bind an unnamed address if we are bound already
         return 0;
     }
-
-    String adjusted_pathname;
-    normalisePath(adjusted_pathname, un->sun_path);
 
     N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
 
@@ -1817,13 +2254,24 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t a
     UnixSocket *socket = new UnixSocket(
         basename, parentDirectory->getFilesystem(), parentDirectory, nullptr,
         getSocketType());
-    if (!pDir->addEphemeralFile(socket))
+    bool added = false;
     {
-        /// \todo errno?
-        delete socket;
-        return false;
+        LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
+        added = pDir->addEphemeralFile(socket);
+        if (added)
+        {
+            // The directory and this open socket each own one VFS reference.
+            // Keeping both changes atomic prevents unlink from observing the
+            // pathname before the descriptor has pinned its endpoint.
+            VFS::instance().trackFile(socket);
+        }
     }
-
+    if (!added)
+    {
+        delete socket;
+        SYSCALL_ERROR(AddressInUse);
+        return -1;
+    }
     N_NOTICE(" -> basename=" << basename);
 
     // bind() then connect().
@@ -1839,7 +2287,8 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t a
     return 0;
 }
 
-int UnixSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addrlen)
+int UnixSocketSyscalls::accept(
+    struct sockaddr_storage *address, socklen_t *addrlen, int flags)
 {
     N_NOTICE("unix accept");
     UnixSocket *remote = m_Socket->getSocket(isBlocking());
@@ -1876,15 +2325,16 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addr
         UnixSocketSyscalls *obj =
             new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
         obj->m_Socket = remote;
-        obj->m_Remote = remote->getOther();
-        obj->m_LocalPath = String();
-        m_Socket->getFullPath(obj->m_RemotePath);
+        obj->m_Remote = nullptr;
+        obj->m_LocalPath = m_LocalPath;
+        obj->m_RemotePath = String();
         obj->create();
 
         size_t fd = getAvailableDescriptor();
         FileDescriptor *desc = new FileDescriptor;
         desc->networkImpl = obj;
         desc->fd = fd;
+        setSocketDescriptorFlags(desc, flags);
 
         addDescriptor(fd, desc);
         obj->associate(desc);
@@ -1906,10 +2356,18 @@ int UnixSocketSyscalls::getpeername(
     struct sockaddr_storage *address, socklen_t *address_len)
 {
     N_NOTICE("UNIX getpeername");
+    if (!m_Socket->wasConnected())
+    {
+        SYSCALL_ERROR(NotConnected);
+        return -1;
+    }
+
     struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
     StringCopy(sun->sun_path, m_RemotePath.cstr());
-    *address_len = sizeof(sa_family_t) + m_RemotePath.length();
+    *address_len =
+        sizeof(sa_family_t) + m_RemotePath.length() +
+        (m_RemotePath.length() ? 1 : 0);
 
     N_NOTICE(" -> " << m_RemotePath);
     return 0;
@@ -1922,7 +2380,9 @@ int UnixSocketSyscalls::getsockname(
     struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
     StringCopy(sun->sun_path, m_LocalPath.cstr());
-    *address_len = sizeof(sa_family_t) + m_LocalPath.length();
+    *address_len =
+        sizeof(sa_family_t) + m_LocalPath.length() +
+        (m_LocalPath.length() ? 1 : 0);
 
     N_NOTICE(" -> " << m_LocalPath);
     return 0;
@@ -1931,7 +2391,21 @@ int UnixSocketSyscalls::getsockname(
 int UnixSocketSyscalls::setsockopt(
     int level, int optname, const void *optvalue, socklen_t optlen)
 {
-    // nothing to do here
+    if (level == SOL_SOCKET && optname == SO_REUSEADDR)
+    {
+        if (optlen < sizeof(int))
+        {
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+
+        // Local pathname sockets have no TIME_WAIT address state, but Go's
+        // listener setup applies SO_REUSEADDR to every Linux socket.
+        (void) *reinterpret_cast<const int *>(optvalue);
+        return 0;
+    }
+
+    SYSCALL_ERROR(ProtocolNotAvailable);
     return -1;
 }
 
@@ -1940,9 +2414,53 @@ int UnixSocketSyscalls::getsockopt(
 {
     if (level == SOL_SOCKET)
     {
-        if (optname == SO_PEERCRED)
+        if (optname == SO_TYPE || optname == SO_ERROR)
+        {
+            if (*optlen < sizeof(int))
+            {
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
+            }
+
+            int value = getType();
+            if (optname == SO_ERROR)
+            {
+                const UnixSocket::SocketState state = m_Socket->getState();
+                if (m_Socket->wasConnected())
+                {
+                    value = 0;
+                }
+                else if (state == UnixSocket::Connecting)
+                {
+                    value = Error::InProgress;
+                }
+                else if (state == UnixSocket::Closed)
+                {
+                    value = Error::ConnectionRefused;
+                }
+                else
+                {
+                    value = Error::NotConnected;
+                }
+            }
+
+            *reinterpret_cast<int *>(optvalue) = value;
+            *optlen = sizeof(value);
+            return 0;
+        }
+        else if (optname == SO_PEERCRED)
         {
             N_NOTICE(" -> SO_PEERCRED");
+            if (!m_Socket->wasConnected())
+            {
+                SYSCALL_ERROR(NotConnected);
+                return -1;
+            }
+            if (*optlen < sizeof(struct ucred))
+            {
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
+            }
 
             // get credentials of other side of this socket
             struct ucred *targetCreds =
@@ -1959,102 +2477,91 @@ int UnixSocketSyscalls::getsockopt(
             return 0;
         }
     }
-    // nothing to do here
+
+    SYSCALL_ERROR(ProtocolNotAvailable);
     return -1;
 }
 
 bool UnixSocketSyscalls::canPoll() const
 {
-    return getRemote() || m_Socket;
+    return m_Socket != nullptr;
 }
 
 bool UnixSocketSyscalls::poll(
     bool &read, bool &write, bool &error, Semaphore *waiter)
 {
-    UnixSocket *remote = getRemote();
     UnixSocket *local = m_Socket;
+    const bool checkRead = read;
+    const bool checkWrite = write;
+    read = false;
+    write = false;
+    error = false;
 
-    if (read && !local)
+    if (!local)
     {
-        ERROR(
-            "UnixSocketSyscalls::poll - no local socket to poll for reading!");
+        error = true;
+        return true;
     }
-    if (write && !remote)
+
+    const UnixSocket::SocketState state = local->getState();
+    if (state == UnixSocket::Closed)
     {
-        ERROR(
-            "UnixSocketSyscalls::poll - no remote socket to poll for writing!");
+        // The poll interface cannot express POLLHUP separately. POLLERR wakes
+        // writers, while readable lets readers drain buffered data then see
+        // persistent EOF.
+        read = checkRead;
+        error = true;
+        return true;
     }
 
     bool ok = false;
-    if (read && local)
+    if (checkRead)
     {
         read = local->select(false, 0);
         ok = ok || read;
-
-        if (waiter && !read)
-        {
-            local->addWaiter(waiter);
-        }
     }
 
-    if (write && remote)
+    if (checkWrite)
     {
-        write = remote->select(true, 0);
+        write = local->select(true, 0);
         ok = ok || write;
-
-        if (waiter && !write)
-        {
-            remote->addWaiter(waiter);
-        }
     }
 
-    error = false;
+    if (waiter && !ok)
+    {
+        local->addWaiter(waiter, checkRead, checkWrite);
+    }
+
     return ok;
 }
 
 void UnixSocketSyscalls::unPoll(Semaphore *waiter)
 {
-    UnixSocket *remote = getRemote();
-    UnixSocket *local = m_Socket;
-
-    // these don't error out if the Semaphore isn't present so this is easy
-    if (remote)
+    if (m_Socket)
     {
-        remote->removeWaiter(waiter);
-    }
-    if (local)
-    {
-        local->removeWaiter(waiter);
+        m_Socket->removeWaiter(waiter);
     }
 }
 
 bool UnixSocketSyscalls::monitor(Thread *pThread, Event *pEvent)
 {
-    UnixSocket *remote = getRemote();
-    UnixSocket *local = m_Socket;
-
-    if (remote != local)
+    if (!m_Socket)
     {
-        remote->addWaiter(pThread, pEvent);
+        return false;
     }
 
-    local->addWaiter(pThread, pEvent);
-
+    m_Socket->addWaiter(pThread, pEvent);
     return true;
 }
 
 bool UnixSocketSyscalls::unmonitor(Event *pEvent)
 {
-    UnixSocket *remote = getRemote();
-    UnixSocket *local = m_Socket;
-
-    if (remote != local)
+    if (!m_Socket)
     {
-        remote->removeWaiter(pEvent);
+        return false;
     }
 
-    local->removeWaiter(pEvent);
-
+    m_Socket->removeWaiter(pEvent);
     return true;
 }
 
@@ -2078,12 +2585,7 @@ UnixSocket *UnixSocketSyscalls::getRemote() const
     UnixSocket *remote = m_Remote;
     if (getType() == SOCK_STREAM)
     {
-        if (!m_Socket->getOther())
-        {
-            return nullptr;
-        }
-
-        remote = m_Socket;
+        remote = m_Socket && m_Socket->wasConnected() ? m_Socket : nullptr;
     }
 
     return remote;

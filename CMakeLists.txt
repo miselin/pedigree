@@ -82,6 +82,7 @@ set(PEDIGREE_COVERAGE FALSE CACHE BOOL "Build utilities with coverage instrument
 # Build artifact controls.
 set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, which includes a hard disk image and relevant customizations.")
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
+set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to install as /applications/go-canary.")
 
 # All nasm on x86-based systems
 enable_language(ASM_NASM ASM)
@@ -249,6 +250,30 @@ if(CMAKE_CROSSCOMPILING)
     elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             PEDIGREE_HOSTED_SMOKE_TESTS)
         add_subdirectory(src/user/hosted-smoke)
+    endif ()
+
+    if (PEDIGREE_GO_CANARY)
+        if (NOT PEDIGREE_ARCH_TARGET STREQUAL "X64")
+            message(FATAL_ERROR "PEDIGREE_GO_CANARY is only supported for native amd64 builds.")
+        endif ()
+        if (NOT IS_ABSOLUTE "${PEDIGREE_GO_CANARY}")
+            message(FATAL_ERROR "PEDIGREE_GO_CANARY must be an absolute path.")
+        endif ()
+        if (NOT EXISTS "${PEDIGREE_GO_CANARY}" OR IS_DIRECTORY "${PEDIGREE_GO_CANARY}")
+            message(FATAL_ERROR "PEDIGREE_GO_CANARY does not name a file: ${PEDIGREE_GO_CANARY}")
+        endif ()
+
+        set(PEDIGREE_GO_CANARY_IMAGE "${CMAKE_BINARY_DIR}/src/user/go-canary")
+        add_custom_command(OUTPUT "${PEDIGREE_GO_CANARY_IMAGE}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/src/user"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PEDIGREE_GO_CANARY}" "${PEDIGREE_GO_CANARY_IMAGE}"
+            DEPENDS "${PEDIGREE_GO_CANARY}"
+            VERBATIM)
+        add_custom_target(go-canary-image
+            DEPENDS "${PEDIGREE_GO_CANARY_IMAGE}")
+        list(APPEND PEDIGREE_APPS "${PEDIGREE_GO_CANARY_IMAGE}")
+        list(APPEND PEDIGREE_APPS_TARGETS go-canary-image)
     endif ()
 
     # Build hard disk image ready for a live CD or imaging.

@@ -1,0 +1,815 @@
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/cmd/dist/build.go b/src/cmd/dist/build.go
+--- a/src/cmd/dist/build.go	2026-07-01 14:24:27
++++ b/src/cmd/dist/build.go	2026-07-29 13:35:50
+@@ -100,6 +100,7 @@
+ 	"nacl", // keep;
+ 	"netbsd",
+ 	"openbsd",
++	"pedigree",
+ 	"plan9",
+ 	"windows",
+ 	"aix",
+@@ -1074,6 +1075,7 @@
+ 	"linux":     true,
+ 	"netbsd":    true,
+ 	"openbsd":   true,
++	"pedigree":  true,
+ 	"solaris":   true,
+ }
+ 
+@@ -1083,7 +1085,7 @@
+ 	case "gc", "cmd_go_bootstrap", "go1.1":
+ 		return true
+ 	case "linux":
+-		return goos == "linux" || goos == "android"
++		return goos == "linux" || goos == "android" || goos == "pedigree"
+ 	case "solaris":
+ 		return goos == "solaris" || goos == "illumos"
+ 	case "darwin":
+@@ -1108,7 +1110,7 @@
+ 	name := filepath.Base(file)
+ 	excluded := func(list []string, ok string) bool {
+ 		for _, x := range list {
+-			if x == ok || (ok == "android" && x == "linux") || (ok == "illumos" && x == "solaris") || (ok == "ios" && x == "darwin") {
++			if x == ok || (ok == "android" && x == "linux") || (ok == "pedigree" && x == "linux") || (ok == "illumos" && x == "solaris") || (ok == "ios" && x == "darwin") {
+ 				continue
+ 			}
+ 			i := strings.Index(name, x)
+@@ -1808,6 +1810,7 @@
+ 	"openbsd/mips64":  true,
+ 	"openbsd/ppc64":   false,
+ 	"openbsd/riscv64": true,
++	"pedigree/amd64":  false,
+ 	"plan9/386":       false,
+ 	"plan9/amd64":     false,
+ 	"plan9/arm":       false,
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/cmd/go/internal/imports/build.go b/src/cmd/go/internal/imports/build.go
+--- a/src/cmd/go/internal/imports/build.go	2026-07-01 14:24:27
++++ b/src/cmd/go/internal/imports/build.go	2026-07-29 13:35:39
+@@ -208,7 +208,7 @@
+ 
+ 	switch name {
+ 	case "linux":
+-		return tags["android"]
++		return tags["android"] || tags["pedigree"]
+ 	case "solaris":
+ 		return tags["illumos"]
+ 	case "darwin":
+@@ -263,7 +263,7 @@
+ //
+ // Exceptions:
+ //
+-//	if GOOS=android, then files with GOOS=linux are also matched.
++//	if GOOS=android or GOOS=pedigree, then files with GOOS=linux are also matched.
+ //	if GOOS=illumos, then files with GOOS=solaris are also matched.
+ //	if GOOS=ios, then files with GOOS=darwin are also matched.
+ //
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/cmd/go/internal/modindex/build.go b/src/cmd/go/internal/modindex/build.go
+--- a/src/cmd/go/internal/modindex/build.go	2026-07-01 14:24:27
++++ b/src/cmd/go/internal/modindex/build.go	2026-07-29 13:35:39
+@@ -684,7 +684,7 @@
+ 	if name == ctxt.GOOS || name == ctxt.GOARCH || name == ctxt.Compiler {
+ 		return true
+ 	}
+-	if ctxt.GOOS == "android" && name == "linux" {
++	if (ctxt.GOOS == "android" || ctxt.GOOS == "pedigree") && name == "linux" {
+ 		return true
+ 	}
+ 	if ctxt.GOOS == "illumos" && name == "solaris" {
+@@ -717,7 +717,7 @@
+ //	name_$(GOOS)_$(GOARCH)_test.*
+ //
+ // Exceptions:
+-// if GOOS=android, then files with GOOS=linux are also matched.
++// if GOOS=android or GOOS=pedigree, then files with GOOS=linux are also matched.
+ // if GOOS=illumos, then files with GOOS=solaris are also matched.
+ // if GOOS=ios, then files with GOOS=darwin are also matched.
+ func (ctxt *Context) goodOSArchFile(name string, allTags map[string]bool) bool {
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/cmd/internal/objabi/head.go b/src/cmd/internal/objabi/head.go
+--- a/src/cmd/internal/objabi/head.go	2026-07-01 14:24:27
++++ b/src/cmd/internal/objabi/head.go	2026-07-29 13:35:50
+@@ -63,7 +63,7 @@
+ 		*h = Hfreebsd
+ 	case "js":
+ 		*h = Hjs
+-	case "linux", "android":
++	case "linux", "android", "pedigree":
+ 		*h = Hlinux
+ 	case "netbsd":
+ 		*h = Hnetbsd
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/go/build/build.go b/src/go/build/build.go
+--- a/src/go/build/build.go	2026-07-01 14:24:27
++++ b/src/go/build/build.go	2026-07-29 13:35:39
+@@ -1936,7 +1936,7 @@
+ //	$GOOS
+ //	$GOARCH
+ //	ctxt.Compiler
+-//	linux (if GOOS = android)
++//	linux (if GOOS = android or pedigree)
+ //	solaris (if GOOS = illumos)
+ //	darwin (if GOOS = ios)
+ //	unix (if this is a Unix GOOS)
+@@ -1956,7 +1956,7 @@
+ 	if name == ctxt.GOOS || name == ctxt.GOARCH || name == ctxt.Compiler {
+ 		return true
+ 	}
+-	if ctxt.GOOS == "android" && name == "linux" {
++	if (ctxt.GOOS == "android" || ctxt.GOOS == "pedigree") && name == "linux" {
+ 		return true
+ 	}
+ 	if ctxt.GOOS == "illumos" && name == "solaris" {
+@@ -1989,7 +1989,7 @@
+ //	name_$(GOOS)_$(GOARCH)_test.*
+ //
+ // Exceptions:
+-// if GOOS=android, then files with GOOS=linux are also matched.
++// if GOOS=android or GOOS=pedigree, then files with GOOS=linux are also matched.
+ // if GOOS=illumos, then files with GOOS=solaris are also matched.
+ // if GOOS=ios, then files with GOOS=darwin are also matched.
+ func (ctxt *Context) goodOSArchFile(name string, allTags map[string]bool) bool {
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/gengoos.go b/src/internal/goos/gengoos.go
+--- a/src/internal/goos/gengoos.go	2026-07-01 14:24:27
++++ b/src/internal/goos/gengoos.go	2026-07-29 13:35:39
+@@ -42,7 +42,7 @@
+ 		}
+ 		var tags []string
+ 		if target == "linux" {
+-			tags = append(tags, "!android") // must explicitly exclude android for linux
++			tags = append(tags, "!android", "!pedigree") // must explicitly exclude Linux ABI aliases
+ 		}
+ 		if target == "solaris" {
+ 			tags = append(tags, "!illumos") // must explicitly exclude illumos for solaris
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_aix.go b/src/internal/goos/zgoos_aix.go
+--- a/src/internal/goos/zgoos_aix.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_aix.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_android.go b/src/internal/goos/zgoos_android.go
+--- a/src/internal/goos/zgoos_android.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_android.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_darwin.go b/src/internal/goos/zgoos_darwin.go
+--- a/src/internal/goos/zgoos_darwin.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_darwin.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_dragonfly.go b/src/internal/goos/zgoos_dragonfly.go
+--- a/src/internal/goos/zgoos_dragonfly.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_dragonfly.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_freebsd.go b/src/internal/goos/zgoos_freebsd.go
+--- a/src/internal/goos/zgoos_freebsd.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_freebsd.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_hurd.go b/src/internal/goos/zgoos_hurd.go
+--- a/src/internal/goos/zgoos_hurd.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_hurd.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_illumos.go b/src/internal/goos/zgoos_illumos.go
+--- a/src/internal/goos/zgoos_illumos.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_illumos.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_ios.go b/src/internal/goos/zgoos_ios.go
+--- a/src/internal/goos/zgoos_ios.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_ios.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_js.go b/src/internal/goos/zgoos_js.go
+--- a/src/internal/goos/zgoos_js.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_js.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_linux.go b/src/internal/goos/zgoos_linux.go
+--- a/src/internal/goos/zgoos_linux.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_linux.go	2026-07-29 13:41:43
+@@ -1,6 +1,6 @@
+ // Code generated by gengoos.go using 'go generate'. DO NOT EDIT.
+ 
+-//go:build !android && linux
++//go:build !android && !pedigree && linux
+ 
+ package goos
+ 
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_netbsd.go b/src/internal/goos/zgoos_netbsd.go
+--- a/src/internal/goos/zgoos_netbsd.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_netbsd.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 1
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_openbsd.go b/src/internal/goos/zgoos_openbsd.go
+--- a/src/internal/goos/zgoos_openbsd.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_openbsd.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 1
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_pedigree.go b/src/internal/goos/zgoos_pedigree.go
+--- a/src/internal/goos/zgoos_pedigree.go	1969-12-31 16:00:00
++++ b/src/internal/goos/zgoos_pedigree.go	2026-07-29 13:41:43
+@@ -0,0 +1,27 @@
++// Code generated by gengoos.go using 'go generate'. DO NOT EDIT.
++
++//go:build pedigree
++
++package goos
++
++const GOOS = `pedigree`
++
++const IsAix = 0
++const IsAndroid = 0
++const IsDarwin = 0
++const IsDragonfly = 0
++const IsFreebsd = 0
++const IsHurd = 0
++const IsIllumos = 0
++const IsIos = 0
++const IsJs = 0
++const IsLinux = 0
++const IsNacl = 0
++const IsNetbsd = 0
++const IsOpenbsd = 0
++const IsPedigree = 1
++const IsPlan9 = 0
++const IsSolaris = 0
++const IsWasip1 = 0
++const IsWindows = 0
++const IsZos = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_plan9.go b/src/internal/goos/zgoos_plan9.go
+--- a/src/internal/goos/zgoos_plan9.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_plan9.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 1
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_solaris.go b/src/internal/goos/zgoos_solaris.go
+--- a/src/internal/goos/zgoos_solaris.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_solaris.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 1
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_wasip1.go b/src/internal/goos/zgoos_wasip1.go
+--- a/src/internal/goos/zgoos_wasip1.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_wasip1.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 1
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_windows.go b/src/internal/goos/zgoos_windows.go
+--- a/src/internal/goos/zgoos_windows.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_windows.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/goos/zgoos_zos.go b/src/internal/goos/zgoos_zos.go
+--- a/src/internal/goos/zgoos_zos.go	2026-07-01 14:24:27
++++ b/src/internal/goos/zgoos_zos.go	2026-07-29 13:41:43
+@@ -19,6 +19,7 @@
+ const IsNacl = 0
+ const IsNetbsd = 0
+ const IsOpenbsd = 0
++const IsPedigree = 0
+ const IsPlan9 = 0
+ const IsSolaris = 0
+ const IsWasip1 = 0
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/platform/zosarch.go b/src/internal/platform/zosarch.go
+--- a/src/internal/platform/zosarch.go	2026-07-01 14:24:27
++++ b/src/internal/platform/zosarch.go	2026-07-29 13:47:57
+@@ -50,6 +50,7 @@
+ 	{"openbsd", "mips64"},
+ 	{"openbsd", "ppc64"},
+ 	{"openbsd", "riscv64"},
++	{"pedigree", "amd64"},
+ 	{"plan9", "386"},
+ 	{"plan9", "amd64"},
+ 	{"plan9", "arm"},
+@@ -103,6 +104,7 @@
+ 	{"openbsd", "mips64"}:  {CgoSupported: true, Broken: true},
+ 	{"openbsd", "ppc64"}:   {},
+ 	{"openbsd", "riscv64"}: {CgoSupported: true},
++	{"pedigree", "amd64"}:  {},
+ 	{"plan9", "386"}:       {},
+ 	{"plan9", "amd64"}:     {},
+ 	{"plan9", "arm"}:       {},
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/poll/sendfile_unix.go b/src/internal/poll/sendfile_unix.go
+--- a/src/internal/poll/sendfile_unix.go	2026-07-01 14:24:27
++++ b/src/internal/poll/sendfile_unix.go	2026-07-29 13:41:19
+@@ -28,7 +28,7 @@
+ // has not modified the source or destination,
+ // and the caller should perform the copy using a fallback implementation.
+ func SendFile(dstFD *FD, src uintptr, size int64) (n int64, err error, handled bool) {
+-	if goos := runtime.GOOS; goos == "linux" || goos == "android" {
++	if goos := runtime.GOOS; goos == "linux" || goos == "android" || goos == "pedigree" {
+ 		// Linux's sendfile doesn't require any setup:
+ 		// It sends from the current position of the source file and
+ 		// updates the position of the source after sending.
+@@ -132,7 +132,7 @@
+ 
+ func sendFileChunk(dst, src int, offset *int64, size int, written int64) (n int, err error) {
+ 	switch runtime.GOOS {
+-	case "linux", "android":
++	case "linux", "android", "pedigree":
+ 		// The offset is always nil on Linux.
+ 		n, err = syscall.Sendfile(dst, src, offset, size)
+ 	case "solaris", "illumos":
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/internal/syslist/syslist.go b/src/internal/syslist/syslist.go
+--- a/src/internal/syslist/syslist.go	2026-07-01 14:24:27
++++ b/src/internal/syslist/syslist.go	2026-07-29 13:35:39
+@@ -28,6 +28,7 @@
+ 	"nacl":      true,
+ 	"netbsd":    true,
+ 	"openbsd":   true,
++	"pedigree":  true,
+ 	"plan9":     true,
+ 	"solaris":   true,
+ 	"wasip1":    true,
+@@ -50,6 +51,7 @@
+ 	"linux":     true,
+ 	"netbsd":    true,
+ 	"openbsd":   true,
++	"pedigree":  true,
+ 	"solaris":   true,
+ }
+ 
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/os/dir_unix.go b/src/os/dir_unix.go
+--- a/src/os/dir_unix.go	2026-07-01 14:24:27
++++ b/src/os/dir_unix.go	2026-07-29 13:41:19
+@@ -113,7 +113,7 @@
+ 		// of inodes. Therefore, we cannot make the assumption that it is safe
+ 		// to skip entries with zero inodes.
+ 		// Some Linux filesystems (old XFS, FUSE) can return valid files with zero inodes.
+-		if ino == 0 && runtime.GOOS != "linux" && runtime.GOOS != "wasip1" {
++		if ino == 0 && runtime.GOOS != "linux" && runtime.GOOS != "pedigree" && runtime.GOOS != "wasip1" {
+ 			continue
+ 		}
+ 		const namoff = uint64(unsafe.Offsetof(syscall.Dirent{}.Name))
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/os/executable_procfs.go b/src/os/executable_procfs.go
+--- a/src/os/executable_procfs.go	2026-07-01 14:24:27
++++ b/src/os/executable_procfs.go	2026-07-29 13:41:20
+@@ -17,7 +17,7 @@
+ 	switch runtime.GOOS {
+ 	default:
+ 		return "", errors.New("Executable not implemented for " + runtime.GOOS)
+-	case "linux", "android":
++	case "linux", "android", "pedigree":
+ 		procfn = "/proc/self/exe"
+ 	}
+ 	path, err := Readlink(procfn)
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/netpoll.go b/src/runtime/netpoll.go
+--- a/src/runtime/netpoll.go	2026-07-01 14:24:27
++++ b/src/runtime/netpoll.go	2026-07-29 22:06:36
+@@ -344,8 +344,8 @@
+ 	if errcode != pollNoError {
+ 		return errcode
+ 	}
+-	// As for now only Solaris, illumos, AIX and wasip1 use level-triggered IO.
+-	if GOOS == "solaris" || GOOS == "illumos" || GOOS == "aix" || GOOS == "wasip1" {
++	// As for now only Solaris, illumos, AIX, Pedigree and wasip1 use level-triggered IO.
++	if GOOS == "solaris" || GOOS == "illumos" || GOOS == "aix" || GOOS == "pedigree" || GOOS == "wasip1" {
+ 		netpollarm(pd, mode)
+ 	}
+ 	for !netpollblock(pd, int32(mode), false) {
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/netpoll_epoll.go b/src/runtime/netpoll_epoll.go
+--- a/src/runtime/netpoll_epoll.go	2026-07-01 14:24:27
++++ b/src/runtime/netpoll_epoll.go	2026-07-29 22:06:35
+@@ -2,7 +2,7 @@
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+ 
+-//go:build linux
++//go:build linux && !pedigree
+ 
+ package runtime
+ 
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/netpoll_pedigree.go b/src/runtime/netpoll_pedigree.go
+--- a/src/runtime/netpoll_pedigree.go	1969-12-31 16:00:00
++++ b/src/runtime/netpoll_pedigree.go	2026-07-29 22:09:01
+@@ -0,0 +1,242 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package runtime
++
++import (
++	"internal/runtime/atomic"
++	"internal/runtime/syscall/linux"
++	"unsafe"
++)
++
++// Pedigree exposes the Linux amd64 poll ABI, but not epoll or eventfd.
++// This is a level-triggered poller based on the AIX runtime backend.
++
++type pollfd struct {
++	fd      int32
++	events  int16
++	revents int16
++}
++
++const (
++	_SYS_POLL = 7
++
++	_POLLIN  = 0x0001
++	_POLLOUT = 0x0004
++	_POLLERR = 0x0008
++	_POLLHUP = 0x0010
++)
++
++//go:nosplit
++func poll(pfds *pollfd, npfds uintptr, timeout int32) (int32, uintptr) {
++	r, _, errno := linux.Syscall6(
++		_SYS_POLL,
++		uintptr(unsafe.Pointer(pfds)),
++		npfds,
++		uintptr(timeout),
++		0,
++		0,
++		0,
++	)
++	return int32(r), errno
++}
++
++var (
++	pfds           []pollfd
++	pds            []*pollDesc
++	mtxpoll        mutex
++	mtxset         mutex
++	rdwake         int32
++	wrwake         int32
++	pendingUpdates int32
++
++	netpollWakeSig atomic.Uint32
++)
++
++func netpollinit() {
++	r, w, errno := nonblockingPipe()
++	if errno != 0 {
++		println("runtime: pipe2 failed with", errno)
++		throw("runtime: netpollinit failed")
++	}
++	rdwake = r
++	wrwake = w
++
++	pfds = make([]pollfd, 1, 128)
++	pfds[0].fd = rdwake
++	pfds[0].events = _POLLIN
++
++	pds = make([]*pollDesc, 1, 128)
++}
++
++func netpollIsPollDescriptor(fd uintptr) bool {
++	return fd == uintptr(rdwake) || fd == uintptr(wrwake)
++}
++
++// netpollwakeup interrupts poll before its descriptor set is changed.
++// mtxpoll must be held.
++func netpollwakeup() {
++	if pendingUpdates != 0 {
++		return
++	}
++	pendingUpdates = 1
++	wakeNetpoll()
++}
++
++func netpollopen(fd uintptr, pd *pollDesc) int32 {
++	lock(&mtxpoll)
++	netpollwakeup()
++
++	lock(&mtxset)
++	unlock(&mtxpoll)
++
++	pd.user = uint32(len(pfds))
++	pfds = append(pfds, pollfd{fd: int32(fd)})
++	pds = append(pds, pd)
++	unlock(&mtxset)
++	return 0
++}
++
++func netpollclose(fd uintptr) int32 {
++	lock(&mtxpoll)
++	netpollwakeup()
++
++	lock(&mtxset)
++	unlock(&mtxpoll)
++
++	for i := 1; i < len(pfds); i++ {
++		if pfds[i].fd != int32(fd) {
++			continue
++		}
++
++		last := len(pfds) - 1
++		pfds[i] = pfds[last]
++		pfds = pfds[:last]
++
++		pds[i] = pds[last]
++		pds[i].user = uint32(i)
++		pds = pds[:last]
++		break
++	}
++	unlock(&mtxset)
++	return 0
++}
++
++func netpollarm(pd *pollDesc, mode int) {
++	lock(&mtxpoll)
++	netpollwakeup()
++
++	lock(&mtxset)
++	unlock(&mtxpoll)
++
++	switch mode {
++	case 'r':
++		pfds[pd.user].events |= _POLLIN
++	case 'w':
++		pfds[pd.user].events |= _POLLOUT
++	}
++	unlock(&mtxset)
++}
++
++func wakeNetpoll() {
++	var b byte
++	for {
++		n := write(uintptr(wrwake), noescape(unsafe.Pointer(&b)), 1)
++		if n == 1 || n == -_EAGAIN {
++			return
++		}
++		if n == -_EINTR {
++			continue
++		}
++		println("runtime: netpollBreak write failed with", -n)
++		throw("runtime: netpollBreak write failed")
++	}
++}
++
++// netpollBreak interrupts a blocking poll.
++func netpollBreak() {
++	if !netpollWakeSig.CompareAndSwap(0, 1) {
++		return
++	}
++	wakeNetpoll()
++}
++
++// netpoll checks for ready network connections.
++// Returns a list of goroutines that become runnable,
++// and a delta to add to netpollWaiters.
++// This must never return an empty list with a non-zero delta.
++//
++// delay < 0: blocks indefinitely
++// delay == 0: does not block, just polls
++// delay > 0: blocks for up to that many nanoseconds
++//
++//go:nowritebarrierrec
++func netpoll(delay int64) (gList, int32) {
++	var timeout int32
++	if delay < 0 {
++		timeout = -1
++	} else if delay == 0 {
++		timeout = 0
++	} else if delay < 1e6 {
++		timeout = 1
++	} else if delay < 1e15 {
++		timeout = int32(delay / 1e6)
++	} else {
++		timeout = 1e9
++	}
++
++retry:
++	lock(&mtxpoll)
++	lock(&mtxset)
++	pendingUpdates = 0
++	unlock(&mtxpoll)
++
++	n, errno := poll(&pfds[0], uintptr(len(pfds)), timeout)
++	if errno != 0 {
++		unlock(&mtxset)
++		if errno != _EINTR {
++			println("runtime: poll failed with", errno)
++			throw("runtime: netpoll failed")
++		}
++		if timeout > 0 {
++			return gList{}, 0
++		}
++		goto retry
++	}
++
++	if n != 0 && pfds[0].revents&(_POLLIN|_POLLHUP|_POLLERR) != 0 {
++		if delay != 0 {
++			var buf [16]byte
++			for read(rdwake, noescape(unsafe.Pointer(&buf[0])), int32(len(buf))) > 0 {
++			}
++			netpollWakeSig.Store(0)
++		}
++		n--
++	}
++
++	var toRun gList
++	var delta int32
++	for i := 1; i < len(pfds) && n > 0; i++ {
++		pfd := &pfds[i]
++
++		var mode int32
++		if pfd.revents&(_POLLIN|_POLLHUP|_POLLERR) != 0 {
++			mode += 'r'
++			pfd.events &^= _POLLIN
++		}
++		if pfd.revents&(_POLLOUT|_POLLHUP|_POLLERR) != 0 {
++			mode += 'w'
++			pfd.events &^= _POLLOUT
++		}
++		if mode == 0 {
++			continue
++		}
++
++		pds[i].setEventErr(pfd.revents&_POLLERR != 0, 0)
++		delta += netpollready(&toRun, pds[i], mode)
++		n--
++	}
++	unlock(&mtxset)
++	return toRun, delta
++}
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/pprof/pprof_rusage.go b/src/runtime/pprof/pprof_rusage.go
+--- a/src/runtime/pprof/pprof_rusage.go	2026-07-01 14:24:27
++++ b/src/runtime/pprof/pprof_rusage.go	2026-07-29 13:52:22
+@@ -17,7 +17,7 @@
+ func addMaxRSS(w io.Writer) {
+ 	var rssToBytes uintptr
+ 	switch runtime.GOOS {
+-	case "aix", "android", "dragonfly", "freebsd", "linux", "netbsd", "openbsd":
++	case "aix", "android", "dragonfly", "freebsd", "linux", "netbsd", "openbsd", "pedigree":
+ 		rssToBytes = 1024
+ 	case "darwin", "ios":
+ 		rssToBytes = 1
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/proc.go b/src/runtime/proc.go
+--- a/src/runtime/proc.go	2026-07-01 14:24:27
++++ b/src/runtime/proc.go	2026-07-29 13:52:22
+@@ -794,7 +794,7 @@
+ 	const prefix = "GODEBUG="
+ 	var env string
+ 	switch GOOS {
+-	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "illumos", "solaris", "linux":
++	case "aix", "darwin", "ios", "dragonfly", "freebsd", "netbsd", "openbsd", "illumos", "solaris", "linux", "pedigree":
+ 		// Similar to goenv_unix but extracts the environment value for
+ 		// GODEBUG directly.
+ 		// TODO(moehrmann): remove when general goenvs() can be called before cpuinit()
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/rt0_pedigree_amd64.s b/src/runtime/rt0_pedigree_amd64.s
+--- a/src/runtime/rt0_pedigree_amd64.s	1969-12-31 16:00:00
++++ b/src/runtime/rt0_pedigree_amd64.s	2026-07-29 13:41:19
+@@ -0,0 +1,11 @@
++// Copyright 2009 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++#include "textflag.h"
++
++TEXT _rt0_amd64_pedigree(SB),NOSPLIT,$-8
++	JMP	_rt0_amd64(SB)
++
++TEXT _rt0_amd64_pedigree_lib(SB),NOSPLIT,$0
++	JMP	_rt0_amd64_lib(SB)
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/runtime1.go b/src/runtime/runtime1.go
+--- a/src/runtime/runtime1.go	2026-07-01 14:24:27
++++ b/src/runtime/runtime1.go	2026-07-29 13:41:19
+@@ -408,7 +408,7 @@
+ 	debug.cgocheck = 1
+ 	debug.invalidptr = 1
+ 	debug.adaptivestackstart = 1 // set this to 0 to turn larger initial goroutine stacks off
+-	if GOOS == "linux" {
++	if GOOS == "linux" || GOOS == "pedigree" {
+ 		// On Linux, MADV_FREE is faster than MADV_DONTNEED,
+ 		// but doesn't affect many of the statistics that
+ 		// MADV_DONTNEED does until the memory is actually
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/runtime/signal_unix.go b/src/runtime/signal_unix.go
+--- a/src/runtime/signal_unix.go	2026-07-01 14:24:27
++++ b/src/runtime/signal_unix.go	2026-07-29 22:13:16
+@@ -163,7 +163,7 @@
+ 		}
+ 	}
+ 
+-	if (GOOS == "linux" || GOOS == "android") && !iscgo && sig == sigPerThreadSyscall {
++	if (GOOS == "linux" || GOOS == "android" || GOOS == "pedigree") && !iscgo && sig == sigPerThreadSyscall {
+ 		// sigPerThreadSyscall is the same signal used by glibc for
+ 		// per-thread syscalls on Linux. We use it for the same purpose
+ 		// in non-cgo binaries.
+@@ -358,7 +358,7 @@
+ 	}
+ }
+ 
+-const preemptMSupported = true
++const preemptMSupported = GOOS != "pedigree"
+ 
+ // preemptM sends a preemption request to mp. This request may be
+ // handled asynchronously and may be coalesced with other requests to
+@@ -679,7 +679,7 @@
+ 		return
+ 	}
+ 
+-	if (GOOS == "linux" || GOOS == "android") && sig == sigPerThreadSyscall {
++	if (GOOS == "linux" || GOOS == "android" || GOOS == "pedigree") && sig == sigPerThreadSyscall {
+ 		// sigPerThreadSyscall is the same signal used by glibc for
+ 		// per-thread syscalls on Linux. We use it for the same purpose
+ 		// in non-cgo binaries. Since this signal is not _SigNotify,
+diff -ruN -x zdefaultcc.go -x zbootstrap.go -x zversion.go -x zzipdata.go a/src/syscall/dirent.go b/src/syscall/dirent.go
+--- a/src/syscall/dirent.go	2026-07-01 14:24:27
++++ b/src/syscall/dirent.go	2026-07-29 13:41:19
+@@ -74,7 +74,7 @@
+ 		}
+ 		// See src/os/dir_unix.go for the reason why this condition is
+ 		// excluded on wasip1 and linux.
+-		if ino == 0 && runtime.GOOS != "linux" && runtime.GOOS != "wasip1" { // File absent in directory.
++		if ino == 0 && runtime.GOOS != "linux" && runtime.GOOS != "pedigree" && runtime.GOOS != "wasip1" { // File absent in directory.
+ 			continue
+ 		}
+ 		const namoff = uint64(unsafe.Offsetof(Dirent{}.Name))

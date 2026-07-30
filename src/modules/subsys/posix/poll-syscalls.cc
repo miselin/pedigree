@@ -35,6 +35,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -97,6 +98,12 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     {
         timeoutType = SpecificTimeout;
     }
+    const Time::Timestamp deadline =
+        timeoutType == SpecificTimeout
+            ? Time::getTicks() +
+                  static_cast<Time::Timestamp>(timeout) *
+                      Time::Multiplier::Millisecond
+            : 0;
 
     Thread *pThread = nullptr;
 
@@ -151,7 +158,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             POLL_NOTICE(
                 "poll: no such file descriptor (" << Dec << me->fd << ")");
             me->revents |= POLLNVAL;
-            bError = true;
+            bWillReturnImmediately = true;
             continue;
         }
 
@@ -215,7 +222,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     {
                         bool checkingWrite = checkWrite;
                         bool checkingRead = !checkWrite;
-                        bool checkingError = false;
+                        bool checkingError = true;
 
                         bool extraCheckingWrite = checkingWrite;
                         bool extraCheckingRead = checkingRead;
@@ -263,6 +270,11 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                             {
                                 me->revents |= POLLIN;
                             }
+
+                            if (checkingError || extraCheckingError)
+                            {
+                                me->revents |= POLLERR;
+                            }
                         }
                     }
                 }
@@ -271,10 +283,22 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             checkWrite = true;
         }
 
-        if (me->events & POLLERR)
+        if (
+            !(me->events & (POLLIN | POLLOUT)) && pFd->networkImpl &&
+            pFd->networkImpl->canPoll())
         {
-            POLL_NOTICE("    -> POLLERR not yet supported");
+            bool checkingRead = false;
+            bool checkingWrite = false;
+            bool checkingError = true;
+            if (pFd->networkImpl->poll(
+                    checkingRead, checkingWrite, checkingError, pSem.get()) &&
+                checkingError)
+            {
+                me->revents |= POLLERR;
+                bWillReturnImmediately = true;
+            }
         }
+
     }
 
     EMIT_IF(THREADS)
@@ -289,8 +313,31 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             //
             // We wait on the semaphore 'sem': Its address has been given to all
             // the events and will be raised whenever an FD has action.
+            size_t waitSecs = timeoutSecs;
+            size_t waitUSecs = timeoutUSecs;
+            if (timeoutType == SpecificTimeout)
+            {
+                const Time::Timestamp now = Time::getTicks();
+                if (now >= deadline)
+                {
+                    break;
+                }
+
+                const Time::Timestamp remaining = deadline - now;
+                waitSecs = remaining / Time::Multiplier::Second;
+                waitUSecs =
+                    (remaining % Time::Multiplier::Second +
+                     Time::Multiplier::Microsecond - 1) /
+                    Time::Multiplier::Microsecond;
+                if (waitUSecs >= 1000000)
+                {
+                    ++waitSecs;
+                    waitUSecs = 0;
+                }
+            }
+
             Semaphore::SemaphoreResult result =
-                pSem->acquireWithResult(1, timeoutSecs, timeoutUSecs);
+                pSem->acquireWithResult(1, waitSecs, waitUSecs);
 
             // Did we actually get the semaphore or did we timeout?
             if (result.hasValue())
@@ -326,7 +373,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                     {
                         bool checkingWrite = me->events & POLLOUT;
                         bool checkingRead = me->events & POLLIN;
-                        bool checkingError = false;
+                        bool checkingError = true;
 
                         pFd->networkImpl->poll(
                             checkingRead, checkingWrite, checkingError, nullptr);
@@ -340,6 +387,12 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                         if (checkingRead && (me->events & POLLIN))
                         {
                             me->revents |= POLLIN;
+                            ok = true;
+                        }
+
+                        if (checkingError)
+                        {
+                            me->revents |= POLLERR;
                             ok = true;
                         }
                     }

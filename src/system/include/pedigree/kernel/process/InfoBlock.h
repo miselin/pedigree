@@ -42,6 +42,9 @@ struct InfoBlock
     char release[64];
     char version[64];
     char machine[64];
+
+    /// Monotonic tick count in nanoseconds.
+    uint64_t monotonic;
 };
 
 #ifdef __cplusplus

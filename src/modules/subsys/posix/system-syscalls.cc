@@ -40,6 +40,7 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pipe-syscalls.h"
@@ -78,6 +79,9 @@
 // capget/capset
 #define _LINUX_CAPABILITY_VERSION_1 0x19980330
 
+#define LINUX_GRND_NONBLOCK 0x1
+#define LINUX_GRND_RANDOM 0x2
+
 struct cap_header
 {
     uint32_t version;
@@ -109,6 +113,36 @@ static PosixProcess *getPosixProcess()
     }
 
     return static_cast<PosixProcess *>(pStockProcess);
+}
+
+ssize_t posix_getrandom(void *buffer, size_t length, unsigned int flags)
+{
+    if (flags & ~(LINUX_GRND_NONBLOCK | LINUX_GRND_RANDOM))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    if (
+        length &&
+        !PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buffer), length,
+            PosixSubsystem::SafeWrite))
+    {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    const size_t produced = hardware_random_bytes(buffer, length);
+    if (length && !produced)
+    {
+        // Do not silently turn the deterministic legacy PRNG into a
+        // cryptographic API on machines without a usable hardware source.
+        SYSCALL_ERROR(NoMoreProcesses);
+        return -1;
+    }
+
+    return static_cast<ssize_t>(produced);
 }
 
 /// Saves a char** array in the Vector of String*s given.

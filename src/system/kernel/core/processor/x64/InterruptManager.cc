@@ -182,30 +182,36 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
                 if (UNLIKELY(nIntNumber == 0))
                 {
                     pSubsystem->threadException(
-                        pThread, Subsystem::DivideByZero);
+                        pThread, Subsystem::DivideByZero, &interruptState, 0,
+                        interruptState.getErrorCode());
                     return;
                 }
                 else if (UNLIKELY(nIntNumber == 6))
                 {
                     pSubsystem->threadException(
-                        pThread, Subsystem::InvalidOpcode);
+                        pThread, Subsystem::InvalidOpcode, &interruptState, 0,
+                        interruptState.getErrorCode());
                     return;
                 }
                 else if (UNLIKELY(nIntNumber == 13))
                 {
                     pSubsystem->threadException(
-                        pThread, Subsystem::GeneralProtectionFault);
+                        pThread, Subsystem::GeneralProtectionFault,
+                        &interruptState, 0, interruptState.getErrorCode());
                     return;
                 }
                 else if (UNLIKELY(nIntNumber == 16))
                 {
-                    pSubsystem->threadException(pThread, Subsystem::FpuError);
+                    pSubsystem->threadException(
+                        pThread, Subsystem::FpuError, &interruptState, 0,
+                        interruptState.getErrorCode());
                     return;
                 }
                 else if (UNLIKELY(nIntNumber == 19))
                 {
                     pSubsystem->threadException(
-                        pThread, Subsystem::SpecialFpuError);
+                        pThread, Subsystem::SpecialFpuError, &interruptState, 0,
+                        interruptState.getErrorCode());
                     return;
                 }
             }

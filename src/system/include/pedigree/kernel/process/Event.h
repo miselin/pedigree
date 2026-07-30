@@ -108,6 +108,21 @@ class EXPORTED_PUBLIC Event
         return m_HandlerAddress;
     }
 
+    /** Returns true if this event is subject to the thread's signal mask. */
+    virtual bool isSignalEvent() const
+    {
+        return false;
+    }
+
+    /**
+     * Returns the instance to enqueue for one delivery. Most events enqueue
+     * themselves; signal dispositions return an independently owned snapshot.
+     */
+    virtual Event *cloneForDelivery()
+    {
+        return this;
+    }
+
     /** Returns the specific nesting level, or ~0UL if there is none defined. */
     size_t getSpecificNestingLevel()
     {

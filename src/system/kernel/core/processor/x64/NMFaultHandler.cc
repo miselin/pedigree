@@ -19,11 +19,13 @@
 
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 NMFaultHandler NMFaultHandler::m_Instance;
 
@@ -56,6 +58,28 @@ NMFaultHandler NMFaultHandler::m_Instance;
 #define MXCSR_MASK 28
 
 static bool FXSR_Support, FPU_Support;
+static X64SchedulerState x87FPU_MMX_XMM_MXCSR_StateBlank;
+static bool g_InitialFxStateValid = false;
+static Spinlock g_InitialFxStateLock(false, true);
+
+static_assert(
+    __builtin_offsetof(
+        X64SchedulerState, x87FPU_MMX_XMM_MXCSR_State) == 112,
+    "x64 Scheduler.s FXSAVE offset is stale");
+
+static void *fpuStateBuffer(X64SchedulerState &state)
+{
+    uintptr_t address = reinterpret_cast<uintptr_t>(
+        state.x87FPU_MMX_XMM_MXCSR_State);
+    return reinterpret_cast<void *>((address + 15) & ~uintptr_t(15));
+}
+
+static const void *fpuStateBuffer(const X64SchedulerState &state)
+{
+    uintptr_t address = reinterpret_cast<uintptr_t>(
+        state.x87FPU_MMX_XMM_MXCSR_State);
+    return reinterpret_cast<const void *>((address + 15) & ~uintptr_t(15));
+}
 
 static inline void _SetFPUControlWord(uint16_t cw)
 {
@@ -96,7 +120,7 @@ bool NMFaultHandler::initialiseProcessor()
         asm volatile("finit");
 
         // set the FPU Control Word
-        _SetFPUControlWord(0x33F);
+        _SetFPUControlWord(0x37F);
 
         asm volatile("mov %0, %%cr0" ::"r"(cr0));
     }
@@ -117,18 +141,30 @@ bool NMFaultHandler::initialiseProcessor()
                                 // handling bit
         asm volatile("mov %0, %%cr4;" ::"r"(cr4));
 
-        // mask all exceptions
-        mxcsr |=
-            (MXCSR_PM | MXCSR_UM | MXCSR_OM | MXCSR_ZM | MXCSR_DM | MXCSR_IM);
-
-        // set the rounding method
-        mxcsr |= (MXCSR_RC_TRUNCATE << MXCSR_RC);
+        // Match the AMD64 userspace reset state: round to nearest and mask
+        // all exceptions.
+        mxcsr = 0x1F80;
 
         // write the control word
         asm volatile("ldmxcsr %0;" ::"m"(mxcsr));
     }
     else
         asm volatile("mov %0, %%cr4;" ::"r"(cr4));
+
+    if (FXSR_Support)
+    {
+        while (!g_InitialFxStateLock.acquire(false, false))
+            ;
+        if (!g_InitialFxStateValid)
+        {
+            void *blankState =
+                fpuStateBuffer(x87FPU_MMX_XMM_MXCSR_StateBlank);
+            asm volatile("fxsave64 (%0)" ::"r"(blankState) : "memory");
+            x87FPU_MMX_XMM_MXCSR_StateBlank.flags |= (1 << 1);
+            g_InitialFxStateValid = true;
+        }
+        g_InitialFxStateLock.release();
+    }
 
     // set the bit that causes a DeviceNotAvailable upon SSE, MMX, or FPU
     // instruction execution
@@ -138,16 +174,141 @@ bool NMFaultHandler::initialiseProcessor()
     return true;
 }
 
-// old/current owner
-static X64SchedulerState *x87FPU_MMX_XMM_MXCSR_StateOwner = 0;
-static X64SchedulerState x87FPU_MMX_XMM_MXCSR_StateBlank;
+bool NMFaultHandler::saveCurrentThreadFpuState(
+    void *buffer, bool resetForSignalHandler)
+{
+    if (!FXSR_Support || !g_InitialFxStateValid || !buffer ||
+        (reinterpret_cast<uintptr_t>(buffer) & 0xF))
+    {
+        return false;
+    }
+
+    Thread *thread = Processor::information().getCurrentThread();
+    if (!thread)
+    {
+        return false;
+    }
+
+    bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    X64SchedulerState &state = thread->state();
+    void *threadState = fpuStateBuffer(state);
+    const void *blankState =
+        fpuStateBuffer(x87FPU_MMX_XMM_MXCSR_StateBlank);
+
+    uint64_t cr0;
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    if (cr0 & CR0_TS)
+    {
+        if (state.flags & (1 << 1))
+        {
+            MemoryCopy(buffer, threadState, 512);
+        }
+        else
+        {
+            MemoryCopy(buffer, blankState, 512);
+        }
+    }
+    else
+    {
+        asm volatile("fxsave64 (%0)" ::"r"(buffer) : "memory");
+        MemoryCopy(threadState, buffer, 512);
+        state.flags |= (1 << 1);
+    }
+
+    if (resetForSignalHandler)
+    {
+        MemoryCopy(threadState, blankState, 512);
+        state.flags |= (1 << 1);
+        if (!(cr0 & CR0_TS))
+        {
+            asm volatile("fxrstor64 (%0)" ::"r"(blankState) : "memory");
+        }
+    }
+
+    Processor::setInterrupts(interrupts);
+    return true;
+}
+
+bool NMFaultHandler::restoreCurrentThreadFpuState(const void *buffer)
+{
+    if (!FXSR_Support || !g_InitialFxStateValid || !buffer ||
+        (reinterpret_cast<uintptr_t>(buffer) & 0xF))
+    {
+        return false;
+    }
+
+    uint32_t mxcsr = 0;
+    uint32_t mxcsrMask = 0;
+    MemoryCopy(
+        &mxcsr, adjust_pointer(buffer, 24), sizeof(mxcsr));
+    MemoryCopy(
+        &mxcsrMask,
+        adjust_pointer(fpuStateBuffer(x87FPU_MMX_XMM_MXCSR_StateBlank), 28),
+        sizeof(mxcsrMask));
+    if (!mxcsrMask)
+    {
+        mxcsrMask = 0xFFBF;
+    }
+    if (mxcsr & ~mxcsrMask)
+    {
+        return false;
+    }
+
+    Thread *thread = Processor::information().getCurrentThread();
+    if (!thread)
+    {
+        return false;
+    }
+
+    bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    X64SchedulerState &state = thread->state();
+    MemoryCopy(fpuStateBuffer(state), buffer, 512);
+    state.flags |= (1 << 1);
+
+    uint64_t cr0 = 0;
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    if (!(cr0 & CR0_TS))
+    {
+        asm volatile("fxrstor64 (%0)" ::"r"(buffer) : "memory");
+    }
+
+    Processor::setInterrupts(interrupts);
+    return true;
+}
+
+bool NMFaultHandler::inheritCurrentThreadFpuState(Thread *thread)
+{
+    if (!thread)
+    {
+        return false;
+    }
+
+    alignas(16) uint8_t inherited[512];
+    if (!saveCurrentThreadFpuState(inherited, false))
+    {
+        return false;
+    }
+
+    X64SchedulerState &state = thread->state();
+    MemoryCopy(fpuStateBuffer(state), inherited, sizeof(inherited));
+    state.flags |= (1 << 1);
+    return true;
+}
+
 void NMFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
 {
     // Check the TS bit
     uint64_t cr0;
 
-    // new owner
     Thread *pCurrentThread = Processor::information().getCurrentThread();
+    if (!pCurrentThread)
+    {
+        FATAL_NOLOCK("NM: no current thread");
+    }
     X64SchedulerState *pCurrentState = &pCurrentThread->state();
 
     asm volatile("mov %%cr0, %0" : "=r"(cr0));
@@ -169,145 +330,35 @@ void NMFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     {
         if (!(pCurrentState->flags & (1 << 1)))
         {
-            if (x87FPU_MMX_XMM_MXCSR_StateOwner)
-                asm volatile("fxrstor (%0);" ::"r"(
-                    (((reinterpret_cast<uintptr_t>(
-                           x87FPU_MMX_XMM_MXCSR_StateBlank
-                               .x87FPU_MMX_XMM_MXCSR_State) +
-                       32) &
-                      ~15) +
-                     16)));
-
-            asm volatile("fxsave  (%0);" ::"r"(
-                (((reinterpret_cast<uintptr_t>(
-                       pCurrentState->x87FPU_MMX_XMM_MXCSR_State) +
-                   32) &
-                  ~15) +
-                 16)));
-
+            MemoryCopy(
+                fpuStateBuffer(*pCurrentState),
+                fpuStateBuffer(x87FPU_MMX_XMM_MXCSR_StateBlank), 512);
             pCurrentState->flags |= (1 << 1);
         }
 
-        // we don't need to save/restore if this is true!
-        if (x87FPU_MMX_XMM_MXCSR_StateOwner == pCurrentState)
-            return;
-
-        // if this is NULL, then no thread has ever been here before! :)
-        if (x87FPU_MMX_XMM_MXCSR_StateOwner)
-        {
-            // save the old owner's state
-            asm volatile("fxsave  (%0);" ::"r"(
-                (((reinterpret_cast<uintptr_t>(
-                       x87FPU_MMX_XMM_MXCSR_StateOwner
-                           ->x87FPU_MMX_XMM_MXCSR_State) +
-                   32) &
-                  ~15) +
-                 16)));
-
-            if (pCurrentState)
-            {
-                // restore the new owner's state
-                asm volatile("fxrstor (%0);" ::"r"(
-                    (((reinterpret_cast<uintptr_t>(
-                           pCurrentState->x87FPU_MMX_XMM_MXCSR_State) +
-                       32) &
-                      ~15) +
-                     16)));
-            }
-        }
-        else
-        {
-            // if no owner is defined, skip the restoration process as there's
-            // no need
-            asm volatile("fxsave  (%0);" ::"r"(
-                (((reinterpret_cast<uintptr_t>(
-                       pCurrentState->x87FPU_MMX_XMM_MXCSR_State) +
-                   32) &
-                  ~15) +
-                 16)));
-            asm volatile("fxsave  (%0);" ::"r"((
-                ((reinterpret_cast<uintptr_t>(x87FPU_MMX_XMM_MXCSR_StateBlank
-                                                  .x87FPU_MMX_XMM_MXCSR_State) +
-                  32) &
-                 ~15) +
-                16)));
-        }
+        asm volatile(
+            "fxrstor64 (%0)"
+            ::"r"(fpuStateBuffer(*pCurrentState))
+            : "memory");
     }
     else if (FPU_Support)
     {
         if (!(pCurrentState->flags & (1 << 1)))
         {
-            if (x87FPU_MMX_XMM_MXCSR_StateOwner)
-                asm volatile("frstor (%0);" ::"r"(
-                    (((reinterpret_cast<uintptr_t>(
-                           x87FPU_MMX_XMM_MXCSR_StateBlank
-                               .x87FPU_MMX_XMM_MXCSR_State) +
-                       32) &
-                      ~15) +
-                     16)));
-
-            asm volatile("fsave  (%0);" ::"r"(
-                (((reinterpret_cast<uintptr_t>(
-                       pCurrentState->x87FPU_MMX_XMM_MXCSR_State) +
-                   32) &
-                  ~15) +
-                 16)));
+            MemoryCopy(
+                fpuStateBuffer(*pCurrentState),
+                fpuStateBuffer(x87FPU_MMX_XMM_MXCSR_StateBlank), 108);
 
             pCurrentState->flags |= (1 << 1);
         }
 
-        // we don't need to save/restore if this is true!
-        if (x87FPU_MMX_XMM_MXCSR_StateOwner == pCurrentState)
-            return;
-
-        // if this is NULL, then no thread has ever been here before! :)
-        if (x87FPU_MMX_XMM_MXCSR_StateOwner)
-        {
-            // save the old owner's state
-            asm volatile("fsave  (%0);" ::"r"(
-                (((reinterpret_cast<uintptr_t>(
-                       x87FPU_MMX_XMM_MXCSR_StateOwner
-                           ->x87FPU_MMX_XMM_MXCSR_State) +
-                   32) &
-                  ~15) +
-                 16)));
-
-            if (pCurrentState)
-            {
-                // restore the new owner's state
-                asm volatile("frstor (%0);" ::"r"(
-                    (((reinterpret_cast<uintptr_t>(
-                           pCurrentState->x87FPU_MMX_XMM_MXCSR_State) +
-                       32) &
-                      ~15) +
-                     16)));
-            }
-        }
-        else
-        {
-            // if no owner is defined, skip the restoration process as there's
-            // no need
-            asm volatile("fsave  (%0);" ::"r"(
-                (((reinterpret_cast<uintptr_t>(
-                       pCurrentState->x87FPU_MMX_XMM_MXCSR_State) +
-                   32) &
-                  ~15) +
-                 16)));
-            asm volatile("fsave  (%0);" ::"r"((
-                ((reinterpret_cast<uintptr_t>(x87FPU_MMX_XMM_MXCSR_StateBlank
-                                                  .x87FPU_MMX_XMM_MXCSR_State) +
-                  32) &
-                 ~15) +
-                16)));
-        }
+        asm volatile(
+            "frstor (%0)" ::"r"(fpuStateBuffer(*pCurrentState)) : "memory");
     }
     else
     {
         ERROR("FXSAVE and FSAVE are not supported");
     }
-
-    // old/current = new
-    x87FPU_MMX_XMM_MXCSR_StateOwner = pCurrentState;
 }
 
 NMFaultHandler::NMFaultHandler()
@@ -316,11 +367,7 @@ NMFaultHandler::NMFaultHandler()
 
 void NMFaultHandler::threadTerminated(Thread *pThread)
 {
-    // Remove owner if the terminated thread is the current owner
-    // There's no way to pick a new owner so we'll do that on the next fault
-    X64SchedulerState *state = &pThread->state();
-    if (x87FPU_MMX_XMM_MXCSR_StateOwner == state)
-    {
-        x87FPU_MMX_XMM_MXCSR_StateOwner = nullptr;
-    }
+    // FPU images are saved into scheduler state at every context switch, so
+    // the fault handler keeps no pointers into thread-owned storage.
+    (void) pThread;
 }

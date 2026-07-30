@@ -53,6 +53,7 @@ inline long posix_translate_syscall(long which)
         TRANSLATION_ENTRY(SYS_brk, POSIX_BRK)
         TRANSLATION_ENTRY(SYS_rt_sigaction, POSIX_SIGACTION)
         TRANSLATION_ENTRY(SYS_rt_sigprocmask, POSIX_SIGPROCMASK)
+        TRANSLATION_ENTRY(SYS_sigaltstack, POSIX_SIGALTSTACK)
         TRANSLATION_ENTRY(SYS_rt_sigreturn, PEDIGREE_SIGRET)
         TRANSLATION_ENTRY(SYS_ioctl, POSIX_IOCTL)
         // ...
@@ -60,6 +61,9 @@ inline long posix_translate_syscall(long which)
         TRANSLATION_ENTRY(SYS_writev, POSIX_WRITEV)
         TRANSLATION_ENTRY(SYS_access, POSIX_ACCESS)
         TRANSLATION_ENTRY(SYS_pipe, POSIX_PIPE)
+#ifdef SYS_pipe2
+        TRANSLATION_ENTRY(SYS_pipe2, POSIX_PIPE2)
+#endif
 #ifdef SYS_select
         TRANSLATION_ENTRY(SYS_select, POSIX_SELECT)
 #endif
@@ -82,6 +86,9 @@ inline long posix_translate_syscall(long which)
         TRANSLATION_ENTRY(SYS_socket, POSIX_SOCKET)
         TRANSLATION_ENTRY(SYS_connect, POSIX_CONNECT)
         TRANSLATION_ENTRY(SYS_accept, POSIX_ACCEPT)
+#ifdef SYS_accept4
+        TRANSLATION_ENTRY(SYS_accept4, POSIX_ACCEPT4)
+#endif
         TRANSLATION_ENTRY(SYS_sendto, POSIX_SENDTO)
         TRANSLATION_ENTRY(SYS_recvfrom, POSIX_RECVFROM)
         TRANSLATION_ENTRY(SYS_sendmsg, POSIX_SENDMSG)
@@ -172,6 +179,9 @@ inline long posix_translate_syscall(long which)
         TRANSLATION_ENTRY(SYS_setpriority, POSIX_SETPRIORITY)
         // ...
         TRANSLATION_ENTRY(SYS_prctl, POSIX_PRCTL)
+#ifdef SYS_getrandom
+        TRANSLATION_ENTRY(SYS_getrandom, POSIX_GETRANDOM)
+#endif
 #ifdef SYS_arch_prctl
         TRANSLATION_ENTRY(SYS_arch_prctl, POSIX_ARCH_PRCTL)
 #endif

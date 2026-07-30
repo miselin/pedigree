@@ -165,6 +165,26 @@ void PerProcessorScheduler::schedule(
     // Grab the current thread's lock.
     pCurrentThread->getLock().acquire();
 
+    // Event delivery and the transition to Sleeping must be serialized by the
+    // thread lock. Otherwise an event can arrive after sleep() checks the queue
+    // but while the thread is still Running, and no one will make the thread
+    // Ready after schedule() finally puts it to sleep.
+    if (nextStatus == Thread::Sleeping &&
+        pCurrentThread->hasEventsUnlocked())
+    {
+        pCurrentThread->getLock().release();
+        if (pLock)
+        {
+            pLock->release();
+        }
+        else
+        {
+            Processor::setInterrupts(bWasInterrupts);
+        }
+        checkEventState(0);
+        return;
+    }
+
     // Now attempt to get another thread to run.
     // This will also get the lock for the returned thread.
     Thread *pNextThread;
@@ -804,26 +824,6 @@ void PerProcessorScheduler::removeThread(Thread *pThread)
 
 void PerProcessorScheduler::sleep(Spinlock *pLock)
 {
-    // Before sleeping, check for any pending events, and process them.
-    // Looping ensures any events that come in while we're processing an
-    // event still get handled.
-    Thread *pThread = Processor::information().getCurrentThread();
-    if (pThread->hasEvents())
-    {
-        // We're about to handle an event, so release the lock (as the schedule
-        // would have done that had we not handled an event).
-        if (pLock)
-            pLock->release();
-
-        checkEventState(0);
-
-        // We handled some events, so abort the sleep. The caller should now go
-        // ahead and retry the previous operation it tried before it slept and
-        // perhaps try and sleep again.
-        return;
-    }
-
-    // Now we can happily sleep.
     schedule(Thread::Sleeping, 0, pLock);
 }
 

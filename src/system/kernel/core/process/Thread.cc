@@ -56,6 +56,13 @@ Thread::Thread(
     m_StateLevels[0].m_pAuxillaryStack = 0;
     allocateStackAtLevel(0);
 
+    Thread *pCurrent = Processor::information().getCurrentThread();
+    if (pCurrent && pCurrent->getParent() == pParent)
+    {
+        m_StateLevels[0].m_SignalMask =
+            pCurrent->m_StateLevels[pCurrent->m_nStateLevel].m_SignalMask;
+    }
+
     // If we've been given a user stack pointer, we are a user mode thread.
     bool bUserMode = true;
     void *requestedStack = pStack;
@@ -145,11 +152,28 @@ Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart)
     // Initialise state level zero
     allocateStackAtLevel(0);
 
+    Thread *pCurrent = Processor::information().getCurrentThread();
+    if (pCurrent)
+    {
+        m_StateLevels[0].m_SignalMask =
+            pCurrent->m_StateLevels[pCurrent->m_nStateLevel].m_SignalMask;
+
+        // A forked process inherits its alternate signal stack. A new thread
+        // sharing the same process starts with the stack disabled.
+        if (pCurrent->getParent() != pParent)
+        {
+            m_AlternateSignalStack = pCurrent->m_AlternateSignalStack;
+        }
+
+#if X64
+        NMFaultHandler::inheritCurrentThreadFpuState(this);
+#endif
+    }
+
     m_Id = m_pParent->addThread(this);
 
     // SyscallState variant has to be called from the parent thread, so this is
     // OK to do.
-    Thread *pCurrent = Processor::information().getCurrentThread();
     if (pCurrent->m_bTlsBaseOverride)
     {
         // Override our TLS base too (but this will be in the copied address
@@ -382,18 +406,25 @@ void Thread::setStatus(Thread::Status s)
 
     if (s == Thread::Zombie)
     {
+        Vector<Event *> pendingEvents;
+
         // Wipe out any pending events that currently exist.
         for (List<Event *>::Iterator it = m_EventQueue.begin();
              it != m_EventQueue.end(); ++it)
         {
-            Event *pEvent = *it;
+            pendingEvents.pushBack(*it);
+        }
+
+        m_EventQueue.clear();
+
+        for (auto pEvent : pendingEvents)
+        {
+            pEvent->deregisterThread(this);
             if (pEvent->isDeletable())
             {
                 delete pEvent;
             }
         }
-
-        m_EventQueue.clear();
 
         // Notify parent process we have become a zombie.
         // We do this here to avoid an amazing race between calling
@@ -431,9 +462,16 @@ SchedulerState &Thread::pushState()
         return *(m_StateLevels[MAX_NESTED_EVENTS - 1].m_State);
     }
     m_nStateLevel++;
+#if X64
+    // State levels are reused. A new handler must not inherit an FPU image
+    // left behind by an earlier handler at the same nesting depth.
+    m_StateLevels[m_nStateLevel].m_State->flags &= ~(1U << 1);
+#endif
     // NOTICE("New state level: " << m_nStateLevel << "...");
     m_StateLevels[m_nStateLevel].m_InhibitMask =
         m_StateLevels[m_nStateLevel - 1].m_InhibitMask;
+    m_StateLevels[m_nStateLevel].m_SignalMask =
+        m_StateLevels[m_nStateLevel - 1].m_SignalMask;
 
     allocateStackAtLevel(m_nStateLevel);
 
@@ -554,34 +592,70 @@ bool Thread::sendEvent(Event *pEvent)
         return false;
     }
 
-    /// \todo we should be checking inhibits HERE! so we don't wake a thread
-    /// that has inhibited the sent event
-
-    // Only need the lock to adjust the queue of events.
-    m_Lock.acquire();
-    m_EventQueue.pushBack(pEvent);
-    m_Lock.release();
-
     pEvent->registerThread(this);
 
-    if (m_Status == Sleeping)
+    // Queueing and waking are one transition with respect to schedule().
+    m_Lock.acquire();
+    if (m_Status == Zombie)
+    {
+        m_Lock.release();
+        pEvent->deregisterThread(this);
+        return false;
+    }
+    if (pEvent->isSignalEvent())
+    {
+        for (List<Event *>::Iterator it = m_EventQueue.begin();
+             it != m_EventQueue.end(); ++it)
+        {
+            if ((*it)->isSignalEvent() &&
+                (*it)->getNumber() == pEvent->getNumber())
+            {
+                m_Lock.release();
+                pEvent->deregisterThread(this);
+                if (pEvent->isDeletable())
+                {
+                    delete pEvent;
+                }
+                return true;
+            }
+        }
+    }
+    m_EventQueue.pushBack(pEvent);
+    size_t eventNumber = pEvent->getNumber();
+    bool signalBlocked =
+        pEvent->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
+        (m_StateLevels[m_nStateLevel].m_SignalMask &
+         (static_cast<uint64_t>(1) << (eventNumber - 1)));
+
+    bool wakeThread = false;
+    bool uninterruptibleSleep = false;
+    if (m_Status == Sleeping && !signalBlocked)
     {
         if (m_bInterruptible)
         {
-            reportWakeup(WokenByEvent);
+            reportWakeupUnlocked(WokenByEvent);
 
             // Interrupt the sleeping thread, there's an event firing
             m_Status = Ready;
-
-            // Notify the scheduler that we're now ready, so we get put into the
-            // scheduling algorithm's ready queue.
-            Scheduler::instance().threadStatusChanged(this);
+            wakeThread = true;
         }
         else
         {
-            WARNING("Thread: not immediately waking up from event as we're not "
-                    "interruptible");
+            uninterruptibleSleep = true;
         }
+    }
+    m_Lock.release();
+
+    if (wakeThread)
+    {
+        // Notify the scheduler that we're now ready, so we get put into the
+        // scheduling algorithm's ready queue.
+        Scheduler::instance().threadStatusChanged(this);
+    }
+    else if (uninterruptibleSleep)
+    {
+        WARNING("Thread: not immediately waking up from event as we're not "
+                "interruptible");
     }
 
     return true;
@@ -594,6 +668,18 @@ void Thread::inhibitEvent(size_t eventNumber, bool bInhibit)
         m_StateLevels[m_nStateLevel].m_InhibitMask->set(eventNumber);
     else
         m_StateLevels[m_nStateLevel].m_InhibitMask->clear(eventNumber);
+}
+
+uint64_t Thread::getSignalMask()
+{
+    LockGuard<Spinlock> guard(m_Lock);
+    return m_StateLevels[m_nStateLevel].m_SignalMask;
+}
+
+void Thread::setSignalMask(uint64_t mask)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+    m_StateLevels[m_nStateLevel].m_SignalMask = mask;
 }
 
 void Thread::cullEvent(Event *pEvent)
@@ -681,8 +767,13 @@ Event *Thread::getNextEvent()
                 continue;
             }
 
-            if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(
-                    e->getNumber()) ||
+            size_t eventNumber = e->getNumber();
+            bool signalInhibited =
+                e->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
+                (m_StateLevels[m_nStateLevel].m_SignalMask &
+                 (static_cast<uint64_t>(1) << (eventNumber - 1)));
+            if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) ||
+                signalInhibited ||
                 (e->getSpecificNestingLevel() != ~0UL &&
                  e->getSpecificNestingLevel() != m_nStateLevel))
             {
@@ -711,7 +802,30 @@ bool Thread::hasEvents()
 {
     LockGuard<Spinlock> guard(m_Lock);
 
-    return m_EventQueue.count() != 0;
+    return hasEventsUnlocked();
+}
+
+bool Thread::hasEventsUnlocked()
+{
+    for (List<Event *>::Iterator it = m_EventQueue.begin();
+         it != m_EventQueue.end(); ++it)
+    {
+        Event *event = *it;
+        size_t eventNumber = event->getNumber();
+        bool signalInhibited =
+            event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
+            (m_StateLevels[m_nStateLevel].m_SignalMask &
+             (static_cast<uint64_t>(1) << (eventNumber - 1)));
+        if (!m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) &&
+            !signalInhibited &&
+            (event->getSpecificNestingLevel() == ~0UL ||
+             event->getSpecificNestingLevel() == m_nStateLevel))
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool Thread::hasEvent(Event *pEvent)
@@ -925,7 +1039,7 @@ bool Thread::detach()
 
 Thread::StateLevel::StateLevel()
     : m_State(), m_pKernelStack(0), m_pUserStack(0), m_pAuxillaryStack(0),
-      m_InhibitMask(), m_pBlockingThread(0)
+      m_InhibitMask(), m_SignalMask(0), m_pBlockingThread(0)
 {
     m_State = new SchedulerState;
     ByteSet(m_State, 0, sizeof(SchedulerState));
@@ -940,7 +1054,7 @@ Thread::StateLevel::~StateLevel()
 Thread::StateLevel::StateLevel(const Thread::StateLevel &s)
     : m_State(), m_pKernelStack(s.m_pKernelStack), m_pUserStack(s.m_pUserStack),
       m_pAuxillaryStack(s.m_pAuxillaryStack), m_InhibitMask(),
-      m_pBlockingThread(s.m_pBlockingThread)
+      m_SignalMask(s.m_SignalMask), m_pBlockingThread(s.m_pBlockingThread)
 {
     m_State = new SchedulerState(*(s.m_State));
     m_InhibitMask =
@@ -952,6 +1066,7 @@ Thread::StateLevel &Thread::StateLevel::operator=(const Thread::StateLevel &s)
     m_State = new SchedulerState(*(s.m_State));
     m_InhibitMask =
         SharedPointer<ExtensibleBitmap>::allocate(*(s.m_InhibitMask));
+    m_SignalMask = s.m_SignalMask;
     m_pKernelStack = s.m_pKernelStack;
     return *this;
 }

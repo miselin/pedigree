@@ -280,5 +280,8 @@
 #define POSIX_CAPSET 268
 #define POSIX_PRCTL 269
 #define POSIX_REBOOT 270
+#define POSIX_ACCEPT4 271
+#define POSIX_PIPE2 272
+#define POSIX_GETRANDOM 273
 
 #endif

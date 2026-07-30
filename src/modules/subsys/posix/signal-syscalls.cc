@@ -19,6 +19,7 @@
 
 #include "signal-syscalls.h"
 #include "file-syscalls.h"
+#include "linux-amd64-signal-abi.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pthread-syscalls.h"
@@ -37,6 +38,7 @@
 #include <PosixSubsystem.h>
 
 #include <signal.h>
+#include <time.h>
 
 extern "C" {
 extern void sigret_stub();
@@ -148,24 +150,9 @@ static _sig_func_ptr default_sig_handlers[32] = {
     sigign,   // SIGSYS
 };
 
-int posix_sigaction(
+static int posix_sigaction_impl(
     int sig, const struct sigaction *act, struct sigaction *oact)
 {
-    SG_NOTICE(
-        "sigaction(" << Dec << sig << Hex << ", "
-                     << reinterpret_cast<uintptr_t>(act) << ", "
-                     << reinterpret_cast<uintptr_t>(oact) << ")");
-    if ((act && !PosixSubsystem::checkAddress(
-                    reinterpret_cast<uintptr_t>(act), sizeof(struct sigaction),
-                    PosixSubsystem::SafeRead)) ||
-        (oact && !PosixSubsystem::checkAddress(
-                     reinterpret_cast<uintptr_t>(oact),
-                     sizeof(struct sigaction), PosixSubsystem::SafeWrite)))
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
@@ -177,7 +164,7 @@ int posix_sigaction(
     }
 
     // sanity and safety checks
-    if ((sig > 32) || (sig == SIGKILL || sig == SIGSTOP))
+    if ((sig <= 0) || (sig >= 32) || (sig == SIGKILL || sig == SIGSTOP))
     {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
@@ -187,22 +174,24 @@ int posix_sigaction(
     // store the old signal handler information if we can
     if (oact)
     {
-        PosixSubsystem::SignalHandler *oldSignalHandler =
-            pSubsystem->getSignalHandler(sig);
-        if (oldSignalHandler)
+        PosixSubsystem::SignalDisposition oldDisposition;
+        ByteSet(oact, 0, sizeof(struct sigaction));
+        if (pSubsystem->getSignalDisposition(sig, oldDisposition))
         {
-            oact->sa_flags = oldSignalHandler->flags;
-            // oact->sa_mask = oldSignalHandler->sigMask;
-            if (oldSignalHandler->type == 0)
+            oact->sa_flags = oldDisposition.flags;
+            oact->sa_restorer = reinterpret_cast<void (*)()>(
+                oldDisposition.restorer);
+            MemoryCopy(
+                &oact->sa_mask, &oldDisposition.signalMask,
+                sizeof(oldDisposition.signalMask));
+            if (oldDisposition.type == 0)
                 oact->sa_handler = reinterpret_cast<void (*)(int)>(
-                    oldSignalHandler->pEvent->getHandlerAddress());
-            else if (oldSignalHandler->type == 1)
+                    oldDisposition.handler);
+            else if (oldDisposition.type == 1)
                 oact->sa_handler = reinterpret_cast<void (*)(int)>(0);
-            else if (oldSignalHandler->type == 2)
+            else if (oldDisposition.type == 2)
                 oact->sa_handler = reinterpret_cast<void (*)(int)>(1);
         }
-        else
-            ByteSet(oact, 0, sizeof(struct sigaction));
     }
 
     // and if needed, fill in the new signal handler
@@ -210,8 +199,11 @@ int posix_sigaction(
     {
         PosixSubsystem::SignalHandler *sigHandler =
             new PosixSubsystem::SignalHandler;
-        // sigHandler->sigMask = act->sa_mask;
         sigHandler->flags = act->sa_flags;
+        sigHandler->restorer =
+            reinterpret_cast<uintptr_t>(act->sa_restorer);
+        MemoryCopy(
+            &sigHandler->sigMask, &act->sa_mask, sizeof(sigHandler->sigMask));
 
         uintptr_t newHandler = reinterpret_cast<uintptr_t>(act->sa_handler);
         if (newHandler == 0)
@@ -239,8 +231,9 @@ int posix_sigaction(
             sigHandler->type = 0;
         }
 
-        sigHandler->pEvent =
-            new SignalEvent(newHandler, static_cast<size_t>(sig));
+        sigHandler->pEvent = new SignalEvent(
+            newHandler, static_cast<size_t>(sig), ~0UL, sigHandler->sigMask,
+            !(sigHandler->flags & SA_NODEFER));
         SG_NOTICE(
             "Creating the event ("
             << reinterpret_cast<uintptr_t>(sigHandler->pEvent) << ").");
@@ -254,6 +247,114 @@ int posix_sigaction(
     }
     return 0;
 }
+
+int posix_sigaction(
+    int sig, const struct sigaction *act, struct sigaction *oact)
+{
+    SG_NOTICE(
+        "sigaction(" << Dec << sig << Hex << ", "
+                     << reinterpret_cast<uintptr_t>(act) << ", "
+                     << reinterpret_cast<uintptr_t>(oact) << ")");
+    if ((act && !PosixSubsystem::checkAddress(
+                    reinterpret_cast<uintptr_t>(act), sizeof(struct sigaction),
+                    PosixSubsystem::SafeRead)) ||
+        (oact && !PosixSubsystem::checkAddress(
+                     reinterpret_cast<uintptr_t>(oact),
+                     sizeof(struct sigaction), PosixSubsystem::SafeWrite)))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    return posix_sigaction_impl(sig, act, oact);
+}
+
+#if BITS_64
+struct LinuxAmd64KernelSigaction
+{
+    uint64_t handler;
+    uint64_t flags;
+    uint64_t restorer;
+    uint64_t mask;
+};
+
+static_assert(
+    sizeof(LinuxAmd64KernelSigaction) == 32,
+    "Linux amd64 kernel sigaction layout must remain 32 bytes");
+static_assert(
+    sizeof(stack_t) == 24 && __builtin_offsetof(stack_t, ss_flags) == 8 &&
+        __builtin_offsetof(stack_t, ss_size) == 16,
+    "Linux amd64 sigaltstack layout must remain 24 bytes");
+
+int posix_linux_amd64_sigaction(
+    int sig, const LinuxAmd64KernelSigaction *act,
+    LinuxAmd64KernelSigaction *oact)
+{
+    SG_NOTICE(
+        "linux-amd64 sigaction(" << Dec << sig << Hex << ", "
+                                 << reinterpret_cast<uintptr_t>(act) << ", "
+                                 << reinterpret_cast<uintptr_t>(oact) << ")");
+    if ((act && !PosixSubsystem::checkAddress(
+                    reinterpret_cast<uintptr_t>(act),
+                    sizeof(LinuxAmd64KernelSigaction),
+                    PosixSubsystem::SafeRead)) ||
+        (oact && !PosixSubsystem::checkAddress(
+                     reinterpret_cast<uintptr_t>(oact),
+                     sizeof(LinuxAmd64KernelSigaction),
+                     PosixSubsystem::SafeWrite)))
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    if ((sig >= 32) && (sig <= 64))
+    {
+        // Pedigree does not deliver Linux real-time signals yet. Reporting
+        // their default disposition keeps Linux runtimes from treating the
+        // smaller native signal namespace as an exec-time failure.
+        if (oact)
+        {
+            ByteSet(oact, 0, sizeof(*oact));
+        }
+        return 0;
+    }
+
+    struct sigaction nativeAct = {};
+    const struct sigaction *nativeActPtr = nullptr;
+    if (act)
+    {
+        LinuxAmd64KernelSigaction linuxAct;
+        MemoryCopy(&linuxAct, act, sizeof(linuxAct));
+
+        nativeAct.sa_handler = reinterpret_cast<void (*)(int)>(
+            static_cast<uintptr_t>(linuxAct.handler));
+        nativeAct.sa_flags = static_cast<int>(linuxAct.flags);
+        nativeAct.sa_restorer = reinterpret_cast<void (*)()>(
+            static_cast<uintptr_t>(linuxAct.restorer));
+        MemoryCopy(
+            &nativeAct.sa_mask, &linuxAct.mask, sizeof(linuxAct.mask));
+        nativeActPtr = &nativeAct;
+    }
+
+    struct sigaction nativeOld = {};
+    struct sigaction *nativeOldPtr = oact ? &nativeOld : nullptr;
+    int result = posix_sigaction_impl(sig, nativeActPtr, nativeOldPtr);
+    if ((result == 0) && oact)
+    {
+        LinuxAmd64KernelSigaction linuxOld = {};
+        linuxOld.handler = reinterpret_cast<uintptr_t>(nativeOld.sa_handler);
+        linuxOld.flags =
+            static_cast<uint64_t>(static_cast<uint32_t>(nativeOld.sa_flags));
+        linuxOld.restorer =
+            reinterpret_cast<uintptr_t>(nativeOld.sa_restorer);
+        MemoryCopy(
+            &linuxOld.mask, &nativeOld.sa_mask, sizeof(linuxOld.mask));
+        MemoryCopy(oact, &linuxOld, sizeof(linuxOld));
+    }
+
+    return result;
+}
+#endif
 
 uintptr_t posix_signal(int sig, void *func)
 {
@@ -276,8 +377,9 @@ int posix_raise(int sig, SyscallState &State)
         return -1;
     }
 
-    PosixSubsystem::SignalHandler *signalHandler =
-        pSubsystem->getSignalHandler(sig);
+    uint32_t signalFlags = 0;
+    SignalEvent *signalEvent =
+        pSubsystem->createSignalDelivery(sig, &signalFlags);
 
     // Firing and checking the event state needs to be done without any
     // interrupts getting in the way.
@@ -285,18 +387,35 @@ int posix_raise(int sig, SyscallState &State)
     Processor::setInterrupts(false);
 
     // Fire the event, and wait for it to complete
-    if (signalHandler->pEvent)
-        pThread->sendEvent(reinterpret_cast<Event *>(signalHandler->pEvent));
+    bool signalQueued = false;
+    if (signalEvent)
+    {
+        signalQueued = pThread->sendEvent(signalEvent);
+        if (!signalQueued)
+        {
+            delete signalEvent;
+        }
+    }
 
-    // If the alternate stack is available, and not in use, use that
     uintptr_t stackPointer = State.getStackPointer();
-    PosixSubsystem::AlternateSignalStack &currStack =
-        pSubsystem->getAlternateSignalStack();
-    if (currStack.enabled && !currStack.inUse)
-        stackPointer = (currStack.base + currStack.size) - 1;
+    Thread::AlternateSignalStack &currStack =
+        pThread->getAlternateSignalStack();
+    bool useAlternateStack =
+        signalQueued && (signalFlags & SA_ONSTACK) &&
+        currStack.enabled && !currStack.inUse;
+    if (useAlternateStack)
+    {
+        stackPointer =
+            (currStack.base + currStack.size) & ~static_cast<uintptr_t>(0xF);
+        currStack.inUse = true;
+    }
 
     // Jump to the signal handler
     Processor::information().getScheduler().checkEventState(stackPointer);
+    if (useAlternateStack)
+    {
+        currStack.inUse = false;
+    }
     Processor::setInterrupts(bWasInterrupts);
 
     // All done
@@ -308,17 +427,7 @@ int pedigree_sigret()
 {
     SG_NOTICE("pedigree_sigret");
 
-    // Grab the subsystem for this thread
     Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem =
-        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-
-    // If the alternate stack is in use, we're done with it for now
-    PosixSubsystem::AlternateSignalStack &currStack =
-        pSubsystem->getAlternateSignalStack();
-    if (currStack.inUse)
-        currStack.inUse = false;
 
     // Return to the old code
     Processor::information().getScheduler().eventHandlerReturned();
@@ -360,12 +469,14 @@ static int doThreadKill(Thread *p, int sig)
             "posix_kill: no subsystem on process " << p->getParent()->getId());
         return -1;
     }
-    PosixSubsystem::SignalHandler *signalHandler =
-        pSubsystem->getSignalHandler(sig);
-    if (signalHandler && signalHandler->pEvent)
+    SignalEvent *signalEvent = pSubsystem->createSignalDelivery(sig);
+    if (signalEvent)
     {
         // Fire the event
-        p->sendEvent(reinterpret_cast<Event *>(signalHandler->pEvent));
+        if (!p->sendEvent(signalEvent))
+        {
+            delete signalEvent;
+        }
 
         // Don't schedule to the process if that process is us.
         if (p->getParent() != pThisProcess)
@@ -511,9 +622,75 @@ int posix_kill(int pid, int sig)
     return 0;
 }
 
-/// \todo Integration with Thread inhibit masks
-int posix_sigprocmask(int how, const uint32_t *set, uint32_t *oset)
+int posix_sigprocmask(
+    int how, const void *set, void *oset, size_t sigsetSize, bool linuxCompat)
 {
+    constexpr size_t KernelSigsetSize = sizeof(uint64_t);
+    constexpr uint64_t UnblockableSignals =
+        (static_cast<uint64_t>(1) << (SIGKILL - 1)) |
+        (static_cast<uint64_t>(1) << (SIGSTOP - 1));
+    static_assert(
+        sizeof(sigset_t) >= KernelSigsetSize,
+        "native sigset_t must hold Pedigree's signal mask");
+
+    if (linuxCompat && sigsetSize != KernelSigsetSize)
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+
+    const size_t userSigsetSize =
+        linuxCompat ? KernelSigsetSize : sizeof(sigset_t);
+    if ((set && !PosixSubsystem::checkAddress(
+                    reinterpret_cast<uintptr_t>(set), userSigsetSize,
+                    PosixSubsystem::SafeRead)) ||
+        (oset && !PosixSubsystem::checkAddress(
+                     reinterpret_cast<uintptr_t>(oset), userSigsetSize,
+                     PosixSubsystem::SafeWrite)))
+    {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+    }
+
+    uint64_t requestedMask = 0;
+    if (set)
+    {
+        if (how != SIG_BLOCK && how != SIG_UNBLOCK && how != SIG_SETMASK)
+        {
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
+        MemoryCopy(&requestedMask, set, KernelSigsetSize);
+    }
+
+    Thread *pThread = Processor::information().getCurrentThread();
+    uint64_t oldMask = pThread->getSignalMask();
+    if (oset)
+    {
+        ByteSet(oset, 0, userSigsetSize);
+        MemoryCopy(oset, &oldMask, KernelSigsetSize);
+    }
+
+    if (set)
+    {
+        uint64_t newMask = oldMask;
+        if (how == SIG_BLOCK)
+        {
+            newMask |= requestedMask;
+        }
+        else if (how == SIG_UNBLOCK)
+        {
+            newMask &= ~requestedMask;
+        }
+        else
+        {
+            newMask = requestedMask;
+        }
+
+        // Linux silently leaves SIGKILL and SIGSTOP unblocked.
+        pThread->setSignalMask(newMask & ~UnblockableSignals);
+    }
+
     return 0;
 }
 
@@ -643,81 +820,121 @@ int posix_nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
 
 int posix_clock_gettime(clockid_t clock_id, struct timespec *tp)
 {
-    SG_NOTICE("clock_gettime");
+    SG_NOTICE("clock_gettime(" << Dec << clock_id << Hex << ")");
     if (!PosixSubsystem::checkAddress(
             reinterpret_cast<uintptr_t>(tp), sizeof(struct timespec),
             PosixSubsystem::SafeWrite))
     {
-        SYSCALL_ERROR(InvalidArgument);
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    // All clocks are equal, but some are more equal than others.
-    // Seriously though, we don't currently care about the id value.
+    Time::Timestamp nanoseconds = 0;
+    switch (clock_id)
+    {
+        case CLOCK_REALTIME:
+            nanoseconds = Time::getTimeNanoseconds();
+            break;
+        case CLOCK_MONOTONIC:
+            nanoseconds = Time::getTicks();
+            break;
+        default:
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+    }
 
-    // We only care about the nanoseconds that may have passed in the past
-    // second - everything else is handled by the UNIX timestamp.
-    tp->tv_nsec = static_cast<time_t>(
-        (Machine::instance().getTimer()->getTickCount() * 1000ULL) %
-        1000000000ULL);
     tp->tv_sec =
-        static_cast<time_t>(Machine::instance().getTimer()->getUnixTimestamp());
+        static_cast<time_t>(nanoseconds / Time::Multiplier::Second);
+    tp->tv_nsec =
+        static_cast<long>(nanoseconds % Time::Multiplier::Second);
 
     return 0;
 }
 
 int posix_sigaltstack(const stack_t *stack, stack_t *oldstack)
 {
-    /// \todo Check stacks are sane (checkAddress).
-
-    // Verify arguments
-    if (!stack && !oldstack)
+    if ((stack && !PosixSubsystem::checkAddress(
+                      reinterpret_cast<uintptr_t>(stack), sizeof(stack_t),
+                      PosixSubsystem::SafeRead)) ||
+        (oldstack && !PosixSubsystem::checkAddress(
+                         reinterpret_cast<uintptr_t>(oldstack), sizeof(stack_t),
+                         PosixSubsystem::SafeWrite)))
     {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-    if (stack && (stack->ss_size < MINSIGSTKSZ))
-    {
-        SYSCALL_ERROR(OutOfMemory);
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    // Grab the subsystem for this thread
-    Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    PosixSubsystem *pSubsystem =
-        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-
-    // Look at the current alternative stack
-    PosixSubsystem::AlternateSignalStack &currStack =
-        pSubsystem->getAlternateSignalStack();
-
-    // Are we running on the alternate stack?
-    if (currStack.inUse)
-    {
-        SG_NOTICE("Can't set new alternate signal stack as it's the one we're "
-                  "running on!");
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
-
-    // Fill the old stack, if needed
-    if (oldstack)
-    {
-        oldstack->ss_sp = reinterpret_cast<void *>(currStack.base);
-        oldstack->ss_size = currStack.size;
-        oldstack->ss_flags = (currStack.inUse ? SA_ONSTACK : 0);
-    }
-
-    // Set the new one
+    stack_t requested = {};
     if (stack)
     {
-        currStack.base = reinterpret_cast<uintptr_t>(stack->ss_sp);
-        currStack.size = stack->ss_size;
-        currStack.enabled = 1;
+        MemoryCopy(&requested, stack, sizeof(requested));
+        if (requested.ss_flags & ~SS_DISABLE)
+        {
+            SYSCALL_ERROR(InvalidArgument);
+            return -1;
+        }
     }
 
-    // Success!
+    Thread *pThread = Processor::information().getCurrentThread();
+    Thread::AlternateSignalStack &currStack =
+        pThread->getAlternateSignalStack();
+
+    if (stack && currStack.inUse)
+    {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+    }
+
+    if (stack && !(requested.ss_flags & SS_DISABLE))
+    {
+        uintptr_t base = reinterpret_cast<uintptr_t>(requested.ss_sp);
+        if (requested.ss_size < MINSIGSTKSZ)
+        {
+            SYSCALL_ERROR(OutOfMemory);
+            return -1;
+        }
+        if (
+            !base || requested.ss_size > (~static_cast<uintptr_t>(0) - base) ||
+            !PosixSubsystem::checkAddress(
+                base, requested.ss_size, PosixSubsystem::SafeWrite))
+        {
+            SYSCALL_ERROR(BadAddress);
+            return -1;
+        }
+    }
+
+    if (oldstack)
+    {
+        stack_t previous = {};
+        if (currStack.enabled)
+        {
+            previous.ss_sp = reinterpret_cast<void *>(currStack.base);
+            previous.ss_size = currStack.size;
+            previous.ss_flags = currStack.inUse ? SS_ONSTACK : 0;
+        }
+        else
+        {
+            previous.ss_flags = SS_DISABLE;
+        }
+        MemoryCopy(oldstack, &previous, sizeof(previous));
+    }
+
+    if (stack)
+    {
+        if (requested.ss_flags & SS_DISABLE)
+        {
+            currStack.base = 0;
+            currStack.size = 0;
+            currStack.enabled = false;
+        }
+        else
+        {
+            currStack.base = reinterpret_cast<uintptr_t>(requested.ss_sp);
+            currStack.size = requested.ss_size;
+            currStack.enabled = true;
+        }
+    }
+
     return 0;
 }
 
@@ -761,6 +978,7 @@ void pedigree_init_sigret()
 
     // Install default signal handlers
     Thread *pThread = Processor::information().getCurrentThread();
+    pThread->getAlternateSignalStack() = Thread::AlternateSignalStack();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
@@ -777,11 +995,10 @@ void pedigree_init_sigret()
         // disposition was present (SIG_IGN does in fact carry through an exec)
         int signalDisposition = 1;
 
-        PosixSubsystem::SignalHandler *existingHandler =
-            pSubsystem->getSignalHandler(i);
-        if (existingHandler)
+        PosixSubsystem::SignalDisposition existingDisposition;
+        if (pSubsystem->getSignalDisposition(i, existingDisposition))
         {
-            if (existingHandler->type == 2)
+            if (existingDisposition.type == 2)
             {
                 signalDisposition = 2;
             }
