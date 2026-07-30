@@ -50,7 +50,7 @@ static void resolveNeeded()
 template <typename T>
 static T *copy(T *buff, size_t numBytes)
 {
-    T *ret = new T[numBytes / sizeof(T)];
+    T *ret = new T[(numBytes + sizeof(T) - 1) / sizeof(T)];
     MemoryCopy(ret, buff, numBytes);
     return ret;
 }
@@ -70,7 +70,7 @@ T *Elf::elfCopy(
         {
             uintptr_t loc =
                 (reinterpret_cast<uintptr_t>(pCurrent) - ph.vaddr) + ph.offset;
-            pCurrent = new T[size / sizeof(T)];
+            pCurrent = new T[(size + sizeof(T) - 1) / sizeof(T)];
             MemoryCopy(
                 reinterpret_cast<uint8_t *>(pCurrent), &pBuffer[loc], size);
             return pCurrent;

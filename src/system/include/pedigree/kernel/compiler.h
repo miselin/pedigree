@@ -116,7 +116,8 @@
 #define INITIALISATION_ONLY SECTION(".init.text")
 #define INITIALISATION_ONLY_DATA SECTION(".init.data")
 
-// We don't use a custom allocator if asan is enabled.
+// Detect sanitizer builds so hosted signal and memory primitives can defer to
+// the runtime where necessary.
 #if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer) || \
     __has_feature(memory_sanitizer)
 #define HAS_ADDRESS_SANITIZER 1

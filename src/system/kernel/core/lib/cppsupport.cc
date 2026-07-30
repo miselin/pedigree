@@ -307,6 +307,21 @@ extern "C" void *INDIR_REALLOC(void *p, size_t sz)
     return tmp;
 }
 
+void *operator new(size_t, void *memory) noexcept
+{
+    return memory;
+}
+void *operator new[](size_t, void *memory) noexcept
+{
+    return memory;
+}
+void operator delete(void *, void *) noexcept
+{
+}
+void operator delete[](void *, void *) noexcept
+{
+}
+
 #if !HOSTED_SYSTEM_MALLOC
 namespace std
 {
@@ -325,20 +340,12 @@ void *operator new[](size_t size) PEDIGREE_NOEXCEPT
         reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
     return ret;
 }
-void *operator new(size_t size, void *memory) noexcept
-{
-    return memory;
-}
 void *operator new(size_t size, std::align_val_t align)
 {
     /// \todo manage alignment
     void *ret =
         reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
     return ret;
-}
-void *operator new[](size_t size, void *memory) noexcept
-{
-    return memory;
 }
 static void delete_shared(void *p) noexcept
 {
@@ -390,14 +397,6 @@ void operator delete(void* p, size_t sz, std::align_val_t align) noexcept
 void operator delete[](void *p, size_t sz) noexcept
 {
     delete_shared(p);
-}
-void operator delete(void *p, void *q) noexcept
-{
-    // no-op
-}
-void operator delete[](void *p, void *q) noexcept
-{
-    // no-op
 }
 #endif  //!HOSTED_SYSTEM_MALLOC
 

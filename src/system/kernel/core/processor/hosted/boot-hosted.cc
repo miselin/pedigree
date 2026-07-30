@@ -30,6 +30,7 @@
 #include <elf.h>
 
 #include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/hosted/smoke.h"
 
 extern "C" void _main(BootstrapStruct_t &bs);
@@ -93,6 +94,10 @@ extern "C" int main(int argc, char *argv[])
         }
     }
 
+    fprintf(
+        stderr, "Hosted runtime: %s; heap: %s\n",
+        HAS_ADDRESS_SANITIZER ? "AddressSanitizer" : "unsanitized",
+        HOSTED_SYSTEM_MALLOC ? "system malloc" : "Pedigree SlamAllocator");
     fprintf(stderr, "Pedigree is starting...\n");
 
     // Load initrd and config database into RAM.

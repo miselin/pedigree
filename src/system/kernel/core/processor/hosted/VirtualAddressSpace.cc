@@ -389,14 +389,19 @@ VirtualAddressSpace *HostedVirtualAddressSpace::clone(bool copyOnWrite)
         }
     }
 
-    if (m_pStackTop < KERNEL_SPACE_START)
     {
-        pNew->m_pStackTop = m_pStackTop;
-        for (Vector<Stack *>::Iterator it = m_freeStacks.begin();
-             it != m_freeStacks.end(); ++it)
+        // Stack metadata can allocate from the kernel heap, which may need to
+        // re-enter the address-space mapping lock.
+        LockGuard<Spinlock> stacksGuard(m_StacksLock);
+        if (m_pStackTop < KERNEL_SPACE_START)
         {
-            Stack *pNewStack = new Stack(**it);
-            pNew->m_freeStacks.pushBack(pNewStack);
+            pNew->m_pStackTop = m_pStackTop;
+            for (Vector<Stack *>::Iterator it = m_freeStacks.begin();
+                 it != m_freeStacks.end(); ++it)
+            {
+                Stack *pNewStack = new Stack(**it);
+                pNew->m_freeStacks.pushBack(pNewStack);
+            }
         }
     }
 
@@ -467,14 +472,13 @@ HostedVirtualAddressSpace::doAllocateStack(size_t sSize)
         bMapAll = true;
     }
 
-    m_Lock.acquire();
-
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
     // Grab a new stack pointer. Use the list of freed stacks if we can,
     // otherwise adjust the internal stack pointer. Using the list of freed
     // stacks helps avoid having the virtual address creep downwards.
     void *pStack = 0;
+    m_StacksLock.acquire();
     if (m_freeStacks.count() != 0)
     {
         Stack *poppedStack = m_freeStacks.popBack();
@@ -484,16 +488,18 @@ HostedVirtualAddressSpace::doAllocateStack(size_t sSize)
         }
         delete poppedStack;
     }
-    else
+    m_StacksLock.release();
+
+    if (!pStack)
     {
+        m_Lock.acquire();
         pStack = m_pStackTop;
 
         // Always leave one page unmapped between each stack to catch overflow.
         m_pStackTop =
             adjust_pointer(m_pStackTop, -static_cast<ssize_t>(sSize + pageSz));
+        m_Lock.release();
     }
-
-    m_Lock.release();
 
     // Map the top of the stack in proper.
     uintptr_t firstPage = reinterpret_cast<uintptr_t>(pStack) - pageSz;
@@ -552,10 +558,11 @@ void HostedVirtualAddressSpace::freeStack(Stack *pStack)
         PhysicalMemoryManager::instance().freePage(phys);
     }
 
-    // Add the stack to the list
-    m_Lock.acquire();
+    // Keep heap growth out of the address-space mapping lock: Slam may need
+    // to map a new slab while the vector grows.
+    m_StacksLock.acquire();
     m_freeStacks.pushBack(pStack);
-    m_Lock.release();
+    m_StacksLock.release();
 }
 
 HostedVirtualAddressSpace::~HostedVirtualAddressSpace()
@@ -567,16 +574,16 @@ HostedVirtualAddressSpace::~HostedVirtualAddressSpace()
 HostedVirtualAddressSpace::HostedVirtualAddressSpace()
     : VirtualAddressSpace(USERSPACE_VIRTUAL_HEAP),
       m_pStackTop(USERSPACE_VIRTUAL_STACK), m_freeStacks(),
-      m_bKernelSpace(false), m_Lock(false, true), m_pKnownMaps(0),
-      m_numKnownMaps(0), m_nLastUnmap(0)
+      m_bKernelSpace(false), m_Lock(false, true), m_StacksLock(false, true),
+      m_pKnownMaps(0), m_numKnownMaps(0), m_nLastUnmap(0)
 {
 }
 
 HostedVirtualAddressSpace::HostedVirtualAddressSpace(
     void *Heap, void *VirtualStack)
     : VirtualAddressSpace(Heap), m_pStackTop(VirtualStack), m_freeStacks(),
-      m_bKernelSpace(true), m_Lock(false, true), m_pKnownMaps(0),
-      m_numKnownMaps(0), m_nLastUnmap(0)
+      m_bKernelSpace(true), m_Lock(false, true), m_StacksLock(false, true),
+      m_pKnownMaps(0), m_numKnownMaps(0), m_nLastUnmap(0)
 {
 }
 

@@ -8,7 +8,8 @@ usage()
 Usage:
   $0 --static-kernel PATH --dynamic-kernel PATH \\
      --dynamic-config-module PATH --dynamic-smoke-module PATH \\
-     --config PATH --disk-image PATH
+     --config PATH --disk-image PATH \\
+     [--require-asan] [--expected-heap slam|system]
 
 PEDIGREE_VERIFY_LOG_DIR selects the directory for durable per-rung logs.
 EOF
@@ -21,6 +22,8 @@ dynamic_config_module=
 dynamic_smoke_module=
 configdb=
 disk_image=
+require_asan=0
+expected_heap=
 
 if [ "$#" -gt 0 ]; then
     while [ "$#" -gt 0 ]; do
@@ -55,6 +58,15 @@ if [ "$#" -gt 0 ]; then
                 disk_image=$2
                 shift 2
                 ;;
+            --require-asan)
+                require_asan=1
+                shift
+                ;;
+            --expected-heap)
+                [ "$#" -ge 2 ] || usage
+                expected_heap=$2
+                shift 2
+                ;;
             *)
                 usage
                 ;;
@@ -68,6 +80,10 @@ fi
     [ -n "$dynamic_config_module" ] &&
     [ -n "$dynamic_smoke_module" ] && [ -n "$configdb" ] &&
     [ -n "$disk_image" ] || usage
+case "$expected_heap" in
+    ""|slam|system) ;;
+    *) usage ;;
+esac
 static_kernel=$(realpath "$static_kernel")
 dynamic_kernel=$(realpath "$dynamic_kernel")
 dynamic_config_module=$(realpath "$dynamic_config_module")
@@ -134,6 +150,28 @@ reject_marker()
     fi
 }
 
+assert_asan_kernel()
+{
+    local kernel=$1
+    local probe=$2
+    readelf -d "$kernel" >"$probe"
+    if ! grep -Fq "libasan.so" "$probe"; then
+        echo "Hosted kernel is not linked with AddressSanitizer: $kernel" >&2
+        return 1
+    fi
+}
+
+assert_asan_module()
+{
+    local module=$1
+    local probe=$2
+    readelf -Ws "$module" >"$probe"
+    if ! grep -Fq "__asan_init" "$probe"; then
+        echo "Hosted module is not instrumented by AddressSanitizer: $module" >&2
+        return 1
+    fi
+}
+
 assert_clean_log()
 {
     local log=$1
@@ -141,6 +179,8 @@ assert_clean_log()
     for marker in \
         "ERROR: AddressSanitizer" \
         "AddressSanitizer:DEADLYSIGNAL" \
+        "SUMMARY: AddressSanitizer" \
+        "ERROR: LeakSanitizer" \
         "Page Fault Exception" \
         "KERNELELF: Module relocation failed" \
         "KERNELELF: Hit an invalid module" \
@@ -151,6 +191,22 @@ assert_clean_log()
     do
         reject_marker "$log" "$marker"
     done
+}
+
+assert_runtime()
+{
+    local log=$1
+    if [ "$require_asan" = "1" ]; then
+        assert_marker "$log" "Hosted runtime: AddressSanitizer;"
+    fi
+    case "$expected_heap" in
+        slam)
+            assert_marker "$log" "heap: Pedigree SlamAllocator"
+            ;;
+        system)
+            assert_marker "$log" "heap: system malloc"
+            ;;
+    esac
 }
 
 run_kernel()
@@ -178,13 +234,15 @@ run_kernel()
     echo "Running hosted smoke rung: $name"
     if ! (
         cd "$rung_dir"
-        "$timeout_command" --signal=KILL 60s "${args[@]}" >"$log" 2>&1
+        env ASAN_OPTIONS="$asan_options" \
+            "$timeout_command" --signal=KILL 60s "${args[@]}" >"$log" 2>&1
     ); then
         cat "$log"
         echo "Hosted smoke rung failed to complete: $name" >&2
         return 1
     fi
     assert_clean_log "$log"
+    assert_runtime "$log"
 }
 
 assert_lifecycle()
@@ -200,6 +258,20 @@ assert_lifecycle()
         assert_marker "$log" "$checkpoint"
     done
 }
+
+asan_options="${ASAN_OPTIONS:+$ASAN_OPTIONS:}halt_on_error=1:abort_on_error=1:exitcode=99:detect_leaks=0"
+if [ "$require_asan" = "1" ]; then
+    if ! command -v readelf >/dev/null 2>&1; then
+        echo "readelf is required to verify AddressSanitizer artifacts." >&2
+        exit 1
+    fi
+    assert_asan_kernel "$static_kernel" "$scratch_dir/static-kernel.dynamic"
+    assert_asan_kernel "$dynamic_kernel" "$scratch_dir/dynamic-kernel.dynamic"
+    assert_asan_module \
+        "$dynamic_config_module" "$scratch_dir/config-module.symbols"
+    assert_asan_module \
+        "$dynamic_smoke_module" "$scratch_dir/smoke-module.symbols"
+fi
 
 run_kernel 01-empty-initrd "$static_kernel" "$scratch_dir/empty-initrd.tar"
 empty_log="$log_dir/01-empty-initrd.log"
