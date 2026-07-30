@@ -1,6 +1,14 @@
 
 SECTIONS
 {
+    __pedigree_after_rodata = .;
+
+    .syscall 0x399000 :
+    {
+        KEEP(*(.syscall))
+    }
+
+    . = __pedigree_after_rodata;
     . = ALIGN(4096);
 
     .cdtors :

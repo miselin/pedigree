@@ -24,13 +24,19 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <elf.h>
 
 #include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/processor/hosted/smoke.h"
 
 extern "C" void _main(BootstrapStruct_t &bs);
+extern "C"
+{
+HostedSmokeStage g_HostedSmokeStage = HostedSmokeNone;
+}
 
 static void *add_ptr(void *ptr, size_t addend)
 {
@@ -59,12 +65,32 @@ extern "C" int main(int argc, char *argv[])
     size_t diskimage_length = 0;
     Elf64_Ehdr *ehdr = 0;
     Elf64_Shdr *shdrs = 0;
-    BootstrapStruct_t bs;
+    BootstrapStruct_t bs = {};
 
-    if (argc < 3)
+    if (argc < 3 || argc > 5)
     {
-        fprintf(stderr, "Usage: kernel initrd config_database [diskimage]\n");
+        fprintf(
+            stderr,
+            "Usage: kernel initrd config_database "
+            "[diskimage [root|init|command|shutdown]]\n");
         goto fail;
+    }
+
+    if (argc == 5)
+    {
+        if (!strcmp(argv[4], "root"))
+            g_HostedSmokeStage = HostedSmokeRoot;
+        else if (!strcmp(argv[4], "init"))
+            g_HostedSmokeStage = HostedSmokeInit;
+        else if (!strcmp(argv[4], "command"))
+            g_HostedSmokeStage = HostedSmokeCommand;
+        else if (!strcmp(argv[4], "shutdown"))
+            g_HostedSmokeStage = HostedSmokeShutdown;
+        else
+        {
+            fprintf(stderr, "Unknown hosted smoke stage: %s\n", argv[4]);
+            goto fail;
+        }
     }
 
     fprintf(stderr, "Pedigree is starting...\n");

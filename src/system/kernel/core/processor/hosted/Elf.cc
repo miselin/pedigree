@@ -132,31 +132,34 @@ bool Elf::applyRelocation(
     {
         const char *pStr = pStringTable + pSymbols[R_SYM(rel.info)].name;
 
-        if (pSymtab == 0)
-            pSymtab = &m_SymbolTable;
-
         if (R_TYPE(rel.info) == R_X86_64_COPY)
             policy = SymbolTable::NotOriginatingElf;
-        S = pSymtab->lookup(String(pStr), this, policy);
+
+        // Preserve module-local binding before looking outside this ELF.
+        S = m_SymbolTable.lookup(String(pStr), this, policy);
+
+        if (S == 0 && pSymtab && pSymtab != &m_SymbolTable)
+        {
+            S = pSymtab->lookup(String(pStr), this, policy);
+        }
+
+        if (S == 0)
+        {
+            // Ask the process linker for an exported kernel or host-library
+            // symbol before using the kernel's on-disk symbol table.
+            void *pSym = __pedigree_hosted::dlsym(RTLD_DEFAULT, pStr);
+            if (pSym)
+            {
+                S = reinterpret_cast<uint64_t>(pSym);
+            }
+        }
+
         if (S == 0)
         {
             // Failed to find - fall back to kernel symbol table.
             S = KernelElf::instance().getSymbolTable()->lookup(
                 String(pStr), this, policy);
         }
-
-        if (S == 0)
-        {
-            // Try to find via dlsym (in case we're needing a libc symbol).
-            void *pSym = __pedigree_hosted::dlsym(RTLD_DEFAULT, pStr);
-            if (pSym)
-            {
-                S = reinterpret_cast<uint64_t>(pSym);
-                // WARNING("Internal relocation failed for symbol \"" << pStr <<
-                // "\" - using a dlsym lookup."); WARNING(" = " << Hex << S);
-            }
-        }
-
 
         if (S == 0 && ST_BIND(pSymbols[R_SYM(rel.info)].info) == 2)
         {

@@ -588,26 +588,30 @@ bool Cache::pin(uintptr_t key)
 
 void Cache::release(uintptr_t key)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    if (!m_PageFilter.contains(key))
+    bool shouldEvict = false;
     {
-        return;
+        LockGuard<Spinlock> guard(m_Lock);
+
+        if (!m_PageFilter.contains(key))
+        {
+            return;
+        }
+
+        CachePage *pPage = m_Pages.lookup(key);
+        if (!pPage)
+        {
+            return;
+        }
+
+        assert(pPage->refcnt);
+        pPage->refcnt--;
+        shouldEvict = !pPage->refcnt;
     }
 
-    CachePage *pPage = m_Pages.lookup(key);
-    if (!pPage)
+    // Thread creation can reschedule, so it must happen after dropping the
+    // cache lock. Eviction rechecks the refcount if the page is pinned again.
+    if (shouldEvict)
     {
-        return;
-    }
-
-    assert(pPage->refcnt);
-    pPage->refcnt--;
-
-    if (!pPage->refcnt)
-    {
-        // Trigger an eviction. The eviction will check refcnt, and won't do
-        // anything if the refcnt is raised again.
         CacheManager::instance().addAsyncRequest(
             1, reinterpret_cast<uint64_t>(this), CacheConstants::PleaseEvict,
             key);

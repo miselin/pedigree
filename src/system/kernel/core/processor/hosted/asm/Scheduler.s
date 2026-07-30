@@ -24,6 +24,11 @@ global _ZN13ProcessorBase12restoreStateER18HostedSyscallStatePVm
 
 ; HostedProcessorInformation::getKernelStack() const
 extern _ZNK26HostedProcessorInformation14getKernelStackEv
+; ProcessorBase::information()
+extern _ZN13ProcessorBase11informationEv
+; Raw FS-base boundaries for hosted userspace.
+extern hostedSetKernelFs
+extern hostedSetUserFs
 
 ; void PerProcessorScheduler::deleteThread(Thread *)
 extern _ZN21PerProcessorScheduler12deleteThreadEP6Thread
@@ -32,9 +37,6 @@ extern _ZN13ProcessorBase12restoreStateER20HostedSchedulerStatePVm
 
 ; void HostedSyscallManager::syscall(SyscallState &syscallState)
 extern _ZN20HostedSyscallManager7syscallER18HostedSyscallState
-; Processor::m_ProcessorInformation
-extern _ZN13ProcessorBase22m_ProcessorInformationE
-
 ; void __sanitizer_start_switch_fiber(void** fake_stack_save,
 ;                                     const void* bottom, size_t size);
 extern __sanitizer_start_switch_fiber
@@ -65,7 +67,7 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR20HostedSchedu
 
     mov rdi, 0  ; fake_stack
     mov rsi, safe_stack
-    mov rdx, 0x1000
+    mov rdx, 0x10000
     push rcx
     ; call __sanitizer_start_switch_fiber WRT ..plt
     pop rcx
@@ -92,6 +94,7 @@ _ZN13ProcessorBase12restoreStateER18HostedSyscallStatePVm:
 
 [section .syscall exec]
 ; [rsp+0x10] p5
+; [rsp+0x18] p6
 ; [rsp+0x8] p4
 ; [rsp+0x0] (return address)
 ; [r9]     p3
@@ -101,10 +104,6 @@ _ZN13ProcessorBase12restoreStateER18HostedSyscallStatePVm:
 ; [rsi]    Function
 ; [rdi]    Service
 syscall_enter:
-    ; We need to save stack-based registers as we might switch stack.
-    mov r10, [rsp + 8]  ; p4
-    mov r11, [rsp + 16] ; p5
-
     ; Preserve callee-save registers, and the current stack.
     push rbp
     push rbx
@@ -114,26 +113,38 @@ syscall_enter:
     push r15
     mov r12, rsp
 
-    ; Switch stacks (MUST be a kernel stack).
-    push rdi
-    mov rdi, _ZN13ProcessorBase22m_ProcessorInformationE
-    call _ZNK26HostedProcessorInformation14getKernelStackEv
-    pop rdi
-    mov rsp, rax
-
-    ; Create the SyscallState
-    sub rsp, 8 ; align to 16-byte boundary
-    push r12
-    push 0     ; result (return value)
-    push rdx   ; error pointer
-    push 0     ; error (to write into [rdx])
-    push r11
-    push r10
+    ; Preserve register arguments across the getKernelStack() call. The
+    ; stack-based arguments remain above the saved callee-save registers.
     push r9
     push r8
     push rcx
+    push rdx
     push rsi
     push rdi
+
+    ; Host libc, sanitizers, and all kernel C++ require the original FS base.
+    sub rsp, 8
+    call hostedSetKernelFs WRT ..plt
+
+    ; Switch stacks (MUST be a kernel stack).
+    call _ZN13ProcessorBase11informationEv WRT ..plt
+    mov rdi, rax
+    call _ZNK26HostedProcessorInformation14getKernelStackEv
+    mov rsp, rax
+
+    ; Create the SyscallState
+    push r12
+    push 0     ; result (return value)
+    push qword [r12 - 32] ; error pointer
+    push 0     ; error (to write into [rdx])
+    push qword [r12 + 72] ; p6
+    push qword [r12 + 64] ; p5
+    push qword [r12 + 56] ; p4
+    push qword [r12 - 8]  ; p3
+    push qword [r12 - 16] ; p2
+    push qword [r12 - 24] ; p1
+    push qword [r12 - 40] ; function
+    push qword [r12 - 48] ; service
     mov rdi, rsp
     call _ZN20HostedSyscallManager7syscallER18HostedSyscallState
 syscall_tail:
@@ -144,6 +155,7 @@ syscall_tail:
     pop r9
     pop r10
     pop r11
+    pop rcx
 
     ; error value (modified by syscall)
     pop rax
@@ -164,9 +176,17 @@ syscall_tail:
     pop r12
     pop rbx
     pop rbp
+
+    ; Restore the active Pedigree thread's TLS only for raw userspace.
+    mov r8, rax
+    sub rsp, 8
+    call hostedSetUserFs WRT ..plt
+    add rsp, 8
+    mov rax, r8
     ret
 
 [section .bss]
+align 16
 safe_stack:
-    resb 0x1000
+    resb 0x10000
 safe_stack_top:

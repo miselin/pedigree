@@ -11,6 +11,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         cmake \
+        e2fsprogs \
         flex \
         gettext \
         git \

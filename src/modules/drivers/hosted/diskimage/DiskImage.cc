@@ -41,15 +41,22 @@ bool DiskImage::initialise()
 
 uintptr_t DiskImage::read(uint64_t location)
 {
-    if ((location > m_nSize) || !m_pBase)
+    if ((location >= m_nSize) || !m_pBase)
     {
-        ERROR("DiskImage::read() - location " << location << " > " << m_nSize);
+        ERROR("DiskImage::read() - location " << location << " >= " << m_nSize);
         ERROR("  -> or " << m_pBase << " is null");
         return ~0;
     }
 
     uint64_t offset = location % getBlockSize();
     location &= ~(getBlockSize() - 1);
+    if (getBlockSize() > (m_nSize - location))
+    {
+        ERROR(
+            "DiskImage::read() - block at " << location
+                                             << " extends past " << m_nSize);
+        return ~0;
+    }
 
     uintptr_t buffer = m_Cache.lookup(location);
     if (buffer)

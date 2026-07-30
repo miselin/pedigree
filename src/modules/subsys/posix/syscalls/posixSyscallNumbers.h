@@ -279,5 +279,6 @@
 #define POSIX_CAPGET 267
 #define POSIX_CAPSET 268
 #define POSIX_PRCTL 269
+#define POSIX_REBOOT 270
 
 #endif

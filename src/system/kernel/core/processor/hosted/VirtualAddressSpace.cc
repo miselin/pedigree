@@ -150,6 +150,9 @@ bool HostedVirtualAddressSpace::map(
     // mmap() won't fail if the address is already mapped, but we need to.
     if (isMapped(virtualAddress))
     {
+        ERROR(
+            "HostedVirtualAddressSpace::map refused an existing mapping at "
+            << Hex << reinterpret_cast<uintptr_t>(virtualAddress));
         return false;
     }
 
@@ -163,7 +166,16 @@ bool HostedVirtualAddressSpace::map(
         HostedPhysicalMemoryManager::instance().getBackingFile(), physAddress);
 
     if (UNLIKELY(r == MAP_FAILED))
+    {
+        ERROR(
+            "HostedVirtualAddressSpace::map failed at " << Hex
+                                                        << reinterpret_cast<
+                                                               uintptr_t>(
+                                                               virtualAddress)
+                                                        << " (errno " << Dec
+                                                        << errno << ")");
         return false;
+    }
 
     assert(r == virtualAddress);
 
@@ -259,6 +271,17 @@ void HostedVirtualAddressSpace::getMapping(
         }
     }
 
+    ERROR(
+        "HostedVirtualAddressSpace::getMapping has no mapping for " << Hex
+                                                                    << reinterpret_cast<
+                                                                           uintptr_t>(
+                                                                           virtualAddress)
+                                                                    << " (caller "
+                                                                    << reinterpret_cast<
+                                                                           uintptr_t>(
+                                                                           __builtin_return_address(
+                                                                               0))
+                                                                    << ")");
     panic("HostedVirtualAddressSpace::getMapping - function misused");
 }
 

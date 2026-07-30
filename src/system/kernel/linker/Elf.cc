@@ -1290,16 +1290,21 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
         if (pSh->type != SHT_REL && pSh->type != SHT_RELA)
             continue;
 
-        // Grab the section header that this relocation section refers to.
-        ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->link];
+        // sh_info identifies the section being relocated; sh_link identifies
+        // the symbol table. Dynamic relocation sections can target the whole
+        // image and use a zero sh_info.
+        ElfSectionHeader_t *pTarget =
+            pSh->info ? &m_pSectionHeaders[pSh->info] : nullptr;
 
-        // Grab the shstrtab
-        const char *pStr =
-            reinterpret_cast<const char *>(m_pShstrtab) + pLink->name;
-        if (!StringCompare(pStr, ".modinfo"))
+        if (pTarget)
         {
-            // Don't relocate the modinfo section now
-            continue;
+            const char *pStr =
+                reinterpret_cast<const char *>(m_pShstrtab) + pTarget->name;
+            if (!StringCompare(pStr, ".modinfo"))
+            {
+                // Don't relocate the modinfo section now
+                continue;
+            }
         }
 
         // Is it a relocation section?
@@ -1312,7 +1317,11 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
                             &pBuffer[pSh->offset + pSh->size]);
                  pRel++)
             {
-                if (!applyRelocation(*pRel, pLink))
+                bool applied =
+                    pTarget ? applyRelocation(*pRel, pTarget) :
+                              applyRelocation(
+                                  *pRel, nullptr, nullptr, m_LoadBase);
+                if (!applied)
                     return false;
             }
         }
@@ -1325,7 +1334,11 @@ bool Elf::relocate(uint8_t *pBuffer, uintptr_t length)
                             &pBuffer[pSh->offset + pSh->size]);
                  pRel++)
             {
-                if (!applyRelocation(*pRel, pLink))
+                bool applied =
+                    pTarget ? applyRelocation(*pRel, pTarget) :
+                              applyRelocation(
+                                  *pRel, nullptr, nullptr, m_LoadBase);
+                if (!applied)
                 {
                     return false;
                 }
@@ -1347,12 +1360,20 @@ bool Elf::relocateModinfo(uint8_t *pBuffer, uintptr_t length)
         {
             continue;
         }
-        // Grab the section header that this relocation section refers to.
-        ElfSectionHeader_t *pLink = &m_pSectionHeaders[pSh->link];
+        // sh_info identifies the section being relocated; sh_link identifies
+        // the symbol table.
+        ElfSectionHeader_t *pTarget =
+            pSh->info ? &m_pSectionHeaders[pSh->info] : nullptr;
+        if (!pTarget)
+        {
+            // A dynamic relocation section applies to the whole image. It is
+            // processed immediately before module execution instead.
+            continue;
+        }
 
         // Grab the shstrtab
         const char *pStr =
-            reinterpret_cast<const char *>(m_pShstrtab) + pLink->name;
+            reinterpret_cast<const char *>(m_pShstrtab) + pTarget->name;
         if (StringCompare(pStr, ".modinfo"))
         {
             continue;
@@ -1368,7 +1389,7 @@ bool Elf::relocateModinfo(uint8_t *pBuffer, uintptr_t length)
                             &pBuffer[pSh->offset + pSh->size]);
                  pRel++)
             {
-                if (!applyRelocation(*pRel, pLink))
+                if (!applyRelocation(*pRel, pTarget))
                     return false;
             }
         }
@@ -1382,7 +1403,7 @@ bool Elf::relocateModinfo(uint8_t *pBuffer, uintptr_t length)
                             &pBuffer[pSh->offset + pSh->size]);
                  pRel++)
             {
-                if (!applyRelocation(*pRel, pLink))
+                if (!applyRelocation(*pRel, pTarget))
                     return false;
             }
         }

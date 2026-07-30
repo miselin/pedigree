@@ -680,6 +680,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 reinterpret_cast<const void *>(p2));
         case POSIX_PRCTL:
             return posix_prctl(p1, p2, p3, p4, p5);
+        case POSIX_REBOOT:
+            return pedigree_reboot();
 
         default:
             ERROR(

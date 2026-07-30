@@ -28,9 +28,8 @@ set(PEDIGREE_DRIVERDIR "hosted")
 # TODO: normalize on this so the number of definitions above can be reduced
 set(PEDIGREE_ASMDIR "amd64")
 set(PEDIGREE_MUSLARCH "amd64")
-set(PEDIGREE_MUSL_ARCH_TARGET X64)
+set(PEDIGREE_MUSL_ARCH_TARGET HOSTED)
 set(PEDIGREE_HOSTED TRUE)
-set(PEDIGREE_STATIC_DRIVERS TRUE)
 
 # no need for ISOs/GRUB, we run the kernel as a userspace process
 set(PEDIGREE_TARGET_LIVECD FALSE)

@@ -30,6 +30,9 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#if HOSTED
+#include "pedigree/kernel/processor/hosted/smoke.h"
+#endif
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -51,23 +54,47 @@ static void error(const char *s)
 
 static int init_stage2(void *param)
 {
-    EMIT_IF(HOSTED)  // && HAS_ADDRESS_SANITIZER)
+    EMIT_IF(HOSTED)
     {
-        extern void system_reset();
-        NOTICE("Note: ASAN build, so triggering a restart now.");
-        system_reset();
-        return 0;
+        if (!HOSTED_SMOKE_TESTS ||
+            !VFS::instance().find(String("root»/.pedigree-root")))
+        {
+            extern void system_reset();
+            NOTICE("Hosted build has no smoke-test root; shutting down.");
+            system_reset();
+            return 0;
+        }
+
+#if HOSTED
+        if (g_HostedSmokeStage == HostedSmokeRoot)
+        {
+            extern void system_reset();
+            NOTICE("HOSTED-SMOKE: root mounted");
+            system_reset();
+            return 0;
+        }
+#endif
     }
 
     bool tryingLinux = false;
+    bool directHostedSmokeCommand = false;
 
     File *file = 0;
 
     String init_path;
-    init_path.assign("root»/applications/init");
-    NOTICE("Searching for init program at " << init_path);
+#if HOSTED
+    directHostedSmokeCommand =
+        HOSTED_SMOKE_TESTS &&
+        ((g_HostedSmokeStage == HostedSmokeCommand) ||
+         (g_HostedSmokeStage == HostedSmokeShutdown));
+#endif
+    init_path.assign(
+        directHostedSmokeCommand
+            ? "root»/applications/hosted-smoke-command"
+            : "root»/applications/init");
+    NOTICE("Searching for userspace program at " << init_path);
     file = VFS::instance().find(init_path);
-    if (!file)
+    if (!file && !directHostedSmokeCommand)
     {
         WARNING(
             "Did not find " << init_path
@@ -77,16 +104,41 @@ static int init_stage2(void *param)
 
         NOTICE("Searching for Linux init at " << init_path);
         file = VFS::instance().find(init_path);
-        if (!file)
-        {
-            error("failed to find init program (tried root»/applications/init and root»/sbin/init)");
-        }
     }
 
-    NOTICE("Found an init program at " << init_path);
+    if (!file)
+    {
+        error(
+            directHostedSmokeCommand
+                ? "failed to find hosted smoke command"
+                : "failed to find init program (tried root»/applications/init and root»/sbin/init)");
+        return 1;
+    }
+
+    NOTICE("Found a userspace program at " << init_path);
 
     Vector<String> argv, env;
     argv.pushBack(init_path);
+
+#if HOSTED
+    if (!tryingLinux && HOSTED_SMOKE_TESTS)
+    {
+        switch (g_HostedSmokeStage)
+        {
+            case HostedSmokeInit:
+                argv.pushBack(String("init"));
+                break;
+            case HostedSmokeCommand:
+                argv.pushBack(String("command"));
+                break;
+            case HostedSmokeShutdown:
+                argv.pushBack(String("shutdown"));
+                break;
+            default:
+                break;
+        }
+    }
+#endif
 
     if (tryingLinux)
     {
@@ -100,7 +152,7 @@ static int init_stage2(void *param)
 
     if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env))
     {
-        error("failed to load init program");
+        error("failed to load userspace program");
     }
 
     return 0;

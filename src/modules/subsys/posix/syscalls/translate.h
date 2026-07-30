@@ -101,6 +101,7 @@ inline long posix_translate_syscall(long which)
         TRANSLATION_ENTRY(SYS_exit, POSIX_EXIT)
         TRANSLATION_ENTRY(SYS_wait4, POSIX_WAITPID)
         TRANSLATION_ENTRY(SYS_kill, POSIX_KILL)
+        TRANSLATION_ENTRY(SYS_reboot, POSIX_REBOOT)
         TRANSLATION_ENTRY(SYS_uname, POSIX_UNAME)
         // ...
         TRANSLATION_ENTRY(SYS_fcntl, POSIX_FCNTL)
@@ -208,9 +209,10 @@ inline long posix_translate_syscall(long which)
 #endif
         // ...
         TRANSLATION_ENTRY(SYS_getdents64, POSIX_GETDENTS64)
-        /// \todo this is a hack.
+        // Clear-child-TID teardown is not implemented yet, but musl requires
+        // the current TID as this syscall's successful return value.
         case SYS_set_tid_address:
-            return 0;
+            return POSIX_GETTID;
         // ...
         TRANSLATION_ENTRY(SYS_clock_gettime, POSIX_CLOCK_GETTIME)
         // ...

@@ -197,12 +197,11 @@ class HostedSyscallState
   public:
     uint64_t service;
     uint64_t number;
-    uint64_t p1, p2, p3, p4, p5;
+    uint64_t p1, p2, p3, p4, p5, p6;
     uint64_t error;
     uint64_t error_ptr;  // pointer to error
     uint64_t result;
     uint64_t rsp;
-    uint64_t _align0;  // deterministically pad to 16 bytes
 } PACKED;
 
 /** x64 ProcessorState */
@@ -372,6 +371,8 @@ uintptr_t HostedSyscallState::getSyscallParameter(size_t n) const
         return p4;
     if (n == 4)
         return p5;
+    if (n == 5)
+        return p6;
     return 0;
 }
 void HostedSyscallState::setSyscallReturnValue(uintptr_t val)

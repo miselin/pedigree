@@ -459,6 +459,23 @@ class EXPORTED_PUBLIC Thread
         m_Name.assign(name, N);
     }
 
+#if HOSTED
+    void enterHostedSignalHandler()
+    {
+        ++m_HostedSignalDepth;
+    }
+
+    void leaveHostedSignalHandler()
+    {
+        --m_HostedSignalDepth;
+    }
+
+    size_t getHostedSignalDepth() const
+    {
+        return m_HostedSignalDepth;
+    }
+#endif
+
   protected:
     /** Sets the scheduler for the Thread. */
     void setScheduler(class PerProcessorScheduler *pScheduler);
@@ -598,6 +615,11 @@ class EXPORTED_PUBLIC Thread
 
     /** Whether this thread has been marked interruptible or not. */
     bool m_bInterruptible = true;
+
+#if HOSTED
+    /** Number of live host signal frames owned by this Pedigree thread. */
+    size_t m_HostedSignalDepth = 0;
+#endif
 };
 
 #endif

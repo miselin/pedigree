@@ -24,6 +24,7 @@
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
@@ -59,6 +60,13 @@ void __sanitizer_finish_switch_fiber(void* fake_stack_save,
 
 typedef void (*jump_func_t)(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 
+extern "C"
+{
+extern uintptr_t hosted_kernel_fs_base;
+extern uintptr_t hosted_user_fs_base;
+long hostedCaptureKernelFs();
+}
+
 void ProcessorBase::initialisationDone()
 {
     HostedPhysicalMemoryManager::instance().initialisationDone();
@@ -66,6 +74,12 @@ void ProcessorBase::initialisationDone()
 
 void ProcessorBase::initialise1(const BootstrapStruct_t &Info)
 {
+    if (hostedCaptureKernelFs() != 0)
+    {
+        panic("Hosted: failed to capture the host FS base");
+    }
+    hosted_user_fs_base = hosted_kernel_fs_base;
+
     HostedInterruptManager::initialiseProcessor();
     PageFaultHandler::instance().initialise();
     HostedPhysicalMemoryManager::instance().initialise(Info);
@@ -126,14 +140,6 @@ void ProcessorBase::restoreState(SchedulerState &state, volatile uintptr_t *pLoc
     // Does not return.
 }
 
-void ProcessorBase::jumpUser(
-    volatile uintptr_t *pLock, uintptr_t address, uintptr_t stack, uintptr_t p1,
-    uintptr_t p2, uintptr_t p3, uintptr_t p4)
-{
-    // Same thing as jumping to kernel space.
-    jumpKernel(pLock, address, stack, p1, p2, p3, p4);
-}
-
 #if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 void ProcessorBase::switchState(
     bool bInterrupts, SchedulerState &a, SchedulerState &b,
@@ -183,6 +189,19 @@ static void threadWrapper(uintptr_t func, volatile uintptr_t *pLock, uintptr_t p
     Thread::threadExited();
 }
 
+static void userThreadWrapper(
+    uintptr_t func, volatile uintptr_t *pLock, uintptr_t stack, uintptr_t p1,
+    uintptr_t p2, uintptr_t p3, uintptr_t p4)
+{
+#if HAS_SANITIZERS
+    __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+#endif
+
+    // The ELF interpreter consumes the initial process state directly from
+    // RSP, so the final transition cannot use a C call frame.
+    Processor::jumpUser(pLock, func, stack, p1, p2, p3, p4);
+}
+
 void ProcessorBase::jumpKernel(
     volatile uintptr_t *pLock, uintptr_t address, uintptr_t stack,
     uintptr_t p1, uintptr_t p2, uintptr_t p3,
@@ -226,8 +245,30 @@ void ProcessorBase::saveAndJumpUser(
     uintptr_t address, uintptr_t stack, uintptr_t p1, uintptr_t p2,
     uintptr_t p3, uintptr_t p4)
 {
-    Processor::saveAndJumpKernel(
-        bInterrupts, s, pLock, address, stack, p1, p2, p3, p4);
+    assert(stack);
+
+    ucontext_t new_context;
+    getcontext(&new_context);
+    new_context.uc_stack.ss_sp =
+        adjust_pointer(reinterpret_cast<void *>(stack), -KERNEL_STACK_SIZE);
+    new_context.uc_stack.ss_size = KERNEL_STACK_SIZE;
+    new_context.uc_link = NULL;
+    makecontext(
+        &new_context, reinterpret_cast<void (*)()>(userThreadWrapper), 7,
+        address, reinterpret_cast<uintptr_t>(pLock), stack, p1, p2, p3, p4);
+
+#if HAS_SANITIZERS
+    void *fake_stack_save = nullptr;
+    __sanitizer_start_switch_fiber(
+        &fake_stack_save, new_context.uc_stack.ss_sp,
+        new_context.uc_stack.ss_size);
+#endif
+    swapcontext(reinterpret_cast<ucontext_t *>(s.state), &new_context);
+#if HAS_SANITIZERS
+    __sanitizer_finish_switch_fiber(fake_stack_save, nullptr, nullptr);
+#endif
+    if (bInterrupts)
+        Processor::setInterrupts(true);
 }
 #endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 
@@ -236,14 +277,17 @@ void ProcessorBase::switchAddressSpace(VirtualAddressSpace &AddressSpace)
     ProcessorInformation &info = Processor::information();
     if (&info.getVirtualAddressSpace() != &AddressSpace)
     {
-        info.setVirtualAddressSpace(AddressSpace);
         HostedVirtualAddressSpace::switchAddressSpace(
             info.getVirtualAddressSpace(), AddressSpace);
+        info.setVirtualAddressSpace(AddressSpace);
     }
 }
 
 void ProcessorBase::setTlsBase(uintptr_t newBase)
 {
+    // Kernel code retains the host runtime's FS base. The raw user transition
+    // installs this value after all C++ work is complete.
+    hosted_user_fs_base = newBase;
 }
 
 size_t ProcessorBase::getDebugBreakpointCount()
@@ -276,7 +320,19 @@ void ProcessorBase::setInterrupts(bool bEnable)
     // Block signals to toggle "interrupts".
     sigset_t set;
     if (bEnable)
+    {
         sigemptyset(&set);
+#if THREADS
+        Thread *pThread = Processor::information().getCurrentThread();
+        if (pThread && pThread->getHostedSignalDepth())
+        {
+            // A context switch can suspend a host signal frame. Keep IRQs
+            // physically masked until that Pedigree thread unwinds the frame.
+            sigaddset(&set, SIGUSR1);
+            sigaddset(&set, SIGUSR2);
+        }
+#endif
+    }
     else
     {
         sigemptyset(&set);

@@ -160,7 +160,16 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
     // Escalate to the original signal handler - this is a real error, and in
     // asan we get asan-based analysis in the asan segv handler.
     struct sigaction oact = static_cast<HostedInterruptManager &>(InterruptManager::instance()).getOriginalSigaction(info->si_signo);
-    if (oact.sa_flags | SA_SIGINFO)
+    if (oact.sa_handler == SIG_IGN)
+    {
+        return;
+    }
+    else if (oact.sa_handler == SIG_DFL)
+    {
+        sigaction(info->si_signo, &oact, nullptr);
+        raise(info->si_signo);
+    }
+    else if (oact.sa_flags & SA_SIGINFO)
     {
         oact.sa_sigaction(info->si_signo, info, ctx);
     }
@@ -217,13 +226,25 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
 // Functions only usable in the kernel initialisation phase
 //
 
-static void handler(int which, siginfo_t *info, void *ptr)
+extern "C" void hostedSignalTrampoline(
+    int which, siginfo_t *info, void *ptr);
+
+extern "C" void hostedSignalHandler(
+    int which, siginfo_t *info, void *ptr)
 {
     HostedInterruptManager::instance().signalShim(which, info, ptr);
 }
 
 void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
 {
+#if THREADS
+    Thread *pSignalThread = Processor::information().getCurrentThread();
+    if (pSignalThread)
+    {
+        pSignalThread->enterHostedSignalHandler();
+    }
+#endif
+
     if (!Processor::getInterrupts())
     {
         if (which == SIGUSR1 || which == SIGUSR2)
@@ -241,9 +262,26 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
     state.meta = reinterpret_cast<uint64_t>(meta);
     interrupt(state);
 
+#if THREADS
+    if (pSignalThread)
+    {
+        pSignalThread->leaveHostedSignalHandler();
+    }
+#endif
+
     // Update return signal mask.
     ucontext_t *ctx = reinterpret_cast<ucontext_t *>(meta);
     sigprocmask(0, 0, &ctx->uc_sigmask);
+    if (Processor::getInterrupts())
+    {
+        sigdelset(&ctx->uc_sigmask, SIGUSR1);
+        sigdelset(&ctx->uc_sigmask, SIGUSR2);
+    }
+    else
+    {
+        sigaddset(&ctx->uc_sigmask, SIGUSR1);
+        sigaddset(&ctx->uc_sigmask, SIGUSR2);
+    }
 }
 
 struct sigaction HostedInterruptManager::getOriginalSigaction(int which) const
@@ -258,9 +296,20 @@ void HostedInterruptManager::initialiseProcessor()
     {
         struct sigaction act, oact;
         ByteSet(&act, 0, sizeof(act));
-        act.sa_sigaction = handler;
+        act.sa_sigaction = hostedSignalTrampoline;
         sigemptyset(&act.sa_mask);
-        act.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
+        act.sa_flags = SA_SIGINFO | SA_ONSTACK;
+        if (i == SIGUSR1 || i == SIGUSR2)
+        {
+            // IRQ handlers can context-switch while their signal frame remains
+            // live, so neither IRQ may nest on the same alternate stack.
+            sigaddset(&act.sa_mask, SIGUSR1);
+            sigaddset(&act.sa_mask, SIGUSR2);
+        }
+        else
+        {
+            act.sa_flags |= SA_NODEFER;
+        }
 
         sigaction(i, &act, &oact);
 

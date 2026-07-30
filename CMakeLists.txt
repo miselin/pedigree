@@ -68,10 +68,12 @@ set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup
 # TODO: detect HOSTED=1 and cross compiling and error out!
 set(PEDIGREE_HOSTED FALSE CACHE BOOL "Run a hosted kernel build, which is not compatible with a cross-compiled build.")
 set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instead of Pedigree's in hosted builds.")
+set(PEDIGREE_HOSTED_DYNAMIC_MODULES FALSE CACHE BOOL "Load modules from an initrd in hosted builds instead of linking them into the kernel.")
+set(PEDIGREE_HOSTED_SMOKE_TESTS FALSE CACHE BOOL "Build the hosted smoke-test module and userspace.")
+set(PEDIGREE_HOSTED_ASAN FALSE CACHE BOOL "Instrument hosted kernels and modules with AddressSanitizer.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")
-set(PEDIGREE_TRAVIS FALSE CACHE BOOL "Enable to report this build is happening on travis-ci.")
 set(PEDIGREE_OPTIMIZE TRUE CACHE BOOL "Build an optimized kernel and modules.")
 set(PEDIGREE_OPTIMIZE_SIZE TRUE CACHE BOOL "If building an optimized kernel, optimize for size.")
 set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
@@ -104,10 +106,6 @@ endif ()
 if (PEDIGREE_LTO)
     set(GENERIC_COMPILE_FLAGS ${GENERIC_COMPILE_FLAGS} -flto)
     set(GENERIC_LINKFLAGS ${GENERIC_LINKFLAGS} -flto)
-endif ()
-
-if (PEDIGREE_TRAVIS)
-    message("We appear to be building on Travis-CI.")
 endif ()
 
 if (CMAKE_COMPILER_IS_GNU)
@@ -197,7 +195,11 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         set(PEDIGREE_HOSTED TRUE)
-        set(PEDIGREE_STATIC_DRIVERS TRUE)
+        if (PEDIGREE_HOSTED_DYNAMIC_MODULES)
+            set(PEDIGREE_STATIC_DRIVERS FALSE)
+        else ()
+            set(PEDIGREE_STATIC_DRIVERS TRUE)
+        endif ()
     endif ()
 
     # Copy over all our definitions.
@@ -244,6 +246,9 @@ if(CMAKE_CROSSCOMPILING)
 
     if (PEDIGREE_BUILD_USER_DIR)
         add_subdirectory(src/user)
+    elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+            PEDIGREE_HOSTED_SMOKE_TESTS)
+        add_subdirectory(src/user/hosted-smoke)
     endif ()
 
     # Build hard disk image ready for a live CD or imaging.

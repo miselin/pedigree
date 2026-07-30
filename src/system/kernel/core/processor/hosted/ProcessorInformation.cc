@@ -86,17 +86,14 @@ PerProcessorScheduler &HostedProcessorInformation::getScheduler()
  * protect most bad uses of sigaltstack, we need to outsmart this to make
  * sigaltstack work more like the TSS-based stack pointers seen in x86.
  *
- * All this requires is to temporarily run on a different stack :-)
+ * Use a dedicated scratch stack so changing one thread's signal stack cannot
+ * overwrite a saved frame belonging to the thread being switched in.
  */
-static bool trickSigaltstack(uintptr_t stack, stack_t *p)
+static bool trickSigaltstack(stack_t *p)
 {
-    if (!stack)
-    {
-        stack = reinterpret_cast<uintptr_t>(&safe_stack_top);
-    }
-
     int r = callOnStack(
-        stack, reinterpret_cast<uintptr_t>(sigaltstack),
+        reinterpret_cast<uintptr_t>(&safe_stack_top),
+        reinterpret_cast<uintptr_t>(sigaltstack),
         reinterpret_cast<uintptr_t>(p));
     if (r < 0)
     {
@@ -122,7 +119,7 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
             int r = sigaltstack(&s, 0);
             if (r < 0 && errno == EPERM)
             {
-                trickSigaltstack(stack, &s);
+                trickSigaltstack(&s);
             }
         }
     }
@@ -134,7 +131,7 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
         int r = sigaltstack(&s, 0);
         if (r < 0 && errno == EPERM)
         {
-            trickSigaltstack(stack, &s);
+            trickSigaltstack(&s);
         }
     }
 

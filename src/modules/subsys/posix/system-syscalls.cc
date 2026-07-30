@@ -1646,6 +1646,12 @@ EXPORTED_PUBLIC int pedigree_reboot()
 
     // Reset the system
     system_reset();
+#if HOSTED
+    // A successful reboot never returns to userspace. Leave the hosted idle
+    // thread to observe the shutdown request and own kernel teardown.
+    Processor::information().getScheduler().schedule(Thread::Suspended);
+    FATAL("Hosted reboot thread resumed after shutdown");
+#endif
     return 0;
 }
 

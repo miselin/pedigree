@@ -66,6 +66,15 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     uintptr_t page = reinterpret_cast<uintptr_t>(page_align(info->si_addr));
     uintptr_t unaligned_page = reinterpret_cast<uintptr_t>(info->si_addr);
     uintptr_t code = info->si_code;
+    uintptr_t ucontext_loc = state.getRegister(2);
+    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
+
+    bool isWrite = code == SEGV_ACCERR;
+#ifdef REG_ERR
+    // SIGSEGV's si_code only distinguishes missing pages from protection
+    // faults. The processor error code retains the read/write distinction.
+    isWrite = (ctx->uc_mcontext.gregs[REG_ERR] & 0x2) != 0;
+#endif
 
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     if (va.isMapped(reinterpret_cast<void *>(page)))
@@ -146,21 +155,27 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
              it != m_Handlers.end(); it++)
         {
-            if ((*it)->trap(state, page, code == SEGV_ACCERR))
+            if ((*it)->trap(state, page, isWrite))
             {
                 return;
             }
         }
     }
 
-    uintptr_t ucontext_loc = state.getRegister(2);
-    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
-
 #if HAS_ADDRESS_SANITIZER
     // Escalate to the original signal handler - this is a real error, and in
     // asan we get asan-based analysis in the asan segv handler.
     struct sigaction oact = static_cast<HostedInterruptManager &>(InterruptManager::instance()).getOriginalSigaction(info->si_signo);
-    if (oact.sa_flags | SA_SIGINFO)
+    if (oact.sa_handler == SIG_IGN)
+    {
+        return;
+    }
+    else if (oact.sa_handler == SIG_DFL)
+    {
+        sigaction(info->si_signo, &oact, nullptr);
+        raise(info->si_signo);
+    }
+    else if (oact.sa_flags & SA_SIGINFO)
     {
         oact.sa_sigaction(info->si_signo, info, ctx);
     }

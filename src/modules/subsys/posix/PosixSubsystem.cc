@@ -1631,6 +1631,9 @@ bool PosixSubsystem::invoke(
             vdsoPerms & ~MemoryMappedObject::Write);
     }
 
+// The hosted process owns the Linux host's fixed vsyscall address. Its musl
+// userspace uses the syscall bridge instead.
+#if !HOSTED
     // Map in the vsyscall space.
     if (!Processor::information().getVirtualAddressSpace().isMapped(
             reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS)))
@@ -1643,6 +1646,7 @@ bool PosixSubsystem::invoke(
             vsyscallBase, reinterpret_cast<void *>(POSIX_VSYSCALL_ADDRESS),
             VirtualAddressSpace::Execute);
     }
+#endif
 
     // We can now build the auxiliary vector to pass to the dynamic linker.
     VirtualAddressSpace::Stack *stack =
@@ -1711,19 +1715,24 @@ bool PosixSubsystem::invoke(
     STACK_PUSH2(
         loaderStack, reinterpret_cast<uintptr_t>(random), 25);  // AT_RANDOM
     STACK_PUSH2(loaderStack, 0, 23);
-    STACK_PUSH2(loaderStack, pProcess->getUserId(), 14);            // AT_EGID
+    STACK_PUSH2(
+        loaderStack, pProcess->getEffectiveGroupId(), 14);          // AT_EGID
     STACK_PUSH2(loaderStack, pProcess->getGroupId(), 13);           // AT_GID
     STACK_PUSH2(loaderStack, pProcess->getEffectiveUserId(), 12);   // AT_EUID
-    STACK_PUSH2(loaderStack, pProcess->getEffectiveGroupId(), 11);  // AT_UID
+    STACK_PUSH2(loaderStack, pProcess->getUserId(), 11);            // AT_UID
     STACK_PUSH2(
         loaderStack, reinterpret_cast<uintptr_t>(execfn), 31);  // AT_EXECFN
 
+    // The hosted vDSO artifact is not a loadable DSO, so advertising it makes
+    // musl attempt to decode a nonexistent dynamic table.
+#if !HOSTED
     // Push the vDSO shared object.
     if (pVdso)
     {
         STACK_PUSH2(loaderStack, 0, 32);            // AT_SYSINFO - not present
         STACK_PUSH2(loaderStack, vdsoAddress, 33);  // AT_SYSINFO_EHDR
     }
+#endif
 
     // ELF parts in the aux vector.
     STACK_PUSH2(loaderStack, originalEntryPoint, 9);        // AT_ENTRY

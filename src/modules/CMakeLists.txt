@@ -47,8 +47,12 @@ else ()
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree" "-fsanitize=address")
-    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree" "-fsanitize=address")
+    set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+    if (PEDIGREE_HOSTED_ASAN)
+        list(APPEND ARCH_MODULE_FLAGS "-fsanitize=address")
+        list(APPEND ARCH_MODULE_LINKFLAGS "-fsanitize=address")
+    endif ()
 endif ()
 
 set(MODULE_C_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
@@ -240,6 +244,12 @@ pedigree_module(filesystems "" ""
 pedigree_module(gfx-deps "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/gfx-deps/main.cc)
 
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    pedigree_module(hosted-smoke "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc)
+endif ()
+
 if (PEDIGREE_WITH_INIT)
 pedigree_module(init "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/init/main.cc)
@@ -380,13 +390,15 @@ pedigree_module(3c90x "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/3Com90x.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/main.cc)
 
-pedigree_module(ata "" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaController.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaDisk.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/BusMasterIde.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/IsaAtaController.cc
-    $<$<BOOL:${PEDIGREE_MACHINE_HASPCI}>:${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/PciAtaController.cc>
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/main.cc)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    pedigree_module(ata "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaController.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaDisk.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/BusMasterIde.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/IsaAtaController.cc
+        $<$<BOOL:${PEDIGREE_MACHINE_HASPCI}>:${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/PciAtaController.cc>
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/main.cc)
+endif ()
 
 pedigree_module(dm9601 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/dm9601/Dm9601.cc
@@ -412,15 +424,17 @@ pedigree_module(hid "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hid/HidUtils.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hid/main.cc)
 
-# TODO: loopback would go here, was commented out in modules/SConscript
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    pedigree_module(diskimage "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/DiskImage.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/main.cc)
+endif ()
 
 pedigree_module(partition "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/Partition.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/apple.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/msdos.cc)
-
-# TODO: rtl8139 would go here, was commented out in modules/SConscript
 
 pedigree_module(scsi "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiCommands.cc
@@ -664,6 +678,7 @@ add_custom_command(
     ARCH_TARGET=${PEDIGREE_MUSL_ARCH_TARGET}
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     DEPENDS
+    ${CMAKE_TOOLCHAIN_FILE}
     ${CMAKE_SOURCE_DIR}/compilers/pedigree-musl.patch
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
@@ -672,6 +687,11 @@ add_custom_command(
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-${PEDIGREE_MUSLARCH}.musl-s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posix-syscall.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posixSyscallNumbers.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/translate.h
+    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/syscall-stubs.h
+    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h
     ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}
 )

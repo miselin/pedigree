@@ -117,13 +117,14 @@
 #define INITIALISATION_ONLY_DATA SECTION(".init.data")
 
 // We don't use a custom allocator if asan is enabled.
-#if __has_feature(address_sanitizer) || __has_feature(memory_sanitizer)
+#if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer) || \
+    __has_feature(memory_sanitizer)
 #define HAS_ADDRESS_SANITIZER 1
 #else
 #define HAS_ADDRESS_SANITIZER 0
 #endif
 
-#if __has_feature(thread_sanitizer)
+#if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
 #define HAS_THREAD_SANITIZER 1
 #else
 #define HAS_THREAD_SANITIZER 0
