@@ -169,6 +169,8 @@ class EXPORTED_PUBLIC RequestQueue
         Accepted,
         TokenBusy,
         QueueStopped,
+        // Retained for source and module ABI compatibility. Preallocated
+        // interrupt publications do not consume allocation admission.
         QueueFull,
         InvalidPriority,
     };
@@ -236,7 +238,8 @@ class EXPORTED_PUBLIC RequestQueue
      *
      * This path performs no allocation, deallocation, logging, or blocking.
      * It does not call compareRequests(): token identity is the interrupt-side
-     * coalescing mechanism. The same token cannot be republished until
+     * coalescing mechanism. Preallocated work bypasses the allocation-backed
+     * asynchronous backlog limit. The same token cannot be republished until
      * execution or cancellation has returned it to Idle.
      */
     MUST_USE_RESULT InterruptEnqueueResult enqueueFromInterrupt(
@@ -378,7 +381,7 @@ class EXPORTED_PUBLIC RequestQueue
     Timer *m_pOverrunTimer;
 #endif
 
-    /** Maximum and current number of queued or executing async requests. */
+    /** Allocation admission limit and total active async request count. */
     size_t m_nMaxAsyncRequests;
     size_t m_nAsyncRequests;
 

@@ -475,7 +475,7 @@ bool interruptRequestRegressions()
         RequestQueue::InterruptRequest released(
             interruptRequestReleased, &releaseContext);
         releaseContext.request = &released;
-        queue.setMaxAsyncRequests(1);
+        queue.setMaxAsyncRequests(0);
         queue.initialise();
 
         passed &= check(
@@ -525,7 +525,7 @@ bool interruptRequestRegressions()
         RequestQueue::InterruptRequest released(
             interruptRequestReleased, &releaseContext);
         releaseContext.request = &released;
-        queue.setMaxAsyncRequests(1);
+        queue.setMaxAsyncRequests(0);
         queue.initialise();
 
         passed &= check(
@@ -605,27 +605,31 @@ bool interruptRequestRegressions()
                 Result::TokenBusy,
             "a published interrupt token was admitted twice");
         queue.setMaxAsyncRequests(1);
+        const size_t cancellationsBeforeCapacity = queue.cancellations;
         passed &= check(
             queue.enqueueFromInterrupt(
                 capacity, 0, HostedRequestQueue::Sum, 1, 2) ==
-                    Result::QueueFull &&
-                capacity.isAvailable(),
-            "capacity rejection retained its interrupt token");
+                    Result::Accepted &&
+                !capacity.isAvailable() &&
+                queue.addAsyncRequest(0, HostedRequestQueue::Sum, 3, 4) == 0 &&
+                queue.cancellations == cancellationsBeforeCapacity + 1,
+            "preallocated work depended on allocation backlog capacity");
         queue.setMaxAsyncRequests(256);
         queue.releaseHold.release();
         passed &= check(
-            queue.drain() && request.isAvailable(),
-            "held interrupt work did not release its token");
+            queue.drain() && request.isAvailable() && capacity.isAvailable() &&
+                queue.executions == 3,
+            "over-capacity interrupt work did not drain exactly once");
 
         passed &= check(
             queue.enqueueFromInterrupt(
                 capacity, 0, HostedRequestQueue::Sum, 19, 23) ==
                 Result::Accepted,
-            "a rejected interrupt token could not be reused");
+            "a drained interrupt token was not admitted again");
         passed &= check(
             queue.drain() && capacity.isAvailable() &&
-                queue.executions == 3,
-            "a reused interrupt token did not complete once");
+                queue.executions == 4,
+            "a drained interrupt token could not be reused");
         queue.destroy();
     }
 

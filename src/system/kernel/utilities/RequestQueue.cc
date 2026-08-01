@@ -454,10 +454,6 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
         {
             result = InterruptEnqueueResult::QueueStopped;
         }
-        else if (m_nAsyncRequests >= m_nMaxAsyncRequests)
-        {
-            result = InterruptEnqueueResult::QueueFull;
-        }
         else
         {
             token.m_State = InterruptRequest::Published;
