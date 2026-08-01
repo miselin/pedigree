@@ -45,7 +45,22 @@ VirtualTerminalManager::VirtualTerminalManager(DevFsDirectory *parentDir)
 
 VirtualTerminalManager::~VirtualTerminalManager()
 {
-    //
+    // The DevFs directory owns textui and every ConsolePhysicalFile wrapper.
+    // Secondary TextIO backends are not directory entries, so retire them
+    // here while their workers and input callbacks can still drain.
+    for (size_t i = 1; i < MAX_VT; ++i)
+    {
+        delete m_Terminals[i].textio;
+        m_Terminals[i].textio = nullptr;
+        m_Terminals[i].file = nullptr;
+#if THREADS
+        m_Terminals[i].owner = nullptr;
+#endif
+    }
+
+    m_Terminals[0].textio = nullptr;
+    m_Terminals[0].file = nullptr;
+    m_pTty = nullptr;
 }
 
 bool VirtualTerminalManager::initialise()
